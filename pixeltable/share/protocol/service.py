@@ -95,12 +95,12 @@ class ServiceRecord(BaseModel):
 
 class CreateServiceRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.CREATE_SERVICE] = ServiceOperationType.CREATE_SERVICE
-    org_slug: str
-    db_name: str
+    org_slug: Optional[str] = None
+    db_slug: str
     service_name: str
     table_path: str
     workers_min: int = 1
-    workers_max: int = 1
+    description: Optional[str] = None
 
 
 class CreateServiceResponse(BaseModel):
@@ -109,8 +109,8 @@ class CreateServiceResponse(BaseModel):
 
 class GetServiceRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.GET_SERVICE] = ServiceOperationType.GET_SERVICE
-    org_slug: str
-    db_name: str
+    org_slug: Optional[str] = None
+    db_slug: str
     service_name: str
 
 
@@ -120,8 +120,8 @@ class GetServiceResponse(BaseModel):
 
 class ListServicesRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.LIST_SERVICES] = ServiceOperationType.LIST_SERVICES
-    org_slug: str
-    db_name: str
+    org_slug: Optional[str] = None
+    db_slug: str
 
 
 class ListServicesResponse(BaseModel):
@@ -130,11 +130,9 @@ class ListServicesResponse(BaseModel):
 
 class StartServiceRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.START_SERVICE] = ServiceOperationType.START_SERVICE
-    org_slug: str
-    db_name: str
+    org_slug: Optional[str] = None
+    db_slug: str
     service_name: str
-    workers_min: Optional[int] = None
-    workers_max: Optional[int] = None
 
 
 class StartServiceResponse(BaseModel):
@@ -143,8 +141,8 @@ class StartServiceResponse(BaseModel):
 
 class StopServiceRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.STOP_SERVICE] = ServiceOperationType.STOP_SERVICE
-    org_slug: str
-    db_name: str
+    org_slug: Optional[str] = None
+    db_slug: str
     service_name: str
 
 
@@ -167,8 +165,8 @@ class UpdateServiceResponse(BaseModel):
 
 class DeleteServiceRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.DELETE_SERVICE] = ServiceOperationType.DELETE_SERVICE
-    org_slug: str
-    db_name: str
+    org_slug: Optional[str] = None
+    db_slug: str
     service_name: str
 
 
