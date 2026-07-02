@@ -1092,13 +1092,18 @@ class TestTable:
             't': pxt.Required[pxt.Timestamp],
             'r': pxt.Required[pxt.String],
             'en': pxt.Required[pxt.Int],
+            'en_s': pxt.Required[pxt.String],
         }
         t = pxt.create_table(p('test_pydantic_basic'), schema)
         t.add_computed_column(c1=t.i + 1)
 
-        class E1(enum.IntEnum):
+        class E1(enum.Enum):
             A = 1
             B = 2
+
+        class E2(enum.Enum):
+            X = 'x'
+            Y = 'y'
 
         class TestModel1(pydantic.BaseModel):
             s: str
@@ -1107,7 +1112,8 @@ class TestTable:
             b: bool
             t: datetime.datetime
             r: Literal['abc', 'def']
-            en: E1  # an IntEnum is converted to an int
+            en: E1  # a plain Enum with int values is stored as its int value
+            en_s: E2  # a plain Enum with str values is stored as its str value
             opt_s: str | None = None
 
         # tz-aware timestamps: a tz-aware value is stored as-is, so compute()/insert() return exactly the input
@@ -1122,6 +1128,7 @@ class TestTable:
                 t=now + datetime.timedelta(hours=i),
                 r='abc' if i % 2 == 0 else 'def',
                 en=E1.A if i % 2 == 0 else E1.B,
+                en_s=E2.X if i % 2 == 0 else E2.Y,
                 opt_s=f'opt_{i}' if i % 2 == 0 else None,
             )
             for i in range(100)
@@ -1136,9 +1143,11 @@ class TestTable:
             t: datetime.datetime | None = None
             r: Literal['abc', 'def'] | None = None
             en: E1 | None = None
+            en_s: E2 | None = None
 
         rows2: list[pydantic.BaseModel] = [
-            TestModel2(s=f'str_{i}', i=i, f=i * 1.0, b=i % 2 == 0, t=now, r='abc', en=E1.A) for i in range(100)
+            TestModel2(s=f'str_{i}', i=i, f=i * 1.0, b=i % 2 == 0, t=now, r='abc', en=E1.A, en_s=E2.X)
+            for i in range(100)
         ]
 
         return t, TestModel1, rows1, TestModel2, rows2
@@ -1346,6 +1355,22 @@ class TestTable:
 
             _ = t.insert([BadModel2(i=0, en=E1.A)])
 
+        # wrong enum value type, other direction: str-valued enum into an Int column
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH, match=r"incompatible type `E2` for column 'en' \(of Pixeltable type `Int`\)"
+        ):
+            t = pxt.create_table(p('bad2b'), {'i': pxt.Int, 'en': pxt.Required[pxt.Int]})
+
+            class E2(enum.Enum):
+                A = 'a'
+                B = 'b'
+
+            class BadModel2b(pydantic.BaseModel):
+                i: int
+                en: E2
+
+            _ = t.insert([BadModel2b(i=0, en=E2.A)])
+
         # wrong Literal type
         with pxt_raises(
             pxt.ErrorCode.TYPE_MISMATCH,
@@ -1407,20 +1432,6 @@ class TestTable:
                 t: str
 
             _ = t.insert([BadModel8(t='0')])
-
-        # a plain enum.Enum
-        t = pxt.create_table(p('bad_enum'), {'en': pxt.Int})
-
-        class PlainEnum(enum.Enum):
-            A = 1
-
-        class EnumModel(pydantic.BaseModel):
-            en: PlainEnum
-
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='expected int'):
-            _ = t.insert([EnumModel(en=PlainEnum.A)])
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='expected int'):
-            _ = t.compute([EnumModel(en=PlainEnum.A)])
 
     def test_insert_nested_pydantic(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
