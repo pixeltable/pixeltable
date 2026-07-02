@@ -325,17 +325,20 @@ def _insert_sql_source(request: ProxyRequest, tbl: LocalTable) -> Any:
     kwargs = _deserialize_args(request)
     # the daemon connects to the source database itself and streams it in through the normal SqlDataNode path
     engine = sql.create_engine(kwargs['connect_url'])
-    with engine.connect() as conn:
-        # text(...) executes like a SELECT here; SqlDataNode reads its rows positionally by col_names
-        sql_source = SqlDataSource(
-            select_stmt=cast(Any, sql.text(kwargs['sql_text'])), col_names=kwargs['col_names'], conn=conn
-        )
-        return tbl._insert_sql_source(
-            sql_source,
-            on_error=kwargs['on_error'],
-            print_stats=kwargs['print_stats'],
-            return_rows=kwargs['return_rows'],
-        )
+    try:
+        with engine.connect() as conn:
+            # text(...) executes like a SELECT here; SqlDataNode reads its rows positionally by col_names
+            sql_source = SqlDataSource(
+                select_stmt=cast(Any, sql.text(kwargs['sql_text'])), col_names=kwargs['col_names'], conn=conn
+            )
+            return tbl._insert_sql_source(
+                sql_source,
+                on_error=kwargs['on_error'],
+                print_stats=kwargs['print_stats'],
+                return_rows=kwargs['return_rows'],
+            )
+    finally:
+        engine.dispose()
 
 
 def _insert_query(request: ProxyRequest, tbl: LocalTable) -> Any:

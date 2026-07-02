@@ -49,18 +49,18 @@ def export_sql(
         query = table_or_query
 
     engine = sql.create_engine(db_connect_str)
-    target = sql_utils.resolve_table(
-        engine=engine,
-        table_name=target_table_name,
-        schema_name=target_schema_name,
-        source_schema=query.schema,
-        if_exists=if_exists,
-        if_not_exists=if_not_exists,
-        error_prefix='export_sql()',
-    )
-
-    batch_size = 16 * 1024
     try:
+        target = sql_utils.resolve_table(
+            engine=engine,
+            table_name=target_table_name,
+            schema_name=target_schema_name,
+            source_schema=query.schema,
+            if_exists=if_exists,
+            if_not_exists=if_not_exists,
+            error_prefix='export_sql()',
+        )
+
+        batch_size = 16 * 1024
         batch: list[dict] = []
         with engine.connect() as target_conn:
             for data_row in query.cursor():
@@ -77,6 +77,8 @@ def export_sql(
 
     except excs.ExprEvalError as e:
         query._raise_expr_eval_err(e)
+    finally:
+        engine.dispose()
 
 
 def import_sql(
