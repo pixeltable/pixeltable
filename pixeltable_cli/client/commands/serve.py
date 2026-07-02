@@ -46,6 +46,11 @@ def _add_service_args(p: argparse.ArgumentParser) -> None:
     p.add_argument('--port', type=int, default=None, help='Bind port (overrides config default)')
     p.add_argument('--prefix', type=str, default=None, help='URL prefix (overrides config default)')
     p.add_argument('--config', type=str, default=None, help='Path to an additional TOML config file')
+    p.add_argument(
+        '--otel',
+        action='store_true',
+        help="Enable OpenTelemetry instrumentation (requires `pip install 'pixeltable[otel]'`)",
+    )
 
 
 def _add_output_args(p: argparse.ArgumentParser) -> None:
@@ -235,6 +240,16 @@ def _serve(args: argparse.Namespace) -> None:
     if args.dry_run:
         _print_dry_run(cfg, args.json)
         return
+
+    if args.otel:
+        try:
+            import opentelemetry.instrumentation.pixeltable as pxt_otel
+        except ImportError as e:
+            raise excs.RequestError(
+                excs.ErrorCode.MISSING_REQUIRED,
+                "--otel requires the instrumentation package; install it with `pip install 'pixeltable[otel]'`",
+            ) from e
+        pxt_otel.init()
 
     _run(cfg, create_service_from_config(cfg), args.json)
 

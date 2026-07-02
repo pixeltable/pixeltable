@@ -17,6 +17,7 @@ import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
 import pixeltable.index as index
 import pixeltable.type_system as ts
+from pixeltable import hooks
 from pixeltable.env import Env
 from pixeltable.exprs.inline_expr import InlineDict
 from pixeltable.func.iterator import GeneratingFunctionCall
@@ -975,10 +976,11 @@ class TableVersion:
         assert self.is_insertable
         # Exactly one of source / query must be specified
         assert (source is None) != (query is None)
-        if query is not None:
-            plan = Planner.create_query_insert_plan(self, query, ignore_errors=not fail_on_exception)
-        else:
-            plan = Planner.create_insert_plan(self, source, ignore_errors=not fail_on_exception)
+        with hooks.span('pixeltable.plan.create', level=hooks.DEBUG):
+            if query is not None:
+                plan = Planner.create_query_insert_plan(self, query, ignore_errors=not fail_on_exception)
+            else:
+                plan = Planner.create_insert_plan(self, source, ignore_errors=not fail_on_exception)
 
         rowid_gen: Iterator[int] | None = None
         # For versioned tables, generate rowids from the table's sequence.
@@ -1055,8 +1057,10 @@ class TableVersion:
         for view in self.mutable_views:
             from pixeltable.plan import Planner
 
-            view_plan, _ = Planner.create_view_load_plan(view.get().path, propagates_insert=True)
-            status = view.get()._insert(view_plan, timestamp, print_stats=print_stats)
+            # set_current so the view's plan/store spans nest here instead of under the operation span
+            with hooks.span('pixeltable.view_load', set_current=True, view=view.get().name):
+                view_plan, _ = Planner.create_view_load_plan(view.get().path, propagates_insert=True)
+                status = view.get()._insert(view_plan, timestamp, print_stats=print_stats)
             result += status.to_cascade()
 
         # Use the net status after all propagations

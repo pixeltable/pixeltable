@@ -18,7 +18,7 @@ import sqlalchemy.exc as sql_exc
 from sqlalchemy.dialects.postgresql import array as pg_array
 
 import pixeltable.index as index
-from pixeltable import exceptions as excs, exprs, func
+from pixeltable import exceptions as excs, exprs, func, hooks
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
@@ -379,6 +379,9 @@ class Catalog(CatalogBase):
                 self._finalize_pending_ops(pending_ops_tbl_id)
                 pending_ops_tbl_id = None
 
+            # one span per acquisition attempt; retries show up as sibling spans
+            xact_span = hooks.span_start('pixeltable.catalog.begin_xact', attrs={'pxt.for_write': for_write})
+            attempt_exc: BaseException | None = None
             try:
                 self._in_write_xact = for_write
                 self._x_locked_tbl_ids = set()
@@ -426,30 +429,42 @@ class Catalog(CatalogBase):
                             raise
 
                     assert not self._undo_actions
+                    # success: end the attempt span here so it covers only the acquisition, not the
+                    # caller's work under the yield; the finally below then sees None and no-ops
+                    hooks.span_end(xact_span)
+                    xact_span = None
                     yield conn
                     return
 
-            except PendingTableOpsError:
+            except PendingTableOpsError as e:
                 has_exc = True
                 if pending_ops_tbl_id is not None:
                     # the next iteration of the loop will deal with pending ops for this table id
                     continue
                 else:
                     # we got this exception after getting the initial table locks and therefore need to abort
+                    attempt_exc = e
                     raise
 
             except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
                 has_exc = True
+                attempt_exc = e
                 single_tbl, single_tbl_id = self._get_single_tbl(write_tvps, read_tvps, write_tbl_ids, read_tbl_ids)
                 self.convert_sql_exc(e, tbl_id=single_tbl_id, tbl=single_tbl, convert_db_excs=convert_db_excs)
                 raise  # re-raise the error if it didn't convert to a pxt.Error
 
             except (Exception, KeyboardInterrupt) as e:
                 has_exc = True
+                attempt_exc = e
                 _logger.debug(f'Caught {e.__class__}: {e}', exc_info=True)
                 raise
 
             finally:
+                # failure: xact_span is still non-None only if this attempt failed before the yield;
+                # attempt_exc is None on retry `continue`s (the attempt span ends clean and the retry
+                # shows up as a sibling), non-None when the attempt raised
+                hooks.span_end(xact_span, exc=attempt_exc)
+                xact_span = None
                 self._in_write_xact = False
                 self._x_locked_tbl_ids.clear()
                 self._column_dependents = None

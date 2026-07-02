@@ -415,7 +415,9 @@ class Config:
 
     def lookup_env(self, section: str, key: str, default: Any = None) -> Any:
         override_var = f'{section}.{key}'
-        env_var = f'{section.upper()}_{key.upper()}'
+        # the OTEL_* env namespace is reserved by the OpenTelemetry spec; keep derived names pixeltable-specific
+        env_prefix = 'PIXELTABLE_OTEL' if section == 'otel' else section.upper()
+        env_var = f'{env_prefix}_{key.upper()}'
         if override_var in self.__config_overrides:
             return self.__config_overrides[override_var]
         if env_var in os.environ and len(os.environ[env_var]) > 0:
@@ -581,6 +583,15 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'site_url': 'Optional URL for your application (for OpenRouter analytics)',
         'app_name': 'Optional name for your application (for OpenRouter analytics)',
         'rate_limit': 'Rate limit for OpenRouter API requests',
+    },
+    'otel': {
+        'endpoint': 'OTLP collector endpoint (eg http://localhost:4318); overridden by OTEL_EXPORTER_OTLP_ENDPOINT',
+        'protocol': "OTLP transport: 'http/protobuf' (default) or 'grpc'; overridden by OTEL_EXPORTER_OTLP_PROTOCOL",
+        'service_name': 'service.name resource attribute (default: pixeltable); overridden by OTEL_SERVICE_NAME',
+        'headers': "OTLP headers as comma-separated 'key=value' pairs; overridden by OTEL_EXPORTER_OTLP_HEADERS",
+        'span_level': "Span verbosity: 'info' (default), 'debug', or 'trace'",
+        'metrics': 'Export metrics via OTLP (default: only when an OTLP endpoint is configured)',
+        'logs': 'Export pixeltable logs via OTLP (default: only when an OTLP endpoint is configured)',
     },
     'replicate': {'api_token': 'Replicate API token'},
     'runwayml': {'api_secret': 'RunwayML API secret'},

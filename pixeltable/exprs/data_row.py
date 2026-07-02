@@ -15,6 +15,7 @@ import sqlalchemy as sql
 
 import pixeltable.utils.image as image_utils
 from pixeltable import catalog, env
+from pixeltable.hooks import SpanHandle
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.misc import non_none_dict_factory
 
@@ -141,6 +142,9 @@ class DataRow:
     parent_row: DataRow | None
     parent_slot_idx: int | None
 
+    # per-row instrumentation span (hooks.SpanHandle); None when instrumentation is inactive or gated off
+    span: SpanHandle | None
+
     # state for table output (insert()/update()); key: column id
     cell_vals: dict[int, Any]  # materialized values of output columns, in the format required for the column
     cell_md: dict[int, CellMd]
@@ -185,6 +189,7 @@ class DataRow:
         self.pk = None
         self.parent_row = None
         self.parent_slot_idx = None
+        self.span = None
 
     def clear(self, slot_idxs: np.ndarray | None = None) -> None:
         if slot_idxs is not None:
