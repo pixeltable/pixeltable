@@ -39,7 +39,7 @@ _TAG = '$pxt'
 
 @dataclasses.dataclass
 class LocalFile:
-    """Wraps a local file so serialize()/deserialize() can handle it correctly."""
+    """A reference to a local file so serialize()/deserialize() can handle it correctly."""
 
     path: str
 
@@ -56,11 +56,14 @@ class ProxyRequest(BaseModel):
     schema_version: int = MD_SCHEMA_VERSION
     class_name: str  # the CatalogBase/TableBase method's defining class
     method: str
-    # TablePathKey.as_dict() forms for path-bearing Table methods: the effective path_key (what to
-    # resolve) and the believed snapshot_path_key (concrete versions, for staleness validation).
+
+    # TablePathKey.as_dict() for Table methods, used to obtain a Table instance
     path_key: dict | None = None
+
+    # TablePathKey.as_dict() of the expected concrete versions, for staleness validation
     snapshot_path_key: dict | None = None
-    args: dict[str, Any]  # method kwargs, type-driven-serialized
+
+    args: dict[str, Any]  # method kwargs
     request_id: str | None = None  # set for mutating methods (idempotency); unused for now
 
     # raw binary parts referenced by 'blob' tags in args
@@ -68,9 +71,9 @@ class ProxyRequest(BaseModel):
 
 
 class ProxyResponse(BaseModel):
-    result: Any = None  # type-driven-serialized return value
+    result: Any = None  # return value
     error: dict[str, Any] | None = None  # excs.Error.to_dict(), set instead of result on failure
-    current_md: Any = None  # serialized TableMdPath (list[TableVersionMd]); set for path-bearing methods
+    current_md: Any = None  # serialized TableMdPath (list[TableVersionMd]); set for Table requests with stale metadata
     is_stale_md: bool = False  # True if the request's snapshot_path_key was behind the current schema version
 
     # raw binary parts referenced by 'blob' tags in result/current_md
@@ -162,7 +165,8 @@ def serialize(obj: Any, binary_parts: list[bytes]) -> Any:
     if isinstance(obj, LocalFile):
         with open(obj.path, 'rb') as f:
             data = f.read()
-        # carry the original file name so the receiver's temp copy keeps it (e.g. for media validation errors)
+        # carry the original file name so the receiver can restore it in error messages (its temp copy uses an
+        # opaque name) and preserve the extension for media-type detection
         return {_TAG: 'file', 'name': pathlib.Path(obj.path).name, 'v': _add_part(binary_parts, data)}
     if isinstance(obj, MediaPath):
         return {_TAG: 'mediapath', 'v': obj.path}
@@ -204,9 +208,9 @@ def deserialize(obj: Any, binary_parts: list[bytes]) -> Any:
             img.load()  # read pixels now so the result doesn't depend on the transient buffer
             return img
         if tag == 'file':
-            # write the sent bytes into the local TempStore, preserving the original file name, and hand back
-            # the new path
-            dest = TempStore.create_path(name=obj['name'])
+            # write the sent bytes to an opaque temp path (extension preserved for media-type detection);
+            # register the original file name so an error can reference it rather than the temp path
+            dest = TempStore.create_path(extension=pathlib.Path(obj['name']).suffix, original_name=obj['name'])
             dest.parent.mkdir(parents=True, exist_ok=True)
             with open(dest, 'wb') as f:
                 f.write(binary_parts[v])

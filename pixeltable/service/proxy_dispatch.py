@@ -53,19 +53,20 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
         key = (request.class_name, request.method)
         table_handler = _TABLE_HANDLERS.get(key)
         if table_handler is not None:
-            # path-bearing Table method. For a mutation, refuse to run if the client's snapshot_path_key is
-            # behind the current schema (return is_stale_md + current_md so it refreshes and retries); reads
-            # run unconditionally. Either way, send the table's current md back so the client's path refreshes.
+            # Table method
             assert request.path_key is not None and request.snapshot_path_key is not None
             cat = get_runtime().catalog
             tbl = _resolve_tbl(TablePathKey.from_dict(request.path_key))
             if request.method in _MUTATION_METHODS:
+                # refuse to run if the client's snapshot_path_key is behind the current schema
                 snapshot_key = TablePathKey.from_dict(request.snapshot_path_key)
                 with cat.begin_xact(for_write=False):
                     md = cat.read_md_for_export(tbl)
                 if snapshot_key != _current_key(md):
+                    # return the current md and is_stale_md=True so the client refreshes and retries
                     resp = ProxyResponse(current_md=proxy_protocol.serialize(md, response_parts), is_stale_md=True)
                     return resp.model_dump_json(), response_parts
+
             result = _convert_result(key, table_handler(request, tbl))
             with cat.begin_xact(for_write=False):
                 md = cat.read_md_for_export(tbl)
@@ -74,6 +75,7 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
                 current_md=proxy_protocol.serialize(md, response_parts),
             )
             return resp.model_dump_json(), response_parts
+
         handler = _HANDLERS.get(key)
         if handler is None:
             raise excs.RequestError(
@@ -82,12 +84,18 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
         result = _convert_result(key, handler(request))
         resp = ProxyResponse(result=proxy_protocol.serialize(result, response_parts))
         return resp.model_dump_json(), response_parts
+
     except excs.Error as e:
         if e.detail is not None:
             # the client only gets the message; keep the diagnostic detail (e.g. an evaluation stack trace)
             # for whoever reads the server logs
             _logger.info('Error detail handling %s.%s:\n%s', request.class_name, request.method, e.detail)
-        return ProxyResponse(error=e.to_dict()).model_dump_json(), []
+        error_dict = e.to_dict()
+        error_dict['message'] = TempStore.substitute_original_names(error_dict['message'])
+        if 'cause' in error_dict:
+            error_dict['cause'] = TempStore.substitute_original_names(error_dict['cause'])
+        return ProxyResponse(error=error_dict).model_dump_json(), []
+
     except Exception:
         # An unexpected server-side failure. Log the full traceback for debugging, but return only a short
         # reference id to the client: server internals (stack frames, filesystem paths) must not cross the wire.
