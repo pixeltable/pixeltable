@@ -104,8 +104,10 @@ class FnCallEvaluator(Evaluator):
         """Span for one row's UDF call, nested under the row's span; no-op when the row has no span."""
         if row.span is None:
             return contextlib.nullcontext()
-        # DEBUG so cell spans emit/suppress in lockstep with the row span they nest under
-        return hooks.span(f'udf.{self.fn.display_name}', level=hooks.DEBUG, parent=row.span)
+        # DEBUG so cell spans emit/suppress in lockstep with the row span they nest under.
+        # set_current so provider instrumentors parent their spans here; each task copies the context at
+        # creation, so the ambient span is task-specific and concurrent UDF calls don't see each other's
+        return hooks.span(f'udf.{self.fn.display_name}', level=hooks.DEBUG, parent=row.span, set_current=True)
 
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
         assert self.fn_call.slot_idx >= 0

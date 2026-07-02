@@ -44,6 +44,7 @@ class TestInsertTracing:
             udfs = [s for s in sub.spans if s['name'] == 'udf.add_one']
             assert len(udfs) == 5
             assert all(u['parent_id'] in row_ids for u in udfs)
+            assert all(u['set_current'] for u in udfs)  # provider instrumentors must nest under the UDF span
             assert all(s['ended'] for s in sub.spans)
         finally:
             hooks.unsubscribe(sub)
@@ -83,7 +84,7 @@ class TestInsertTracing:
         sub = RecordingSubscriber()
         hooks.subscribe(sub)
         try:
-            with pytest.raises(excs.ExprEvalError):
+            with pytest.raises(excs.ExprEvalError, match='ValueError'):
                 t.insert([{'c': i} for i in range(10)])
             op = sub.find('pixeltable.insert')
             assert op['ended']
@@ -99,7 +100,7 @@ class TestInsertTracing:
         hooks.subscribe(sub)
         hooks.set_span_level(hooks.DEBUG)
         try:
-            with pytest.raises(excs.ExprEvalError):
+            with pytest.raises(excs.ExprEvalError, match='ValueError'):
                 t.insert([{'c': i} for i in range(10)])
             rows = [s for s in sub.spans if s['name'] == 'pixeltable.row']
             assert len(rows) > 0
