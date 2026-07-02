@@ -43,9 +43,7 @@ FORWARDED_TABLE_METHODS: frozenset[str] = frozenset(
         'sample',
         'select',
         'show',
-        'sync',
         'tail',
-        'unlink_external_stores',
         'update',
         'where',
     )
