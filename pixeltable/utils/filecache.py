@@ -132,21 +132,27 @@ class FileCache:
         return sum(e.tbl_id == tbl_id for e in self.cache.values())
 
     def clear(self, tbl_id: UUID | None = None) -> None:
-        """
-        For testing purposes: allow resetting capacity and stats.
+        """Remove cached files and update accounting.
+
+        With a tbl_id, remove only that table's cached files. With no tbl_id, empty the entire cache
+        directory -- including files this instance isn't tracking -- and reset the in-memory state.
         """
         if tbl_id is None:
-            # We need to store the entries to remove in a list, because we can't remove items from a dict
-            # while iterating
-            entries_to_remove = list(self.cache.values())
+            # Remove every file on disk, not just the entries this instance tracks (another FileCache
+            # instance or process may have written files we never adopted), then reset the state to match.
             _logger.debug(f'clearing {self.num_files()} entries from file cache')
+            for path in glob.glob(str(Env.get().file_cache_dir / '*')):
+                os.remove(path)
+            self.cache.clear()
+            self.total_size = 0
             self.num_requests, self.num_hits, self.num_evictions = 0, 0, 0
             self.keys_retrieved.clear()
             self.keys_evicted_after_retrieval.clear()
             self.new_redownload_witnessed = False
-        else:
-            entries_to_remove = [e for e in self.cache.values() if e.tbl_id == tbl_id]
-            _logger.debug(f'clearing {self.num_files(tbl_id)} entries from file cache for table {tbl_id}')
+            return
+
+        entries_to_remove = [e for e in self.cache.values() if e.tbl_id == tbl_id]
+        _logger.debug(f'clearing {self.num_files(tbl_id)} entries from file cache for table {tbl_id}')
         for entry in entries_to_remove:
             os.remove(entry.path)
             del self.cache[entry.key]

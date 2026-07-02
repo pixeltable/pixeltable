@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import builtins
-import contextlib
 import copy
 import hashlib
 import itertools
 import json
 import urllib.parse
-from contextvars import ContextVar
 from pathlib import Path
 from types import TracebackType
 from typing import (
@@ -50,21 +48,6 @@ if TYPE_CHECKING:
     import torch.utils.data
 
 __all__ = ['Query', 'ResultCursor', 'ResultSet', 'Row']
-
-# When set, _output_row_iterator() yields a file-backed media cell's URL instead of materializing it (opening
-# a PIL image, resolving a local path). The proxy daemon enables this while running a query so the result ships
-# media as URLs the client fetches on its own, rather than the daemon re-encoding file-backed images inline.
-_emit_media_as_urls: ContextVar[bool] = ContextVar('_emit_media_as_urls', default=False)
-
-
-@contextlib.contextmanager
-def emit_media_as_urls() -> Iterator[None]:
-    """Within this context, queries emit file-backed media as URLs rather than materialized values."""
-    token = _emit_media_as_urls.set(True)
-    try:
-        yield
-    finally:
-        _emit_media_as_urls.reset(token)
 
 
 class ResultSet:
@@ -771,6 +754,9 @@ class Query:
             Error: If the Query is the result of a join or
                 if the Query has an order_by clause.
         """
+        return self._head(n)
+
+    def _head(self, n: int = 10, *, media_as_urls: bool = False) -> ResultSet:
         if self.order_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'head() cannot be used with order_by()')
         if self._has_joins():
@@ -784,7 +770,7 @@ class Query:
             return self._exec_proxy('head', n=n)
         num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
-        return self.order_by(*order_by_clause, asc=True).limit(n).collect()
+        return self.order_by(*order_by_clause, asc=True).limit(n)._collect(media_as_urls=media_as_urls)
 
     def tail(self, n: int = 10) -> ResultSet:
         """Return the last n rows of the Query, in insertion order of the underlying Table.
@@ -801,6 +787,9 @@ class Query:
             Error: If the Query is the result of a join or
                 if the Query has an order_by clause.
         """
+        return self._tail(n)
+
+    def _tail(self, n: int = 10, *, media_as_urls: bool = False) -> ResultSet:
         if self.order_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'tail() cannot be used with order_by()')
         if self._has_joins():
@@ -814,7 +803,7 @@ class Query:
             return self._exec_proxy('tail', n=n)
         num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
-        result = self.order_by(*order_by_clause, asc=False).limit(n).collect()
+        result = self.order_by(*order_by_clause, asc=False).limit(n)._collect(media_as_urls=media_as_urls)
         result._reverse()
         return result
 
@@ -877,14 +866,16 @@ class Query:
         """Select list exprs that can be evaluated in the context of a plan (has slot_idxs assigned)."""
         return self._ensure_plan().select_list_exprs
 
-    def _output_row_iterator(self, args: dict[str, Any] | None = None) -> Generator[list, None, None]:
+    def _output_row_iterator(
+        self, args: dict[str, Any] | None = None, *, media_as_urls: bool = False
+    ) -> Generator[list, None, None]:
         assert self._from_clause.is_local
         tbl_ids = self.referenced_tbl_ids()
         tvps = self._from_clause.tvps
         with get_runtime().catalog.begin_xact(for_write=False, read_tvps=tvps, read_tbl_ids=tbl_ids):
             try:
                 planned_exprs = self._compiled_select_list()
-                if _emit_media_as_urls.get():
+                if media_as_urls:
                     for data_row in self._exec(args=args):
                         # for a file-backed media cell, hand back its URL instead of materializing the value
                         yield [
@@ -963,16 +954,20 @@ class Query:
                         val = img
                 row[i] = val
 
-    def _collect(self, args: dict[str, Any] | None = None) -> ResultSet:
+    def _collect(self, args: dict[str, Any] | None = None, *, media_as_urls: bool = False) -> ResultSet:
         if not self._from_clause.is_local:
             return self._exec_proxy('collect', args=args)
         tvps = self._from_clause.tvps
         with get_runtime().catalog.begin_xact(for_write=False, read_tvps=tvps, read_tbl_ids=self.referenced_tbl_ids()):
             schema = self.schema
-            if args is None:
+            # url-mode takes the direct path; the cursor path (no args) stays as-is for normal execution
+            if args is None and not media_as_urls:
                 return ResultSet(list(self.cursor()), schema)
             columns = {name: i for i, name in enumerate(schema)}
-            rows = [Row(tuple(data), columns, schema) for data in self._output_row_iterator(args=args)]
+            rows = [
+                Row(tuple(data), columns, schema)
+                for data in self._output_row_iterator(args=args, media_as_urls=media_as_urls)
+            ]
             return ResultSet(rows, schema)
 
     def cursor(self) -> ResultCursor:

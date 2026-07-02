@@ -425,33 +425,31 @@ def _describe(request: ProxyRequest, tbl: LocalTable) -> Any:
     return {'str': helper.to_string(), 'html': helper.to_html()}
 
 
-def _run_query_terminal(query_dict: dict, run: 'Callable[[Any], Any]') -> dict:
-    from pixeltable._query import Query, emit_media_as_urls  # lazy: _query pulls in plan/exec
+def _run_query(query_dict: dict, run: 'Callable[[Any], Any]') -> dict:
+    from pixeltable._query import Query
 
-    # from_dict() might load metadata
+    # from_dict() loads metadata
     @retry_loop(for_write=False)
     def build() -> Query:
         return Query.from_dict(query_dict)
 
-    # the schema keeps the original media column types; only the row values become URLs the client fetches
-    with emit_media_as_urls():
-        rs = run(build())
-        return {'schema': dict(rs._schema), 'rows': [list(row._data) for row in rs._rows]}
+    rs = run(build())
+    return {'schema': dict(rs._schema), 'rows': [list(row._data) for row in rs._rows]}
 
 
 def _query_collect(request: ProxyRequest) -> dict:
     payload = proxy_protocol.deserialize(request.args, request._binary_parts)
-    return _run_query_terminal(payload['query'], lambda q: q._collect(args=payload.get('args')))
+    return _run_query(payload['query'], lambda q: q._collect(args=payload.get('args'), media_as_urls=True))
 
 
 def _query_head(request: ProxyRequest) -> dict:
     args = proxy_protocol.deserialize(request.args, request._binary_parts)
-    return _run_query_terminal(args['query'], lambda q: q.head(args['n']))
+    return _run_query(args['query'], lambda q: q._head(args['n'], media_as_urls=True))
 
 
 def _query_tail(request: ProxyRequest) -> dict:
     args = proxy_protocol.deserialize(request.args, request._binary_parts)
-    return _run_query_terminal(args['query'], lambda q: q.tail(args['n']))
+    return _run_query(args['query'], lambda q: q._tail(args['n'], media_as_urls=True))
 
 
 def _query_count(request: ProxyRequest) -> int:
