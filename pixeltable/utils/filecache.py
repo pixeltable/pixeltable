@@ -132,23 +132,34 @@ class FileCache:
         return sum(e.tbl_id == tbl_id for e in self.cache.values())
 
     def clear(self, tbl_id: UUID | None = None) -> None:
-        """Remove cached files and update accounting.
-
-        With a tbl_id, remove only that table's cached files. With no tbl_id, empty the entire cache
-        directory -- including files this instance isn't tracking -- and reset the in-memory state.
+        """
+        For testing purposes: allow resetting capacity and stats.
         """
         if tbl_id is None:
             # Remove every file on disk, not just the entries this instance tracks (another FileCache
             # instance or process may have written files we never adopted), then reset the state to match.
-            _logger.debug(f'clearing {self.num_files()} entries from file cache')
+            _logger.debug('clearing all entries from file cache')
+            tracked_names = {entry.path.name for entry in self.cache.values()}
+            failures: list[str] = []
             for path in glob.glob(str(Env.get().file_cache_dir / '*')):
-                os.remove(path)
+                try:
+                    os.remove(path)
+                except OSError as exc:
+                    name = os.path.basename(path)
+                    origin = 'tracked' if name in tracked_names else 'untracked'
+                    failures.append(f'{name} ({origin}): {exc}')
             self.cache.clear()
             self.total_size = 0
             self.num_requests, self.num_hits, self.num_evictions = 0, 0, 0
             self.keys_retrieved.clear()
             self.keys_evicted_after_retrieval.clear()
             self.new_redownload_witnessed = False
+            if len(failures) > 0:
+                detail = '\n  '.join(failures)
+                raise RuntimeError(
+                    f'FileCache.clear(): could not remove {len(failures)} file(s) from '
+                    f'{Env.get().file_cache_dir}:\n  {detail}'
+                )
             return
 
         entries_to_remove = [e for e in self.cache.values() if e.tbl_id == tbl_id]

@@ -90,7 +90,7 @@ class InsertableTableProxy(TableProxy):
                 )
                 data_source.src_pk = []
                 data_source.infer_schema()
-                rows = self._wrap_media_uploads([row for batch in data_source.valid_row_batch() for row in batch])
+                rows = self._convert_local_paths([row for batch in data_source.valid_row_batch() for row in batch])
                 return self._dispatch(
                     'insert',
                     {'rows': rows, 'on_error': on_error, 'print_stats': print_stats, 'return_rows': return_rows},
@@ -143,7 +143,7 @@ class InsertableTableProxy(TableProxy):
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Hosted insert does not support a {type(source).__name__} source yet.',
             )
-        rows = self._wrap_media_uploads(rows)
+        rows = self._convert_local_paths(rows)
         return self._dispatch(
             'insert', {'rows': rows, 'on_error': on_error, 'print_stats': print_stats, 'return_rows': return_rows}
         )
@@ -166,7 +166,7 @@ class InsertableTableProxy(TableProxy):
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, 'compute() requires a sequence of dicts or pydantic models'
             )
-        rows = self._wrap_media_uploads(self._prepare_rows(list(source)))
+        rows = self._convert_local_paths(self._prepare_rows(list(source)))
         return self._dispatch('compute', {'rows': rows, 'on_error': on_error})
 
     def _insert_query(
@@ -385,15 +385,15 @@ class InsertableTableProxy(TableProxy):
             for name, t in schema_overrides.items()
         }
 
-    def _wrap_media_uploads(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Wrap local media-column file paths as LocalFile so they send to the daemon as binary parts."""
+    def _convert_local_paths(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Convert local file path values of media columns to LocalFile for correct request serialization."""
         from pixeltable.service.proxy_protocol import LocalFile
 
         media_cols = self._media_column_names()
         if len(media_cols) == 0:
             return rows
 
-        wrapped: list[dict[str, Any]] = []
+        converted: list[dict[str, Any]] = []
         for row in rows:
             new_row = dict(row)
             for name in media_cols & new_row.keys():
@@ -402,8 +402,8 @@ class InsertableTableProxy(TableProxy):
                     p = self._local_path(val)
                     if p is not None:
                         new_row[name] = LocalFile(p)
-            wrapped.append(new_row)
-        return wrapped
+            converted.append(new_row)
+        return converted
 
     def _prepare_rows(self, source: list[Any]) -> list[dict[str, Any]]:
         """
@@ -411,8 +411,6 @@ class InsertableTableProxy(TableProxy):
         - pydantic models are validated and converted to dicts on the client (the model classes aren't
           importable on the server)
         - plain dicts are sent as-is
-
-        Local media-column paths are wrapped for upload separately, by the caller, via `_wrap_media_uploads()`.
         """
         if isinstance(source[0], pydantic.BaseModel):
             source = self._pydantic_to_rows(source)

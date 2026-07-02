@@ -200,12 +200,7 @@ def record_batches_from_rows(
     *,
     on_expr_eval_err: Callable[[excs.ExprEvalError], Any] | None = None,
 ) -> Iterator[pa.RecordBatch]:
-    """Encode pxt-native row mappings (col_name -> value) into arrow RecordBatches, matching the parquet encoding
-    produced for query exports.
-
-    `rows` may stream; the arrow type for a JSON column is inferred from the first batch and reused, so a later
-    batch with an incompatible JSON value raises a clear error.
-    """
+    """Encode rows into arrow RecordBatches, matching the parquet encoding produced for query exports."""
     arrow_schema: pa.Schema | None = None  # initialized after first batch, when we have data to infer struct schemas
     batch_columns: dict[str, list[Any]] = {k: [] for k in schema}
     current_byte_estimate = 0
@@ -249,9 +244,8 @@ def record_batches_from_rows(
                 if col_type.is_image_type():
                     # images get inlined into the parquet file
                     if isinstance(val, PIL.Image.Image):
-                        # An ImageFile loaded from disk has a non-empty .filename; an in-memory image
-                        # (resize/convert/Image.new, or one decoded from in-memory bytes) has either no .filename
-                        # attribute or an empty one.
+                        # An ImageFile loaded from disk has a non-empty .filename; an in-memory image has either no
+                        # .filename attribute or an empty one.
                         filename = getattr(val, 'filename', None)
                         if filename:
                             # read the original file directly to preserve format and avoid lossy re-encoding
@@ -262,7 +256,7 @@ def record_batches_from_rows(
                             val.save(buf, format='png')
                             val = buf.getvalue()
                     elif not isinstance(val, bytes):
-                        # already-encoded image bytes (e.g. from a SQL BLOB column) pass through unchanged
+                        # already-encoded image bytes pass through unchanged
                         raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'unknown image type {type(val)}')
                     val_size_bytes = len(val)
                 elif col_type.is_uuid_type():
