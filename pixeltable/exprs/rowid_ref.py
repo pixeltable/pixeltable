@@ -99,7 +99,7 @@ class RowidRef(Expr):
             return catalog.globals._POS_COLUMN_NAME
         return ''
 
-    def is_bound_by(self, tbls: list[catalog.TablePath]) -> bool:
+    def is_bound_by(self, tbls: list[catalog.TablePath], siblings: list[catalog.Column] | None = None) -> bool:
         # base impl checks ColumnRef subexprs and trivially returns True for RowidRef (which has none);
         # match against our tbl_id instead so rowid refs aren't pulled into unrelated table scans in joins
         return any(self.tbl_id in tbl.tbl_ids for tbl in tbls)

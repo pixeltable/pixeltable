@@ -12,6 +12,7 @@ from .view_proxy import ViewProxy
 
 if TYPE_CHECKING:
     from pixeltable import exprs, func
+    from pixeltable._query import Query
     from pixeltable.plan import SampleClause
     from pixeltable.service.proxy_client import ProxyClient
     from pixeltable.types import ColumnSpec
@@ -92,7 +93,7 @@ class CatalogProxy(CatalogBase):
         custom_metadata: Any,
         media_validation: MediaValidation,
         if_exists: IfExistsParam,
-    ) -> Table:
+    ) -> tuple[Table, bool]:
         args = {
             'path': path,
             'base': base,
@@ -108,8 +109,34 @@ class CatalogProxy(CatalogBase):
             'media_validation': media_validation,
             'if_exists': if_exists,
         }
-        md = self._client.send_request('CatalogBase', 'create_view', args)
-        return self._make_table(md, is_anon_snapshot=False)
+        md, was_created = self._client.send_request('CatalogBase', 'create_view', args)
+        return self._make_table(md, is_anon_snapshot=False), was_created
+
+    def create_from_model(
+        self,
+        path: Path,
+        columns: dict[str, ColumnSpec],
+        display_name: str,
+        create_default_idxs: bool,
+        media_validation: MediaValidation,
+        comment: str | None,
+        custom_metadata: Any,
+        iterator: func.GeneratingFunctionCall | None,
+        base: 'Query | None',
+    ) -> tuple[Table, bool]:
+        args = {
+            'path': path,
+            'columns': columns,
+            'display_name': display_name,
+            'create_default_idxs': create_default_idxs,
+            'media_validation': media_validation,
+            'comment': comment,
+            'custom_metadata': custom_metadata,
+            'iterator': iterator,
+            'base': base.as_dict() if base is not None else None,
+        }
+        md, was_created = self._client.send_request('CatalogBase', 'create_from_model', args)
+        return self._make_table(md, is_anon_snapshot=False), was_created
 
     def get_table(self, path: Path, if_not_exists: IfNotExistsParam) -> Table | None:
         md = self._client.send_request('CatalogBase', 'get_table', {'path': path, 'if_not_exists': if_not_exists})

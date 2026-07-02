@@ -3,6 +3,7 @@ from __future__ import annotations
 import enum
 import time
 from typing import TYPE_CHECKING, Any, Literal, Sequence, overload
+from uuid import UUID
 
 import pydantic
 
@@ -10,7 +11,6 @@ import pixeltable as pxt
 from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
-from pixeltable.types import ColumnSpec
 from pixeltable.utils.filecache import FileCache
 
 from .column import Column
@@ -67,15 +67,15 @@ class InsertableTable(LocalTable):
     def _create(
         cls,
         name: str,
-        schema: dict[str, ColumnSpec],
+        columns: list[Column],
         primary_key: list[str],
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
         create_default_idxs: bool,
         is_versioned: bool,
+        tbl_id: UUID | None = None,
     ) -> tuple[TableVersionMd, list[TableOp]]:
-        columns = [Column.create(name, spec) for name, spec in schema.items()]
         cls._verify_schema(columns)
         column_names = [col.name for col in columns]
         for pk_col in primary_key:
@@ -101,6 +101,7 @@ class InsertableTable(LocalTable):
             create_default_idxs=create_default_idxs,
             view_md=None,
             is_versioned=is_versioned,
+            tbl_id=tbl_id,
         )
 
         ops = (

@@ -313,7 +313,7 @@ filterwarnings = [
 ]
 
 [tool.ruff]
-exclude = ["*.ipynb"]  # For now, exclude notebooks
+exclude = ["*.ipynb", "*.pyi"]  # Exclude notebooks (which are handled separately) and generated type stubs
 line-length = 120
 
 [tool.ruff.lint]

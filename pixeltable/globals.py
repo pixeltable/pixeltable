@@ -413,7 +413,7 @@ def create_view(
     # mapping and report the same errors
     additional_columns = catalog.normalize_schema(additional_columns)
 
-    return (
+    view, _ = (
         get_runtime()
         .get_catalog(path_obj)
         .create_view(
@@ -432,6 +432,8 @@ def create_view(
             if_exists=if_exists_,
         )
     )
+
+    return view
 
 
 def create_snapshot(
