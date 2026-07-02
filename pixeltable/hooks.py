@@ -125,8 +125,9 @@ def current_span() -> SpanHandle | None:
 def _log_subscriber_error(subscriber: Subscriber, method: str, exc: Exception) -> None:
     # warn once per (subscriber, method), then drop to debug to avoid log storms from per-row failures
     key = (id(subscriber), method)
-    level = logging.DEBUG if key in _logged_error_keys else logging.WARNING
-    _logged_error_keys.add(key)
+    with _registry_lock:
+        level = logging.DEBUG if key in _logged_error_keys else logging.WARNING
+        _logged_error_keys.add(key)
     _logger.log(level, f'instrumentation subscriber {type(subscriber).__name__}.{method}() failed: {exc!r}')
 
 

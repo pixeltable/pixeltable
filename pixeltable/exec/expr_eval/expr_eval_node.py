@@ -68,7 +68,7 @@ class ExprEvalNode(ExecNode):
     num_input_rows: int
     num_output_rows: int
 
-    _row_spans_opened: int  # count of per-row instrumentation spans opened, capped at MAX_ROW_SPANS
+    _span_rows: list[exprs.DataRow]  # rows with an open instrumentation span, capped at MAX_ROW_SPANS
 
     BATCH_SIZE = 64
     MAX_BUFFERED_ROWS = 2048  # maximum number of rows that have been dispatched but not yet returned
@@ -108,7 +108,7 @@ class ExprEvalNode(ExecNode):
         self.output_buffer = RowBuffer(self.MAX_BUFFERED_ROWS)
         self.num_input_rows = 0
         self.num_output_rows = 0
-        self._row_spans_opened = 0
+        self._span_rows = []
         self.schedulers = {}
         # evaluators are owned by eval_ctx and reused across iterations; clear per-execution state
         # (closed flag, batched-call queue, etc.) so they accept work again
@@ -201,9 +201,10 @@ class ExprEvalNode(ExecNode):
             # per-row spans nest their UDF cell spans; suppressed (None) unless DEBUG is enabled under an
             # operation span, so a bare query with no operation span stays dark
             for row in rows:
-                if row.parent_row is None and self._row_spans_opened < self.MAX_ROW_SPANS:
+                if row.parent_row is None and len(self._span_rows) < self.MAX_ROW_SPANS:
                     row.span = hooks.span_start('pixeltable.row', level=hooks.DEBUG, parent=hooks.current_span())
-                    self._row_spans_opened += 1
+                    if row.span is not None:
+                        self._span_rows.append(row)
         self.dispatch(rows, self.eval_ctx)
 
     def _log_state(self, prefix: str) -> None:
@@ -340,6 +341,12 @@ class ExprEvalNode(ExecNode):
                 if not task.done():
                     task.cancel()
             _ = await asyncio.gather(*active_tasks, return_exceptions=True)
+
+            for row in self._span_rows:
+                if row.span is not None:
+                    hooks.span_end(row.span, exc=self.error)
+                    row.span = None
+            self._span_rows = []
 
             # expr cleanup
             exprs.Expr.release_list(self.eval_ctx.all_exprs)

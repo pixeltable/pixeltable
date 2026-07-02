@@ -91,6 +91,23 @@ class TestInsertTracing:
         finally:
             hooks.unsubscribe(sub)
 
+    def test_failed_insert_ends_row_spans(self, uses_db: None) -> None:
+        """Row spans opened before an abort must still be ended so subscribers see on_span_end()."""
+        t = pxt.create_table('tracing_test', {'c': pxt.Int}, if_exists='replace')
+        t.add_computed_column(out=fail_on_three(t.c))
+        sub = RecordingSubscriber()
+        hooks.subscribe(sub)
+        hooks.set_span_level(hooks.DEBUG)
+        try:
+            with pytest.raises(excs.ExprEvalError):
+                t.insert([{'c': i} for i in range(10)])
+            rows = [s for s in sub.spans if s['name'] == 'pixeltable.row']
+            assert len(rows) > 0
+            assert all(s['ended'] for s in sub.spans)
+        finally:
+            hooks.unsubscribe(sub)
+            hooks.set_span_level(hooks.INFO)
+
     def test_bare_query_stays_dark(self, uses_db: None) -> None:
         """Shared machinery (row/udf spans) must not emit without a top-level operation span."""
         t = self._make_table()
