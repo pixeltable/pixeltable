@@ -415,7 +415,9 @@ class Config:
 
     def lookup_env(self, section: str, key: str, default: Any = None) -> Any:
         override_var = f'{section}.{key}'
-        env_var = f'{section.upper()}_{key.upper()}'
+        # the OTEL_* env namespace is reserved by the OpenTelemetry spec; keep derived names pixeltable-specific
+        env_prefix = 'PIXELTABLE_OTEL' if section == 'otel' else section.upper()
+        env_var = f'{env_prefix}_{key.upper()}'
         if override_var in self.__config_overrides:
             return self.__config_overrides[override_var]
         if env_var in os.environ and len(os.environ[env_var]) > 0:

@@ -220,6 +220,30 @@ class TestBridge:
         assert points[0].sum == 0.5
         assert points[0].attributes['pxt.udf'] == 'openai.chat_completions'
 
+    def test_uninstrument_stops_emission(self) -> None:
+        from opentelemetry.instrumentation.pixeltable import PixeltableInstrumentor
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+        from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+        from pixeltable import hooks
+
+        span_exporter = InMemorySpanExporter()
+        tracer_provider = TracerProvider()
+        tracer_provider.add_span_processor(SimpleSpanProcessor(span_exporter))
+        instrumentor = PixeltableInstrumentor()
+        prev_factory = logging.getLogRecordFactory()
+        instrumentor.instrument(tracer_provider=tracer_provider)
+        try:
+            hooks.span_end(hooks.span_start('pixeltable.op', set_current=True))
+            assert len(span_exporter.get_finished_spans()) == 1
+        finally:
+            instrumentor.uninstrument()
+        assert not hooks.active()
+        assert logging.getLogRecordFactory() is prev_factory
+        hooks.span_end(hooks.span_start('pixeltable.op', set_current=True))
+        assert len(span_exporter.get_finished_spans()) == 1  # nothing new after uninstrument
+
     def test_log_correlation(self, instrumented: tuple[Any, Any]) -> None:
         from opentelemetry import trace
 
@@ -232,6 +256,9 @@ class TestBridge:
                 records.append(record)
 
         pxt_logger = logging.getLogger('pixeltable')
+        # log on a child logger: that's where real pixeltable records originate, and the record factory
+        # (unlike a logger-level filter) must stamp those too
+        child_logger = logging.getLogger('pixeltable.exec.test_child')
         handler = _Capture()
         pxt_logger.addHandler(handler)
         old_level = pxt_logger.level
@@ -239,7 +266,7 @@ class TestBridge:
         try:
             span_handle = hooks.span_start('pixeltable.insert', set_current=True)
             try:
-                pxt_logger.info('correlated message')
+                child_logger.info('correlated message')
                 ctx = trace.get_current_span().get_span_context()
                 assert ctx.is_valid
             finally:

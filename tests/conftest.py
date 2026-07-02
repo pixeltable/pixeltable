@@ -117,9 +117,6 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
     os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
     os.environ['PIXELTABLE_API_URL'] = 'https://preprod-internal-api.pixeltable.com'
     os.environ['FIFTYONE_DATABASE_DIR'] = f'{home_dir}/.fiftyone'
-    # otel deps are installed in the dev env; default-on instrumentation would start exporter threads and
-    # retry against a nonexistent collector in every test process (tests/test_otel.py covers it explicitly)
-    os.environ['PIXELTABLE_OTEL'] = '0'
     reinit_db = True
     schema_name = None
     if os.environ.get('PIXELTABLE_DB_CONNECT_STR') is not None:

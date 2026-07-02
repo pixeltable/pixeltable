@@ -94,6 +94,7 @@ _logged_error_keys: set[tuple[int, str]] = set()
 
 
 def subscribe(subscriber: Subscriber) -> None:
+    """Register a subscriber to receive instrumentation callbacks; idempotent."""
     global _SUBSCRIBERS  # noqa: PLW0603
     with _registry_lock:
         if subscriber not in _SUBSCRIBERS:
@@ -101,6 +102,7 @@ def subscribe(subscriber: Subscriber) -> None:
 
 
 def unsubscribe(subscriber: Subscriber) -> None:
+    """Remove a previously registered subscriber; a no-op if it isn't registered."""
     global _SUBSCRIBERS  # noqa: PLW0603
     with _registry_lock:
         _SUBSCRIBERS = tuple(s for s in _SUBSCRIBERS if s is not subscriber)
@@ -146,6 +148,7 @@ def span_start(
     set_current: bool = False,
     attrs: HookAttrs = None,
 ) -> SpanHandle | None:
+    """Start a span and return its handle; None if no subscribers are registered or the span is suppressed."""
     subs = _SUBSCRIBERS
     if not subs:
         return None
@@ -175,6 +178,7 @@ def span_start(
 
 
 def span_end(handle: SpanHandle | None, *, exc: BaseException | None = None, attrs: HookAttrs = None) -> None:
+    """End a span started with span_start(); a no-op for None handles."""
     if not isinstance(handle, SpanHandle):
         return
     if handle.cv_token is not None:
@@ -207,6 +211,7 @@ def add_attrs(handle: SpanHandle | None, **attrs: Any) -> None:
 
 
 def emit(name: str, attrs: HookAttrs = None) -> None:
+    """Report a discrete event (e.g. a counter increment) to all subscribers."""
     subs = _SUBSCRIBERS
     if not subs:
         return

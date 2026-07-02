@@ -11,7 +11,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 from collections.abc import Collection
-from typing import Any
+from typing import Any, Callable
 
 from opentelemetry import context as otel_context, metrics as otel_metrics, trace
 from opentelemetry.context import Context, Token
@@ -31,18 +31,38 @@ __all__ = ['PixeltableInstrumentor', 'init']
 _ATTR_TYPES = (str, bool, int, float)
 
 
-class _TraceContextFilter(logging.Filter):
-    """Adds otelTraceID/otelSpanID attributes to records so logs are filterable by trace."""
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        span_context = trace.get_current_span().get_span_context()
-        if span_context.is_valid:
-            record.otelTraceID = trace.format_trace_id(span_context.trace_id)
-            record.otelSpanID = trace.format_span_id(span_context.span_id)
-        return True
+_prev_record_factory: Callable[..., logging.LogRecord] | None = None
 
 
-_trace_context_filter = _TraceContextFilter()
+def _install_record_factory() -> None:
+    """Stamp pixeltable log records with otelTraceID/otelSpanID so logs are filterable by trace.
+
+    A record factory (the mechanism opentelemetry-instrumentation-logging uses) rather than a filter on
+    the 'pixeltable' logger: logging runs logger-level filters only on the originating logger, so a filter
+    there never sees records created on child loggers (`pixeltable.exec...` etc.), which is where nearly
+    all pixeltable records originate.
+    """
+    global _prev_record_factory  # noqa: PLW0603
+    prev = logging.getLogRecordFactory()
+    _prev_record_factory = prev
+
+    def factory(*args: Any, **kwargs: Any) -> logging.LogRecord:
+        record = prev(*args, **kwargs)
+        if record.name == 'pixeltable' or record.name.startswith('pixeltable.'):
+            span_context = trace.get_current_span().get_span_context()
+            if span_context.is_valid:
+                record.otelTraceID = trace.format_trace_id(span_context.trace_id)
+                record.otelSpanID = trace.format_span_id(span_context.span_id)
+        return record
+
+    logging.setLogRecordFactory(factory)
+
+
+def _uninstall_record_factory() -> None:
+    global _prev_record_factory  # noqa: PLW0603
+    if _prev_record_factory is not None:
+        logging.setLogRecordFactory(_prev_record_factory)
+        _prev_record_factory = None
 
 
 def _clean_attrs(attrs: dict[str, Any] | None) -> dict[str, Any]:
@@ -158,10 +178,10 @@ class PixeltableInstrumentor(BaseInstrumentor):
     def _instrument(self, **kwargs: Any) -> None:
         self._subscriber = _OtelSubscriber(kwargs.get('tracer_provider'), kwargs.get('meter_provider'))
         hooks.subscribe(self._subscriber)
-        logging.getLogger('pixeltable').addFilter(_trace_context_filter)
+        _install_record_factory()
 
     def _uninstrument(self, **kwargs: Any) -> None:
         if self._subscriber is not None:
             hooks.unsubscribe(self._subscriber)
             self._subscriber = None
-        logging.getLogger('pixeltable').removeFilter(_trace_context_filter)
+        _uninstall_record_factory()

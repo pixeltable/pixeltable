@@ -599,7 +599,7 @@ class StoreBase:
         assert len(table_rows) > 0
         conn = get_runtime().conn
         try:
-            with hooks.span('pixeltable.sa.insert_rows', set_current=True):
+            with hooks.span('pixeltable.sa.insert_rows'):
                 conn.execute(sql.insert(sa_tbl), [dict(zip(store_col_names, table_row)) for table_row in table_rows])
         except sql.exc.IntegrityError as e:
             if (
