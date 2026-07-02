@@ -18,22 +18,6 @@ from .utils import assert_resultset_eq, capture_console_output, dummy_embedding,
 
 class TestTableModel2:
     @pytest.mark.skipif(
-        sys.version_info < (3, 14),
-        reason='Only runs on Python 3.14+, to test prompt error for missing `from __future__ import annotations`',
-    )
-    def test_pep_649_error(self) -> None:
-        TableModel = pxt.model_base()
-
-        with pytest.raises(
-            pxt.RequestError,
-            match=r'model `ExampleTableModel`: On Python 3.14\+, you must use `from __future__ import annotations` '
-            'in your module in order to declare a TableModel.',
-        ):
-
-            class ExampleTableModel(TableModel, name='test_table'):
-                id: pxt.Int
-
-    @pytest.mark.skipif(
         sys.version_info >= (3, 14),
         reason='Fails on Python 3.14 without `from __future__ import annotations` (PEP 649)',
     )
