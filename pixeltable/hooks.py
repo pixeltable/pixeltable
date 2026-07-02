@@ -5,16 +5,6 @@ subscribers (e.g. the bridge in `opentelemetry-instrumentation-pixeltable`) tran
 telemetry backend. With no subscribers registered every call is a near-free no-op, but hot loops should
 still guard with `if hooks.active():` before building attribute dicts (or pass `attrs` as a callable).
 
-Span levels mirror logging levels: spans declared below the configured threshold (default INFO) are not
-emitted (`span_start` returns None); their descendants fall back to the ambient span. Only operation spans
-(`set_current=True`) may be roots; any other span started without an ambient ancestor is suppressed.
-
-Parentage: spans started with `set_current=True` become the ambient parent (a ContextVar, so it propagates
-into asyncio tasks); other spans parent to the ambient span unless an explicit `parent` handle is passed.
-`set_current=True` requires that the span is ended on the same thread/context it was started on.
-`capture_context()`/`restore_context()`/`exit_context()` carry the ambient state (including subscriber
-state) across explicit thread handoffs.
-
 Spans should cover contiguous units of real computation (a UDF call, a DB insert batch, model loading) or
 serve as structural containers (operation and exec-node spans). A CPU work span must not contain a
 `yield`/`await`, which would let it cover unrelated interleaved work; awaiting an external call inside a
@@ -29,6 +19,7 @@ import logging
 import threading
 from contextvars import ContextVar, Token
 from typing import Any, Callable, Iterator
+from weakref import WeakKeyDictionary
 
 _logger = logging.getLogger(__name__)
 
@@ -90,7 +81,7 @@ _registry_lock = threading.Lock()
 _SUBSCRIBERS: tuple[Subscriber, ...] = ()
 _span_level = INFO
 _current_span: ContextVar[SpanHandle | None] = ContextVar('pxt_current_span', default=None)
-_logged_error_keys: set[tuple[int, str]] = set()
+_logged_error_methods: WeakKeyDictionary[Subscriber, set[str]] = WeakKeyDictionary()
 
 
 def subscribe(subscriber: Subscriber) -> None:
@@ -124,10 +115,10 @@ def current_span() -> SpanHandle | None:
 
 def _log_subscriber_error(subscriber: Subscriber, method: str, exc: Exception) -> None:
     # warn once per (subscriber, method), then drop to debug to avoid log storms from per-row failures
-    key = (id(subscriber), method)
     with _registry_lock:
-        level = logging.DEBUG if key in _logged_error_keys else logging.WARNING
-        _logged_error_keys.add(key)
+        logged = _logged_error_methods.setdefault(subscriber, set())
+        level = logging.DEBUG if method in logged else logging.WARNING
+        logged.add(method)
     _logger.log(level, f'instrumentation subscriber {type(subscriber).__name__}.{method}() failed: {exc!r}')
 
 
@@ -149,7 +140,14 @@ def span_start(
     set_current: bool = False,
     attrs: HookAttrs = None,
 ) -> SpanHandle | None:
-    """Start a span and return its handle; None if no subscribers are registered or the span is suppressed."""
+    """Start a span and return its handle; None if no subscribers are registered or the span is suppressed.
+
+    Spans below the level threshold are suppressed, as are non-set_current spans with no ambient ancestor;
+    descendants of a suppressed span parent to the ambient span. set_current=True makes the span the
+    ambient parent (a ContextVar, so it propagates into asyncio tasks) and requires that span_end() runs
+    on the same thread/context; use capture_context()/restore_context()/exit_context() for explicit
+    thread handoffs.
+    """
     subs = _SUBSCRIBERS
     if not subs:
         return None

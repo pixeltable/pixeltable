@@ -234,9 +234,7 @@ class CachePrefetchNode(ExecNode):
         """Runs on a worker thread of the ThreadPoolExecutor."""
         hooks_token = hooks.restore_context(hooks_ctx)
         try:
-            # the span sits inside the try so a failed fetch is recorded on it before being converted
-            # into a return value
-            with hooks.span('media.fetch', level=hooks.DEBUG, url=url):
+            with hooks.span('pixeltable.media.fetch', level=hooks.DEBUG, url=url):
                 return fetch_url(url), None
         except Exception as e:
             # we want to add the file url to the exception message

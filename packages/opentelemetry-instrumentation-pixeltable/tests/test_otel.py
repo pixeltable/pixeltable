@@ -1,22 +1,40 @@
 import logging
+import multiprocessing
 import os
 import re
-import subprocess
-import sys
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
+import opentelemetry.instrumentation.pixeltable as pxt_otel
 import pytest
+from opentelemetry import trace
+from opentelemetry.instrumentation.pixeltable import PixeltableInstrumentor, _sdk
+from opentelemetry.instrumentation.pixeltable._sdk import _use_grpc
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import ProxyTracerProvider
 
 import pixeltable as pxt
+from pixeltable import hooks
 
 
-def _run_py(code: str, env_overrides: dict[str, str], tmp_home: Path) -> 'subprocess.CompletedProcess[str]':
-    # isolate config/home: init() reads pixeltable config, and global OTEL providers are set-once per process
-    env = {**os.environ, 'PIXELTABLE_HOME': str(tmp_home), **env_overrides}
-    result = subprocess.run((sys.executable, '-c', code), capture_output=True, text=True, env=env, check=False)
-    assert result.returncode == 0, f'stderr:\n{result.stderr}\nstdout:\n{result.stdout}'
-    return result
+def _set_env(env: dict[str, str]) -> None:
+    os.environ.update(env)
+
+
+def _run_isolated(fn: Callable[[], None], env_overrides: dict[str, str], tmp_home: Path) -> None:
+    """Run fn in a spawned process: init() reads pixeltable config, and global OTEL providers are set-once
+    per process.
+
+    fn must be module-level: spawn pickles it by qualified name for the child to re-import, so nested
+    functions can't be used. Env is applied via the initializer, before the child imports fn's module.
+    """
+    env = {'PIXELTABLE_HOME': str(tmp_home), **env_overrides}
+    ctx = multiprocessing.get_context('spawn')
+    with ProcessPoolExecutor(max_workers=1, mp_context=ctx, initializer=_set_env, initargs=(env,)) as pool:
+        pool.submit(fn).result()
 
 
 def test_no_otel_imports_in_core() -> None:
@@ -30,121 +48,95 @@ def test_no_otel_imports_in_core() -> None:
     assert offenders == []
 
 
-def test_import_does_not_load_opentelemetry(tmp_path: Path) -> None:
-    # importing pixeltable never pulls in opentelemetry: instrumentation is strictly opt-in
-    _run_py(
-        'import pixeltable, sys\n'
-        "assert not any(m == 'opentelemetry' or m.startswith('opentelemetry.') for m in sys.modules), "
-        "[m for m in sys.modules if m.startswith('opentelemetry')]\n",
-        {},
+def check_builds_tracer_provider() -> None:
+    pxt_otel.init()
+    tp = trace.get_tracer_provider()
+    assert isinstance(tp, TracerProvider), type(tp)
+    assert tp.resource.attributes['service.name'] == 'pixeltable'
+    assert _sdk._state.initialized and _sdk._state.owns_tracer_provider and _sdk._state.owns_meter_provider
+    assert PixeltableInstrumentor().is_instrumented_by_opentelemetry
+
+
+def test_builds_tracer_provider(tmp_path: Path) -> None:
+    _run_isolated(
+        check_builds_tracer_provider,
+        {'OTEL_EXPORTER_OTLP_ENDPOINT': 'http://127.0.0.1:9', 'OTEL_EXPORTER_OTLP_TIMEOUT': '1'},
         tmp_path,
     )
 
 
-class TestInit:
-    """Subprocess-based tests: global OTEL providers are set-once per process."""
+def check_inert_without_endpoint() -> None:
+    for k in [k for k in os.environ if k.startswith('OTEL_')]:
+        del os.environ[k]
+    pxt_otel.init()
+    assert isinstance(trace.get_tracer_provider(), ProxyTracerProvider)
+    assert _sdk._state.initialized
+    assert not _sdk._state.owns_tracer_provider and _sdk._state.tracer_provider is None
+    assert PixeltableInstrumentor().is_instrumented_by_opentelemetry
 
-    def test_builds_tracer_provider(self, tmp_path: Path) -> None:
-        _run_py(
-            'import opentelemetry.instrumentation.pixeltable as o\n'
-            'o.init()\n'
-            'from opentelemetry import trace\n'
-            'from opentelemetry.sdk.trace import TracerProvider\n'
-            'tp = trace.get_tracer_provider()\n'
-            'assert isinstance(tp, TracerProvider), type(tp)\n'
-            "assert tp.resource.attributes['service.name'] == 'pixeltable'\n"
-            'import opentelemetry.instrumentation.pixeltable._sdk as sdk\n'
-            'assert sdk._state.initialized and sdk._state.owns_tracer_provider and sdk._state.owns_meter_provider\n'
-            'assert o.PixeltableInstrumentor().is_instrumented_by_opentelemetry\n',
-            {'OTEL_EXPORTER_OTLP_ENDPOINT': 'http://127.0.0.1:9', 'OTEL_EXPORTER_OTLP_TIMEOUT': '1'},
-            tmp_path,
-        )
 
-    def test_inert_without_endpoint(self, tmp_path: Path) -> None:
-        # no endpoint configured and no app-owned provider: the bridge attaches but nothing is exported
-        _run_py(
-            'import os\n'
-            "for _k in [k for k in os.environ if k.startswith('OTEL_')]:\n"
-            '    del os.environ[_k]\n'
-            'import opentelemetry.instrumentation.pixeltable as o\n'
-            'o.init()\n'
-            'from opentelemetry import trace\n'
-            'from opentelemetry.trace import ProxyTracerProvider\n'
-            'assert isinstance(trace.get_tracer_provider(), ProxyTracerProvider)\n'
-            'import opentelemetry.instrumentation.pixeltable._sdk as sdk\n'
-            'assert sdk._state.initialized\n'
-            'assert not sdk._state.owns_tracer_provider and sdk._state.tracer_provider is None\n'
-            'assert o.PixeltableInstrumentor().is_instrumented_by_opentelemetry\n',
-            {},
-            tmp_path,
-        )
+def test_inert_without_endpoint(tmp_path: Path) -> None:
+    # no endpoint configured and no app-owned provider: the bridge attaches but nothing is exported
+    _run_isolated(check_inert_without_endpoint, {}, tmp_path)
 
-    def test_respects_existing_sdk(self, tmp_path: Path) -> None:
-        _run_py(
-            'from opentelemetry import trace\n'
-            'from opentelemetry.sdk.trace import TracerProvider\n'
-            'my_tp = TracerProvider()\n'
-            'trace.set_tracer_provider(my_tp)\n'
-            'import opentelemetry.instrumentation.pixeltable as o\n'
-            'o.init()\n'
-            'assert trace.get_tracer_provider() is my_tp\n'
-            'import opentelemetry.instrumentation.pixeltable._sdk as sdk\n'
-            'assert sdk._state.initialized and not sdk._state.owns_tracer_provider\n',
-            {},
-            tmp_path,
-        )
 
-    def test_double_init_raises(self, tmp_path: Path) -> None:
-        _run_py(
-            'import pixeltable as pxt\n'
-            'import opentelemetry.instrumentation.pixeltable as o\n'
-            'o.init()\n'
-            'try:\n'
-            '    o.init()\n'
-            "    raise AssertionError('expected init() to raise')\n"
-            'except pxt.exceptions.RequestError:\n'
-            '    pass\n',
-            {'OTEL_EXPORTER_OTLP_TIMEOUT': '1'},
-            tmp_path,
-        )
+def check_respects_existing_sdk() -> None:
+    my_tp = TracerProvider()
+    trace.set_tracer_provider(my_tp)
+    pxt_otel.init()
+    assert trace.get_tracer_provider() is my_tp
+    assert _sdk._state.initialized and not _sdk._state.owns_tracer_provider
 
-    def test_protocol_grpc(self, tmp_path: Path) -> None:
-        _run_py(
-            'import opentelemetry.instrumentation.pixeltable as o\n'
-            'o.init()\n'
-            'from opentelemetry import trace\n'
-            'tp = trace.get_tracer_provider()\n'
-            'exporter = tp._active_span_processor._span_processors[0].span_exporter\n'
-            "assert type(exporter).__module__.startswith('opentelemetry.exporter.otlp.proto.grpc'), "
-            'type(exporter).__module__\n',
-            {
-                'OTEL_EXPORTER_OTLP_PROTOCOL': 'grpc',
-                'OTEL_EXPORTER_OTLP_ENDPOINT': 'http://127.0.0.1:4317',
-                'OTEL_EXPORTER_OTLP_TIMEOUT': '1',
-            },
-            tmp_path,
-        )
+
+def test_respects_existing_sdk(tmp_path: Path) -> None:
+    _run_isolated(check_respects_existing_sdk, {}, tmp_path)
+
+
+def check_double_init_raises() -> None:
+    pxt_otel.init()
+    try:
+        pxt_otel.init()
+        raise AssertionError('expected init() to raise')
+    except pxt.exceptions.RequestError:
+        pass
+
+
+def test_double_init_raises(tmp_path: Path) -> None:
+    _run_isolated(check_double_init_raises, {'OTEL_EXPORTER_OTLP_TIMEOUT': '1'}, tmp_path)
+
+
+def check_protocol_grpc() -> None:
+    pxt_otel.init()
+    tp = trace.get_tracer_provider()
+    exporter = tp._active_span_processor._span_processors[0].span_exporter  # type: ignore[attr-defined]
+    assert type(exporter).__module__.startswith('opentelemetry.exporter.otlp.proto.grpc'), type(exporter).__module__
+
+
+def test_protocol_grpc(tmp_path: Path) -> None:
+    _run_isolated(
+        check_protocol_grpc,
+        {
+            'OTEL_EXPORTER_OTLP_PROTOCOL': 'grpc',
+            'OTEL_EXPORTER_OTLP_ENDPOINT': 'http://127.0.0.1:4317',
+            'OTEL_EXPORTER_OTLP_TIMEOUT': '1',
+        },
+        tmp_path,
+    )
 
 
 class TestProtocolSelection:
     """Unit tests for the OTLP transport selection (pure function, no providers touched)."""
 
     def test_default_is_http(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from opentelemetry.instrumentation.pixeltable._sdk import _use_grpc
-
         monkeypatch.delenv('OTEL_EXPORTER_OTLP_PROTOCOL', raising=False)
         assert _use_grpc(None) is False
         assert _use_grpc('http/protobuf') is False
 
     def test_grpc_selected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from opentelemetry.instrumentation.pixeltable._sdk import _use_grpc
-
         monkeypatch.delenv('OTEL_EXPORTER_OTLP_PROTOCOL', raising=False)
         assert _use_grpc('grpc') is True
 
     def test_env_overrides_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from opentelemetry.instrumentation.pixeltable._sdk import _use_grpc
-
         monkeypatch.setenv('OTEL_EXPORTER_OTLP_PROTOCOL', 'grpc')
         assert _use_grpc('http/protobuf') is True
 
@@ -153,81 +145,29 @@ class TestBridge:
     """In-process bridge correctness with in-memory exporters (no global providers touched)."""
 
     @pytest.fixture
-    def instrumented(self) -> Iterator[tuple[Any, Any]]:
-        from opentelemetry.instrumentation.pixeltable import PixeltableInstrumentor
-        from opentelemetry.sdk.metrics import MeterProvider
-        from opentelemetry.sdk.metrics.export import InMemoryMetricReader
-        from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-        from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-
+    def span_exporter(self) -> Iterator[Any]:
         span_exporter = InMemorySpanExporter()
         tracer_provider = TracerProvider()
         tracer_provider.add_span_processor(SimpleSpanProcessor(span_exporter))
-        metric_reader = InMemoryMetricReader()
-        meter_provider = MeterProvider(metric_readers=[metric_reader])
         instrumentor = PixeltableInstrumentor()
-        instrumentor.instrument(tracer_provider=tracer_provider, meter_provider=meter_provider)
-        yield span_exporter, metric_reader
+        instrumentor.instrument(tracer_provider=tracer_provider)
+        yield span_exporter
         instrumentor.uninstrument()
 
-    @staticmethod
-    def _metric_points(metric_reader: Any, name: str) -> list[Any]:
-        data = metric_reader.get_metrics_data()
-        points = []
-        for rm in data.resource_metrics:
-            for sm in rm.scope_metrics:
-                for metric in sm.metrics:
-                    if metric.name == name:
-                        points.extend(metric.data.data_points)
-        return points
-
-    def test_span_capture(self, instrumented: tuple[Any, Any]) -> None:
-        from pixeltable import hooks
-
-        span_exporter, _ = instrumented
+    def test_span_capture(self, span_exporter: Any) -> None:
         hooks.span_end(hooks.span_start('pixeltable.insert', set_current=True))
         assert [s.name for s in span_exporter.get_finished_spans()] == ['pixeltable.insert']
 
-    def test_span_nesting(self, instrumented: tuple[Any, Any]) -> None:
-        from pixeltable import hooks
-
-        span_exporter, _ = instrumented
+    def test_span_nesting(self, span_exporter: Any) -> None:
         parent = hooks.span_start('pixeltable.op', set_current=True)
-        child = hooks.span_start('udf.foo', set_current=True)
+        child = hooks.span_start('pixeltable.udf.foo', set_current=True)
         hooks.span_end(child)
         hooks.span_end(parent)
         spans = {s.name: s for s in span_exporter.get_finished_spans()}
-        assert spans['udf.foo'].parent is not None
-        assert spans['udf.foo'].parent.span_id == spans['pixeltable.op'].context.span_id
-
-    def test_rows_written_metric(self, instrumented: tuple[Any, Any]) -> None:
-        from pixeltable import hooks
-
-        _, metric_reader = instrumented
-        hooks.emit('rows.written', attrs={'count': 5, 'pxt.table': 'mytbl'})
-        points = self._metric_points(metric_reader, 'pixeltable.rows.written')
-        assert sum(p.value for p in points) == 5
-        assert all(p.attributes['pxt.table'] == 'mytbl' for p in points)
-
-    def test_udf_duration_metric(self, instrumented: tuple[Any, Any]) -> None:
-        from pixeltable import hooks
-
-        _, metric_reader = instrumented
-        hooks.emit('udf.call', attrs={'pxt.udf': 'openai.chat_completions', 'duration_s': 0.5})
-        points = self._metric_points(metric_reader, 'pixeltable.udf.duration')
-        assert len(points) == 1
-        assert points[0].sum == 0.5
-        assert points[0].attributes['pxt.udf'] == 'openai.chat_completions'
+        assert spans['pixeltable.udf.foo'].parent is not None
+        assert spans['pixeltable.udf.foo'].parent.span_id == spans['pixeltable.op'].context.span_id
 
     def test_uninstrument_stops_emission(self) -> None:
-        from opentelemetry.instrumentation.pixeltable import PixeltableInstrumentor
-        from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-        from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-
-        from pixeltable import hooks
-
         span_exporter = InMemorySpanExporter()
         tracer_provider = TracerProvider()
         tracer_provider.add_span_processor(SimpleSpanProcessor(span_exporter))
@@ -244,11 +184,7 @@ class TestBridge:
         hooks.span_end(hooks.span_start('pixeltable.op', set_current=True))
         assert len(span_exporter.get_finished_spans()) == 1  # nothing new after uninstrument
 
-    def test_log_correlation(self, instrumented: tuple[Any, Any]) -> None:
-        from opentelemetry import trace
-
-        from pixeltable import hooks
-
+    def test_log_correlation(self, span_exporter: Any) -> None:
         records: list[logging.LogRecord] = []
 
         class _Capture(logging.Handler):

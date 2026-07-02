@@ -107,7 +107,9 @@ class FnCallEvaluator(Evaluator):
         # DEBUG so cell spans emit/suppress in lockstep with the row span they nest under.
         # set_current so provider instrumentors parent their spans here; each task copies the context at
         # creation, so the ambient span is task-specific and concurrent UDF calls don't see each other's
-        return hooks.span(f'udf.{self.fn.display_name}', level=hooks.DEBUG, parent=row.span, set_current=True)
+        return hooks.span(
+            f'pixeltable.udf.{self.fn.display_name}', level=hooks.DEBUG, parent=row.span, set_current=True
+        )
 
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
         assert self.fn_call.slot_idx >= 0
@@ -198,8 +200,8 @@ class FnCallEvaluator(Evaluator):
         result_batch: list[Any]
         try:
             # batched calls process many rows in one invocation, so they can't nest under a single row
-            # span; emit one span under the ambient operation span instead (see per-row span design)
-            with hooks.span(f'udf.{self.fn.display_name}', batch_size=len(batched_call_args.rows)):
+            # span; emit one span under the ambient operation span instead
+            with hooks.span(f'pixeltable.udf.{self.fn.display_name}', batch_size=len(batched_call_args.rows)):
                 if self.fn.is_async:
                     result_batch = await self.fn.aexec_batch(
                         *batched_call_args.batch_args, **batched_call_args.batch_kwargs

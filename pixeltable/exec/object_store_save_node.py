@@ -319,9 +319,7 @@ class ObjectStoreSaveNode(ExecNode):
         """
         hooks_token = hooks.restore_context(hooks_ctx)
         try:
-            # the span sits inside the try so a failed save is recorded on it before being converted
-            # into a return value
-            with hooks.span('media.save', level=hooks.DEBUG, destination=work_item.destination):
+            with hooks.span('pixeltable.media.save', level=hooks.DEBUG, destination=work_item.destination):
                 new_file_url = ObjectOps.put_file_resolved(
                     work_item.store, work_item.src_path, work_item.dest, work_item.destination_count == 1
                 )

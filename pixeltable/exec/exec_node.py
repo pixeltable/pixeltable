@@ -141,7 +141,8 @@ class ExecNode(abc.ABC):
         # benefits)
         result_queue: queue.Queue = queue.Queue(maxsize=2)
         caller_runtime = get_runtime()
-        # carry the ambient instrumentation span across the thread boundary so plan spans nest correctly
+        # carry the ambient instrumentation span across the thread boundary so spans reported on the
+        # worker thread nest under it
         hooks_ctx = hooks.capture_context()
 
         def run() -> None:

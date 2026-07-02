@@ -429,6 +429,8 @@ class Catalog(CatalogBase):
                             raise
 
                     assert not self._undo_actions
+                    # success: end the attempt span here so it covers only the acquisition, not the
+                    # caller's work under the yield; the finally below then sees None and no-ops
                     hooks.span_end(xact_span)
                     xact_span = None
                     yield conn
@@ -458,8 +460,9 @@ class Catalog(CatalogBase):
                 raise
 
             finally:
-                # still non-None here means this attempt failed; attempt_exc is None on retry `continue`s
-                # (the attempt span ends clean; the retry shows up as a sibling); no-op after the yield
+                # failure: xact_span is still non-None only if this attempt failed before the yield;
+                # attempt_exc is None on retry `continue`s (the attempt span ends clean and the retry
+                # shows up as a sibling), non-None when the attempt raised
                 hooks.span_end(xact_span, exc=attempt_exc)
                 xact_span = None
                 self._in_write_xact = False

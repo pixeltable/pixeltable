@@ -42,7 +42,7 @@ class TestInsertTracing:
             assert len(rows) == 5
             assert all(r['parent_id'] == op['id'] for r in rows)
             row_ids = {r['id'] for r in rows}
-            udfs = [s for s in sub.spans if s['name'] == 'udf.add_one']
+            udfs = [s for s in sub.spans if s['name'] == 'pixeltable.udf.add_one']
             assert len(udfs) == 5
             assert all(u['parent_id'] in row_ids for u in udfs)
             assert all(u['set_current'] for u in udfs)  # provider instrumentors must nest under the UDF span
@@ -61,7 +61,7 @@ class TestInsertTracing:
 
             assert sub.find('pixeltable.insert')  # operation span (INFO) still emits
             assert [s for s in sub.spans if s['name'] == 'pixeltable.row'] == []
-            assert [s for s in sub.spans if s['name'].startswith('udf.')] == []
+            assert [s for s in sub.spans if s['name'].startswith('pixeltable.udf.')] == []
         finally:
             hooks.unsubscribe(sub)
 
@@ -122,7 +122,7 @@ class TestInsertTracing:
             # a query computes add_one on the fly but has no operation span wrapping it
             _ = t.select(out=add_one(t.c)).collect()
             assert [s for s in sub.spans if s['name'] == 'pixeltable.row'] == []
-            assert [s for s in sub.spans if s['name'].startswith('udf.')] == []
+            assert [s for s in sub.spans if s['name'].startswith('pixeltable.udf.')] == []
         finally:
             hooks.unsubscribe(sub)
             hooks.set_span_level(hooks.INFO)
