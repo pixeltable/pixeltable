@@ -25,7 +25,7 @@ _logger = logging.getLogger(__name__)
 
 _DEFAULT_PORT = 9000
 _CONNECT_TIMEOUT = 30.0
-_RPC_TIMEOUT = 120.0
+_RPC_TIMEOUT = 1800.0
 
 
 class ProxyCloudClient(proxy_client.ProxyClient):
@@ -64,6 +64,15 @@ class ProxyCloudClient(proxy_client.ProxyClient):
             ctx.verify_mode = ssl.CERT_NONE
         raw_sock = socket.create_connection((self._host, self._port), timeout=_CONNECT_TIMEOUT)
         raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        raw_sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        # TCP_KEEPIDLE is Linux; macOS uses TCP_KEEPALIVE for the same purpose
+        keepidle = getattr(socket, 'TCP_KEEPIDLE', None) or getattr(socket, 'TCP_KEEPALIVE', None)
+        if keepidle is not None:
+            raw_sock.setsockopt(socket.IPPROTO_TCP, keepidle, 60)
+        if hasattr(socket, 'TCP_KEEPINTVL'):
+            raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 30)
+        if hasattr(socket, 'TCP_KEEPCNT'):
+            raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 5)
         ssl_sock = ctx.wrap_socket(raw_sock, server_hostname=self._host)
 
         frame = f'PXT/1.0 CONNECT {self._org}/{self._db}\r\nAuthorization: Bearer {self._api_key}\r\n\r\n'
@@ -82,6 +91,10 @@ class ProxyCloudClient(proxy_client.ProxyClient):
             ssl_sock.close()
             raise PermissionError(f'PXT/1.0 handshake rejected: {first_line}')
 
+        # Switch from the connect-phase timeout to the RPC timeout now that the
+        # handshake is done. ssl_sock inherited _CONNECT_TIMEOUT from raw_sock;
+        # without this the socket would time out on any RPC that takes > 30s.
+        ssl_sock.settimeout(_RPC_TIMEOUT)
         self._ssl_sock = ssl_sock
         # Wrap the already-connected socket in an HTTPConnection so we can use the
         # standard HTTP framing without reimplementing it.

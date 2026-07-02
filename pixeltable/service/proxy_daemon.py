@@ -368,8 +368,9 @@ def _serve() -> None:
     daemon_host = config.get_string_value('DAEMON_HOST')
     daemon_port = config.get_int_value('DAEMON_PORT')
 
+    log_level = (config.get_string_value('LOG_LEVEL') or 'info').lower()
     if daemon_host is not None or daemon_port is not None:
-        uvicorn.run(app, host=daemon_host or '0.0.0.0', port=daemon_port or 8000, log_level='info')
+        uvicorn.run(app, host=daemon_host or '0.0.0.0', port=daemon_port or 8000, log_level=log_level)
         return
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
