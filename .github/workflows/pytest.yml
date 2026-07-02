@@ -177,9 +177,10 @@ jobs:
         # cmake is needed for certain CI environments where it is not preinstalled.
         run: ./scripts/retry.sh 3 30 conda install -y -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==6.1.1=gpl*'
       - name: Install ollama
-        if: ${{ matrix.uv-options == '' && startsWith(matrix.os, 'ubuntu') && matrix.python-version == '3.10' }}
+        if: ${{ contains(matrix.name, '+') || contains(matrix.name, 'notebooks') }}
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve &  # Start the ollama server if it didn't start via install.sh
           sleep 10  # Wait for the ollama server to start
           # Pull the models used for testing now, with retries, to safeguard against connection issues
           ./scripts/retry.sh 3 30 ollama pull 'qwen3:0.6b'
