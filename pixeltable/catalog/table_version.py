@@ -238,13 +238,16 @@ class TableVersion:
         create_default_idxs: bool,
         view_md: schema.ViewMd | None,
         is_versioned: bool,
+        tbl_id: uuid.UUID | None = None,
     ) -> TableVersionMd:
         from .table_version_handle import TableVersionHandle
 
         user = Env.get().user
         timestamp = time.time()
 
-        tbl_id = uuid.uuid4()
+        if tbl_id is None:
+            # tbl_id not specified; create a new one.
+            tbl_id = uuid.uuid4()
         tbl_id_str = str(tbl_id)
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
         column_ids = itertools.count()

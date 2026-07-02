@@ -651,6 +651,9 @@ class LocalTable(Table):
         embedding: pxt.Function | None = None,
         string_embed: pxt.Function | None = None,
         image_embed: pxt.Function | None = None,
+        audio_embed: pxt.Function | None = None,
+        video_embed: pxt.Function | None = None,
+        document_embed: pxt.Function | None = None,
         metric: Literal['cosine', 'ip', 'l2'] = 'cosine',
         precision: Literal['fp16', 'fp32'] = 'fp16',
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
@@ -698,6 +701,9 @@ class LocalTable(Table):
                 embed=embedding,
                 string_embed=string_embed,
                 image_embed=image_embed,
+                audio_embed=audio_embed,
+                video_embed=video_embed,
+                document_embed=document_embed,
                 column=col,  # Pass column for shape validation
             )
             _ = idx.create_value_expr(col)  # validation only; result discarded
