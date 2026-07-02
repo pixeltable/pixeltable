@@ -21,6 +21,7 @@ class ServiceOperationType(str, Enum):
     STOP_SERVICE = 'stop_service'
     DELETE_SERVICE = 'delete_service'
     LIST_SERVICE_RUNS = 'list_service_runs'
+    GET_SERVICE_RUN = 'get_service_run'
 
     SET_SECRET = 'set_secret'
     DELETE_SECRET = 'delete_secret'

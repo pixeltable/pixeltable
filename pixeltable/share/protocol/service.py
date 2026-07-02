@@ -183,6 +183,14 @@ class ListServiceRunsRequest(BaseModel):
     service_name: str
 
 
+class GetServiceRunRequest(BaseModel):
+    operation_type: str = ServiceOperationType.GET_SERVICE_RUN
+    org_slug: Optional[str] = None
+    db_slug: str
+    service_name: str
+    run_id: str
+
+
 # ── Secrets ───────────────────────────────────────────────────────────────────
 
 
