@@ -106,6 +106,15 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
             error_dict['detail'] = tb
         return _encode_response(ProxyResponse(error=error_dict))
 
+    finally:
+        # best-effort removal of this request's uploaded temp files; missing_ok covers a file that a handler moved
+        # into a reassembled directory (those directories are removed by the handler that creates them)
+        for temp_path in request._uploaded_names:
+            try:
+                pathlib.Path(temp_path).unlink(missing_ok=True)
+            except OSError:
+                pass
+
 
 def _result_local_path(val: str) -> pathlib.Path | None:
     """Resolve a result media value to a local fs path (bare path or file:// URI), or None for a remote URL."""
@@ -270,12 +279,12 @@ def _insert(request: ProxyRequest, tbl: LocalTable) -> Any:
 
 
 def _insert_source(request: ProxyRequest, tbl: LocalTable) -> Any:
-    # only an InsertableTableProxy dispatches 'insert_source', so a non-InsertableTable here is an internal error
     assert isinstance(tbl, InsertableTable), tbl
     kwargs = _deserialize_args(request)
     # 'source' is a local temp path (a sent file), a remote URL string, or a list of temp paths (a sent
     # directory). tbl.insert() reads a local path or a URL directly; a directory is reassembled here.
     source = kwargs['source']
+    dest_dir: pathlib.Path | None = None
     if isinstance(source, list):
         # reassemble the sent directory, keeping its original name so format detection (e.g. by a *.parquet
         # name) matches the local path
@@ -284,15 +293,19 @@ def _insert_source(request: ProxyRequest, tbl: LocalTable) -> Any:
         for path in source:
             shutil.move(path, dest_dir / pathlib.Path(path).name)
         source = str(dest_dir)
-    return tbl.insert(
-        source,
-        source_format=kwargs['source_format'],
-        schema_overrides=kwargs['schema_overrides'],
-        on_error=kwargs['on_error'],
-        print_stats=kwargs['print_stats'],
-        return_rows=kwargs['return_rows'],
-        **(kwargs['extra_fields'] or {}),
-    )
+    try:
+        return tbl.insert(
+            source,
+            source_format=kwargs['source_format'],
+            schema_overrides=kwargs['schema_overrides'],
+            on_error=kwargs['on_error'],
+            print_stats=kwargs['print_stats'],
+            return_rows=kwargs['return_rows'],
+            **(kwargs['extra_fields'] or {}),
+        )
+    finally:
+        if dest_dir is not None:
+            shutil.rmtree(dest_dir, ignore_errors=True)
 
 
 def _insert_hf_dataset(request: ProxyRequest, tbl: LocalTable) -> Any:
@@ -303,19 +316,22 @@ def _insert_hf_dataset(request: ProxyRequest, tbl: LocalTable) -> Any:
     # reassemble the sent save_to_disk() directory: each entry pairs a relative path with a local temp file
     # holding the sent bytes
     dataset_dir = TempStore.create_path()
-    for entry in kwargs['files']:
-        dest = dataset_dir / entry['relpath']
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(entry['upload'], dest)
-    dataset = datasets.load_from_disk(str(dataset_dir))
-    return tbl.insert(
-        dataset,
-        schema_overrides=kwargs['schema_overrides'],
-        on_error=kwargs['on_error'],
-        print_stats=kwargs['print_stats'],
-        return_rows=kwargs['return_rows'],
-        **(kwargs['extra_fields'] or {}),
-    )
+    try:
+        for entry in kwargs['files']:
+            dest = dataset_dir / entry['relpath']
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(entry['upload'], dest)
+        dataset = datasets.load_from_disk(str(dataset_dir))
+        return tbl.insert(
+            dataset,
+            schema_overrides=kwargs['schema_overrides'],
+            on_error=kwargs['on_error'],
+            print_stats=kwargs['print_stats'],
+            return_rows=kwargs['return_rows'],
+            **(kwargs['extra_fields'] or {}),
+        )
+    finally:
+        shutil.rmtree(dataset_dir, ignore_errors=True)
 
 
 def _insert_sql_source(request: ProxyRequest, tbl: LocalTable) -> Any:

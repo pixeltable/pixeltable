@@ -11,11 +11,8 @@ class TestPath:
     def test_valid_identifier(self) -> None:
         valid_ids = ['a', 'a1', 'a_1', 'a_']
         invalid_ids = ['', '_', '__', '_a', '1a', 'a.b', '.a', 'a-b']
-        for valid_id in valid_ids:
-            assert is_valid_identifier(valid_id), valid_ids
-
-        for invalid_id in invalid_ids:
-            assert not is_valid_identifier(invalid_id), invalid_ids
+        assert all(is_valid_identifier(i) for i in valid_ids)
+        assert not any(is_valid_identifier(i) for i in invalid_ids)
 
     def test_valid_path(self) -> None:
         """Test path validation using Path.parse()."""
