@@ -238,15 +238,18 @@ class InsertableTableProxy(TableProxy):
         result = sql_source.conn.execute(  # type: ignore[call-overload]
             sql_source.select_stmt, execution_options={'stream_results': True}
         )
-        for sa_row in result:
-            row: dict[str, Any] = {}
-            for name, val in zip(sql_source.col_names, sa_row, strict=True):
-                if val is None and not schema[name].nullable:
-                    raise excs.RequestError(
-                        excs.ErrorCode.UNSUPPORTED_OPERATION, f'Error in column {name}: expected non-None value'
-                    )
-                row[name] = val
-            yield row
+        try:
+            for sa_row in result:
+                row: dict[str, Any] = {}
+                for name, val in zip(sql_source.col_names, sa_row, strict=True):
+                    if val is None and not schema[name].nullable:
+                        raise excs.RequestError(
+                            excs.ErrorCode.UNSUPPORTED_OPERATION, f'Error in column {name}: expected non-None value'
+                        )
+                    row[name] = val
+                yield row
+        finally:
+            result.close()
 
     def _insert_sql(
         self, sql_source: 'SqlDataSource', *, on_error: Literal['abort', 'ignore'], print_stats: bool, return_rows: bool

@@ -439,9 +439,8 @@ class ProxyResultCursor(ResultCursor):
                 if isinstance(val, str):
                     val = local_paths.get(val, val)
                     if is_img:
-                        img = PIL.Image.open(val)
-                        img.load()
-                        val = img
+                        with PIL.Image.open(val) as img:
+                            val = img.copy()
                     row[i] = val
 
 
