@@ -11,25 +11,26 @@ from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.share.protocol.database import (
+    CreateDatabaseRequest,
+    DeleteDatabaseRequest,
     DeleteSecretRequest,
+    GetDatabaseRequest,
+    ListDatabaseRequest,
     ListSecretsRequest,
     SetSecretRequest,
+    StartDatabaseRequest,
+    StopDatabaseRequest,
+    UpdateDatabaseRequest,
+    UpdateRuntimeRequest,
 )
 from pixeltable.share.protocol.service import (
-    CreateDatabaseRequest,
     CreateServiceRequest,
-    DeleteDatabaseRequest,
     DeleteServiceRequest,
-    GetDatabaseRequest,
     GetServiceRequest,
-    ListDatabasesRequest,
     ListOrgsRequest,
     ListServicesRequest,
-    StartDatabaseRequest,
     StartServiceRequest,
-    StopDatabaseRequest,
     StopServiceRequest,
-    UpdateRuntimeRequest,
 )
 
 PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.pixeltable.com')
@@ -65,9 +66,9 @@ def _post(request: Any) -> dict[str, Any]:
 
 
 def database_create(
-    org_slug: str, db_name: str, location: str = 'aws', region: str = 'us-east-1', json_output: bool = False
+    org_slug: str, db_slug: str, location: str = 'aws', region: str = 'us-east-1', json_output: bool = False
 ) -> dict[str, Any]:
-    resp = _post(CreateDatabaseRequest(org_slug=org_slug, db_name=db_name, location=location, region=region))
+    resp = _post(CreateDatabaseRequest(org_slug=org_slug, db_slug=db_slug, location=location))
     db = resp['database']
     if json_output:
         import json
@@ -78,8 +79,8 @@ def database_create(
     return db
 
 
-def database_get(org_slug: str, db_name: str, json_output: bool = False) -> dict[str, Any]:
-    resp = _post(GetDatabaseRequest(org_slug=org_slug, db_name=db_name))
+def database_get(org_slug: str, db_slug: str, json_output: bool = False) -> dict[str, Any]:
+    resp = _post(GetDatabaseRequest(org_slug=org_slug, db_slug=db_slug))
     db = resp['database']
     if json_output:
         import json
@@ -91,7 +92,7 @@ def database_get(org_slug: str, db_name: str, json_output: bool = False) -> dict
 
 
 def database_list(org_slug: str, json_output: bool = False) -> list[dict[str, Any]]:
-    resp = _post(ListDatabasesRequest(org_slug=org_slug))
+    resp = _post(ListDatabaseRequest(org_slug=org_slug))
     dbs = resp.get('databases', [])
     if json_output:
         import json
@@ -105,14 +106,14 @@ def database_list(org_slug: str, json_output: bool = False) -> list[dict[str, An
     return dbs
 
 
-def database_delete(org_slug: str, db_name: str, json_output: bool = False) -> None:
-    _post(DeleteDatabaseRequest(org_slug=org_slug, db_name=db_name))
+def database_delete(org_slug: str, db_slug: str, json_output: bool = False) -> None:
+    _post(DeleteDatabaseRequest(org_slug=org_slug, db_slug=db_slug))
     if json_output:
         import json
 
-        print(json.dumps({'deleted': db_name}))
+        print(json.dumps({'deleted': db_slug}))
     else:
-        print(f"Deleted database '{db_name}'.")
+        print(f"Deleted database '{db_slug}'.")
 
 
 def database_start(db_slug: str, org_slug: str | None = None, json_output: bool = False) -> None:
@@ -176,7 +177,7 @@ def org_list(json_output: bool = False) -> list[dict]:
 
 def service_create(
     org_slug: str,
-    db_name: str,
+    db_slug: str,
     service_name: str,
     table_path: str,
     workers_min: int = 1,
@@ -186,11 +187,10 @@ def service_create(
     resp = _post(
         CreateServiceRequest(
             org_slug=org_slug,
-            db_name=db_name,
+            db_slug=db_slug,
             service_name=service_name,
             table_path=table_path,
             workers_min=workers_min,
-            workers_max=workers_max,
         )
     )
     svc = resp['service']
@@ -203,8 +203,8 @@ def service_create(
     return svc
 
 
-def service_get(org_slug: str, db_name: str, service_name: str, json_output: bool = False) -> dict[str, Any]:
-    resp = _post(GetServiceRequest(org_slug=org_slug, db_name=db_name, service_name=service_name))
+def service_get(org_slug: str, db_slug: str, service_name: str, json_output: bool = False) -> dict[str, Any]:
+    resp = _post(GetServiceRequest(org_slug=org_slug, db_slug=db_slug, service_name=service_name))
     svc = resp['service']
     if json_output:
         import json
@@ -215,15 +215,15 @@ def service_get(org_slug: str, db_name: str, service_name: str, json_output: boo
     return svc
 
 
-def service_list(org_slug: str, db_name: str, json_output: bool = False) -> list[dict[str, Any]]:
-    resp = _post(ListServicesRequest(org_slug=org_slug, db_name=db_name))
+def service_list(org_slug: str, db_slug: str, json_output: bool = False) -> list[dict[str, Any]]:
+    resp = _post(ListServicesRequest(org_slug=org_slug, db_slug=db_slug))
     svcs = resp.get('services', [])
     if json_output:
         import json
 
         print(json.dumps(svcs))
     elif not svcs:
-        print(f"No services in database '{db_name}'.")
+        print(f"No services in database '{db_slug}'.")
     else:
         for svc in svcs:
             _print_service(svc)
@@ -232,7 +232,7 @@ def service_list(org_slug: str, db_name: str, json_output: bool = False) -> list
 
 def service_start(
     org_slug: str,
-    db_name: str,
+    db_slug: str,
     service_name: str,
     workers_min: int | None = None,
     workers_max: int | None = None,
@@ -241,10 +241,8 @@ def service_start(
     resp = _post(
         StartServiceRequest(
             org_slug=org_slug,
-            db_name=db_name,
+            db_slug=db_slug,
             service_name=service_name,
-            workers_min=workers_min,
-            workers_max=workers_max,
         )
     )
     svc = resp['service']
@@ -257,8 +255,8 @@ def service_start(
     return svc
 
 
-def service_stop(org_slug: str, db_name: str, service_name: str, json_output: bool = False) -> dict[str, Any]:
-    resp = _post(StopServiceRequest(org_slug=org_slug, db_name=db_name, service_name=service_name))
+def service_stop(org_slug: str, db_slug: str, service_name: str, json_output: bool = False) -> dict[str, Any]:
+    resp = _post(StopServiceRequest(org_slug=org_slug, db_slug=db_slug, service_name=service_name))
     svc = resp['service']
     if json_output:
         import json
@@ -269,8 +267,8 @@ def service_stop(org_slug: str, db_name: str, service_name: str, json_output: bo
     return svc
 
 
-def service_delete(org_slug: str, db_name: str, service_name: str, json_output: bool = False) -> None:
-    _post(DeleteServiceRequest(org_slug=org_slug, db_name=db_name, service_name=service_name))
+def service_delete(org_slug: str, db_slug: str, service_name: str, json_output: bool = False) -> None:
+    _post(DeleteServiceRequest(org_slug=org_slug, db_slug=db_slug, service_name=service_name))
     if json_output:
         import json
 

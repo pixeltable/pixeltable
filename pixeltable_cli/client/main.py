@@ -30,18 +30,9 @@ COMMANDS: dict[str, str] = {
     'daemon': 'control the daemon (start/stop/restart/status)',
     'localproxy': 'manage local proxy daemons (create/start/stop/delete)',
     'dashboard': 'print and open the dashboard URL',
-    'create-db': 'create a cloud-hosted database',
-    'list-dbs': 'list cloud-hosted databases for an org',
-    'delete-db': 'delete a cloud-hosted database',
-    'start-db': 'start (wake) a stopped cloud-hosted database',
-    'stop-db': 'stop (sleep) a running cloud-hosted database',
-    'update-runtime': 'trigger a runtime rebuild for a cloud-hosted database',
-    'list-orgs': 'list organizations accessible to the current API key',
-    'create-service': 'create a service from a table in a cloud-hosted database',
-    'list-services': 'list services in a cloud-hosted database',
-    'start-service': 'start a service',
-    'stop-service': 'stop a service',
-    'delete-service': 'delete a service',
+    'db': 'manage cloud-hosted databases (create/list/start/stop/delete/update-runtime)',
+    'service': 'manage cloud-hosted services (create/list/start/stop/delete)',
+    'org': 'manage organizations (list)',
 }
 
 

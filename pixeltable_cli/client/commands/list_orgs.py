@@ -7,7 +7,7 @@ from ..parser import Parser
 
 
 def run(argv: list[str]) -> None:
-    parser = Parser(prog='pxt list-orgs', description='List all organizations accessible to the current API key.')
+    parser = Parser(prog='pxt org list', description='List all organizations accessible to the current API key.')
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
 

@@ -7,7 +7,7 @@ from ..parser import Parser
 
 
 def run(argv: list[str]) -> None:
-    parser = Parser(prog='pxt create-service', description='Create a service from a table in a cloud-hosted database.')
+    parser = Parser(prog='pxt service create', description='Create a service from a table in a cloud-hosted database.')
     parser.add_argument('table_uri', help='Table URI: pxt://org:db/tables/<path>')
     parser.add_argument('--name', required=True, help='Service name')
     parser.add_argument('--workers', type=int, default=1, help='Number of workers (default: 1)')
