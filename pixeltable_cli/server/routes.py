@@ -430,7 +430,8 @@ def dashboard_search(req: Request) -> dict[str, Any]:
     limit = req.query_int('limit', default=50, ge=1, le=100)
     if q == '':
         return {'query': '', 'directories': [], 'tables': [], 'columns': []}
-    return bridge.search(q, limit=limit)
+    additional_catalogs = req.query_list('catalogs')
+    return bridge.search(q, additional_db_uris=additional_catalogs or None, limit=limit)
 
 
 @router.get('/api/dashboard/tables/{path:path}/meta')

@@ -1,14 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
 import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelHandle } from 'react-resizable-panels'
 import { Routes, Route, useNavigate, useParams, useLocation } from 'react-router-dom'
-import { DirectoryTree } from '@/components/DirectoryTree'
+import { CatalogTree } from '@/components/CatalogTree'
 import { TableDetailView } from '@/components/TableDetailView'
 import { SearchPanel } from '@/components/SearchPanel'
 import { PipelineInspector } from '@/components/PipelineInspector'
 import { getDirectoryTree, getStatus } from '@/api/client'
 import type { SystemStatus } from '@/api/client'
 import type { TableNode, TreeNode } from '@/types'
-import { cn } from '@/lib/utils'
+import { cn, tableHref, dirHref } from '@/lib/utils'
 import {
   Search,
   GitBranch,
@@ -49,49 +49,61 @@ function TableView() {
 
 // ── Directory View ──────────────────────────────────────────────────────────
 
-function findTreeNode(nodes: TreeNode[], path: string): TreeNode | null {
-  for (const n of nodes) {
-    if (n.path === path) return n
-    if (n.kind === 'directory') {
-      const found = findTreeNode(n.entries ?? [], path)
-      if (found) return found
-    }
-  }
-  return null
-}
-
-function flattenTables(node: TreeNode): TableNode[] {
-  if (node.kind !== 'directory') return []
+function collectTables(nodes: TreeNode[]): TableNode[] {
   const tables: TableNode[] = []
-  for (const c of node.entries ?? []) {
-    if (c.kind === 'directory') tables.push(...flattenTables(c))
-    else tables.push(c)
+  for (const n of nodes) {
+    if (n.kind === 'directory') tables.push(...collectTables(n.entries ?? []))
+    else tables.push(n)
   }
   return tables
 }
 
-function DirectoryView({ tree }: { tree: TreeNode[] }) {
+function DirectoryView() {
   const { '*': dirPath } = useParams()
   const navigate = useNavigate()
+  const [nodes, setNodes] = useState<TreeNode[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  // Resolve the directory by fetching its contents by path, so a directory in any catalog (local or
+  // hosted) is listed the same way; the daemon re-roots each node's path to its catalog.
+  useEffect(() => {
+    if (!dirPath) return
+    setNodes(null)
+    setError(null)
+    getDirectoryTree(dirPath)
+      .then(setNodes)
+      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load directory'))
+  }, [dirPath])
 
   if (!dirPath) return null
 
-  const dirNode = findTreeNode(tree, dirPath)
-  if (!dirNode) return (
-    <div className="flex flex-col items-center justify-center h-64 gap-2 text-muted-foreground">
-      <FolderOpen className="h-8 w-8 opacity-20" />
-      <p className="text-sm">Directory not found</p>
-    </div>
-  )
+  if (error !== null) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-2 text-muted-foreground">
+        <FolderOpen className="h-8 w-8 opacity-20" />
+        <p className="text-sm">Directory not found</p>
+        <p className="text-[11px] text-muted-foreground/60 font-mono">{error}</p>
+      </div>
+    )
+  }
 
-  const tables = flattenTables(dirNode)
+  if (nodes === null) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="w-5 h-5 border-2 border-k-yellow border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  const name = dirPath.split('/').pop() || dirPath
+  const tables = collectTables(nodes)
   const totalErrors = tables.reduce((s, t) => s + t.error_count, 0)
 
   return (
     <div className="flex flex-col h-full p-6 animate-fade-in">
       <div className="flex items-center gap-3 mb-6">
         <FolderOpen className="h-5 w-5 text-k-yellow/60" />
-        <h2 className="text-lg font-semibold text-foreground">{dirNode.name}</h2>
+        <h2 className="text-lg font-semibold text-foreground">{name}</h2>
         <span className="text-xs text-muted-foreground font-mono">{dirPath}</span>
       </div>
 
@@ -122,7 +134,7 @@ function DirectoryView({ tree }: { tree: TreeNode[] }) {
             <tbody>
               {tables.map(t => (
                 <tr key={t.path} className="border-b border-border/20 hover:bg-accent/20 transition-colors cursor-pointer"
-                  onClick={() => navigate(`/table/${t.path}`)}>
+                  onClick={() => navigate(tableHref(t.path))}>
                   <td className="py-2 px-3 font-mono text-xs font-medium">{t.name}</td>
                   <td className="py-2 px-3 text-xs text-muted-foreground">{t.kind}</td>
                   <td className="py-2 px-3 text-xs tabular-nums text-right">
@@ -268,7 +280,7 @@ export default function App() {
   }, [])
 
   const handleSelectItem = (path: string, type: string) => {
-    navigate(type === 'directory' ? `/dir/${path}` : `/table/${path}`)
+    navigate(type === 'directory' ? dirHref(path) : tableHref(path))
   }
 
   const handleSearchSelect = (path: string, type: string) => {
@@ -276,10 +288,12 @@ export default function App() {
     handleSelectItem(path, type)
   }
 
+  // The path is stored as a single encoded URL segment (see tableHref/dirHref), so decode it back to the
+  // raw catalog path the tree nodes carry.
   const selectedPath = location.pathname.startsWith('/table/')
-    ? location.pathname.replace('/table/', '')
+    ? decodeURIComponent(location.pathname.replace('/table/', ''))
     : location.pathname.startsWith('/dir/')
-    ? location.pathname.replace('/dir/', '')
+    ? decodeURIComponent(location.pathname.replace('/dir/', ''))
     : null
 
   const isNavActive = (path: string) => location.pathname === path
@@ -402,8 +416,8 @@ export default function App() {
                 <div className="w-5 h-5 border-2 border-k-yellow border-t-transparent rounded-full animate-spin" />
             </div>
             ) : sidebarOpen ? (
-            <DirectoryTree
-              nodes={tree}
+            <CatalogTree
+              localTree={tree}
               selectedPath={selectedPath}
               onSelect={handleSelectItem}
             />
@@ -470,7 +484,7 @@ export default function App() {
           <Route path="/" element={<div className="flex-1 overflow-auto h-full"><WelcomeView /></div>} />
           <Route path="/lineage" element={<PipelineInspector />} />
           <Route path="/table/*" element={<div className="flex-1 flex flex-col h-full"><TableView /></div>} />
-          <Route path="/dir/*" element={<div className="flex-1 overflow-auto h-full"><DirectoryView tree={tree} /></div>} />
+          <Route path="/dir/*" element={<div className="flex-1 overflow-auto h-full"><DirectoryView /></div>} />
         </Routes>
         </Panel>
       </PanelGroup>

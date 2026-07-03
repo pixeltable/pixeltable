@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { search } from '@/api/client'
+import { loadExtraCatalogs } from '@/lib/catalogs'
 import { useDebounce } from '@/hooks/useDebounce'
 import { cn } from '@/lib/utils'
 import type { SearchResults } from '@/types'
@@ -184,7 +185,7 @@ export function SearchPanel({ isOpen, onClose, onSelect }: SearchPanelProps) {
   useEffect(() => {
     if (!debouncedQuery.trim()) { setResults(null); return }
     setLoading(true)
-    search(debouncedQuery)
+    search(debouncedQuery, loadExtraCatalogs())
       .then(setResults)
       .catch(console.error)
       .finally(() => setLoading(false))

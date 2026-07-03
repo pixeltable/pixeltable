@@ -14,7 +14,7 @@ import type {
   TableMetadata, TableData, DataColumn, ColumnInfo, IndexInfo,
   PipelineNode as PipelineNodeType, PipelineEdge, PipelineVersion,
 } from '@/types'
-import { cn } from '@/lib/utils'
+import { cn, tableHref } from '@/lib/utils'
 import {
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronUp, ChevronDown,
   ImageIcon, Film, Music, FileText,
@@ -1647,7 +1647,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
   return (
     <div className="flex flex-col h-full animate-fade-in">
       {/* ── Header ──────────────────────────────────────────────────── */}
-      <TableHeader metadata={metadata} onTableClick={(path) => navigate(`/table/${path}`)} />
+      <TableHeader metadata={metadata} onTableClick={(path) => navigate(tableHref(path))} />
 
       <div ref={groupContainerRef} className="flex-1 min-h-0 flex flex-col">
       <PanelGroup
@@ -1896,7 +1896,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
             tablePath={tablePath}
             pipelineData={pipelineData}
             pipelineColumns={pipelineColumns}
-            onTableClick={(path) => navigate(`/table/${path}`)}
+            onTableClick={(path) => navigate(tableHref(path))}
             onViewFullLineage={() => navigate('/lineage')}
           />
         </div>

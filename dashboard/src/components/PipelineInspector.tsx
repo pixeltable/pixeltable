@@ -34,7 +34,7 @@ import {
   RefreshCw,
   ExternalLink,
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, tableHref } from '@/lib/utils'
 import { getPipeline } from '@/api/client'
 import type { PipelineNode as PipelineNodeType, PipelineColumn, PipelineResponse } from '@/types'
 import { FUNC_STYLES } from '@/lib/func-styles'
@@ -899,7 +899,7 @@ function PipelineInspectorInner() {
             node={selectedNode}
             onClose={() => setSelectedPath(null)}
             onShowColumnFlow={() => setColumnFlowNode(selectedNode)}
-            onViewTable={(path) => navigate(`/table/${path}`)}
+            onViewTable={(path) => navigate(tableHref(path))}
           />
         )}
       </div>
