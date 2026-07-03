@@ -33,10 +33,6 @@ class ServiceOperationType(str, Enum):
     LIST_SERVICE_RUNS = 'list_service_runs'
     GET_SERVICE_RUN = 'get_service_run'
 
-    SET_SECRET = 'set_secret'
-    DELETE_SECRET = 'delete_secret'
-    LIST_SECRETS = 'list_secrets'
-
     START_DATABASE = 'start_database'
     STOP_DATABASE = 'stop_database'
     UPDATE_DATABASE = 'update_database'
@@ -55,6 +51,9 @@ class DatabaseOperationType(str, Enum):
     STOP_DATABASE = 'stop_database'
     START_DATABASE = 'start_database'
     UPDATE_RUNTIME = 'update_runtime'
+    SET_SECRET = 'set_secret'
+    DELETE_SECRET = 'delete_secret'
+    LIST_SECRETS = 'list_secrets'
 
 
 SERVICE_OPERATIONS = frozenset(ServiceOperationType)

@@ -20,7 +20,7 @@ def run(argv: list[str]) -> None:
         if uri.startswith('pxt://'):
             from pixeltable.catalog.path import Path as PxtPath
 
-            p = PxtPath.parse(uri)
+            p = PxtPath.parse(uri, allow_empty_path=True)
             if p.db is None:
                 parser.error('db_uri must be pxt://org:db')
             database_update_runtime(

@@ -10,19 +10,21 @@ import requests
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
+from pixeltable.share.protocol.database import (
+    DeleteSecretRequest,
+    ListSecretsRequest,
+    SetSecretRequest,
+)
 from pixeltable.share.protocol.service import (
     CreateDatabaseRequest,
     CreateServiceRequest,
     DeleteDatabaseRequest,
-    DeleteSecretRequest,
     DeleteServiceRequest,
     GetDatabaseRequest,
     GetServiceRequest,
     ListDatabasesRequest,
     ListOrgsRequest,
-    ListSecretsRequest,
     ListServicesRequest,
-    SetSecretRequest,
     StartDatabaseRequest,
     StartServiceRequest,
     StopDatabaseRequest,
@@ -280,8 +282,8 @@ def service_delete(org_slug: str, db_name: str, service_name: str, json_output: 
 # ── Secrets ───────────────────────────────────────────────────────────────────
 
 
-def secret_set(org_slug: str, db_name: str, key: str, value: str, json_output: bool = False) -> None:
-    _post(SetSecretRequest(org_slug=org_slug, db_name=db_name, key=key, value=value))
+def secret_set(org_slug: str, db_slug: str | None, key: str, value: str, json_output: bool = False) -> None:
+    _post(SetSecretRequest(org_slug=org_slug, db_slug=db_slug, key=key, value=value))
     if json_output:
         import json
 
@@ -290,8 +292,8 @@ def secret_set(org_slug: str, db_name: str, key: str, value: str, json_output: b
         print(f"Secret '{key}' set.")
 
 
-def secret_delete(org_slug: str, db_name: str, key: str, json_output: bool = False) -> None:
-    _post(DeleteSecretRequest(org_slug=org_slug, db_name=db_name, key=key))
+def secret_delete(org_slug: str, db_slug: str | None, key: str, json_output: bool = False) -> None:
+    _post(DeleteSecretRequest(org_slug=org_slug, db_slug=db_slug, key=key))
     if json_output:
         import json
 
@@ -300,8 +302,8 @@ def secret_delete(org_slug: str, db_name: str, key: str, json_output: bool = Fal
         print(f"Secret '{key}' deleted.")
 
 
-def secret_list(org_slug: str, db_name: str, json_output: bool = False) -> list[str]:
-    resp = _post(ListSecretsRequest(org_slug=org_slug, db_name=db_name))
+def secret_list(org_slug: str, db_slug: str | None, json_output: bool = False) -> list[str]:
+    resp = _post(ListSecretsRequest(org_slug=org_slug, db_slug=db_slug))
     keys = resp.get('keys', [])
     if json_output:
         import json

@@ -73,3 +73,41 @@ class UpdateRuntimeRequest(BaseModel):
     org_slug: Optional[str] = None
     db_slug: str
     runtime_image: Optional[str] = None
+
+
+# ── Secrets ───────────────────────────────────────────────────────────────────
+# db_slug=None → org-scoped secret; db_slug=<slug> → DB-scoped secret.
+# list_secrets returns key names only, never values.
+
+
+class SetSecretRequest(BaseModel):
+    operation_type: Literal[DatabaseOperationType.SET_SECRET] = DatabaseOperationType.SET_SECRET
+    org_slug: str
+    db_slug: Optional[str] = None
+    key: str
+    value: str
+
+
+class SetSecretResponse(BaseModel):
+    key: str
+
+
+class DeleteSecretRequest(BaseModel):
+    operation_type: Literal[DatabaseOperationType.DELETE_SECRET] = DatabaseOperationType.DELETE_SECRET
+    org_slug: str
+    db_slug: Optional[str] = None
+    key: str
+
+
+class DeleteSecretResponse(BaseModel):
+    key: str
+
+
+class ListSecretsRequest(BaseModel):
+    operation_type: Literal[DatabaseOperationType.LIST_SECRETS] = DatabaseOperationType.LIST_SECRETS
+    org_slug: str
+    db_slug: Optional[str] = None
+
+
+class ListSecretsResponse(BaseModel):
+    keys: list[str]

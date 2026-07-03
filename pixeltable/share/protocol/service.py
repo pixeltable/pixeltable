@@ -201,42 +201,6 @@ class GetServiceRunRequest(BaseModel):
     run_id: str
 
 
-# ── Secrets ───────────────────────────────────────────────────────────────────
-
-
-class SetSecretRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.SET_SECRET] = ServiceOperationType.SET_SECRET
-    org_slug: str
-    db_name: str
-    key: str
-    value: str
-
-
-class SetSecretResponse(BaseModel):
-    key: str
-
-
-class DeleteSecretRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.DELETE_SECRET] = ServiceOperationType.DELETE_SECRET
-    org_slug: str
-    db_name: str
-    key: str
-
-
-class DeleteSecretResponse(BaseModel):
-    key: str
-
-
-class ListSecretsRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.LIST_SECRETS] = ServiceOperationType.LIST_SECRETS
-    org_slug: str
-    db_name: str
-
-
-class ListSecretsResponse(BaseModel):
-    keys: list[str]
-
-
 # ── Start / Stop / UpdateRuntime ──────────────────────────────────────────────
 
 
