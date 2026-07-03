@@ -166,6 +166,10 @@ class Env:
         return self._http_address
 
     @property
+    def is_proxy_daemon(self) -> bool:
+        return os.environ.get('PIXELTABLE_PROXY_DAEMON') == '1'
+
+    @property
     def user(self) -> str | None:
         return Config.get().get_string_value('user')
 

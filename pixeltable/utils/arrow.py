@@ -1,7 +1,7 @@
 import datetime
 import io
 import uuid
-from typing import TYPE_CHECKING, Any, Iterator, Mapping, cast
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Mapping, cast
 
 import numpy as np
 import PIL.Image
@@ -187,7 +187,20 @@ def to_record_batches(
     # KNOWN RACE: schema is snapshotted here, outside any xact; query.cursor() below opens
     # its own xact internally and re-resolves the schema. For SELECT * queries, a concurrent
     # schema mutation between these two reads can produce a layout mismatch.
-    schema = query.schema
+    yield from record_batches_from_rows(
+        query.schema, query.cursor(), batch_size_bytes, schema_overrides, on_expr_eval_err=query._raise_expr_eval_err
+    )
+
+
+def record_batches_from_rows(
+    schema: dict[str, ts.ColumnType],
+    rows: Iterable[Mapping[str, Any]],
+    batch_size_bytes: int,
+    schema_overrides: Mapping[str, pa.DataType] | None = None,
+    *,
+    on_expr_eval_err: Callable[[excs.ExprEvalError], Any] | None = None,
+) -> Iterator[pa.RecordBatch]:
+    """Encode rows into arrow RecordBatches, matching the parquet encoding produced for query exports."""
     arrow_schema: pa.Schema | None = None  # initialized after first batch, when we have data to infer struct schemas
     batch_columns: dict[str, list[Any]] = {k: [] for k in schema}
     current_byte_estimate = 0
@@ -200,7 +213,7 @@ def to_record_batches(
         if arrow_schema is not None:
             return
         pa_column_types: dict[str, pa.DataType] = {}
-        for col_name, col_type in query.schema.items():
+        for col_name, col_type in schema.items():
             if schema_overrides is not None and col_name in schema_overrides:
                 pa_column_types[col_name] = schema_overrides[col_name]
             elif col_type.is_json_type():
@@ -218,7 +231,7 @@ def to_record_batches(
         arrow_schema = pa.schema(pa_column_types.items())
 
     try:
-        for data_row in query.cursor():
+        for data_row in rows:
             num_batch_rows += 1
             for col_name, col_type in schema.items():
                 val = data_row[col_name]
@@ -231,10 +244,10 @@ def to_record_batches(
                 if col_type.is_image_type():
                     # images get inlined into the parquet file
                     if isinstance(val, PIL.Image.Image):
-                        # Only ImageFile subclasses (loaded via Image.open) have .filename;
-                        # in-memory images (resize/convert/Image.new) do not set it at all.
+                        # An ImageFile loaded from disk has a non-empty .filename; an in-memory image has either no
+                        # .filename attribute or an empty one.
                         filename = getattr(val, 'filename', None)
-                        if filename is not None:
+                        if filename:
                             # read the original file directly to preserve format and avoid lossy re-encoding
                             with open(filename, 'rb') as f:
                                 val = f.read()
@@ -242,7 +255,8 @@ def to_record_batches(
                             buf = io.BytesIO()
                             val.save(buf, format='png')
                             val = buf.getvalue()
-                    else:
+                    elif not isinstance(val, bytes):
+                        # already-encoded image bytes pass through unchanged
                         raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'unknown image type {type(val)}')
                     val_size_bytes = len(val)
                 elif col_type.is_uuid_type():
@@ -285,18 +299,20 @@ def to_record_batches(
                         col_name: json_batch_size[col_name] // num_batch_rows for col_name in json_batch_size
                     }
                 create_arrow_schema()
-                record_batch = _to_record_batch(batch_columns, arrow_schema, query.schema, schema_overrides)
+                record_batch = _to_record_batch(batch_columns, arrow_schema, schema, schema_overrides)
                 yield record_batch
                 batch_columns = {k: [] for k in schema}
                 current_byte_estimate = 0
                 num_batch_rows = 0
 
     except excs.ExprEvalError as e:
-        query._raise_expr_eval_err(e)
+        if on_expr_eval_err is not None:
+            on_expr_eval_err(e)
+        raise
 
     if num_batch_rows > 0:
         create_arrow_schema()
-        record_batch = _to_record_batch(batch_columns, arrow_schema, query.schema, schema_overrides)
+        record_batch = _to_record_batch(batch_columns, arrow_schema, schema, schema_overrides)
         yield record_batch
 
 

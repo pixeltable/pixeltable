@@ -49,18 +49,18 @@ def export_sql(
         query = table_or_query
 
     engine = sql.create_engine(db_connect_str)
-    target = sql_utils.resolve_table(
-        engine=engine,
-        table_name=target_table_name,
-        schema_name=target_schema_name,
-        source_schema=query.schema,
-        if_exists=if_exists,
-        if_not_exists=if_not_exists,
-        error_prefix='export_sql()',
-    )
-
-    batch_size = 16 * 1024
     try:
+        target = sql_utils.resolve_table(
+            engine=engine,
+            table_name=target_table_name,
+            schema_name=target_schema_name,
+            source_schema=query.schema,
+            if_exists=if_exists,
+            if_not_exists=if_not_exists,
+            error_prefix='export_sql()',
+        )
+
+        batch_size = 16 * 1024
         batch: list[dict] = []
         with engine.connect() as target_conn:
             for data_row in query.cursor():
@@ -77,6 +77,8 @@ def export_sql(
 
     except excs.ExprEvalError as e:
         query._raise_expr_eval_err(e)
+    finally:
+        engine.dispose()
 
 
 def import_sql(
@@ -90,6 +92,7 @@ def import_sql(
     custom_metadata: Any = None,
     if_exists: Literal['error', 'append'] = 'error',
     on_error: Literal['abort', 'ignore'] = 'abort',
+    send_connect_url: bool = False,
 ) -> pxt.Table:
     """Import a SQL source into a Pixeltable table.
 
@@ -124,6 +127,13 @@ def import_sql(
             - If `on_error='ignore'`, then execution will continue and the rows will be inserted. Any cells
               with errors will have a `None` value for that cell, with information about the error stored in the
               corresponding `tbl.col_name.errortype` and `tbl.col_name.errormsg` fields.
+        send_connect_url: Determines where the query is run, and is only relevant when the destination table is hosted.
+              It has no effect on a local table.
+
+            - If `False`, the query is run locally and the result is sent to the server.
+            - If `True`, the server connects to the source database itself (using the source connection URL, including
+              credentials); this requires the server's host to be able to reach the database and is faster for large
+              imports.
 
     Returns:
         The destination `Table`.
@@ -189,13 +199,13 @@ def import_sql(
 
         existing = pxt.get_table(tbl_name, if_not_exists='ignore')
         if if_exists == 'append' and existing is not None:
-            if not isinstance(existing, pxt.InsertableTable):
+            if existing._display_name() != 'table':
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'`import_sql` requires a base table; {tbl_name!r} is a {type(existing).__name__.lower()}.',
+                    f'`import_sql` requires a base table; {tbl_name!r} is a {existing._display_name()}.',
                 )
             _validate_append_compatibility(existing, tbl_name, schema)
-            existing._insert_sql_source(sql_data_source, on_error=on_error)
+            existing._insert_sql_source(sql_data_source, on_error=on_error, send_connect_url=send_connect_url)
             return existing
 
         tbl = pxt.create_table(
@@ -207,7 +217,7 @@ def import_sql(
             if_exists='error',
         )
         try:
-            tbl._insert_sql_source(sql_data_source, on_error=on_error)
+            tbl._insert_sql_source(sql_data_source, on_error=on_error, send_connect_url=send_connect_url)
         except BaseException:
             pxt.drop_table(tbl, if_not_exists='ignore')
             raise
@@ -219,7 +229,7 @@ def import_sql(
     return run(conn)
 
 
-def _validate_append_compatibility(tbl: pxt.InsertableTable, tbl_name: str, schema: dict[str, Any]) -> None:
+def _validate_append_compatibility(tbl: pxt.Table, tbl_name: str, schema: dict[str, Any]) -> None:
     """Verify the SQL source schema can append into an existing destination table."""
     column_md = tbl.get_metadata()['columns']
     existing_schema = tbl._get_schema()

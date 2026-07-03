@@ -5,6 +5,7 @@ import base64
 import datetime
 import json
 import math
+import os
 import re
 import urllib.parse
 import urllib.request
@@ -25,6 +26,7 @@ from pixeltable.functions.globals import cast
 from pixeltable.functions.video import legacy_frame_iterator
 
 from .utils import (
+    CatalogMode,
     ReloadTester,
     assert_columns_eq,
     create_all_datatypes_tbl,
@@ -221,7 +223,7 @@ class TestExprs:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
             _ = t.where(t.c2 <= 2).select(self.value_exc(t.c2 - 1)).show()
 
-    def test_props(self, test_tbl: pxt.Table, img_tbl: pxt.Table) -> None:
+    def test_props(self, test_tbl: pxt.Table, img_tbl: pxt.Table, catalog_mode: CatalogMode) -> None:
         t = test_tbl
         # errortype/-msg for computed column
         res = t.select(error=t.c8.errortype).collect()
@@ -234,15 +236,23 @@ class TestExprs:
         res = img_t.select(img_t.img.fileurl).collect().to_pandas()
         stored_urls = set(res.iloc[:, 0])
         assert len(stored_urls) == len(res)
-        all_urls = {urllib.parse.urljoin('file:', urllib.request.pathname2url(path)) for path in get_image_files()}
-        assert stored_urls <= all_urls
+        if catalog_mode == 'local':
+            all_urls = {urllib.parse.urljoin('file:', urllib.request.pathname2url(path)) for path in get_image_files()}
+            assert stored_urls <= all_urls
+        else:
+            # over the proxy each fileurl is a fetchable daemon media URL, not the local source file
+            assert all(urllib.parse.urlparse(u).scheme in ('http', 'https') and '/media/' in u for u in stored_urls)
 
         # localpath
         res = img_t.select(img_t.img.localpath).collect().to_pandas()
         stored_paths = set(res.iloc[:, 0])
         assert len(stored_paths) == len(res)
-        all_paths = set(get_image_files())
-        assert stored_paths <= all_paths
+        if catalog_mode == 'local':
+            all_paths = set(get_image_files())
+            assert stored_paths <= all_paths
+        else:
+            # over the proxy each localpath is a fetched local copy, openable but not the original source file
+            assert all(os.path.exists(p) for p in stored_paths)
 
         # errortype/-msg for image column
         res = img_t.select(error=img_t.img.errortype).collect().to_pandas()
@@ -690,6 +700,7 @@ class TestExprs:
         p = make_catalog_path
         spec = {
             'f1': str,
+            'img': pxt.Image,
             'f2': {
                 'f2a': int,
                 'f2b': (int, str, pxt.Video, {'f2b1': str}),
@@ -734,6 +745,9 @@ class TestExprs:
             (t.col.f5[:].f5a, pxt.Json[(int | None, str | None, float | None, ...)]),
             (t.col.f4['*'].f4b, pxt.Json[[str | None]]),  # special '*' operator
             (t.col.f4.f4a, pxt.Json[[int | None]]),  # field access on a list projects without an explicit slice/'*'
+            # attribute access on a json path that resolves to a non-JSON type dispatches to that type's UDFs
+            (t.col.img.width, pxt.Int),  # is_property UDF auto-invokes
+            (t.col.img.rotate(90), pxt.Image),  # is_method UDF
         )
         for expr, expected_type in cases:
             print(expr)
@@ -755,6 +769,10 @@ class TestExprs:
             regex = rf'Invalid JsonPath: cannot resolve {re.escape(errstring)}'
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=regex):
                 _ = expr[el]
+
+        # an unknown method/property on such a json path raises, like any missing attribute
+        with pytest.raises(AttributeError):
+            _ = t.col.img.not_a_method
 
     def test_json_mapper(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl

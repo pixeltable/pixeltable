@@ -268,7 +268,7 @@ class Column:
             comment=comment,
             stores_cellmd=stores_cellmd,
         )
-        ObjectOps.validate_destination(column.destination, column.name)
+        ObjectOps.validate_destination(column.destination, column.name, allow_local=not Env.get().is_proxy_daemon)
         return column
 
     @classmethod

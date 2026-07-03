@@ -5,6 +5,7 @@ import copy
 import hashlib
 import itertools
 import json
+import urllib.parse
 from pathlib import Path
 from types import TracebackType
 from typing import (
@@ -16,6 +17,7 @@ from typing import (
     Hashable,
     Iterable,
     Iterator,
+    Literal,
     Mapping,
     NoReturn,
     Sequence,
@@ -26,6 +28,7 @@ from typing import (
 from uuid import UUID
 
 import pandas as pd
+import PIL.Image
 import pydantic
 import sqlalchemy.exc as sql_exc
 from typing_extensions import Self
@@ -37,6 +40,7 @@ from pixeltable.env import Env
 from pixeltable.plan import Planner
 from pixeltable.query_clauses import FromClause, JoinClause, JoinType, SampleClause
 from pixeltable.runtime import get_runtime
+from pixeltable.service.proxy_client import ProxyClient
 from pixeltable.type_system import ColumnType
 from pixeltable.utils.description_helper import DescriptionHelper
 from pixeltable.utils.formatter import Formatter
@@ -375,27 +379,70 @@ class ResultCursor(Iterable[Row]):
 
 
 class ProxyResultCursor(ResultCursor):
-    """A ResultCursor over a result already materialized from a proxy catalog.
+    """A ResultCursor over a result fetched in full from a proxy catalog.
+
+    The daemon's media URLs are fetched into the local store here, when the cursor is opened.
 
     TODO: implement a streaming protocol
     """
 
-    _result_set: ResultSet
+    _client: ProxyClient
+    _rows: list[list[Any]]
 
-    def __init__(self, query: Query, result_set: ResultSet):
+    def __init__(self, query: Query, client: ProxyClient, schema: dict[str, ColumnType], rows: list[list[Any]]):
         super().__init__(query)
-        self._result_set = result_set
+        self._client = client
+        self._rows = rows
         # use the fetched result's schema/columns as authoritative (avoids any client-side schema staleness)
-        self._schema = result_set._schema
-        self._columns = {name: i for i, name in enumerate(result_set._schema)}
+        self._schema = schema
+        self._columns = {name: i for i, name in enumerate(schema)}
 
     def open(self) -> None:
         if self._row_iterator is not None:
             raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'Cursor is already open.')
         if self._closed:
             raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'Cursor is closed and cannot be reopened.')
+        self._materialize_media()
         # a generator (not a plain iterator) so the inherited close() can call _row_iterator.close()
-        self._row_iterator = (list(row._data) for row in self._result_set._rows)
+        self._row_iterator = (row for row in self._rows)
+
+    def as_result_set(self) -> ResultSet:
+        return ResultSet(list(self), self._schema)
+
+    def _materialize_media(self) -> None:
+        """Materialize daemon-resident media files into the local store/as PIL images."""
+        media_items: list[tuple[int, bool]] = []  # (select list item index, whether PIL image)
+        for i, (e, _) in enumerate(self._query._effective_select_list):
+            is_localpath = (
+                isinstance(e, exprs.ColumnPropertyRef) and e.prop == exprs.ColumnPropertyRef.Property.LOCALPATH
+            )
+            if e.col_type.is_image_type():
+                media_items.append((i, True))
+            elif e.col_type.is_media_type() or is_localpath:
+                media_items.append((i, False))
+        if len(media_items) == 0:
+            return
+
+        media_urls: set[str] = set()
+        for row in self._rows:
+            for i, _ in media_items:
+                val = row[i]
+                if isinstance(val, str):
+                    scheme = urllib.parse.urlparse(val).scheme
+                    if len(scheme) > 1 and scheme != 'file':
+                        media_urls.add(val)
+        local_paths = self._client.fetch_media(list(media_urls)) if len(media_urls) > 0 else {}
+
+        for row in self._rows:
+            for i, is_img in media_items:
+                val = row[i]
+                if isinstance(val, str):
+                    val = local_paths.get(val, val)
+                    if is_img:
+                        img = PIL.Image.open(val)
+                        img.load()
+                        val = img
+                    row[i] = val
 
 
 class Query:
@@ -751,6 +798,9 @@ class Query:
             Error: If the Query is the result of a join or
                 if the Query has an order_by clause.
         """
+        return self._head(n)
+
+    def _head(self, n: int = 10, *, media_as_urls: bool = False) -> ResultSet:
         if self.order_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'head() cannot be used with order_by()')
         if self._has_joins():
@@ -761,10 +811,10 @@ class Query:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'head() cannot be used with group_by()')
         if not self._from_clause.is_local:
             # the rowid order_by needs the table's local store; run head() on the hosting catalog instead
-            return self._exec_proxy('head', n=n)
+            return self._exec_proxy('head', n=n).as_result_set()
         num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
-        return self.order_by(*order_by_clause, asc=True).limit(n).collect()
+        return self.order_by(*order_by_clause, asc=True).limit(n)._collect(media_as_urls=media_as_urls)
 
     def tail(self, n: int = 10) -> ResultSet:
         """Return the last n rows of the Query, in insertion order of the underlying Table.
@@ -781,6 +831,9 @@ class Query:
             Error: If the Query is the result of a join or
                 if the Query has an order_by clause.
         """
+        return self._tail(n)
+
+    def _tail(self, n: int = 10, *, media_as_urls: bool = False) -> ResultSet:
         if self.order_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'tail() cannot be used with order_by()')
         if self._has_joins():
@@ -791,10 +844,10 @@ class Query:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'tail() cannot be used with group_by()')
         if not self._from_clause.is_local:
             # the rowid order_by needs the table's local store; run tail() on the hosting catalog instead
-            return self._exec_proxy('tail', n=n)
+            return self._exec_proxy('tail', n=n).as_result_set()
         num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
-        result = self.order_by(*order_by_clause, asc=False).limit(n).collect()
+        result = self.order_by(*order_by_clause, asc=False).limit(n)._collect(media_as_urls=media_as_urls)
         result._reverse()
         return result
 
@@ -857,15 +910,27 @@ class Query:
         """Select list exprs that can be evaluated in the context of a plan (has slot_idxs assigned)."""
         return self._ensure_plan().select_list_exprs
 
-    def _output_row_iterator(self, args: dict[str, Any] | None = None) -> Generator[list, None, None]:
+    def _output_row_iterator(
+        self, args: dict[str, Any] | None = None, *, media_as_urls: bool = False
+    ) -> Generator[list, None, None]:
         assert self._from_clause.is_local
         tbl_ids = self.referenced_tbl_ids()
         tvps = self._from_clause.tvps
         with get_runtime().catalog.begin_xact(for_write=False, read_tvps=tvps, read_tbl_ids=tbl_ids):
             try:
                 planned_exprs = self._compiled_select_list()
-                for data_row in self._exec(args=args):
-                    yield [data_row[e.slot_idx] for e in planned_exprs]
+                if media_as_urls:
+                    for data_row in self._exec(args=args):
+                        # for a file-backed media cell, hand back its URL instead of materializing the value
+                        yield [
+                            data_row.file_urls[e.slot_idx]
+                            if e.col_type.is_media_type() and data_row.file_urls[e.slot_idx] is not None
+                            else data_row[e.slot_idx]
+                            for e in planned_exprs
+                        ]
+                else:
+                    for data_row in self._exec(args=args):
+                        yield [data_row[e.slot_idx] for e in planned_exprs]
             except excs.ExprEvalError as e:
                 self._raise_expr_eval_err(e)
             except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
@@ -874,33 +939,33 @@ class Query:
                 raise  # just re-raise if not converted to a Pixeltable error
 
     def collect(self) -> ResultSet:
-        if not self._from_clause.is_local:
-            return self._collect_proxy()
-        tvps = self._from_clause.tvps
-        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=tvps, read_tbl_ids=self.referenced_tbl_ids()):
-            return self._collect()
+        return self._collect()
 
-    def _collect_proxy(self) -> ResultSet:
-        return self._exec_proxy('collect')
+    _ProxyMethodNames = Literal['collect', 'head', 'tail']
 
-    def _exec_proxy(self, method: str, **extra: Any) -> ResultSet:
+    def _exec_proxy(self, method: _ProxyMethodNames, **extra: Any) -> ProxyResultCursor:
         from pixeltable.catalog.catalog_proxy import CatalogProxy
 
         cat = get_runtime().get_catalog(self._from_clause.catalog_uri)
         assert isinstance(cat, CatalogProxy)
-        result = cat.run_query(method, self.as_dict(), **extra)
-        schema: dict[str, ColumnType] = result['schema']
-        columns = {name: i for i, name in enumerate(schema)}
-        return ResultSet([Row(data, columns, schema) for data in result['rows']], schema)
+        result = cat.client.run_query(method, self.as_dict(), **extra)
+        return ProxyResultCursor(self, cat.client, result['schema'], result['rows'])
 
-    def _collect(self, args: dict[str, Any] | None = None) -> ResultSet:
-        assert get_runtime().in_xact
-        schema = self.schema
-        if args is None:
-            return ResultSet(list(self.cursor()), schema)
-        columns = {name: i for i, name in enumerate(schema)}
-        rows = [Row(tuple(data), columns, schema) for data in self._output_row_iterator(args=args)]
-        return ResultSet(rows, schema)
+    def _collect(self, args: dict[str, Any] | None = None, *, media_as_urls: bool = False) -> ResultSet:
+        if not self._from_clause.is_local:
+            return self._exec_proxy('collect', args=args).as_result_set()
+        tvps = self._from_clause.tvps
+        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=tvps, read_tbl_ids=self.referenced_tbl_ids()):
+            schema = self.schema
+            # url-mode takes the direct path; the cursor path (no args) stays as-is for normal execution
+            if args is None and not media_as_urls:
+                return ResultSet(list(self.cursor()), schema)
+            columns = {name: i for i, name in enumerate(schema)}
+            rows = [
+                Row(tuple(data), columns, schema)
+                for data in self._output_row_iterator(args=args, media_as_urls=media_as_urls)
+            ]
+            return ResultSet(rows, schema)
 
     def cursor(self) -> ResultCursor:
         """Return a [`ResultCursor`][pixeltable.ResultCursor] that iterates over the query results row by row.
@@ -908,7 +973,7 @@ class Query:
         See [`ResultCursor`][pixeltable.ResultCursor] for usage examples and lifecycle details.
         """
         if not self._from_clause.is_local:
-            return ProxyResultCursor(self, self._collect_proxy())
+            return self._exec_proxy('collect')
         return ResultCursor(self)
 
     async def _acollect(self, args: dict[str, Any] | None = None) -> ResultSet:
@@ -952,7 +1017,7 @@ class Query:
 
             cat = get_runtime().get_catalog(self._from_clause.catalog_uri)
             assert isinstance(cat, CatalogProxy)
-            return cat.run_query('count', self.as_dict())
+            return cat.client.run_query('count', self.as_dict())
 
         count_query = Query(
             from_clause=self._from_clause,

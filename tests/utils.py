@@ -312,28 +312,42 @@ def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0) -> pxt.Table:
     return tbl
 
 
+def assert_schema_eq(actual: pxt.Table, expected: pxt.Table) -> None:
+    """Assert two tables have the same column schema (names and types), via the public get_metadata()."""
+
+    def col_types(tbl: pxt.Table) -> dict[str, str]:
+        return {name: col['type_'] for name, col in tbl.get_metadata()['columns'].items()}
+
+    a, e = col_types(actual), col_types(expected)
+    assert a == e, f'schema mismatch:\n  actual:   {a}\n  expected: {e}'
+
+
+# Schema (column name -> type) used by create_all_datatypes_tbl(); exposed so tests can build schema_overrides
+# from public Pixeltable types without reaching into a column's internal ColumnType.
+ALL_DATATYPES_SCHEMA: dict[str, Any] = {
+    'row_id': pxt.Required[pxt.Int],
+    'c_array': pxt.Array[(10,), pxt.Float],  # type: ignore[misc]
+    'c_audio': pxt.Audio,
+    'c_bool': pxt.Bool,
+    'c_date': pxt.Date,
+    'c_float': pxt.Float,
+    'c_image': pxt.Image,
+    'c_int': pxt.Int,
+    'c_json': pxt.Json,
+    'c_string': pxt.String,
+    'c_timestamp': pxt.Timestamp,
+    'c_uuid': pxt.UUID,
+    'c_binary': pxt.Binary,
+    'c_video': pxt.Video,
+    'c_document': pxt.Document,
+}
+
+
 def create_all_datatypes_tbl(
     name: str = 'all_datatype_tbl', non_serializable_json: bool = False, arrow_compatible_json: bool = False
 ) -> pxt.Table:
     """Creates a table with all supported datatypes."""
-    schema = {
-        'row_id': pxt.Required[pxt.Int],
-        'c_array': pxt.Array[(10,), pxt.Float],  # type: ignore[misc]
-        'c_audio': pxt.Audio,
-        'c_bool': pxt.Bool,
-        'c_date': pxt.Date,
-        'c_float': pxt.Float,
-        'c_image': pxt.Image,
-        'c_int': pxt.Int,
-        'c_json': pxt.Json,
-        'c_string': pxt.String,
-        'c_timestamp': pxt.Timestamp,
-        'c_uuid': pxt.UUID,
-        'c_binary': pxt.Binary,
-        'c_video': pxt.Video,
-        'c_document': pxt.Document,
-    }
-    tbl = pxt.create_table(name, schema)
+    tbl = pxt.create_table(name, ALL_DATATYPES_SCHEMA)
     example_rows = create_table_data(
         tbl, num_rows=11, non_serializable_json=non_serializable_json, arrow_compatible_json=arrow_compatible_json
     )

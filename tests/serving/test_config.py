@@ -6,6 +6,7 @@ import sys
 import tempfile
 import textwrap
 import types
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -18,17 +19,18 @@ from pixeltable.serving._config import create_service_from_config, lookup_servic
 from tests.serving.test_fastapi import assert_sqlite_row, make_sqlite_target
 from tests.utils import skip_test_if_not_installed
 
-pytestmark = pytest.mark.local('pxt serve config loading and app creation')
-
 
 class TestConfig:
-    def test_load_valid_config(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_load_valid_config(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """Load a valid TOML config, create an app, and exercise the routes via TestClient."""
         skip_test_if_not_installed('fastapi')
         from fastapi.testclient import TestClient
 
-        pxt.create_dir('test_config')
-        t = pxt.create_table('test_config.items', {'id': pxt.Required[pxt.Int], 'name': pxt.String}, primary_key='id')
+        p = make_catalog_path
+        pxt.create_dir(p('test_config'))
+        t = pxt.create_table(
+            p('test_config.items'), {'id': pxt.Required[pxt.Int], 'name': pxt.String}, primary_key='id'
+        )
         t.add_computed_column(name_upper=t.name.upper())
 
         # sqlite target for the export_sql route
@@ -36,6 +38,8 @@ class TestConfig:
             tmp_path / 'export.db', 'items_out', {'id': sql.Integer, 'name': sql.VARCHAR, 'name_upper': sql.VARCHAR}
         )
 
+        # the routes reference the table by the active catalog's path (bare for local, pxt:// uri for proxy)
+        items = p('test_config/items')
         file_contents = textwrap.dedent(
             f"""
             [[service]]
@@ -44,14 +48,14 @@ class TestConfig:
 
             [[service.routes]]
             type = "insert"
-            table = "test_config/items"
+            table = "{items}"
             path = "/insert"
             inputs = ["id", "name"]
             outputs = ["id", "name", "name_upper"]
 
             [[service.routes]]
             type = "insert"
-            table = "test_config/items"
+            table = "{items}"
             path = "/insert-export"
             inputs = ["id", "name"]
             outputs = ["id", "name", "name_upper"]
@@ -62,14 +66,14 @@ class TestConfig:
 
             [[service.routes]]
             type = "update"
-            table = "test_config/items"
+            table = "{items}"
             path = "/update"
             inputs = ["name"]
             outputs = ["id", "name", "name_upper"]
 
             [[service.routes]]
             type = "delete"
-            table = "test_config/items"
+            table = "{items}"
             path = "/delete"
             """
         ).strip()
@@ -129,25 +133,27 @@ class TestConfig:
         finally:
             os.unlink(config_path)
 
-    def test_query_route_from_config(self, uses_db: None) -> None:
+    def test_query_route_from_config(self, make_catalog_path: Callable[[str], str]) -> None:
         """Query route resolves a dotted-path reference to a @pxt.query function."""
         skip_test_if_not_installed('fastapi')
         from fastapi.testclient import TestClient
 
-        pxt.create_dir('test_config')
-        t = pxt.create_table('test_config.docs', {'id': pxt.Required[pxt.Int], 'text': pxt.String}, primary_key='id')
+        p = make_catalog_path
+        pxt.create_dir(p('test_config'))
+        t = pxt.create_table(p('test_config.docs'), {'id': pxt.Required[pxt.Int], 'text': pxt.String}, primary_key='id')
         t.insert([{'id': 1, 'text': 'hello'}, {'id': 2, 'text': 'world'}])
 
         # define a query function in a temporary module
 
         query_mod = types.ModuleType('_test_query_mod')
-        # we need to exec in the module's namespace so @pxt.query sees the right globals
+        # we need to exec in the module's namespace so @pxt.query sees the right globals; the query resolves
+        # the table by the active catalog's path so it runs against the same catalog as the route
 
         exec(
-            textwrap.dedent("""
+            textwrap.dedent(f"""
                 import pixeltable as pxt
 
-                t = pxt.get_table('test_config.docs')
+                t = pxt.get_table({p('test_config.docs')!r})
 
                 @pxt.query
                 def search(min_id: int) -> pxt.Query:
@@ -185,6 +191,7 @@ class TestConfig:
             os.unlink(config_path)
             del sys.modules['_test_query_mod']
 
+    @pytest.mark.local('config validation fails before any table is resolved; not catalog-specific')
     def test_validation_errors(self) -> None:
         """Invalid TOML configs produce clear pxt.Error messages."""
         skip_test_if_not_installed('fastapi')
@@ -268,6 +275,7 @@ class TestConfig:
             finally:
                 os.unlink(config_path)
 
+    @pytest.mark.local('exercises module/query resolution failures; no table is resolved')
     def test_create_app_errors(self) -> None:
         """create_app_from_config surfaces clear errors for module/query resolution failures."""
         skip_test_if_not_installed('fastapi')

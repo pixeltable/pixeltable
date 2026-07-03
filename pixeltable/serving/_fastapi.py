@@ -27,10 +27,10 @@ from pixeltable import catalog, exceptions as excs, exprs, func, type_system as 
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.exec.globals import INLINED_OBJECT_MD_KEY
-from pixeltable.runtime import get_runtime
 from pixeltable.serving import SqlExport
 from pixeltable.serving.globals import SqlExporter
 from pixeltable.utils import image as image_utils
+from pixeltable.utils.http import fetch_url
 from pixeltable.utils.local_store import LocalStore, TempStore
 
 _logger = logging.getLogger(__name__)
@@ -68,7 +68,27 @@ _JOB_STATUS_ROUTE_NAME = 'pxt_serve_job_status'
 _EMBEDDED_OBJECT_TYPES: tuple[type, ...] = (np.ndarray, np.generic, PIL.Image.Image, bytes)
 
 
-def _check_route_output_schema(output_cols: list[catalog.Column], error_prefix: str) -> None:
+def _validate_registered_schema(t: pxt.Table, schema_version: int) -> None:
+    """Raise 409 if the table's schema changed since the route was registered.
+
+    The route holds the table handle captured at registration (handles are thread-safe). A schema bump shows up
+    as a different schema_version; a drop (or drop-and-recreate at the same path under a new id) makes the
+    captured handle's metadata lookup raise TABLE_NOT_FOUND. Both mean the frozen request/response contract is
+    stale, so the caller should restart the service.
+    """
+    try:
+        changed = t.get_metadata()['schema_version'] != schema_version
+    except pxt.Error as exc:
+        if exc.error_code is not pxt.ErrorCode.TABLE_NOT_FOUND:
+            raise
+        changed = True
+    if changed:
+        raise HTTPException(
+            status_code=409, detail='table schema changed since route was registered; please restart the service'
+        )
+
+
+def _check_route_output_schema(output_cols: list[catalog.ColumnVersionMd], error_prefix: str) -> None:
     """Reject output column types whose values can't be served by FastAPI today.
 
     Array and Binary cells materialize into coalesced side files that the /media route can't serve as single units,
@@ -105,11 +125,13 @@ def _check_json_value_servable(val: Any, col_name: str) -> None:
         for v in val:
             _check_json_value_servable(v, col_name)
     elif isinstance(val, _EMBEDDED_OBJECT_TYPES):
+        # Report the base PIL type ('Image'), not the concrete decoder subclass (e.g. PngImageFile), whose
+        # name depends on how the image was decoded.
+        type_name = 'Image' if isinstance(val, PIL.Image.Image) else type(val).__name__
         raise HTTPException(
             status_code=500,
             detail=(
-                f'output column {col_name!r}: JSON value contains an embedded {type(val).__name__}, '
-                'which is not supported.'
+                f'output column {col_name!r}: JSON value contains an embedded {type_name}, which is not supported.'
             ),
         )
 
@@ -226,7 +248,11 @@ class FastAPIRouter(fastapi.APIRouter):
         self._jobs = {}
         self._jobs_lock = threading.Lock()
         self._home_dir = Config.get().home.resolve()
-        self._allowed_media_dirs = [Env.get().media_dir.resolve(), Env.get().tmp_dir.resolve()]
+        self._allowed_media_dirs = [
+            Env.get().media_dir.resolve(),
+            Env.get().tmp_dir.resolve(),
+            Env.get().file_cache_dir.resolve(),
+        ]
         self._engine_cache = {}
         self._register_media_route()
         self._register_jobs_route()
@@ -1146,8 +1172,6 @@ class FastAPIRouter(fastapi.APIRouter):
                 f'add_delete_route(): cannot delete from {md["kind"]} {md["name"]!r}',
             )
 
-        tbl_path = md['path']
-        tbl_id = md['id']
         schema_version = md['schema_version']
         col_md = md['columns']
 
@@ -1174,21 +1198,18 @@ class FastAPIRouter(fastapi.APIRouter):
             row_kwargs: dict[str, Any],
             url_for_media: Callable[[str], str],  # unused; part of the endpoint_op contract
         ) -> DeleteResponse:
-            tbl = pxt.get_table(tbl_path)
-            if tbl._id != tbl_id or tbl._tbl_version.get().schema_version != schema_version:
-                raise HTTPException(
-                    status_code=409,
-                    detail='table schema changed since route was registered; please restart the service',
-                )
+            # the table handle is thread-safe, so reuse the captured one; re-validate the frozen contract
+            _validate_registered_schema(t, schema_version)
 
             where_expr: exprs.Expr | None = None
             for name in match_columns:
-                predicate = tbl[name] == row_kwargs[name]
+                predicate = t[name] == row_kwargs[name]
                 where_expr = predicate if where_expr is None else (where_expr & predicate)
-            status = tbl.delete(where=where_expr)
+            status = t.delete(where=where_expr)
             return DeleteResponse(num_rows=status.num_rows)
 
-        cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
+        # use the metadata path (works for both local and hosted tables); skip system columns (name is None)
+        cols_by_name = {col.name: col for col in t._tbl_path.column_md() if col.name is not None}
         match_cols = [cols_by_name[name] for name in match_columns]
         sig = self._create_endpoint_signature(input_cols=match_cols)
         endpoint = PxtEndpoint(
@@ -1304,10 +1325,7 @@ class FastAPIRouter(fastapi.APIRouter):
         # current columns. Subsequent requests use this materialized query, so adding or
         # dropping columns on the underlying table doesn't silently change the API contract.
         template_query = query.template_query
-        from_clause = template_query._from_clause
-        assert from_clause.is_local
-        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=from_clause.tvps):
-            effective_select_list = list(template_query._effective_select_list)
+        effective_select_list = list(template_query._effective_select_list)
         template_query = pxt.Query(
             select_list=[(e, n) for e, n in effective_select_list],
             from_clause=template_query._from_clause,
@@ -1409,8 +1427,7 @@ class FastAPIRouter(fastapi.APIRouter):
             )
 
         def run_query(call_kwargs: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
-            with get_runtime().catalog.begin_xact(for_write=False, read_tvps=template_query._from_clause.tvps):
-                result_set = template_query._collect(args=call_kwargs)
+            result_set = template_query._collect(args=call_kwargs)
             rows = list(result_set)
 
             # do error checking now, before converting data
@@ -1537,29 +1554,25 @@ class FastAPIRouter(fastapi.APIRouter):
         uploadfile_inputs must be [].
         """
         md = t.get_metadata()
-        tbl_path, tbl_id, schema_version = md['path'], md['id'], md['schema_version']
+        schema_version = md['schema_version']
 
-        cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
+        # use the metadata path (works for both local and hosted tables); skip system columns (name is None)
+        cols_by_name = {col.name: col for col in t._tbl_path.column_md() if col.name is not None}
         pk_cols = [cols_by_name[name] for name in pk_col_names]
         input_cols = [cols_by_name[name] for name in input_col_names]
 
         def run_dml(row_kwargs: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
-            # handles aren't thread-portable, so fetch and re-validate against the registered schema
-            tbl = pxt.get_table(tbl_path)
-            if tbl._id != tbl_id or tbl._tbl_version.get().schema_version != schema_version:
-                raise HTTPException(
-                    status_code=409,
-                    detail='table schema changed since route was registered; please restart the service',
-                )
+            # the table handle is thread-safe, so reuse the captured one; re-validate the frozen contract
+            _validate_registered_schema(t, schema_version)
             if route_type == 'update':
-                status = tbl.batch_update([row_kwargs], if_not_exists='ignore', return_rows=True)
+                status = t.batch_update([row_kwargs], if_not_exists='ignore', return_rows=True)
                 if status.num_rows == 0:
                     raise HTTPException(status_code=404, detail='row not found')
                 rows = status.rows or []
             elif route_type == 'compute':
-                rows = tbl.compute([row_kwargs])
+                rows = t.compute([row_kwargs])
             else:  # 'insert'
-                status = tbl.insert([row_kwargs], return_rows=True)
+                status = t.insert([row_kwargs], return_rows=True)
                 rows = status.rows or []
             if len(rows) != 1:
                 raise HTTPException(status_code=500, detail=f'operation returned unexpected row count ({len(rows)})')
@@ -1674,7 +1687,7 @@ class FastAPIRouter(fastapi.APIRouter):
         background: bool,
         error_prefix: str,
         route_type: Literal['insert', 'update', 'compute'],
-    ) -> tuple[list[str], list[str], list[str], dict[str, catalog.Column]]:
+    ) -> tuple[list[str], list[str], list[str], dict[str, catalog.ColumnVersionMd]]:
         """
         Validate insert-/update-route args. Returns (pk_col_names, input_col_names, output_col_names, cols_by_name).
         """
@@ -1695,7 +1708,8 @@ class FastAPIRouter(fastapi.APIRouter):
         if route_type == 'update' and not pk_col_names:
             raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'{error_prefix}: table has no primary key')
 
-        cols_by_name = {col.name: col for col in t._tbl_version_path.columns()}
+        # use the metadata path (works for both local and hosted tables); skip system columns (name is None)
+        cols_by_name = {col.name: col for col in t._tbl_path.column_md() if col.name is not None}
         pk_set = set(pk_col_names)
 
         for name in [*(inputs or []), *(uploadfile_inputs or [])]:
@@ -1817,7 +1831,7 @@ class FastAPIRouter(fastapi.APIRouter):
         self,
         name: str,
         output_schema: dict[str, ts.ColumnType] | None = None,
-        output_cols: list[catalog.Column] | None = None,
+        output_cols: list[catalog.ColumnVersionMd] | None = None,
     ) -> type[pydantic.BaseModel]:
         assert (output_schema is None) != (output_cols is None)
         fields: dict[str, tuple[Any, FieldInfo]]
@@ -1829,7 +1843,7 @@ class FastAPIRouter(fastapi.APIRouter):
 
     def _create_endpoint_signature(
         self,
-        input_cols: list[catalog.Column] | None = None,
+        input_cols: list[catalog.ColumnVersionMd] | None = None,
         input_schema: dict[str, ts.ColumnType] | None = None,
         defaults: dict[str, Any] | None = None,  # input name -> default value
         upload_col_names: list[str] | None = None,
@@ -1919,8 +1933,12 @@ class FastAPIRouter(fastapi.APIRouter):
             local_path: Path
             if val.startswith('file:'):
                 local_path = LocalStore.file_url_to_path(val) or Path(val)
-            else:
+            elif os.path.isabs(val):
                 local_path = Path(val)
+            else:
+                # a remote reference (the proxy daemon's media, or an external s3/http url): fetch it to a local
+                # file so it can be returned as a FileResponse
+                local_path = fetch_url(val)
             if not local_path.exists() or not local_path.is_file():
                 raise HTTPException(status_code=500, detail=f'output file not found: {output_name!r}')
             media_type, _ = mimetypes.guess_type(local_path)
@@ -1994,12 +2012,20 @@ class FastAPIRouter(fastapi.APIRouter):
 
     def _convert_media_val(self, val: Any, url_for_media: Callable[[str], str]) -> Any:
         """
-        If val is a file:// uri under the Pixeltable media or tmp directory, converts that to a fetchable url of
-        the /media endpoint. Otherwise returns val unchanged.
+        If val is a local media file (a file:// uri or a bare absolute path) under an allowed media directory,
+        converts it to a fetchable url of the /media endpoint. Otherwise returns val unchanged.
+
+        Media values reach here in either form: a file:// uri (e.g. a column's fileurl) or a bare local path
+        (e.g. a ResultSet's localpath, or a proxy-fetched file in the FileCache).
         """
-        if not isinstance(val, str) or not val.startswith('file:'):
+        if not isinstance(val, str):
             return val
-        file_path = LocalStore.file_url_to_path(val)
+        if val.startswith('file:'):
+            file_path = LocalStore.file_url_to_path(val)
+        elif os.path.isabs(val):
+            file_path = Path(val)
+        else:
+            return val  # a relative path or a remote (http/s3/...) url; leave for the client to fetch
         if file_path is None:
             return val
         resolved = file_path.resolve()
