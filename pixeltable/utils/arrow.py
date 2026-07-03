@@ -256,7 +256,6 @@ def record_batches_from_rows(
                             val.save(buf, format='png')
                             val = buf.getvalue()
                     elif not isinstance(val, bytes):
-                        # already-encoded image bytes pass through unchanged
                         raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'unknown image type {type(val)}')
                     val_size_bytes = len(val)
                 elif col_type.is_uuid_type():

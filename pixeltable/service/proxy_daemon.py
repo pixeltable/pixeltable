@@ -345,7 +345,7 @@ def _build_app() -> 'FastAPI':
 
     @app.get('/media/{ref:path}')
     def serve_media(ref: str) -> FileResponse:
-        # serve a persisted media file by its media-dir-relative ref (see proxy_dispatch._media_to_wire)
+        # serve a persisted media file by its media-dir-relative ref
         media_dir = Env.get().media_dir.resolve()
         resolved = (media_dir / ref).resolve()
         if resolved != media_dir and media_dir not in resolved.parents:

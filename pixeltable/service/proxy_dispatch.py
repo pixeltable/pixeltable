@@ -291,7 +291,9 @@ def _insert_source(request: ProxyRequest, tbl: LocalTable) -> Any:
         dest_dir = TempStore.create_path() / kwargs['source_dir_name']
         dest_dir.mkdir(parents=True, exist_ok=True)
         for path in source:
-            shutil.move(path, dest_dir / pathlib.Path(path).name)
+            # path: the uploaded file (a temp path), which was recorded in _upload_names during deserialization
+            name = request._uploaded_names[path]
+            shutil.move(path, dest_dir / name)
         source = str(dest_dir)
     try:
         return tbl.insert(
