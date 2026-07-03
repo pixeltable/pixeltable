@@ -24,7 +24,10 @@
     --secondary-foreground: 0 0% 9%;
 
     --muted: 0 0% 96%;                 /* #f5f5f5 */
-    --muted-foreground: 0 0% 45%;      /* #737373 */
+    /* WCAG AA: bumped from 45% (#737373, ratio 4.46 on #fafafa — fails) to 38% (#616161, ~5.9). */
+    /* To revert to the legacy weight, swap with --muted-foreground-legacy below. */
+    --muted-foreground: 0 0% 38%;      /* #616161 */
+    --muted-foreground-legacy: 0 0% 45%;
 
     --accent: 0 0% 93%;                /* #ededed */
     --accent-foreground: 0 0% 9%;

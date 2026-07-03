@@ -90,7 +90,7 @@ function LabeledEdge({
             className={cn(
               'absolute pointer-events-all px-1.5 py-0.5 rounded border text-[10px] font-mono',
               isIterator
-                ? 'bg-card border-violet-400/30 text-violet-400'
+                ? 'bg-card border-violet-400/30 text-muted-foreground'
                 : 'bg-card border-border/60 text-muted-foreground',
             )}
           >
@@ -143,7 +143,7 @@ function PipelineTableNode({ data }: { data: TableNodeData }) {
         </div>
         <div className="flex items-center gap-2 mt-1 flex-wrap">
           <span className="text-[10px] text-muted-foreground tabular-nums">{data.row_count.toLocaleString()} rows</span>
-          {data.version !== null && <span className="text-[10px] text-muted-foreground/80">v{data.version}</span>}
+          {data.version !== null && <span className="text-[10px] text-muted-foreground">v{data.version}</span>}
           {data.indices.length > 0 && (
             <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
               <SearchIcon className="h-2.5 w-2.5" />{data.indices.length}
@@ -166,7 +166,7 @@ function PipelineTableNode({ data }: { data: TableNodeData }) {
           </div>
         ))}
         {insertableCols.length > 3 && (
-          <div className="text-[10px] text-muted-foreground/70 pl-2.5">+{insertableCols.length - 3} more</div>
+          <div className="text-[10px] text-muted-foreground pl-2.5">+{insertableCols.length - 3} more</div>
         )}
 
         {iteratorCols.length > 0 && (
@@ -174,12 +174,12 @@ function PipelineTableNode({ data }: { data: TableNodeData }) {
             {insertableCols.length > 0 && <div className="border-t border-border/30 my-1" />}
             {iteratorCols.slice(0, 3).map((col) => (
               <div key={col.name} className="flex items-center gap-1">
-                <Repeat2 className="h-2 w-2 shrink-0 text-violet-400/70" />
-                <span className="text-[10px] text-foreground/80 truncate">{col.name}</span>
+                <Repeat2 className="h-2 w-2 shrink-0 text-muted-foreground" />
+                <span className="text-[10px] text-foreground truncate">{col.name}</span>
               </div>
             ))}
             {iteratorCols.length > 3 && (
-              <div className="text-[10px] text-muted-foreground/70 pl-2.5">+{iteratorCols.length - 3} more</div>
+              <div className="text-[10px] text-muted-foreground pl-2.5">+{iteratorCols.length - 3} more</div>
             )}
           </>
         )}
@@ -191,8 +191,8 @@ function PipelineTableNode({ data }: { data: TableNodeData }) {
               const ft = col.func_type ? FUNC_STYLES[col.func_type] : null
               return (
                 <div key={col.name} className="flex items-center gap-1">
-                  <Zap className="h-2 w-2 shrink-0 text-k-yellow/50" />
-                  <span className="text-[10px] truncate text-foreground/80">{col.name}</span>
+                  <Zap className="h-2 w-2 shrink-0 text-foreground" />
+                  <span className="text-[10px] truncate text-foreground">{col.name}</span>
                   {col.func_name && ft && (
                     <span className={cn('text-[9px] shrink-0 font-mono', ft.text)}>
                       {col.func_name}
@@ -202,7 +202,7 @@ function PipelineTableNode({ data }: { data: TableNodeData }) {
               )
             })}
             {computedCols.length > 4 && (
-              <div className="text-[10px] text-muted-foreground/70 pl-2.5">+{computedCols.length - 4} more</div>
+              <div className="text-[10px] text-muted-foreground pl-2.5">+{computedCols.length - 4} more</div>
             )}
           </>
         )}
@@ -252,14 +252,14 @@ function DetailPanel({
           </div>
           <div className="flex items-center gap-2 mt-1 ml-6">
             <button
-              className="text-xs text-k-yellow hover:underline font-mono flex items-center gap-1"
+              className="text-xs text-foreground hover:underline font-mono flex items-center gap-1"
               onClick={() => onViewTable(node.path)}
             >
               {node.path}
               <ExternalLink className="h-2.5 w-2.5" />
             </button>
             {node.iterator_type && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-400/10 text-violet-400 font-mono border border-violet-400/20">
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-400/10 text-muted-foreground font-mono border border-violet-400/20">
                 {node.iterator_type}
               </span>
             )}
@@ -294,12 +294,12 @@ function DetailPanel({
             onClick={onShowColumnFlow}
             className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-k-yellow/20 bg-k-yellow/5 hover:bg-k-yellow/10 transition-colors text-left group"
           >
-            <GitBranch className="h-4 w-4 text-k-yellow/70 shrink-0" />
+            <GitBranch className="h-4 w-4 text-foreground shrink-0" />
             <div className="min-w-0 flex-1">
               <div className="text-[11px] font-semibold text-foreground">Column Data Flow</div>
               <div className="text-[11px] text-muted-foreground">Visualize column dependencies</div>
             </div>
-            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground -rotate-90 group-hover:text-k-yellow transition-colors shrink-0" />
+            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground -rotate-90 group-hover:text-foreground transition-colors shrink-0" />
           </button>
         </div>
       )}
@@ -309,7 +309,7 @@ function DetailPanel({
         <div className="px-5 py-3 border-b border-border flex items-center gap-2">
           <GitBranch className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
           <span className="text-xs text-muted-foreground">Derived from</span>
-          <button className="text-xs text-k-yellow hover:underline font-mono font-medium" onClick={() => onViewTable(node.base!)}>
+          <button className="text-xs text-foreground hover:underline font-mono font-medium" onClick={() => onViewTable(node.base!)}>
             {node.base}
           </button>
         </div>
@@ -342,7 +342,7 @@ function DetailPanel({
               <div key={col.name} className="flex items-center gap-2 text-xs min-h-[22px]">
                 <span className="text-foreground shrink-0">{col.name}</span>
                 {col.defined_in && !col.defined_in_self && (
-                  <span className="text-[10px] text-muted-foreground/60 italic shrink-0">from {col.defined_in}</span>
+                  <span className="text-[10px] text-muted-foreground italic shrink-0">from {col.defined_in}</span>
                 )}
                 <span className="ml-auto shrink-0"><ColumnTypeBadge type={col.type} /></span>
               </div>
@@ -355,11 +355,11 @@ function DetailPanel({
       {iteratorProduced.length > 0 && (
         <div className="px-5 py-3 border-b border-border">
           <div className="flex items-center gap-1.5 mb-2">
-            <Repeat2 className="h-3 w-3 text-violet-400" />
+            <Repeat2 className="h-3 w-3 text-muted-foreground" />
             <SectionLabel className="mb-0">
               Iterator Columns ({iteratorProduced.length})
               {node.iterator_type && (
-                <span className="ml-1 normal-case tracking-normal font-mono text-violet-400">{node.iterator_type}</span>
+                <span className="ml-1 normal-case tracking-normal font-mono text-muted-foreground">{node.iterator_type}</span>
               )}
             </SectionLabel>
           </div>
@@ -378,7 +378,7 @@ function DetailPanel({
       {computed.length > 0 && (
         <div className="px-5 py-3 border-b border-border">
           <div className="flex items-center gap-1.5 mb-2">
-            <Zap className="h-3 w-3 text-k-yellow" />
+            <Zap className="h-3 w-3 text-foreground" />
             <SectionLabel className="mb-0">Computed Pipeline ({computed.length})</SectionLabel>
           </div>
           <div className="space-y-1.5">
@@ -459,7 +459,7 @@ function ComputedColumnRow({ col, step }: { col: PipelineColumn; step: number })
           {col.func_name && (
             <div className="flex items-center gap-2">
               <span className="text-xs font-mono font-medium">
-                <span className="text-purple-300">{col.func_name}</span><span className="text-muted-foreground/50">()</span>
+                <span className="text-muted-foreground">{col.func_name}</span><span className="text-muted-foreground">()</span>
               </span>
             </div>
           )}
@@ -619,7 +619,7 @@ function NodeFinder({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search tables & views…"
-              className="w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground/60 outline-none"
+              className="w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground outline-none"
               onKeyDown={(e) => {
                 if (e.key === 'Escape') setOpen(false)
                 if (e.key === 'Enter' && filtered.length > 0) handlePick(filtered[0].path)
@@ -637,9 +637,9 @@ function NodeFinder({
                   onClick={() => handlePick(n.path)}
                 >
                   {n.is_view ? (
-                    <Eye className="h-3 w-3 text-purple-400 shrink-0" />
+                    <Eye className="h-3 w-3 text-muted-foreground shrink-0" />
                   ) : (
-                    <Table2 className="h-3 w-3 text-blue-400 shrink-0" />
+                    <Table2 className="h-3 w-3 text-muted-foreground shrink-0" />
                   )}
                   <div className="min-w-0 flex-1">
                     <div className="text-xs text-foreground truncate">{n.name}</div>
@@ -794,7 +794,7 @@ function PipelineInspectorInner() {
             <ArrowLeft className="h-3.5 w-3.5" />
             Pipeline
           </button>
-          <span className="text-muted-foreground/60 text-xs">/</span>
+          <span className="text-muted-foreground text-xs">/</span>
           <div className="flex items-center gap-1.5">
             {columnFlowNode.is_view ? (
               <Eye className="h-3 w-3 text-muted-foreground" />
@@ -803,10 +803,10 @@ function PipelineInspectorInner() {
             )}
             <span className="text-xs font-semibold text-foreground">{columnFlowNode.name}</span>
           </div>
-          <span className="text-muted-foreground/60 text-xs">/</span>
+          <span className="text-muted-foreground text-xs">/</span>
           <div className="flex items-center gap-1.5">
-            <GitBranch className="h-3 w-3 text-k-yellow" />
-            <span className="text-xs font-medium text-k-yellow">Column Data Flow</span>
+            <GitBranch className="h-3 w-3 text-foreground" />
+            <span className="text-xs font-medium text-foreground">Column Data Flow</span>
           </div>
         </div>
         <div className="flex-1 min-h-0">
@@ -831,7 +831,7 @@ function PipelineInspectorInner() {
             <div key={s.label} className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <s.icon className="h-3 w-3 text-muted-foreground" />
               <span className="tabular-nums">{s.value}</span>
-              <span className="text-muted-foreground/80">{s.label}</span>
+              <span className="text-muted-foreground">{s.label}</span>
             </div>
           ))}
           {/* Auto-refresh + manual refresh */}
@@ -853,7 +853,7 @@ function PipelineInspectorInner() {
               className={cn(
                 'flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium transition-colors',
                 autoRefresh
-                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                  ? 'bg-emerald-500/10 text-muted-foreground border border-emerald-500/20'
                   : 'text-muted-foreground hover:bg-accent hover:text-foreground',
               )}
             >

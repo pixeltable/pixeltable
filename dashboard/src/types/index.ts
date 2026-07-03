@@ -79,6 +79,7 @@ export interface DataColumn {
   is_media: boolean;
   is_computed: boolean;
   is_stored: boolean;
+  is_iterator_col: boolean;
   is_sorted: boolean;
 }
 

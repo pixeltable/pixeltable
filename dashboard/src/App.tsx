@@ -33,10 +33,10 @@ function TableView() {
   if (!tablePath) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3">
-        <Table2 className="h-12 w-12 text-muted-foreground/15" />
+        <Table2 className="h-12 w-12 text-muted-foreground" />
         <div className="text-center">
           <p className="text-sm font-medium text-muted-foreground">Select a table</p>
-          <p className="text-xs text-muted-foreground/60 mt-1">
+          <p className="text-xs text-muted-foreground mt-1">
             Browse from the sidebar to inspect schema and data
           </p>
         </div>
@@ -102,7 +102,7 @@ function DirectoryView() {
   return (
     <div className="flex flex-col h-full p-6 animate-fade-in">
       <div className="flex items-center gap-3 mb-6">
-        <FolderOpen className="h-5 w-5 text-k-yellow/60" />
+        <FolderOpen className="h-5 w-5 text-foreground" />
         <h2 className="text-lg font-semibold text-foreground">{name}</h2>
         <span className="text-xs text-muted-foreground font-mono">{dirPath}</span>
       </div>
@@ -169,7 +169,7 @@ function WelcomeView() {
       <h1 className="text-xl font-semibold text-foreground mb-2">
         Pixeltable Dashboard
       </h1>
-      <p className="text-sm text-muted-foreground/90 max-w-md leading-relaxed">
+      <p className="text-sm text-muted-foreground max-w-md leading-relaxed">
         Explore your directories, tables, views, and snapshots.
         Select an item from the sidebar, or view the full pipeline lineage.
       </p>
@@ -179,7 +179,7 @@ function WelcomeView() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate('/lineage')}
-            className="flex items-center gap-2.5 rounded-lg bg-k-yellow text-background px-5 py-2.5 text-sm font-semibold hover:bg-k-yellow/90 transition-colors shadow-sm"
+            className="flex items-center gap-2.5 rounded-lg bg-k-yellow text-primary-foreground px-5 py-2.5 text-sm font-semibold hover:bg-k-yellow/90 transition-colors shadow-sm"
           >
             <GitBranch className="h-4 w-4" />
             View pipeline lineage
@@ -322,12 +322,12 @@ export default function App() {
                 <div className="flex items-center gap-1.5">
                   <span className="text-[13px] font-semibold tracking-tight text-foreground leading-tight">Pixeltable</span>
                   {status && (
-                    <span className="text-[10px] text-muted-foreground/50 font-mono leading-tight">v{status.version.split('+')[0]}</span>
+                    <span className="text-[10px] text-muted-foreground font-mono leading-tight">v{status.version.split('+')[0]}</span>
                   )}
                 </div>
                 {status?.config?.home && (
-                  <span className="flex items-center gap-1 text-[10px] text-muted-foreground/60 leading-tight mt-0.5">
-                    <CircleDot className="h-2 w-2 text-emerald-400 shrink-0" />
+                  <span className="flex items-center gap-1 text-[10px] text-muted-foreground leading-tight mt-0.5">
+                    <CircleDot className="h-2 w-2 text-muted-foreground shrink-0" />
                     <span className="truncate">{status.config.home.replace(/^\/Users\/[^/]+\//, '~/')}</span>
                   </span>
                 )}
@@ -338,7 +338,7 @@ export default function App() {
           {sidebarOpen && status?.config && (
             <div className="absolute top-full left-2 mt-0.5 hidden group-hover:block z-50 min-w-[280px] max-w-sm">
               <div className="rounded-lg border border-border/60 bg-card shadow-lg px-3.5 py-3 text-[11px] space-y-2.5">
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">Connection</div>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Connection</div>
                 {([
                   ['Home', status.config.home],
                   ['Database', status.config.db_url],
@@ -347,17 +347,17 @@ export default function App() {
                   ['Version', status.version],
                 ] as const).map(([label, val]) => (
                   <div key={label}>
-                    <div className="text-[10px] text-muted-foreground/60 mb-0.5">{label}</div>
+                    <div className="text-[10px] text-muted-foreground mb-0.5">{label}</div>
                     <div className="text-foreground font-mono text-[11px] break-all select-text leading-snug">{val}</div>
                   </div>
                 ))}
                 <div className="flex items-center justify-between pt-1 border-t border-border/30">
-                  <span className="text-[10px] text-muted-foreground/60">Tables</span>
+                  <span className="text-[10px] text-muted-foreground">Tables</span>
                   <span className="text-foreground font-medium tabular-nums">{status.total_tables}</span>
                 </div>
                 {status.total_errors > 0 && (
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-muted-foreground/60">Errors</span>
+                    <span className="text-[10px] text-muted-foreground">Errors</span>
                     <span className="text-destructive font-medium tabular-nums">{status.total_errors}</span>
                   </div>
                 )}
