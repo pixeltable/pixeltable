@@ -13,6 +13,7 @@ import datetime
 import io
 import math
 import pathlib
+import shutil
 import struct
 from typing import Any
 from uuid import UUID
@@ -218,10 +219,11 @@ def _deserialize(obj: Any, binary_parts: list[bytes], uploaded_names: dict[str, 
         if tag == 'file':
             # write the sent bytes to an opaque temp path (extension preserved for media-type detection); record
             # the original file name so an error can reference it rather than the temp path
+            parts_idx = v
             dest = TempStore.create_path(extension=pathlib.Path(obj['name']).suffix)
             dest.parent.mkdir(parents=True, exist_ok=True)
             with open(dest, 'wb') as f:
-                f.write(binary_parts[v])
+                f.write(binary_parts[parts_idx])
             if uploaded_names is not None:
                 uploaded_names[str(dest)] = obj['name']
             return str(dest)
@@ -299,6 +301,29 @@ def serialize_response(response: ProxyResponse) -> None:
 def deserialize_response(response: ProxyResponse, value: Any) -> Any:
     """Decode a value carried by response (its result or current_md), resolving binary references from it."""
     return _deserialize(value, response._binary_parts)
+
+
+def encode_dir_tree(dir_path: pathlib.Path) -> list[dict[str, Any]]:
+    """Encode a local directory tree for transport: one {relpath, file} entry per file. relpath includes
+    dir_path's own name as its first component, so decode_dir_tree() rebuilds the tree under a directory of the
+    same name (which source-format detection keys on, e.g. a *.parquet directory)."""
+    return [
+        {'relpath': path.relative_to(dir_path.parent).as_posix(), 'file': LocalFile(str(path))}
+        for path in sorted(dir_path.rglob('*'))
+        if path.is_file()
+    ]
+
+
+def decode_dir_tree(files: list[dict[str, Any]], root: pathlib.Path) -> pathlib.Path:
+    """Inverse of encode_dir_tree(): rebuild the entries under root and return the reassembled tree's top-level
+    directory (named after the original source directory). The caller owns root and removes it to clean up."""
+    for entry in files:
+        dest = root / entry['relpath']
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(entry['file'], dest)
+    tops = {pathlib.PurePosixPath(entry['relpath']).parts[0] for entry in files}
+    assert len(tops) == 1, tops
+    return root / next(iter(tops))
 
 
 _U32 = struct.Struct('>I')

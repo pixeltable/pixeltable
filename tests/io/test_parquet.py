@@ -186,6 +186,36 @@ class TestParquet:
         tab.insert(str(parquet_dir), source_format='parquet')
         assert tab.count() == len1 * 2
 
+    def test_insert_parquet_nested(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+        p = make_catalog_path
+        skip_test_if_not_installed('pyarrow')
+
+        # a directory whose parquet files live in subdirectories; the reader discovers them recursively. In hosted
+        # mode the client ships the tree and the daemon reassembles it, so the nesting must survive the round-trip.
+        parquet_dir = tmp_path / 'nested_data'
+        (parquet_dir / 'sub1').mkdir(parents=True)
+        (parquet_dir / 'sub2').mkdir(parents=True)
+        make_test_arrow_table(parquet_dir / 'sub1')
+        make_test_arrow_table(parquet_dir / 'sub2')
+
+        tab = pxt.io.import_parquet(p('nested_parquet'), parquet_path=str(parquet_dir), source_format='parquet')
+        len1 = tab.count()
+        assert len1 == 10  # 5 rows in each of the two subdirectory files
+        tab.insert(str(parquet_dir), source_format='parquet')
+        assert tab.count() == len1 * 2
+
+    def test_insert_empty_dir(
+        self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, tmp_path: pathlib.Path
+    ) -> None:
+        if catalog_mode != 'proxy':
+            pytest.skip('rejecting an empty directory is specific to the hosted insert path')
+        p = make_catalog_path
+        empty_dir = tmp_path / 'empty'
+        empty_dir.mkdir()
+        tab = pxt.create_table(p('empty_src'), {'c_id': pxt.Int})
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='empty directory'):
+            tab.insert(str(empty_dir), source_format='parquet')
+
     @pytest.mark.local(
         'export is read-side (collect then write a local parquet); dual-mode conversion is a separate follow-up'
     )

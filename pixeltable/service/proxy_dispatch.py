@@ -281,20 +281,13 @@ def _insert(request: ProxyRequest, tbl: LocalTable) -> Any:
 def _insert_source(request: ProxyRequest, tbl: LocalTable) -> Any:
     assert isinstance(tbl, InsertableTable), tbl
     kwargs = _deserialize_args(request)
-    # 'source' is a local temp path (a sent file), a remote URL string, or a list of temp paths (a sent
-    # directory). tbl.insert() reads a local path or a URL directly; a directory is reassembled here.
+    # 'source' is a local temp path (a sent file), a remote URL string, or a directory tree (a sent directory).
+    # tbl.insert() reads a local path or a URL directly; a directory tree is reassembled here.
     source = kwargs['source']
-    dest_dir: pathlib.Path | None = None
+    root: pathlib.Path | None = None
     if isinstance(source, list):
-        # reassemble the sent directory, keeping its original name so format detection (e.g. by a *.parquet
-        # name) matches the local path
-        dest_dir = TempStore.create_path() / kwargs['source_dir_name']
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        for path in source:
-            # path: the uploaded file (a temp path), which was recorded in _upload_names during deserialization
-            name = request._uploaded_names[path]
-            shutil.move(path, dest_dir / name)
-        source = str(dest_dir)
+        root = TempStore.create_path()
+        source = str(proxy_protocol.decode_dir_tree(source, root))
     try:
         return tbl.insert(
             source,
@@ -306,8 +299,8 @@ def _insert_source(request: ProxyRequest, tbl: LocalTable) -> Any:
             **(kwargs['extra_fields'] or {}),
         )
     finally:
-        if dest_dir is not None:
-            shutil.rmtree(dest_dir.parent, ignore_errors=True)
+        if root is not None:
+            shutil.rmtree(root, ignore_errors=True)
 
 
 def _insert_hf_dataset(request: ProxyRequest, tbl: LocalTable) -> Any:
@@ -315,14 +308,10 @@ def _insert_hf_dataset(request: ProxyRequest, tbl: LocalTable) -> Any:
 
     assert isinstance(tbl, InsertableTable), tbl
     kwargs = _deserialize_args(request)
-    # reassemble the sent save_to_disk() directory: each entry pairs a relative path with a local temp file
-    # holding the sent bytes
-    dataset_dir = TempStore.create_path()
+    # reassemble the sent save_to_disk() directory tree and load it back
+    root = TempStore.create_path()
     try:
-        for entry in kwargs['files']:
-            dest = dataset_dir / entry['relpath']
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(entry['upload'], dest)
+        dataset_dir = proxy_protocol.decode_dir_tree(kwargs['files'], root)
         dataset = datasets.load_from_disk(str(dataset_dir))
         return tbl.insert(
             dataset,
@@ -333,7 +322,7 @@ def _insert_hf_dataset(request: ProxyRequest, tbl: LocalTable) -> Any:
             **(kwargs['extra_fields'] or {}),
         )
     finally:
-        shutil.rmtree(dataset_dir, ignore_errors=True)
+        shutil.rmtree(root, ignore_errors=True)
 
 
 def _insert_sql_source(request: ProxyRequest, tbl: LocalTable) -> Any:

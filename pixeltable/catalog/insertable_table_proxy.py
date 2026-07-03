@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import pathlib
 import shutil
 import tempfile
 import urllib.parse
@@ -95,7 +96,7 @@ class InsertableTableProxy(TableProxy):
                     'insert',
                     {'rows': rows, 'on_error': on_error, 'print_stats': print_stats, 'return_rows': return_rows},
                 )
-            return self._insert_source_file(
+            return self._insert_source(
                 source,
                 source_format=source_format,
                 schema_overrides=schema_overrides,
@@ -216,7 +217,7 @@ class InsertableTableProxy(TableProxy):
             if writer is None:
                 # the source produced no rows; the destination table is already created, so nothing to send
                 return UpdateStatus()
-            return self._insert_source_file(
+            return self._insert_source(
                 parquet_path,
                 source_format='parquet',
                 schema_overrides=None,
@@ -288,7 +289,7 @@ class InsertableTableProxy(TableProxy):
             if col_md.name is not None and col_md.col_type.is_media_type()
         }
 
-    def _insert_source_file(
+    def _insert_source(
         self,
         source: str,
         *,
@@ -300,24 +301,25 @@ class InsertableTableProxy(TableProxy):
         return_rows: bool,
     ) -> UpdateStatus:
         """Send a media-free file/directory/URL source to the daemon."""
-        from pixeltable.service.proxy_protocol import LocalFile
+        from pixeltable.service.proxy_protocol import LocalFile, encode_dir_tree
 
         local = self._local_path(source)
         wire_source: Any
-        source_dir_name: str | None = None
         if local is None:
             wire_source = source  # remote URL: the daemon reads it directly
         elif os.path.isdir(local):
-            # send every file in the directory; the daemon reassembles them into a directory of the same name
-            wire_source = [LocalFile(os.path.join(local, name)) for name in sorted(os.listdir(local))]
-            source_dir_name = os.path.basename(os.path.normpath(local))
+            # send the directory as a tree of files; the daemon reassembles it under a dir of the same name
+            wire_source = encode_dir_tree(pathlib.Path(local))
+            if len(wire_source) == 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot insert from an empty directory: {source}'
+                )
         else:
             wire_source = LocalFile(local)
         return self._dispatch(
             'insert_source',
             {
                 'source': wire_source,
-                'source_dir_name': source_dir_name,
                 'source_format': source_format,
                 'schema_overrides': self._normalize_schema_overrides(schema_overrides),
                 'extra_fields': extra_fields,
@@ -344,7 +346,7 @@ class InsertableTableProxy(TableProxy):
         - datasets.save_to_disk() writes a self-contained Arrow copy (media bytes embedded, full feature metadata)
         - this avoids materialization of the dataset in Python
         """
-        from pixeltable.service.proxy_protocol import LocalFile
+        from pixeltable.service.proxy_protocol import encode_dir_tree
 
         # a streaming dataset (IterableDataset/IterableDatasetDict) has no on-disk serialization; supporting it
         # would mean reading the entire stream into client memory, which is exactly what sending the on-disk
@@ -360,16 +362,10 @@ class InsertableTableProxy(TableProxy):
         tmp_dir = tempfile.mkdtemp()
         try:
             dataset.save_to_disk(tmp_dir)
-            files: list[dict[str, Any]] = []
-            for dir_path, _, names in os.walk(tmp_dir):
-                for name in sorted(names):
-                    abs_path = os.path.join(dir_path, name)
-                    rel_path = os.path.relpath(abs_path, tmp_dir).replace(os.sep, '/')
-                    files.append({'relpath': rel_path, 'upload': LocalFile(abs_path)})
             return self._dispatch(
                 'insert_hf_dataset',
                 {
-                    'files': files,
+                    'files': encode_dir_tree(pathlib.Path(tmp_dir)),
                     'schema_overrides': self._normalize_schema_overrides(schema_overrides),
                     'extra_fields': extra_fields or {},
                     'on_error': on_error,
