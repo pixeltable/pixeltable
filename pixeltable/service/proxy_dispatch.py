@@ -305,7 +305,7 @@ def _insert_source(request: ProxyRequest, tbl: LocalTable) -> Any:
         )
     finally:
         if dest_dir is not None:
-            shutil.rmtree(dest_dir, ignore_errors=True)
+            shutil.rmtree(dest_dir.parent, ignore_errors=True)
 
 
 def _insert_hf_dataset(request: ProxyRequest, tbl: LocalTable) -> Any:
