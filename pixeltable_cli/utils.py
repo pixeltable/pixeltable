@@ -47,6 +47,9 @@ def validate_path_shape(path: str) -> str | None:
     """Return an error message if `path` violates pxt path shape rules, else None. Empty is allowed."""
     if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in path):
         return f'pxt paths must not contain control characters; got {path!r}'
+    if path.startswith('pxt://'):
+        # pxt:// URIs have their own syntax rules (org:db/path); skip local-path checks.
+        return None
     if '.' in path:
         return f"pxt paths use '/' as the separator; got {path!r}"
     if path.startswith('/'):

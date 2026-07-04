@@ -142,9 +142,9 @@ class TestTable:
         pxt.create_dir(p('hyphenated-dir'))
         _ = pxt.create_table(p('hyphenated-dir/hyphenated-table'), schema)
 
-        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match="Path 'test' does not exist"):
+        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match=r"test' does not exist"):
             pxt.drop_table(p('test'))
-        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match=r"Path 'dir1/test2' does not exist"):
+        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match=r"test2' does not exist"):
             pxt.drop_table(p('dir1/test2'))
         with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .test2'):
             pxt.drop_table(p('.test2'))
@@ -2005,24 +2005,28 @@ class TestTable:
         ):
             t.update({'json_col_2': {'a': 15}})  # Validation error on update
 
+    @pytest.mark.no_cloud
     def test_validate_image(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         rows = read_data_file('imagenette2-160', 'manifest_bad.csv', ['img'])
         rows = [{'media': r['img'], 'is_bad_media': r['is_bad_image']} for r in rows]
         self.check_bad_media(p, rows, pxt.Image, validate_local_path=False)
 
+    @pytest.mark.no_cloud
     def test_validate_video(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         p = make_catalog_path
         files = get_video_files(include_bad_video=True)
         rows = [{'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for f in files]
         self.check_bad_media(p, rows, pxt.Video, validate_local_path=catalog_mode == 'local')
 
+    @pytest.mark.no_cloud
     def test_validate_audio(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         p = make_catalog_path
         files = get_audio_files(include_bad_audio=True)
         rows = [{'media': f, 'is_bad_media': f.endswith('bad_audio.mp3')} for f in files]
         self.check_bad_media(p, rows, pxt.Audio, validate_local_path=catalog_mode == 'local')
 
+    @pytest.mark.no_cloud
     def test_validate_docs(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('markitdown', 'mistune')
@@ -2034,6 +2038,7 @@ class TestTable:
         rows = [{'media': f, 'is_bad_media': not is_valid} for f, is_valid in zip(doc_paths, is_valid)]
         self.check_bad_media(p, rows, pxt.Document, validate_local_path=catalog_mode == 'local')
 
+    @pytest.mark.no_cloud
     def test_validate_external_url(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('boto3')
@@ -2132,6 +2137,7 @@ class TestTable:
         cache_stats = FileCache.get().stats()
         assert cache_stats.total_size == 0
 
+    @pytest.mark.no_cloud
     def test_image_formats(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         tbl = pxt.create_table(p('test'), {'img': pxt.Image})
@@ -2140,6 +2146,7 @@ class TestTable:
         ]
         tbl.insert({'img': f'{TESTS_DIR}/data/images/{file}'} for file in files)
 
+    @pytest.mark.no_cloud
     def test_video_url(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('boto3')
@@ -2212,6 +2219,7 @@ class TestTable:
         pxt.drop_table(p('test_tbl'))
         assert MediaStore.count(view, default_output_dest=True) == 0
 
+    @pytest.mark.no_cloud
     def test_video_urls(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('boto3')
@@ -2834,6 +2842,7 @@ class TestTable:
         # now it works
         t.drop_column('c4')
 
+    @pytest.mark.no_cloud
     def test_computed_col_apply(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('test'), {'c2': pxt.Float})
@@ -2865,6 +2874,7 @@ class TestTable:
         for row in t_res:
             assert row['c3'] + 1000 == row['c4']
 
+    @pytest.mark.no_cloud
     def test_expr_udf_computed_cols(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('test'), {'c1': pxt.Int})

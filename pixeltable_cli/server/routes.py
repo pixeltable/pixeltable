@@ -10,6 +10,7 @@ import sqlalchemy as sa
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
+from pixeltable.catalog.path import Path as PxtPath
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.types import TreeNode
@@ -115,10 +116,16 @@ def list_dir(req: Request) -> models.LsResponse:
 
 
 def _list_dir(path: str, *, tree: bool, details: bool, counts: bool) -> models.LsResponse:
-    full_tree = pxt.get_dir_tree()
-    nodes = _get_dir_children(full_tree, path)
+    if PxtPath.is_pxt_uri(path):
+        p = PxtPath.parse(path, allow_empty_path=True)
+        full_tree = pxt.get_dir_tree(p.uri)
+        in_db_path = '/'.join(p.components)
+    else:
+        full_tree = pxt.get_dir_tree()
+        in_db_path = path
+    nodes = _get_dir_children(full_tree, in_db_path)
     if tree:
-        return models.LsResponse(entries=[], tree={'path': path, 'entries': nodes})
+        return models.LsResponse(entries=[], tree={'path': in_db_path, 'entries': nodes})
     entries = [_to_entry(n, details=details) for n in nodes]
     if counts:
         _fill_counts(entries)

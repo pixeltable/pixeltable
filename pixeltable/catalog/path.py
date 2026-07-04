@@ -48,8 +48,9 @@ class Path:
         if self.version is not None and self.version < 0:
             raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Version must be non-negative: {self.version}')
         # the root is the empty tuple; every component of a non-root path must be a valid identifier
-        if not all(is_valid_identifier(c, allow_hyphens=True) for c in self.components):
-            raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path: {".".join(self.components)}')
+        for _c in self.components:
+            if not is_valid_identifier(_c, allow_hyphens=True):
+                raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path: {_c}')
 
     @classmethod
     def parse(cls, path: str, *, allow_empty_path: bool = False, allow_versioned_path: bool = False) -> Path:
@@ -79,12 +80,13 @@ class Path:
             except ValueError:
                 raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path: {path}') from None
 
-        # Split the in-db path part into components (dotted form accepted for backward compatibility).
+        # Split the in-db path part into components. Slash-separated is canonical;
+        # dotted form is accepted only when no slashes are present (backward compatibility).
         components: tuple[str, ...]
-        if '.' in path_part:
-            components = tuple(path_part.split('.'))
-        elif '/' in path_part:
+        if '/' in path_part:
             components = tuple(path_part.split('/'))
+        elif '.' in path_part:
+            components = tuple(path_part.split('.'))
         else:
             components = (path_part,) if path_part else ()
 

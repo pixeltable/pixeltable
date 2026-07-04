@@ -50,9 +50,9 @@ def pytest_addoption(parser: argparsing.Parser) -> None:
     parser.addoption('--no-rerun', action='store_true', default=False, help='Do not rerun any failed tests.')
     parser.addoption(
         '--cloud',
-        action='store_true',
-        default=False,
-        help='Run tests against the cloud proxy (pxt://testorg:foxdb) instead of local/proxy modes.',
+        metavar='pxt://ORG:DB',
+        default=None,
+        help='Run tests against a cloud database, e.g. --cloud=pxt://pixeltable:clitest-e2e1',
     )
 
 
@@ -282,7 +282,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     if metafunc.definition.get_closest_marker('local') is not None:
         # local-only: don't fork the axis; catalog_mode defaults to 'local' and the nodeid stays unparametrized
         return
-    if metafunc.config.getoption('--cloud', default=False):
+    if metafunc.config.getoption('--cloud', default=None) is not None:
         if metafunc.definition.get_closest_marker('no_cloud') is not None:
             metafunc.definition.add_marker(pytest.mark.skip(reason='not supported against cloud daemon'))
             return
@@ -328,10 +328,14 @@ def make_catalog_path(
 
         from pixeltable.config import Config
 
-        # PIXELTABLE_DB_URI (e.g. pxt://myorg:mydb) points at the cloud catalog.
-        # Falls back to a local default so the open-source test suite can run without
-        # a cloud environment (tests will fail gracefully if no real cloud is available).
-        db_uri = Config.get().get_string_value('DB_URI') or 'pxt://testorg:foxdb'
+        db_uri = request.config.getoption('--cloud')
+        # If db_uri has a sub-path (e.g. pxt://org:db/tests), create it first.
+        _uri_path = db_uri[len('pxt://'):].split('/', 1)
+        if len(_uri_path) > 1 and _uri_path[1]:
+            try:
+                pxt.create_dir(db_uri)
+            except Exception:
+                pass  # already exists
         # Each test run gets its own namespace so tests don't collide.
         run_id = _uuid.uuid4().hex[:8]
         prefix = f'{db_uri}/test_{run_id}'
