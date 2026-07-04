@@ -6,7 +6,7 @@ import cloudpickle  # type: ignore[import-untyped]
 import sqlalchemy as sql
 
 from pixeltable.metadata import register_converter
-from pixeltable.metadata.schema import Function
+from pixeltable.metadata.converters.util import legacy_functions
 
 _logger = logging.getLogger(__name__)
 
@@ -14,11 +14,11 @@ _logger = logging.getLogger(__name__)
 @register_converter(version=15)
 def _(conn: sql.Connection) -> None:
     # select explicit columns (not SELECT *) so a future column addition/reorder can't shift the unpacking
-    for row in conn.execute(sql.select(Function.id, Function.md, Function.binary_obj)):
+    for row in conn.execute(sql.select(legacy_functions.c.id, legacy_functions.c.md, legacy_functions.c.binary_obj)):
         id, md, binary_obj = row
         md['md'] = __update_md(md['md'], binary_obj)
         _logger.info(f'Updating function: {id}')
-        conn.execute(sql.update(Function).where(Function.id == id).values(md=md))
+        conn.execute(sql.update(legacy_functions).where(legacy_functions.c.id == id).values(md=md))
 
 
 def __update_md(orig_d: dict, binary_obj: bytes) -> Any:

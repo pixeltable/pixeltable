@@ -1041,38 +1041,34 @@ class TestExprs:
     def test_apply(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
 
-        # For each column c1, ..., c5, we create a new column ci_as_str that converts it to
-        # a string, then check that each row is correctly converted
+        # For each column c1, ..., c5, apply str() and check that each row is correctly converted
         # (For c1 this is the no-op string-to-string conversion)
         for col_id in range(1, 6):
             col_name = f'c{col_id}'
-            str_col_name = f'c{col_id}_str'
-            status = t.add_computed_column(**{str_col_name: t[col_name].apply(str)})
-            assert status.num_excs == 0
-            data = t.select(t[col_name], t[str_col_name]).collect()
-            for row in data:
-                assert row[str_col_name] == str(row[col_name])
+            data = t.select(orig=t[col_name], as_str=t[col_name].apply(str)).collect()
+            assert all(row['as_str'] == str(row['orig']) for row in data)
 
         # Test a compound expression with apply
-        status = t.add_computed_column(c2_plus_1_str=(t.c2 + 1).apply(str))
-        assert status.num_excs == 0
-        data = t.select(t.c2, t.c2_plus_1_str).collect()
-        for row in data:
-            assert row['c2_plus_1_str'] == str(row['c2'] + 1)
+        data = t.select(c2=t.c2, plus_1_str=(t.c2 + 1).apply(str)).collect()
+        assert all(row['plus_1_str'] == str(row['c2'] + 1) for row in data)
 
-        # For columns c6, c7, try using json.dumps and json.loads to emit and parse JSON <-> str
+        # For columns c6, c7, use json.dumps and json.loads to emit and parse JSON <-> str
         for col_id in range(6, 8):
             col_name = f'c{col_id}'
-            str_col_name = f'c{col_id}_str'
-            back_to_json_col_name = f'c{col_id}_back_to_json'
-            status = t.add_computed_column(**{str_col_name: t[col_name].apply(json.dumps)})
-            assert status.num_excs == 0
-            status = t.add_computed_column(**{back_to_json_col_name: t[str_col_name].apply(json.loads)})
-            assert status.num_excs == 0
-            data = t.select(t[col_name], t[str_col_name], t[back_to_json_col_name]).collect()
-            for row in data:
-                assert row[str_col_name] == json.dumps(row[col_name])
-                assert row[back_to_json_col_name] == row[col_name]
+            data = t.select(
+                orig=t[col_name],
+                as_str=t[col_name].apply(json.dumps),
+                back_to_json=t[col_name].apply(json.dumps).apply(json.loads),
+            ).collect()
+            assert all(row['as_str'] == json.dumps(row['orig']) for row in data)
+            assert all(row['back_to_json'] == row['orig'] for row in data)
+
+        # apply() creates a function without a fully-qualified path, which can't be used in a computed column
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r"Computed column 'c1_str' uses `str\(\)`, which was created with `\.apply\(\)`",
+        ):
+            t.add_computed_column(c1_str=t.c1.apply(str))
 
         def f1(x):  # type: ignore[no-untyped-def]
             return str(x)
@@ -1083,15 +1079,15 @@ class TestExprs:
         assert 'Column type of `f1` cannot be inferred.' in str(exc_info.value)
 
         # ... but works if the type is specified explicitly.
-        status = t.add_computed_column(c2_str_f1=t.c2.apply(f1, col_type=pxt.String))
-        assert status.num_excs == 0
+        data = t.select(c2=t.c2, v=t.c2.apply(f1, col_type=pxt.String)).collect()
+        assert all(row['v'] == str(row['c2']) for row in data)
 
         # Test that the return type of a function can be successfully inferred.
         def f2(x) -> str:  # type: ignore[no-untyped-def]
             return str(x)
 
-        status = t.add_computed_column(c2_str_f2=t.c2.apply(f2))
-        assert status.num_excs == 0
+        data = t.select(c2=t.c2, v=t.c2.apply(f2)).collect()
+        assert all(row['v'] == str(row['c2']) for row in data)
 
         # Test various validation failures.
 
@@ -1132,6 +1128,38 @@ class TestExprs:
             return ''
 
         t.c2.apply(f8)
+
+    def test_nonmodule_function_errors(self, make_catalog_path: Callable[[str], str]) -> None:
+        # a function without a fully-qualified path (from apply() or defined in a notebook) can only be stored as a
+        # pickled body; every persistence site must reject it with a clear message
+        p = make_catalog_path
+        t = pxt.create_table(p('base'), {'c2': pxt.Int, 's': pxt.String})
+        t.insert([{'c2': i, 's': str(i)} for i in range(10)])
+        match = r'was created with `\.apply\(\)` or defined as a local'
+
+        # computed column
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=match):
+            t.add_computed_column(bad=t.c2.apply(lambda x: x + 1, col_type=pxt.Int))
+
+        # view filter
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=match):
+            pxt.create_view(p('vfilter'), t.where(t.c2.apply(lambda x: x > 1, col_type=pxt.Bool)))
+
+        # stratified sampling in a snapshot view
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=match):
+            pxt.create_view(
+                p('vsample'),
+                t.sample(fraction=0.5, stratify_by=[t.c2.apply(lambda x: x % 2, col_type=pxt.Int)]),
+                is_snapshot=True,
+            )
+
+        # embedding index (_force_stored stands in for a notebook-defined embedding)
+        @pxt.udf(_force_stored=True)
+        def local_embed(s: str) -> pxt.Array[(4,), pxt.Float]:
+            return np.ones(4, dtype=np.float32)
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=match):
+            t.add_embedding_index('s', string_embed=local_embed)
 
     def test_select_list(self, img_tbl: pxt.Table) -> None:
         t = img_tbl

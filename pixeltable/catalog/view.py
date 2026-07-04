@@ -152,6 +152,7 @@ class View(LocalTable):
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'View filter cannot be computed in the context of the base table {base.tbl_name()!r}',
                 )
+            predicate.validate_storable("A view's filter")
             # create a copy that we can modify and store
             predicate = predicate.copy()
 
@@ -165,6 +166,8 @@ class View(LocalTable):
                     f'View sample clause cannot be computed in the context of the base table {base.tbl_name()!r}',
                 )
 
+            for stratify_expr in sample_clause.stratify_exprs or []:
+                stratify_expr.validate_storable("A view's sample clause")
             # create a copy that we can modify and store
             sample_clause = dataclasses.replace(sample_clause, stratify_exprs=copy.copy(sample_clause.stratify_exprs))
 
@@ -187,6 +190,8 @@ class View(LocalTable):
                 )
 
         iterator_args_expr: exprs.Expr = InlineDict(iterator_call.bound_args) if iterator_call is not None else None
+        if iterator_args_expr is not None:
+            iterator_args_expr.validate_storable("A view's iterator arguments")
         base_version_path = cls._get_snapshot_path(base) if is_snapshot else base
 
         # if this is a snapshot, we need to retarget all exprs to the snapshot tbl versions

@@ -422,6 +422,18 @@ class Expr(abc.ABC):
         except StopIteration:
             return False
 
+    def validate_storable(self, context: str) -> None:
+        """Raise if this expr references a Function that cannot be persisted."""
+        from .function_call import FunctionCall
+
+        for fn_call in self.subexprs(FunctionCall):
+            if not fn_call.fn.is_storable:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{context} uses `{fn_call.fn.display_name}()`, which was created with `.apply()` or defined '
+                    f'as a local function. Define it as a module-level `@pxt.udf` and use that instead.',
+                )
+
     def _has_relative_path(self) -> bool:
         return any(c._has_relative_path() for c in self.components)
 
