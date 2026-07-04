@@ -214,10 +214,11 @@ def _export_conda_env() -> bytes | None:
     return result.stdout
 
 
-def _find_lockfile() -> Path | None:
-    cwd = Path.cwd()
+def _find_lockfile(project_dir: Path | None = None) -> Path | None:
+    if project_dir is None:
+        project_dir = Path.cwd()
     for name in ('uv.lock', 'poetry.lock', 'requirements.txt'):
-        path = cwd / name
+        path = project_dir / name
         if path.is_file():
             Env.get().console_logger.info(f'Found a dependency lockfile: {path}')
             return path
@@ -275,3 +276,56 @@ def __add_tarfile(tf: tarfile.TarFile, name: str, content: bytes) -> None:
     info = tarfile.TarInfo(name=name)
     info.size = len(content)
     tf.addfile(info, fileobj=io.BytesIO(content))
+
+
+def build_runtime_bundle(project_dir: Path | None = None) -> Path:
+    """Package the current project into a tarball for updating a cloud-hosted database runtime.
+
+    Unlike build_deploy_bundle(), this does not include service configuration or table metadata —
+    only source files, dependency lockfiles, and an optional pixeltable source override.
+
+    Bundle layout:
+        conda-env.yml        (optional — present when running inside a conda environment)
+        runtime_config.json  (optional — present when [database.pixeltable_source] is configured)
+        project/             (all project source files: UDFs, lockfiles, pyproject.toml, etc.)
+    """
+    from pixeltable.serving._config import lookup_database_runtime_config
+
+    if project_dir is None:
+        project_dir = Path.cwd()
+    project_dir = project_dir.resolve()
+
+    if not project_dir.is_dir():
+        raise FileNotFoundError(f'Project directory does not exist: {project_dir}')
+
+    runtime_cfg = lookup_database_runtime_config()
+    include = runtime_cfg.include if runtime_cfg else None
+    exclude = runtime_cfg.exclude if runtime_cfg else None
+    pxt_source = runtime_cfg.pixeltable_source if runtime_cfg else None
+
+    lockfile = _find_lockfile(project_dir)
+    if lockfile is None:
+        Env.get().console_logger.warning(
+            'No dependency lockfile was found (uv.lock, poetry.lock, requirements.txt).\n'
+            'The runtime may not have the necessary dependencies.'
+        )
+
+    conda_export = _export_conda_env()
+    files = _collect_project_files(project_dir, include, exclude)
+
+    fd, name = tempfile.mkstemp(suffix='.tar.bz2', prefix='pxt_runtime_')
+    os.close(fd)
+    bundle_path = Path(name)
+
+    with tarfile.open(bundle_path, 'w:bz2') as tf:
+        if conda_export is not None:
+            __add_tarfile(tf, 'conda-env.yml', conda_export)
+        if pxt_source is not None:
+            rt_config = {'pixeltable_source': pxt_source.model_dump(exclude_none=True)}
+            __add_tarfile(tf, 'runtime_config.json', json.dumps(rt_config).encode('utf-8'))
+        for f in sorted(files):
+            relpath = f.relative_to(project_dir)
+            tf.add(f, arcname=f'project/{relpath}')
+
+    _logger.info(f'Runtime bundle created: {bundle_path}')
+    return bundle_path

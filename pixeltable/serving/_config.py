@@ -74,6 +74,19 @@ def lookup_deployment_config(name: str) -> config.DeploymentConfig:
     return _lookup_config('deployment', name, config.DeploymentConfig, excs.ErrorCode.DEPLOYMENT_NOT_FOUND)
 
 
+def lookup_database_runtime_config() -> config.DatabaseRuntimeConfig | None:
+    """Return the [database] runtime config from pixeltable.toml, or None if absent."""
+    raw = config.Config.get().get_value('database', dict)
+    if raw is None:
+        return None
+    try:
+        return config.DatabaseRuntimeConfig.model_validate(raw)
+    except Exception as e:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid [database] section in pixeltable.toml: {e}'
+        ) from e
+
+
 def create_service_from_config(cfg: config.ServiceConfig) -> 'fastapi.FastAPI':
     """Build a FastAPI instance from a ServiceConfig"""
     Env.get().require_package('fastapi')

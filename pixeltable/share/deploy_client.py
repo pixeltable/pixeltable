@@ -27,6 +27,7 @@ from pixeltable.share.protocol.database import (
 from pixeltable.share.protocol.service import (
     CreateServiceRequest,
     DeleteServiceRequest,
+    GetBundleUploadUrlRequest,
     GetServiceRequest,
     ListOrgsRequest,
     ListServicesRequest,
@@ -163,14 +164,73 @@ def database_stop(db_slug: str, org_slug: str | None = None, json_output: bool =
         print(resp.get('message', 'stopped'))
 
 
-def database_update_runtime(
-    db_slug: str, org_slug: str | None = None, runtime_image: str | None = None, json_output: bool = False
-) -> None:
-    resp = _post(UpdateRuntimeRequest(org_slug=org_slug, db_slug=db_slug, runtime_image=runtime_image))
-    if json_output:
-        import json
+def get_bundle_upload_url(org_slug: str | None, db_slug: str) -> tuple[str, str]:
+    """Get a presigned S3 URL for a runtime bundle upload.
 
-        print(json.dumps(resp))
+    Returns (presigned_url, bundle_s3_key).
+    """
+    resp = _post(GetBundleUploadUrlRequest(org_slug=org_slug, db_slug=db_slug))
+    return resp['presigned_url'], resp['bundle_s3_key']
+
+
+_RUNTIME_UPDATE_POLL_INTERVAL = 10  # seconds
+_RUNTIME_UPDATE_TIMEOUT = 900       # 15 minutes max (CodeBuild can take up to ~8 min)
+
+
+def database_update_runtime(
+    db_slug: str, org_slug: str | None = None, watch: bool = False, json_output: bool = False
+) -> None:
+    import json as _json
+
+    from pixeltable.serving.deploy import build_runtime_bundle
+
+    if not json_output:
+        print('Building runtime bundle...', end=' ', flush=True)
+    bundle_path = build_runtime_bundle()
+    if not json_output:
+        size_mb = bundle_path.stat().st_size / (1024 * 1024)
+        print(f'done ({size_mb:.1f} MB)')
+
+    try:
+        if not json_output:
+            print('Uploading bundle...', end=' ', flush=True)
+        presigned_url, bundle_s3_key = get_bundle_upload_url(org_slug, db_slug)
+        with bundle_path.open('rb') as fh:
+            upload_resp = requests.put(presigned_url, data=fh, timeout=300)
+            upload_resp.raise_for_status()
+        if not json_output:
+            print('done')
+    finally:
+        bundle_path.unlink(missing_ok=True)
+
+    resp = _post(UpdateRuntimeRequest(org_slug=org_slug, db_slug=db_slug, bundle_s3_key=bundle_s3_key))
+
+    if watch:
+        deadline = time.monotonic() + _RUNTIME_UPDATE_TIMEOUT
+        if not json_output:
+            print('Waiting for runtime build', end='', flush=True)
+        final_state = ''
+        while time.monotonic() < deadline:
+            time.sleep(_RUNTIME_UPDATE_POLL_INTERVAL)
+            try:
+                db_resp = _post(GetDatabaseRequest(org_slug=org_slug, db_slug=db_slug))
+                state = db_resp.get('database', {}).get('state', '')
+                if state != 'RUNTIME_UPDATING':
+                    final_state = state
+                    break
+            except Exception:
+                pass
+            if not json_output:
+                print('.', end='', flush=True)
+        if not json_output:
+            print()
+            if final_state:
+                print(f'Runtime build {final_state.lower()}.')
+            else:
+                print('Timed out waiting for runtime build.')
+
+    if json_output:
+        print(_json.dumps(resp))
     else:
         print(resp.get('message', 'runtime update triggered'))
 

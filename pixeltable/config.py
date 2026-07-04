@@ -159,6 +159,23 @@ class DeploymentConfig(pydantic.BaseModel):
         return v
 
 
+class PixeltableSourceConfig(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(extra='forbid')
+
+    git: str
+    branch: str | None = None
+    rev: str | None = None  # commit SHA or tag
+
+
+class DatabaseRuntimeConfig(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(extra='forbid')
+
+    uri: str  # pxt://org:db
+    include: list[str] | None = None
+    exclude: list[str] | None = None
+    pixeltable_source: PixeltableSourceConfig | None = None
+
+
 class ConfigKey(NamedTuple):
     """An individual configuration setting from the known-schema registry."""
 
@@ -538,6 +555,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'tigris_profile': 'AWS config profile name used to access Tigris object storage',
         'service': ('Service configurations', list[ServiceConfig]),
         'deployment': ('Deployment configurations', list[DeploymentConfig]),
+        'database': 'Database runtime configuration',
         'daemon_host': 'Listen address for the proxy daemon in fixed-address mode (e.g. 0.0.0.0)',
         'daemon_port': ('Listen port for the proxy daemon in fixed-address mode (e.g. 8000)', int),
         'db_uri': 'Base pxt:// URI for remote catalog access (e.g. pxt://myorg:mydb)',

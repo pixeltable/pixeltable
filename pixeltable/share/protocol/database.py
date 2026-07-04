@@ -75,7 +75,7 @@ class UpdateRuntimeRequest(BaseModel):
     operation_type: Literal[DatabaseOperationType.UPDATE_RUNTIME] = DatabaseOperationType.UPDATE_RUNTIME
     org_slug: Optional[str] = None
     db_slug: str
-    runtime_image: Optional[str] = None
+    bundle_s3_key: str
 
 
 # ── Secrets ───────────────────────────────────────────────────────────────────

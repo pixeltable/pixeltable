@@ -228,11 +228,43 @@ class UpdateRuntimeRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.UPDATE_RUNTIME] = ServiceOperationType.UPDATE_RUNTIME
     org_slug: Optional[str] = None
     db_slug: str
-    runtime_image: Optional[str] = None
+    bundle_s3_key: str
 
 
 class UpdateRuntimeResponse(BaseModel):
     message: str = 'runtime update triggered'
+
+
+class GetBundleUploadUrlRequest(BaseModel):
+    operation_type: Literal[ServiceOperationType.GET_BUNDLE_UPLOAD_URL] = ServiceOperationType.GET_BUNDLE_UPLOAD_URL
+    org_slug: Optional[str] = None
+    db_slug: str
+
+
+class GetBundleUploadUrlResponse(BaseModel):
+    presigned_url: str
+    bundle_s3_key: str
+
+
+# ── Service Runs ──────────────────────────────────────────────────────────────
+
+
+class ServiceRunRecord(BaseModel):
+    run_id: str
+    workers_min: int
+    state: str  # STARTING | RUNNING | STOPPED | FAILED
+    started_at: float
+    stopped_at: Optional[float] = None
+    runtime_build_id: Optional[str] = None
+    bundle_r2_path: Optional[str] = None
+
+
+class ListServiceRunsResponse(BaseModel):
+    runs: list[ServiceRunRecord]
+
+
+class GetServiceRunResponse(BaseModel):
+    run: ServiceRunRecord
 
 
 # ── Org ───────────────────────────────────────────────────────────────────────

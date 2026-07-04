@@ -37,6 +37,7 @@ class ServiceOperationType(str, Enum):
     STOP_DATABASE = 'stop_database'
     UPDATE_DATABASE = 'update_database'
     UPDATE_RUNTIME = 'update_runtime'
+    GET_BUNDLE_UPLOAD_URL = 'get_bundle_upload_url'
 
     LIST_ORGS = 'list_orgs'
 
