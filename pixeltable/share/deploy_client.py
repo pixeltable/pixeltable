@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 from typing import Any
 
 import requests
@@ -33,7 +34,7 @@ from pixeltable.share.protocol.service import (
     StopServiceRequest,
 )
 
-PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.pixeltable.com')
+PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://dev-internal-api.pixeltable.com')
 
 
 def _api_headers() -> dict[str, str]:
@@ -50,8 +51,14 @@ def _api_headers() -> dict[str, str]:
     return headers
 
 
+_LONG_OPS = frozenset({'create_database', 'update_runtime', 'delete_database'})
+
+
 def _post(request: Any) -> dict[str, Any]:
-    resp = requests.post(PIXELTABLE_API_URL, data=request.model_dump_json(), headers=_api_headers(), timeout=30)
+    op = getattr(request, 'operation_type', None)
+    op_str = op.value if hasattr(op, 'value') else str(op) if op else ''
+    timeout = 180 if op_str in _LONG_OPS else 30
+    resp = requests.post(PIXELTABLE_API_URL, data=request.model_dump_json(), headers=_api_headers(), timeout=timeout)
     if resp.status_code not in (200, 201):
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,
@@ -65,15 +72,35 @@ def _post(request: Any) -> dict[str, Any]:
 # ── Database ──────────────────────────────────────────────────────────────────
 
 
+_PROVISIONING_POLL_INTERVAL = 5   # seconds between get_database polls
+_PROVISIONING_TIMEOUT = 600       # 10 minutes max wait
+
+
 def database_create(
     org_slug: str, db_slug: str, location: str = 'aws', region: str = 'us-east-1', json_output: bool = False
 ) -> dict[str, Any]:
     resp = _post(CreateDatabaseRequest(org_slug=org_slug, db_slug=db_slug, location=location))
     db = resp['database']
-    if json_output:
-        import json
 
-        print(json.dumps(db))
+    if db.get('state') == 'PROVISIONING':
+        deadline = time.monotonic() + _PROVISIONING_TIMEOUT
+        if not json_output:
+            print(f"Database '{db_slug}' is provisioning", end='', flush=True)
+        while db.get('state') == 'PROVISIONING' and time.monotonic() < deadline:
+            time.sleep(_PROVISIONING_POLL_INTERVAL)
+            try:
+                resp2 = _post(GetDatabaseRequest(org_slug=org_slug, db_slug=db_slug))
+                db = resp2['database']
+            except Exception:
+                pass
+            if not json_output:
+                print('.', end='', flush=True)
+        if not json_output:
+            print()
+
+    if json_output:
+        import json as _json
+        print(_json.dumps(db))
     else:
         _print_db(db)
     return db
