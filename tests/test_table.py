@@ -1436,7 +1436,6 @@ class TestTable:
 
             _ = t.insert([BadModel8(t='0')])
 
-
     def test_insert_nested_pydantic(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         schema = {'s': pxt.Required[pxt.String], 'j': pxt.Required[pxt.Json]}

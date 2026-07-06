@@ -323,12 +323,10 @@ def make_catalog_path(
     elif catalog_mode == 'cloud':
         import uuid as _uuid
 
-        from pixeltable.config import Config
-
         db_uri = request.config.getoption('--cloud')
         # If db_uri has a sub-path (e.g. pxt://org:db/tests), create it first.
-        _uri_path = db_uri[len('pxt://'):].split('/', 1)
-        if len(_uri_path) > 1 and _uri_path[1]:
+        uri_path = db_uri[len('pxt://') :].split('/', 1)
+        if len(uri_path) > 1 and uri_path[1]:
             try:
                 pxt.create_dir(db_uri)
             except Exception:

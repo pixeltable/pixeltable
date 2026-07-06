@@ -101,8 +101,8 @@ class ProxyCloudClient(proxy_client.ProxyClient):
         outer_sock = ssl_sock
 
         class _TunnelHTTP(http.client.HTTPConnection):
-            def connect(inner_self) -> None:
-                inner_self.sock = outer_sock
+            def connect(self) -> None:
+                self.sock = outer_sock
 
         conn = _TunnelHTTP(self._host, timeout=_RPC_TIMEOUT)
         conn.connect()

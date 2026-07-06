@@ -21,7 +21,6 @@ from pixeltable.share.protocol.database import (
     SetSecretRequest,
     StartDatabaseRequest,
     StopDatabaseRequest,
-    UpdateDatabaseRequest,
     UpdateRuntimeRequest,
 )
 from pixeltable.share.protocol.service import (
@@ -73,8 +72,8 @@ def _post(request: Any) -> dict[str, Any]:
 # ── Database ──────────────────────────────────────────────────────────────────
 
 
-_PROVISIONING_POLL_INTERVAL = 5   # seconds between get_database polls
-_PROVISIONING_TIMEOUT = 600       # 10 minutes max wait
+_PROVISIONING_POLL_INTERVAL = 5  # seconds between get_database polls
+_PROVISIONING_TIMEOUT = 600  # 10 minutes max wait
 
 
 def database_create(
@@ -101,6 +100,7 @@ def database_create(
 
     if json_output:
         import json as _json
+
         print(_json.dumps(db))
     else:
         _print_db(db)
@@ -174,7 +174,7 @@ def get_bundle_upload_url(org_slug: str | None, db_slug: str) -> tuple[str, str]
 
 
 _RUNTIME_UPDATE_POLL_INTERVAL = 10  # seconds
-_RUNTIME_UPDATE_TIMEOUT = 900       # 15 minutes max (CodeBuild can take up to ~8 min)
+_RUNTIME_UPDATE_TIMEOUT = 900  # 15 minutes max (CodeBuild can take up to ~8 min)
 
 
 def database_update_runtime(
@@ -325,13 +325,7 @@ def service_start(
     workers_max: int | None = None,
     json_output: bool = False,
 ) -> dict[str, Any]:
-    resp = _post(
-        StartServiceRequest(
-            org_slug=org_slug,
-            db_slug=db_slug,
-            service_name=service_name,
-        )
-    )
+    resp = _post(StartServiceRequest(org_slug=org_slug, db_slug=db_slug, service_name=service_name))
     svc = resp['service']
     if json_output:
         import json
