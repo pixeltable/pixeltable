@@ -160,9 +160,8 @@ class Runtime:
                 f'A Pixeltable API key is required to connect to hosted database {catalog_uri!r}. '
                 'Set PIXELTABLE_API_KEY or add api_key to your config.',
             )
-        # PIXELTABLE_CLOUD_HOST is a domain suffix override (e.g. "dev.pxt.run").
-        # The full host is composed as {org}-{db}.{domain}.  Omit to use the
-        # production default (pxt.run), which proxy_cloud_client already encodes.
+        # PIXELTABLE_CLOUD_HOST is an optional domain suffix override for the proxy endpoint.
+        # The full host is composed as {org}-{db}.{domain}.  Omit to use the production default.
         cloud_domain = os.environ.get('PIXELTABLE_CLOUD_HOST') or None
         port_override = 9000
         if cloud_domain and ':' in cloud_domain:

@@ -1,15 +1,12 @@
 """TLS tunnel client for connecting to cloud-hosted databases via the proxy daemon sidecar.
 
-After a TLS handshake with {org}-{db}.pxt.run:9000, the client sends a PXT/1.0 CONNECT frame
-to authenticate and identify the target database. The sidecar validates the API key against
-the gateway and, on success, forwards all subsequent bytes to the proxy daemon's HTTP server
-(port 8000). This client then issues HTTP POST /rpc requests over that tunnel.
+After a TLS handshake with the cloud endpoint, the client sends a PXT/1.0 CONNECT frame to
+authenticate and identify the target database. The sidecar validates the API key and, on
+success, forwards all subsequent bytes to the proxy daemon's HTTP server. This client then
+issues HTTP POST /rpc requests over that tunnel.
 
 Connection is persistent: the TLS socket is reused across multiple RPC calls. On any socket
 error the connection is torn down and re-established on the next request (transparent reconnect).
-
-For dev clusters, set PIXELTABLE_CLOUD_HOST={org}-{db}.dev.pxt.run in the environment
-(handled by runtime.py).
 """
 
 from __future__ import annotations
