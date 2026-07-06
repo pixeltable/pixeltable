@@ -69,9 +69,6 @@ def _post(request: Any) -> dict[str, Any]:
     return resp.json()
 
 
-# ── Database ──────────────────────────────────────────────────────────────────
-
-
 _PROVISIONING_POLL_INTERVAL = 5  # seconds between get_database polls
 _PROVISIONING_TIMEOUT = 600  # 10 minutes max wait
 
@@ -235,9 +232,6 @@ def database_update_runtime(
         print(resp.get('message', 'runtime update triggered'))
 
 
-# ── Org ───────────────────────────────────────────────────────────────────────
-
-
 def org_list(json_output: bool = False) -> list[dict]:
     resp = _post(ListOrgsRequest())
     orgs = resp.get('orgs', [])
@@ -259,7 +253,28 @@ def org_list(json_output: bool = False) -> list[dict]:
     return orgs
 
 
-# ── Service ───────────────────────────────────────────────────────────────────
+def org_get(org_slug: str, json_output: bool = False) -> dict | None:
+    import sys
+
+    resp = _post(ListOrgsRequest())
+    orgs = resp.get('orgs', [])
+    org = next((o for o in orgs if o.get('org_slug') == org_slug), None)
+    if org is None:
+        print(f"Org '{org_slug}' not found.", file=sys.stderr)
+        return None
+    if json_output:
+        import json
+
+        print(json.dumps(org))
+    else:
+        slug = org.get('org_slug', '')
+        org_id = org.get('org_id', '')
+        default_db = org.get('default_db_slug') or ''
+        line = f'{slug}  id={org_id}'
+        if default_db:
+            line += f'  default_db={default_db}'
+        print(line)
+    return org
 
 
 def service_create(
@@ -358,9 +373,6 @@ def service_delete(org_slug: str, db_slug: str, service_name: str, json_output: 
         print(f"Deleted service '{service_name}'.")
 
 
-# ── Secrets ───────────────────────────────────────────────────────────────────
-
-
 def secret_set(org_slug: str, db_slug: str | None, key: str, value: str, json_output: bool = False) -> None:
     _post(SetSecretRequest(org_slug=org_slug, db_slug=db_slug, key=key, value=value))
     if json_output:
@@ -394,9 +406,6 @@ def secret_list(org_slug: str, db_slug: str | None, json_output: bool = False) -
         for k in keys:
             print(f'  {k}')
     return keys
-
-
-# ── Display helpers ───────────────────────────────────────────────────────────
 
 
 def _print_db(db: dict[str, Any]) -> None:

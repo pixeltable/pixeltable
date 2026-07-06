@@ -78,7 +78,6 @@ class UpdateRuntimeRequest(BaseModel):
     bundle_s3_key: str
 
 
-# ── Secrets ───────────────────────────────────────────────────────────────────
 # db_slug=None → org-scoped secret; db_slug=<slug> → DB-scoped secret.
 # list_secrets returns key names only, never values.
 

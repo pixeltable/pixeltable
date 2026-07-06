@@ -14,7 +14,7 @@ COMMANDS: dict[str, str] = {
     'columns': 'list columns across tables (optionally one)',
     'idxs': 'list indexes across tables (optionally one)',
     'rows': 'peek the first N rows of a table',
-    'get': 'look up a single row by primary key',
+    'get': 'look up a single table row by primary key',
     'count': 'count rows in a table',
     'status': 'show daemon/runtime state',
     'config': 'show resolved configuration: every documented setting, its value, and its source',

@@ -9,6 +9,7 @@ SERVICE_SUBCOMMANDS: dict[str, tuple[str, str]] = {
     'start': ('start_service', 'start a service'),
     'stop': ('stop_service', 'stop a service'),
     'delete': ('delete_service', 'delete a service'),
+    'status': ('service_status', 'show status of a service'),
 }
 
 

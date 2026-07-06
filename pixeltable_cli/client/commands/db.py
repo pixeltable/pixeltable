@@ -10,6 +10,7 @@ DB_SUBCOMMANDS: dict[str, tuple[str, str]] = {
     'start': ('start_db', 'start (wake) a stopped cloud-hosted database'),
     'stop': ('stop_db', 'stop (sleep) a running cloud-hosted database'),
     'update-runtime': ('update_runtime', 'trigger a runtime rebuild for a cloud-hosted database'),
+    'status': ('db_status', 'show status of a cloud-hosted database'),
 }
 
 

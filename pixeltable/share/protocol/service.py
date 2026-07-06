@@ -8,8 +8,6 @@ from pydantic import BaseModel
 
 from .operation_types import ServiceOperationType
 
-# ── Database ──────────────────────────────────────────────────────────────────
-
 
 class DatabaseRecord(BaseModel):
     database_id: str
@@ -80,9 +78,6 @@ class DeleteDatabaseResponse(BaseModel):
 
 # Alias matching the cloud protocol's naming (no trailing 's').
 ListDatabaseRequest = ListDatabasesRequest
-
-
-# ── Service ───────────────────────────────────────────────────────────────────
 
 
 class ServiceRecord(BaseModel):
@@ -201,9 +196,6 @@ class GetServiceRunRequest(BaseModel):
     run_id: str
 
 
-# ── Start / Stop / UpdateRuntime ──────────────────────────────────────────────
-
-
 class StartDatabaseRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.START_DATABASE] = ServiceOperationType.START_DATABASE
     org_slug: Optional[str] = None
@@ -246,9 +238,6 @@ class GetBundleUploadUrlResponse(BaseModel):
     bundle_s3_key: str
 
 
-# ── Service Runs ──────────────────────────────────────────────────────────────
-
-
 class ServiceRunRecord(BaseModel):
     run_id: str
     workers_min: int
@@ -265,9 +254,6 @@ class ListServiceRunsResponse(BaseModel):
 
 class GetServiceRunResponse(BaseModel):
     run: ServiceRunRecord
-
-
-# ── Org ───────────────────────────────────────────────────────────────────────
 
 
 class OrgRecord(BaseModel):

@@ -5,9 +5,6 @@ from ..parser import Parser, parse_cols
 
 EPILOG = """\
 Examples:
-  pxt get pxt://org                             # org info
-  pxt get pxt://org:db                          # database status
-  pxt get pxt://org:db/services/name            # service status
   pxt get my_dir/my_table 42                    # single-column PK, int value
   pxt get my_dir/my_table some_string_id        # single-column PK, string value
   pxt get my_dir/my_table 42 abc                # composite PK (2 cols), in declared PK order
@@ -24,19 +21,6 @@ Notes:
   The table must have a primary key declared."""
 
 
-def _get_cloud_resource(uri: str, as_json: bool) -> None:
-    from pixeltable.service.utils import PxtUri
-    from pixeltable.share.deploy_client import database_get, org_list, service_get
-
-    p = PxtUri(uri)
-    if p.service is not None:
-        service_get(p.org, p.db, p.service, json_output=as_json)
-    elif p.db is not None:
-        database_get(p.org, p.db, json_output=as_json)
-    else:
-        org_list(json_output=as_json)
-
-
 def run(argv: list[str]) -> None:
     ap = Parser(prog='pxt get', epilog=EPILOG)
     ap.add_argument('path')
@@ -44,10 +28,6 @@ def run(argv: list[str]) -> None:
     ap.add_argument('--cols', help='comma-separated column subset')
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)
-
-    if args.path.startswith('pxt://'):
-        _get_cloud_resource(args.path, args.as_json)
-        return
 
     if not args.pk:
         ap.error('pk values are required for table row lookup')
