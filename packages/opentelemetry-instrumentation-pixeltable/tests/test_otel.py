@@ -105,6 +105,36 @@ def test_double_init_raises(tmp_path: Path) -> None:
     _run_isolated(check_double_init_raises, {'OTEL_EXPORTER_OTLP_TIMEOUT': '1'}, tmp_path)
 
 
+def check_span_level_kwarg_overrides_config() -> None:
+    pxt_otel.init(span_level='debug')
+    assert hooks._span_level == hooks.DEBUG
+
+
+def test_span_level_kwarg_overrides_config(tmp_path: Path) -> None:
+    # the init() argument wins over the config-derived value
+    _run_isolated(
+        check_span_level_kwarg_overrides_config,
+        {'PIXELTABLE_OTEL_SPAN_LEVEL': 'trace', 'OTEL_EXPORTER_OTLP_TIMEOUT': '1'},
+        tmp_path,
+    )
+
+
+def check_invalid_span_level_leaves_init_retryable() -> None:
+    try:
+        pxt_otel.init(span_level='verbose')  # type: ignore[arg-type]
+        raise AssertionError('expected init() to raise')
+    except pxt.exceptions.RequestError as e:
+        assert e.error_code is pxt.exceptions.ErrorCode.INVALID_CONFIGURATION
+    assert not _sdk._state.initialized
+    pxt_otel.init(span_level='debug')
+    assert _sdk._state.initialized
+    assert hooks._span_level == hooks.DEBUG
+
+
+def test_invalid_span_level_leaves_init_retryable(tmp_path: Path) -> None:
+    _run_isolated(check_invalid_span_level_leaves_init_retryable, {'OTEL_EXPORTER_OTLP_TIMEOUT': '1'}, tmp_path)
+
+
 def check_protocol_grpc() -> None:
     pxt_otel.init()
     tp = trace.get_tracer_provider()
@@ -183,6 +213,29 @@ class TestBridge:
         assert logging.getLogRecordFactory() is prev_factory
         hooks.span_end(hooks.span_start('pixeltable.op', set_current=True))
         assert len(span_exporter.get_finished_spans()) == 1  # nothing new after uninstrument
+
+    def test_instrument_span_level(self) -> None:
+        span_exporter = InMemorySpanExporter()
+        tracer_provider = TracerProvider()
+        tracer_provider.add_span_processor(SimpleSpanProcessor(span_exporter))
+        instrumentor = PixeltableInstrumentor()
+        instrumentor.instrument(tracer_provider=tracer_provider, span_level='debug')
+        try:
+            parent = hooks.span_start('pixeltable.op', set_current=True)
+            hooks.span_end(hooks.span_start('pixeltable.row', level=hooks.DEBUG))
+            hooks.span_end(parent)
+            assert {s.name for s in span_exporter.get_finished_spans()} == {'pixeltable.op', 'pixeltable.row'}
+        finally:
+            instrumentor.uninstrument()
+            hooks.set_span_level(hooks.INFO)
+
+    def test_instrument_invalid_span_level(self) -> None:
+        instrumentor = PixeltableInstrumentor()
+        with pytest.raises(pxt.exceptions.RequestError) as exc_info:
+            instrumentor.instrument(span_level='verbose')
+        assert exc_info.value.error_code is pxt.exceptions.ErrorCode.INVALID_CONFIGURATION
+        assert not instrumentor.is_instrumented_by_opentelemetry
+        assert not hooks.active()
 
     def test_log_correlation(self, span_exporter: Any) -> None:
         records: list[logging.LogRecord] = []

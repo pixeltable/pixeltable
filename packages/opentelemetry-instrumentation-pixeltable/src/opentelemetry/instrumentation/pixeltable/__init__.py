@@ -13,7 +13,7 @@ import logging
 from collections.abc import Collection
 from typing import Any, Callable
 
-from opentelemetry import context as otel_context, trace
+from opentelemetry import context as otel_context, metrics as otel_metrics, trace
 from opentelemetry.context import Context, Token
 
 # opentelemetry-instrumentation marks instrumentor.py with a module-level `# type: ignore`, so mypy
@@ -23,7 +23,7 @@ from opentelemetry.trace import StatusCode, set_span_in_context
 
 from pixeltable import __version__, hooks
 
-from ._sdk import init
+from ._sdk import _resolve_span_level, init
 from .package import _instruments
 
 __all__ = ['PixeltableInstrumentor', 'init']
@@ -89,8 +89,9 @@ class _SpanToken:
 
 
 class _OtelSubscriber(hooks.Subscriber):
-    def __init__(self, tracer_provider: Any | None) -> None:
+    def __init__(self, tracer_provider: Any | None, meter_provider: Any | None) -> None:
         self._tracer = trace.get_tracer('pixeltable', __version__, tracer_provider=tracer_provider)
+        self._meter = otel_metrics.get_meter('pixeltable', __version__, meter_provider=meter_provider)
         # TODO(part 2): create the metric instruments here and translate events in on_event() once core
         # emits the corresponding hooks.emit() events
 
@@ -132,6 +133,9 @@ class _OtelSubscriber(hooks.Subscriber):
 class PixeltableInstrumentor(BaseInstrumentor):
     """Enables OpenTelemetry instrumentation of pixeltable against the given (or global) providers.
 
+    `instrument()` accepts `tracer_provider`, `meter_provider`, and `span_level` (span emission
+    threshold: `info` (default), `debug`, or `trace`).
+
     Example:
 
         >>> from opentelemetry.instrumentation.pixeltable import (
@@ -147,7 +151,10 @@ class PixeltableInstrumentor(BaseInstrumentor):
         return _instruments
 
     def _instrument(self, **kwargs: Any) -> None:
-        self._subscriber = _OtelSubscriber(kwargs.get('tracer_provider'))
+        span_level = kwargs.get('span_level')
+        if span_level is not None:
+            hooks.set_span_level(_resolve_span_level(span_level))
+        self._subscriber = _OtelSubscriber(kwargs.get('tracer_provider'), kwargs.get('meter_provider'))
         hooks.subscribe(self._subscriber)
         _install_record_factory()
 
