@@ -10,7 +10,7 @@ import pandas as pd
 import pydantic
 from pandas.io.formats.style import Styler
 
-from pixeltable import Query, catalog, exceptions as excs, exprs, func, type_system as ts
+from pixeltable import Query, catalog, exceptions as excs, exprs, func, hooks, type_system as ts
 from pixeltable.catalog import DirEntry, TablePath
 from pixeltable.catalog.insertable_table import OnErrorParameter
 from pixeltable.config import Config
@@ -183,91 +183,94 @@ def create_table(
     media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
     primary_key: list[str] | None = normalize_primary_key_parameter(primary_key)
 
-    data_source: TableDataConduit | None = None
-    if source is not None:
-        data_source = TableDataConduit.create(source, source_format=source_format, extra_fields=extra_args)
-        src_schema_overrides: dict[str, ts.ColumnType] = {}
-        if schema_overrides is not None:
-            for col_name, py_type in schema_overrides.items():
-                try:
-                    src_schema_overrides[col_name] = ts.ColumnType.normalize_type(
-                        py_type, nullable_default=True, allow_builtin_types=False
-                    )
-                except excs.Error as e:
-                    raise excs.RequestError(
-                        excs.ErrorCode.INVALID_TYPE, f'Invalid type for schema_overrides[{col_name!r}]: {e.message}'
-                    ) from e
-        data_source.src_schema_overrides = src_schema_overrides
-        data_source.src_pk = primary_key
-        data_source.infer_schema()
-        schema = data_source.pxt_schema  # type: ignore[assignment]
-        primary_key = data_source.pxt_pk
-        is_direct_query = data_source.is_direct_query()
-    else:
-        is_direct_query = False
-
-    if len(schema) == 0 or not isinstance(schema, dict):
-        raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION,
-            'Unable to create a proper schema from supplied `source`. Please use appropriate `schema_overrides`.',
-        )
-
-    if comment is not None and not isinstance(comment, str):
-        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`comment` must be a string or None')
-    elif comment == '':
-        comment = None
-
-    try:
-        json.dumps(custom_metadata)
-    except (TypeError, ValueError) as err:
-        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`custom_metadata` must be JSON-serializable') from err
-
-    # canonicalize/validate the schema once here, so both local and delegated catalogs receive the same
-    # mapping and report the same errors
-    schema = catalog.normalize_schema(schema)
-
-    tbl, was_created = (
-        get_runtime()
-        .get_catalog(path_obj)
-        .create_table(
-            path_obj,
-            schema,
-            if_exists=if_exists_,
-            primary_key=primary_key,
-            comment=comment,
-            custom_metadata=custom_metadata,
-            media_validation=media_validation_,
-            create_default_idxs=create_default_idxs,
-            is_versioned=_is_versioned,
-        )
-    )
-
-    # TODO: combine data loading with table creation into a single transaction
-    if was_created and data_source is not None:
-        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
-        if isinstance(tbl, catalog.InsertableTable):
-            if isinstance(data_source, QueryTableDataConduit):
-                query = data_source.pxt_query
-                with get_runtime().catalog.begin_xact(
-                    for_write=True, write_tvps=[tbl._tbl_version_path], lock_mutable_tree=True
-                ):
-                    tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
-            elif not is_direct_query:
-                tbl._insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
+    with hooks.span('pixeltable.create_table', set_current=True):
+        data_source: TableDataConduit | None = None
+        if source is not None:
+            data_source = TableDataConduit.create(source, source_format=source_format, extra_fields=extra_args)
+            src_schema_overrides: dict[str, ts.ColumnType] = {}
+            if schema_overrides is not None:
+                for col_name, py_type in schema_overrides.items():
+                    try:
+                        src_schema_overrides[col_name] = ts.ColumnType.normalize_type(
+                            py_type, nullable_default=True, allow_builtin_types=False
+                        )
+                    except excs.Error as e:
+                        raise excs.RequestError(
+                            excs.ErrorCode.INVALID_TYPE, f'Invalid type for schema_overrides[{col_name!r}]: {e.message}'
+                        ) from e
+            data_source.src_schema_overrides = src_schema_overrides
+            data_source.src_pk = primary_key
+            data_source.infer_schema()
+            schema = data_source.pxt_schema  # type: ignore[assignment]
+            primary_key = data_source.pxt_pk
+            is_direct_query = data_source.is_direct_query()
         else:
-            # Schema inference may have consumed a one-shot iterator/generator source; re-passing it would
-            # insert nothing. Insert the rows the conduit already materialized instead. (A Query source is
-            # re-runnable, and other source types aren't reached here, so passing source as-is is correct.)
-            insert_source = data_source.raw_rows if isinstance(data_source, RowDataTableDataConduit) else source
-            tbl.insert(
-                insert_source,
-                source_format=source_format,
-                schema_overrides=schema_overrides,
-                on_error=on_error,
-                **(extra_args or {}),
+            is_direct_query = False
+
+        if len(schema) == 0 or not isinstance(schema, dict):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                'Unable to create a proper schema from supplied `source`. Please use appropriate `schema_overrides`.',
             )
 
-    return tbl
+        if comment is not None and not isinstance(comment, str):
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`comment` must be a string or None')
+        elif comment == '':
+            comment = None
+
+        try:
+            json.dumps(custom_metadata)
+        except (TypeError, ValueError) as err:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, '`custom_metadata` must be JSON-serializable'
+            ) from err
+
+        # canonicalize/validate the schema once here, so both local and delegated catalogs receive the same
+        # mapping and report the same errors
+        schema = catalog.normalize_schema(schema)
+
+        tbl, was_created = (
+            get_runtime()
+            .get_catalog(path_obj)
+            .create_table(
+                path_obj,
+                schema,
+                if_exists=if_exists_,
+                primary_key=primary_key,
+                comment=comment,
+                custom_metadata=custom_metadata,
+                media_validation=media_validation_,
+                create_default_idxs=create_default_idxs,
+                is_versioned=_is_versioned,
+            )
+        )
+
+        # TODO: combine data loading with table creation into a single transaction
+        if was_created and data_source is not None:
+            fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
+            if isinstance(tbl, catalog.InsertableTable):
+                if isinstance(data_source, QueryTableDataConduit):
+                    query = data_source.pxt_query
+                    with get_runtime().catalog.begin_xact(
+                        for_write=True, write_tvps=[tbl._tbl_version_path], lock_mutable_tree=True
+                    ):
+                        tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
+                elif not is_direct_query:
+                    tbl._insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
+            else:
+                # Schema inference may have consumed a one-shot iterator/generator source; re-passing it would
+                # insert nothing. Insert the rows the conduit already materialized instead. (A Query source is
+                # re-runnable, and other source types aren't reached here, so passing source as-is is correct.)
+                insert_source = data_source.raw_rows if isinstance(data_source, RowDataTableDataConduit) else source
+                tbl.insert(
+                    insert_source,
+                    source_format=source_format,
+                    schema_overrides=schema_overrides,
+                    on_error=on_error,
+                    **(extra_args or {}),
+                )
+
+        return tbl
 
 
 def create_view(
@@ -413,27 +416,29 @@ def create_view(
     # mapping and report the same errors
     additional_columns = catalog.normalize_schema(additional_columns)
 
-    view, _ = (
-        get_runtime()
-        .get_catalog(path_obj)
-        .create_view(
-            path_obj,
-            tbl_path,
-            select_list=select_list,
-            where=where,
-            sample_clause=sample_clause,
-            additional_columns=additional_columns,
-            is_snapshot=is_snapshot,
-            create_default_idxs=create_default_idxs,
-            iterator=iterator,
-            comment=comment,
-            custom_metadata=custom_metadata,
-            media_validation=media_validation_,
-            if_exists=if_exists_,
+    span_name = 'pixeltable.create_snapshot' if is_snapshot else 'pixeltable.create_view'
+    with hooks.span(span_name, set_current=True):
+        view, _ = (
+            get_runtime()
+            .get_catalog(path_obj)
+            .create_view(
+                path_obj,
+                tbl_path,
+                select_list=select_list,
+                where=where,
+                sample_clause=sample_clause,
+                additional_columns=additional_columns,
+                is_snapshot=is_snapshot,
+                create_default_idxs=create_default_idxs,
+                iterator=iterator,
+                comment=comment,
+                custom_metadata=custom_metadata,
+                media_validation=media_validation_,
+                if_exists=if_exists_,
+            )
         )
-    )
 
-    return view
+        return view
 
 
 def create_snapshot(
@@ -664,7 +669,8 @@ def drop_table(
         path_obj = catalog.Path.parse(table)
 
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-    get_runtime().get_catalog(path_obj).drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
+    with hooks.span('pixeltable.drop_table', set_current=True):
+        get_runtime().get_catalog(path_obj).drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
 
 
 def get_dir_contents(dir_path: str = '', recursive: bool = True) -> 'DirContents':
@@ -880,7 +886,8 @@ def create_dir(
     """
     path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
-    return get_runtime().get_catalog(path_obj).create_dir(path_obj, if_exists=if_exists_, parents=parents)
+    with hooks.span('pixeltable.create_dir', set_current=True):
+        return get_runtime().get_catalog(path_obj).create_dir(path_obj, if_exists=if_exists_, parents=parents)
 
 
 def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
@@ -922,7 +929,8 @@ def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ig
     """
     path_obj = catalog.Path.parse(path)  # validate format
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-    get_runtime().get_catalog(path_obj).drop_dir(path_obj, if_not_exists=if_not_exists_, force=force)
+    with hooks.span('pixeltable.drop_dir', set_current=True):
+        get_runtime().get_catalog(path_obj).drop_dir(path_obj, if_not_exists=if_not_exists_, force=force)
 
 
 def ls(path: str = '') -> pd.DataFrame:

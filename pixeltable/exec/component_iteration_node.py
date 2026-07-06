@@ -1,12 +1,10 @@
-import time
-from typing import Any, AsyncIterator, Iterator
+from typing import AsyncIterator, Iterator
 
 from pixeltable import catalog, exceptions as excs, exprs, hooks
 from pixeltable.func.iterator import GeneratingFunctionCall
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
-from .expr_eval.globals import SlotStats
 
 
 class ComponentIterationNode(ExecNode):
@@ -42,36 +40,20 @@ class ComponentIterationNode(ExecNode):
             for e in self.row_builder.unique_exprs
             if isinstance(e, exprs.ColumnRef) and e.col.name in self.iterator_call.outputs
         }
-        self._iter_stats = SlotStats()
-
-    def _open(self) -> None:
-        self._iter_stats = SlotStats()
 
     @property
     def _iter_name(self) -> str:
         return self.iterator_call.it.fqn.rsplit('.', 1)[-1]
 
-    def _timed_iter(self, iterator: Iterator[dict]) -> Iterator[dict]:
-        """Times each iterator step (eg, one decoded frame) into the node's stats; per-step spans at TRACE."""
+    def _instrumented_iter(self, iterator: Iterator[dict]) -> Iterator[dict]:
+        """Wraps each iterator step (eg, one decoded frame) in a per-step span at TRACE."""
         while True:
-            step_start = time.perf_counter()
-            with hooks.span(f'iter.{self._iter_name}', level=hooks.TRACE, parent=self._span):
+            with hooks.span(f'pixeltable.iter.{self._iter_name}', level=hooks.TRACE, parent=self._span):
                 try:
                     item = next(iterator)
                 except StopIteration:
                     return
-            self._iter_stats.record(time.perf_counter() - step_start)
             yield item
-
-    def span_end_attributes(self) -> dict[str, Any]:
-        stats = self._iter_stats
-        if stats.count == 0:
-            return {}
-        return {
-            f'iter.{self._iter_name}.steps': stats.count,
-            f'iter.{self._iter_name}.total_s': round(stats.total_s, 6),
-            f'iter.{self._iter_name}.avg_s': round(stats.total_s / stats.count, 6),
-        }
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         hooks_active = hooks.active()
@@ -87,7 +69,7 @@ class ComponentIterationNode(ExecNode):
                 if self.__non_nullable_args_specified(iterator_args):
                     iterator = self.view.get().iterator_call.eval(iterator_args)
                     if hooks_active:
-                        iterator = self._timed_iter(iterator)
+                        iterator = self._instrumented_iter(iterator)
                     for pos, component_dict in enumerate(iterator):
                         output_row = self.row_builder.make_row()
                         input_row.copy(output_row)

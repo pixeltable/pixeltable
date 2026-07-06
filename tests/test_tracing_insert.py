@@ -127,8 +127,8 @@ class TestInsertTracing:
             hooks.unsubscribe(sub)
             hooks.set_span_level(hooks.INFO)
 
-    def test_non_insert_write_stays_dark(self, uses_db: None) -> None:
-        """sql_insert is shared by uninstrumented write paths; those must not emit root spans."""
+    def test_update_emits_op_span(self, uses_db: None) -> None:
+        """update() is an instrumented operation: work spans nest under its op span."""
         t = self._make_table()
         t.insert([{'c': i} for i in range(3)])
 
@@ -136,6 +136,10 @@ class TestInsertTracing:
         hooks.subscribe(sub)
         try:
             t.update({'c': t.c + 1})
-            assert [s for s in sub.spans if s['name'] == 'pixeltable.sa.insert_rows'] == []
+            op = sub.find('pixeltable.update')
+            assert op['set_current'] is True and op['parent_id'] is None
+            sa_spans = [s for s in sub.spans if s['name'] == 'pixeltable.sa.insert_rows']
+            assert len(sa_spans) > 0
+            assert all(s['parent_id'] == op['id'] for s in sa_spans)
         finally:
             hooks.unsubscribe(sub)

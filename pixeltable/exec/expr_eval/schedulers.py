@@ -7,7 +7,7 @@ import logging
 import math
 import sys
 import time
-from typing import Any, Collection
+from typing import Collection
 
 from pixeltable import env, exceptions as excs, func, hooks
 from pixeltable.config import Config
@@ -15,7 +15,7 @@ from pixeltable.utils import fault_injection
 from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.http import exponential_backoff, is_retriable_error
 
-from .globals import Dispatcher, ExprEvalCtx, FnCallArgs, Scheduler, udf_span
+from .globals import Dispatcher, ExprEvalCtx, FnCallArgs, Scheduler
 
 _logger = logging.getLogger(__name__)
 
@@ -193,7 +193,6 @@ class RateLimitsScheduler(Scheduler):
         assert all(not row.has_exc(request.fn_call.slot_idx) for row in request.rows)
 
         start_ts = datetime.datetime.now(tz=datetime.timezone.utc)
-        call_start = time.perf_counter()
         try:
             pxt_fn = request.fn_call.fn
             assert isinstance(pxt_fn, func.CallableFunction)
@@ -202,21 +201,17 @@ class RateLimitsScheduler(Scheduler):
                 f'start evaluating slot {request.fn_call.slot_idx}, batch_size={len(request.rows)}'
             )
             self.total_requests += 1
-            call_result: Any
-            with udf_span(
-                self.dispatcher,
-                request.fn_call,
+            with hooks.span(
+                f'pixeltable.udf.{request.fn_call.fn.display_name}',
                 level=hooks.DEBUG,
-                resource_pool=self.resource_pool,
-                batch_size=len(request.rows) if request.is_batched else None,
-                retries=num_retries or None,
+                parent=self.dispatcher.span_handle,
+                set_current=True,
             ):
                 if request.is_batched:
                     batch_result = await pxt_fn.aexec_batch(*request.batch_args, **request.batch_kwargs)
                     assert len(batch_result) == len(request.rows)
                     for row, result in zip(request.rows, batch_result):
                         row[request.fn_call.slot_idx] = result
-                    call_result = batch_result
                 else:
                     request_kwargs = request.kwargs
                     if '_runtime_ctx' in pxt_fn.signature.system_parameters:
@@ -224,14 +219,12 @@ class RateLimitsScheduler(Scheduler):
                     fault_injection.process_fault(FaultLocation.SCHEDULER_RATE_LIMITS_AEXEC)
                     result = await pxt_fn.aexec(*request.args, **request_kwargs)
                     request.row[request.fn_call.slot_idx] = result
-                    call_result = result
             end_ts = datetime.datetime.now(tz=datetime.timezone.utc)
             _logger.debug(
                 f'scheduler {self.resource_pool}: evaluated slot {request.fn_call.slot_idx} '
                 f'in {end_ts - start_ts}, batch_size={len(request.rows)}'
             )
 
-            self._record_call(request, exec_ctx, time.perf_counter() - call_start, num_retries, call_result)
             self.dispatcher.dispatch(request.rows, exec_ctx)
         except Exception as exc:
             _logger.exception(f'scheduler {self.resource_pool}: exception in slot {request.fn_call.slot_idx}: {exc}')
@@ -257,7 +250,6 @@ class RateLimitsScheduler(Scheduler):
                             retry_delay = retry_delay or exponential_backoff(num_retries)
                     if retry_delay is not None:
                         self.total_retried += 1
-                        self._record_retry(request, exec_ctx)
                         _logger.debug(
                             f'scheduler {self.resource_pool}: sleeping {retry_delay:.2f}s before retrying'
                             f' attempt {num_retries} based on the information in the error'
@@ -378,7 +370,6 @@ class RequestRateScheduler(Scheduler):
 
         try:
             start_ts = datetime.datetime.now(tz=datetime.timezone.utc)
-            call_start = time.perf_counter()
             pxt_fn = request.fn_call.fn
             assert isinstance(pxt_fn, func.CallableFunction)
             _logger.debug(
@@ -386,31 +377,25 @@ class RequestRateScheduler(Scheduler):
                 f'start evaluating slot {request.fn_call.slot_idx}, batch_size={len(request.rows)}'
             )
             self.total_requests += 1
-            call_result: Any
-            with udf_span(
-                self.dispatcher,
-                request.fn_call,
+            with hooks.span(
+                f'pixeltable.udf.{request.fn_call.fn.display_name}',
                 level=hooks.DEBUG,
-                resource_pool=self.resource_pool,
-                batch_size=len(request.rows) if request.is_batched else None,
-                retries=num_retries or None,
+                parent=self.dispatcher.span_handle,
+                set_current=True,
             ):
                 if request.is_batched:
                     batch_result = await pxt_fn.aexec_batch(*request.batch_args, **request.batch_kwargs)
                     assert len(batch_result) == len(request.rows)
                     for row, result in zip(request.rows, batch_result):
                         row[request.fn_call.slot_idx] = result
-                    call_result = batch_result
                 else:
                     result = await pxt_fn.aexec(*request.args, **request.kwargs)
                     request.row[request.fn_call.slot_idx] = result
-                    call_result = result
             end_ts = datetime.datetime.now(tz=datetime.timezone.utc)
             _logger.debug(
                 f'scheduler {self.resource_pool}: evaluated slot {request.fn_call.slot_idx} '
                 f'in {end_ts - start_ts}, batch_size={len(request.rows)}'
             )
-            self._record_call(request, exec_ctx, time.perf_counter() - call_start, num_retries, call_result)
             self.dispatcher.dispatch(request.rows, exec_ctx)
 
         except Exception as exc:
@@ -421,7 +406,6 @@ class RequestRateScheduler(Scheduler):
             if is_retriable and num_retries < self.MAX_RETRIES:
                 retry_delay = self._compute_retry_delay(num_retries, retry_after)
                 _logger.debug(f'scheduler {self.resource_pool}: retrying after {retry_delay}')
-                self._record_retry(request, exec_ctx)
                 now = time.monotonic()
                 # put the request back in the queue right away, which prevents new requests from being generated until
                 # this one succeeds or exceeds its retry limit

@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import logging
 import sys
-import time
 from typing import Any, AsyncIterator, Iterable, cast
 
 from pixeltable import catalog, exceptions as excs, exprs, hooks
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
-from .expr_eval.globals import SlotStats
 
 _logger = logging.getLogger(__name__)
 
@@ -51,7 +49,6 @@ class AggregationNode(ExecNode):
 
     def _init_exec_state(self) -> None:
         self.output_batch = DataRowBatch(self.row_builder)
-        self._update_stats = SlotStats()
 
     def _open(self) -> None:
         self._init_exec_state()
@@ -93,7 +90,6 @@ class AggregationNode(ExecNode):
         limit = self._resolve_positive_int(self.limit, 'limit') if self.limit is not None else None
         if limit == 0:
             return
-        hooks_active = hooks.active()
         prev_row: exprs.DataRow | None = None
         current_group: list[Any] | None = None  # the values of the group-by exprs
         num_input_rows = 0
@@ -110,7 +106,7 @@ class AggregationNode(ExecNode):
 
                 if group != current_group:
                     # we're entering a new group, emit a row for the previous one
-                    with hooks.span(f'agg.{self._agg_name}', level=hooks.DEBUG, parent=self._span, kind='finalize'):
+                    with hooks.span(f'pixeltable.agg.{self._agg_name}', level=hooks.DEBUG, parent=self._span):
                         self.row_builder.eval(prev_row, self.agg_fn_eval_ctx, profile=self.ctx.profile)
                     self.output_batch.add_row(prev_row)
                     num_output_rows += 1
@@ -119,29 +115,14 @@ class AggregationNode(ExecNode):
                         return
                     current_group = group
                     self._reset_agg_state(0)
-                if hooks_active:
-                    update_start = time.perf_counter()
-                    self._update_agg_state(row, 0)
-                    self._update_stats.record(time.perf_counter() - update_start)
-                else:
-                    self._update_agg_state(row, 0)
+                self._update_agg_state(row, 0)
                 prev_row = row
 
         if prev_row is not None:
             # emit the last group
-            with hooks.span(f'agg.{self._agg_name}', level=hooks.DEBUG, parent=self._span, kind='finalize'):
+            with hooks.span(f'pixeltable.agg.{self._agg_name}', level=hooks.DEBUG, parent=self._span):
                 self.row_builder.eval(prev_row, self.agg_fn_eval_ctx, profile=self.ctx.profile)
             self.output_batch.add_row(prev_row)
 
         _logger.debug(f'AggregateNode: consumed {num_input_rows} rows, returning {len(self.output_batch.rows)} rows')
         yield self.output_batch
-
-    def span_end_attributes(self) -> dict[str, Any]:
-        stats = self._update_stats
-        if stats.count == 0:
-            return {}
-        return {
-            f'agg.{self._agg_name}.updates': stats.count,
-            f'agg.{self._agg_name}.update_total_s': round(stats.total_s, 6),
-            f'agg.{self._agg_name}.update_avg_s': round(stats.total_s / stats.count, 6),
-        }

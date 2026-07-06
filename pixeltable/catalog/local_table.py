@@ -12,7 +12,7 @@ import pandas as pd
 from typing_extensions import overload
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs, exprs, index, type_system as ts
+from pixeltable import exceptions as excs, exprs, hooks, index, type_system as ts
 from pixeltable.catalog.table_metadata import (
     ColumnMetadata,
     EmbeddingIndexParams,
@@ -454,15 +454,16 @@ class LocalTable(Table):
                 self._verify_column(new_col)
             return new_cols
 
-        new_cols = do_add_columns()
-        if new_cols is None:
-            return UpdateStatus()
+        with hooks.span('pixeltable.add_columns', set_current=True):
+            new_cols = do_add_columns()
+            if new_cols is None:
+                return UpdateStatus()
 
-        assert self._tbl_version is not None
-        get_runtime().catalog.add_columns(self._tbl_version_path, new_cols)
-        FileCache.get().emit_eviction_warnings()
-        # TODO: return the row count here?
-        return UpdateStatus()
+            assert self._tbl_version is not None
+            get_runtime().catalog.add_columns(self._tbl_version_path, new_cols)
+            FileCache.get().emit_eviction_warnings()
+            # TODO: return the row count here?
+            return UpdateStatus()
 
     def add_column(
         self,
@@ -541,7 +542,8 @@ class LocalTable(Table):
             FileCache.get().emit_eviction_warnings()
             return result
 
-        return do_add_computed_column()
+        with hooks.span('pixeltable.add_computed_column', set_current=True):
+            return do_add_computed_column()
 
     @classmethod
     def _verify_column(cls, col: Column) -> None:
@@ -634,11 +636,15 @@ class LocalTable(Table):
 
             self._tbl_version.get().drop_column(col)
 
-        do_drop_column()
+        with hooks.span('pixeltable.drop_column', set_current=True):
+            do_drop_column()
 
     def rename_column(self, old_name: str, new_name: str) -> None:
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=False
+        with (
+            hooks.span('pixeltable.rename_column', set_current=True),
+            get_runtime().catalog.begin_xact(
+                for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=False
+            ),
         ):
             self._check_mutable('rename columns of')
             self._tbl_version.get().rename_column(old_name, new_name)
@@ -663,8 +669,11 @@ class LocalTable(Table):
             'TODO: implement for unversioned tables [PXT-1101]'
         )
 
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+        with (
+            hooks.span('pixeltable.add_embedding_index', set_current=True),
+            get_runtime().catalog.begin_xact(
+                for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+            ),
         ):
             self._check_mutable('add an index to')
             col = self._resolve_column_parameter(column)
@@ -752,8 +761,11 @@ class LocalTable(Table):
                 excs.ErrorCode.MISSING_REQUIRED, "Exactly one of 'column' or 'idx_name' must be provided"
             )
 
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+        with (
+            hooks.span('pixeltable.drop_embedding_index', set_current=True),
+            get_runtime().catalog.begin_xact(
+                for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+            ),
         ):
             col: Column = None
             if idx_name is None:
@@ -907,8 +919,11 @@ class LocalTable(Table):
     ) -> UpdateStatus:
         self._validate_update_value_spec(value_spec)
         self._validate_where(where)
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+        with (
+            hooks.span('pixeltable.update', set_current=True),
+            get_runtime().catalog.begin_xact(
+                for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+            ),
         ):
             self._check_mutable('update')
             result = self._tbl_version.get().update(value_spec, where, cascade, return_rows=return_rows)
@@ -922,8 +937,11 @@ class LocalTable(Table):
         if_not_exists: Literal['error', 'ignore', 'insert'] = 'error',
         return_rows: bool = False,
     ) -> UpdateStatus:
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+        with (
+            hooks.span('pixeltable.batch_update', set_current=True),
+            get_runtime().catalog.begin_xact(
+                for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+            ),
         ):
             self._check_mutable('update')
             rows = list(rows)
@@ -979,7 +997,10 @@ class LocalTable(Table):
     ) -> UpdateStatus:
         cat = get_runtime().catalog
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
-        with cat.begin_xact(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True):
+        with (
+            hooks.span('pixeltable.recompute_columns', set_current=True),
+            cat.begin_xact(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True),
+        ):
             self._check_mutable('recompute columns of')
             if len(columns) == 0:
                 raise excs.RequestError(
@@ -1031,8 +1052,11 @@ class LocalTable(Table):
         raise NotImplementedError
 
     def revert(self) -> None:
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+        with (
+            hooks.span('pixeltable.revert', set_current=True),
+            get_runtime().catalog.begin_xact(
+                for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+            ),
         ):
             self._check_mutable('revert')
             tv = self._tbl_version.get()

@@ -36,9 +36,6 @@ class InMemoryDataNode(ExecNode):
         self.input_rows = rows
         self.output_batch = None
 
-    def span_attributes(self) -> dict[str, Any]:
-        return {'rows': len(self.input_rows)}
-
     def _open(self) -> None:
         """Create row batch and populate with self.input_rows"""
         user_cols_by_name = {

@@ -467,7 +467,7 @@ class StoreBase:
                     num_rows += len(row_batch)
                     batch_table_rows: list[list[Any]] = []
 
-                    with hooks.span('store.build_rows', level=hooks.DEBUG, rows=len(row_batch)):
+                    with hooks.span('pixeltable.store.build_rows', level=hooks.DEBUG):
                         for row in row_batch:
                             if abort_on_exc and row.has_exc():
                                 exc = row.get_first_exc()
@@ -624,9 +624,6 @@ class StoreBase:
                     f'({", ".join(pk_col_names)}) exceeds the maximum btree index row size',
                 ) from e
             raise
-
-        if hooks.active():
-            hooks.emit('rows.written', attrs={'pxt.table': self.tbl_version.get().name, 'count': len(table_rows)})
 
         # TODO: Inserting directly via psycopg delivers a small performance benefit, but is somewhat fraught due to
         #     differences in the data representation that SQLAlchemy/psycopg expect. The below code will do the

@@ -141,7 +141,6 @@ def retry_loop(
                         if num_retries < _MAX_RETRIES or _MAX_RETRIES == -1:
                             num_retries += 1
                             _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
-                            hooks.emit('xact.retry', attrs={'kind': 'retry_loop', 'error_type': type(e.orig).__name__})
                             time.sleep(random.uniform(0.1, 0.5))
                         else:
                             raise excs.ConcurrencyError(
@@ -422,9 +421,6 @@ class Catalog(CatalogBase):
                             ) and (num_retries < _MAX_RETRIES or _MAX_RETRIES == -1):
                                 _logger.debug(f'Retriable error {type(e.orig)} on attempt {num_retries}')
                                 num_retries += 1
-                                hooks.emit(
-                                    'xact.retry', attrs={'kind': 'begin_xact', 'error_type': type(e.orig).__name__}
-                                )
                                 time.sleep(random.uniform(0.1, 0.5))
                                 # attempt failed -- don't try to commit the transaction before retrying
                                 conn.rollback()
@@ -439,7 +435,6 @@ class Catalog(CatalogBase):
                     xact_span = None
                     yield conn
                     return
-
 
             except PendingTableOpsError as e:
                 has_exc = True
@@ -891,9 +886,11 @@ class Catalog(CatalogBase):
                         if tv is not None:
                             self.mark_modified_tv(tv.handle)
                         if is_rollback:
-                            op.undo(tv)
+                            with hooks.span(f'pixeltable.op.{type(op).__name__}.undo', set_current=True):
+                                op.undo(tv)
                         else:
-                            op.exec(tv)
+                            with hooks.span(f'pixeltable.op.{type(op).__name__}', set_current=True):
+                                op.exec(tv)
 
                         _logger.debug(f'Finalize pending ops({tbl_id}): op {op!s} done, updating status')
                         if self._set_pending_op_status(tbl_id, op, new_op_status, is_final_op=is_final_op):
@@ -903,9 +900,11 @@ class Catalog(CatalogBase):
                 # this op runs outside of a transaction
                 fault_injection.process_fault(FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT)
                 if is_rollback:
-                    op.undo(tv)
+                    with hooks.span(f'pixeltable.op.{type(op).__name__}.undo', set_current=True):
+                        op.undo(tv)
                 else:
-                    op.exec(tv)
+                    with hooks.span(f'pixeltable.op.{type(op).__name__}', set_current=True):
+                        op.exec(tv)
                 # no need to invalidate tv here: all operations that modify metadata (cached in tv) are executed
                 # inside a transaction and therefore wouldn't end up here
                 rollover_op_update = (op, new_op_status, is_final_op)

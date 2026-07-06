@@ -197,11 +197,7 @@ class ExecNode(abc.ABC):
         """
         self._span = None
         if consumer_span is not None or hooks.current_span() is not None:
-            self._span = hooks.span_start(
-                f'exec.{type(self).__name__}',
-                parent=consumer_span,
-                attrs={f'pxt.{k}': v for k, v in self.span_attributes().items() if v is not None} or None,
-            )
+            self._span = hooks.span_start(f'pixeltable.exec.{type(self).__name__}', parent=consumer_span)
         if self.input is not None:
             self.input._open_aux(self._span)
         self._open()
@@ -222,11 +218,7 @@ class ExecNode(abc.ABC):
         if self.input is not None:
             self.input._close_aux(exc)
         if self._span is not None:
-            hooks.span_end(
-                self._span,
-                exc=exc,
-                attrs=lambda: {f'pxt.{k}': v for k, v in self.span_end_attributes().items() if v is not None},
-            )
+            hooks.span_end(self._span, exc=exc)
             self._span = None
 
     def _open(self) -> None:
@@ -234,14 +226,6 @@ class ExecNode(abc.ABC):
 
     def _close(self) -> None:
         pass
-
-    def span_attributes(self) -> dict[str, Any]:
-        """Attributes for this node's span, captured at _open(); keys get a 'pxt.' prefix."""
-        return {}
-
-    def span_end_attributes(self) -> dict[str, Any]:
-        """Attributes for this node's span, captured at _close() (eg, per-execution stats)."""
-        return {}
 
     T = TypeVar('T', bound='ExecNode')
 

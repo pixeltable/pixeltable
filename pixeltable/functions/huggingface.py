@@ -1670,7 +1670,7 @@ def _lookup_model(
     # Callers that must pass a lambda can supply an explicit `cache_key` to avoid per-call misses.
     key = cache_key if cache_key is not None else (model_id, create, device, tuple(sorted(kwargs.items())))
     if key not in _model_cache:
-        with hooks.span('model.load', model_id=model_id):
+        with hooks.span('pixeltable.model.load'):
             if pass_device_to_create:
                 model = create(model_id, device=device, **kwargs)
             else:
@@ -1686,7 +1686,7 @@ def _lookup_model(
 def _lookup_processor(model_id: str, create: Callable[[str], T], **kwargs: Any) -> T:
     key = (model_id, create, tuple(sorted(kwargs.items())))
     if key not in _processor_cache:
-        with hooks.span('processor.load', model_id=model_id):
+        with hooks.span('pixeltable.processor.load'):
             _processor_cache[key] = create(model_id, **kwargs)
     return _processor_cache[key]
 
