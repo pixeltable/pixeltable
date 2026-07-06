@@ -3,6 +3,7 @@ from __future__ import annotations
 import dataclasses
 import itertools
 import logging
+import urllib.parse
 from collections import deque
 from concurrent import futures
 from pathlib import Path
@@ -234,7 +235,15 @@ class CachePrefetchNode(ExecNode):
         """Runs on a worker thread of the ThreadPoolExecutor."""
         hooks_token = hooks.restore_context(hooks_ctx)
         try:
-            with hooks.span('pixeltable.media.fetch', level=hooks.DEBUG, url=url):
+            # The raw URL can carry credentials that must not be exported to the telemetry backend:
+            # for example https://user:pass@server/img.jpg?X-Amz-Signature=abc#frag
+            # splits into SplitResult(scheme='https', netloc='user:pass@server', path='/img.jpg',
+            # query='X-Amz-Signature=abc', fragment='frag'); secrets can appear in the netloc's userinfo
+            # ('user:pass@'), the query, and the fragment, so we replace them with nothing.
+            parsed = urllib.parse.urlsplit(url)
+            netloc = parsed.netloc.rpartition('@')[2]  # host[:port] after the last '@', ie without userinfo
+            safe_url = urllib.parse.urlunsplit((parsed.scheme, netloc, parsed.path, '', ''))
+            with hooks.span('pixeltable.media.fetch', level=hooks.DEBUG, url=safe_url):
                 return fetch_url(url), None
         except Exception as e:
             # we want to add the file url to the exception message
