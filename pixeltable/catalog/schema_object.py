@@ -2,7 +2,7 @@ import abc
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from pixeltable import exceptions as excs
+from pixeltable import exceptions as excs, hooks
 from pixeltable.runtime import get_runtime
 
 if TYPE_CHECKING:
@@ -41,7 +41,10 @@ class SchemaObject(abc.ABC):
 
         Resolves the whole path in a single read transaction so the result is a consistent snapshot.
         """
-        with get_runtime().catalog.begin_xact(for_write=False):
+        with (
+            hooks.span('pixeltable.catalog.resolve_path', level=hooks.DEBUG),
+            get_runtime().catalog.begin_xact(for_write=False),
+        ):
             dir_id = self._dir_id()
             if dir_id is None:
                 # an instance that's in the process of getting dropped has dir_id unset

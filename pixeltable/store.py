@@ -170,76 +170,79 @@ class StoreBase:
 
     def create_sa_tbl(self, tbl_version: catalog.TableVersion | None = None) -> None:
         """Create self.sa_tbl from self.tbl_version."""
-        if tbl_version is None:
-            tbl_version = self.tbl_version.get()
-        system_cols = self._create_system_columns()
-        all_cols = system_cols.copy()
-        # we captured all columns, including dropped ones: they're still part of the physical table
-        for col_md in tbl_version.tbl_md.column_md.values():
-            if not col_md.stored:
-                continue
-            # re-create sql.Column for each stored column, regardless of whether it already has sa_col set: it was bound
-            # to the last sql.Table version we created and cannot be reused
-            assert col_md.sa_col_type is not None
-            store_name = catalog.Column.store_name_from_id(col_md.id)
-            # all storage columns are nullable (we deal with null errors in Pixeltable directly)
-            sa_col = sql.Column(store_name, sa_type_from_dict(col_md.sa_col_type), nullable=True)
-            all_cols.append(sa_col)
-            sa_cellmd_col: sql.Column | None = None
-            if col_md.stores_cellmd:
-                sa_cellmd_col = sql.Column(
-                    catalog.Column.cellmd_store_name_from_id(col_md.id), catalog.Column.sa_cellmd_type(), nullable=True
+        with hooks.span('pixeltable.store.create_sa_tbl', level=hooks.DEBUG):
+            if tbl_version is None:
+                tbl_version = self.tbl_version.get()
+            system_cols = self._create_system_columns()
+            all_cols = system_cols.copy()
+            # we captured all columns, including dropped ones: they're still part of the physical table
+            for col_md in tbl_version.tbl_md.column_md.values():
+                if not col_md.stored:
+                    continue
+                # re-create sql.Column for each stored column, regardless of whether it already has sa_col set:
+                # it was bound to the last sql.Table version we created and cannot be reused
+                assert col_md.sa_col_type is not None
+                store_name = catalog.Column.store_name_from_id(col_md.id)
+                # all storage columns are nullable (we deal with null errors in Pixeltable directly)
+                sa_col = sql.Column(store_name, sa_type_from_dict(col_md.sa_col_type), nullable=True)
+                all_cols.append(sa_col)
+                sa_cellmd_col: sql.Column | None = None
+                if col_md.stores_cellmd:
+                    sa_cellmd_col = sql.Column(
+                        catalog.Column.cellmd_store_name_from_id(col_md.id),
+                        catalog.Column.sa_cellmd_type(),
+                        nullable=True,
+                    )
+                    all_cols.append(sa_cellmd_col)
+                if col_md.id in tbl_version.cols_by_id:
+                    tbl_version.cols_by_id[col_md.id].set_sa_cols(sa_col, sa_cellmd_col)
+
+            if self.sa_tbl is not None:
+                # if we're called in response to a schema change, we need to remove the old table first
+                self.sa_md.remove(self.sa_tbl)
+
+            idxs: list[sql.Index] = []
+            # index for all system columns:
+            # - base x view joins can be executed as merge joins
+            # - speeds up ORDER BY rowid DESC
+            # - allows filtering for a particular table version in index scan
+            idx_name = f'sys_cols_idx_{tbl_version.id.hex}'
+            idxs.append(sql.Index(idx_name, *system_cols))
+
+            if tbl_version.is_versioned:
+                # v_min/v_max indices: speeds up base table scans needed to propagate a base table insert or delete
+                idx_name = f'vmin_idx_{tbl_version.id.hex}'
+                idxs.append(sql.Index(idx_name, self.v_min_col, postgresql_using=Env.get().dbms.version_index_type))
+                idx_name = f'vmax_idx_{tbl_version.id.hex}'
+                idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using=Env.get().dbms.version_index_type))
+
+            # primary key index: partial unique btree on PK columns where v_max = MAX_VERSION (live rows only)
+            primary_index = [col for col in tbl_version.cols_by_id.values() if col.is_pk]
+            if len(primary_index) > 0:
+                assert tbl_version.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
+                pk_idx_exprs: list[sql.ColumnElement] = []
+                for col in primary_index:
+                    if col.col_type.is_string_type():
+                        pk_idx_exprs.append(sql.func.left(col.sa_col, BtreeIndex.MAX_STRING_LEN))
+                    else:
+                        pk_idx_exprs.append(col.sa_col)
+                idx_name = f'pk_idx_{tbl_version.id.hex}'
+                idxs.append(
+                    sql.Index(
+                        idx_name,
+                        *pk_idx_exprs,
+                        unique=True,
+                        postgresql_using='btree',
+                        postgresql_where=(self.v_max_col == schema.Table.MAX_VERSION),
+                    )
                 )
-                all_cols.append(sa_cellmd_col)
-            if col_md.id in tbl_version.cols_by_id:
-                tbl_version.cols_by_id[col_md.id].set_sa_cols(sa_col, sa_cellmd_col)
 
-        if self.sa_tbl is not None:
-            # if we're called in response to a schema change, we need to remove the old table first
-            self.sa_md.remove(self.sa_tbl)
+            extra_constraints: list[sql.Constraint] = []
+            if not tbl_version.is_versioned:
+                # Add a PK constraint for an unversioned table
+                extra_constraints.append(sql.PrimaryKeyConstraint(*[col.name for col in self._pk_cols]))
 
-        idxs: list[sql.Index] = []
-        # index for all system columns:
-        # - base x view joins can be executed as merge joins
-        # - speeds up ORDER BY rowid DESC
-        # - allows filtering for a particular table version in index scan
-        idx_name = f'sys_cols_idx_{tbl_version.id.hex}'
-        idxs.append(sql.Index(idx_name, *system_cols))
-
-        if tbl_version.is_versioned:
-            # v_min/v_max indices: speeds up base table scans needed to propagate a base table insert or delete
-            idx_name = f'vmin_idx_{tbl_version.id.hex}'
-            idxs.append(sql.Index(idx_name, self.v_min_col, postgresql_using=Env.get().dbms.version_index_type))
-            idx_name = f'vmax_idx_{tbl_version.id.hex}'
-            idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using=Env.get().dbms.version_index_type))
-
-        # primary key index: partial unique btree on PK columns where v_max = MAX_VERSION (live rows only)
-        primary_index = [col for col in tbl_version.cols_by_id.values() if col.is_pk]
-        if len(primary_index) > 0:
-            assert tbl_version.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
-            pk_idx_exprs: list[sql.ColumnElement] = []
-            for col in primary_index:
-                if col.col_type.is_string_type():
-                    pk_idx_exprs.append(sql.func.left(col.sa_col, BtreeIndex.MAX_STRING_LEN))
-                else:
-                    pk_idx_exprs.append(col.sa_col)
-            idx_name = f'pk_idx_{tbl_version.id.hex}'
-            idxs.append(
-                sql.Index(
-                    idx_name,
-                    *pk_idx_exprs,
-                    unique=True,
-                    postgresql_using='btree',
-                    postgresql_where=(self.v_max_col == schema.Table.MAX_VERSION),
-                )
-            )
-
-        extra_constraints: list[sql.Constraint] = []
-        if not tbl_version.is_versioned:
-            # Add a PK constraint for an unversioned table
-            extra_constraints.append(sql.PrimaryKeyConstraint(*[col.name for col in self._pk_cols]))
-
-        self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs, *extra_constraints)
+            self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs, *extra_constraints)
 
     @abc.abstractmethod
     def _rowid_join_predicate(self) -> sql.ColumnElement[bool]:
@@ -251,14 +254,15 @@ class StoreBase:
 
     def count(self) -> int:
         """Return the number of rows visible in self.tbl_version"""
-        stmt = sql.select(sql.func.count('*')).select_from(self.sa_tbl)
-        if self.tbl_version.get().is_versioned:
-            stmt = stmt.where(self.v_min_col <= self.tbl_version.get().version)
-            stmt = stmt.where(self.v_max_col > self.tbl_version.get().version)
-        conn = get_runtime().conn
-        result = conn.execute(stmt).scalar_one()
-        assert isinstance(result, int)
-        return result
+        with hooks.span('pixeltable.store.count', level=hooks.DEBUG):
+            stmt = sql.select(sql.func.count('*')).select_from(self.sa_tbl)
+            if self.tbl_version.get().is_versioned:
+                stmt = stmt.where(self.v_min_col <= self.tbl_version.get().version)
+                stmt = stmt.where(self.v_max_col > self.tbl_version.get().version)
+            conn = get_runtime().conn
+            result = conn.execute(stmt).scalar_one()
+            assert isinstance(result, int)
+            return result
 
     def _exec_if_not_exists(self, stmt: str, wait_for_table: bool) -> None:
         """
@@ -339,9 +343,10 @@ class StoreBase:
 
     def create_index(self, idx_id: int) -> None:
         """Create index if not exists"""
-        idx_info = self.tbl_version.get().idxs[idx_id]
-        stmt = idx_info.idx.sa_create_stmt(self.tbl_version.get()._store_idx_name(idx_id), idx_info.val_col.sa_col)
-        self._exec_if_not_exists(str(stmt), wait_for_table=True)
+        with hooks.span('pixeltable.store.create_index', level=hooks.DEBUG):
+            idx_info = self.tbl_version.get().idxs[idx_id]
+            stmt = idx_info.idx.sa_create_stmt(self.tbl_version.get()._store_idx_name(idx_id), idx_info.val_col.sa_col)
+            self._exec_if_not_exists(str(stmt), wait_for_table=True)
 
     def drop_index(self, idx_id: int) -> None:
         """Drop index if exists"""
@@ -396,25 +401,28 @@ class StoreBase:
 
     def add_column(self, col: catalog.Column, if_not_exists: bool) -> None:
         """Add column(s) to the store-resident table based on a catalog column"""
-        assert col.is_stored
-        conn = get_runtime().conn
-        col_type_str = col.sa_col_type.compile(dialect=conn.dialect)
-        if_not_exists_clause = 'IF NOT EXISTS' if if_not_exists else ''
-        s_txt = (
-            f'ALTER TABLE {self._storage_name()} '
-            f'ADD COLUMN {if_not_exists_clause} {col.store_name()} {col_type_str} NULL'
-        )
-        added_storage_cols = [col.store_name()]
-        if col.stores_cellmd:
-            cellmd_type_str = col.sa_cellmd_type().compile(dialect=conn.dialect)
-            s_txt += f' , ADD COLUMN {if_not_exists_clause} {col.cellmd_store_name()} {cellmd_type_str} DEFAULT NULL'
-            added_storage_cols.append(col.cellmd_store_name())
+        with hooks.span('pixeltable.store.add_column', level=hooks.DEBUG):
+            assert col.is_stored
+            conn = get_runtime().conn
+            col_type_str = col.sa_col_type.compile(dialect=conn.dialect)
+            if_not_exists_clause = 'IF NOT EXISTS' if if_not_exists else ''
+            s_txt = (
+                f'ALTER TABLE {self._storage_name()} '
+                f'ADD COLUMN {if_not_exists_clause} {col.store_name()} {col_type_str} NULL'
+            )
+            added_storage_cols = [col.store_name()]
+            if col.stores_cellmd:
+                cellmd_type_str = col.sa_cellmd_type().compile(dialect=conn.dialect)
+                s_txt += (
+                    f' , ADD COLUMN {if_not_exists_clause} {col.cellmd_store_name()} {cellmd_type_str} DEFAULT NULL'
+                )
+                added_storage_cols.append(col.cellmd_store_name())
 
-        stmt = sql.text(s_txt)
-        log_stmt(_logger, stmt)
-        conn.execute(stmt)
-        self.create_sa_tbl()
-        _logger.info(f'Added columns {added_storage_cols} to storage table {self._storage_name()}')
+            stmt = sql.text(s_txt)
+            log_stmt(_logger, stmt)
+            conn.execute(stmt)
+            self.create_sa_tbl()
+            _logger.info(f'Added columns {added_storage_cols} to storage table {self._storage_name()}')
 
     def drop_column(self, col: catalog.Column, if_exists: bool) -> None:
         """Execute Alter Table Drop Column statement"""
@@ -435,82 +443,83 @@ class StoreBase:
             sql.exc.DBAPIError if there was a SQL error during execution
             excs.Error if on_error='abort' and there was an exception during row evaluation
         """
-        assert col.get_tbl().id == self.tbl_version.id
-        num_excs = 0
-        num_rows = 0
-        # create temp table to store output of exec_plan, with the same primary key as the store table
-        tmp_name = f'temp_{self._storage_name()}'
-        tmp_pk_cols = tuple(sql.Column(col.name, col.type, primary_key=True) for col in self.pk_columns())
-        tmp_val_col = sql.Column(col.sa_col.name, col.sa_col.type)
-        tmp_cols = [*tmp_pk_cols, tmp_val_col]
-        # add error columns if the store column records errors
-        if col.stores_cellmd:
-            tmp_cellmd_col = sql.Column(col.sa_cellmd_col.name, col.sa_cellmd_col.type)
-            tmp_cols.append(tmp_cellmd_col)
-        tmp_col_names = [col.name for col in tmp_cols]
+        with hooks.span('pixeltable.store.write_column'):
+            assert col.get_tbl().id == self.tbl_version.id
+            num_excs = 0
+            num_rows = 0
+            # create temp table to store output of exec_plan, with the same primary key as the store table
+            tmp_name = f'temp_{self._storage_name()}'
+            tmp_pk_cols = tuple(sql.Column(col.name, col.type, primary_key=True) for col in self.pk_columns())
+            tmp_val_col = sql.Column(col.sa_col.name, col.sa_col.type)
+            tmp_cols = [*tmp_pk_cols, tmp_val_col]
+            # add error columns if the store column records errors
+            if col.stores_cellmd:
+                tmp_cellmd_col = sql.Column(col.sa_cellmd_col.name, col.sa_cellmd_col.type)
+                tmp_cols.append(tmp_cellmd_col)
+            tmp_col_names = [col.name for col in tmp_cols]
 
-        tmp_tbl = sql.Table(tmp_name, self.sa_md, *tmp_cols, prefixes=['TEMPORARY'])
-        conn = get_runtime().conn
-        tmp_tbl.create(bind=conn)
+            tmp_tbl = sql.Table(tmp_name, self.sa_md, *tmp_cols, prefixes=['TEMPORARY'])
+            conn = get_runtime().conn
+            tmp_tbl.create(bind=conn)
 
-        row_builder = exec_plan.row_builder
+            row_builder = exec_plan.row_builder
 
-        try:
-            table_rows: list[list[Any]] = []
-            with exec_plan:
-                progress_reporter = exec_plan.ctx.add_progress_reporter(
-                    f'Column values written (table {self.tbl_version.get().name!r})', 'rows'
-                )
+            try:
+                table_rows: list[list[Any]] = []
+                with exec_plan:
+                    progress_reporter = exec_plan.ctx.add_progress_reporter(
+                        f'Column values written (table {self.tbl_version.get().name!r})', 'rows'
+                    )
 
-                # insert rows from exec_plan into temp table
-                for row_batch in exec_plan:
-                    num_rows += len(row_batch)
-                    batch_table_rows: list[list[Any]] = []
+                    # insert rows from exec_plan into temp table
+                    for row_batch in exec_plan:
+                        num_rows += len(row_batch)
+                        batch_table_rows: list[list[Any]] = []
 
-                    with hooks.span('pixeltable.store.build_rows', level=hooks.DEBUG):
-                        for row in row_batch:
-                            if abort_on_exc and row.has_exc():
-                                exc = row.get_first_exc()
-                                raise excs.RequestError(
-                                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                                    f'Error while evaluating computed column {col.name!r}:\n{exc}',
-                                ) from exc
-                            table_row, num_row_exc = row_builder.create_store_table_row(row, None, row.pk)
-                            num_excs += num_row_exc
-                            batch_table_rows.append(table_row)
+                        with hooks.span('pixeltable.store.build_rows', level=hooks.DEBUG):
+                            for row in row_batch:
+                                if abort_on_exc and row.has_exc():
+                                    exc = row.get_first_exc()
+                                    raise excs.RequestError(
+                                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                                        f'Error while evaluating computed column {col.name!r}:\n{exc}',
+                                    ) from exc
+                                table_row, num_row_exc = row_builder.create_store_table_row(row, None, row.pk)
+                                num_excs += num_row_exc
+                                batch_table_rows.append(table_row)
 
-                    table_rows.extend(batch_table_rows)
+                        table_rows.extend(batch_table_rows)
 
-                    if len(table_rows) >= self.__INSERT_BATCH_SIZE:
+                        if len(table_rows) >= self.__INSERT_BATCH_SIZE:
+                            self.sql_insert(tmp_tbl, tmp_col_names, table_rows)
+                            if progress_reporter is not None:
+                                progress_reporter.update(len(table_rows))
+                            table_rows.clear()
+
+                    if len(table_rows) > 0:
                         self.sql_insert(tmp_tbl, tmp_col_names, table_rows)
                         if progress_reporter is not None:
                             progress_reporter.update(len(table_rows))
-                        table_rows.clear()
 
-                if len(table_rows) > 0:
-                    self.sql_insert(tmp_tbl, tmp_col_names, table_rows)
-                    if progress_reporter is not None:
-                        progress_reporter.update(len(table_rows))
+                    # update store table with values from temp table
+                    update_stmt = sql.update(self.sa_tbl)
+                    for pk_col, tmp_pk_col in zip(self.pk_columns(), tmp_pk_cols):
+                        update_stmt = update_stmt.where(pk_col == tmp_pk_col)
+                    update_stmt = update_stmt.values({col.sa_col: tmp_val_col})
+                    if col.stores_cellmd:
+                        update_stmt = update_stmt.values({col.sa_cellmd_col: tmp_cellmd_col})
+                    log_explain(_logger, update_stmt, conn)
+                    conn.execute(update_stmt)
 
-                # update store table with values from temp table
-                update_stmt = sql.update(self.sa_tbl)
-                for pk_col, tmp_pk_col in zip(self.pk_columns(), tmp_pk_cols):
-                    update_stmt = update_stmt.where(pk_col == tmp_pk_col)
-                update_stmt = update_stmt.values({col.sa_col: tmp_val_col})
-                if col.stores_cellmd:
-                    update_stmt = update_stmt.values({col.sa_cellmd_col: tmp_cellmd_col})
-                log_explain(_logger, update_stmt, conn)
-                conn.execute(update_stmt)
+            finally:
 
-        finally:
+                def remove_tmp_tbl() -> None:
+                    self.sa_md.remove(tmp_tbl)
+                    tmp_tbl.drop(bind=conn)
 
-            def remove_tmp_tbl() -> None:
-                self.sa_md.remove(tmp_tbl)
-                tmp_tbl.drop(bind=conn)
+                run_cleanup(remove_tmp_tbl, raise_error=False)
 
-            run_cleanup(remove_tmp_tbl, raise_error=False)
-
-        return num_excs
+            return num_excs
 
     def insert_rows(
         self,
@@ -680,32 +689,33 @@ class StoreBase:
         Returns:
             number of deleted rows
         """
-        assert self.tbl_version.get().is_versioned
-        where_clause = sql.true() if where_clause is None else where_clause
-        version_clause = sql.and_(self.v_min_col < current_version, self.v_max_col == schema.Table.MAX_VERSION)
-        rowid_join_clause = self._rowid_join_predicate()
-        base_versions_clause = (
-            sql.true() if len(base_versions) == 0 else self.base._versions_clause(base_versions, match_on_vmin)
-        )
-        set_clause: dict[sql.Column, int | sql.Column] = {self.v_max_col: current_version}
-        for index_info in self.tbl_version.get().idxs_by_name.values():
-            # copy value column to undo column
-            set_clause[index_info.undo_col.sa_col] = index_info.val_col.sa_col
-            # set value column to NULL
-            set_clause[index_info.val_col.sa_col] = None
+        with hooks.span('pixeltable.store.soft_delete_rows'):
+            assert self.tbl_version.get().is_versioned
+            where_clause = sql.true() if where_clause is None else where_clause
+            version_clause = sql.and_(self.v_min_col < current_version, self.v_max_col == schema.Table.MAX_VERSION)
+            rowid_join_clause = self._rowid_join_predicate()
+            base_versions_clause = (
+                sql.true() if len(base_versions) == 0 else self.base._versions_clause(base_versions, match_on_vmin)
+            )
+            set_clause: dict[sql.Column, int | sql.Column] = {self.v_max_col: current_version}
+            for index_info in self.tbl_version.get().idxs_by_name.values():
+                # copy value column to undo column
+                set_clause[index_info.undo_col.sa_col] = index_info.val_col.sa_col
+                # set value column to NULL
+                set_clause[index_info.val_col.sa_col] = None
 
-        stmt = (
-            sql.update(self.sa_tbl)
-            .values(set_clause)
-            .where(where_clause)
-            .where(version_clause)
-            .where(rowid_join_clause)
-            .where(base_versions_clause)
-        )
-        conn = get_runtime().conn
-        log_explain(_logger, stmt, conn)
-        status = conn.execute(stmt)
-        return status.rowcount
+            stmt = (
+                sql.update(self.sa_tbl)
+                .values(set_clause)
+                .where(where_clause)
+                .where(version_clause)
+                .where(rowid_join_clause)
+                .where(base_versions_clause)
+            )
+            conn = get_runtime().conn
+            log_explain(_logger, stmt, conn)
+            status = conn.execute(stmt)
+            return status.rowcount
 
     def dump_rows(self, version: int, filter_view: StoreBase, filter_view_version: int) -> Iterator[dict[str, Any]]:
         assert self.tbl_version.get().is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'

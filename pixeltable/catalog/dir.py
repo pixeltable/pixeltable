@@ -3,6 +3,7 @@ from __future__ import annotations
 import dataclasses
 from uuid import UUID
 
+from pixeltable import hooks
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
@@ -17,16 +18,17 @@ class Dir(SchemaObject):
 
     @classmethod
     def _create(cls, parent_id: UUID, name: str) -> Dir:
-        session = get_runtime().session
-        user = Env.get().user
-        assert session is not None
-        dir_md = schema.DirMd(name=name, user=user, additional_md={})
-        dir_record = schema.Dir(parent_id=parent_id, md=dataclasses.asdict(dir_md))
-        session.add(dir_record)
-        session.flush()
-        assert dir_record.id is not None
-        assert isinstance(dir_record.id, UUID)
-        return cls(dir_record.id)
+        with hooks.span('pixeltable.catalog.create_dir', level=hooks.DEBUG):
+            session = get_runtime().session
+            user = Env.get().user
+            assert session is not None
+            dir_md = schema.DirMd(name=name, user=user, additional_md={})
+            dir_record = schema.Dir(parent_id=parent_id, md=dataclasses.asdict(dir_md))
+            session.add(dir_record)
+            session.flush()
+            assert dir_record.id is not None
+            assert isinstance(dir_record.id, UUID)
+            return cls(dir_record.id)
 
     def _display_name(self) -> str:
         return 'directory'

@@ -341,11 +341,12 @@ class TableVersion:
         return TableVersionMd(tbl_md, table_version_md, schema_version_md)
 
     def delete_media(self, tbl_version: int | None = None) -> None:
-        # Assemble a set of column destinations and delete objects from all of them
-        # None is a valid column destination which refers to the default object location
-        destinations = {col.destination for col in self.cols_by_id.values() if col.is_stored}
-        for dest in destinations:
-            ObjectOps.delete(dest, self.id, tbl_version=tbl_version)
+        with hooks.span('pixeltable.media.delete', level=hooks.DEBUG):
+            # Assemble a set of column destinations and delete objects from all of them
+            # None is a valid column destination which refers to the default object location
+            destinations = {col.destination for col in self.cols_by_id.values() if col.is_stored}
+            for dest in destinations:
+                ObjectOps.delete(dest, self.id, tbl_version=tbl_version)
 
     def drop_ops(self) -> tuple[list[TableOp], bool]:
         """Returns a tuple of drop table ops, and a boolean that indicates whether a new table and schema
@@ -823,7 +824,8 @@ class TableVersion:
                 continue
 
             # populate the column
-            plan = Planner.create_add_column_plan(self.path, col)
+            with hooks.span('pixeltable.plan.create', level=hooks.DEBUG):
+                plan = Planner.create_add_column_plan(self.path, col)
             excs_per_col = 0
             with get_runtime().report_progress():
                 try:
@@ -1107,7 +1109,8 @@ class TableVersion:
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'Filter not expressible in SQL: {analysis_info.filter}'
                 )
 
-        plan, updated_cols, recomputed_cols = Planner.create_update_plan(self.path, update_spec, [], cascade)
+        with hooks.span('pixeltable.plan.create', level=hooks.DEBUG):
+            plan, updated_cols, recomputed_cols = Planner.create_update_plan(self.path, update_spec, [], cascade)
 
         result = self.propagate_update(
             plan,
@@ -1142,9 +1145,10 @@ class TableVersion:
         assert len(rowids) == 0 or len(rowids) == len(batch)
         assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
 
-        plan, row_update_node, delete_where_clause, updated_cols, recomputed_cols = Planner.create_batch_update_plan(
-            self.path, batch, rowids, cascade=cascade
-        )
+        with hooks.span('pixeltable.plan.create', level=hooks.DEBUG):
+            plan, row_update_node, delete_where_clause, updated_cols, recomputed_cols = (
+                Planner.create_batch_update_plan(self.path, batch, rowids, cascade=cascade)
+            )
         result = self.propagate_update(
             plan,
             delete_where_clause,
@@ -1269,9 +1273,10 @@ class TableVersion:
                 != None
             )
             where_clause = CompoundPredicate.make_conjunction([where_clause, errortype_pred])
-        plan, updated_cols, recomputed_cols = Planner.create_update_plan(
-            self.path, update_targets={}, recompute_targets=target_columns, cascade=cascade
-        )
+        with hooks.span('pixeltable.plan.create', level=hooks.DEBUG):
+            plan, updated_cols, recomputed_cols = Planner.create_update_plan(
+                self.path, update_targets={}, recompute_targets=target_columns, cascade=cascade
+            )
 
         result = self.propagate_update(
             plan,
@@ -1410,104 +1415,111 @@ class TableVersion:
         Doesn't attempt to revert the in-memory metadata, but instead invalidates this TableVersion instance
         and relies on Catalog to reload it
         """
-        conn = get_runtime().conn
-        # make sure we don't have a snapshot referencing this version
-        # (unclear how to express this with sqlalchemy)
-        query = (
-            f"select ts.dir_id, ts.md->'name' "
-            f'from {schema.Table.__tablename__} ts '
-            f"cross join lateral jsonb_path_query(md, '$.view_md.base_versions[*]') as tbl_version "
-            f"where tbl_version->>0 = '{self.id.hex}' and (tbl_version->>1)::int = {self.version}"
-        )
-        result = list(conn.execute(sql.text(query)))
-        if len(result) > 0:
-            names = [row[1] for row in result]
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Current version is needed for {len(result)} snapshot{"s" if len(result) > 1 else ""}: '
-                f'({", ".join(names)})',
+        with hooks.span('pixeltable.catalog.revert_version'):
+            conn = get_runtime().conn
+            # make sure we don't have a snapshot referencing this version
+            # (unclear how to express this with sqlalchemy)
+            query = (
+                f"select ts.dir_id, ts.md->'name' "
+                f'from {schema.Table.__tablename__} ts '
+                f"cross join lateral jsonb_path_query(md, '$.view_md.base_versions[*]') as tbl_version "
+                f"where tbl_version->>0 = '{self.id.hex}' and (tbl_version->>1)::int = {self.version}"
             )
+            result = list(conn.execute(sql.text(query)))
+            if len(result) > 0:
+                names = [row[1] for row in result]
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Current version is needed for {len(result)} snapshot{"s" if len(result) > 1 else ""}: '
+                    f'({", ".join(names)})',
+                )
 
-        conn.execute(sql.delete(self.store_tbl.sa_tbl).where(self.store_tbl.sa_tbl.c.v_min == self.version))
+            conn.execute(sql.delete(self.store_tbl.sa_tbl).where(self.store_tbl.sa_tbl.c.v_min == self.version))
 
-        # revert new deletions
-        set_clause: dict[sql.Column, Any] = {self.store_tbl.sa_tbl.c.v_max: schema.Table.MAX_VERSION}
-        for index_info in self.idxs.values():
-            # copy the index value back from the undo column and reset the undo column to NULL
-            set_clause[index_info.val_col.sa_col] = index_info.undo_col.sa_col
-            set_clause[index_info.undo_col.sa_col] = None
-        stmt = sql.update(self.store_tbl.sa_tbl).values(set_clause).where(self.store_tbl.sa_tbl.c.v_max == self.version)
-        conn.execute(stmt)
+            # revert new deletions
+            set_clause: dict[sql.Column, Any] = {self.store_tbl.sa_tbl.c.v_max: schema.Table.MAX_VERSION}
+            for index_info in self.idxs.values():
+                # copy the index value back from the undo column and reset the undo column to NULL
+                set_clause[index_info.val_col.sa_col] = index_info.undo_col.sa_col
+                set_clause[index_info.undo_col.sa_col] = None
+            stmt = (
+                sql.update(self.store_tbl.sa_tbl)
+                .values(set_clause)
+                .where(self.store_tbl.sa_tbl.c.v_max == self.version)
+            )
+            conn.execute(stmt)
 
-        # revert schema changes:
-        # - undo changes to self._tbl_md and write that back
-        # - delete newly-added TableVersion/TableSchemaVersion records
-        get_runtime().catalog.mark_modified_tv(self.handle)
-        old_version = self.version
-        if self.version == self.schema_version:
-            # physically delete newly-added columns and remove them from the stored md
-            added_cols = [col for col in self.cols_by_id.values() if col.schema_version_add == self.schema_version]
-            if len(added_cols) > 0:
-                self._tbl_md.next_col_id = min(col.id for col in added_cols)
-                for col in added_cols:
-                    if col.is_stored:
-                        self.store_tbl.drop_column(col, if_exists=False)
-                    del self._tbl_md.column_md[col.id]
-                    del self._schema_version_md.columns[col.id]
+            # revert schema changes:
+            # - undo changes to self._tbl_md and write that back
+            # - delete newly-added TableVersion/TableSchemaVersion records
+            get_runtime().catalog.mark_modified_tv(self.handle)
+            old_version = self.version
+            if self.version == self.schema_version:
+                # physically delete newly-added columns and remove them from the stored md
+                added_cols = [col for col in self.cols_by_id.values() if col.schema_version_add == self.schema_version]
+                if len(added_cols) > 0:
+                    self._tbl_md.next_col_id = min(col.id for col in added_cols)
+                    for col in added_cols:
+                        if col.is_stored:
+                            self.store_tbl.drop_column(col, if_exists=False)
+                        del self._tbl_md.column_md[col.id]
+                        del self._schema_version_md.columns[col.id]
 
-            # remove newly-added indices from the lookup structures
-            # (the value and undo columns got removed in the preceding step)
-            added_idx_md = [md for md in self._tbl_md.index_md.values() if md.schema_version_add == self.schema_version]
-            if len(added_idx_md) > 0:
-                self._tbl_md.next_idx_id = min(md.id for md in added_idx_md)
-                for md in added_idx_md:
-                    # TODO: drop the index
-                    del self._tbl_md.index_md[md.id]
+                # remove newly-added indices from the lookup structures
+                # (the value and undo columns got removed in the preceding step)
+                added_idx_md = [
+                    md for md in self._tbl_md.index_md.values() if md.schema_version_add == self.schema_version
+                ]
+                if len(added_idx_md) > 0:
+                    self._tbl_md.next_idx_id = min(md.id for md in added_idx_md)
+                    for md in added_idx_md:
+                        # TODO: drop the index
+                        del self._tbl_md.index_md[md.id]
 
-            # make newly-dropped columns visible again
-            dropped_col_md = [
-                md for md in self._tbl_md.column_md.values() if md.schema_version_drop == self.schema_version
-            ]
-            for col_md in dropped_col_md:
-                col_md.schema_version_drop = None
+                # make newly-dropped columns visible again
+                dropped_col_md = [
+                    md for md in self._tbl_md.column_md.values() if md.schema_version_drop == self.schema_version
+                ]
+                for col_md in dropped_col_md:
+                    col_md.schema_version_drop = None
 
-            # make newly-dropped indices visible again
-            dropped_idx_md = [
-                md for md in self._tbl_md.index_md.values() if md.schema_version_drop == self.schema_version
-            ]
-            for idx_md in dropped_idx_md:
-                idx_md.schema_version_drop = None
+                # make newly-dropped indices visible again
+                dropped_idx_md = [
+                    md for md in self._tbl_md.index_md.values() if md.schema_version_drop == self.schema_version
+                ]
+                for idx_md in dropped_idx_md:
+                    idx_md.schema_version_drop = None
+
+                conn.execute(
+                    sql.delete(schema.TableSchemaVersion.__table__)
+                    .where(schema.TableSchemaVersion.tbl_id == self.id)
+                    .where(schema.TableSchemaVersion.schema_version == self.schema_version)
+                )
+                self._tbl_md.current_schema_version = self._schema_version_md.preceding_schema_version
 
             conn.execute(
-                sql.delete(schema.TableSchemaVersion.__table__)
-                .where(schema.TableSchemaVersion.tbl_id == self.id)
-                .where(schema.TableSchemaVersion.schema_version == self.schema_version)
+                sql.delete(schema.TableVersion.__table__)
+                .where(schema.TableVersion.tbl_id == self.id)
+                .where(schema.TableVersion.version == self.version)
             )
-            self._tbl_md.current_schema_version = self._schema_version_md.preceding_schema_version
 
-        conn.execute(
-            sql.delete(schema.TableVersion.__table__)
-            .where(schema.TableVersion.tbl_id == self.id)
-            .where(schema.TableVersion.version == self.version)
-        )
+            self._tbl_md.current_version = self._version_md.version = self.version - 1
 
-        self._tbl_md.current_version = self._version_md.version = self.version - 1
+            self._write_md(new_version=False, new_schema_version=False)
 
-        self._write_md(new_version=False, new_schema_version=False)
+            # propagate to views
+            for view in self.mutable_views:
+                view.get()._revert()
 
-        # propagate to views
-        for view in self.mutable_views:
-            view.get()._revert()
+            # force reload on next operation
+            self.is_validated = False
+            get_runtime().catalog.remove_tbl_version(self.key)
 
-        # force reload on next operation
-        self.is_validated = False
-        get_runtime().catalog.remove_tbl_version(self.key)
-
-        # delete newly-added data
-        # Do this at the end, after all DB operations have completed.
-        # TODO: The transaction could still fail. Really this should be done via PendingTableOps.
-        self.delete_media(tbl_version=old_version)
-        _logger.info(f'TableVersion {self.name!r}: reverted to version {self.version}')
+            # delete newly-added data
+            # Do this at the end, after all DB operations have completed.
+            # TODO: The transaction could still fail. Really this should be done via PendingTableOps.
+            self.delete_media(tbl_version=old_version)
+            _logger.info(f'TableVersion {self.name!r}: reverted to version {self.version}')
 
     @property
     def id(self) -> UUID:
