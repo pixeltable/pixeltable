@@ -11,7 +11,7 @@ from pixeltable import catalog, exceptions as excs, exprs, func, type_system as 
 from pixeltable.env import Env
 from pixeltable.query_clauses import SampleClause
 from pixeltable.runtime import get_runtime
-from pixeltable.types import ColumnSpec, EmbeddingIndexSpec
+from pixeltable.types import ColumnSpec
 
 from .globals import MediaValidation, is_valid_identifier
 from .table import Table
@@ -94,7 +94,7 @@ class Column:
 class EmbeddingIndex:
     """An embedding index specification used in a TableModel or ViewModel definition."""
 
-    column: Any
+    column: ModelColumnRef
     embedding: func.Function | None = None
     string_embed: func.Function | None = None
     image_embed: func.Function | None = None
@@ -702,37 +702,6 @@ class TableModelMeta(type):
                 )
             columns[name] = spec
 
-        # The model's declared embedding indexes, normalized to a serializable form: the indexed column is
-        # resolved to its name (a base or sibling column, resolved by the owning catalog), and the embedding
-        # functions travel as-is. `create_from_model` weaves these into table creation, so they're created under
-        # the same transaction umbrella as the rest of the schema.
-        embedding_idxs: list[EmbeddingIndexSpec] = []
-        for idx_name, idx_spec in cls.__indexes__.items():
-            col = idx_spec.column
-            if isinstance(col, ModelColumnRef):
-                col_name = col.name
-            elif isinstance(col, str):
-                col_name = col
-            else:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA,
-                    f'{table_spec["display_name"]}: the column for index {idx_name!r} must be a column reference.',
-                )
-            embedding_idxs.append(
-                {
-                    'idx_name': idx_name,
-                    'column': col_name,
-                    'metric': idx_spec.metric,
-                    'precision': idx_spec.precision,
-                    'embed': idx_spec.embedding,
-                    'string_embed': idx_spec.string_embed,
-                    'image_embed': idx_spec.image_embed,
-                    'audio_embed': idx_spec.audio_embed,
-                    'video_embed': idx_spec.video_embed,
-                    'document_embed': idx_spec.document_embed,
-                }
-            )
-
         bound_path = f'{binding_root}{table_spec["name"]}'
         tbl_path = catalog.Path.parse(bound_path)
 
@@ -747,7 +716,7 @@ class TableModelMeta(type):
             custom_metadata=table_spec['custom_metadata'],
             iterator=table_spec['iterator'],
             base=base,
-            embedding_idxs=embedding_idxs,
+            embedding_idxs=cls.__indexes__,
         )
 
         if was_created:

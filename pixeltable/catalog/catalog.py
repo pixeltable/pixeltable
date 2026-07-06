@@ -22,7 +22,7 @@ from pixeltable import exceptions as excs, exprs, func
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
-from pixeltable.types import ColumnSpec, EmbeddingIndexSpec
+from pixeltable.types import ColumnSpec
 from pixeltable.utils import fault_injection
 from pixeltable.utils.exception_handler import run_cleanup
 from pixeltable.utils.fault_injection import FaultLocation
@@ -33,7 +33,7 @@ from .dir import Dir
 from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation, QColumnId
 from .insertable_table import InsertableTable
 from .local_table import LocalTable
-from .model import ModelColumnRef
+from .model import EmbeddingIndex, ModelColumnRef
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
 from .table_path import TablePath, TableVersionPath
@@ -1473,6 +1473,7 @@ class Catalog(CatalogBase):
                 media_validation,
                 create_default_idxs,
                 is_versioned,
+                additional_idxs=[],
             )
 
         self._roll_forward_ids.clear()
@@ -1499,8 +1500,8 @@ class Catalog(CatalogBase):
         media_validation: MediaValidation,
         create_default_idxs: bool,
         is_versioned: bool,
+        additional_idxs: list[tuple[Column, str | None, 'index.IndexBase']],
         tbl_id: UUID | None = None,
-        embedding_idxs: list[tuple[Column, str | None, 'index.IndexBase']] | None = None,
     ) -> tuple[UUID, bool]:
         import pixeltable.metadata.schema
 
@@ -1525,7 +1526,7 @@ class Catalog(CatalogBase):
             create_default_idxs=create_default_idxs,
             is_versioned=is_versioned,
             tbl_id=tbl_id,
-            embedding_idxs=embedding_idxs,
+            additional_idxs=additional_idxs,
         )
         if tbl_id is None:
             tbl_id = UUID(md.tbl_md.tbl_id)
@@ -1569,6 +1570,7 @@ class Catalog(CatalogBase):
                 custom_metadata,
                 media_validation,
                 if_exists,
+                additional_idxs=[],
             )
 
         self._roll_forward_ids.clear()
@@ -1600,8 +1602,8 @@ class Catalog(CatalogBase):
         custom_metadata: Any,
         media_validation: MediaValidation,
         if_exists: IfExistsParam,
+        additional_idxs: list[tuple[Column, str | None, 'index.IndexBase']],
         tbl_id: UUID | None = None,
-        embedding_idxs: list[tuple[Column, str | None, 'index.IndexBase']] | None = None,
     ) -> tuple[UUID, bool]:
         existing = self._handle_path_collision(path, View, is_snapshot, if_exists, base=base)
         if existing is not None:
@@ -1640,7 +1642,7 @@ class Catalog(CatalogBase):
             custom_metadata=custom_metadata,
             media_validation=media_validation,
             tbl_id=tbl_id,
-            embedding_idxs=embedding_idxs,
+            additional_idxs=additional_idxs,
         )
         tbl_id = UUID(md.tbl_md.tbl_id)
         md.tbl_md.pending_stmt = schema.TableStatement.CREATE_VIEW
@@ -1659,7 +1661,7 @@ class Catalog(CatalogBase):
         custom_metadata: Any,
         iterator: func.GeneratingFunctionCall | None,
         base: 'pxt.Query | None',
-        embedding_idxs: list[EmbeddingIndexSpec],
+        embedding_idxs: dict[str, EmbeddingIndex],
     ) -> tuple[LocalTable, bool]:
         """Create a table or view from a declarative model.
 
@@ -1749,28 +1751,28 @@ class Catalog(CatalogBase):
         # table-creation unit rather than as follow-up operations.
         own_cols_by_name = {col.name: col for col in catalog_columns}
         resolved_idxs: list[tuple[Column, str | None, index.IndexBase]] = []
-        for idx_spec in embedding_idxs:
-            col_name = idx_spec['column']
+        for idx_name, idx_spec in embedding_idxs.items():
+            col_name = idx_spec.column.name
             idx_col = own_cols_by_name.get(col_name)
             if idx_col is None and base is not None:
                 idx_col = base._first_tbl.get_column(col_name)
             if idx_col is None:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
-                    f'Embedding index in {display_name} references unknown column {col_name!r}.',
+                    f'Embedding index {idx_name!r} in {display_name} references unknown column {col_name!r}.',
                 )
             idx = index.EmbeddingIndex(
-                metric=idx_spec['metric'],
-                precision=idx_spec['precision'],
-                embed=idx_spec.get('embed'),
-                string_embed=idx_spec.get('string_embed'),
-                image_embed=idx_spec.get('image_embed'),
-                audio_embed=idx_spec.get('audio_embed'),
-                video_embed=idx_spec.get('video_embed'),
-                document_embed=idx_spec.get('document_embed'),
+                metric=idx_spec.metric,
+                precision=idx_spec.precision,
+                embed=idx_spec.embedding,
+                string_embed=idx_spec.string_embed,
+                image_embed=idx_spec.image_embed,
+                audio_embed=idx_spec.audio_embed,
+                video_embed=idx_spec.video_embed,
+                document_embed=idx_spec.document_embed,
                 column=idx_col,
             )
-            resolved_idxs.append((idx_col, idx_spec.get('idx_name'), idx))
+            resolved_idxs.append((idx_col, idx_name, idx))
 
         base_tvp: TableVersionPath | None
         if base is None:
@@ -1789,7 +1791,7 @@ class Catalog(CatalogBase):
                     create_default_idxs=create_default_idxs,
                     is_versioned=True,
                     tbl_id=tbl_id,
-                    embedding_idxs=resolved_idxs,
+                    additional_idxs=resolved_idxs,
                 )
         else:
             base_tvp = base._first_tbl
@@ -1811,7 +1813,7 @@ class Catalog(CatalogBase):
                     media_validation=media_validation,
                     if_exists=IfExistsParam.ERROR,
                     tbl_id=tbl_id,
-                    embedding_idxs=resolved_idxs,
+                    additional_idxs=resolved_idxs,
                 )
 
         self._roll_forward_ids.clear()

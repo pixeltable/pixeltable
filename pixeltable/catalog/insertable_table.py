@@ -74,8 +74,8 @@ class InsertableTable(LocalTable):
         media_validation: MediaValidation,
         create_default_idxs: bool,
         is_versioned: bool,
+        additional_idxs: list[tuple[Column, str | None, index.IndexBase]],
         tbl_id: UUID | None = None,
-        embedding_idxs: list[tuple[Column, str | None, index.IndexBase]] | None = None,
     ) -> tuple[TableVersionMd, list[TableOp]]:
         cls._verify_schema(columns)
         column_names = [col.name for col in columns]
@@ -103,7 +103,7 @@ class InsertableTable(LocalTable):
             view_md=None,
             is_versioned=is_versioned,
             tbl_id=tbl_id,
-            embedding_idxs=embedding_idxs,
+            additional_idxs=additional_idxs,
         )
 
         ops = (

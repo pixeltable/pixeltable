@@ -242,8 +242,8 @@ class TableVersion:
         create_default_idxs: bool,
         view_md: schema.ViewMd | None,
         is_versioned: bool,
+        additional_idxs: list[tuple[Column, str | None, index.IndexBase]],
         tbl_id: uuid.UUID | None = None,
-        embedding_idxs: list[tuple[Column, str | None, index.IndexBase]] | None = None,
     ) -> TableVersionMd:
         from .table_version_handle import TableVersionHandle
 
@@ -279,8 +279,7 @@ class TableVersion:
         idxs_to_create: list[tuple[Column, str | None, index.IndexBase]] = []
         if create_default_idxs and (view_md is None or not view_md.is_snapshot):
             idxs_to_create.extend((col, None, index.BtreeIndex()) for col in cols if cls._is_btree_indexable(col))
-        if embedding_idxs is not None:
-            idxs_to_create.extend(embedding_idxs)
+        idxs_to_create.extend(additional_idxs)
 
         index_cols: list[Column] = []
         for idx_col, idx_name, idx in idxs_to_create:

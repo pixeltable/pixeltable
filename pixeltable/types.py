@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypedDict, Union
 
 if TYPE_CHECKING:
-    from pixeltable import exprs, func
+    from pixeltable import exprs
 
 
 TableKind = Literal['table', 'view', 'snapshot']
@@ -35,23 +35,6 @@ class TableNode(TypedDict):
 
 
 TreeNode = Union[DirectoryNode, TableNode]
-
-
-class EmbeddingIndexSpec(TypedDict, total=False):
-    """A serializable embedding-index specification, used to carry a model's declared embedding indexes to the
-    catalog that creates the table (so they can be created within the same table-creation unit). `column` is the
-    name of the column to index; the embedding functions and parameters mirror `Table.add_embedding_index`."""
-
-    idx_name: str | None
-    column: str
-    metric: Literal['cosine', 'ip', 'l2']
-    precision: Literal['fp16', 'fp32']
-    embed: 'func.Function | None'
-    string_embed: 'func.Function | None'
-    image_embed: 'func.Function | None'
-    audio_embed: 'func.Function | None'
-    video_embed: 'func.Function | None'
-    document_embed: 'func.Function | None'
 
 
 class DirContents(TypedDict):

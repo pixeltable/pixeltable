@@ -91,8 +91,8 @@ class View(LocalTable):
         custom_metadata: Any,
         media_validation: MediaValidation,
         iterator_call: func.GeneratingFunctionCall | None,
+        additional_idxs: list[tuple[Column, str | None, index.IndexBase]],
         tbl_id: UUID | None = None,
-        embedding_idxs: list[tuple[Column, str | None, index.IndexBase]] | None = None,
     ) -> tuple[TableVersionMd, list[TableOp] | None]:
         from pixeltable.exprs import InlineDict
 
@@ -222,7 +222,7 @@ class View(LocalTable):
             create_default_idxs=create_default_idxs,
             is_versioned=base.is_versioned(),
             tbl_id=tbl_id,
-            embedding_idxs=embedding_idxs,
+            additional_idxs=additional_idxs,
         )
         if md.tbl_md.is_pure_snapshot:
             # this is purely a snapshot: no store table to create or load
