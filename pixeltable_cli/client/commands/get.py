@@ -25,10 +25,10 @@ Notes:
 
 
 def _get_cloud_resource(uri: str, as_json: bool) -> None:
-    from pixeltable.catalog.path import Path as PxtPath
+    from pixeltable.service.utils import PxtUri
     from pixeltable.share.deploy_client import database_get, org_list, service_get
 
-    p = PxtPath.parse(uri, allow_empty_path=True)
+    p = PxtUri(uri)
     if p.service is not None:
         service_get(p.org, p.db, p.service, json_output=as_json)
     elif p.db is not None:

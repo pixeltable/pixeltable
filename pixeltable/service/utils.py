@@ -170,6 +170,13 @@ class PxtUri(BaseModel):
         uri = f'pxt://{netloc}/{path_part}'
         return cls(uri=uri)
 
+    @property
+    def service(self) -> str | None:
+        """Service name if path is services/<name>, else None."""
+        if self.path and self.path.startswith('services/'):
+            return self.path[len('services/') :]
+        return None
+
     @classmethod
     def _normalize_uri(cls, uri: str) -> str:
         """Normalize a pxt:// URI or Pixeltable HTTPS URL to a canonical pxt:// URI."""

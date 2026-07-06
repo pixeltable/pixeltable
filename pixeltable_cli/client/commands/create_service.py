@@ -14,19 +14,14 @@ def run(argv: list[str]) -> None:
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
 
-    from pixeltable.catalog.path import Path as PxtPath
+    from pixeltable.service.utils import PxtUri
     from pixeltable.share.deploy_client import service_create
 
     try:
-        p = PxtPath.parse(args.table_uri)
-        if p.org is None or p.db is None:
+        p = PxtUri(args.table_uri)
+        if p.db is None or not p.path or not p.path.startswith('tables/'):
             parser.error('table_uri must be pxt://org:db/tables/<path>')
-        # components: ('tables', 'my_table') → table_path = 'my_table'
-        # or plain ('my_table',) if user omitted the 'tables/' prefix
-        comps = list(p.components)
-        if comps and comps[0] == 'tables':
-            comps = comps[1:]
-        table_path = '.'.join(comps)
+        table_path = p.path[len('tables/') :].replace('/', '.')
         if not table_path:
             parser.error('table_uri must include a table path, e.g. pxt://org:db/tables/my_table')
         service_create(

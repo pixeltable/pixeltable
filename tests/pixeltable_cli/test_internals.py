@@ -18,14 +18,17 @@ import socket
 import subprocess
 import sys
 import urllib.error
+import uuid
 from collections.abc import Callable, Iterator
 from email.message import Message
 from typing import Any
 
+import pydantic
 import pytest
 from typing_extensions import Self
 
 from pixeltable import exceptions as excs
+from pixeltable.service.utils import PxtUri
 from pixeltable_cli import utils
 from pixeltable_cli.client import confirm, http, main as client_main, parser as client_parser, utils as client_utils
 from pixeltable_cli.client.commands import daemon as daemon_cmd, shell as shell_cmd, status as status_cmd
@@ -1506,3 +1509,83 @@ class TestPerPortPaths:
         assert p1 != p2, f'log path collides across ports: {p1} == {p2}'
         assert '12345' in p1
         assert '54321' in p2
+
+
+class TestPxtUri:
+    """PxtUri Pydantic model: parsing, field extraction, and the service property."""
+
+    def test_parsing(self) -> None:
+        p = PxtUri('pxt://myorg')
+        assert p.org == 'myorg' and p.db is None and p.path == '' and p.id is None and p.version is None
+
+        p = PxtUri('pxt://myorg:mydb')
+        assert p.org == 'myorg' and p.db == 'mydb' and p.path == ''
+
+        p = PxtUri('pxt://myorg:mydb/some/table')
+        assert p.org == 'myorg' and p.db == 'mydb' and p.path == 'some/table' and p.id is None
+
+        assert str(PxtUri('pxt://myorg:mydb/path')) == 'pxt://myorg:mydb/path'
+
+    def test_service_property(self) -> None:
+        assert PxtUri('pxt://myorg:mydb/services/my-service').service == 'my-service'
+        assert PxtUri('pxt://myorg:mydb/tables/my_table').service is None
+        assert PxtUri('pxt://myorg:mydb').service is None
+        assert PxtUri('pxt://myorg').service is None
+        assert PxtUri('pxt://myorg:mydb/services').service is None  # no slash after services
+
+    def test_uuid_path(self) -> None:
+        uid = '12345678-1234-5678-1234-567812345678'
+        p = PxtUri(f'pxt://myorg:mydb/{uid}')
+        assert p.id is not None and str(p.id) == uid and p.path is None
+
+    def test_version_parsing(self) -> None:
+        p = PxtUri('pxt://myorg:mydb/my_table:5')
+        assert p.path == 'my_table' and p.version == 5
+        assert PxtUri('pxt://myorg:mydb/my_table:0').version == 0
+
+    def test_version_errors(self) -> None:
+        for bad in ('pxt://myorg:mydb/my_table:-1', 'pxt://myorg:mydb/my_table:abc'):
+            with pytest.raises(pydantic.ValidationError):
+                PxtUri(bad)
+
+    @pytest.mark.parametrize(
+        'url',
+        [
+            'https://pixeltable.com/t/myorg:mydb/path',
+            'http://pixeltable.com/t/myorg:mydb/path',
+            'https://www.pixeltable.com/t/myorg:mydb/path',
+            'http://www.pixeltable.com/t/myorg:mydb/path',
+        ],
+    )
+    def test_pixeltable_url_normalized(self, url: str) -> None:
+        p = PxtUri(url)
+        assert p.org == 'myorg' and p.db == 'mydb' and p.path == 'path' and p.uri.startswith('pxt://')
+
+    def test_from_components(self) -> None:
+        p = PxtUri.from_components(org='myorg', db='mydb', path='some/table')
+        assert p.org == 'myorg' and p.db == 'mydb' and p.path == 'some/table'
+
+        uid = uuid.UUID('12345678-1234-5678-1234-567812345678')
+        p = PxtUri.from_components(org='myorg', id=uid)
+        assert p.id == uid and p.path is None
+
+    def test_from_components_errors(self) -> None:
+        with pytest.raises(ValueError, match='Either path or id must be provided'):
+            PxtUri.from_components(org='myorg')
+        with pytest.raises(ValueError, match='Cannot specify both'):
+            PxtUri.from_components(org='myorg', path='t', id=uuid.uuid4())
+
+    def test_is_pxt_uri(self) -> None:
+        assert PxtUri.is_pxt_uri('pxt://org:db/path') is True
+        assert PxtUri.is_pxt_uri('https://pixeltable.com/t/org:db/path') is True
+        assert PxtUri.is_pxt_uri('https://example.com/path') is False
+        assert PxtUri.is_pxt_uri('my_table') is False
+
+    def test_invalid_uris_raise(self) -> None:
+        for bad in ('http://example.com/path', 'pxt://', 'not_a_uri'):
+            with pytest.raises(pydantic.ValidationError):
+                PxtUri(bad)
+
+    def test_wrong_input_type_raises(self) -> None:
+        with pytest.raises((pydantic.ValidationError, ValueError)):
+            PxtUri(12345)  # type: ignore[arg-type]

@@ -13,19 +13,14 @@ def run(argv: list[str]) -> None:
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
 
-    from pixeltable.catalog.path import Path as PxtPath
+    from pixeltable.service.utils import PxtUri
     from pixeltable.share.deploy_client import service_start
 
     try:
-        p = PxtPath.parse(args.service_uri)
-        if p.org is None or p.db is None:
+        p = PxtUri(args.service_uri)
+        svc_name = p.service
+        if p.db is None or svc_name is None:
             parser.error('service_uri must be pxt://org:db/services/<name>')
-        comps = list(p.components)
-        if comps and comps[0] == 'services':
-            comps = comps[1:]
-        svc_name = '.'.join(comps)
-        if not svc_name:
-            parser.error('service_uri must include a service name')
         workers = args.workers
         service_start(p.org, p.db, svc_name, workers_min=workers, workers_max=workers, json_output=args.json_output)
     except Exception as e:
