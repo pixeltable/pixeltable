@@ -201,7 +201,9 @@ class FnCallEvaluator(Evaluator):
         try:
             # batched calls process many rows in one invocation, so they can't nest under a single row
             # span; emit one span under the ambient operation span instead
-            with hooks.span(f'pixeltable.udf.{self.fn.display_name}', level=hooks.DEBUG, batch_size=len(batched_call_args.rows)):
+            with hooks.span(
+                f'pixeltable.udf.{self.fn.display_name}', level=hooks.DEBUG, batch_size=len(batched_call_args.rows)
+            ):
                 if self.fn.is_async:
                     result_batch = await self.fn.aexec_batch(
                         *batched_call_args.batch_args, **batched_call_args.batch_kwargs
