@@ -142,9 +142,9 @@ class TestTable:
         pxt.create_dir(p('hyphenated-dir'))
         _ = pxt.create_table(p('hyphenated-dir/hyphenated-table'), schema)
 
-        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match=r"test' does not exist"):
+        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match="Path 'test' does not exist"):
             pxt.drop_table(p('test'))
-        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match=r"test2' does not exist"):
+        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match=r"Path 'dir1/test2' does not exist"):
             pxt.drop_table(p('dir1/test2'))
         with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .test2'):
             pxt.drop_table(p('.test2'))
@@ -943,7 +943,6 @@ class TestTable:
             _ = pxt.create_table(p('validation_error'), {'img': {'type': pxt.Image, 'media_validation': 'wrong_value'}})  # type: ignore[dict-item]
         assert "media_validation must be one of: ['on_read', 'on_write']" in str(exc_info.value)
 
-    @pytest.mark.no_cloud
     def test_validate_on_read(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
         p = make_catalog_path
         files = get_video_files(include_bad_video=True)
@@ -978,7 +977,6 @@ class TestTable:
 
         reload_tester.run_reload_test()
 
-    @pytest.mark.no_cloud
     def test_validate_on_read_with_computed_col(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         files = get_video_files(include_bad_video=True)
@@ -1097,13 +1095,18 @@ class TestTable:
             't': pxt.Required[pxt.Timestamp],
             'r': pxt.Required[pxt.String],
             'en': pxt.Required[pxt.Int],
+            'en_s': pxt.Required[pxt.String],
         }
         t = pxt.create_table(p('test_pydantic_basic'), schema)
         t.add_computed_column(c1=t.i + 1)
 
-        class E1(enum.IntEnum):
+        class E1(enum.Enum):
             A = 1
             B = 2
+
+        class E2(enum.Enum):
+            X = 'x'
+            Y = 'y'
 
         class TestModel1(pydantic.BaseModel):
             s: str
@@ -1112,7 +1115,8 @@ class TestTable:
             b: bool
             t: datetime.datetime
             r: Literal['abc', 'def']
-            en: E1  # an IntEnum is converted to an int
+            en: E1  # a plain Enum with int values is stored as its int value
+            en_s: E2  # a plain Enum with str values is stored as its str value
             opt_s: str | None = None
 
         # tz-aware timestamps: a tz-aware value is stored as-is, so compute()/insert() return exactly the input
@@ -1127,6 +1131,7 @@ class TestTable:
                 t=now + datetime.timedelta(hours=i),
                 r='abc' if i % 2 == 0 else 'def',
                 en=E1.A if i % 2 == 0 else E1.B,
+                en_s=E2.X if i % 2 == 0 else E2.Y,
                 opt_s=f'opt_{i}' if i % 2 == 0 else None,
             )
             for i in range(100)
@@ -1141,9 +1146,11 @@ class TestTable:
             t: datetime.datetime | None = None
             r: Literal['abc', 'def'] | None = None
             en: E1 | None = None
+            en_s: E2 | None = None
 
         rows2: list[pydantic.BaseModel] = [
-            TestModel2(s=f'str_{i}', i=i, f=i * 1.0, b=i % 2 == 0, t=now, r='abc', en=E1.A) for i in range(100)
+            TestModel2(s=f'str_{i}', i=i, f=i * 1.0, b=i % 2 == 0, t=now, r='abc', en=E1.A, en_s=E2.X)
+            for i in range(100)
         ]
 
         return t, TestModel1, rows1, TestModel2, rows2
@@ -1200,7 +1207,6 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='ZeroDivisionError'):
             t.compute([{'id': 0, 'data': None}], on_error='abort')
 
-    @pytest.mark.no_cloud
     def test_compute_media_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """compute() with a computed column on a media input, exercising media validation errors."""
         p = make_catalog_path
@@ -1246,7 +1252,6 @@ class TestTable:
         out = t.compute(({'id': 1}, {'id': 2}))
         assert out == [{'id': 1, 'plus1': 2}, {'id': 2, 'plus1': 3}]
 
-    @pytest.mark.no_cloud
     def test_array_and_media_columns(self, make_catalog_path: Callable[[str], str]) -> None:
         # arrays and in-memory images cross the wire inlined; a file-backed media path is read directly (the
         # daemon shares this client's filesystem and media store)
@@ -1270,7 +1275,6 @@ class TestTable:
         assert isinstance(out['a'], bytes)
         assert isinstance(out['rotated'], PIL.Image.Image)
 
-    @pytest.mark.no_cloud
     def test_compute_with_idx(self, make_catalog_path: Callable[[str], str], clip_embed: pxt.Function) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('transformers')
@@ -1354,6 +1358,22 @@ class TestTable:
 
             _ = t.insert([BadModel2(i=0, en=E1.A)])
 
+        # wrong enum value type, other direction: str-valued enum into an Int column
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH, match=r"incompatible type `E2` for column 'en' \(of Pixeltable type `Int`\)"
+        ):
+            t = pxt.create_table(p('bad2b'), {'i': pxt.Int, 'en': pxt.Required[pxt.Int]})
+
+            class E2(enum.Enum):
+                A = 'a'
+                B = 'b'
+
+            class BadModel2b(pydantic.BaseModel):
+                i: int
+                en: E2
+
+            _ = t.insert([BadModel2b(i=0, en=E2.A)])
+
         # wrong Literal type
         with pxt_raises(
             pxt.ErrorCode.TYPE_MISMATCH,
@@ -1416,19 +1436,6 @@ class TestTable:
 
             _ = t.insert([BadModel8(t='0')])
 
-        # a plain enum.Enum
-        t = pxt.create_table(p('bad_enum'), {'en': pxt.Int})
-
-        class PlainEnum(enum.Enum):
-            A = 1
-
-        class EnumModel(pydantic.BaseModel):
-            en: PlainEnum
-
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='expected int'):
-            _ = t.insert([EnumModel(en=PlainEnum.A)])
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='expected int'):
-            _ = t.compute([EnumModel(en=PlainEnum.A)])
 
     def test_insert_nested_pydantic(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
@@ -1513,7 +1520,6 @@ class TestTable:
 
             _ = t.insert([BadModel2(s='str_0', j=N4(s='str_0', n=N3(s={1, 2, 3})))])
 
-    @pytest.mark.no_cloud
     def test_pydantic_media(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         schema = {'img': pxt.Required[pxt.Image]}
@@ -2005,28 +2011,24 @@ class TestTable:
         ):
             t.update({'json_col_2': {'a': 15}})  # Validation error on update
 
-    @pytest.mark.no_cloud
     def test_validate_image(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         rows = read_data_file('imagenette2-160', 'manifest_bad.csv', ['img'])
         rows = [{'media': r['img'], 'is_bad_media': r['is_bad_image']} for r in rows]
         self.check_bad_media(p, rows, pxt.Image, validate_local_path=False)
 
-    @pytest.mark.no_cloud
     def test_validate_video(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         p = make_catalog_path
         files = get_video_files(include_bad_video=True)
         rows = [{'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for f in files]
         self.check_bad_media(p, rows, pxt.Video, validate_local_path=catalog_mode == 'local')
 
-    @pytest.mark.no_cloud
     def test_validate_audio(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         p = make_catalog_path
         files = get_audio_files(include_bad_audio=True)
         rows = [{'media': f, 'is_bad_media': f.endswith('bad_audio.mp3')} for f in files]
         self.check_bad_media(p, rows, pxt.Audio, validate_local_path=catalog_mode == 'local')
 
-    @pytest.mark.no_cloud
     def test_validate_docs(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('markitdown', 'mistune')
@@ -2038,7 +2040,6 @@ class TestTable:
         rows = [{'media': f, 'is_bad_media': not is_valid} for f, is_valid in zip(doc_paths, is_valid)]
         self.check_bad_media(p, rows, pxt.Document, validate_local_path=catalog_mode == 'local')
 
-    @pytest.mark.no_cloud
     def test_validate_external_url(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('boto3')
@@ -2059,7 +2060,6 @@ class TestTable:
         ]
         self.check_bad_media(p, rows, pxt.Video, validate_local_path=catalog_mode == 'local')
 
-    @pytest.mark.no_cloud
     def test_file_paths(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('test'), {'img': pxt.Image})
@@ -2137,7 +2137,6 @@ class TestTable:
         cache_stats = FileCache.get().stats()
         assert cache_stats.total_size == 0
 
-    @pytest.mark.no_cloud
     def test_image_formats(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         tbl = pxt.create_table(p('test'), {'img': pxt.Image})
@@ -2146,7 +2145,6 @@ class TestTable:
         ]
         tbl.insert({'img': f'{TESTS_DIR}/data/images/{file}'} for file in files)
 
-    @pytest.mark.no_cloud
     def test_video_url(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('boto3')
@@ -2162,7 +2160,6 @@ class TestTable:
         with av.open(local_path) as container:
             assert container.streams.video[0].codec_context.name == 'h264'
 
-    @pytest.mark.no_cloud
     def test_create_video_table(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         if Env.get().is_using_cockroachdb:
@@ -2219,7 +2216,6 @@ class TestTable:
         pxt.drop_table(p('test_tbl'))
         assert MediaStore.count(view, default_output_dest=True) == 0
 
-    @pytest.mark.no_cloud
     def test_video_urls(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('boto3')
@@ -2260,7 +2256,6 @@ class TestTable:
         assert status.num_rows == 1
         assert status.num_excs == 0
 
-    @pytest.mark.no_cloud
     def test_insert(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         schema: dict[str, type] = {
@@ -2842,7 +2837,6 @@ class TestTable:
         # now it works
         t.drop_column('c4')
 
-    @pytest.mark.no_cloud
     def test_computed_col_apply(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('test'), {'c2': pxt.Float})
@@ -2874,7 +2868,6 @@ class TestTable:
         for row in t_res:
             assert row['c3'] + 1000 == row['c4']
 
-    @pytest.mark.no_cloud
     def test_expr_udf_computed_cols(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('test'), {'c1': pxt.Int})

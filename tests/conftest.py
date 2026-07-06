@@ -20,6 +20,7 @@ import pixeltable as pxt
 import pixeltable.utils.fault_injection as prod_fault_injection
 import tests.fault_injection as test_fault_injection
 from pixeltable import exprs, functions as pxtf
+from pixeltable.catalog.model import TableModelMeta
 from pixeltable.config import Config
 from pixeltable.env import LOG_FMT_STR, Env
 from pixeltable.functions.huggingface import clip, sentence_transformer
@@ -221,6 +222,7 @@ def _reset_catalog_state() -> None:
     # Clean the DB *before* reloading. This is because some tests
     # (such as test_migration.py) may leave the DB in a broken state.
     clean_db()
+    TableModelMeta.registered_models.clear()
     Config.init({}, reinit=True)
     Env.get().default_time_zone = None
     Env.get().user = None
@@ -270,8 +272,6 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     'local' and 'proxy', unless marked @pytest.mark.local, in which case it runs 'local' only.
 
     With --cloud, tests run against the cloud catalog instead of local/proxy.
-    Tests marked @pytest.mark.no_cloud are skipped when --cloud is set (they use local media files or
-    other resources unavailable to the cloud daemon, but work fine in local + proxy modes).
 
     metafunc.fixturenames is the transitive fixture closure, so a test reaching make_catalog_path (directly
     or via an adapted fixture like test_tbl) auto-forks with no per-test boilerplate. Tests that touch neither
@@ -283,9 +283,6 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
         # local-only: don't fork the axis; catalog_mode defaults to 'local' and the nodeid stays unparametrized
         return
     if metafunc.config.getoption('--cloud', default=None) is not None:
-        if metafunc.definition.get_closest_marker('no_cloud') is not None:
-            metafunc.definition.add_marker(pytest.mark.skip(reason='not supported against cloud daemon'))
-            return
         metafunc.parametrize('catalog_mode', ['cloud'], indirect=True)
     else:
         metafunc.parametrize('catalog_mode', ['local', 'proxy'], indirect=True)

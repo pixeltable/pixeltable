@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from uuid import UUID, uuid4
 
 from pixeltable import exceptions as excs
+from pixeltable._query import Query
 from pixeltable.catalog import InsertableTable, Path, TablePathKey, retry_loop
 from pixeltable.catalog.table_version import TableVersionKey
 from pixeltable.runtime import get_runtime
@@ -72,10 +73,14 @@ def handle(request_json: str) -> str:
         return ProxyResponse(result=proxy_protocol.serialize(handler(request))).model_dump_json()
     except excs.Error as e:
         if e.detail is not None:
+            # the client only gets the message; keep the diagnostic detail (e.g. an evaluation stack trace)
+            # for whoever reads the server logs
             _logger.info('Error detail handling %s.%s:\n%s', request.class_name, request.method, e.detail)
         _logger.info('!! %s.%s error (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
         return ProxyResponse(error=e.to_dict()).model_dump_json()
     except Exception:
+        # An unexpected server-side failure. Log the full traceback for debugging, but return only a short
+        # reference id to the client: server internals (stack frames, filesystem paths) must not cross the wire.
         ref = uuid4().hex
         _logger.error(
             'Internal error (ref %s) handling %s.%s (%.2fs):\n%s',
@@ -113,12 +118,28 @@ def _create_table(request: ProxyRequest) -> tuple[list, bool]:
     return md, was_created
 
 
-def _create_view(request: ProxyRequest) -> list:
+def _create_view(request: ProxyRequest) -> tuple[list, bool]:
     kwargs = _deserialize_args(request)
     cat = get_runtime().catalog
-    tbl = cat.create_view(**kwargs)
+    tbl, was_created = cat.create_view(**kwargs)
     with cat.begin_xact(for_write=False):
-        return cat.read_md_for_export(tbl)
+        md = cat.read_md_for_export(tbl)
+    return md, was_created
+
+
+def _create_from_model(request: ProxyRequest) -> tuple[list, bool]:
+    kwargs = _deserialize_args(request)
+    base_dict = kwargs.pop('base')
+
+    @retry_loop(for_write=False)
+    def build_base() -> Any:
+        return None if base_dict is None else Query.from_dict(base_dict)
+
+    cat = get_runtime().catalog
+    tbl, was_created = cat.create_from_model(base=build_base(), **kwargs)
+    with cat.begin_xact(for_write=False):
+        md = cat.read_md_for_export(tbl)
+    return md, was_created
 
 
 def _get_table(request: ProxyRequest) -> list | None:
@@ -354,6 +375,7 @@ def _query_count(request: ProxyRequest) -> int:
 _HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest], Any]] = {
     ('CatalogBase', 'create_table'): _create_table,
     ('CatalogBase', 'create_view'): _create_view,
+    ('CatalogBase', 'create_from_model'): _create_from_model,
     ('CatalogBase', 'get_table'): _get_table,
     ('CatalogBase', 'get_table_by_id'): _get_table_by_id,
     ('CatalogBase', 'move'): _catalog_method,

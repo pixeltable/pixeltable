@@ -148,11 +148,6 @@ class ColumnRef(Expr):
     def __getattr__(self, name: str) -> Expr:
         from .column_property_ref import ColumnPropertyRef
 
-        # resolve column properties
-        if name == ColumnPropertyRef.Property.CELLMD.name.lower():
-            # This is not user accessible, but used internally to store cell metadata
-            return super().__getattr__(name)
-
         col_md = self.column_md
         if (
             name == ColumnPropertyRef.Property.ERRORTYPE.name.lower()
@@ -165,6 +160,7 @@ class ColumnRef(Expr):
                     f'{name} only valid for a stored computed or media column: {self}',
                 )
             return ColumnPropertyRef(self, ColumnPropertyRef.Property[name.upper()])
+
         if (
             name == ColumnPropertyRef.Property.FILEURL.name.lower()
             or name == ColumnPropertyRef.Property.LOCALPATH.name.lower()
@@ -179,11 +175,6 @@ class ColumnRef(Expr):
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'{name} not valid for computed unstored columns: {self}'
                 )
             return ColumnPropertyRef(self, ColumnPropertyRef.Property[name.upper()])
-
-        if self.col_type.is_json_type():
-            from .json_path import JsonPath
-
-            return JsonPath(self, [name])
 
         return super().__getattr__(name)
 

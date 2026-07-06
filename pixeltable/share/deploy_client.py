@@ -35,7 +35,7 @@ from pixeltable.share.protocol.service import (
     StopServiceRequest,
 )
 
-PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://dev-internal-api.pixeltable.com')
+PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.pixeltable.com')
 
 
 def _api_headers() -> dict[str, str]:

@@ -45,7 +45,7 @@ if TYPE_CHECKING:
 
 TESTS_DIR = Path(os.path.dirname(__file__))
 
-# The catalog backend a test runs against: 'local', 'proxy' (local daemon), or 'cloud' (cloud proxy via NLB).
+# The catalog backend a test runs against: 'local' (in-process), 'proxy' (local daemon), or 'cloud' (cloud proxy via NLB).
 CatalogMode = Literal['local', 'proxy', 'cloud']
 
 
@@ -667,6 +667,11 @@ __COMPARERS: dict[ts.ColumnType.Type, Callable[[Any, Any], bool]] = {
 }
 
 
+def assert_dicts_eq(actual: dict[str, Any], expected: dict[str, Any]) -> None:
+    """Assert two dicts are equal, comparing arrays elementwise and floats with `np.isclose`."""
+    assert __json_comparer(actual, expected), f'{actual!r} != {expected!r}'
+
+
 def __mismatch_err_string(col_name: str, s1: list[Any], s2: list[Any], mismatches: list[int]) -> str:
     lines = [f'Column {col_name!r} does not match.']
     for i in mismatches[:5]:
@@ -689,7 +694,7 @@ def assert_table_metadata_eq(expected: dict[str, Any], actual: pxt.TableMetadata
 
     trimmed_actual = {k: v for k, v in actual.items() if k not in {'version_created', 'id'}}
     tc = TestCase()
-    tc.maxDiff = 10_000
+    tc.maxDiff = 25_000
     tc.assertDictEqual(expected, trimmed_actual)
 
 
@@ -705,7 +710,7 @@ def assert_version_metadata_eq(expected: dict[str, Any], actual: pxt.VersionMeta
 
     trimmed_actual = {k: v for k, v in actual.items() if k != 'created_at'}
     tc = TestCase()
-    tc.maxDiff = 10_000
+    tc.maxDiff = 25_000
     tc.assertDictEqual(expected, trimmed_actual)
 
 
@@ -777,26 +782,6 @@ def validate_update_status(status: pxt.UpdateStatus, expected_rows: int | None =
     assert status.num_excs == 0
     if expected_rows is not None:
         assert status.num_rows == expected_rows, status
-
-
-def validate_sync_status(
-    status: pxt.UpdateStatus,
-    expected_external_rows_created: int | None = None,
-    expected_external_rows_updated: int | None = None,
-    expected_external_rows_deleted: int | None = None,
-    expected_pxt_rows_updated: int | None = None,
-    expected_num_excs: int | None = 0,
-) -> None:
-    if expected_external_rows_created is not None:
-        assert status.external_rows_created == expected_external_rows_created, status
-    if expected_external_rows_updated is not None:
-        assert status.external_rows_updated == expected_external_rows_updated, status
-    if expected_external_rows_deleted is not None:
-        assert status.external_rows_deleted == expected_external_rows_deleted, status
-    if expected_pxt_rows_updated is not None:
-        assert status.pxt_rows_updated == expected_pxt_rows_updated, status
-    if expected_num_excs is not None:
-        assert status.num_excs == expected_num_excs, status
 
 
 def iceberg_catalog(warehouse_path: str | Path, name: str = 'pixeltable') -> 'SqlCatalog':
@@ -876,7 +861,7 @@ def reload_catalog(reload: bool = True) -> None:
 
 
 @contextmanager
-def capture_console_output() -> Iterator[StringIO]:
+def capture_console_output(match: str | None = None) -> Iterator[StringIO]:
     pxt_logger = logging.getLogger('pixeltable')
     try:
         sio = StringIO()
@@ -885,6 +870,11 @@ def capture_console_output() -> Iterator[StringIO]:
         handler.addFilter(ConsoleMessageFilter())
         pxt_logger.addHandler(handler)
         yield sio
+        if match is not None:
+            contents = sio.getvalue()
+            assert re.search(match, contents) is not None, (
+                f'Console output did not match.\nRegex: {match!r}\nActual: {contents}'
+            )
     finally:
         pxt_logger.removeHandler(handler)
         sio.flush()
@@ -1096,6 +1086,29 @@ def validate_repr(t: Any, expected: str) -> None:
     t._repr_html_()  # TODO: Is there a good way to test this output?
 
 
+@pxt.udf
+def dummy_embedding(text: str, n: int) -> pxt.Array[(None,), np.float32]:
+    if 'zero' in text:
+        arr = np.zeros((n,), dtype=np.float32)
+        arr[n // 2 :] = 1
+        return arr
+    if 'one' in text:
+        arr = np.zeros((n,), dtype=np.float32)
+        arr[: n // 2] = 1
+        return arr
+    return np.random.rand(n).astype(np.float32)
+
+
+@dummy_embedding.overload
+def _(img: PIL.Image.Image, n: int) -> pxt.Array[(None,), np.float32]:
+    return np.random.rand(n).astype(np.float32)
+
+
+@dummy_embedding.conditional_return_type
+def _(n: int) -> ts.ArrayType:
+    return ts.ArrayType((n,), dtype=np.dtype('float32'), nullable=False)
+
+
 # A deterministic, download-free embedding used in place of HuggingFace models (clip, sentence_transformer) in tests
 # that exercise embedding-index machinery rather than real-model semantics. It is multimodal -- text is mapped via
 # character n-gram hashing and images via grayscale downsampling, both into the same fixed-dimensional space -- so it
@@ -1138,3 +1151,32 @@ def _(image: PIL.Image.Image, *, dim: int = LOCAL_EMBED_DIM) -> pxt.Array[(None,
 @local_embedding.conditional_return_type
 def _(dim: int) -> ts.ArrayType:
     return ts.ArrayType((dim,), dtype=np.dtype('float32'), nullable=False)
+
+
+def schema_from_tbl_md(metadata: pxt.TableMetadata) -> dict[str, str]:
+    # Return a dict of schema information about that table that is invariant of table path and version history.
+    return {
+        'kind': metadata['kind'],
+        'comment': metadata['comment'],
+        'custom_metadata': metadata['custom_metadata'],
+        'media_validation': metadata['media_validation'],
+        'primary_key': metadata['primary_key'],
+        'iterator_call': metadata['iterator_call'],
+        'columns': {
+            name: {
+                'type_': info['type_'],
+                'is_stored': info['is_stored'],
+                'is_primary_key': info['is_primary_key'],
+                'media_validation': info['media_validation'],
+                'is_computed': info['is_computed'],
+                'computed_with': info['computed_with'],
+                'is_builtin': info['is_builtin'],
+                'comment': info['comment'],
+                'custom_metadata': info['custom_metadata'],
+                'is_iterator_col': info['is_iterator_col'],
+                'destination': info['destination'],
+            }
+            for name, info in metadata['columns'].items()
+        },
+        'indices': metadata['indices'],
+    }

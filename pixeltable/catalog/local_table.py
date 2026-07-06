@@ -12,7 +12,7 @@ import pandas as pd
 from typing_extensions import overload
 
 import pixeltable as pxt
-from pixeltable import env, exceptions as excs, exprs, index, type_system as ts
+from pixeltable import exceptions as excs, exprs, index, type_system as ts
 from pixeltable.catalog.table_metadata import (
     ColumnMetadata,
     EmbeddingIndexParams,
@@ -290,9 +290,6 @@ class LocalTable(Table):
             idxs = self._index_descriptor()
             if not idxs.empty:
                 helper.append(idxs)
-            stores = self._external_store_descriptor()
-            if not stores.empty:
-                helper.append(stores)
             if self._get_comment():
                 helper.append(f'Comment: {self._get_comment()}')
             if self._get_custom_metadata():
@@ -362,13 +359,6 @@ class LocalTable(Table):
                 pd_rows.append(row)
         return pd.DataFrame(pd_rows)
 
-    def _external_store_descriptor(self) -> pd.DataFrame:
-        pd_rows = []
-        for name, store in self._tbl_version_path.tbl_version.get().external_stores.items():
-            row = {'External Store': name, 'Type': type(store).__name__}
-            pd_rows.append(row)
-        return pd.DataFrame(pd_rows)
-
     def describe(self) -> None:
         if getattr(builtins, '__IPYTHON__', False):
             from IPython.display import Markdown, display
@@ -390,14 +380,7 @@ class LocalTable(Table):
         assert col is not None
         assert col.name in self._get_schema()
         cat = get_runtime().catalog
-        if any(c.name is not None for c in cat.get_column_dependents(col.get_tbl().id, col.id)):
-            return True
-        assert self._tbl_version is not None
-        return any(
-            col in store.get_local_columns()
-            for view in (self, *self._get_views(recursive=True))
-            for store in view._tbl_version.get().external_stores.values()
-        )
+        return any(c.name is not None for c in cat.get_column_dependents(col.get_tbl().id, col.id))
 
     def _ignore_or_drop_existing_columns(self, new_col_names: list[str], if_exists: IfExistsParam) -> list[str]:
         """Check and handle existing columns in the new column specification based on the if_exists parameter.
@@ -641,25 +624,6 @@ class LocalTable(Table):
                     f'Cannot drop column {col.name!r} because the following views depend on it:\n{dependent_views_str}',
                 )
 
-            # See if this column has a dependent store. We need to look through all stores in all
-            # (transitive) views of this table.
-            col_handle = col.handle
-            dependent_stores = [
-                (view, store)
-                for view in (self, *views)
-                for store in view._tbl_version.get().external_stores.values()
-                if col_handle in store.get_local_columns()
-            ]
-            if len(dependent_stores) > 0:
-                dependent_store_names = [
-                    store.name if view._id == self._id else f'{store.name} (in view {view._name()!r})'
-                    for view, store in dependent_stores
-                ]
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Cannot drop column {col.name!r} because the following external stores depend on it:\n'
-                    f'{", ".join(dependent_store_names)}',
-                )
             all_columns = self.columns()
             if len(all_columns) == 1 and col.name == all_columns[0]:
                 raise excs.RequestError(
@@ -687,6 +651,9 @@ class LocalTable(Table):
         embedding: pxt.Function | None = None,
         string_embed: pxt.Function | None = None,
         image_embed: pxt.Function | None = None,
+        audio_embed: pxt.Function | None = None,
+        video_embed: pxt.Function | None = None,
+        document_embed: pxt.Function | None = None,
         metric: Literal['cosine', 'ip', 'l2'] = 'cosine',
         precision: Literal['fp16', 'fp32'] = 'fp16',
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
@@ -734,6 +701,9 @@ class LocalTable(Table):
                 embed=embedding,
                 string_embed=string_embed,
                 image_embed=image_embed,
+                audio_embed=audio_embed,
+                video_embed=video_embed,
+                document_embed=document_embed,
                 column=col,  # Pass column for shape validation
             )
             _ = idx.create_value_expr(col)  # validation only; result discarded
@@ -1073,92 +1043,6 @@ class LocalTable(Table):
             tv.revert()
             # remove cached md in order to force a reload on the next operation
             self._tbl_version_path.clear_cached_md()
-
-    def external_stores(self) -> list[str]:
-        return list(self._tbl_version.get().external_stores.keys())
-
-    def _link_external_store(self, store: 'pxt.io.ExternalStore') -> None:
-        """
-        Links the specified `ExternalStore` to this table.
-        """
-
-        with get_runtime().catalog.begin_xact(for_write=True, write_tvps=[self._tbl_version_path]):
-            self._check_mutable('link an external store to')
-            if store.name in self.external_stores():
-                raise excs.AlreadyExistsError(
-                    excs.ErrorCode.PATH_ALREADY_EXISTS,
-                    f'Table {self._name()!r} already has an external store with that name: {store.name}',
-                )
-            _logger.info(f'Linking external store {store.name!r} to table {self._name()!r}.')
-
-            store.link(self._tbl_version.get())  # might call tbl_version.add_columns()
-            self._tbl_version.get().link_external_store(store)
-            env.Env.get().console_logger.info(f'Linked external store {store.name!r} to table {self._name()!r}.')
-
-    def unlink_external_stores(
-        self, stores: str | list[str] | None = None, *, delete_external_data: bool = False, ignore_errors: bool = False
-    ) -> None:
-        if not self._tbl_version_path.is_mutable():
-            return
-        with get_runtime().catalog.begin_xact(for_write=True, write_tvps=[self._tbl_version_path]):
-            all_stores = self.external_stores()
-
-            if stores is None:
-                stores = all_stores
-            elif isinstance(stores, str):
-                stores = [stores]
-
-            # Validation
-            if not ignore_errors:
-                for store_name in stores:
-                    if store_name not in all_stores:
-                        raise excs.NotFoundError(
-                            excs.ErrorCode.STORAGE_NOT_FOUND,
-                            f'Table {self._name()!r} has no external store with that name: {store_name}',
-                        )
-
-            for store_name in stores:
-                store = self._tbl_version.get().external_stores[store_name]
-                # get hold of the store's debug string before deleting it
-                store_str = str(store)
-                store.unlink(self._tbl_version.get())  # might call tbl_version.drop_columns()
-                self._tbl_version.get().unlink_external_store(store)
-                if delete_external_data and isinstance(store, pxt.io.external_store.Project):
-                    store.delete()
-                env.Env.get().console_logger.info(f'Unlinked external store from table {self._name()!r}: {store_str}')
-
-    def sync(
-        self, stores: str | list[str] | None = None, *, export_data: bool = True, import_data: bool = True
-    ) -> UpdateStatus:
-        if not self._tbl_version_path.is_mutable():
-            return UpdateStatus()
-        # we lock the entire tree starting at the root base table in order to ensure that all synced columns can
-        # have their updates propagated down the tree
-        base_tv = self._tbl_version_path.get_tbl_versions()[-1]
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[TableVersionPath(base_tv)], lock_mutable_tree=True
-        ):
-            all_stores = self.external_stores()
-
-            if stores is None:
-                stores = all_stores
-            elif isinstance(stores, str):
-                stores = [stores]
-
-            for store in stores:
-                if store not in all_stores:
-                    raise excs.NotFoundError(
-                        excs.ErrorCode.STORAGE_NOT_FOUND,
-                        f'Table {self._name()!r} has no external store with that name: {store}',
-                    )
-
-            sync_status = UpdateStatus()
-            for store in stores:
-                store_obj = self._tbl_version.get().external_stores[store]
-                store_sync_status = store_obj.sync(self, export_data=export_data, import_data=import_data)
-                sync_status += store_sync_status
-
-        return sync_status
 
     def __dir__(self) -> list[str]:
         return list(super().__dir__()) + list(self._get_schema().keys())

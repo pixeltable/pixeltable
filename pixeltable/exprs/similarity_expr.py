@@ -102,9 +102,11 @@ class SimilarityExpr(Expr):
         except excs.Error as e:
             return str(e)
 
-    def is_bound_by(self, tbls: list[catalog.TablePath]) -> bool:
+    def is_bound_by(self, tbls: list[catalog.TablePath], siblings: list[catalog.Column] | None = None) -> bool:
         # qcol_id identifies the indexed column; a column dropped from every path resolves to no match.
-        return any(tbl.has_column(self.qcol_id) for tbl in tbls)
+        return any(tbl.has_column(self.qcol_id) for tbl in tbls) or any(
+            self.qcol_id == col.qid for col in (siblings or [])
+        )
 
     def _retarget(self, tbl_versions: dict[UUID, catalog.TableVersion]) -> Self:
         super()._retarget(tbl_versions)
