@@ -99,7 +99,8 @@ def _worker(worker_id: int, port: int, n_images: int, rows: int, rounds: int, n_
     acceptable 'out of capacity' contention signal; 0 if every thread completed cleanly.
     """
     fatal: list[Exception] = []
-    capacity_hits = [0]
+    # per-thread slots: each thread writes only its own index, so no cross-thread synchronization is needed
+    capacity_hits = [0] * n_threads
     try:
         tbls = [
             pxt.create_table(f'stress_{worker_id}_{thread_id}', {'idx': pxt.Int, 'img': pxt.Image}, if_exists='replace')
@@ -108,7 +109,9 @@ def _worker(worker_id: int, port: int, n_images: int, rows: int, rounds: int, n_
 
         def run(thread_id: int) -> None:
             try:
-                capacity_hits[0] += _thread_body(tbls[thread_id], worker_id, thread_id, port, n_images, rows, rounds)
+                capacity_hits[thread_id] = _thread_body(
+                    tbls[thread_id], worker_id, thread_id, port, n_images, rows, rounds
+                )
             except Exception as exc:
                 traceback.print_exc()
                 fatal.append(exc)
@@ -126,7 +129,7 @@ def _worker(worker_id: int, port: int, n_images: int, rows: int, rounds: int, n_
     # exit decision is outside the try so these SystemExits are not caught and downgraded above
     if len(fatal) > 0:
         sys.exit(1)
-    if capacity_hits[0] > 0:
+    if sum(capacity_hits) > 0:
         sys.exit(2)
 
 
@@ -188,16 +191,16 @@ def main() -> int:
         exit_codes = [proc.exitcode for proc in processes]
 
         cache_files = [f for f in (home / 'file_cache').glob('*') if f.suffix != '.lock']
-        cache_bytes = sum(f.stat().st_size for f in cache_files)
+        cache_kib = sum(f.stat().st_size for f in cache_files) / 1024
         capacity_kib = args.cache_gb * (1 << 30) / 1024
         print(f'worker exit codes: {exit_codes}')
-        print(
-            f'file cache after run: {len(cache_files)} files, {cache_bytes / 1024:.0f} KiB (capacity ~{capacity_kib:.0f} KiB)'
-        )
+        print(f'file cache after run: {len(cache_files)} files, {cache_kib:.0f} KiB (capacity ~{capacity_kib:.0f} KiB)')
 
         # exit 1 == a real (non-capacity) failure in some thread; exit 2 == only the acceptable out-of-capacity
         # contention signal was hit; exit 0 == every thread completed cleanly (no contention reached)
-        fatal = any(code == 1 or code is None for code in exit_codes)
+        # 0 == clean, 2 == acceptable out-of-capacity contention; anything else is a failure, including None and
+        # the negative codes multiprocessing reports when a worker is killed by a signal
+        fatal = any(code not in (0, 2) for code in exit_codes)
         contention_reached = any(code == 2 for code in exit_codes)
         print(f'contention (FILE_CACHE_FULL) reached: {contention_reached}')
         if not contention_reached:

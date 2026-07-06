@@ -1,6 +1,5 @@
 import os
 import platform
-import threading
 from collections import OrderedDict
 from pathlib import Path
 
@@ -9,7 +8,6 @@ import pytest
 import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.utils.filecache import FileCache
-
 from .utils import get_image_files, rerun
 
 pytestmark = pytest.mark.local('inspects local FileCache internals')
@@ -86,44 +84,3 @@ class TestFileCache:
             t.insert({'index': len(image_files) + n, 'image': image_urls[n]} for n in range(10, 15))
         # Check that we saw the warning exactly once
         assert sum(r.category is pxt.PixeltableWarning for r in record) == 1
-
-    @pytest.mark.skipif(platform.system() == 'Windows', reason='FileCache tests are flaky on Windows')
-    @rerun(reruns=3)  # remote downloads can time out
-    def test_concurrent_queries(self, uses_db: None) -> None:
-        # Multiple threads query the same table of remote media at once, driving the shared FileCache through the
-        # normal fetch path. The cache is smaller than the working set, so each miss triggers a (locked) eviction
-        # scan while other threads look up and add the same urls -- exercising FileCache's thread safety, including
-        # the concurrent add-of-the-same-url path. The eviction lease keeps an in-use file from being pulled out
-        # from under a concurrent query, so every query must still return a fully decoded result.
-        fc = FileCache.get()
-        fc.clear()
-        fc.set_capacity(64 << 10)  # below the working set, so every add runs an eviction scan under contention
-
-        image_files = get_image_files()[:15]
-        base_url = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/imagenette2-160/'
-        urls = [base_url + Path(file).name for file in image_files]
-        t = pxt.create_table('images', {'index': pxt.Int, 'image': pxt.Image})
-        t.insert({'index': i, 'image': url} for i, url in enumerate(urls))
-
-        n_threads, rounds = 8, 3
-        barrier = threading.Barrier(n_threads)
-        errors: list[Exception] = []
-
-        def worker() -> None:
-            try:
-                barrier.wait()  # release all threads together to maximize contention on the first, uncached round
-                for _ in range(rounds):
-                    result = t.select(rotated=t.image.rotate(90)).collect()
-                    assert len(result) == len(urls)
-                    assert all(row['rotated'] is not None for row in result)  # every cell fetched + decoded
-            except Exception as e:
-                errors.append(e)
-
-        threads = [threading.Thread(target=worker) for _ in range(n_threads)]
-        for th in threads:
-            th.start()
-        for th in threads:
-            th.join()
-
-        assert errors == []
-        fc.validate()

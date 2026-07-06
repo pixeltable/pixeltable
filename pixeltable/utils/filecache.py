@@ -197,17 +197,36 @@ class FileCache:
         """
         with self._lock:
             if tbl_id is None:
-                # We need to store the entries to remove in a list, because we can't remove items from a dict
-                # while iterating
-                entries_to_remove = list(self.cache.values())
-                _logger.debug(f'clearing {self.num_files()} entries from file cache')
+                # remove every cache file on disk, not just the entries this instance tracks: another FileCache
+                # instance or process may have written files we never adopted. The lock file and any foreign
+                # files do not match the entry-name pattern and are left in place.
+                _logger.debug('clearing all entries from file cache')
+                failures: list[str] = []
+                for path_str in glob.glob(str(Env.get().file_cache_dir / '*')):
+                    if _CACHE_ENTRY_FILE_RE.fullmatch(os.path.basename(path_str)) is None:
+                        continue
+                    try:
+                        os.remove(path_str)
+                    except FileNotFoundError:
+                        pass  # already removed by another process
+                    except OSError as exc:
+                        failures.append(f'{os.path.basename(path_str)}: {exc}')
+                self.cache.clear()
+                self.total_size = 0
                 self.num_requests, self.num_hits, self.num_evictions = 0, 0, 0
                 self.keys_retrieved.clear()
                 self.keys_evicted_after_retrieval.clear()
                 self.new_redownload_witnessed = False
-            else:
-                entries_to_remove = [e for e in self.cache.values() if e.tbl_id == tbl_id]
-                _logger.debug(f'clearing {self.num_files(tbl_id)} entries from file cache for table {tbl_id}')
+                if len(failures) > 0:
+                    detail = '\n  '.join(failures)
+                    raise RuntimeError(
+                        f'FileCache.clear(): could not remove {len(failures)} file(s) from '
+                        f'{Env.get().file_cache_dir}:\n  {detail}'
+                    )
+                return
+
+            entries_to_remove = [e for e in self.cache.values() if e.tbl_id == tbl_id]
+            _logger.debug(f'clearing {self.num_files(tbl_id)} entries from file cache for table {tbl_id}')
             for entry in entries_to_remove:
                 self._remove_file(entry.path)
                 self.cache.pop(entry.key, None)

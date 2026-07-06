@@ -245,6 +245,9 @@ jobs:
       - name: Run stress tests
         if: ${{ matrix.test-category == 'random-ops' }}
         run: ./scripts/stress-tests.sh 12 360
+      - name: Run file cache stress test
+        if: ${{ matrix.test-category == 'random-ops' }}
+        run: python -u scripts/filecache_multiprocess_stress.py --procs 4 --threads 4 --images 50 --rows 10 --rounds 40 --cache-gb 0.0003 --lease-s 0.5 --img-px 64
       - name: Type check
         if: ${{ matrix.test-category == 'lint' }}
         run: |
