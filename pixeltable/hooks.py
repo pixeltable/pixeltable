@@ -5,16 +5,6 @@ subscribers (e.g. the bridge in `opentelemetry-instrumentation-pixeltable`) tran
 telemetry backend. With no subscribers registered every call is a near-free no-op, but hot loops should
 still guard with `if hooks.active():` before building attribute dicts (or pass `attrs` as a callable).
 
-Span levels mirror logging levels: spans declared below the configured threshold (default INFO) are not
-emitted; their descendants are parented to the nearest emitted ancestor. Only operation spans
-(`set_current=True`) may be roots; any other span started without an ambient ancestor is suppressed.
-
-Parentage: spans started with `set_current=True` become the ambient parent (a ContextVar, so it propagates
-into asyncio tasks); other spans parent to the ambient span unless an explicit `parent` handle is passed.
-`set_current=True` requires that the span is ended on the same thread/context it was started on.
-`capture_context()`/`restore_context()`/`exit_context()` carry the ambient state (including subscriber
-state) across explicit thread handoffs.
-
 Spans should cover contiguous units of real computation (a UDF call, a DB insert batch, model loading) or
 serve as structural containers (operation and exec-node spans). A CPU work span must not contain a
 `yield`/`await`, which would let it cover unrelated interleaved work; awaiting an external call inside a
@@ -28,9 +18,10 @@ import dataclasses
 import logging
 import threading
 from contextvars import ContextVar, Token
-from typing import Any, Callable, Iterator, Union
+from typing import Any, Callable, Iterator
+from weakref import WeakKeyDictionary
 
-_logger = logging.getLogger('pixeltable.hooks')
+_logger = logging.getLogger(__name__)
 
 TRACE = 5
 DEBUG = 10
@@ -86,30 +77,23 @@ class SpanHandle:
         self.pending_attrs: dict[str, Any] | None = None
 
 
-@dataclasses.dataclass(slots=True)
-class _PassthroughHandle:
-    """Stand-in for a level-suppressed span: span_end() ignores it, children parent to `target`."""
-
-    target: SpanHandle | None
-
-
-BaseSpanHandle = SpanHandle | _PassthroughHandle
-
 _registry_lock = threading.Lock()
 _SUBSCRIBERS: tuple[Subscriber, ...] = ()
 _span_level = INFO
 _current_span: ContextVar[SpanHandle | None] = ContextVar('pxt_current_span', default=None)
-_logged_error_keys: set[tuple[int, str]] = set()
+_logged_error_methods: WeakKeyDictionary[Subscriber, set[str]] = WeakKeyDictionary()
 
 
 def subscribe(subscriber: Subscriber) -> None:
+    """Register a subscriber to receive instrumentation callbacks; idempotent."""
     global _SUBSCRIBERS  # noqa: PLW0603
     with _registry_lock:
-        if subscriber not in _SUBSCRIBERS:
+        if all(s is not subscriber for s in _SUBSCRIBERS):
             _SUBSCRIBERS = (*_SUBSCRIBERS, subscriber)
 
 
 def unsubscribe(subscriber: Subscriber) -> None:
+    """Remove a previously registered subscriber; a no-op if it isn't registered."""
     global _SUBSCRIBERS  # noqa: PLW0603
     with _registry_lock:
         _SUBSCRIBERS = tuple(s for s in _SUBSCRIBERS if s is not subscriber)
@@ -131,9 +115,10 @@ def current_span() -> SpanHandle | None:
 
 def _log_subscriber_error(subscriber: Subscriber, method: str, exc: Exception) -> None:
     # warn once per (subscriber, method), then drop to debug to avoid log storms from per-row failures
-    key = (id(subscriber), method)
-    level = logging.DEBUG if key in _logged_error_keys else logging.WARNING
-    _logged_error_keys.add(key)
+    with _registry_lock:
+        logged = _logged_error_methods.setdefault(subscriber, set())
+        level = logging.DEBUG if method in logged else logging.WARNING
+        logged.add(method)
     _logger.log(level, f'instrumentation subscriber {type(subscriber).__name__}.{method}() failed: {exc!r}')
 
 
@@ -148,19 +133,31 @@ def _resolve_attrs(attrs: HookAttrs) -> dict[str, Any] | None:
 
 
 def span_start(
-    name: str, *, level: int = INFO, parent: BaseSpanHandle | None = None, set_current: bool = False, attrs: HookAttrs = None
-) -> BaseSpanHandle | None:
+    name: str,
+    *,
+    level: int = INFO,
+    parent: SpanHandle | None = None,
+    set_current: bool = False,
+    attrs: HookAttrs = None,
+) -> SpanHandle | None:
+    """Start a span and return its handle; None if no subscribers are registered or the span is suppressed.
+
+    Spans below the level threshold are suppressed, as are non-set_current spans with no ambient ancestor;
+    descendants of a suppressed span parent to the ambient span. set_current=True makes the span the
+    ambient parent (a ContextVar, so it propagates into asyncio tasks) and requires that span_end() runs
+    on the same thread/context; use capture_context()/restore_context()/exit_context() for explicit
+    thread handoffs.
+    """
     subs = _SUBSCRIBERS
     if not subs:
         return None
-    if isinstance(parent, _PassthroughHandle):
-        parent = parent.target
     if parent is None:
         parent = _current_span.get()
     # only operation spans (set_current=True) may be roots: spans reported from inside an operation that
-    # carries no span (eg, a bare query) are suppressed rather than emitted as orphan roots
+    # carries no span (eg, a bare query) are suppressed rather than emitted as orphan roots. suppressed
+    # spans return None; their descendants fall back to the ambient span via the parent lookup above
     if level < _span_level or (parent is None and not set_current):
-        return _PassthroughHandle(parent)
+        return None
     attrs = _resolve_attrs(attrs)
     tokens: list[Any] = []
     for s in subs:
@@ -179,7 +176,8 @@ def span_start(
     return handle
 
 
-def span_end(handle: BaseSpanHandle | None, *, exc: BaseException | None = None, attrs: HookAttrs = None) -> None:
+def span_end(handle: SpanHandle | None, *, exc: BaseException | None = None, attrs: HookAttrs = None) -> None:
+    """End a span started with span_start(); a no-op for None handles."""
     if not isinstance(handle, SpanHandle):
         return
     if handle.cv_token is not None:
@@ -198,7 +196,7 @@ def span_end(handle: BaseSpanHandle | None, *, exc: BaseException | None = None,
             _log_subscriber_error(s, 'on_span_end', e)
 
 
-def add_attrs(handle: BaseSpanHandle | None, **attrs: Any) -> None:
+def add_attrs(handle: SpanHandle | None, **attrs: Any) -> None:
     """Attach attrs ('pxt.'-prefixed, None values skipped) to be reported when the span ends.
 
     Argument computation is eager; call sites should guard with `if handle is not None:` (or
@@ -212,6 +210,7 @@ def add_attrs(handle: BaseSpanHandle | None, **attrs: Any) -> None:
 
 
 def emit(name: str, attrs: HookAttrs = None) -> None:
+    """Report a discrete event (e.g. a counter increment) to all subscribers."""
     subs = _SUBSCRIBERS
     if not subs:
         return
@@ -225,8 +224,8 @@ def emit(name: str, attrs: HookAttrs = None) -> None:
 
 @contextlib.contextmanager
 def span(
-    name: str, *, level: int = INFO, parent: BaseSpanHandle | None = None, set_current: bool = False, **attrs: Any
-) -> Iterator[BaseSpanHandle | None]:
+    name: str, *, level: int = INFO, parent: SpanHandle | None = None, set_current: bool = False, **attrs: Any
+) -> Iterator[SpanHandle | None]:
     """Context-manager sugar for a lexical-block span.
 
     Keyword attrs get a 'pxt.' prefix; None values are skipped.
@@ -257,7 +256,7 @@ class _CtxSnapshot:
     sub_ctxs: tuple[Any, ...]
 
 
-_CtxToken = tuple[_CtxSnapshot, Token[SpanHandle | None, None], tuple[Any, ...]]
+_CtxToken = tuple[_CtxSnapshot, Token[SpanHandle | None], tuple[Any, ...]]
 
 
 def capture_context() -> _CtxSnapshot | None:

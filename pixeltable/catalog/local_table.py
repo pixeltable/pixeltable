@@ -12,7 +12,7 @@ import pandas as pd
 from typing_extensions import overload
 
 import pixeltable as pxt
-from pixeltable import env, exceptions as excs, exprs, hooks, index, type_system as ts
+from pixeltable import exceptions as excs, exprs, index, type_system as ts
 from pixeltable.catalog.table_metadata import (
     ColumnMetadata,
     EmbeddingIndexParams,
@@ -50,6 +50,8 @@ if TYPE_CHECKING:
 
     import pixeltable.plan
     from pixeltable.globals import TableDataSource
+
+    from .table_version import TableVersion
 
 
 _logger = logging.getLogger(__name__)
@@ -232,77 +234,6 @@ class LocalTable(Table):
             views.extend(t for view in views for t in view._get_views(recursive=True, mutable_only=mutable_only))
         return views
 
-    def select(self, *items: Any, **named_items: Any) -> 'pxt.Query':
-        from pixeltable.query_clauses import FromClause
-
-        query = pxt.Query(FromClause(tbls=[self._tbl_version_path]))
-        if len(items) == 0 and len(named_items) == 0:
-            return query  # Select(*); no further processing is necessary
-
-        with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
-            return query.select(*items, **named_items)
-
-    def where(self, pred: 'exprs.Expr') -> 'pxt.Query':
-        with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
-            return self.select().where(pred)
-
-    def join(
-        self,
-        other: 'Table',
-        *,
-        on: 'exprs.Expr' | None = None,
-        how: 'pixeltable.query_clauses.JoinType.LiteralType' = 'inner',
-    ) -> 'pxt.Query':
-        with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
-            return self.select().join(other, on=on, how=how)
-
-    def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pxt.Query':
-        with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
-            return self.select().order_by(*items, asc=asc)
-
-    def group_by(self, *items: 'exprs.Expr') -> 'pxt.Query':
-        with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
-            return self.select().group_by(*items)
-
-    def distinct(self) -> 'pxt.Query':
-        with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
-            return self.select().distinct()
-
-    def limit(self, n: int, offset: int | None = None) -> 'pxt.Query':
-        with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
-            return self.select().limit(n, offset=offset)
-
-    def sample(
-        self,
-        n: int | None = None,
-        n_per_stratum: int | None = None,
-        fraction: float | None = None,
-        seed: int | None = None,
-        stratify_by: Any = None,
-    ) -> pxt.Query:
-        with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
-            return self.select().sample(
-                n=n, n_per_stratum=n_per_stratum, fraction=fraction, seed=seed, stratify_by=stratify_by
-            )
-
-    def collect(self) -> 'pxt._query.ResultSet':
-        return self.select().collect()
-
-    def cursor(self) -> 'pxt._query.ResultCursor':
-        return self.select().cursor()
-
-    def show(self, n: int = 20) -> 'pxt._query.ResultSet':
-        return self.select().show(n)
-
-    def head(self, n: int = 10) -> 'pxt._query.ResultSet':
-        return self.select().head(n)
-
-    def tail(self, n: int = 10) -> 'pxt._query.ResultSet':
-        return self.select().tail(n)
-
-    def count(self) -> int:
-        return self.select().count()
-
     def columns(self) -> list[str]:
         cols = self._tbl_version_path.columns()
         return [c.name for c in cols]
@@ -343,22 +274,22 @@ class LocalTable(Table):
     def _repr_html_(self) -> str:
         return self._descriptors().to_html()
 
-    def _descriptors(self) -> DescriptionHelper:
+    def _descriptors(self, path: 'pxt.catalog.Path | None' = None) -> DescriptionHelper:
         """
         Constructs a list of descriptors for this table that can be pretty-printed.
+
+        path overrides the displayed path in the title (used by delegated execution to show the full
+        pxt:// path of a hosted table); when None the local in-catalog path is shown.
         """
 
         with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
             helper = DescriptionHelper()
-            helper.append(self._table_descriptor())
+            helper.append(self._table_descriptor(path))
             col_df, separator_idxs = self._col_descriptor()
             helper.append(col_df, separator_idxs=separator_idxs)
             idxs = self._index_descriptor()
             if not idxs.empty:
                 helper.append(idxs)
-            stores = self._external_store_descriptor()
-            if not stores.empty:
-                helper.append(stores)
             if self._get_comment():
                 helper.append(f'Comment: {self._get_comment()}')
             if self._get_custom_metadata():
@@ -428,13 +359,6 @@ class LocalTable(Table):
                 pd_rows.append(row)
         return pd.DataFrame(pd_rows)
 
-    def _external_store_descriptor(self) -> pd.DataFrame:
-        pd_rows = []
-        for name, store in self._tbl_version_path.tbl_version.get().external_stores.items():
-            row = {'External Store': name, 'Type': type(store).__name__}
-            pd_rows.append(row)
-        return pd.DataFrame(pd_rows)
-
     def describe(self) -> None:
         if getattr(builtins, '__IPYTHON__', False):
             from IPython.display import Markdown, display
@@ -456,14 +380,7 @@ class LocalTable(Table):
         assert col is not None
         assert col.name in self._get_schema()
         cat = get_runtime().catalog
-        if any(c.name is not None for c in cat.get_column_dependents(col.get_tbl().id, col.id)):
-            return True
-        assert self._tbl_version is not None
-        return any(
-            col in store.get_local_columns()
-            for view in (self, *self._get_views(recursive=True))
-            for store in view._tbl_version.get().external_stores.values()
-        )
+        return any(c.name is not None for c in cat.get_column_dependents(col.get_tbl().id, col.id))
 
     def _ignore_or_drop_existing_columns(self, new_col_names: list[str], if_exists: IfExistsParam) -> list[str]:
         """Check and handle existing columns in the new column specification based on the if_exists parameter.
@@ -510,11 +427,13 @@ class LocalTable(Table):
     ) -> UpdateStatus:
         from pixeltable.catalog import retry_loop
 
+        self._validate_column_schema(schema)
+
         # a retry loop is necessary because drop column needs it
         # lock_mutable_tree=True: we might end up having to drop existing columns, which requires locking the tree
         @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)
         def do_add_columns() -> list[Column] | None:
-            self.__check_mutable('add columns to')
+            self._check_mutable('add columns to')
 
             # make a copy of schema so del operations below don't modify the caller's dict
             schema_copy = dict(schema)
@@ -552,12 +471,7 @@ class LocalTable(Table):
         **kwargs: type | ColumnSpec,
     ) -> UpdateStatus:
         # verify kwargs and construct column schema dict
-        if len(kwargs) != 1:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'add_column() requires exactly one keyword argument of the form `col_name=col_type`; '
-                f'got {len(kwargs)} arguments instead ({", ".join(kwargs.keys())})',
-            )
+        self._check_single_column_kwarg('add_column', '`col_name=col_type`', kwargs)
         col_type = next(iter(kwargs.values()))
         if not isinstance(col_type, (ts.ColumnType, type, _GenericAlias, dict)):
             raise excs.RequestError(
@@ -583,14 +497,10 @@ class LocalTable(Table):
         # a retry loop is necessary because drop column needs it.
         @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)
         def do_add_computed_column() -> UpdateStatus:
-            self.__check_mutable('add columns to')
-            if len(kwargs) != 1:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'add_computed_column() requires exactly one keyword argument of the form '
-                    '`col_name=col_type` or `col_name=expression`; '
-                    f'got {len(kwargs)} arguments instead ({", ".join(kwargs.keys())})',
-                )
+            self._check_mutable('add columns to')
+            self._check_single_column_kwarg(
+                'add_computed_column', '`col_name=col_type` or `col_name=expression`', kwargs
+            )
             col_name, spec = next(iter(kwargs.items()))
             if not is_valid_identifier(col_name):
                 raise excs.RequestError(excs.ErrorCode.INVALID_COLUMN_NAME, f'Invalid column name: {col_name}')
@@ -654,7 +564,7 @@ class LocalTable(Table):
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
         @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)
         def do_drop_column() -> None:
-            self.__check_mutable('drop columns from')
+            self._check_mutable('drop columns from')
             col: Column = None
             if_not_exists_ = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
 
@@ -714,25 +624,6 @@ class LocalTable(Table):
                     f'Cannot drop column {col.name!r} because the following views depend on it:\n{dependent_views_str}',
                 )
 
-            # See if this column has a dependent store. We need to look through all stores in all
-            # (transitive) views of this table.
-            col_handle = col.handle
-            dependent_stores = [
-                (view, store)
-                for view in (self, *views)
-                for store in view._tbl_version.get().external_stores.values()
-                if col_handle in store.get_local_columns()
-            ]
-            if len(dependent_stores) > 0:
-                dependent_store_names = [
-                    store.name if view._id == self._id else f'{store.name} (in view {view._name()!r})'
-                    for view, store in dependent_stores
-                ]
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Cannot drop column {col.name!r} because the following external stores depend on it:\n'
-                    f'{", ".join(dependent_store_names)}',
-                )
             all_columns = self.columns()
             if len(all_columns) == 1 and col.name == all_columns[0]:
                 raise excs.RequestError(
@@ -749,20 +640,8 @@ class LocalTable(Table):
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=False
         ):
+            self._check_mutable('rename columns of')
             self._tbl_version.get().rename_column(old_name, new_name)
-
-    def _list_index_info_for_test(self) -> list[dict[str, Any]]:
-        """
-        Returns list of all the indexes on this table. Used for testing.
-
-        Returns:
-            A list of index information, each containing the index's
-            id, name, and the name of the column it indexes.
-        """
-        index_info = []
-        for idx_name, idx in self._tbl_version.get().idxs_by_name.items():
-            index_info.append({'_id': idx.id, '_name': idx_name, '_column': idx.col.name})
-        return index_info
 
     def add_embedding_index(
         self,
@@ -772,10 +651,14 @@ class LocalTable(Table):
         embedding: pxt.Function | None = None,
         string_embed: pxt.Function | None = None,
         image_embed: pxt.Function | None = None,
+        audio_embed: pxt.Function | None = None,
+        video_embed: pxt.Function | None = None,
+        document_embed: pxt.Function | None = None,
         metric: Literal['cosine', 'ip', 'l2'] = 'cosine',
         precision: Literal['fp16', 'fp32'] = 'fp16',
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> None:
+        self._validate_embedding_args(embedding, string_embed, image_embed)
         assert self._tbl_version is None or self._tbl_version.get().is_versioned, (
             'TODO: implement for unversioned tables [PXT-1101]'
         )
@@ -783,46 +666,79 @@ class LocalTable(Table):
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
-            self.__check_mutable('add an index to')
+            self._check_mutable('add an index to')
             col = self._resolve_column_parameter(column)
-
-            if idx_name is not None and idx_name in self._tbl_version.get().idxs_by_name:
-                if_exists_ = IfExistsParam.validated(if_exists, 'if_exists')
-                # An index with the same name already exists.
-                # Handle it according to if_exists.
-                if if_exists_ == IfExistsParam.ERROR:
-                    raise excs.AlreadyExistsError(
-                        excs.ErrorCode.INDEX_ALREADY_EXISTS, f'Duplicate index name: {idx_name}'
-                    )
-                if not isinstance(self._tbl_version.get().idxs_by_name[idx_name].idx, index.EmbeddingIndex):
-                    raise excs.RequestError(
-                        excs.ErrorCode.UNSUPPORTED_OPERATION,
-                        f'Index {idx_name!r} is not an embedding index. Cannot {if_exists_.name.lower()} it.',
-                    )
-                if if_exists_ == IfExistsParam.IGNORE:
-                    return
-                assert if_exists_ in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)
-                self.drop_index(idx_name=idx_name)
-                assert idx_name not in self._tbl_version.get().idxs_by_name
-            from pixeltable.index import EmbeddingIndex
 
             # idx_name must be a valid pixeltable column name
             if idx_name is not None:
                 Column.validate_name(idx_name)
+                # Named index: duplicate detection is by name. Handle a name collision before constructing the new
+                # index, so that if_exists='ignore' remains a true no-op and never surfaces validation errors.
+                if idx_name in self._tbl_version.get().idxs_by_name:
+                    if_exists_ = IfExistsParam.validated(if_exists, 'if_exists')
+                    # An index with the same name already exists. Handle it according to if_exists.
+                    if if_exists_ == IfExistsParam.ERROR:
+                        raise excs.AlreadyExistsError(
+                            excs.ErrorCode.INDEX_ALREADY_EXISTS, f'Duplicate index name: {idx_name}'
+                        )
+                    if not isinstance(self._tbl_version.get().idxs_by_name[idx_name].idx, index.EmbeddingIndex):
+                        raise excs.RequestError(
+                            excs.ErrorCode.UNSUPPORTED_OPERATION,
+                            f'Index {idx_name!r} is not an embedding index. Cannot {if_exists_.name.lower()} it.',
+                        )
+                    if if_exists_ == IfExistsParam.IGNORE:
+                        return
+                    assert if_exists_ in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)
+                    self.drop_index(idx_name=idx_name)
+                    assert idx_name not in self._tbl_version.get().idxs_by_name
 
-            # validate EmbeddingIndex args
+            from pixeltable.index import EmbeddingIndex
+
+            # validate EmbeddingIndex args; the resulting index is also used for duplicate detection
             idx = EmbeddingIndex(
                 metric=metric,
                 precision=precision,
                 embed=embedding,
                 string_embed=string_embed,
                 image_embed=image_embed,
+                audio_embed=audio_embed,
+                video_embed=video_embed,
+                document_embed=document_embed,
                 column=col,  # Pass column for shape validation
             )
             _ = idx.create_value_expr(col)  # validation only; result discarded
+
+            if idx_name is None:
+                # Unnamed index: duplicate detection is by index definition on this column.
+                matches = self._find_matching_embedding_idxs(col, idx)
+                if len(matches) > 0:
+                    if_exists_ = IfExistsParam.validated(if_exists, 'if_exists')
+                    if if_exists_ == IfExistsParam.ERROR:
+                        raise excs.AlreadyExistsError(
+                            excs.ErrorCode.INDEX_ALREADY_EXISTS,
+                            f'An identical embedding index already exists on column {col.name!r} '
+                            f'(index {matches[0].name!r}). Pass a distinct idx_name, '
+                            f"or if_exists='ignore' / 'replace'.",
+                        )
+                    if if_exists_ == IfExistsParam.IGNORE:
+                        return
+                    assert if_exists_ in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)
+                    for info in matches:
+                        self.drop_index(idx_name=info.name)
+
             _ = self._tbl_version.get().add_index(col, idx_name=idx_name, idx=idx)
             # TODO: how to deal with exceptions here? drop the index and raise?
             FileCache.get().emit_eviction_warnings()
+
+    def _find_matching_embedding_idxs(self, col: Column, idx: index.EmbeddingIndex) -> list[TableVersion.IndexInfo]:
+        """Return existing embedding indices on col that are defined identically to idx."""
+        # the serialized dict contains everything we care about
+        target = idx.as_dict()
+        return [
+            info
+            for info in self._tbl_version.get().idxs_by_col.get(col.qid, [])
+            if isinstance(info.idx, index.EmbeddingIndex) and info.idx.as_dict() == target
+        ]
 
     def drop_embedding_index(
         self,
@@ -894,7 +810,7 @@ class LocalTable(Table):
         _idx_class: type[index.IndexBase] | None = None,
         if_not_exists: Literal['error', 'ignore'] = 'error',
     ) -> None:
-        self.__check_mutable('drop an index from')
+        self._check_mutable('drop an index from')
         assert (col is None) != (idx_name is None)
 
         if idx_name is not None:
@@ -989,16 +905,13 @@ class LocalTable(Table):
         cascade: bool = True,
         return_rows: bool = False,
     ) -> UpdateStatus:
-        with (
-            hooks.span('pixeltable.update', set_current=True) as sp,
-            get_runtime().catalog.begin_xact(
-                for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-            ),
+        self._validate_update_value_spec(value_spec)
+        self._validate_where(where)
+        with get_runtime().catalog.begin_xact(
+            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
-            self.__check_mutable('update')
+            self._check_mutable('update')
             result = self._tbl_version.get().update(value_spec, where, cascade, return_rows=return_rows)
-            if sp is not None:
-                hooks.add_attrs(sp, table=self._path(), rows=result.num_rows, excs=result.num_excs)
             FileCache.get().emit_eviction_warnings()
             return result
 
@@ -1009,13 +922,10 @@ class LocalTable(Table):
         if_not_exists: Literal['error', 'ignore', 'insert'] = 'error',
         return_rows: bool = False,
     ) -> UpdateStatus:
-        with (
-            hooks.span('pixeltable.update', set_current=True) as sp,
-            get_runtime().catalog.begin_xact(
-                for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-            ),
+        with get_runtime().catalog.begin_xact(
+            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
-            self.__check_mutable('update')
+            self._check_mutable('update')
             rows = list(rows)
 
             row_updates: list[dict[Column, exprs.Expr]] = []
@@ -1032,8 +942,12 @@ class LocalTable(Table):
                     row_spec, allow_pk=not has_rowid, allow_exprs=False, allow_media=False
                 )
                 if has_rowid:
-                    # we expect the _rowid column to be present for each row
-                    assert _ROWID_COLUMN_NAME in row_spec
+                    # every row must specify _rowid if any does
+                    if _ROWID_COLUMN_NAME not in row_spec:
+                        raise excs.Error(
+                            excs.ErrorCode.INTERNAL_ERROR,
+                            f'Malformed batch update: row is missing {_ROWID_COLUMN_NAME}',
+                        )
                     rowids.append(row_spec[_ROWID_COLUMN_NAME])
                 else:
                     col_names = {col.name for col in col_vals}
@@ -1053,8 +967,6 @@ class LocalTable(Table):
                 cascade=cascade,
                 return_rows=return_rows,
             )
-            if sp is not None:
-                hooks.add_attrs(sp, table=self._path(), rows=result.num_rows, excs=result.num_excs)
             FileCache.get().emit_eviction_warnings()
             return result
 
@@ -1068,7 +980,7 @@ class LocalTable(Table):
         cat = get_runtime().catalog
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
         with cat.begin_xact(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True):
-            self.__check_mutable('recompute columns of')
+            self._check_mutable('recompute columns of')
             if len(columns) == 0:
                 raise excs.RequestError(
                     excs.ErrorCode.MISSING_REQUIRED, 'At least one column must be specified to recompute'
@@ -1122,7 +1034,7 @@ class LocalTable(Table):
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
-            self.__check_mutable('revert')
+            self._check_mutable('revert')
             tv = self._tbl_version.get()
             if not tv.is_versioned:
                 raise excs.RequestError(
@@ -1131,92 +1043,6 @@ class LocalTable(Table):
             tv.revert()
             # remove cached md in order to force a reload on the next operation
             self._tbl_version_path.clear_cached_md()
-
-    def external_stores(self) -> list[str]:
-        return list(self._tbl_version.get().external_stores.keys())
-
-    def _link_external_store(self, store: 'pxt.io.ExternalStore') -> None:
-        """
-        Links the specified `ExternalStore` to this table.
-        """
-
-        with get_runtime().catalog.begin_xact(for_write=True, write_tvps=[self._tbl_version_path]):
-            self.__check_mutable('link an external store to')
-            if store.name in self.external_stores():
-                raise excs.AlreadyExistsError(
-                    excs.ErrorCode.PATH_ALREADY_EXISTS,
-                    f'Table {self._name()!r} already has an external store with that name: {store.name}',
-                )
-            _logger.info(f'Linking external store {store.name!r} to table {self._name()!r}.')
-
-            store.link(self._tbl_version.get())  # might call tbl_version.add_columns()
-            self._tbl_version.get().link_external_store(store)
-            env.Env.get().console_logger.info(f'Linked external store {store.name!r} to table {self._name()!r}.')
-
-    def unlink_external_stores(
-        self, stores: str | list[str] | None = None, *, delete_external_data: bool = False, ignore_errors: bool = False
-    ) -> None:
-        if not self._tbl_version_path.is_mutable():
-            return
-        with get_runtime().catalog.begin_xact(for_write=True, write_tvps=[self._tbl_version_path]):
-            all_stores = self.external_stores()
-
-            if stores is None:
-                stores = all_stores
-            elif isinstance(stores, str):
-                stores = [stores]
-
-            # Validation
-            if not ignore_errors:
-                for store_name in stores:
-                    if store_name not in all_stores:
-                        raise excs.NotFoundError(
-                            excs.ErrorCode.STORAGE_NOT_FOUND,
-                            f'Table {self._name()!r} has no external store with that name: {store_name}',
-                        )
-
-            for store_name in stores:
-                store = self._tbl_version.get().external_stores[store_name]
-                # get hold of the store's debug string before deleting it
-                store_str = str(store)
-                store.unlink(self._tbl_version.get())  # might call tbl_version.drop_columns()
-                self._tbl_version.get().unlink_external_store(store)
-                if delete_external_data and isinstance(store, pxt.io.external_store.Project):
-                    store.delete()
-                env.Env.get().console_logger.info(f'Unlinked external store from table {self._name()!r}: {store_str}')
-
-    def sync(
-        self, stores: str | list[str] | None = None, *, export_data: bool = True, import_data: bool = True
-    ) -> UpdateStatus:
-        if not self._tbl_version_path.is_mutable():
-            return UpdateStatus()
-        # we lock the entire tree starting at the root base table in order to ensure that all synced columns can
-        # have their updates propagated down the tree
-        base_tv = self._tbl_version_path.get_tbl_versions()[-1]
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[TableVersionPath(base_tv)], lock_mutable_tree=True
-        ):
-            all_stores = self.external_stores()
-
-            if stores is None:
-                stores = all_stores
-            elif isinstance(stores, str):
-                stores = [stores]
-
-            for store in stores:
-                if store not in all_stores:
-                    raise excs.NotFoundError(
-                        excs.ErrorCode.STORAGE_NOT_FOUND,
-                        f'Table {self._name()!r} has no external store with that name: {store}',
-                    )
-
-            sync_status = UpdateStatus()
-            for store in stores:
-                store_obj = self._tbl_version.get().external_stores[store]
-                store_sync_status = store_obj.sync(self, export_data=export_data, import_data=import_data)
-                sync_status += store_sync_status
-
-        return sync_status
 
     def __dir__(self) -> list[str]:
         return list(super().__dir__()) + list(self._get_schema().keys())
@@ -1271,14 +1097,3 @@ class LocalTable(Table):
             )
 
         return metadata_dicts
-
-    def history(self, n: int | None = None) -> pd.DataFrame:
-        versions = self.get_versions(n)
-        assert len(versions) > 0
-        return pd.DataFrame([list(v.values()) for v in versions], columns=list(versions[0].keys()))
-
-    def __check_mutable(self, op_descr: str) -> None:
-        if self._tbl_version_path.is_snapshot():
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, f'{self._display_str()}: Cannot {op_descr} a snapshot.'
-            )

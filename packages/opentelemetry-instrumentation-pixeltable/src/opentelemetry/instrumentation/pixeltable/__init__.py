@@ -11,15 +11,16 @@ from __future__ import annotations
 import dataclasses
 import logging
 from collections.abc import Collection
-from typing import Any
+from typing import Any, Callable
 
-from opentelemetry import context as otel_context, metrics as otel_metrics, trace
+from opentelemetry import context as otel_context, trace
+from opentelemetry.context import Context, Token
 
 # opentelemetry-instrumentation marks instrumentor.py with a module-level `# type: ignore`, so mypy
 # can't see BaseInstrumentor despite the package shipping py.typed
 from opentelemetry.instrumentation.instrumentor import BaseInstrumentor  # type: ignore[attr-defined]
 from opentelemetry.trace import StatusCode, set_span_in_context
-from opentelemetry.context import Context, Token
+
 from pixeltable import __version__, hooks
 
 from ._sdk import init
@@ -30,18 +31,38 @@ __all__ = ['PixeltableInstrumentor', 'init']
 _ATTR_TYPES = (str, bool, int, float)
 
 
-class _TraceContextFilter(logging.Filter):
-    """Adds otelTraceID/otelSpanID attributes to records so logs are filterable by trace."""
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        span_context = trace.get_current_span().get_span_context()
-        if span_context.is_valid:
-            record.otelTraceID = trace.format_trace_id(span_context.trace_id)
-            record.otelSpanID = trace.format_span_id(span_context.span_id)
-        return True
+_prev_record_factory: Callable[..., logging.LogRecord] | None = None
 
 
-_trace_context_filter = _TraceContextFilter()
+def _install_record_factory() -> None:
+    """Stamp pixeltable log records with otelTraceID/otelSpanID so logs are filterable by trace.
+
+    A record factory (the mechanism opentelemetry-instrumentation-logging uses) rather than a filter on
+    the 'pixeltable' logger: logging runs logger-level filters only on the originating logger, so a filter
+    there never sees records created on child loggers (`pixeltable.exec...` etc.), which is where nearly
+    all pixeltable records originate.
+    """
+    global _prev_record_factory  # noqa: PLW0603
+    prev = logging.getLogRecordFactory()
+    _prev_record_factory = prev
+
+    def factory(*args: Any, **kwargs: Any) -> logging.LogRecord:
+        record = prev(*args, **kwargs)
+        if record.name == 'pixeltable' or record.name.startswith('pixeltable.'):
+            span_context = trace.get_current_span().get_span_context()
+            if span_context.is_valid:
+                record.otelTraceID = trace.format_trace_id(span_context.trace_id)
+                record.otelSpanID = trace.format_span_id(span_context.span_id)
+        return record
+
+    logging.setLogRecordFactory(factory)
+
+
+def _uninstall_record_factory() -> None:
+    global _prev_record_factory  # noqa: PLW0603
+    if _prev_record_factory is not None:
+        logging.setLogRecordFactory(_prev_record_factory)
+        _prev_record_factory = None
 
 
 def _clean_attrs(attrs: dict[str, Any] | None) -> dict[str, Any]:
@@ -68,15 +89,10 @@ class _SpanToken:
 
 
 class _OtelSubscriber(hooks.Subscriber):
-    def __init__(self, tracer_provider: Any | None, meter_provider: Any | None) -> None:
+    def __init__(self, tracer_provider: Any | None) -> None:
         self._tracer = trace.get_tracer('pixeltable', __version__, tracer_provider=tracer_provider)
-        meter = otel_metrics.get_meter('pixeltable', __version__, meter_provider=meter_provider)
-        self._rows_written = meter.create_counter('pixeltable.rows.written', unit='{row}')
-        self._cells_computed = meter.create_counter('pixeltable.cells.computed', unit='{cell}')
-        self._cell_errors = meter.create_counter('pixeltable.cell.errors', unit='{error}')
-        self._udf_calls = meter.create_counter('pixeltable.udf.calls', unit='{call}')
-        self._udf_duration = meter.create_histogram('pixeltable.udf.duration', unit='s')
-        self._xact_retries = meter.create_counter('pixeltable.xact.retries', unit='{retry}')
+        # TODO(part 2): create the metric instruments here and translate events in on_event() once core
+        # emits the corresponding hooks.emit() events
 
     def on_span_start(self, name: str, parent_token: Any, attrs: dict[str, Any] | None, set_current: bool) -> Any:
         if parent_token is not None:
@@ -101,30 +117,6 @@ class _OtelSubscriber(hooks.Subscriber):
         span.end()
         if token.ctx_token is not None:
             otel_context.detach(token.ctx_token)
-
-    def on_event(self, name: str, attrs: dict[str, Any] | None) -> None:
-        attrs = attrs or {}
-        if name == 'rows.written':
-            self._rows_written.add(attrs.get('count', 1), _clean_attrs({'pxt.table': attrs.get('pxt.table')}))
-        elif name == 'cells.computed':
-            self._cells_computed.add(attrs.get('count', 1), _clean_attrs({'pxt.table': attrs.get('pxt.table')}))
-        elif name == 'cell.error':
-            self._cell_errors.add(
-                attrs.get('count', 1),
-                _clean_attrs({k: attrs.get(k) for k in ('pxt.table', 'pxt.column', 'error_type')}),
-            )
-        elif name == 'udf.stats':
-            # the authoritative per-operation call count (udf.call events only cover scheduler calls)
-            self._udf_calls.add(
-                attrs.get('count', 0), _clean_attrs({k: attrs.get(k) for k in ('pxt.udf', 'pxt.column', 'pxt.table')})
-            )
-        elif name == 'udf.call':
-            self._udf_duration.record(
-                attrs.get('duration_s', 0.0),
-                _clean_attrs({k: attrs.get(k) for k in ('pxt.udf', 'pxt.column', 'pxt.resource_pool', 'model')}),
-            )
-        elif name == 'xact.retry':
-            self._xact_retries.add(1, _clean_attrs(attrs))
 
     def capture_context(self) -> Any:
         return otel_context.get_current()
@@ -155,12 +147,12 @@ class PixeltableInstrumentor(BaseInstrumentor):
         return _instruments
 
     def _instrument(self, **kwargs: Any) -> None:
-        self._subscriber = _OtelSubscriber(kwargs.get('tracer_provider'), kwargs.get('meter_provider'))
+        self._subscriber = _OtelSubscriber(kwargs.get('tracer_provider'))
         hooks.subscribe(self._subscriber)
-        logging.getLogger('pixeltable').addFilter(_trace_context_filter)
+        _install_record_factory()
 
     def _uninstrument(self, **kwargs: Any) -> None:
         if self._subscriber is not None:
             hooks.unsubscribe(self._subscriber)
             self._subscriber = None
-        logging.getLogger('pixeltable').removeFilter(_trace_context_filter)
+        _uninstall_record_factory()

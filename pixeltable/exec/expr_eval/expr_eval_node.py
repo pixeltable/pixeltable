@@ -74,8 +74,11 @@ class ExprEvalNode(ExecNode):
     num_input_rows: int
     num_output_rows: int
 
+    _span_rows: list[exprs.DataRow]  # rows with an open instrumentation span, capped at MAX_ROW_SPANS
+
     BATCH_SIZE = 64
     MAX_BUFFERED_ROWS = 2048  # maximum number of rows that have been dispatched but not yet returned
+    MAX_ROW_SPANS = 100  # per-operation cap on per-row instrumentation spans, to bound span volume
 
     def __init__(
         self,
@@ -111,6 +114,7 @@ class ExprEvalNode(ExecNode):
         self.output_buffer = RowBuffer(self.MAX_BUFFERED_ROWS)
         self.num_input_rows = 0
         self.num_output_rows = 0
+        self._span_rows = []
         self.schedulers = {}
         # evaluators are owned by eval_ctx and reused across iterations; clear per-execution state
         # (closed flag, batched-call queue, etc.) so they accept work again
@@ -212,6 +216,14 @@ class ExprEvalNode(ExecNode):
 
         self.eval_ctx.init_rows(rows)
         self.set_var_slots(rows)
+        if hooks.active():
+            # per-row spans nest their UDF cell spans; suppressed (None) unless DEBUG is enabled under an
+            # operation span, so a bare query with no operation span stays dark
+            for row in rows:
+                if row.parent_row is None and len(self._span_rows) < self.MAX_ROW_SPANS:
+                    row.span = hooks.span_start('pixeltable.row', level=hooks.DEBUG, parent=hooks.current_span())
+                    if row.span is not None:
+                        self._span_rows.append(row)
         self.dispatch(rows, self.eval_ctx)
 
     def _log_state(self, prefix: str) -> None:
@@ -348,6 +360,12 @@ class ExprEvalNode(ExecNode):
                 if not task.done():
                     task.cancel()
             _ = await asyncio.gather(*active_tasks, return_exceptions=True)
+
+            for row in self._span_rows:
+                if row.span is not None:
+                    hooks.span_end(row.span, exc=self.error)
+                    row.span = None
+            self._span_rows = []
 
             # expr cleanup
             exprs.Expr.release_list(self.eval_ctx.all_exprs)
@@ -506,6 +524,8 @@ class ExprEvalNode(ExecNode):
                     row.parent_row.vals[row.parent_slot_idx].complete_row()
             else:
                 for i in completed_idxs:
+                    hooks.span_end(rows[i].span)
+                    rows[i].span = None
                     self.completed_rows.put_nowait(rows[i])
                 self.completed_event.set()
                 self.num_in_flight -= len(completed_idxs)

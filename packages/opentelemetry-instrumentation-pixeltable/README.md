@@ -6,7 +6,7 @@ its own.
 
 ```bash
 pip install opentelemetry-instrumentation-pixeltable
-# or, equivalently:
+# or, to also pull in the OpenTelemetry SDK and OTLP exporters that init() needs:
 pip install 'pixeltable[otel]'
 ```
 
@@ -26,7 +26,8 @@ The standard `opentelemetry-instrument` CLI discovers and activates it automatic
 ## Let Pixeltable configure the SDK
 
 To build providers and an OTLP exporter from Pixeltable's `[otel]` config (or the standard
-`OTEL_EXPORTER_OTLP_*` environment variables), call `init()` once at startup:
+`OTEL_EXPORTER_OTLP_*` environment variables), call `init()` once at startup (requires the
+`pixeltable[otel]` extra):
 
 ```python
 import opentelemetry.instrumentation.pixeltable as pxt_otel

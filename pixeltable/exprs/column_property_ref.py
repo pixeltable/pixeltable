@@ -116,5 +116,7 @@ class ColumnPropertyRef(Expr):
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> ColumnPropertyRef:
         assert 'prop' in d
-        assert isinstance(components[0], ColumnRef)
-        return cls(components[0], cls.Property(d['prop']))
+        # components[0] is normally a ColumnRef, but a TableModel/ViewModel can ship a pre-substitution value
+        # expression in which it is a placeholder column reference; the owning catalog substitutes it with a real
+        # ColumnRef immediately after deserialization.
+        return cls(components[0], cls.Property(d['prop']))  # type: ignore[arg-type]

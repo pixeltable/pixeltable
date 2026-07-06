@@ -3,6 +3,7 @@ from __future__ import annotations
 import enum
 import time
 from typing import TYPE_CHECKING, Any, Literal, Sequence, overload
+from uuid import UUID
 
 import pydantic
 
@@ -10,7 +11,6 @@ import pixeltable as pxt
 from pixeltable import exceptions as excs, hooks, type_system as ts
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
-from pixeltable.types import ColumnSpec
 from pixeltable.utils.filecache import FileCache
 
 from .column import Column
@@ -67,15 +67,15 @@ class InsertableTable(LocalTable):
     def _create(
         cls,
         name: str,
-        schema: dict[str, type | ColumnSpec | exprs.Expr],
+        columns: list[Column],
         primary_key: list[str],
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
         create_default_idxs: bool,
         is_versioned: bool,
+        tbl_id: UUID | None = None,
     ) -> tuple[TableVersionMd, list[TableOp]]:
-        columns = [Column.create(name, spec) for name, spec in schema.items()]
         cls._verify_schema(columns)
         column_names = [col.name for col in columns]
         for pk_col in primary_key:
@@ -101,6 +101,7 @@ class InsertableTable(LocalTable):
             create_default_idxs=create_default_idxs,
             view_md=None,
             is_versioned=is_versioned,
+            tbl_id=tbl_id,
         )
 
         ops = (
@@ -150,26 +151,27 @@ class InsertableTable(LocalTable):
     ) -> UpdateStatus:
         from pixeltable.io.table_data_conduit import TableDataConduit
 
-        if source is not None and isinstance(source, Sequence) and len(source) == 0:
-            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot insert an empty sequence.')
+        self._validate_insert_source(source)
         fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
 
         if source is None:
             source = [kwargs]
             kwargs = None
 
-        data_source = TableDataConduit.create(
-            source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
-        )
-        data_source.add_table_info(self)
-        data_source.prepare_for_insert_into_table()
+        with hooks.span('pixeltable.insert', set_current=True):
+            with hooks.span('pixeltable.data_source.prepare'):
+                data_source = TableDataConduit.create(
+                    source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
+                )
+                data_source.add_table_info(self)
+                data_source.prepare_for_insert_into_table()
 
-        return self._insert_table_data_source(
-            data_source=data_source,
-            fail_on_exception=fail_on_exception,
-            print_stats=print_stats,
-            return_rows=return_rows,
-        )
+            return self._insert_table_data_source(
+                data_source=data_source,
+                fail_on_exception=fail_on_exception,
+                print_stats=print_stats,
+                return_rows=return_rows,
+            )
 
     def compute(
         self,
@@ -222,36 +224,30 @@ class InsertableTable(LocalTable):
 
         start_ts = time.perf_counter()
         status = pxt.UpdateStatus()
-        with (
-            hooks.span('pixeltable.insert', set_current=True) as sp,
-            get_runtime().catalog.begin_xact(
-                for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-            ),
+        with get_runtime().catalog.begin_xact(
+            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
-            if isinstance(data_source, QueryTableDataConduit):
-                status += self._tbl_version.get().insert(
-                    source=None,
-                    query=data_source.pxt_query,
-                    print_stats=print_stats,
-                    fail_on_exception=fail_on_exception,
-                )
-            else:
-                for row_batch in data_source.valid_row_batch():
+            # in on_error='abort' mode the exec raises the internal ExprEvalError on the first failing cell;
+            # convert it to a user-facing Error (on_error='ignore' records per-cell errors and never raises)
+            try:
+                if isinstance(data_source, QueryTableDataConduit):
                     status += self._tbl_version.get().insert(
-                        source=row_batch,
-                        query=None,
+                        source=None,
+                        query=data_source.pxt_query,
                         print_stats=print_stats,
                         fail_on_exception=fail_on_exception,
-                        return_rows=return_rows,
                     )
-            if sp is not None:
-                hooks.add_attrs(
-                    sp,
-                    table=self._path(),
-                    rows=status.num_rows,
-                    excs=status.num_excs,
-                    cols_with_excs=status.cols_with_excs or None,
-                )
+                else:
+                    for row_batch in data_source.valid_row_batch():
+                        status += self._tbl_version.get().insert(
+                            source=row_batch,
+                            query=None,
+                            print_stats=print_stats,
+                            fail_on_exception=fail_on_exception,
+                            return_rows=return_rows,
+                        )
+            except excs.ExprEvalError as e:
+                excs.raise_from_expr_eval_err(e)
 
         Env.get().console_logger.info(status.insert_msg(start_ts))
         FileCache.get().emit_eviction_warnings()
@@ -301,16 +297,11 @@ class InsertableTable(LocalTable):
 
             >>> tbl.delete(tbl.a > 5)
         """
-        with (
-            hooks.span('pixeltable.delete', set_current=True) as sp,
-            get_runtime().catalog.begin_xact(
-                for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-            ),
+        self._validate_where(where)
+        with get_runtime().catalog.begin_xact(
+            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
-            status = self._tbl_version.get().delete(where=where)
-            if sp is not None:
-                hooks.add_attrs(sp, table=self._path(), rows=status.num_rows)
-            return status
+            return self._tbl_version.get().delete(where=where)
 
     def _get_base_table(self) -> 'Table' | None:
         return None
@@ -319,5 +310,5 @@ class InsertableTable(LocalTable):
     def _effective_base_versions(self) -> list[int | None]:
         return []
 
-    def _table_descriptor(self) -> str:
-        return self._display_str()
+    def _table_descriptor(self, path: 'pxt.catalog.Path | None' = None) -> str:
+        return self._display_str(path)

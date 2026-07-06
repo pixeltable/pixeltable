@@ -10,11 +10,11 @@ import pandas as pd
 import pydantic
 from pandas.io.formats.style import Styler
 
-from pixeltable import Query, catalog, exceptions as excs, exprs, func, hooks, type_system as ts
+from pixeltable import Query, catalog, exceptions as excs, exprs, func, type_system as ts
 from pixeltable.catalog import DirEntry, TablePath
 from pixeltable.catalog.insertable_table import OnErrorParameter
 from pixeltable.config import Config
-from pixeltable.io.table_data_conduit import QueryTableDataConduit, TableDataConduit
+from pixeltable.io.table_data_conduit import QueryTableDataConduit, RowDataTableDataConduit, TableDataConduit
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec, DirContents, DirectoryNode, TableKind, TableNode, TreeNode
 
@@ -183,23 +183,20 @@ def create_table(
     media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
     primary_key: list[str] | None = normalize_primary_key_parameter(primary_key)
 
-    if not path_obj.is_local and source is not None:
-        raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION, 'Importing data into a hosted table is not supported yet.'
-        )
     data_source: TableDataConduit | None = None
     if source is not None:
         data_source = TableDataConduit.create(source, source_format=source_format, extra_fields=extra_args)
         src_schema_overrides: dict[str, ts.ColumnType] = {}
         if schema_overrides is not None:
             for col_name, py_type in schema_overrides.items():
-                col_type = ts.ColumnType.normalize_type(py_type, nullable_default=True, allow_builtin_types=False)
-                if col_type is None:
-                    raise excs.RequestError(
-                        excs.ErrorCode.UNSUPPORTED_OPERATION,
-                        f'Invalid type for column {col_name!r} in `schema_overrides`: {py_type}',
+                try:
+                    src_schema_overrides[col_name] = ts.ColumnType.normalize_type(
+                        py_type, nullable_default=True, allow_builtin_types=False
                     )
-                src_schema_overrides[col_name] = col_type
+                except excs.Error as e:
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_TYPE, f'Invalid type for schema_overrides[{col_name!r}]: {e.message}'
+                    ) from e
         data_source.src_schema_overrides = src_schema_overrides
         data_source.src_pk = primary_key
         data_source.infer_schema()
@@ -225,35 +222,50 @@ def create_table(
     except (TypeError, ValueError) as err:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`custom_metadata` must be JSON-serializable') from err
 
-    with hooks.span('pixeltable.create_table', set_current=True, table=str(path_obj)):
-        tbl, was_created = (
-            get_runtime()
-            .get_catalog(path_obj)
-            .create_table(
-                path_obj,
-                schema,
-                if_exists=if_exists_,
-                primary_key=primary_key,
-                comment=comment,
-                custom_metadata=custom_metadata,
-                media_validation=media_validation_,
-                create_default_idxs=create_default_idxs,
-                is_versioned=_is_versioned,
-            )
-        )
+    # canonicalize/validate the schema once here, so both local and delegated catalogs receive the same
+    # mapping and report the same errors
+    schema = catalog.normalize_schema(schema)
 
-        # TODO: combine data loading with table creation into a single transaction
-        if was_created:
-            assert isinstance(tbl, catalog.InsertableTable)
-            fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
+    tbl, was_created = (
+        get_runtime()
+        .get_catalog(path_obj)
+        .create_table(
+            path_obj,
+            schema,
+            if_exists=if_exists_,
+            primary_key=primary_key,
+            comment=comment,
+            custom_metadata=custom_metadata,
+            media_validation=media_validation_,
+            create_default_idxs=create_default_idxs,
+            is_versioned=_is_versioned,
+        )
+    )
+
+    # TODO: combine data loading with table creation into a single transaction
+    if was_created and data_source is not None:
+        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
+        if isinstance(tbl, catalog.InsertableTable):
             if isinstance(data_source, QueryTableDataConduit):
                 query = data_source.pxt_query
                 with get_runtime().catalog.begin_xact(
                     for_write=True, write_tvps=[tbl._tbl_version_path], lock_mutable_tree=True
                 ):
                     tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
-            elif data_source is not None and not is_direct_query:
+            elif not is_direct_query:
                 tbl._insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
+        else:
+            # Schema inference may have consumed a one-shot iterator/generator source; re-passing it would
+            # insert nothing. Insert the rows the conduit already materialized instead. (A Query source is
+            # re-runnable, and other source types aren't reached here, so passing source as-is is correct.)
+            insert_source = data_source.raw_rows if isinstance(data_source, RowDataTableDataConduit) else source
+            tbl.insert(
+                insert_source,
+                source_format=source_format,
+                schema_overrides=schema_overrides,
+                on_error=on_error,
+                **(extra_args or {}),
+            )
 
     return tbl
 
@@ -341,10 +353,6 @@ def create_view(
     tbl_path: TablePath
     select_list: list[tuple[exprs.Expr, str | None]] | None = None
     where: exprs.Expr | None = None
-    if isinstance(base, catalog.TableProxy):
-        raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION, 'create_view() is not supported on a hosted table yet.'
-        )
     if isinstance(base, catalog.Table):
         tbl_path = base._tbl_path
         sample_clause = None
@@ -366,6 +374,11 @@ def create_view(
     # assert tbl_version_path.is_versioned(), 'TODO: implement for unversioned tables [PXT-1101]'
 
     path_obj = catalog.Path.parse(path)
+    if tbl_path.catalog_uri != path_obj.catalog_uri:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f'A view must be created in the same database as its base table {tbl_path.tbl_name()!r}.',
+        )
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
     media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
 
@@ -396,7 +409,11 @@ def create_view(
     except (TypeError, ValueError) as err:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`custom_metadata` must be JSON-serializable') from err
 
-    return (
+    # canonicalize/validate the additional columns once here, so both local and delegated catalogs receive the same
+    # mapping and report the same errors
+    additional_columns = catalog.normalize_schema(additional_columns)
+
+    view, _ = (
         get_runtime()
         .get_catalog(path_obj)
         .create_view(
@@ -415,6 +432,8 @@ def create_view(
             if_exists=if_exists_,
         )
     )
+
+    return view
 
 
 def create_snapshot(
@@ -587,8 +606,11 @@ def move(
             excs.ErrorCode.UNSUPPORTED_OPERATION, 'move(): source and destination cannot be identical'
         )
     path_obj, new_path_obj = catalog.Path.parse(path), catalog.Path.parse(new_path)
-    if not path_obj.is_local or not new_path_obj.is_local:
-        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'move(): Hosted paths are not yet supported')
+    if path_obj.catalog_uri != new_path_obj.catalog_uri:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f'move(): source and destination must be in the same catalog ({path!r} -> {new_path!r})',
+        )
     if path_obj.is_ancestor(new_path_obj):
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION, f'move(): cannot move {path!r} into its own subdirectory'
@@ -696,13 +718,16 @@ def _assemble_dir_contents(
             tables.append(path)
 
 
-def get_dir_tree() -> list['TreeNode']:
+def get_dir_tree(path: str = '') -> list['TreeNode']:
     """Get a tree representation of the Pixeltable directory structure.
+
+    Args:
+        path: Path to the directory to start from. Defaults to the root directory.
 
     Returns:
         A list of [`TreeNode`][pixeltable.TreeNode] dicts. Each node is either a `DirectoryNode` or a `TableNode`.
     """
-    path_obj = catalog.Path.parse('', allow_empty_path=True)
+    path_obj = catalog.Path.parse(path, allow_empty_path=True)
     catalog_entries = (
         get_runtime().get_catalog(path_obj).get_dir_contents(path_obj, recursive=True, with_error_counts=True)
     )

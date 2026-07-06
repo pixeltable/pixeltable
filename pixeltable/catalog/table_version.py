@@ -17,6 +17,7 @@ import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
 import pixeltable.index as index
 import pixeltable.type_system as ts
+from pixeltable import hooks
 from pixeltable.env import Env
 from pixeltable.exprs.inline_expr import InlineDict
 from pixeltable.func.iterator import GeneratingFunctionCall
@@ -24,7 +25,6 @@ from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.object_stores import ObjectOps
 
-from ..func.globals import resolve_symbol
 from .column import Column
 from .globals import _ROWID_COLUMN_NAME, MediaValidation, QColumnId, TableVersionMd, is_valid_identifier
 from .tbl_ops import (
@@ -44,7 +44,6 @@ if TYPE_CHECKING:
     from pixeltable import exec, store
     from pixeltable._query import Query
     from pixeltable.catalog.table_version_handle import TableVersionHandle
-    from pixeltable.io import ExternalStore
     from pixeltable.io.data_sources import SqlDataSource
     from pixeltable.plan import SampleClause
 
@@ -131,7 +130,6 @@ class TableVersion:
     idxs_by_name: dict[str, TableVersion.IndexInfo]
     idxs_by_col: dict[QColumnId, list[TableVersion.IndexInfo]]
 
-    external_stores: dict[str, ExternalStore]
     store_tbl: 'store.StoreBase' | None
 
     is_initialized: bool  # True if init() has been called
@@ -207,7 +205,6 @@ class TableVersion:
         self.idxs_by_name = {}
         self.idxs_by_col = {}
         self.supports_idxs = self.effective_version is None
-        self.external_stores = {}
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -242,13 +239,16 @@ class TableVersion:
         create_default_idxs: bool,
         view_md: schema.ViewMd | None,
         is_versioned: bool,
+        tbl_id: uuid.UUID | None = None,
     ) -> TableVersionMd:
         from .table_version_handle import TableVersionHandle
 
         user = Env.get().user
         timestamp = time.time()
 
-        tbl_id = uuid.uuid4()
+        if tbl_id is None:
+            # tbl_id not specified; create a new one.
+            tbl_id = uuid.uuid4()
         tbl_id_str = str(tbl_id)
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
         column_ids = itertools.count()
@@ -313,7 +313,6 @@ class TableVersion:
             view_sn=0,
             column_md=column_md,
             index_md=index_md,
-            external_stores=[],
             view_md=view_md,
             additional_md={},
             is_versioned=is_versioned,
@@ -378,8 +377,6 @@ class TableVersion:
         self._init_schema()
         if self.is_mutable:
             cat.record_column_dependencies(self)
-        # init external stores; this needs to happen after the schema is created
-        self._init_external_stores()
 
         self.is_initialized = True
 
@@ -979,10 +976,11 @@ class TableVersion:
         assert self.is_insertable
         # Exactly one of source / query must be specified
         assert (source is None) != (query is None)
-        if query is not None:
-            plan = Planner.create_query_insert_plan(self, query, ignore_errors=not fail_on_exception)
-        else:
-            plan = Planner.create_insert_plan(self, source, ignore_errors=not fail_on_exception)
+        with hooks.span('pixeltable.plan.create', level=hooks.DEBUG):
+            if query is not None:
+                plan = Planner.create_query_insert_plan(self, query, ignore_errors=not fail_on_exception)
+            else:
+                plan = Planner.create_insert_plan(self, source, ignore_errors=not fail_on_exception)
 
         rowid_gen: Iterator[int] | None = None
         # For versioned tables, generate rowids from the table's sequence.
@@ -1059,8 +1057,10 @@ class TableVersion:
         for view in self.mutable_views:
             from pixeltable.plan import Planner
 
-            view_plan, _ = Planner.create_view_load_plan(view.get().path, propagates_insert=True)
-            status = view.get()._insert(view_plan, timestamp, print_stats=print_stats)
+            # set_current so the view's plan/store spans nest here instead of under the operation span
+            with hooks.span('pixeltable.view_load', set_current=True, view=view.get().name):
+                view_plan, _ = Planner.create_view_load_plan(view.get().path, propagates_insert=True)
+                status = view.get()._insert(view_plan, timestamp, print_stats=print_stats)
             result += status.to_cascade()
 
         # Use the net status after all propagations
@@ -1181,9 +1181,16 @@ class TableVersion:
                 )
             if col_name == _ROWID_COLUMN_NAME:
                 # a valid rowid is a list of ints, one per rowid column
-                assert len(val) == len(self.store_tbl.rowid_columns())
-                for el in val:
-                    assert isinstance(el, int)
+                num_rowid_cols = len(self.store_tbl.rowid_columns())
+                if len(val) != num_rowid_cols:
+                    raise excs.Error(
+                        excs.ErrorCode.INTERNAL_ERROR,
+                        f'Malformed _rowid: expected {num_rowid_cols} components, got {len(val)}',
+                    )
+                if not all(isinstance(el, int) for el in val):
+                    raise excs.Error(
+                        excs.ErrorCode.INTERNAL_ERROR, f'Malformed _rowid: all components must be int, got {val!r}'
+                    )
                 continue
             col = self.path.get_column(col_name)
             if col is None:
@@ -1502,33 +1509,6 @@ class TableVersion:
         self.delete_media(tbl_version=old_version)
         _logger.info(f'TableVersion {self.name!r}: reverted to version {self.version}')
 
-    def _init_external_stores(self) -> None:
-        from pixeltable.io.external_store import ExternalStore
-
-        for store_md in self.tbl_md.external_stores:
-            store_cls = resolve_symbol(store_md['class'])
-            assert isinstance(store_cls, type) and issubclass(store_cls, ExternalStore)
-            store = store_cls.from_dict(store_md['md'])
-            self.external_stores[store.name] = store
-
-    def link_external_store(self, store: ExternalStore) -> None:
-        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
-        self.bump_version(bump_schema_version=True)
-
-        self.external_stores[store.name] = store
-        self._tbl_md.external_stores.append(
-            {'class': f'{type(store).__module__}.{type(store).__qualname__}', 'md': store.as_dict()}
-        )
-        self._write_md(new_version=True, new_schema_version=True)
-
-    def unlink_external_store(self, store: ExternalStore) -> None:
-        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
-        del self.external_stores[store.name]
-        self.bump_version(bump_schema_version=True)
-        idx = next(i for i, store_md in enumerate(self._tbl_md.external_stores) if store_md['md']['name'] == store.name)
-        self._tbl_md.external_stores.pop(idx)
-        self._write_md(new_version=True, new_schema_version=True)
-
     @property
     def id(self) -> UUID:
         return self.key.tbl_id
@@ -1762,7 +1742,7 @@ class TableVersion:
             )
         if idx_name is not None and idx_name not in [info.name for info in candidates]:
             raise excs.NotFoundError(
-                excs.ErrorCode.COLUMN_NOT_FOUND, f'Index {idx_name!r} not found for column {col.name!r}'
+                excs.ErrorCode.INDEX_NOT_FOUND, f'Index {idx_name!r} not found for column {col.name!r}'
             )
         return candidates[0] if idx_name is None else next(info for info in candidates if info.name == idx_name)
 
@@ -1781,12 +1761,6 @@ class TableVersion:
         if self.is_component_view:
             return 1 + self.base.get().num_rowid_columns()
         return 1
-
-    @classmethod
-    def _create_stores_md(cls, stores: Iterable[ExternalStore]) -> list[dict[str, Any]]:
-        return [
-            {'class': f'{type(store).__module__}.{type(store).__qualname__}', 'md': store.as_dict()} for store in stores
-        ]
 
     def as_dict(self) -> dict:
         return self.key.as_dict()

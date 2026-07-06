@@ -15,13 +15,12 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
 ]
+# api + instrumentation only, per contrib convention; the SDK and OTLP exporters (needed only by the
+# init() convenience path) come with the pixeltable[otel] extra
 dependencies = [
     "pixeltable",
     "opentelemetry-api>=1.39.0",
-    "opentelemetry-sdk>=1.39.0",
     "opentelemetry-instrumentation>=0.60b0",
-    "opentelemetry-exporter-otlp-proto-http>=1.39.0",
-    "opentelemetry-exporter-otlp-proto-grpc>=1.39.0",
 ]
 
 [project.urls]

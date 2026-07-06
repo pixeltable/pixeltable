@@ -81,6 +81,9 @@ def sub() -> Iterator[RecordingSubscriber]:
     yield s
     hooks.unsubscribe(s)
     hooks.set_span_level(hooks.INFO)
+    # a test failing between span_start(set_current=True) and span_end would leak the ambient span into
+    # subsequent tests
+    hooks._current_span.set(None)
 
 
 class TestHooks:
@@ -152,7 +155,7 @@ class TestHooks:
         op = hooks.span_start('op', set_current=True)
         suppressed = hooks.span_start('batch', level=hooks.DEBUG)
         assert not isinstance(suppressed, hooks.SpanHandle)
-        # children of a suppressed span parent to the nearest emitted ancestor
+        # a suppressed span returns None; its children fall back to the ambient span
         child = hooks.span_start('child', parent=suppressed)
         hooks.span_end(child)
         hooks.span_end(suppressed)  # no-op
@@ -267,6 +270,37 @@ class TestHooks:
         assert sub.find('child')['parent_id'] == sub.find('op')['id']
         assert sub.ctx_restores == ['ctx']
         assert sub.ctx_exits == ['token']
+
+    def test_concurrent_subscribe_unsubscribe(self, sub: RecordingSubscriber) -> None:
+        # spans snapshot the registry at span_start; late subscribe/unsubscribe must not corrupt span_end
+        # (SpanHandle pairs subs with tokens via zip(strict=True))
+        stop = threading.Event()
+        errors: list[Exception] = []
+
+        def churn() -> None:
+            try:
+                while not stop.is_set():
+                    s = RecordingSubscriber()
+                    hooks.subscribe(s)
+                    hooks.unsubscribe(s)
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=churn) for _ in range(2)]
+        for t in threads:
+            t.start()
+        try:
+            for _ in range(1000):
+                op = hooks.span_start('op', set_current=True)
+                child = hooks.span_start('child')
+                hooks.span_end(child)
+                hooks.span_end(op)
+        finally:
+            stop.set()
+            for t in threads:
+                t.join()
+        assert errors == []
+        assert all(s['ended'] for s in sub.spans)
 
     def test_asyncio_task_propagation(self, sub: RecordingSubscriber) -> None:
         async def main() -> None:

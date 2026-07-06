@@ -19,6 +19,8 @@ from tests.utils import get_image_files
 
 from .conftest import PxtRunner
 
+pytestmark = pytest.mark.local('pxt CLI smoke test')
+
 
 @pxt.udf
 def _boom_on_zero(x: int) -> int:

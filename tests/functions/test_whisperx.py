@@ -13,6 +13,8 @@ from ..utils import (
     validate_update_status,
 )
 
+pytestmark = pytest.mark.local('UDF/integration test')
+
 
 @pytest.mark.skipif(
     sysconfig.get_platform() == 'linux-aarch64', reason='libsndfile.so is missing on CI Linux ARM instances'

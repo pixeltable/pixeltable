@@ -48,7 +48,7 @@ class ExecNode(abc.ABC):
     bound_args: dict[str, Any]
 
     # per-execution instrumentation span (open/close lifetime); set in _open_aux()
-    _span: hooks.AnySpanHandle | None
+    _span: hooks.SpanHandle | None
 
     def __init__(
         self,
@@ -145,15 +145,17 @@ class ExecNode(abc.ABC):
         # benefits)
         result_queue: queue.Queue = queue.Queue(maxsize=2)
         caller_runtime = get_runtime()
+        # carry the ambient instrumentation span across the thread boundary so spans reported on the
+        # worker thread nest under it
         hooks_ctx = hooks.capture_context()
 
         def run() -> None:
             thread_runtime = get_runtime()
             # the execution needs to happen in the same db context as the caller, but on a new event loop
             thread_runtime.copy_db_context(caller_runtime)
-            hooks_token = hooks.restore_context(hooks_ctx)
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
+            hooks_token = hooks.restore_context(hooks_ctx)
             try:
 
                 async def produce() -> None:
@@ -187,7 +189,7 @@ class ExecNode(abc.ABC):
         self._open_aux()
         return self
 
-    def _open_aux(self, consumer_span: hooks.AnySpanHandle | None = None) -> None:
+    def _open_aux(self, consumer_span: hooks.SpanHandle | None = None) -> None:
         """Call _open() bottom-up; node spans are created top-down so each node nests under its consumer.
 
         The plan head parents on the ambient operation span; spans are only emitted under an enclosing

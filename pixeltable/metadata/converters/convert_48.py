@@ -38,6 +38,6 @@ def _substitute_md(k: str | None, v: Any) -> tuple[str | None, Any] | None:
 
 
 @register_converter(version=48)
-def _(engine: sql.engine.Engine) -> None:
+def _(conn: sql.Connection) -> None:
     """Migrate SimilarityExpr from serialized col_ref (indexed_col) to tbl_version_key + idx_name."""
-    convert_table_md(engine, substitution_fn=_substitute_md)
+    convert_table_md(conn, substitution_fn=_substitute_md)

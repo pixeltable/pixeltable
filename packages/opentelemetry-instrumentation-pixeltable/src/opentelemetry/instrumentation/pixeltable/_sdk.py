@@ -116,7 +116,6 @@ def _setup(
             excs.ErrorCode.INVALID_CONFIGURATION,
             f"Invalid value for 'otel.span_level': {level_name!r} (expected 'info', 'debug', or 'trace')",
         )
-    hooks.set_span_level(_SPAN_LEVELS[level_name])
 
     cfg_endpoint = endpoint if endpoint is not None else config.get_string_value('endpoint', section='otel')
     cfg_protocol = protocol if protocol is not None else config.get_string_value('protocol', section='otel')
@@ -136,15 +135,15 @@ def _setup(
     # standard env vars beat pixeltable config: operators reconfigure deployed apps through them
     std_traces_env = 'OTEL_EXPORTER_OTLP_ENDPOINT' in os.environ or 'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT' in os.environ
 
+    # construct everything fallible before mutating any global state: providers are set-once and can't be
+    # rolled back, so a partially-applied _setup() would leave init() unretryable and self-inconsistent
+    owns_tp = False
     tp = tracer_provider
-    if tp is not None:
-        _state.owns_tracer_provider = False
-    else:
+    if tp is None:
         existing = trace.get_tracer_provider()
         if not isinstance(existing, ProxyTracerProvider):
             # the embedding application already configured a tracer provider; never clobber it
             tp = existing
-            _state.owns_tracer_provider = False
         elif std_traces_env or cfg_endpoint is not None:
             # plain SDK with an OTLP exporter; config-derived kwargs are withheld whenever the standard
             # env vars are set, so the exporter's native env resolution wins
@@ -154,24 +153,20 @@ def _setup(
             exporter = _span_exporter(use_grpc, cfg_endpoint, cfg_headers, withhold=std_traces_env)
             tp = TracerProvider(resource=_create_resource(cfg_service))
             tp.add_span_processor(BatchSpanProcessor(exporter))
-            trace.set_tracer_provider(tp)
-            _state.owns_tracer_provider = True
+            owns_tp = True
         # else: no endpoint configured and no app-owned provider -> stay inert; the bridge instruments
         # against the global no-op tracer and nothing is exported
-    _state.tracer_provider = tp
 
     # metrics/logs flow only when an OTLP endpoint is configured (standard env var or otel.endpoint),
     # or on an explicit otel.metrics/otel.logs = true
     metrics_env = std_traces_env or 'OTEL_EXPORTER_OTLP_METRICS_ENDPOINT' in os.environ
     export_metrics = metrics is True or (metrics is not False and (metrics_env or cfg_endpoint is not None))
+    owns_mp = False
     mp = meter_provider
-    if mp is not None:
-        _state.owns_meter_provider = False
-    elif export_metrics:
+    if mp is None and export_metrics:
         existing_mp = otel_metrics.get_meter_provider()
         if 'Proxy' not in type(existing_mp).__name__:
             mp = existing_mp
-            _state.owns_meter_provider = False
         else:
             from opentelemetry.sdk.metrics import MeterProvider
             from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
@@ -180,14 +175,31 @@ def _setup(
             mp = MeterProvider(
                 resource=_create_resource(cfg_service), metric_readers=[PeriodicExportingMetricReader(metric_exporter)]
             )
-            otel_metrics.set_meter_provider(mp)
-            _state.owns_meter_provider = True
-    _state.meter_provider = mp
+            owns_mp = True
 
     logs_env = std_traces_env or 'OTEL_EXPORTER_OTLP_LOGS_ENDPOINT' in os.environ
     export_logs = logs is True or (logs is not False and (logs_env or cfg_endpoint is not None))
+    logger_provider: Any = None
+    log_handler: logging.Handler | None = None
     if export_logs:
-        _set_up_log_export(use_grpc, cfg_endpoint, cfg_headers, cfg_service, logs_env)
+        logger_provider, log_handler = _build_log_export(use_grpc, cfg_endpoint, cfg_headers, cfg_service, logs_env)
+
+    # construction succeeded; apply global state
+    if owns_tp:
+        trace.set_tracer_provider(tp)
+    if owns_mp:
+        otel_metrics.set_meter_provider(mp)
+    if logger_provider is not None:
+        from opentelemetry._logs import set_logger_provider
+
+        set_logger_provider(logger_provider)
+        logging.getLogger('pixeltable').addHandler(log_handler)
+    _state.owns_tracer_provider = owns_tp
+    _state.owns_meter_provider = owns_mp
+    _state.tracer_provider = tp
+    _state.meter_provider = mp
+    _state.logger_provider = logger_provider
+    hooks.set_span_level(_SPAN_LEVELS[level_name])
 
     from . import PixeltableInstrumentor
 
@@ -242,19 +254,16 @@ def _log_exporter(use_grpc: bool, endpoint: str | None, headers: str | None, *, 
     return HttpLogExporter(endpoint=_join_endpoint(ep, 'v1/logs') if ep is not None else None, headers=hdrs)
 
 
-def _set_up_log_export(
+def _build_log_export(
     use_grpc: bool, cfg_endpoint: str | None, cfg_headers: str | None, cfg_service: str, logs_env: bool
-) -> None:
-    from opentelemetry._logs import set_logger_provider
+) -> tuple[Any, logging.Handler]:
     from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
     from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 
     log_exporter = _log_exporter(use_grpc, cfg_endpoint, cfg_headers, withhold=logs_env)
     logger_provider = LoggerProvider(resource=_create_resource(cfg_service))
     logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
-    set_logger_provider(logger_provider)
-    _state.logger_provider = logger_provider
-    logging.getLogger('pixeltable').addHandler(LoggingHandler(logger_provider=logger_provider))
+    return logger_provider, LoggingHandler(logger_provider=logger_provider)
 
 
 def _create_resource(service_name: str) -> Any:

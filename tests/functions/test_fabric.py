@@ -11,6 +11,8 @@ import pixeltable as pxt
 
 from ..utils import rerun, skip_test_if_not_installed, validate_update_status
 
+pytestmark = pytest.mark.local('UDF/integration test')
+
 
 def _skip_if_not_fabric() -> None:
     """Skip test if not running in Fabric environment."""

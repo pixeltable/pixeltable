@@ -6,6 +6,8 @@ import pixeltable as pxt
 
 from ..utils import get_audio_files, rerun, skip_test_if_not_installed, validate_update_status
 
+pytestmark = pytest.mark.local('UDF/integration test')
+
 
 @rerun(reruns=1, reruns_delay=8)
 class TestWhisper:

@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import datetime
 import itertools
 import logging
 import sys
-import time
 from typing import Any, Callable, Iterator, cast
 
 from pixeltable import exceptions as excs, exprs, func, hooks
 
-from .globals import Dispatcher, Evaluator, ExprEvalCtx, FnCallArgs, udf_span
+from .globals import Dispatcher, Evaluator, ExprEvalCtx, FnCallArgs
 
 _logger = logging.getLogger(__name__)
 
@@ -37,24 +38,17 @@ class DefaultExprEvaluator(Evaluator):
 
     async def eval(self, rows: list[exprs.DataRow]) -> None:
         rows_with_excs: set[int] = set()  # records idxs into rows
-        with hooks.span(
-            'expr.eval',
-            level=hooks.DEBUG,
-            parent=self.dispatcher.span_handle,
-            column=self.dispatcher.col_names.get(self.e.slot_idx),
-            rows=len(rows),
-        ):
-            for idx, row in enumerate(rows):
-                assert not row.has_val[self.e.slot_idx] and not row.has_exc(self.e.slot_idx)
-                if asyncio.current_task().cancelled() or self.dispatcher.exc_event.is_set():
-                    return
-                try:
-                    self.e.eval(row, self.dispatcher.row_builder)
-                except Exception as exc:
-                    _, _, exc_tb = sys.exc_info()
-                    row.set_exc(self.e.slot_idx, exc)
-                    rows_with_excs.add(idx)
-                    self.dispatcher.dispatch_exc([row], self.e.slot_idx, exc_tb, self.eval_ctx)
+        for idx, row in enumerate(rows):
+            assert not row.has_val[self.e.slot_idx] and not row.has_exc(self.e.slot_idx)
+            if asyncio.current_task().cancelled() or self.dispatcher.exc_event.is_set():
+                return
+            try:
+                self.e.eval(row, self.dispatcher.row_builder)
+            except Exception as exc:
+                _, _, exc_tb = sys.exc_info()
+                row.set_exc(self.e.slot_idx, exc)
+                rows_with_excs.add(idx)
+                self.dispatcher.dispatch_exc([row], self.e.slot_idx, exc_tb, self.eval_ctx)
         self.dispatcher.dispatch([rows[i] for i in range(len(rows)) if i not in rows_with_excs], self.eval_ctx)
 
 
@@ -105,6 +99,17 @@ class FnCallEvaluator(Evaluator):
         # drained (eg, cursor abandoned mid-iteration)
         if self.call_args_queue is not None:
             self.call_args_queue = asyncio.Queue[FnCallArgs]()
+
+    def _cell_span(self, row: exprs.DataRow) -> Any:
+        """Span for one row's UDF call, nested under the row's span; no-op when the row has no span."""
+        if row.span is None:
+            return contextlib.nullcontext()
+        # DEBUG so cell spans emit/suppress in lockstep with the row span they nest under.
+        # set_current so provider instrumentors parent their spans here; each task copies the context at
+        # creation, so the ambient span is task-specific and concurrent UDF calls don't see each other's
+        return hooks.span(
+            f'pixeltable.udf.{self.fn.display_name}', level=hooks.DEBUG, parent=row.span, set_current=True
+        )
 
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
         assert self.fn_call.slot_idx >= 0
@@ -193,9 +198,12 @@ class FnCallEvaluator(Evaluator):
 
     async def eval_batch(self, batched_call_args: FnCallArgs) -> None:
         result_batch: list[Any]
-        start_ts = time.perf_counter()
         try:
-            with udf_span(self.dispatcher, self.fn_call, level=hooks.DEBUG, batch_size=len(batched_call_args.rows)):
+            # batched calls process many rows in one invocation, so they can't nest under a single row
+            # span; emit one span under the ambient operation span instead
+            with hooks.span(
+                f'pixeltable.udf.{self.fn.display_name}', level=hooks.DEBUG, batch_size=len(batched_call_args.rows)
+            ):
                 if self.fn.is_async:
                     result_batch = await self.fn.aexec_batch(
                         *batched_call_args.batch_args, **batched_call_args.batch_kwargs
@@ -212,8 +220,6 @@ class FnCallEvaluator(Evaluator):
             self.dispatcher.dispatch_exc(batched_call_args.rows, self.fn_call.slot_idx, exc_tb, self.eval_ctx)
             return
 
-        if self.dispatcher.hooks_active:
-            self.stats.record(time.perf_counter() - start_ts, len(batched_call_args.rows))
         for i, row in enumerate(batched_call_args.rows):
             row[self.fn_call.slot_idx] = result_batch[i]
         self.dispatcher.dispatch(batched_call_args.rows, self.eval_ctx)
@@ -224,14 +230,12 @@ class FnCallEvaluator(Evaluator):
         assert not call_args.row.has_exc(self.fn_call.slot_idx)
 
         try:
-            start_ts = time.perf_counter()
+            start_ts = datetime.datetime.now()
             _logger.debug(f'Start evaluating slot {self.fn_call.slot_idx}')
-            with udf_span(self.dispatcher, self.fn_call, level=hooks.DEBUG):
+            with self._cell_span(call_args.row):
                 call_args.row[self.fn_call.slot_idx] = await self.fn.aexec(*call_args.args, **call_args.kwargs)
-            elapsed_s = time.perf_counter() - start_ts
-            _logger.debug(f'Evaluated slot {self.fn_call.slot_idx} in {elapsed_s:.3f}s')
-            if self.dispatcher.hooks_active:
-                self.stats.record(elapsed_s)
+            end_ts = datetime.datetime.now()
+            _logger.debug(f'Evaluated slot {self.fn_call.slot_idx} in {end_ts - start_ts}')
             self.dispatcher.dispatch([call_args.row], self.eval_ctx)
         except Exception as exc:
             _, _, exc_tb = sys.exc_info()
@@ -240,7 +244,6 @@ class FnCallEvaluator(Evaluator):
 
     async def eval(self, call_args_batch: list[FnCallArgs]) -> None:
         rows_with_excs: set[int] = set()  # records idxs into 'rows'
-        hooks_active = self.dispatcher.hooks_active
         for idx, item in enumerate(call_args_batch):
             assert len(item.rows) == 1
             assert not item.row.has_val[self.fn_call.slot_idx]
@@ -249,12 +252,7 @@ class FnCallEvaluator(Evaluator):
             if asyncio.current_task().cancelled() or self.dispatcher.exc_event.is_set():
                 return
             try:
-                if hooks_active:
-                    start_ts = time.perf_counter()
-                    with udf_span(self.dispatcher, self.fn_call, level=hooks.TRACE):
-                        item.row[self.fn_call.slot_idx] = self.scalar_py_fn(*item.args, **item.kwargs)
-                    self.stats.record(time.perf_counter() - start_ts)
-                else:
+                with self._cell_span(item.row):
                     item.row[self.fn_call.slot_idx] = self.scalar_py_fn(*item.args, **item.kwargs)
             except Exception as exc:
                 _, _, exc_tb = sys.exc_info()

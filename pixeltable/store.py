@@ -549,7 +549,7 @@ class StoreBase:
                 batch_table_rows: list[list[Any]] = []
 
                 # compute batch of rows and convert them into table rows
-                with hooks.span('store.build_rows', level=hooks.DEBUG, rows=len(row_batch)):
+                with hooks.span('pixeltable.store.build_rows', level=hooks.DEBUG, rows=len(row_batch)):
                     for row in row_batch:
                         # if abort_on_exc == True, we need to check for media validation exceptions
                         if abort_on_exc and row.has_exc():
@@ -600,7 +600,7 @@ class StoreBase:
         assert len(table_rows) > 0
         conn = get_runtime().conn
         try:
-            with hooks.span('store.sql_insert', rows=len(table_rows)):
+            with hooks.span('pixeltable.sa.insert_rows'):
                 conn.execute(sql.insert(sa_tbl), [dict(zip(store_col_names, table_row)) for table_row in table_rows])
         except sql.exc.IntegrityError as e:
             if (

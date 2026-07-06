@@ -155,7 +155,7 @@ class Dispatcher(Protocol):
     # instrumentation state, set per execution
     hooks_active: bool  # hooks.active() snapshot
     col_names: dict[int, str]  # slot idx -> table column name, when known; populated when hooks are active
-    span_handle: hooks.AnySpanHandle | None  # span of the owning node; parent for evaluator work spans
+    span_handle: hooks.SpanHandle | None  # span of the owning node; parent for evaluator work spans
 
     def dispatch(self, rows: list[exprs.DataRow], exec_ctx: Any) -> None:
         """Dispatches row slots to the appropriate schedulers; does not block"""
@@ -172,7 +172,7 @@ class Dispatcher(Protocol):
 
 def udf_span(
     dispatcher: Dispatcher, fn_call: exprs.FunctionCall, *, level: int, **attrs: Any
-) -> AbstractContextManager[hooks.AnySpanHandle | None]:
+) -> AbstractContextManager[hooks.SpanHandle | None]:
     """Open a 'udf.<name>' work span for `fn_call`, parented on the owning node's span.
 
     set_current=True so work inside the call (eg, model.load) nests under this span. Extra keyword

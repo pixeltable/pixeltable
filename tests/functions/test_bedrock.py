@@ -18,6 +18,8 @@ from ..utils import (
 )
 from .tool_utils import run_tool_invocations_test
 
+pytestmark = pytest.mark.local('UDF/integration test')
+
 
 @pytest.fixture()
 def bedrock_us_east_1(uses_db: None) -> Iterator[None]:

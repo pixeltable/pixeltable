@@ -1,4 +1,4 @@
-from textwrap import dedent
+from typing import Callable
 
 import psycopg
 import pytest
@@ -83,11 +83,12 @@ class TestCatalog:
         assert str(versioned_dot) == 'a/b/c:5'
 
     def test_local_catalog_uri(self) -> None:
-        # A plain path lives in the local catalog (empty catalog_uri, no org/db).
+        # A plain path lives in the local catalog (empty uri, no org/db).
         local = Path.parse('a.b')
         assert local.org is None
         assert local.db is None
-        assert local.catalog_uri == ''
+        assert local.uri == ''
+        assert local.catalog_uri == Path()
 
     def test_hosted_path_parse(self) -> None:
         """Path.parse() understands pxt:// URIs and Pixeltable web URLs."""
@@ -95,7 +96,8 @@ class TestCatalog:
         assert hosted.org == 'variata'
         assert hosted.db == 'main'
         assert hosted.components == ('dir', 'tbl')
-        assert hosted.catalog_uri == 'pxt://variata:main'
+        assert hosted.uri == 'pxt://variata:main'
+        assert hosted.catalog_uri == Path(org='variata', db='main')
         assert str(hosted) == 'pxt://variata:main/dir/tbl'
 
         # Versioned hosted path.
@@ -111,7 +113,7 @@ class TestCatalog:
         no_db = Path.parse('pxt://variata/tbl')
         assert no_db.org == 'variata'
         assert no_db.db is None
-        assert no_db.catalog_uri == 'pxt://variata'
+        assert no_db.uri == 'pxt://variata'
 
         # A Pixeltable web URL normalizes to the same parse as its pxt:// form.
         assert Path.parse('https://pixeltable.com/t/variata:main/dir/tbl') == Path.parse('pxt://variata:main/dir/tbl')
@@ -165,7 +167,7 @@ class TestCatalog:
         # Hyphenated org/db slugs are accepted.
         hosted = Path.parse('pxt://my-org:my-db/tbl')
         assert (hosted.org, hosted.db) == ('my-org', 'my-db')
-        assert Path.from_components(('tbl',), org='my-org', db='my-db').catalog_uri == 'pxt://my-org:my-db'
+        assert Path.from_components(('tbl',), org='my-org', db='my-db').uri == 'pxt://my-org:my-db'
 
     def test_hosted_path_navigation(self) -> None:
         # Navigation preserves the catalog (org/db) and drops the version.
@@ -179,24 +181,61 @@ class TestCatalog:
         ]
         # Same-named local and hosted paths are distinct.
         assert Path.parse('a/b') != Path.parse('pxt://variata:main/a/b')
-
-    def test_hosted_ops_unsupported(self) -> None:
-        # Hosted catalogs are stubbed: an operation routed to a hosted path must raise a user-facing
-        # UNSUPPORTED_OPERATION error, not a bare NotImplementedError.
-        uri = 'pxt://variata:main'
-        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION):
-            pxt.get_table(f'{uri}/tbl')
-        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION):
-            pxt.create_table(f'{uri}/tbl', {'c': pxt.String})
-        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION):
-            pxt.drop_table(f'{uri}/tbl')
-        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION):
-            pxt.create_dir(f'{uri}/d')
-        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION):
-            pxt.drop_dir(f'{uri}/d')
-        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION):
-            pxt.move(f'{uri}/a', f'{uri}/b')
+        # is_ancestor is false across catalogs
         assert not Path.parse('a').is_ancestor(Path.parse('pxt://variata:main/a/b'))
+
+    def test_table_path_key(self, init_env: None) -> None:
+        from uuid import uuid4
+
+        from pixeltable.catalog import TablePathKey, TableVersionPath
+        from pixeltable.catalog.table_version import TableVersionKey
+
+        # recursive {tbl_version, base} as_dict/from_dict round-trips, including a base element
+        key = TablePathKey((TableVersionKey(uuid4(), None), TableVersionKey(uuid4(), 3)))
+        assert TablePathKey.from_dict(key.as_dict()) == key
+        assert key.as_dict()['base'] is not None
+
+        # against a real path, key() reproduces the legacy nested as_dict() byte-for-byte (no migration)
+        t = pxt.create_table('tpk', {'a': pxt.Int})
+        tvp = t._tbl_path
+        assert isinstance(tvp, TableVersionPath)
+        assert tvp.key().as_dict() == tvp.as_dict()
+        # a live table's effective key has version None; its snapshot key has the concrete version
+        assert tvp.key().keys[0].effective_version is None
+        assert tvp.snapshot_key().keys[0].effective_version == tvp.version()
+
+    def test_function_serialization(self) -> None:
+        # Functions (e.g. embedding UDFs passed to add_embedding_index) cross the wire via proxy_protocol.
+        import pixeltable.func as func
+        from pixeltable.functions import string as pxt_str
+        from pixeltable.service import proxy_protocol
+
+        f = pxt_str.contains
+        assert isinstance(f, func.Function)
+        round_tripped = proxy_protocol.deserialize(proxy_protocol.serialize(f))
+        assert round_tripped.self_path == f.self_path
+
+    def test_json_reserved_key(self, make_catalog_path: Callable[[str], str]) -> None:
+        # JSON cell values are user data and may contain a key that collides with the proxy protocol's reserved
+        # tag; inserting and reading such values back must round-trip rather than be rejected.
+        p = make_catalog_path
+        t = pxt.create_table(p('json_tbl'), {'id': pxt.Int, 'data': pxt.Json})
+        rows = [
+            {'id': 0, 'data': {'$pxt': 1}},  # collides at the top level
+            {'id': 1, 'data': {'a': {'$pxt': [1, 2]}, 'b': 3}},  # collides while nested
+            {'id': 2, 'data': {'$pxt': 'UUID', 'v': 'not-a-uuid'}},  # mimics a real type tag
+            {'id': 3, 'data': {'ok': 1, 'nested': {'plain': True}}},  # no collision, unaffected
+        ]
+        t.insert(rows)
+        result = t.order_by(t.id).select(t.data).collect()['data']
+        assert result == [row['data'] for row in rows]
+
+    def test_proxy_move_cross_db(self, init_env: None) -> None:
+        # cross-catalog moves are rejected before any RPC (no daemon needed)
+        with pytest.raises(excs.Error, match='same catalog'):
+            pxt.move('pxt://local:db1/t', 'pxt://local:db2/t')
+        with pytest.raises(excs.Error, match='same catalog'):
+            pxt.move('pxt://local:db/t', 'local_t')  # hosted -> local
 
     @pytest.mark.parametrize('path_str', ['a.b.c', 'a/b/c'])
     def test_path_ancestors(self, path_str: str) -> None:
@@ -259,76 +298,85 @@ class TestCatalog:
         assert str(unix_appended) == 'a/b/c/d'
         assert dotted_appended.components == unix_appended.components == ('a', 'b', 'c', 'd')
 
-    def test_ls(self, uses_db: None) -> None:
-        pxt.create_dir('test_dir')
-        pxt.create_dir('test_dir/subdir')
+    def test_ls(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        pxt.create_dir(p('test_dir'))
+        pxt.create_dir(p('test_dir/subdir'))
 
-        t = pxt.create_table('test_dir/tbl', {'a': pxt.Int})
+        tbl_name = p('test_dir/tbl')
+        t = pxt.create_table(tbl_name, {'a': pxt.Int})
         t.insert(a=3)
-        v1 = pxt.create_view('view1', t)
+        v1_name = p('view1')
+        v1 = pxt.create_view(v1_name, t)
         t.insert(a=5)
         v1.add_column(b=pxt.Int)
-        _s1 = pxt.create_snapshot('test_dir/snapshot1', v1)
+        _s1 = pxt.create_snapshot(p('test_dir/snapshot1'), v1)
         t.insert(a=22)
-        v2 = pxt.create_view('test_dir/view2', t)
-        _s2 = pxt.create_snapshot('test_dir/snapshot2', v2, additional_columns={'c': pxt.String})
+        v2_name = p('test_dir/view2')
+        v2 = pxt.create_view(v2_name, t)
+        _s2 = pxt.create_snapshot(p('test_dir/snapshot2'), v2, additional_columns={'c': pxt.String})
         t.insert(a=4171780)
-        df = pxt.ls('test_dir')
-        print(repr(df))
-        assert dedent(repr(df)) == dedent(
-            '''
-                 Name      Kind Version              Base
-            snapshot1  snapshot                   view1:2
-            snapshot2  snapshot          test_dir/view2:0
-               subdir       dir                          |
-                  tbl     table       4                  |
-                view2      view       1      test_dir/tbl
-            '''
-        ).strip('\n').replace('|', '')  # fmt: skip
+        df = pxt.ls(p('test_dir'))
+        # a hosted (proxy) table's Base shows its full catalog uri, which widens the column vs local; compare row
+        # tokens so the assertion checks content (including the uris) independent of column padding.
+        expected = f"""
+            Name Kind Version Base
+            snapshot1 snapshot {v1_name}:2
+            snapshot2 snapshot {v2_name}:0
+            subdir dir
+            tbl table 4
+            view2 view 1 {tbl_name}
+        """
 
-    def test_cross_type_replacement(self, uses_db: None) -> None:
+        def tokens(s: str) -> list[list[str]]:
+            return [line.split() for line in s.splitlines() if line.split()]
+
+        assert tokens(repr(df)) == tokens(expected)
+
+    def test_cross_type_replacement(self, make_catalog_path: Callable[[str], str]) -> None:
         """Test that tables, views, and snapshots can replace each other with if_exists='replace'.
 
         This tests the path collision handling logic: dirs can only collide with dirs,
         but all table subtypes (table, view, snapshot) can collide with each other.
         """
-        base_table = pxt.create_table('base', {'c1': pxt.Int})
+        p = make_catalog_path
+        base_table = pxt.create_table(p('base'), {'c1': pxt.Int})
 
         # One lambda per create_x with expected columns
         creators = {
-            'table': (lambda: pxt.create_table('target', {'c2': pxt.String}, if_exists='replace'), ['c2']),
+            'table': (lambda: pxt.create_table(p('target'), {'c2': pxt.String}, if_exists='replace'), ['c2']),
             'view': (
                 lambda: pxt.create_view(
-                    'target', base_table, additional_columns={'c3': pxt.String}, if_exists='replace'
+                    p('target'), base_table, additional_columns={'c3': pxt.String}, if_exists='replace'
                 ),
                 ['c3', 'c1'],
             ),
-            'snapshot': (lambda: pxt.create_snapshot('target', base_table, if_exists='replace'), ['c1']),
+            'snapshot': (lambda: pxt.create_snapshot(p('target'), base_table, if_exists='replace'), ['c1']),
         }
 
         # Test all permutations: each table subtype can replace any table subtype
         for existing_creator, _ in creators.values():
             for replacing_creator, expected_cols in creators.values():
                 existing_creator()
-                assert 'target' in pxt.list_tables()
+                assert p('target') in pxt.list_tables(p(''))
                 result = replacing_creator()
-                assert 'target' in pxt.list_tables()
+                assert p('target') in pxt.list_tables(p(''))
                 assert result.columns() == expected_cols
 
         # Verify cross-type replacement is blocked in both directions for every table subtype
-        pxt.drop_table('target')
-        pxt.create_dir('target')
+        pxt.drop_table(p('target'))
+        pxt.create_dir(p('target'))
         for creator, _ in creators.values():
             # dirs cannot be replaced by table subtypes
             with pxt_raises(excs.ErrorCode.PATH_ALREADY_EXISTS, match='expected a table, view or snapshot'):
                 creator()
             # table subtypes cannot be replaced by dirs
-            pxt.drop_dir('target')
+            pxt.drop_dir(p('target'))
             creator()
             with pxt_raises(excs.ErrorCode.PATH_ALREADY_EXISTS, match='expected a directory'):
-                pxt.create_dir('target', if_exists='replace')
-            pxt.drop_table('target')
-            pxt.create_dir('target')
+                pxt.create_dir(p('target'), if_exists='replace')
+            pxt.drop_table(p('target'))
+            pxt.create_dir(p('target'))
 
     def test_table_op_from_dict_needs_xact(self) -> None:
         """Verifies that a TableOp can be correctly deserialized from a dict that includes the legacy 'needs_xact'
@@ -351,6 +399,7 @@ class TestCatalog:
         assert op.needs_xact  # now a ClassVar
         assert 'needs_xact' not in op.to_dict()
 
+    @pytest.mark.local('fault-injection/concurrency test against the in-process catalog internals')
     def test_finalize_pending_ops_retriable_error(self, uses_db: None, fault_injection: None) -> None:
         t = pxt.create_table('test', {'a': pxt.Int})
         exc = sql_exc.DBAPIError('', {}, orig=psycopg.errors.SerializationFailure())
@@ -360,6 +409,7 @@ class TestCatalog:
         fault.assert_count(1)
         _ = t.select(t.b).collect()
 
+    @pytest.mark.local('fault-injection/concurrency test against the in-process catalog internals')
     def test_finalize_pending_ops_non_retriable_error(self, uses_db: None, fault_injection: None) -> None:
         t = pxt.create_table('test', {'a': pxt.Int})
         # Inject a non-retriable error into LoadViewOp. LoadViewOp is the last of 3 ops that constitute a view creation.
@@ -378,6 +428,7 @@ class TestCatalog:
         assert len(ls) == 1, ls
         assert ls['Name'].iloc[0] == 'test', ls
 
+    @pytest.mark.local('fault-injection/concurrency test against the in-process catalog internals')
     def test_concurrent_add_column_insert(self, uses_db: None, fault_injection: None) -> None:
         """Concurrent insert while add_column is blocked mid-finalize"""
         t = pxt.create_table('test', {'a': pxt.Int})
@@ -404,6 +455,7 @@ class TestCatalog:
         assert len(result) == 1
         assert result[0] == {'a': 1, 'b': 2}
 
+    @pytest.mark.local('fault-injection/concurrency test against the in-process catalog internals')
     def test_create_view_stale_base_tv_after_txn_failure(self, uses_db: None, fault_injection: None) -> None:
         """
         Verifies bug fix: due to an error in view creation, Catalog would fail to invalidate a modified but not
@@ -445,6 +497,7 @@ class TestCatalog:
         # Verify that the insert was propagated to vb.
         assert pxt.get_table('vb').count() == 1
 
+    @pytest.mark.local('fault-injection/concurrency test against the in-process catalog internals')
     def test_load_view_concurrent_drop_view(self, uses_db: None, fault_injection: None) -> None:
         """
         Start with a base table and a view. Thread 0 loads the view md, and is about to initialize it when Thread 1
@@ -473,6 +526,7 @@ class TestCatalog:
         base.insert([{'a': 1}])
         assert base.count() == 1
 
+    @pytest.mark.local('fault-injection/concurrency test against the in-process catalog internals')
     def test_drop_view_concurrent_insert(self, uses_db: None, fault_injection: None) -> None:
         """
         Start with a base table and a view. Thread 0 begins to drop the view, but pauses inside finalize pending ops

@@ -72,10 +72,6 @@ class UpdateStatus:
     cascade_row_count_stats: RowCountStats = field(default_factory=RowCountStats)
     """Row count statistics for changes cascaded to other tables."""
 
-    # stats for the rows affected by the operation in an external store
-    ext_row_count_stats: RowCountStats = field(default_factory=RowCountStats)
-    """Row count statistics for rows affected in an external store."""
-
     @property
     def num_rows(self) -> int:
         """Total number of rows affected (including cascaded changes)."""
@@ -101,7 +97,6 @@ class UpdateStatus:
             cols_with_excs=self.cols_with_excs,
             row_count_stats=self.row_count_stats.insert_to_update(),
             cascade_row_count_stats=self.cascade_row_count_stats.insert_to_update(),
-            ext_row_count_stats=self.ext_row_count_stats,
         )
 
     def to_cascade(self) -> 'UpdateStatus':
@@ -115,7 +110,6 @@ class UpdateStatus:
             rows=self.rows,
             row_count_stats=RowCountStats(),
             cascade_row_count_stats=self.cascade_row_count_stats + self.row_count_stats,
-            ext_row_count_stats=self.ext_row_count_stats,
         )
 
     def __add__(self, other: 'UpdateStatus') -> UpdateStatus:
@@ -131,7 +125,6 @@ class UpdateStatus:
             rows=combined_rows,
             row_count_stats=self.row_count_stats + other.row_count_stats,
             cascade_row_count_stats=self.cascade_row_count_stats + other.cascade_row_count_stats,
-            ext_row_count_stats=self.ext_row_count_stats + other.ext_row_count_stats,
         )
 
     def insert_msg(self, start_ts: float | None = None) -> str:
@@ -185,23 +178,3 @@ class UpdateStatus:
         Returns the number of Pixeltable rows that were updated as a result of the operation.
         """
         return (self.row_count_stats + self.cascade_row_count_stats).upd_rows
-
-    @property
-    def external_rows_updated(self) -> int:
-        """Number of rows updated in an external store."""
-        return self.ext_row_count_stats.upd_rows
-
-    @property
-    def external_rows_created(self) -> int:
-        """Number of rows created in an external store."""
-        return self.ext_row_count_stats.ins_rows
-
-    @property
-    def external_rows_deleted(self) -> int:
-        """Number of rows deleted from an external store."""
-        return self.ext_row_count_stats.del_rows
-
-    @property
-    def ext_num_rows(self) -> int:
-        """Total number of rows affected in an external store."""
-        return self.ext_row_count_stats.num_rows
