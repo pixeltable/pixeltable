@@ -8,6 +8,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.utils.filecache import FileCache
+
 from .utils import get_image_files, rerun
 
 pytestmark = pytest.mark.local('inspects local FileCache internals')
