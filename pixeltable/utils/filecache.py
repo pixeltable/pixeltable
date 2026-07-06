@@ -353,9 +353,13 @@ class FileCache:
                 path.suffix,
             )
             new_path = entry.path
-            # os.replace is atomic and overwrites a copy another process may have created for the same url
-            os.replace(str(path), str(new_path))
-            new_path.touch(exist_ok=True)
+            with self._evict_lock.shared():
+                # place the file and renew its lease atomically: os.replace() (atomic, and overwrites a copy another
+                # process may have written for the same url) preserves the download's possibly-stale mtime, so without
+                # the lock an evictor could remove new_path before the lease is set. os.utime() renews the lease and,
+                # unlike touch(), never recreates a missing file.
+                os.replace(str(path), str(new_path))
+                os.utime(str(new_path))
             self.cache[key] = entry
             self.total_size += entry.size
             _logger.debug(f'FileCache: cached url {url} with file name {new_path}')
