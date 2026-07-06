@@ -318,6 +318,8 @@ def build_runtime_bundle(project_dir: Path | None = None) -> Path:
     bundle_path = Path(name)
 
     with tarfile.open(bundle_path, 'w:bz2') as tf:
+        manifest = {'pxt_md_version': metadata.VERSION}
+        __add_tarfile(tf, 'metadata.json', json.dumps(manifest).encode('utf-8'))
         if conda_export is not None:
             __add_tarfile(tf, 'conda-env.yml', conda_export)
         if pxt_source is not None:

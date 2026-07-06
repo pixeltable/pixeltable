@@ -17,7 +17,7 @@ class DatabaseRecord(BaseModel):
     db_name: str
     location: str
     region: str
-    state: str  # PROVISIONING | ACTIVE | SLEEPING | DELETING
+    state: str  # PROVISIONING | AVAILABLE | STOPPED | UPDATING | DELETING | FAILED
     endpoint: Optional[str] = None  # proxy endpoint host (for pxt:// connections)
     created_at: float
 
@@ -93,7 +93,7 @@ class ServiceRecord(BaseModel):
     table_path: str  # in-db path to the table backing this service
     workers_min: int = 1
     workers_max: int = 1
-    state: str  # DEPLOYING | STARTING | RUNNING | STOPPED | FAILED
+    state: str  # DEPLOYING | AVAILABLE | STOPPED | UPDATING | FAILED
     endpoint: Optional[str] = None
     error: Optional[str] = None
     created_at: float
@@ -252,7 +252,7 @@ class GetBundleUploadUrlResponse(BaseModel):
 class ServiceRunRecord(BaseModel):
     run_id: str
     workers_min: int
-    state: str  # STARTING | RUNNING | STOPPED | FAILED
+    state: str  # AVAILABLE | STOPPED | FAILED
     started_at: float
     stopped_at: Optional[float] = None
     runtime_build_id: Optional[str] = None

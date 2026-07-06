@@ -215,7 +215,7 @@ def database_update_runtime(
             try:
                 db_resp = _post(GetDatabaseRequest(org_slug=org_slug, db_slug=db_slug))
                 state = db_resp.get('database', {}).get('state', '')
-                if state != 'RUNTIME_UPDATING':
+                if state != 'UPDATING':
                     final_state = state
                     break
             except Exception:
