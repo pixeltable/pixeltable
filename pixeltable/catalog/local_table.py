@@ -481,6 +481,7 @@ class LocalTable(Table):
             )
         return self.add_columns(kwargs, if_exists=if_exists)
 
+    @hooks.spanned('pixeltable.add_computed_column', set_current=True)
     def add_computed_column(
         self,
         *,
@@ -542,8 +543,7 @@ class LocalTable(Table):
             FileCache.get().emit_eviction_warnings()
             return result
 
-        with hooks.span('pixeltable.add_computed_column', set_current=True):
-            return do_add_computed_column()
+        return do_add_computed_column()
 
     @classmethod
     def _verify_column(cls, col: Column) -> None:
@@ -556,6 +556,7 @@ class LocalTable(Table):
         for col in schema:
             cls._verify_column(col)
 
+    @hooks.spanned('pixeltable.drop_column', set_current=True)
     def drop_column(self, column: str | ColumnRef, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
         from pixeltable.catalog import retry_loop
 
@@ -636,15 +637,12 @@ class LocalTable(Table):
 
             self._tbl_version.get().drop_column(col)
 
-        with hooks.span('pixeltable.drop_column', set_current=True):
-            do_drop_column()
+        do_drop_column()
 
+    @hooks.spanned('pixeltable.rename_column', set_current=True)
     def rename_column(self, old_name: str, new_name: str) -> None:
-        with (
-            hooks.span('pixeltable.rename_column', set_current=True),
-            get_runtime().catalog.begin_xact(
-                for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=False
-            ),
+        with get_runtime().catalog.begin_xact(
+            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=False
         ):
             self._check_mutable('rename columns of')
             self._tbl_version.get().rename_column(old_name, new_name)
@@ -930,6 +928,7 @@ class LocalTable(Table):
             FileCache.get().emit_eviction_warnings()
             return result
 
+    @hooks.spanned('pixeltable.batch_update', set_current=True)
     def batch_update(
         self,
         rows: Iterable[dict[str, Any]],
@@ -937,11 +936,8 @@ class LocalTable(Table):
         if_not_exists: Literal['error', 'ignore', 'insert'] = 'error',
         return_rows: bool = False,
     ) -> UpdateStatus:
-        with (
-            hooks.span('pixeltable.batch_update', set_current=True),
-            get_runtime().catalog.begin_xact(
-                for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-            ),
+        with get_runtime().catalog.begin_xact(
+            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
             self._check_mutable('update')
             rows = list(rows)
@@ -1051,12 +1047,10 @@ class LocalTable(Table):
     def delete(self, where: 'exprs.Expr' | None = None) -> UpdateStatus:
         raise NotImplementedError
 
+    @hooks.spanned('pixeltable.revert', set_current=True)
     def revert(self) -> None:
-        with (
-            hooks.span('pixeltable.revert', set_current=True),
-            get_runtime().catalog.begin_xact(
-                for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-            ),
+        with get_runtime().catalog.begin_xact(
+            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
             self._check_mutable('revert')
             tv = self._tbl_version.get()

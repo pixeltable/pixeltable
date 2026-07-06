@@ -36,15 +36,13 @@ class SchemaObject(abc.ABC):
                 return None
             return get_runtime().catalog.get_dir(dir_id)
 
+    @hooks.spanned('pixeltable.catalog.resolve_path', level=hooks.DEBUG)
     def _path(self) -> 'catalog.Path':
         """Returns the path to this schema object. Raises TABLE_NOT_FOUND if dropped.
 
         Resolves the whole path in a single read transaction so the result is a consistent snapshot.
         """
-        with (
-            hooks.span('pixeltable.catalog.resolve_path', level=hooks.DEBUG),
-            get_runtime().catalog.begin_xact(for_write=False),
-        ):
+        with get_runtime().catalog.begin_xact(for_write=False):
             dir_id = self._dir_id()
             if dir_id is None:
                 # an instance that's in the process of getting dropped has dir_id unset

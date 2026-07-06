@@ -239,6 +239,71 @@ class TestHooks:
         hooks.span_end(suppressed)
         assert [s['name'] for s in sub.spans] == ['op']
 
+    def test_spanned(self, sub: RecordingSubscriber) -> None:
+        @hooks.spanned('work', set_current=True)
+        def fn(x: int) -> int:
+            return x + 1
+
+        assert fn(1) == 2
+        record = sub.find('work')
+        assert record['set_current'] is True and record['ended'] and record['exc'] is None
+
+        @hooks.spanned('failing', set_current=True)
+        def boom() -> None:
+            raise ValueError('boom')
+
+        with pytest.raises(ValueError, match='boom'):
+            boom()
+        assert isinstance(sub.find('failing')['exc'], ValueError)
+
+    def test_spanned_preserves_topology(self, sub: RecordingSubscriber) -> None:
+        # a spanned(set_current=False) function must not become the ambient parent: spans started inside it
+        # parent to the ambient op span, exactly as with a lexical `with span(...)` block
+        @hooks.spanned('node')
+        def fn() -> None:
+            inner = hooks.span_start('inner')
+            hooks.span_end(inner)
+
+        op = hooks.span_start('op', set_current=True)
+        fn()
+        hooks.span_end(op)
+        assert sub.find('node')['parent_id'] == sub.find('op')['id']
+        assert sub.find('inner')['parent_id'] == sub.find('op')['id']
+
+    def test_spanned_func_span(self, sub: RecordingSubscriber) -> None:
+        assert hooks.func_span() is None
+
+        @hooks.spanned('work', set_current=True)
+        def fn() -> None:
+            hooks.add_attrs(hooks.func_span(), rows=5)
+
+        fn()
+        assert sub.find('work')['end_attrs'] == {'pxt.rows': 5}
+        assert hooks.func_span() is None
+
+        # a suppressed spanned() span shadows any outer one, so attrs can't leak to the wrong span
+        @hooks.spanned('suppressed', level=hooks.DEBUG)
+        def inner() -> None:
+            assert hooks.func_span() is None
+            hooks.add_attrs(hooks.func_span(), rows=1)
+
+        @hooks.spanned('outer', set_current=True)
+        def outer() -> None:
+            inner()
+
+        outer()
+        assert sub.find('outer')['end_attrs'] is None
+
+    def test_spanned_inactive(self) -> None:
+        assert not hooks.active()
+
+        @hooks.spanned('work', set_current=True)
+        def fn(x: int) -> int:
+            assert hooks.func_span() is None
+            return x * 2
+
+        assert fn(3) == 6
+
     def test_failing_attrs_callable(self, sub: RecordingSubscriber) -> None:
         def bad() -> dict[str, Any]:
             raise RuntimeError('bad attrs')

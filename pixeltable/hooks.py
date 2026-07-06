@@ -15,10 +15,12 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import functools
+import inspect
 import logging
 import threading
 from contextvars import ContextVar, Token
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterator, TypeVar, cast
 from weakref import WeakKeyDictionary
 
 _logger = logging.getLogger(__name__)
@@ -28,6 +30,8 @@ DEBUG = 10
 INFO = 20
 
 HookAttrs = dict[str, Any] | Callable[[], dict[str, Any]] | None
+
+F = TypeVar('F', bound=Callable[..., Any])
 
 
 class Subscriber:
@@ -81,6 +85,7 @@ _registry_lock = threading.Lock()
 _SUBSCRIBERS: tuple[Subscriber, ...] = ()
 _span_level = INFO
 _current_span: ContextVar[SpanHandle | None] = ContextVar('pxt_current_span', default=None)
+_func_span: ContextVar[SpanHandle | None] = ContextVar('pxt_func_span', default=None)
 _logged_error_methods: WeakKeyDictionary[Subscriber, set[str]] = WeakKeyDictionary()
 
 
@@ -247,6 +252,41 @@ def span(
         raise
     else:
         span_end(handle)
+
+
+def func_span() -> SpanHandle | None:
+    """Handle of the innermost enclosing spanned() span, for use with add_attrs().
+
+    None if there is no enclosing spanned() function or its span was suppressed (add_attrs() accepts None).
+    """
+    return _func_span.get()
+
+
+def spanned(name: str, *, level: int = INFO, set_current: bool = False) -> Callable[[F], F]:
+    """Decorator form of span() for a function whose entire body is one span.
+
+    The span's handle isn't lexically available inside the function; use `add_attrs(func_span(), ...)` to
+    attach attributes to it.
+    """
+
+    def decorator(fn: F) -> F:
+        # a generator/coroutine function returns immediately, which would end the span before any work runs
+        assert not inspect.iscoroutinefunction(fn) and not inspect.isgeneratorfunction(fn)
+
+        @functools.wraps(fn)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            if not _SUBSCRIBERS:
+                return fn(*args, **kwargs)
+            with span(name, level=level, set_current=set_current) as handle:
+                token = _func_span.set(handle)
+                try:
+                    return fn(*args, **kwargs)
+                finally:
+                    _func_span.reset(token)
+
+        return cast(F, wrapper)
+
+    return decorator
 
 
 @dataclasses.dataclass(slots=True)

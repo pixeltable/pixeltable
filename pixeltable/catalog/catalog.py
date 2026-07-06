@@ -684,6 +684,7 @@ class Catalog(CatalogBase):
         if has_pending_ops:
             raise PendingTableOpsError(row.id)
 
+    @hooks.spanned('pixeltable.catalog.acquire_write_lock', level=hooks.DEBUG)
     def _acquire_write_lock(
         self, *, tbl_id: UUID, lock_mutable_tree: bool = False, check_pending_ops: bool = True
     ) -> set[UUID]:
@@ -695,43 +696,42 @@ class Catalog(CatalogBase):
         Returns the set of locked table IDs, which could be empty if the lock couldn't be acquired,
         e.g., tbl is a non-mutable table.
         """
-        with hooks.span('pixeltable.catalog.acquire_write_lock', level=hooks.DEBUG):
-            where_clause = schema.Table.id == tbl_id
-            conn = get_runtime().conn
-            row = conn.execute(sql.select(schema.Table).where(where_clause).with_for_update(nowait=True)).one_or_none()
-            if row is None:
-                raise excs.table_was_dropped(tbl_id)
-            tbl_md = schema.md_from_dict(schema.TableMd, row.md)
-            locked: set[UUID] = set()
-            if tbl_md.is_mutable:
-                locked.add(row.id)
-                conn.execute(sql.update(schema.Table).values(lock_dummy=1).where(where_clause))
-                # Invalidate the cached TableVersion to make sure we are acting on the latest version after locking.
-                cached_tv = self._tbl_versions.get(TableVersionKey(tbl_id, None))
-                if cached_tv is not None:
-                    cached_tv.is_validated = False
+        where_clause = schema.Table.id == tbl_id
+        conn = get_runtime().conn
+        row = conn.execute(sql.select(schema.Table).where(where_clause).with_for_update(nowait=True)).one_or_none()
+        if row is None:
+            raise excs.table_was_dropped(tbl_id)
+        tbl_md = schema.md_from_dict(schema.TableMd, row.md)
+        locked: set[UUID] = set()
+        if tbl_md.is_mutable:
+            locked.add(row.id)
+            conn.execute(sql.update(schema.Table).values(lock_dummy=1).where(where_clause))
+            # Invalidate the cached TableVersion to make sure we are acting on the latest version after locking.
+            cached_tv = self._tbl_versions.get(TableVersionKey(tbl_id, None))
+            if cached_tv is not None:
+                cached_tv.is_validated = False
 
-            if check_pending_ops:
-                # check for pending ops after getting table lock
-                pending_ops_q = sql.select(sql.func.count()).where(schema.PendingTableOp.tbl_id == row.id)
-                has_pending_ops = conn.execute(pending_ops_q).scalar() > 0
-                if has_pending_ops:
-                    raise PendingTableOpsError(row.id)
+        if check_pending_ops:
+            # check for pending ops after getting table lock
+            pending_ops_q = sql.select(sql.func.count()).where(schema.PendingTableOp.tbl_id == row.id)
+            has_pending_ops = conn.execute(pending_ops_q).scalar() > 0
+            if has_pending_ops:
+                raise PendingTableOpsError(row.id)
 
-            if not tbl_md.is_mutable:
-                return set()  # nothing to lock
+        if not tbl_md.is_mutable:
+            return set()  # nothing to lock
 
-            if lock_mutable_tree:
-                # also lock mutable views
-                key = TableVersionKey(row.id, tbl_md.current_version if tbl_md.is_snapshot else None)
-                tv = self._get_tbl_version(key, validate_initialized=True)
-                for view in tv.mutable_views:
-                    locked.update(
-                        self._acquire_write_lock(
-                            tbl_id=view.id, lock_mutable_tree=True, check_pending_ops=check_pending_ops
-                        )
+        if lock_mutable_tree:
+            # also lock mutable views
+            key = TableVersionKey(row.id, tbl_md.current_version if tbl_md.is_snapshot else None)
+            tv = self._get_tbl_version(key, validate_initialized=True)
+            for view in tv.mutable_views:
+                locked.update(
+                    self._acquire_write_lock(
+                        tbl_id=view.id, lock_mutable_tree=True, check_pending_ops=check_pending_ops
                     )
-            return locked
+                )
+        return locked
 
     def _check_write_locks(
         self, write_tvps: Collection[TableVersionPath], write_tbl_ids: Collection[UUID], lock_mutable_tree: bool
@@ -1031,6 +1031,7 @@ class Catalog(CatalogBase):
             )
         return pending_ops_stmt
 
+    @hooks.spanned('pixeltable.catalog.set_pending_op_status', level=hooks.DEBUG)
     def _set_pending_op_status(self, tbl_id: UUID, op: TableOp, new_status: OpStatus, *, is_final_op: bool) -> bool:
         """
         Updates the pending op status in the store. If is_final_op, sets table status to LIVE after additional checks.
@@ -1043,60 +1044,59 @@ class Catalog(CatalogBase):
         Returns True if no unresolved pending ops remain on the table, and the table's status was set to LIVE. False
         otherwise.
         """
-        with hooks.span('pixeltable.catalog.set_pending_op_status', level=hooks.DEBUG):
-            pending_ops_stmt = self._pending_table_ops_update_stmt(tbl_id, op, new_status, is_final_op=is_final_op)
-            conn = get_runtime().conn
-            rowcount = conn.execute(pending_ops_stmt).rowcount
-            # Log a message if no pendingtableops rows were matched. DeleteTableMdOp is a special case because it
-            # deletes all pendingtableops.
-            if rowcount == 0 and not isinstance(op, DeleteTableMdOp):
-                _logger.info(
-                    f'Finalize pending ops({tbl_id}): no PendingTableOp rows matched. Another process may have already '
-                    'resolved the same pending op concurrently.'
-                )
-
-            if not is_final_op:
-                _logger.info(f'Finalize pending ops({tbl_id}): not final op, more pending ops to finalize')
-                return False
-
-            tbl_ops = self._read_pending_table_ops(tbl_id)
-            if len(tbl_ops) > 0:
-                _logger.info(f'Finalize pending ops({tbl_id}): more pending ops found')
-                return False
-
-            # No remaining pending table ops. Reset the table state.
-            reset_tbl_state_stmt = (
-                sql.update(schema.Table)
-                .where(schema.Table.id == tbl_id)
-                .values(md=schema.Table.md.op('||')({'tbl_state': schema.TableState.LIVE.value, 'pending_stmt': None}))
+        pending_ops_stmt = self._pending_table_ops_update_stmt(tbl_id, op, new_status, is_final_op=is_final_op)
+        conn = get_runtime().conn
+        rowcount = conn.execute(pending_ops_stmt).rowcount
+        # Log a message if no pendingtableops rows were matched. DeleteTableMdOp is a special case because it
+        # deletes all pendingtableops.
+        if rowcount == 0 and not isinstance(op, DeleteTableMdOp):
+            _logger.info(
+                f'Finalize pending ops({tbl_id}): no PendingTableOp rows matched. Another process may have already '
+                'resolved the same pending op concurrently.'
             )
 
-            _logger.info(f'Finalize pending ops({tbl_id}): no more pending ops, resetting table state')
-            rowcount = conn.execute(reset_tbl_state_stmt).rowcount
-            if rowcount == 0 and not isinstance(op, DeleteTableMdOp):
-                _logger.info(
-                    f'Finalize pending ops({tbl_id}): no Table rows matched. Another process may have deleted the '
-                    'table concurrently.'
-                )
+        if not is_final_op:
+            _logger.info(f'Finalize pending ops({tbl_id}): not final op, more pending ops to finalize')
+            return False
 
-            return True
+        tbl_ops = self._read_pending_table_ops(tbl_id)
+        if len(tbl_ops) > 0:
+            _logger.info(f'Finalize pending ops({tbl_id}): more pending ops found')
+            return False
 
+        # No remaining pending table ops. Reset the table state.
+        reset_tbl_state_stmt = (
+            sql.update(schema.Table)
+            .where(schema.Table.id == tbl_id)
+            .values(md=schema.Table.md.op('||')({'tbl_state': schema.TableState.LIVE.value, 'pending_stmt': None}))
+        )
+
+        _logger.info(f'Finalize pending ops({tbl_id}): no more pending ops, resetting table state')
+        rowcount = conn.execute(reset_tbl_state_stmt).rowcount
+        if rowcount == 0 and not isinstance(op, DeleteTableMdOp):
+            _logger.info(
+                f'Finalize pending ops({tbl_id}): no Table rows matched. Another process may have deleted the '
+                'table concurrently.'
+            )
+
+        return True
+
+    @hooks.spanned('pixeltable.catalog.read_pending_ops', level=hooks.DEBUG)
     def _read_pending_table_ops(self, tbl_id: UUID) -> list[TableOp]:
         """
         Selects table's pending ops for update and returns them as TableOps in order.
 
         Must be called inside a transaction with the table selected for update.
         """
-        with hooks.span('pixeltable.catalog.read_pending_ops', level=hooks.DEBUG):
-            conn = get_runtime().conn
-            q = (
-                sql.select(schema.PendingTableOp)
-                .where(schema.PendingTableOp.tbl_id == tbl_id)
-                .order_by(schema.PendingTableOp.op_sn)
-                .with_for_update()
-            )
-            rows = conn.execute(q).fetchall()
-            return [TableOp.from_dict(dict(row.op)) for row in rows]
+        conn = get_runtime().conn
+        q = (
+            sql.select(schema.PendingTableOp)
+            .where(schema.PendingTableOp.tbl_id == tbl_id)
+            .order_by(schema.PendingTableOp.op_sn)
+            .with_for_update()
+        )
+        rows = conn.execute(q).fetchall()
+        return [TableOp.from_dict(dict(row.op)) for row in rows]
 
     def _debug_str(self) -> str:
         tv_str = '\n'.join(str(k) for k in self._tbl_versions)
@@ -1162,6 +1162,7 @@ class Catalog(CatalogBase):
             result.add(col)
         return result
 
+    @hooks.spanned('pixeltable.catalog.acquire_dir_xlock', level=hooks.DEBUG)
     def _acquire_dir_xlock(
         self, *, parent_id: UUID | None = None, dir_id: UUID | None = None, dir_name: str | None = None
     ) -> None:
@@ -1171,21 +1172,20 @@ class Catalog(CatalogBase):
         Note that (parent_id==None) is a valid where condition.
         If dir_id is not specified, the user from the environment is added to the directory filters.
         """
-        with hooks.span('pixeltable.catalog.acquire_dir_xlock', level=hooks.DEBUG):
-            assert (dir_name is None) != (dir_id is None)
-            assert not (parent_id is not None and dir_name is None)
-            user = Env.get().user
-            assert self._in_write_xact
-            q = sql.update(schema.Dir).values(lock_dummy=1)
-            if dir_id is not None:
-                q = q.where(schema.Dir.id == dir_id)
-            else:
-                q = q.where(schema.Dir.parent_id == parent_id)
-                if dir_name is not None:
-                    q = q.where(schema.Dir.md['name'].astext == dir_name)
-                if user is not None:
-                    q = q.where(schema.Dir.md['user'].astext == user)
-            get_runtime().conn.execute(q)
+        assert (dir_name is None) != (dir_id is None)
+        assert not (parent_id is not None and dir_name is None)
+        user = Env.get().user
+        assert self._in_write_xact
+        q = sql.update(schema.Dir).values(lock_dummy=1)
+        if dir_id is not None:
+            q = q.where(schema.Dir.id == dir_id)
+        else:
+            q = q.where(schema.Dir.parent_id == parent_id)
+            if dir_name is not None:
+                q = q.where(schema.Dir.md['name'].astext == dir_name)
+            if user is not None:
+                q = q.where(schema.Dir.md['user'].astext == user)
+        get_runtime().conn.execute(q)
 
     def get_dir_path(self, dir_id: UUID) -> Path:
         """Return path for directory with given id"""
@@ -1276,6 +1276,7 @@ class Catalog(CatalogBase):
             else:
                 raise AssertionError(f'unexpected SchemaObject type: {type(src_obj).__name__}')
 
+    @hooks.spanned('pixeltable.catalog.prepare_dir_op', level=hooks.DEBUG)
     def _prepare_dir_op(
         self,
         add_dir_path: Path | None = None,
@@ -1303,60 +1304,57 @@ class Catalog(CatalogBase):
         - if both add and drop (= two directories are involved), lock the directories in a pre-determined order
           (in this case, by name) in order to prevent deadlocks between concurrent directory modifications
         """
-        with hooks.span('pixeltable.catalog.prepare_dir_op', level=hooks.DEBUG):
-            assert drop_expected in (None, LocalTable, Dir), drop_expected
-            assert (add_dir_path is None) == (add_name is None)
-            assert (drop_dir_path is None) == (drop_name is None)
-            dir_paths: set[Path] = set()
-            if add_dir_path is not None:
-                dir_paths.add(add_dir_path)
-            if drop_dir_path is not None:
-                dir_paths.add(drop_dir_path)
+        assert drop_expected in (None, LocalTable, Dir), drop_expected
+        assert (add_dir_path is None) == (add_name is None)
+        assert (drop_dir_path is None) == (drop_name is None)
+        dir_paths: set[Path] = set()
+        if add_dir_path is not None:
+            dir_paths.add(add_dir_path)
+        if drop_dir_path is not None:
+            dir_paths.add(drop_dir_path)
 
-            add_dir: schema.Dir | None = None
-            drop_dir: schema.Dir | None = None
-            for p in sorted(dir_paths):
-                dir = self._get_dir(p, lock_dir=True)
-                if dir is None:
-                    # Dir does not exist; raise an appropriate error.
-                    if add_dir_path is not None or add_name is not None:
-                        raise excs.NotFoundError(
-                            excs.ErrorCode.DIRECTORY_NOT_FOUND,
-                            f'Directory {p!r} does not exist. Create it first with:\npxt.create_dir({p!r})',
-                        )
-                    elif raise_if_not_exists:
-                        raise excs.NotFoundError(excs.ErrorCode.DIRECTORY_NOT_FOUND, f'Directory {p!r} does not exist.')
-                    else:
-                        return None, None, None  # parent dir does not exist; nothing to do
-                if p == add_dir_path:
-                    add_dir = dir
-                if p == drop_dir_path:
-                    drop_dir = dir
-
-            add_obj: SchemaObject | None = None
-            if add_dir is not None:
-                add_obj = self._get_dir_entry(add_dir.id, add_name, lock_entry=True)
-                if add_obj is not None and raise_if_exists:
-                    add_path = add_dir_path.append(add_name)
-                    raise excs.AlreadyExistsError(
-                        excs.ErrorCode.PATH_ALREADY_EXISTS, f'Path {add_path!r} already exists.'
+        add_dir: schema.Dir | None = None
+        drop_dir: schema.Dir | None = None
+        for p in sorted(dir_paths):
+            dir = self._get_dir(p, lock_dir=True)
+            if dir is None:
+                # Dir does not exist; raise an appropriate error.
+                if add_dir_path is not None or add_name is not None:
+                    raise excs.NotFoundError(
+                        excs.ErrorCode.DIRECTORY_NOT_FOUND,
+                        f'Directory {p!r} does not exist. Create it first with:\npxt.create_dir({p!r})',
                     )
+                elif raise_if_not_exists:
+                    raise excs.NotFoundError(excs.ErrorCode.DIRECTORY_NOT_FOUND, f'Directory {p!r} does not exist.')
+                else:
+                    return None, None, None  # parent dir does not exist; nothing to do
+            if p == add_dir_path:
+                add_dir = dir
+            if p == drop_dir_path:
+                drop_dir = dir
 
-            drop_obj: SchemaObject | None = None
-            if drop_dir is not None:
-                drop_path = drop_dir_path.append(drop_name)
-                drop_obj = self._get_dir_entry(drop_dir.id, drop_name, lock_entry=True)
-                if drop_obj is None and raise_if_not_exists:
-                    raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, f'Path {drop_path!r} does not exist.')
-                if drop_obj is not None and drop_expected is not None and not isinstance(drop_obj, drop_expected):
-                    expected_name = 'table' if drop_expected is LocalTable else 'directory'
-                    raise excs.RequestError(
-                        excs.ErrorCode.INVALID_ARGUMENT,
-                        f'{drop_path!r} needs to be a {expected_name} but is a {drop_obj._display_name()}',
-                    )
+        add_obj: SchemaObject | None = None
+        if add_dir is not None:
+            add_obj = self._get_dir_entry(add_dir.id, add_name, lock_entry=True)
+            if add_obj is not None and raise_if_exists:
+                add_path = add_dir_path.append(add_name)
+                raise excs.AlreadyExistsError(excs.ErrorCode.PATH_ALREADY_EXISTS, f'Path {add_path!r} already exists.')
 
-            add_dir_obj = Dir(add_dir.id) if add_dir is not None else None
-            return add_obj, add_dir_obj, drop_obj
+        drop_obj: SchemaObject | None = None
+        if drop_dir is not None:
+            drop_path = drop_dir_path.append(drop_name)
+            drop_obj = self._get_dir_entry(drop_dir.id, drop_name, lock_entry=True)
+            if drop_obj is None and raise_if_not_exists:
+                raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, f'Path {drop_path!r} does not exist.')
+            if drop_obj is not None and drop_expected is not None and not isinstance(drop_obj, drop_expected):
+                expected_name = 'table' if drop_expected is LocalTable else 'directory'
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT,
+                    f'{drop_path!r} needs to be a {expected_name} but is a {drop_obj._display_name()}',
+                )
+
+        add_dir_obj = Dir(add_dir.id) if add_dir is not None else None
+        return add_obj, add_dir_obj, drop_obj
 
     def _get_dir_entry(
         self, dir_id: UUID, name: str, version: int | None = None, lock_entry: bool = False
@@ -1392,6 +1390,7 @@ class Catalog(CatalogBase):
 
         return None
 
+    @hooks.spanned('pixeltable.catalog.get_schema_object', level=hooks.DEBUG)
     def _get_schema_object(
         self,
         path: Path,
@@ -1409,45 +1408,42 @@ class Catalog(CatalogBase):
         - raise_if_not_exists is True and the path does not exist
         - expected is not None and the existing object has a different type
         """
-        with hooks.span('pixeltable.catalog.get_schema_object', level=hooks.DEBUG):
-            assert expected in (None, LocalTable, Dir), expected
+        assert expected in (None, LocalTable, Dir), expected
 
-            if path.is_root:
-                # the root dir
-                if expected is not None and expected is not Dir:
-                    raise excs.RequestError(
-                        excs.ErrorCode.INVALID_ARGUMENT, f'{path!r} needs to be a table but is a dir'
-                    )
-                dir = self._get_dir(path, lock_dir=lock_obj)
-                if dir is None:
-                    # TODO: why unknown user?
-                    raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Unknown user: {Env.get().user}')
-                return Dir(dir.id)
+        if path.is_root:
+            # the root dir
+            if expected is not None and expected is not Dir:
+                raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{path!r} needs to be a table but is a dir')
+            dir = self._get_dir(path, lock_dir=lock_obj)
+            if dir is None:
+                # TODO: why unknown user?
+                raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Unknown user: {Env.get().user}')
+            return Dir(dir.id)
 
-            parent_path = path.parent
-            parent_dir = self._get_dir(parent_path, lock_dir=lock_parent)
-            if parent_dir is None:
-                if raise_if_not_exists:
-                    raise excs.NotFoundError(
-                        excs.ErrorCode.DIRECTORY_NOT_FOUND, f'Directory {parent_path!r} does not exist.'
-                    )
-                else:
-                    return None
-            obj = self._get_dir_entry(parent_dir.id, path.name, path.version, lock_entry=lock_obj)
-
-            if obj is None and raise_if_not_exists:
-                raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, f'Path {path!r} does not exist.')
-            elif obj is not None and raise_if_exists:
-                raise excs.AlreadyExistsError(
-                    excs.ErrorCode.PATH_ALREADY_EXISTS, f'Path {path!r} is an existing {obj._display_name()}.'
+        parent_path = path.parent
+        parent_dir = self._get_dir(parent_path, lock_dir=lock_parent)
+        if parent_dir is None:
+            if raise_if_not_exists:
+                raise excs.NotFoundError(
+                    excs.ErrorCode.DIRECTORY_NOT_FOUND, f'Directory {parent_path!r} does not exist.'
                 )
-            elif obj is not None and expected is not None and not isinstance(obj, expected):
-                expected_name = 'table' if expected is LocalTable else 'directory'
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_ARGUMENT,
-                    f'{path!r} needs to be a {expected_name} but is a {obj._display_name()}.',
-                )
-            return obj
+            else:
+                return None
+        obj = self._get_dir_entry(parent_dir.id, path.name, path.version, lock_entry=lock_obj)
+
+        if obj is None and raise_if_not_exists:
+            raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, f'Path {path!r} does not exist.')
+        elif obj is not None and raise_if_exists:
+            raise excs.AlreadyExistsError(
+                excs.ErrorCode.PATH_ALREADY_EXISTS, f'Path {path!r} is an existing {obj._display_name()}.'
+            )
+        elif obj is not None and expected is not None and not isinstance(obj, expected):
+            expected_name = 'table' if expected is LocalTable else 'directory'
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'{path!r} needs to be a {expected_name} but is a {obj._display_name()}.',
+            )
+        return obj
 
     def get_table_by_id(
         self, tbl_id: UUID, version: int | None = None, ignore_if_dropped: bool = False
@@ -1882,7 +1878,9 @@ class Catalog(CatalogBase):
     @retry_loop(for_write=False)
     def get_table(self, path: Path, if_not_exists: IfNotExistsParam) -> LocalTable | None:
         obj = self._get_schema_object(
-            path, expected=LocalTable, raise_if_not_exists=(if_not_exists == IfNotExistsParam.ERROR)
+            path,
+            expected=LocalTable,  # type: ignore[type-abstract]
+            raise_if_not_exists=(if_not_exists == IfNotExistsParam.ERROR),
         )
         if obj is None:
             _logger.info(f'Skipped table {path!r} (does not exist).')
@@ -1899,7 +1897,7 @@ class Catalog(CatalogBase):
         def drop_fn() -> None:
             tbl = self._get_schema_object(
                 path,
-                expected=LocalTable,
+                expected=LocalTable,  # type: ignore[type-abstract]
                 raise_if_not_exists=(if_not_exists == IfNotExistsParam.ERROR and not force),
                 lock_parent=True,
                 lock_obj=False,
@@ -2069,56 +2067,54 @@ class Catalog(CatalogBase):
         drop_fn()
         self._roll_forward()
 
+    @hooks.spanned('pixeltable.catalog.drop_dir', level=hooks.DEBUG)
     def _drop_dir(self, dir_id: UUID, dir_path: Path, force: bool = False) -> None:
-        with hooks.span('pixeltable.catalog.drop_dir', level=hooks.DEBUG):
-            conn = get_runtime().conn
-            if not force:
-                # check for existing entries
-                q = sql.select(sql.func.count()).select_from(schema.Dir).where(schema.Dir.parent_id == dir_id)
-                num_subdirs = conn.execute(q).scalar()
-                q = sql.select(sql.func.count()).select_from(schema.Table).where(self._active_tbl_clause(dir_id=dir_id))
-                num_tbls = conn.execute(q).scalar()
-                if num_subdirs + num_tbls > 0:
-                    raise excs.RequestError(
-                        excs.ErrorCode.UNSUPPORTED_OPERATION, f'Directory {dir_path!r} is not empty.'
-                    )
+        conn = get_runtime().conn
+        if not force:
+            # check for existing entries
+            q = sql.select(sql.func.count()).select_from(schema.Dir).where(schema.Dir.parent_id == dir_id)
+            num_subdirs = conn.execute(q).scalar()
+            q = sql.select(sql.func.count()).select_from(schema.Table).where(self._active_tbl_clause(dir_id=dir_id))
+            num_tbls = conn.execute(q).scalar()
+            if num_subdirs + num_tbls > 0:
+                raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Directory {dir_path!r} is not empty.')
 
-            # drop existing subdirs
-            self._acquire_dir_xlock(dir_id=dir_id)
-            dir_q = sql.select(schema.Dir).where(schema.Dir.parent_id == dir_id)
-            for row in conn.execute(dir_q).all():
-                self._drop_dir(row.id, dir_path.append(row.md['name']), force=True)
+        # drop existing subdirs
+        self._acquire_dir_xlock(dir_id=dir_id)
+        dir_q = sql.select(schema.Dir).where(schema.Dir.parent_id == dir_id)
+        for row in conn.execute(dir_q).all():
+            self._drop_dir(row.id, dir_path.append(row.md['name']), force=True)
 
-            # drop existing tables
-            tbl_q = sql.select(schema.Table).where(self._active_tbl_clause(dir_id=dir_id)).with_for_update()
-            for row in conn.execute(tbl_q).all():
-                tbl = self.get_table_by_id(row.id, ignore_if_dropped=True)
-                # this table would have been dropped already if it's a view of a base we dropped earlier
-                if tbl is not None:
-                    self._drop_tbl(tbl, force=True, is_replace=False)
+        # drop existing tables
+        tbl_q = sql.select(schema.Table).where(self._active_tbl_clause(dir_id=dir_id)).with_for_update()
+        for row in conn.execute(tbl_q).all():
+            tbl = self.get_table_by_id(row.id, ignore_if_dropped=True)
+            # this table would have been dropped already if it's a view of a base we dropped earlier
+            if tbl is not None:
+                self._drop_tbl(tbl, force=True, is_replace=False)
 
-            # self.drop_dir(dir_id)
-            conn.execute(sql.delete(schema.Dir).where(schema.Dir.id == dir_id))
-            _logger.info(f'Removed directory {dir_path!r}.')
+        # self.drop_dir(dir_id)
+        conn.execute(sql.delete(schema.Dir).where(schema.Dir.id == dir_id))
+        _logger.info(f'Removed directory {dir_path!r}.')
 
+    @hooks.spanned('pixeltable.catalog.get_view_ids', level=hooks.DEBUG)
     def get_view_ids(self, tbl_id: UUID, for_update: bool = False) -> list[UUID]:
         """Return the ids of views that directly reference the given table"""
-        with hooks.span('pixeltable.catalog.get_view_ids', level=hooks.DEBUG):
-            conn = get_runtime().conn
-            # check whether this table still exists
-            q = sql.select(sql.func.count()).select_from(schema.Table).where(self._active_tbl_clause(tbl_id=tbl_id))
-            tbl_count = conn.execute(q).scalar()
-            if tbl_count == 0:
-                raise excs.table_was_dropped(tbl_id)
-            q = (
-                sql.select(schema.Table.id)
-                .where(schema.Table.md['view_md']['base_versions'][0][0].astext == tbl_id.hex)
-                .where(self._active_tbl_clause())
-            )
-            if for_update:
-                q = q.with_for_update()
-            result = [r[0] for r in conn.execute(q).all()]
-            return result
+        conn = get_runtime().conn
+        # check whether this table still exists
+        q = sql.select(sql.func.count()).select_from(schema.Table).where(self._active_tbl_clause(tbl_id=tbl_id))
+        tbl_count = conn.execute(q).scalar()
+        if tbl_count == 0:
+            raise excs.table_was_dropped(tbl_id)
+        q = (
+            sql.select(schema.Table.id)
+            .where(schema.Table.md['view_md']['base_versions'][0][0].astext == tbl_id.hex)
+            .where(self._active_tbl_clause())
+        )
+        if for_update:
+            q = q.with_for_update()
+        result = [r[0] for r in conn.execute(q).all()]
+        return result
 
     def get_tbl_version(self, key: TableVersionKey, *, validate_initialized: bool = False) -> TableVersion | None:
         """
@@ -2552,6 +2548,7 @@ class Catalog(CatalogBase):
 
         return TableVersionMd(tbl_md, version_md, schema_version_md)
 
+    @hooks.spanned('pixeltable.catalog.write_tbl_md')
     def write_tbl_md(
         self,
         tbl_id: UUID,
@@ -2574,109 +2571,106 @@ class Catalog(CatalogBase):
 
         If inserting `version_md` or `schema_version_md` would be a primary key violation, an exception will be raised.
         """
-        with hooks.span('pixeltable.catalog.write_tbl_md'):
-            assert self._in_write_xact
-            assert version_md is None or version_md.created_at > 0.0
-            assert pending_ops is None or len(pending_ops) > 0
-            assert pending_ops is None or tbl_md is not None  # if we write pending ops, we must also write new tbl_md
-            session = get_runtime().session
+        assert self._in_write_xact
+        assert version_md is None or version_md.created_at > 0.0
+        assert pending_ops is None or len(pending_ops) > 0
+        assert pending_ops is None or tbl_md is not None  # if we write pending ops, we must also write new tbl_md
+        session = get_runtime().session
 
-            # Construct and insert or update table record if requested.
-            if tbl_md is not None:
-                assert tbl_md.tbl_id == str(tbl_id)
-                if version_md is not None:
-                    assert tbl_md.current_version == version_md.version
-                    assert tbl_md.current_schema_version == version_md.schema_version
-                if schema_version_md is not None:
-                    assert tbl_md.current_schema_version == schema_version_md.schema_version
-                    # Validate that the columns in schema_version_md are consistent with tbl_md.
-                    sch_col_ids = set(schema_version_md.columns.keys())
-                    for tbl_col_id, tbl_col_md in tbl_md.column_md.items():
-                        if tbl_col_md.is_visible_in_version(tbl_md.current_schema_version):
-                            assert tbl_col_id in sch_col_ids, (tbl_md.tbl_id, tbl_col_id)
-                            sch_col_ids.remove(tbl_col_id)
-                    assert len(sch_col_ids) == 0, (tbl_md.tbl_id, sch_col_ids)
-                if pending_ops is not None:
-                    assert tbl_md.pending_stmt is not None
-                    assert all(op.tbl_id == str(tbl_id) for op in pending_ops)
-                    assert all(op.op_sn == i for i, op in enumerate(pending_ops))
-                    assert all(op.num_ops == len(pending_ops) for op in pending_ops)
-                    tbl_md.tbl_state = schema.TableState.ROLLFORWARD
-                    self._roll_forward_ids.add(tbl_id)
-
-                if dir_id is not None:
-                    # We are inserting a record while creating a new table.
-                    tbl_record = schema.Table(
-                        id=tbl_id, dir_id=dir_id, md=dataclasses.asdict(tbl_md, dict_factory=schema.md_dict_factory)
-                    )
-                    session.add(tbl_record)
-                else:
-                    # Update the existing table record.
-                    values: dict[Any, Any] = {
-                        schema.Table.md: dataclasses.asdict(tbl_md, dict_factory=schema.md_dict_factory)
-                    }
-                    if remove_from_dir:
-                        values.update({schema.Table.dir_id: None})
-                    result = session.execute(
-                        sql.update(schema.Table.__table__).values(values).where(schema.Table.id == tbl_id)
-                    )
-                    assert isinstance(result, sql.CursorResult)
-                    assert result.rowcount == 1, result.rowcount
-
-            # Construct and insert new table version record if requested.
+        # Construct and insert or update table record if requested.
+        if tbl_md is not None:
+            assert tbl_md.tbl_id == str(tbl_id)
             if version_md is not None:
-                assert version_md.tbl_id == str(tbl_id)
-                if schema_version_md is not None:
-                    assert version_md.schema_version == schema_version_md.schema_version
-                version_rows = (
-                    session.query(schema.TableVersion)
-                    .filter(schema.TableVersion.tbl_id == tbl_id, schema.TableVersion.version == version_md.version)
-                    .all()
-                )
-                if len(version_rows) == 0:
-                    # It's a new table version; insert a new record in the DB for it.
-                    tbl_version_record = schema.TableVersion(
-                        tbl_id=tbl_id, version=version_md.version, md=dataclasses.asdict(version_md)
-                    )
-                    session.add(tbl_version_record)
-                else:
-                    # This table version already exists; update it.
-                    assert len(version_rows) == 1  # must be unique
-                    version_record = version_rows[0]
-                    # Validate that the only field that can change is 'additional_md'.
-                    assert version_record.md == dataclasses.asdict(
-                        dataclasses.replace(version_md, additional_md=version_record.md['additional_md'])
-                    ), (
-                        'Table version already exists in store. Expected no change outside of additional_md, '
-                        f'but stored version md is {version_record.md} and new one is {version_md}'
-                    )
-                    result = session.execute(
-                        sql.update(schema.TableVersion.__table__)
-                        .values({schema.TableVersion.md: dataclasses.asdict(version_md)})
-                        .where(schema.TableVersion.tbl_id == tbl_id, schema.TableVersion.version == version_md.version)
-                    )
-                    assert isinstance(result, sql.CursorResult)
-                    assert result.rowcount == 1, result.rowcount
-
-            # Construct and insert a new schema version record if requested.
+                assert tbl_md.current_version == version_md.version
+                assert tbl_md.current_schema_version == version_md.schema_version
             if schema_version_md is not None:
-                assert schema_version_md.tbl_id == str(tbl_id)
-                schema_version_record = schema.TableSchemaVersion(
-                    tbl_id=tbl_id,
-                    schema_version=schema_version_md.schema_version,
-                    md=dataclasses.asdict(schema_version_md),
-                )
-                session.add(schema_version_record)
-
-            # make sure we don't have any pending ops
-            assert session.query(schema.PendingTableOp).filter(schema.PendingTableOp.tbl_id == tbl_id).count() == 0
-
+                assert tbl_md.current_schema_version == schema_version_md.schema_version
+                # Validate that the columns in schema_version_md are consistent with tbl_md.
+                sch_col_ids = set(schema_version_md.columns.keys())
+                for tbl_col_id, tbl_col_md in tbl_md.column_md.items():
+                    if tbl_col_md.is_visible_in_version(tbl_md.current_schema_version):
+                        assert tbl_col_id in sch_col_ids, (tbl_md.tbl_id, tbl_col_id)
+                        sch_col_ids.remove(tbl_col_id)
+                assert len(sch_col_ids) == 0, (tbl_md.tbl_id, sch_col_ids)
             if pending_ops is not None:
-                for op in pending_ops:
-                    op_record = schema.PendingTableOp(tbl_id=tbl_id, op_sn=op.op_sn, op=op.to_dict())
-                    session.add(op_record)
+                assert tbl_md.pending_stmt is not None
+                assert all(op.tbl_id == str(tbl_id) for op in pending_ops)
+                assert all(op.op_sn == i for i, op in enumerate(pending_ops))
+                assert all(op.num_ops == len(pending_ops) for op in pending_ops)
+                tbl_md.tbl_state = schema.TableState.ROLLFORWARD
+                self._roll_forward_ids.add(tbl_id)
 
-            session.flush()  # Inform SQLAlchemy that we want to write these changes to the DB.
+            if dir_id is not None:
+                # We are inserting a record while creating a new table.
+                tbl_record = schema.Table(
+                    id=tbl_id, dir_id=dir_id, md=dataclasses.asdict(tbl_md, dict_factory=schema.md_dict_factory)
+                )
+                session.add(tbl_record)
+            else:
+                # Update the existing table record.
+                values: dict[Any, Any] = {
+                    schema.Table.md: dataclasses.asdict(tbl_md, dict_factory=schema.md_dict_factory)
+                }
+                if remove_from_dir:
+                    values.update({schema.Table.dir_id: None})
+                result = session.execute(
+                    sql.update(schema.Table.__table__).values(values).where(schema.Table.id == tbl_id)
+                )
+                assert isinstance(result, sql.CursorResult)
+                assert result.rowcount == 1, result.rowcount
+
+        # Construct and insert new table version record if requested.
+        if version_md is not None:
+            assert version_md.tbl_id == str(tbl_id)
+            if schema_version_md is not None:
+                assert version_md.schema_version == schema_version_md.schema_version
+            version_rows = (
+                session.query(schema.TableVersion)
+                .filter(schema.TableVersion.tbl_id == tbl_id, schema.TableVersion.version == version_md.version)
+                .all()
+            )
+            if len(version_rows) == 0:
+                # It's a new table version; insert a new record in the DB for it.
+                tbl_version_record = schema.TableVersion(
+                    tbl_id=tbl_id, version=version_md.version, md=dataclasses.asdict(version_md)
+                )
+                session.add(tbl_version_record)
+            else:
+                # This table version already exists; update it.
+                assert len(version_rows) == 1  # must be unique
+                version_record = version_rows[0]
+                # Validate that the only field that can change is 'additional_md'.
+                assert version_record.md == dataclasses.asdict(
+                    dataclasses.replace(version_md, additional_md=version_record.md['additional_md'])
+                ), (
+                    'Table version already exists in store. Expected no change outside of additional_md, '
+                    f'but stored version md is {version_record.md} and new one is {version_md}'
+                )
+                result = session.execute(
+                    sql.update(schema.TableVersion.__table__)
+                    .values({schema.TableVersion.md: dataclasses.asdict(version_md)})
+                    .where(schema.TableVersion.tbl_id == tbl_id, schema.TableVersion.version == version_md.version)
+                )
+                assert isinstance(result, sql.CursorResult)
+                assert result.rowcount == 1, result.rowcount
+
+        # Construct and insert a new schema version record if requested.
+        if schema_version_md is not None:
+            assert schema_version_md.tbl_id == str(tbl_id)
+            schema_version_record = schema.TableSchemaVersion(
+                tbl_id=tbl_id, schema_version=schema_version_md.schema_version, md=dataclasses.asdict(schema_version_md)
+            )
+            session.add(schema_version_record)
+
+        # make sure we don't have any pending ops
+        assert session.query(schema.PendingTableOp).filter(schema.PendingTableOp.tbl_id == tbl_id).count() == 0
+
+        if pending_ops is not None:
+            for op in pending_ops:
+                op_record = schema.PendingTableOp(tbl_id=tbl_id, op_sn=op.op_sn, op=op.to_dict())
+                session.add(op_record)
+
+        session.flush()  # Inform SQLAlchemy that we want to write these changes to the DB.
 
     def delete_current_tbl_version_md(self, tbl_id: UUID) -> None:
         """Removes 'current_version' from stored metadata for table and resets the table to current_version - 1"""
@@ -2741,23 +2735,21 @@ class Catalog(CatalogBase):
         res = conn.execute(stmt)
         assert res.rowcount == 1, res.rowcount
 
+    @hooks.spanned('pixeltable.catalog.delete_tbl_md')
     def delete_tbl_md(self, tbl_id: UUID) -> None:
         """
         Deletes all table metadata from the store for the given table UUID.
         """
-        with hooks.span('pixeltable.catalog.delete_tbl_md'):
-            conn = get_runtime().conn
-            _logger.info(f'delete_tbl_md({tbl_id})')
-            status = conn.execute(
-                sql.delete(schema.TableSchemaVersion).where(schema.TableSchemaVersion.tbl_id == tbl_id)
-            )
-            assert status.rowcount > 0
-            status = conn.execute(sql.delete(schema.TableVersion).where(schema.TableVersion.tbl_id == tbl_id))
-            assert status.rowcount > 0
-            _ = conn.execute(sql.delete(schema.PendingTableOp).where(schema.PendingTableOp.tbl_id == tbl_id))
-            self._clear_tv_cache(TableVersionKey(tbl_id, None))
-            status = conn.execute(sql.delete(schema.Table).where(schema.Table.id == tbl_id))
-            assert status.rowcount == 1, status.rowcount
+        conn = get_runtime().conn
+        _logger.info(f'delete_tbl_md({tbl_id})')
+        status = conn.execute(sql.delete(schema.TableSchemaVersion).where(schema.TableSchemaVersion.tbl_id == tbl_id))
+        assert status.rowcount > 0
+        status = conn.execute(sql.delete(schema.TableVersion).where(schema.TableVersion.tbl_id == tbl_id))
+        assert status.rowcount > 0
+        _ = conn.execute(sql.delete(schema.PendingTableOp).where(schema.PendingTableOp.tbl_id == tbl_id))
+        self._clear_tv_cache(TableVersionKey(tbl_id, None))
+        status = conn.execute(sql.delete(schema.Table).where(schema.Table.id == tbl_id))
+        assert status.rowcount == 1, status.rowcount
 
     def read_md_for_export(self, tbl: LocalTable) -> list[TableVersionMd]:
         """
@@ -2788,82 +2780,82 @@ class Catalog(CatalogBase):
 
         return md
 
+    @hooks.spanned('pixeltable.catalog.load_tbl_version')
     def _load_tbl_version(self, key: TableVersionKey, *, check_pending_ops: bool = True) -> TableVersion:
         """Creates TableVersion instance from stored metadata and registers it in _tbl_versions."""
-        with hooks.span('pixeltable.catalog.load_tbl_version'):
-            tv_md = self.load_tbl_md(key)
-            tbl_md = tv_md.tbl_md
-            version_md = tv_md.version_md
-            schema_version_md = tv_md.schema_version_md
-            view_md = tbl_md.view_md
+        tv_md = self.load_tbl_md(key)
+        tbl_md = tv_md.tbl_md
+        version_md = tv_md.version_md
+        schema_version_md = tv_md.schema_version_md
+        view_md = tbl_md.view_md
 
-            conn = get_runtime().conn
+        conn = get_runtime().conn
 
-            if check_pending_ops:
-                # if we care about pending ops, we also care whether the table is in the process of getting dropped
-                if tbl_md.pending_stmt == schema.TableStatement.DROP_TABLE:
-                    raise excs.table_was_dropped(key.tbl_id)
+        if check_pending_ops:
+            # if we care about pending ops, we also care whether the table is in the process of getting dropped
+            if tbl_md.pending_stmt == schema.TableStatement.DROP_TABLE:
+                raise excs.table_was_dropped(key.tbl_id)
 
-                pending_ops_q = (
-                    sql.select(sql.func.count())
-                    .select_from(schema.Table)
-                    .join(schema.PendingTableOp)
-                    .where(schema.PendingTableOp.tbl_id == key.tbl_id)
-                    .where(schema.Table.id == key.tbl_id)
+            pending_ops_q = (
+                sql.select(sql.func.count())
+                .select_from(schema.Table)
+                .join(schema.PendingTableOp)
+                .where(schema.PendingTableOp.tbl_id == key.tbl_id)
+                .where(schema.Table.id == key.tbl_id)
+            )
+            if key.effective_version is not None:
+                # we only care about pending ops if the requested version is the current version
+                pending_ops_q = pending_ops_q.where(
+                    sql.text(f"({schema.Table.__table__}.md->>'current_version')::int = {key.effective_version}")
                 )
-                if key.effective_version is not None:
-                    # we only care about pending ops if the requested version is the current version
-                    pending_ops_q = pending_ops_q.where(
-                        sql.text(f"({schema.Table.__table__}.md->>'current_version')::int = {key.effective_version}")
-                    )
-                has_pending_ops = conn.execute(pending_ops_q).scalar() > 0
-                if has_pending_ops:
-                    raise PendingTableOpsError(key.tbl_id)
+            has_pending_ops = conn.execute(pending_ops_q).scalar() > 0
+            if has_pending_ops:
+                raise PendingTableOpsError(key.tbl_id)
 
-            # load mutable view ids for mutable TableVersions
-            mutable_view_ids: list[UUID] = []
-            if key.effective_version is None:
-                q = (
-                    sql.select(schema.Table.id)
-                    .where(schema.Table.md['view_md']['base_versions'][0][0].astext == key.tbl_id.hex)
-                    .where(schema.Table.md['view_md']['base_versions'][0][1].astext == None)
+        # load mutable view ids for mutable TableVersions
+        mutable_view_ids: list[UUID] = []
+        if key.effective_version is None:
+            q = (
+                sql.select(schema.Table.id)
+                .where(schema.Table.md['view_md']['base_versions'][0][0].astext == key.tbl_id.hex)
+                .where(schema.Table.md['view_md']['base_versions'][0][1].astext == None)
+            )
+            mutable_view_ids = [r[0] for r in conn.execute(q).all()]
+
+        mutable_views = [TableVersionHandle(TableVersionKey(id, None)) for id in mutable_view_ids]
+
+        tbl_version: TableVersion
+        if view_md is None:
+            # this is a base table
+            tbl_version = TableVersion(key, tbl_md, version_md, schema_version_md, mutable_views)
+        else:
+            assert len(view_md.base_versions) > 0  # a view needs to have a base
+            assert (
+                not tv_md.is_pure_snapshot
+            )  # a pure snapshot doesn't have a physical table backing it, no point in loading it
+
+            base: TableVersionHandle
+            base_path: TableVersionPath | None = None  # needed for live view
+            if view_md.is_snapshot:
+                base = TableVersionHandle(
+                    TableVersionKey(UUID(view_md.base_versions[0][0]), view_md.base_versions[0][1])
                 )
-                mutable_view_ids = [r[0] for r in conn.execute(q).all()]
-
-            mutable_views = [TableVersionHandle(TableVersionKey(id, None)) for id in mutable_view_ids]
-
-            tbl_version: TableVersion
-            if view_md is None:
-                # this is a base table
-                tbl_version = TableVersion(key, tbl_md, version_md, schema_version_md, mutable_views)
             else:
-                assert len(view_md.base_versions) > 0  # a view needs to have a base
-                assert (
-                    not tv_md.is_pure_snapshot
-                )  # a pure snapshot doesn't have a physical table backing it, no point in loading it
+                base_path = TableVersionPath.from_schema_path(tbl_md.view_md.base_versions)
+                base = base_path.tbl_version
 
-                base: TableVersionHandle
-                base_path: TableVersionPath | None = None  # needed for live view
-                if view_md.is_snapshot:
-                    base = TableVersionHandle(
-                        TableVersionKey(UUID(view_md.base_versions[0][0]), view_md.base_versions[0][1])
-                    )
-                else:
-                    base_path = TableVersionPath.from_schema_path(tbl_md.view_md.base_versions)
-                    base = base_path.tbl_version
+            tbl_version = TableVersion(
+                key, tbl_md, version_md, schema_version_md, mutable_views, base_path=base_path, base=base
+            )
 
-                tbl_version = TableVersion(
-                    key, tbl_md, version_md, schema_version_md, mutable_views, base_path=base_path, base=base
-                )
-
-            # register the instance before init()
-            self._tbl_versions[key] = tbl_version
-            # register this instance as modified, so that it gets purged if the transaction fails, it may not be
-            # fully initialized
-            self.mark_modified_tv(tbl_version.handle)
-            fault_injection.process_fault(FaultLocation.CATALOG_LOAD_TBL_VERSION_BEFORE_INIT)
-            tbl_version.init()
-            return tbl_version
+        # register the instance before init()
+        self._tbl_versions[key] = tbl_version
+        # register this instance as modified, so that it gets purged if the transaction fails, it may not be
+        # fully initialized
+        self.mark_modified_tv(tbl_version.handle)
+        fault_injection.process_fault(FaultLocation.CATALOG_LOAD_TBL_VERSION_BEFORE_INIT)
+        tbl_version.init()
+        return tbl_version
 
     def _init_store(self) -> None:
         """One-time initialization of the stored catalog. Idempotent."""
