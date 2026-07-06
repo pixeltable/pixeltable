@@ -11,7 +11,7 @@ import dataclasses
 import logging
 import os
 import threading
-from typing import Any
+from typing import Any, Literal
 
 from opentelemetry import metrics as otel_metrics, trace
 from opentelemetry.trace import ProxyTracerProvider
@@ -45,6 +45,7 @@ def init(
     protocol: str | None = None,
     service_name: str | None = None,
     headers: str | None = None,
+    span_level: Literal['info', 'debug', 'trace'] | None = None,
     metrics: bool | None = None,
     logs: bool | None = None,
     tracer_provider: Any = None,
@@ -67,6 +68,8 @@ def init(
             takes precedence.
         headers: OTLP headers as comma-separated `key=value` pairs. `OTEL_EXPORTER_OTLP_HEADERS` takes
             precedence.
+        span_level: span emission threshold: `info` (default; operation-level spans only), `debug`
+            (adds per-row and per-UDF spans), or `trace`.
         metrics: force metric export on/off (by default metrics are exported only when an OTLP endpoint
             is configured).
         logs: force log export on/off (same default as `metrics`).
@@ -90,6 +93,7 @@ def init(
             protocol=protocol,
             service_name=service_name,
             headers=headers,
+            span_level=span_level,
             metrics=metrics,
             logs=logs,
             tracer_provider=tracer_provider,
@@ -104,18 +108,17 @@ def _setup(
     protocol: str | None,
     service_name: str | None,
     headers: str | None,
+    span_level: str | None,
     metrics: bool | None,
     logs: bool | None,
     tracer_provider: Any,
     meter_provider: Any,
 ) -> None:
     """Provider setup proper; runs once, under _setup_lock held by init()."""
-    level_name = (config.get_string_value('span_level', section='otel') or 'info').lower()
-    if level_name not in _SPAN_LEVELS:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION,
-            f"Invalid value for 'otel.span_level': {level_name!r} (expected 'info', 'debug', or 'trace')",
-        )
+    if span_level is None:
+        span_level = config.get_string_value('span_level', section='otel') or 'info'
+    # applied by instrument() below; validate now, before the set-once providers are mutated
+    _resolve_span_level(span_level)
 
     cfg_endpoint = endpoint if endpoint is not None else config.get_string_value('endpoint', section='otel')
     cfg_protocol = protocol if protocol is not None else config.get_string_value('protocol', section='otel')
@@ -199,13 +202,22 @@ def _setup(
     _state.tracer_provider = tp
     _state.meter_provider = mp
     _state.logger_provider = logger_provider
-    hooks.set_span_level(_SPAN_LEVELS[level_name])
 
     from . import PixeltableInstrumentor
 
-    PixeltableInstrumentor().instrument(tracer_provider=tp, meter_provider=mp)
+    PixeltableInstrumentor().instrument(tracer_provider=tp, meter_provider=mp, span_level=span_level)
     _state.initialized = True
     _logger.info('OpenTelemetry instrumentation enabled')
+
+
+def _resolve_span_level(span_level: str) -> int:
+    level_name = span_level.lower()
+    if level_name not in _SPAN_LEVELS:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f"Invalid value for 'span_level': {span_level!r} (expected 'info', 'debug', or 'trace')",
+        )
+    return _SPAN_LEVELS[level_name]
 
 
 def _use_grpc(cfg_protocol: str | None) -> bool:
