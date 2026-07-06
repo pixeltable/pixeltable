@@ -192,10 +192,14 @@ class FileCache:
             return sum(e.tbl_id == tbl_id for e in self.cache.values())
 
     def clear(self, tbl_id: UUID | None = None) -> None:
-        """
-        For testing purposes: allow resetting capacity and stats.
+        """Remove cache entries.
+
+        Removes all entries from the cache if no tbl_id is specified.
         """
         with self._lock:
+            self.new_redownload_witnessed = False
+            self.evicted_working_set_keys.clear()
+
             if tbl_id is None:
                 # remove every cache file on disk, not just the entries this instance tracks: another FileCache
                 # instance or process may have written files we never adopted. The lock file and any foreign
@@ -216,7 +220,6 @@ class FileCache:
                 self.num_requests, self.num_hits, self.num_evictions = 0, 0, 0
                 self.keys_retrieved.clear()
                 self.keys_evicted_after_retrieval.clear()
-                self.new_redownload_witnessed = False
                 if len(failures) > 0:
                     detail = '\n  '.join(failures)
                     raise RuntimeError(
