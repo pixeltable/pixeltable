@@ -373,7 +373,6 @@ def _serve() -> None:
         uvicorn.run(app, host=daemon_host or '0.0.0.0', port=daemon_port or 8000, log_level=log_level)
         return
 
-
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(('127.0.0.1', 0))

@@ -10,7 +10,9 @@ from .operation_types import PixeltableStoreOperationType
 
 
 class GetBucketCredentialsRequest(BaseModel):
-    operation_type: Literal[PixeltableStoreOperationType.GET_BUCKET_CREDENTIALS] = PixeltableStoreOperationType.GET_BUCKET_CREDENTIALS
+    operation_type: Literal[PixeltableStoreOperationType.GET_BUCKET_CREDENTIALS] = (
+        PixeltableStoreOperationType.GET_BUCKET_CREDENTIALS
+    )
     org_slug: str
     db_slug: str
     bucket_name: str
@@ -30,7 +32,9 @@ class GetBucketCredentialsResponse(BaseModel):
 
 
 class GetPresignedUrlRequest(BaseModel):
-    operation_type: Literal[PixeltableStoreOperationType.GET_PRESIGNED_URL] = PixeltableStoreOperationType.GET_PRESIGNED_URL
+    operation_type: Literal[PixeltableStoreOperationType.GET_PRESIGNED_URL] = (
+        PixeltableStoreOperationType.GET_PRESIGNED_URL
+    )
     org_slug: str
     db_slug: str
     bucket_name: str

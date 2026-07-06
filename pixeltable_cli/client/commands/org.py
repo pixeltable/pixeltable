@@ -4,7 +4,7 @@ import importlib
 import sys
 
 ORG_SUBCOMMANDS: dict[str, tuple[str, str]] = {
-    'list': ('list_orgs', 'list organizations accessible to the current API key'),
+    'list': ('list_orgs', 'list organizations accessible to the current API key')
 }
 
 
