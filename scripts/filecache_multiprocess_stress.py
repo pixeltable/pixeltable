@@ -178,10 +178,7 @@ def main() -> int:
 
         ctx = mp.get_context('spawn')  # fresh interpreters; a fork would inherit live DB connections
         processes = [
-            ctx.Process(
-                target=_worker,
-                args=(worker_id, port, args.images, args.rows, args.rounds, args.threads),
-            )
+            ctx.Process(target=_worker, args=(worker_id, port, args.images, args.rows, args.rounds, args.threads))
             for worker_id in range(args.procs)
         ]
         for proc in processes:
@@ -194,7 +191,9 @@ def main() -> int:
         cache_bytes = sum(f.stat().st_size for f in cache_files)
         capacity_kib = args.cache_gb * (1 << 30) / 1024
         print(f'worker exit codes: {exit_codes}')
-        print(f'file cache after run: {len(cache_files)} files, {cache_bytes / 1024:.0f} KiB (capacity ~{capacity_kib:.0f} KiB)')
+        print(
+            f'file cache after run: {len(cache_files)} files, {cache_bytes / 1024:.0f} KiB (capacity ~{capacity_kib:.0f} KiB)'
+        )
 
         # exit 1 == a real (non-capacity) failure in some thread; exit 2 == only the acceptable out-of-capacity
         # contention signal was hit; exit 0 == every thread completed cleanly (no contention reached)

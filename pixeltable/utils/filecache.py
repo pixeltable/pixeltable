@@ -273,7 +273,7 @@ class FileCache:
                     # renewing the lease must be atomic w.r.t. eviction's check-and-remove; os.utime also
                     # validates existence in one syscall, raising FileNotFoundError if already evicted
                     os.utime(str(path))
-                    entry.last_used = datetime.fromtimestamp(os.stat(str(path)).st_mtime)
+                    entry.last_used = datetime.fromtimestamp(os.stat(str(path)).st_mtime, tz=timezone.utc)
             except FileNotFoundError:
                 # reconcile the index and report a miss
                 del self.cache[key]
@@ -301,7 +301,9 @@ class FileCache:
                         # download); renew the lease atomically w.r.t. eviction. os.utime raises FileNotFoundError
                         # if the file was removed since we created the self.cache entry.
                         os.utime(str(existing.path))
-                        existing.last_used = datetime.fromtimestamp(os.stat(str(existing.path)).st_mtime)
+                        existing.last_used = datetime.fromtimestamp(
+                            os.stat(str(existing.path)).st_mtime, tz=timezone.utc
+                        )
                     # discard the redundant download and return the existing file
                     self._remove_file(path)
                     self.cache.move_to_end(key, last=True)
@@ -321,7 +323,12 @@ class FileCache:
                 self.new_redownload_witnessed = True
             self.keys_retrieved.add(key)
             entry = CacheEntry(
-                key, tbl_id, col_id, file_info.st_size, datetime.fromtimestamp(file_info.st_mtime), path.suffix
+                key,
+                tbl_id,
+                col_id,
+                file_info.st_size,
+                datetime.fromtimestamp(file_info.st_mtime, tz=timezone.utc),
+                path.suffix,
             )
             new_path = entry.path
             # os.replace is atomic and overwrites a copy another process may have created for the same url
@@ -339,10 +346,10 @@ class FileCache:
           FILE_CACHE_FULL.
         - size == 0 (best-effort shrink) doesn't raise.
         """
-        if self.total_size + size <= self.capacity_bytes:
-            return
-
         with self._lock:
+            if self.total_size + size <= self.capacity_bytes:
+                return
+
             self._init_index()  # make sure we see the current state of the cache
             for key in list(self.cache.keys()):  # oldest-accessed first
                 if self.total_size + size <= self.capacity_bytes:
@@ -375,7 +382,7 @@ class FileCache:
                 raise excs.RequestError(
                     excs.ErrorCode.FILE_CACHE_FULL,
                     f'The file cache ({self.capacity_bytes / (1 << 30):.2f} GB) is too small for the set of media '
-                    f'files\nin concurrent use. Increase `file_cache_size_g` in {Config.get().config_file}.',
+                    f'files\nin concurrent use. Increase the `file_cache_size_g` configuration setting.',
                 )
 
     def set_capacity(self, capacity_bytes: int) -> None:
