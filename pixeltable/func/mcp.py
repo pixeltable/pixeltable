@@ -87,6 +87,18 @@ class McpFunction(Function):
     def comment(self) -> str | None:
         return self._comment
 
+    def __eq__(self, other: object) -> bool:
+        # the base compares self_path, which is always None here, so identify the function by its tool instead
+        return (
+            isinstance(other, McpFunction)
+            and self.url == other.url
+            and self.tool_name == other.tool_name
+            and self.signature == other.signature
+        )
+
+    def __hash__(self) -> int:
+        return hash((self.url, self.tool_name))
+
     async def aexec(self, *args: Any, **kwargs: Any) -> str:
         # TODO: open one session per McpFunction rather than one per call
         Env.get().require_package('mcp')
@@ -94,7 +106,6 @@ class McpFunction(Function):
         from mcp.client.streamable_http import streamablehttp_client
 
         error_msg: str | None = None
-        result: str | None = None
         async with (
             streamablehttp_client(self.url) as (read_stream, write_stream, _),
             mcp.ClientSession(read_stream, write_stream) as session,
@@ -127,7 +138,7 @@ class McpFunction(Function):
                     detail = joined_text if len(text_blocks) > 0 else str(res.content)
                     error_msg = f'MCP tool {self.tool_name!r} at {self.url} reported an error:\n{detail}'
                 elif len(res.content) > 0 and len(text_blocks) == len(res.content):
-                    result = joined_text
+                    return joined_text
                 else:
                     # TODO: support image/audio and other non-text tool responses
                     kinds = [type(item).__name__ for item in res.content]
@@ -137,10 +148,8 @@ class McpFunction(Function):
                     )
 
         # raise outside the client's async context: anyio wraps an exception thrown inside it in a TaskGroup group
-        assert result is not None or error_msg is not None
-        if error_msg is not None:
-            raise excs.Error(excs.ErrorCode.GENERIC_USER_ERROR, error_msg)
-        return result
+        assert error_msg is not None
+        raise excs.Error(excs.ErrorCode.GENERIC_USER_ERROR, error_msg)
 
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         from pixeltable.runtime import get_runtime

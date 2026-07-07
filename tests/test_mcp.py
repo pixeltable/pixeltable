@@ -1,5 +1,6 @@
 import logging
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -91,13 +92,26 @@ class TestMcp:
         assert res[0]['tool_calls'] == {'pixelmultiple': [str((7 + 22) * 9)], 'pixeldict': None}
 
 
+def _wait_for_port(port: int, timeout: float = 30.0) -> None:
+    # Poll until the server accepts a connection, so startup waits exactly as long as needed instead of a fixed
+    # sleep that is both slower than necessary and flaky on a contended runner.
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection(('localhost', port), timeout=1.0):
+                return
+        except OSError:
+            time.sleep(0.1)
+    raise RuntimeError(f'MCP server on port {port} did not start within {timeout}s')
+
+
 @pytest.fixture(scope='session')
 def init_mcp_server(init_env: None) -> Iterator[None]:
     skip_test_if_not_installed('mcp')
 
     _logger.info('Starting MCP server pytest fixture.')
     mcp_process = subprocess.Popen([sys.executable, 'tests/example_mcp_server.py'])
-    time.sleep(5)  # Wait for the MCP server to start
+    _wait_for_port(8000)
     yield
 
     _logger.info('Terminating MCP server pytest fixture.')
@@ -108,9 +122,10 @@ def init_mcp_server(init_env: None) -> Iterator[None]:
 @contextmanager
 def _mcp_server_variant(variant: str) -> Iterator[None]:
     # Run the example server on a dedicated port so its lifecycle is independent of the session-scoped server.
-    env = {**os.environ, 'PIXELTABLE_MCP_PORT': '8001', 'PIXELTABLE_MCP_VARIANT': variant}
+    port = 8001
+    env = {**os.environ, 'PIXELTABLE_MCP_PORT': str(port), 'PIXELTABLE_MCP_VARIANT': variant}
     process = subprocess.Popen([sys.executable, 'tests/example_mcp_server.py'], env=env)
-    time.sleep(5)  # Wait for the MCP server to start
+    _wait_for_port(port)
     try:
         yield
     finally:
