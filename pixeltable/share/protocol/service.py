@@ -92,6 +92,7 @@ class ServiceRecord(BaseModel):
     endpoint: Optional[str] = None
     error: Optional[str] = None
     created_at: float
+    service_config: Optional[str] = None  # JSON-serialized ServiceConfig from latest run
 
 
 class CreateServiceRequest(BaseModel):
@@ -105,6 +106,10 @@ class CreateServiceRequest(BaseModel):
     cpu: float = 0.5
     memory_mb: int = 512
     disk_gb: int = 10
+    # JSON-serialized ServiceConfig (routes, paths, inputs, outputs, query refs).
+    # Required: pxt service create fails if the named [[service]] block is absent
+    # from pixeltable.toml. The server writes this directly into the pod ConfigMap.
+    service_config: Optional[str] = None
 
 
 class CreateServiceResponse(BaseModel):
@@ -164,6 +169,9 @@ class UpdateServiceRequest(BaseModel):
     cpu: Optional[float] = None
     memory_mb: Optional[int] = None
     disk_gb: Optional[int] = None
+    # Updated JSON-serialized ServiceConfig. When set, the server replaces the
+    # pod ConfigMap with the new route config and triggers a rolling restart.
+    service_config: Optional[str] = None
 
 
 class UpdateServiceResponse(BaseModel):
@@ -246,6 +254,7 @@ class ServiceRunRecord(BaseModel):
     stopped_at: Optional[float] = None
     runtime_build_id: Optional[str] = None
     bundle_r2_path: Optional[str] = None
+    service_config: Optional[str] = None  # JSON-serialized ServiceConfig for this run
 
 
 class ListServiceRunsResponse(BaseModel):

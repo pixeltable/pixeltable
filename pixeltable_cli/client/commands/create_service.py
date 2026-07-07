@@ -9,21 +9,26 @@ from ..parser import Parser
 def run(argv: list[str]) -> None:
     parser = Parser(prog='pxt service create', description='Create a service from a table in a cloud-hosted database.')
     parser.add_argument('table_uri', help='Table URI: pxt://org:db/tables/<path>')
-    parser.add_argument('--name', required=True, help='Service name')
+    parser.add_argument('--name', required=True, help='Service name (must match a [[service]] block in pixeltable.toml)')
     parser.add_argument('--workers', type=int, default=1, help='Number of workers (default: 1)')
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
 
-    from pixeltable.service.utils import PxtUri
+    from pixeltable.catalog.path import Path as PxtPath
+    from pixeltable.serving._config import lookup_service_config
     from pixeltable.share.deploy_client import service_create
 
     try:
-        p = PxtUri(args.table_uri)
-        if p.db is None or not p.path or not p.path.startswith('tables/'):
+        p = PxtPath.parse(args.table_uri, allow_empty_path=True)
+        if p.org is None or p.db is None or not p.path or not p.path.startswith('tables/'):
             parser.error('table_uri must be pxt://org:db/tables/<path>')
-        table_path = p.path[len('tables/') :].replace('/', '.')
+        table_path = p.path[len('tables/'):]
         if not table_path:
             parser.error('table_uri must include a table path, e.g. pxt://org:db/tables/my_table')
+
+        service_cfg = lookup_service_config(args.name)
+        service_config_json = service_cfg.model_dump_json()
+
         service_create(
             p.org,
             p.db,
@@ -31,6 +36,7 @@ def run(argv: list[str]) -> None:
             table_path,
             workers_min=args.workers,
             workers_max=args.workers,
+            service_config=service_config_json,
             json_output=args.json_output,
         )
     except Exception as e:

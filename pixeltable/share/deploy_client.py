@@ -32,6 +32,7 @@ from pixeltable.share.protocol.service import (
     ListServicesRequest,
     StartServiceRequest,
     StopServiceRequest,
+    UpdateServiceRequest,
 )
 
 PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.pixeltable.com')
@@ -284,6 +285,7 @@ def service_create(
     table_path: str,
     workers_min: int = 1,
     workers_max: int = 1,
+    service_config: str | None = None,
     json_output: bool = False,
 ) -> dict[str, Any]:
     resp = _post(
@@ -293,6 +295,34 @@ def service_create(
             service_name=service_name,
             table_path=table_path,
             workers_min=workers_min,
+            service_config=service_config,
+        )
+    )
+    svc = resp['service']
+    if json_output:
+        import json
+
+        print(json.dumps(svc))
+    else:
+        _print_service(svc)
+    return svc
+
+
+def service_update(
+    org_slug: str,
+    db_slug: str,
+    service_name: str,
+    workers_min: int | None = None,
+    service_config: str | None = None,
+    json_output: bool = False,
+) -> dict[str, Any]:
+    resp = _post(
+        UpdateServiceRequest(
+            org_slug=org_slug,
+            db_slug=db_slug,
+            service_name=service_name,
+            workers_min=workers_min,
+            service_config=service_config,
         )
     )
     svc = resp['service']
