@@ -4,7 +4,6 @@ from uuid import UUID
 
 import sqlalchemy as sql
 
-from pixeltable import exceptions as excs
 from pixeltable.metadata import register_converter
 from pixeltable.metadata.schema import Table, TableSchemaVersion
 
@@ -13,67 +12,15 @@ from pixeltable.metadata.schema import Table, TableSchemaVersion
 def _(conn: sql.Connection) -> None:
     """
     Changes in version 55:
-    - A function that can only be serialized by pickling its body (an Expr.apply() result or a locally-defined
-      @pxt.udf, ie a CallableFunction without a fully-qualified path) can no longer be persisted into catalog
-      metadata, because a pickled body may not load after a Python version change. The legacy 'functions' table
-      that stored such bodies out-of-line is dropped.
+    - The legacy 'functions' table, which stored pickled UDF bodies out-of-line, is dropped.
 
-    A stored database may already contain such functions, either inline (a function dict with a 'binary' key) or
-    as a reference into the 'functions' table (a function dict with an 'id' key). These cannot be carried forward,
-    so this converter aborts if it finds any: raising rolls back the transaction and leaves the database at
-    version 54. Persisted function dicts can appear in Table.md (embedding-index init_args, view predicates and
-    iterator args) and in TableSchemaVersion.md (computed-column value_exprs).
-
-    Only each table's current schema version is scanned. Dropping an offending column (the fix the abort message
-    directs the user to) advances the schema version, and prior schema versions are immutable history that a
-    revert may reload but that the live schema no longer references.
+    Existing metadata may still reference such functions, either inline (a function dict with a 'binary' key) or
+    as a reference into the dropped 'functions' table (a function dict with an 'id' key). These are left in place
+    and load as InvalidFunction: the containing table still loads, but evaluating the affected computed column,
+    embedding index, or view raises at time of use. Persisted function dicts can appear in Table.md (embedding-index
+    init_args, view predicates and iterator args) and in TableSchemaVersion.md (computed-column value_exprs).
     """
     _strip_stored_proxy_columns(conn)
-
-    tbl_names: dict[UUID, str] = {}
-    tbl_mds: dict[UUID, dict] = {}
-    current_schema_version: dict[UUID, int] = {}
-    for row in conn.execute(sql.select(Table.id, Table.md)):
-        tbl_id, table_md = row[0], row[1]
-        tbl_names[tbl_id] = table_md.get('name') or str(tbl_id)
-        tbl_mds[tbl_id] = table_md
-        current_schema_version[tbl_id] = table_md['current_schema_version']
-
-    offending: set[str] = set()
-
-    # computed-column value_exprs live in the current schema version
-    for row in conn.execute(
-        sql.select(TableSchemaVersion.tbl_id, TableSchemaVersion.schema_version, TableSchemaVersion.md)
-    ):
-        tbl_id, schema_version, sv_md = row[0], row[1], row[2]
-        if schema_version != current_schema_version.get(tbl_id):
-            continue
-        for schema_col in sv_md['columns'].values():
-            if _contains_pickled_fn(schema_col.get('value_expr')):
-                col_name = schema_col.get('name')
-                offending.add(f'{tbl_names[tbl_id]}.{col_name}' if col_name is not None else tbl_names[tbl_id])
-
-    # embedding-index init_args, and view predicates / iterator args, live in Table.md
-    for tbl_id, table_md in tbl_mds.items():
-        for idx_md in (table_md.get('index_md') or {}).values():
-            if _contains_pickled_fn(idx_md):
-                offending.add(f'{tbl_names[tbl_id]}: embedding index {idx_md.get("name")!r}')
-        if _contains_pickled_fn(table_md.get('view_md')):
-            offending.add(f'{tbl_names[tbl_id]}: view definition')
-
-    if len(offending) > 0:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION,
-            'Cannot upgrade the Pixeltable metadata: the following computed columns, view definitions, or '
-            'embedding indexes\nuse a function created with `.apply()` or defined as a local function (eg, in a '
-            'notebook):\n'
-            f'  {", ".join(sorted(offending))}\n'
-            'Such functions are stored as a pickled body that may not load after a Python version change and are '
-            'no longer supported.\nDrop those columns or indexes, or recreate them using a module-level '
-            '`@pxt.udf`, then retry the upgrade.',
-        )
-
-    # no pickled functions remain; drop the legacy out-of-line functions table
     conn.execute(sql.text('DROP TABLE IF EXISTS functions'))
 
 

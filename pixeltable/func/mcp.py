@@ -35,6 +35,7 @@ async def mcp_udfs_async(url: str) -> list['pxt.func.Function']:
 
 
 def mcp_tool_to_udf(url: str, mcp_tool: 'mcp.types.Tool') -> 'pxt.func.Function':
+    Env.get().require_package('mcp')
     return McpFunction(url, mcp_tool.name, [_signature_from_tool(mcp_tool)], mcp_tool.name, mcp_tool.description)
 
 
@@ -98,7 +99,8 @@ class McpFunction(Function):
         )
 
     def __hash__(self) -> int:
-        # coarser than __eq__ (the interface is not hashable), which is a valid hash: equal instances share a bucket
+        # we leave the signature out of this, because it's no immediately hashable (and collisions here have no perf
+        # impact)
         return hash((self.url, self.tool_name))
 
     async def aexec(self, *args: Any, **kwargs: Any) -> str:

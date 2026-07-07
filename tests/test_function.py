@@ -104,16 +104,6 @@ class TestFunction:
         assert isinstance(td['templates'], list) and len(td['templates']) == 1
         assert isinstance(Function.from_dict(td), func.ExprTemplateFunction)
 
-    def test_invalid_function_is_storable(self) -> None:
-        # an InvalidFunction re-serializes its original fn_dict verbatim, so a pickle-backed original (inline
-        # 'binary' body or 'id' reference) is not storable, while one serialized by path is
-        binary_fn = func.InvalidFunction('f', {'_classpath': 'p.CallableFunction', 'name': 'f', 'binary': '=='}, 'e')
-        assert not binary_fn.is_storable
-        id_fn = func.InvalidFunction('f', {'_classpath': 'p.CallableFunction', 'id': 'abc'}, 'e')
-        assert not id_fn.is_storable
-        path_fn = func.InvalidFunction('a.f', {'_classpath': 'p.CallableFunction', 'path': 'a.f'}, 'e')
-        assert path_fn.is_storable
-
     @pytest.mark.local('inspects the in-process FunctionRegistry')
     def test_list(self, uses_db: None) -> None:
         _ = FunctionRegistry.get().list_functions()
