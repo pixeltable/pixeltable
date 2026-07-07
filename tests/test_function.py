@@ -146,6 +146,29 @@ class TestFunction:
         data = t.select(c1=t.c1, c2=t.c2, r=f1(t.c1, t.c2)).collect()
         assert all(row['r'] == row['c1'] + row['c2'] for row in data)
 
+    def test_using_storable(self, make_catalog_path: Callable[[str], str]) -> None:
+        # .using() on a module UDF yields a storable template (its inlined expression references the function by
+        # path), so it can back a computed column; .using() on a local UDF inlines a pickled function and cannot
+        p = make_catalog_path
+        t = pxt.create_table(p('test'), {'c1': pxt.Int, 'c2': pxt.Float})
+        t.insert([{'c1': i, 'c2': i + 0.5} for i in range(10)])
+
+        from_module = self.f1.using(c=2.0, d=3.0)
+        assert from_module.is_storable
+        t.add_computed_column(from_module=from_module(t.c1, t.c2))
+        assert all(row['from_module'] == row['c1'] + row['c2'] + 5.0 for row in t.collect())
+
+        @pxt.udf(_force_stored=True)
+        def local_udf(a: int, b: float, c: float = 0.0) -> float:
+            return a + b + c
+
+        from_local = local_udf.using(c=2.0)
+        assert not from_local.is_storable
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'which was created with `\.apply\(\)` or defined as a local'
+        ):
+            t.add_computed_column(from_local=from_local(t.c1, t.c2))
+
     @staticmethod
     @pxt.udf
     def f1(a: int, b: float, c: float = 0.0, d: float = 1.0) -> float:
