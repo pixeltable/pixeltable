@@ -1700,7 +1700,13 @@ class Catalog(CatalogBase):
         # *after* the query columns, since they may depend on them, but their ids *precede* them; see above TODO).
         next_col_id = itertools.count(len(iterator.outputs) if iterator is not None else 0)
         visible_cols: dict[str, Column] = {}
-        subst_dict: dict[ModelColumnRef, exprs.ColumnRef] = {}
+        # `subst_dict` resolves model column references (in the view's own computed columns) to the columns of the
+        # view being created. `iter_subst_dict` resolves them for the iterator's arguments instead: the iterator's
+        # inputs are expressions over the base query, so they must resolve to those base(-query) expressions, not to
+        # the view's own select-list columns -- otherwise the view's iterator would reference the view itself,
+        # creating a self-referential dependency (which loops forever when the view is loaded).
+        subst_dict: dict[exprs.Expr, exprs.Expr] = {}
+        iter_subst_dict: dict[exprs.Expr, exprs.Expr] = {}
 
         if base is not None:
             # Build substitutions for the base table/query's columns.
@@ -1708,7 +1714,9 @@ class Catalog(CatalogBase):
                 # select(*): all visible columns from the base table
                 for col in base._first_tbl.columns():
                     visible_cols[col.name] = col
-                    subst_dict[ModelColumnRef(col.name)] = exprs.ColumnRef(col.column_version_md())
+                    ref = exprs.ColumnRef(col.column_version_md())
+                    subst_dict[ModelColumnRef(col.name)] = ref
+                    iter_subst_dict[ModelColumnRef(col.name)] = ref
             else:
                 # explicit select list: new columns will be created that represent the selected expressions.
                 for expr, select_name in base.select_list:
@@ -1726,18 +1734,22 @@ class Catalog(CatalogBase):
 
                     id = next(next_col_id)  # increment the `id` whether or not this column is visible to the model
                     if col_name is not None:
-                        catalog_col = Column.create(col_name, expr.col_type)
+                        catalog_col = Column.create(col_name, {'type': expr.col_type})  # type: ignore[arg-type]
                         catalog_col.id = id
                         catalog_col.tbl_handle = tbl_handle
                         visible_cols[col_name] = catalog_col
-                        subst_dict[ModelColumnRef(col_name)] = exprs.ColumnRef(catalog_col.column_version_md(), perform_validation=(media_validation == 'on_read'))
+                        subst_dict[ModelColumnRef(col_name)] = exprs.ColumnRef(
+                            catalog_col.column_version_md(), perform_validation=(media_validation == 'on_read')
+                        )
+                        # The iterator sees the underlying base-query expression, not the view's materialized column.
+                        iter_subst_dict[ModelColumnRef(col_name)] = expr
 
         # Now the iterator columns. Their ids always start at 0 (see above).
         if iterator is not None:
-            # Rebind the iterator with substitutions from the base table.
-            subst_args = [arg.substitute(subst_dict) for arg in iterator.args]
-            subst_kwargs = {k: v.substitute(subst_dict) for k, v in iterator.kwargs.items()}
-            subst_bound_args = {k: v.substitute(subst_dict) for k, v in iterator.bound_args.items()}
+            # Rebind the iterator, resolving its argument references against the base query (see `iter_subst_dict`).
+            subst_args = [arg.substitute(iter_subst_dict) for arg in iterator.args]
+            subst_kwargs = {k: v.substitute(iter_subst_dict) for k, v in iterator.kwargs.items()}
+            subst_bound_args = {k: v.substitute(iter_subst_dict) for k, v in iterator.bound_args.items()}
             iterator = func.GeneratingFunctionCall(
                 iterator.it, subst_args, subst_kwargs, subst_bound_args, iterator.outputs, iterator.validation_error
             )
@@ -1786,7 +1798,7 @@ class Catalog(CatalogBase):
             if not isinstance(idx_spec.column, ModelColumnRef):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
-                    f'Embedding index {idx_name!r} in {display_name} has an invalid column reference.'
+                    f'Embedding index {idx_name!r} in {display_name} has an invalid column reference.',
                 )
             col_name = idx_spec.column.name
             if col_name not in visible_cols:
