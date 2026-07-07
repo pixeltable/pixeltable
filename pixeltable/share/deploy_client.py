@@ -7,6 +7,7 @@ import time
 from typing import Any
 
 import requests
+from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
@@ -73,6 +74,42 @@ def _post(request: Any) -> dict[str, Any]:
 
 _PROVISIONING_POLL_INTERVAL = 5  # seconds between get_database polls
 _PROVISIONING_TIMEOUT = 600  # 10 minutes max wait
+_UPDATE_TIMEOUT = 360  # 6 minutes max wait for update/start/stop
+
+
+def _poll_db(
+    org_slug: str,
+    db_slug: str,
+    pending_states: frozenset[str],
+    timeout: float,
+    label: str,
+) -> dict[str, Any]:
+    """Poll get_database until state leaves pending_states or timeout expires.
+
+    Shows a rich spinner with elapsed time in interactive mode. Returns the
+    last-seen database dict regardless of final state.
+    """
+    db: dict[str, Any] = {}
+    deadline = time.monotonic() + timeout
+    with Progress(
+        SpinnerColumn(),
+        TextColumn('[progress.description]{task.description}'),
+        TimeElapsedColumn(),
+        transient=True,
+        redirect_stdout=False,
+        redirect_stderr=False,
+    ) as progress:
+        progress.add_task(label, total=None)
+        while time.monotonic() < deadline:
+            time.sleep(_PROVISIONING_POLL_INTERVAL)
+            try:
+                resp = _post(GetDatabaseRequest(org_slug=org_slug, db_slug=db_slug))
+                db = resp['database']
+            except Exception:
+                pass
+            if db.get('state') not in pending_states:
+                break
+    return db
 
 
 def database_create(
@@ -81,21 +118,13 @@ def database_create(
     resp = _post(CreateDatabaseRequest(org_slug=org_slug, db_slug=db_slug, location=location))
     db = resp['database']
 
-    if db.get('state') == 'PROVISIONING':
-        deadline = time.monotonic() + _PROVISIONING_TIMEOUT
-        if not json_output:
-            print(f"Database '{db_slug}' is provisioning", end='', flush=True)
-        while db.get('state') == 'PROVISIONING' and time.monotonic() < deadline:
-            time.sleep(_PROVISIONING_POLL_INTERVAL)
-            try:
-                resp2 = _post(GetDatabaseRequest(org_slug=org_slug, db_slug=db_slug))
-                db = resp2['database']
-            except Exception:
-                pass
-            if not json_output:
-                print('.', end='', flush=True)
-        if not json_output:
-            print()
+    if db.get('state') == 'PROVISIONING' and not json_output:
+        db = _poll_db(
+            org_slug, db_slug,
+            frozenset({'PROVISIONING'}),
+            _PROVISIONING_TIMEOUT,
+            f"Database '{db_slug}' is provisioning...",
+        )
 
     if json_output:
         import json as _json
@@ -163,6 +192,14 @@ def database_update(
         )
     )
     db = resp['database']
+    if db.get('state') == 'UPDATING' and not json_output:
+        db = _poll_db(
+            org_slug, db_slug,
+            frozenset({'UPDATING'}),
+            _UPDATE_TIMEOUT,
+            f"Database '{db_slug}' is updating...",
+        )
+
     if json_output:
         import json
 
