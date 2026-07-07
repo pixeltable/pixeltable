@@ -459,6 +459,7 @@ def sam3_for_segmentation(
         ...     )
         ... )
     """
+    env.Env.get().require_package('torch')
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     import torch
@@ -577,6 +578,7 @@ def sam_automatic_mask_generation(
 
         >>> tbl.add_computed_column(seg=sam_automatic_mask_generation(tbl.image))
     """
+    env.Env.get().require_package('torch')
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     from transformers import pipeline
