@@ -1,6 +1,10 @@
+import pytest
+
 import pixeltable as pxt
 
 from ..utils import get_image_files, skip_test_if_not_installed, validate_update_status
+
+pytestmark = pytest.mark.local('UDF/integration test')
 
 
 class TestYolox:

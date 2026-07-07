@@ -18,7 +18,6 @@ import pixeltable as pxt
 from pixeltable import functions as pxtf, metadata, type_system as ts
 from pixeltable.env import LOG_FMT_STR, Env
 from pixeltable.func import Batch
-from pixeltable.io.external_store import Project
 from pixeltable.iterators.base import ComponentIterator
 from tool.udfs_for_db_dump import test_array_udf, test_binary_udf, test_date_udf, test_timestamp_udf, test_uuid_udf
 
@@ -277,34 +276,6 @@ class Dumper:
         e = pxt.create_view('views.empty_view', t.where(t.c2 == 4171780))
         assert e.count() == 0
         self.__add_expr_columns(e, 'empty_view', include_expensive_functions=True)
-
-        # Add external stores
-        from pixeltable.io.external_store import MockProject
-
-        v._link_external_store(
-            MockProject.create(
-                v,
-                'project',
-                {'int_field': ts.IntType()},
-                {'str_field': ts.StringType()},
-                {'view_test_udf': 'int_field', 'c1': 'str_field'},
-            )
-        )
-        # We're just trying to test metadata here, so it's ok to link a false Label Studio project.
-        # We include a computed image column in order to ensure the creation of a stored proxy.
-        from pixeltable.io.label_studio import LabelStudioProject
-
-        col_mapping = Project.validate_columns(
-            v,
-            {'str_field': ts.StringType(), 'img_field': ts.ImageType()},
-            {},
-            {'view_function_call': 'str_field', 'base_table_image_rot': 'img_field'},
-        )
-        project = LabelStudioProject('ls_project_0', 4171780, media_import_method='file', col_mapping=col_mapping)
-        v._link_external_store(project)
-        # Sanity check that the stored proxy column did get created
-        assert len(project.stored_proxies) == 1
-        assert t.base_table_image_rot.col.handle in project.stored_proxies
 
         # Various iterators
         pxt.create_view('string_splitter', t, iterator=pxtf.string.string_splitter(t.c1, 'sentence'))

@@ -3,6 +3,7 @@ Tests for UUID type and UUID primary key functionality.
 """
 
 import uuid
+from typing import Callable
 
 import pytest
 
@@ -13,8 +14,11 @@ from tests.utils import ReloadTester, pxt_raises, validate_update_status
 
 class TestUUIDType:
     @pytest.mark.parametrize('uuid_fn, uuid_version', [(pxtf.uuid.uuid4, 4), (pxtf.uuid.uuid7, 7)])
-    def test_uuid_function(self, uuid_fn: pxt.Function, uuid_version: int, uses_db: None) -> None:
-        t = pxt.create_table('test_uuid_tbl', {'id': pxt.Int})
+    def test_uuid_function(
+        self, uuid_fn: pxt.Function, uuid_version: int, make_catalog_path: Callable[[str], str]
+    ) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('test_uuid_tbl'), {'id': pxt.Int})
         validate_update_status(t.insert([{'id': 1}, {'id': 2}, {'id': 3}]), expected_rows=3)
 
         res = t.select(uuid_col=uuid_fn()).collect()
@@ -32,7 +36,8 @@ class TestUUIDType:
         # Verify all UUIDs are unique
         assert len(set(res['uuid_col'])) == 3
 
-    def test_uuid_type(self, uses_db: None, reload_tester: ReloadTester) -> None:
+    def test_uuid_type(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
+        p = make_catalog_path
         # Test UUIDs of different versions
         test_uuids: list[uuid.UUID] = [
             uuid.uuid1(),
@@ -42,7 +47,7 @@ class TestUUIDType:
         ]
 
         # Test basic UUID column operations: insert and query
-        t = pxt.create_table('test_uuid_tbl', {'uuid_col': pxt.UUID})
+        t = pxt.create_table(p('test_uuid_tbl'), {'uuid_col': pxt.UUID})
         validate_update_status(t.insert({'uuid_col': u} for u in test_uuids), expected_rows=len(test_uuids))
 
         # Query all UUIDs
@@ -59,13 +64,13 @@ class TestUUIDType:
         # Test UUID from string conversion
         test_uuid_str = '550e8400-e29b-41d4-a716-446655440000'
         test_uuid = uuid.UUID(test_uuid_str)
-        t2 = pxt.create_table('test_uuid_from_string', {'uuid_col': pxt.UUID})
+        t2 = pxt.create_table(p('test_uuid_from_string'), {'uuid_col': pxt.UUID})
         validate_update_status(t2.insert([{'uuid_col': test_uuid_str}]), expected_rows=1)
         res = t2.select(t2.uuid_col).collect()
         assert res['uuid_col'][0] == test_uuid
 
         # Test UUID comparison operations
-        t3 = pxt.create_table('test_uuid_comparison', {'uuid_col': pxt.UUID})
+        t3 = pxt.create_table(p('test_uuid_comparison'), {'uuid_col': pxt.UUID})
         validate_update_status(t3.insert({'uuid_col': u} for u in test_uuids), expected_rows=len(test_uuids))
 
         # Test equality
@@ -84,7 +89,7 @@ class TestUUIDType:
         assert set(res['uuid_col']) == set(uuids_to_match)
 
         # Test nullable UUID columns
-        t4 = pxt.create_table('test_uuid_nullable', {'uuid_col': pxt.UUID})
+        t4 = pxt.create_table(p('test_uuid_nullable'), {'uuid_col': pxt.UUID})
         validate_update_status(t4.insert([{'uuid_col': None}]), expected_rows=1)
         validate_update_status(t4.insert([{'uuid_col': uuid.uuid4()}]), expected_rows=1)
 
@@ -93,7 +98,7 @@ class TestUUIDType:
         assert isinstance(res['uuid_col'][1], uuid.UUID)
 
         # Test required UUID columns
-        t5 = pxt.create_table('test_uuid_required', {'uuid_col': pxt.Required[pxt.UUID]})
+        t5 = pxt.create_table(p('test_uuid_required'), {'uuid_col': pxt.Required[pxt.UUID]})
         validate_update_status(t5.insert([{'uuid_col': uuid.uuid4()}]), expected_rows=1)
 
         # Should raise error for None
@@ -103,9 +108,10 @@ class TestUUIDType:
         # Verify queries work after reload
         reload_tester.run_reload_test()
 
-    def test_uuid_primary_key(self, uses_db: None, reload_tester: ReloadTester) -> None:
+    def test_uuid_primary_key(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
+        p = make_catalog_path
         # Test creating a table with a UUID primary key using computed column
-        t = pxt.create_table('test_uuid_pk_tbl1', {'id': pxtf.uuid.uuid4(), 'data': pxt.String}, primary_key=['id'])
+        t = pxt.create_table(p('test_uuid_pk_tbl1'), {'id': pxtf.uuid.uuid4(), 'data': pxt.String}, primary_key=['id'])
 
         # Verify UUID column is created as primary key
         metadata = t.get_metadata()

@@ -20,6 +20,8 @@ from ..utils import (
     validate_update_status,
 )
 
+pytestmark = pytest.mark.local('TODO: convert; import/export (parquet)')
+
 
 def validate_parquet_files(path: pathlib.Path, rows: list[dict]) -> None:
     """Validate that the parquet files in the directory match the rows."""

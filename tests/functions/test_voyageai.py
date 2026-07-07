@@ -11,6 +11,8 @@ from ..utils import (
     validate_update_status,
 )
 
+pytestmark = pytest.mark.local('UDF/integration test')
+
 
 @pytest.mark.remote_api
 @pytest.mark.very_expensive
