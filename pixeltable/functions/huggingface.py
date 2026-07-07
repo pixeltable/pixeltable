@@ -414,7 +414,7 @@ def sam3_for_segmentation(
 
     Args:
         image: The image to segment.
-        model_id: The pretrained SAM 3 model to use (default `facebook/sam3`).
+        model_id: The pretrained SAM 3 model to use.
         text: Optional concept prompt as a short noun phrase (e.g., `'yellow school bus'`).
         input_boxes: Optional list of bounding boxes in `[x1, y1, x2, y2]` pixel coordinates that
             constrain the concept (e.g., `[[100, 150, 500, 450]]`).
@@ -533,10 +533,11 @@ def sam_automatic_mask_generation(
     """
     Segments every object in an image with SAM (Segment Anything Model), with no prompt. `model_id` should
     be a reference to a pretrained
-    [SAM Model](https://huggingface.co/docs/transformers/model_doc/sam3) such as `facebook/sam3`.
+    [SAM Model](https://huggingface.co/docs/transformers/model_doc/sam3) such as `facebook/sam3` or 
+    `facebook/sam2-hierra-large`. This is not exclusive to a specific SAM version it works with any SAM model 
+    that supports automatic mask generation.
 
-    Unlike [`sam3_for_segmentation`][pixeltable.functions.huggingface.sam3_for_segmentation], which requires a concept
-    prompt, this samples a grid of points across the image and returns a binary mask for every distinct object it
+    Works by sampling a grid of points across the image and returns a binary mask for every distinct object it
     finds (the "segment everything" mode of SAM 1 and SAM 2). Masks are filtered by predicted quality and
     de-duplicated. The masks are class-agnostic: no labels or persistent object ids are produced, since the model
     is not told what to look for.
@@ -565,7 +566,7 @@ def sam_automatic_mask_generation(
             specified, uses the default revision for the model.
 
     Returns:
-        A `Sam3AutomaticMaskGenerationResponse` containing:
+        A `SamForSegmentationResponse` containing:
 
         - `scores`: predicted quality score per mask, shape `(num_masks,)`.
         - `boxes`: bounding box `[x1, y1, x2, y2]` per mask in absolute pixel coordinates, shape
