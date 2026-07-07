@@ -581,6 +581,12 @@ class InvalidFunction(Function):
         self.fn_dict = fn_dict
         self.error_msg = error_msg
 
+    @property
+    def is_storable(self) -> bool:
+        # _as_dict() re-serializes fn_dict verbatim, so a pickle-backed original (an inline 'binary' body or an
+        # 'id' reference into the legacy functions table) would be persisted again and must be rejected
+        return 'binary' not in self.fn_dict and 'id' not in self.fn_dict
+
     def _as_dict(self) -> dict:
         """
         Here we write out (verbatim) the original metadata that failed to load (and that resulted in the
