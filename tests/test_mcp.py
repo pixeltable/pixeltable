@@ -102,6 +102,7 @@ def init_mcp_server(init_env: None) -> Iterator[None]:
 
     _logger.info('Terminating MCP server pytest fixture.')
     mcp_process.kill()
+    mcp_process.wait()
 
 
 @contextmanager
