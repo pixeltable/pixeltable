@@ -110,7 +110,7 @@ class McpFunction(Function):
                         f'MCP tool {self.tool_name!r} is no longer available at {self.url}.\n'
                         f'Recreate the affected column(s) from the current pxt.mcp_udfs({self.url!r}).'
                     )
-                elif _signature_from_tool(current_tool).as_dict() != self.signature.as_dict():
+                elif _tool_interface(_signature_from_tool(current_tool)) != _tool_interface(self.signature):
                     error_msg = (
                         f'The interface of MCP tool {self.tool_name!r} at {self.url} has changed since the column\n'
                         f'using it was created. Recreate the affected column(s) from the current '
@@ -147,6 +147,15 @@ class McpFunction(Function):
     @classmethod
     def _from_dict(cls, d: dict) -> Function:
         return cls(d['url'], d['tool_name'], [Signature.from_dict(d['signature'])], d['name'], d.get('comment'))
+
+
+def _tool_interface(sig: Signature) -> dict:
+    # An order-independent view of a tool's parameters and return type. MCP passes arguments by name, so parameter
+    # order is not part of the interface and a reordering of the server's schema must not read as a change.
+    return {
+        'return_type': sig.get_return_type().as_dict(),
+        'parameters': {name: (p.col_type.as_dict(), p.kind.name) for name, p in sig.parameters.items()},
+    }
 
 
 def _signature_from_tool(mcp_tool: 'mcp.types.Tool') -> Signature:
