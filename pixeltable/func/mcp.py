@@ -88,15 +88,17 @@ class McpFunction(Function):
         return self._comment
 
     def __eq__(self, other: object) -> bool:
-        # the base compares self_path, which is always None here, so identify the function by its tool instead
+        # the base compares self_path, which is always None here. The same server tool can have different interfaces
+        # over time, so the interface is part of the identity; _tool_interface is name-aware (MCP calls by name).
         return (
             isinstance(other, McpFunction)
             and self.url == other.url
             and self.tool_name == other.tool_name
-            and self.signature == other.signature
+            and _tool_interface(self.signature) == _tool_interface(other.signature)
         )
 
     def __hash__(self) -> int:
+        # coarser than __eq__ (the interface is not hashable), which is a valid hash: equal instances share a bucket
         return hash((self.url, self.tool_name))
 
     async def aexec(self, *args: Any, **kwargs: Any) -> str:
