@@ -119,7 +119,7 @@ def instrument_fastapi(app: Any, **kwargs: Any) -> None:
         ... pxt_otel.instrument_fastapi(app)
     """
     try:
-        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor  # type: ignore[import-untyped]
     except ImportError as exc:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
