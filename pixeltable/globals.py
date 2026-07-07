@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Union
@@ -14,6 +15,7 @@ from pixeltable import Query, catalog, exceptions as excs, exprs, func, type_sys
 from pixeltable.catalog import DirEntry, TablePath
 from pixeltable.catalog.insertable_table import OnErrorParameter
 from pixeltable.config import Config
+from pixeltable.env import Env
 from pixeltable.io.table_data_conduit import QueryTableDataConduit, RowDataTableDataConduit, TableDataConduit
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec, DirContents, DirectoryNode, TableKind, TableNode, TreeNode
@@ -34,6 +36,8 @@ if TYPE_CHECKING:
         datasets.Dataset,
         datasets.DatasetDict,  # Huggingface datasets
     ]
+
+_logger = logging.getLogger(__name__)
 
 
 def init(config_overrides: dict[str, Any] | None = None, additional_config_files: list[str] | None = None) -> None:
@@ -242,6 +246,10 @@ def create_table(
         )
     )
 
+    if was_created:
+        _logger.info(f'Created table {tbl._name()!r}, id={tbl._id}')
+        Env.get().console_logger.info(f'Created table {tbl._name()!r}.')
+
     # TODO: combine data loading with table creation into a single transaction
     if was_created and data_source is not None:
         fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
@@ -413,7 +421,7 @@ def create_view(
     # mapping and report the same errors
     additional_columns = catalog.normalize_schema(additional_columns)
 
-    view, _ = (
+    view, was_created = (
         get_runtime()
         .get_catalog(path_obj)
         .create_view(
@@ -432,6 +440,10 @@ def create_view(
             if_exists=if_exists_,
         )
     )
+
+    if was_created:
+        _logger.info(f'Created {view._display_str()}, id={view._id}')
+        Env.get().console_logger.info(f'Created {view._display_str()!r}.')
 
     return view
 
