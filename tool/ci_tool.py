@@ -71,8 +71,6 @@ def generate_matrix(args: argparse.Namespace) -> None:
         MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.10', uv_options='--no-dev'),  # Minimal test (no dev deps)
         MatrixConfig('static-checks', 'lint', MAIN_PLATFORM, '3.10'),  # Linting, type checking, etc.
         MatrixConfig('random-ops', 'random-ops', MAIN_PLATFORM, '3.10', uv_options='--no-dev'),  # Random operations
-        # opentelemetry-instrumentation-pixeltable is a separate distribution; its tests are excluded from the core
-        # suite (testpaths in pyproject.toml) and run here against a minimal install plus the `otel` extra.
         MatrixConfig('otel', 'otel', MAIN_PLATFORM, '3.10', uv_options='--no-dev --extra otel'),
     ]
 
