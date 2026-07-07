@@ -267,10 +267,7 @@ class TableVersion:
             column_md[col.id] = col_md
             schema_col_md[col.id] = col_schema_md
 
-        # Build index metadata for the initial version: a default B-tree index on each indexable column (when
-        # requested) plus any explicitly-requested embedding indexes. Both kinds are woven into the initial
-        # metadata so their storage columns and physical indexes are created as part of the same table-creation
-        # unit (governed by the pending-ops protocol), rather than as follow-up operations.
+        # Merge default indexes and additional indexes into a manifest of indexes to create.
         index_md: dict[int, schema.IndexMd] = {}
         idxs_to_create: list[tuple[Column, str | None, index.IndexBase]] = []
         if create_default_idxs and (view_md is None or not view_md.is_snapshot):
