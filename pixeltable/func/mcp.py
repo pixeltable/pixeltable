@@ -121,13 +121,25 @@ class McpFunction(Function):
 
             if self._is_verified:
                 res = await session.call_tool(name=self.tool_name, arguments=kwargs)
-                # TODO Handle image/audio responses?
-                result = res.content[0].text  # type: ignore[union-attr]
+                text_blocks = [item for item in res.content if isinstance(item, mcp.types.TextContent)]
+                joined_text = '\n'.join(block.text for block in text_blocks)
+                if res.isError:
+                    detail = joined_text if len(text_blocks) > 0 else str(res.content)
+                    error_msg = f'MCP tool {self.tool_name!r} at {self.url} reported an error:\n{detail}'
+                elif len(res.content) > 0 and len(text_blocks) == len(res.content):
+                    result = joined_text
+                else:
+                    # TODO: support image/audio and other non-text tool responses
+                    kinds = [type(item).__name__ for item in res.content]
+                    error_msg = (
+                        f'MCP tool {self.tool_name!r} at {self.url} returned an unsupported response; only text '
+                        f'results are supported, got: {kinds}.'
+                    )
 
         # raise outside the client's async context: anyio wraps an exception thrown inside it in a TaskGroup group
+        assert result is not None or error_msg is not None
         if error_msg is not None:
             raise excs.Error(excs.ErrorCode.GENERIC_USER_ERROR, error_msg)
-        assert result is not None
         return result
 
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
