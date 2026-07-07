@@ -169,6 +169,34 @@ class TestFunction:
         ):
             t.add_computed_column(from_local=from_local(t.c1, t.c2))
 
+    def test_query_storable(self, make_catalog_path: Callable[[str], str]) -> None:
+        # a @pxt.query is serialized by value, so it is storable only if its clauses embed no pickled function: one
+        # built from storable exprs can back a computed column, one that filters with a local UDF cannot
+        p = make_catalog_path
+        t = pxt.create_table(p('test'), {'c1': pxt.Int, 'c2': pxt.Float})
+        t.insert([{'c1': i, 'c2': i + 0.5} for i in range(10)])
+
+        @pxt.query
+        def storable_q(threshold: int) -> pxt.Query:
+            return t.where(t.c1 >= threshold).select(t.c1)
+
+        assert storable_q.is_storable
+        t.add_computed_column(ok=storable_q(t.c1))
+
+        @pxt.udf(_force_stored=True)
+        def local_pred(x: int) -> bool:
+            return x > 2
+
+        @pxt.query
+        def pickled_q(threshold: int) -> pxt.Query:
+            return t.where(local_pred(t.c1)).select(t.c1)
+
+        assert not pickled_q.is_storable
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'which was created with `\.apply\(\)` or defined as a local'
+        ):
+            t.add_computed_column(bad=pickled_q(t.c1))
+
     @staticmethod
     @pxt.udf
     def f1(a: int, b: float, c: float = 0.0, d: float = 1.0) -> float:
