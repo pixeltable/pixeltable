@@ -51,6 +51,9 @@ class UpdateDatabaseRequest(BaseModel):
     db_name: Optional[str] = None
     default_bucket: Optional[str] = None
     workers: Optional[int] = None
+    cpu: Optional[float] = None
+    memory_mb: Optional[int] = None
+    disk_gb: Optional[int] = None
 
 
 class DeleteDatabaseRequest(BaseModel):

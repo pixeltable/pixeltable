@@ -255,6 +255,9 @@ class ServiceRunRecord(BaseModel):
     runtime_build_id: Optional[str] = None
     bundle_r2_path: Optional[str] = None
     service_config: Optional[str] = None  # JSON-serialized ServiceConfig for this run
+    cpu: float = 0.5
+    memory_mb: int = 512
+    disk_gb: int = 10
 
 
 class ListServiceRunsResponse(BaseModel):

@@ -8,11 +8,11 @@ from ..parser import Parser
 
 def run(argv: list[str]) -> None:
     parser = Parser(
-        prog='pxt service update',
-        description='Update a service. Reads route config from [[service]] in pixeltable.toml.',
+        prog='pxt db update',
+        description='Update worker count or resource limits for a cloud-hosted database.',
     )
-    parser.add_argument('service_uri', help='Service URI: pxt://org:db/services/<name>')
-    parser.add_argument('--workers', type=int, default=None, help='New minimum worker count')
+    parser.add_argument('db_uri', help='Database URI: pxt://org:db')
+    parser.add_argument('--workers', type=int, default=None, help='Number of proxy daemon workers')
     parser.add_argument('--cpu', type=float, default=None, help='CPU cores per worker')
     parser.add_argument('--memory', type=int, default=None, dest='memory_mb', help='Memory per worker in MB')
     parser.add_argument('--disk', type=int, default=None, dest='disk_gb', help='Disk per worker in GB')
@@ -20,29 +20,20 @@ def run(argv: list[str]) -> None:
     args = parser.parse_args(argv)
 
     from pixeltable.service.utils import PxtUri
-    from pixeltable.serving._config import lookup_service_config
-    from pixeltable.share.deploy_client import service_update
+    from pixeltable.share.deploy_client import database_update
 
     try:
-        p = PxtUri(args.service_uri)
-        if p.db is None or not p.path or not p.path.startswith('services/'):
-            parser.error('service_uri must be pxt://org:db/services/<name>')
-        service_name = p.path[len('services/'):]
-        if not service_name:
-            parser.error('service_uri must include a service name')
+        p = PxtUri(args.db_uri)
+        if p.db is None:
+            parser.error('db_uri must be pxt://org:db')
 
-        service_cfg = lookup_service_config(service_name)
-        service_config_json = service_cfg.model_dump_json()
-
-        service_update(
+        database_update(
             p.org,
             p.db,
-            service_name,
-            workers_min=args.workers,
+            workers=args.workers,
             cpu=args.cpu,
             memory_mb=args.memory_mb,
             disk_gb=args.disk_gb,
-            service_config=service_config_json,
             json_output=args.json_output,
         )
     except Exception as e:

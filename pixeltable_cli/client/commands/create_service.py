@@ -13,6 +13,9 @@ def run(argv: list[str]) -> None:
         '--name', required=True, help='Service name (must match a [[service]] block in pixeltable.toml)'
     )
     parser.add_argument('--workers', type=int, default=1, help='Number of workers (default: 1)')
+    parser.add_argument('--cpu', type=float, default=0.5, help='CPU cores per worker (default: 0.5)')
+    parser.add_argument('--memory', type=int, default=512, dest='memory_mb', help='Memory per worker in MB (default: 512)')
+    parser.add_argument('--disk', type=int, default=10, dest='disk_gb', help='Disk per worker in GB (default: 10)')
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
 
@@ -38,6 +41,9 @@ def run(argv: list[str]) -> None:
             table_path,
             workers_min=args.workers,
             workers_max=args.workers,
+            cpu=args.cpu,
+            memory_mb=args.memory_mb,
+            disk_gb=args.disk_gb,
             service_config=service_config_json,
             json_output=args.json_output,
         )

@@ -21,6 +21,7 @@ from pixeltable.share.protocol.database import (
     SetSecretRequest,
     StartDatabaseRequest,
     StopDatabaseRequest,
+    UpdateDatabaseRequest,
     UpdateRuntimeRequest,
 )
 from pixeltable.share.protocol.service import (
@@ -140,6 +141,35 @@ def database_delete(org_slug: str, db_slug: str, json_output: bool = False) -> N
         print(json.dumps({'deleted': db_slug}))
     else:
         print(f"Deleted database '{db_slug}'.")
+
+
+def database_update(
+    org_slug: str,
+    db_slug: str,
+    workers: int | None = None,
+    cpu: float | None = None,
+    memory_mb: int | None = None,
+    disk_gb: int | None = None,
+    json_output: bool = False,
+) -> dict[str, Any]:
+    resp = _post(
+        UpdateDatabaseRequest(
+            org_slug=org_slug,
+            db_slug=db_slug,
+            workers=workers,
+            cpu=cpu,
+            memory_mb=memory_mb,
+            disk_gb=disk_gb,
+        )
+    )
+    db = resp['database']
+    if json_output:
+        import json
+
+        print(json.dumps(db))
+    else:
+        _print_db(db)
+    return db
 
 
 def database_start(db_slug: str, org_slug: str | None = None, json_output: bool = False) -> None:
@@ -285,6 +315,9 @@ def service_create(
     table_path: str,
     workers_min: int = 1,
     workers_max: int = 1,
+    cpu: float = 0.5,
+    memory_mb: int = 512,
+    disk_gb: int = 10,
     service_config: str | None = None,
     json_output: bool = False,
 ) -> dict[str, Any]:
@@ -295,6 +328,9 @@ def service_create(
             service_name=service_name,
             table_path=table_path,
             workers_min=workers_min,
+            cpu=cpu,
+            memory_mb=memory_mb,
+            disk_gb=disk_gb,
             service_config=service_config,
         )
     )
@@ -313,6 +349,9 @@ def service_update(
     db_slug: str,
     service_name: str,
     workers_min: int | None = None,
+    cpu: float | None = None,
+    memory_mb: int | None = None,
+    disk_gb: int | None = None,
     service_config: str | None = None,
     json_output: bool = False,
 ) -> dict[str, Any]:
@@ -322,6 +361,9 @@ def service_update(
             db_slug=db_slug,
             service_name=service_name,
             workers_min=workers_min,
+            cpu=cpu,
+            memory_mb=memory_mb,
+            disk_gb=disk_gb,
             service_config=service_config,
         )
     )
