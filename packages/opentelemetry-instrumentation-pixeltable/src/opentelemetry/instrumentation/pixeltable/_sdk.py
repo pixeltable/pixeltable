@@ -101,6 +101,63 @@ def init(
         )
 
 
+def instrument_fastapi(app: Any, **kwargs: Any) -> None:
+    """Instrument a FastAPI application so pixeltable spans nest under its request spans.
+
+    Passthrough to the `opentelemetry-instrumentation-fastapi` package (which must be installed), wired
+    to the tracer provider configured by [init][opentelemetry.instrumentation.pixeltable.init].
+
+    Args:
+        app: the FastAPI application to instrument.
+        kwargs: forwarded to `FastAPIInstrumentor.instrument_app()`.
+
+    Example:
+
+        >>> import opentelemetry.instrumentation.pixeltable as pxt_otel
+        ...
+        ... pxt_otel.init(endpoint='http://localhost:4318')
+        ... pxt_otel.instrument_fastapi(app)
+    """
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    except ImportError as exc:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            'instrument_fastapi() requires the `opentelemetry-instrumentation-fastapi` package. '
+            'To install it, run: `pip install -U opentelemetry-instrumentation-fastapi`',
+        ) from exc
+    kwargs.setdefault('tracer_provider', _state.tracer_provider)
+    FastAPIInstrumentor.instrument_app(app, **kwargs)
+
+
+def instrument_sqlalchemy(**kwargs: Any) -> None:
+    """Instrument SQLAlchemy so its query spans are exported alongside pixeltable spans.
+
+    Passthrough to the `opentelemetry-instrumentation-sqlalchemy` package (which must be installed),
+    wired to the tracer provider configured by [init][opentelemetry.instrumentation.pixeltable.init].
+
+    Args:
+        kwargs: forwarded to `SQLAlchemyInstrumentor().instrument()` (eg `engine`).
+
+    Example:
+
+        >>> import opentelemetry.instrumentation.pixeltable as pxt_otel
+        ...
+        ... pxt_otel.init(endpoint='http://localhost:4318')
+        ... pxt_otel.instrument_sqlalchemy(engine=engine)
+    """
+    try:
+        from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor  # type: ignore[import-untyped]
+    except ImportError as exc:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            'instrument_sqlalchemy() requires the `opentelemetry-instrumentation-sqlalchemy` package. '
+            'To install it, run: `pip install -U opentelemetry-instrumentation-sqlalchemy`',
+        ) from exc
+    kwargs.setdefault('tracer_provider', _state.tracer_provider)
+    SQLAlchemyInstrumentor().instrument(**kwargs)
+
+
 def _setup(
     config: Config,
     *,

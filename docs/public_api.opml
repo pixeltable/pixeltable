@@ -525,6 +525,10 @@
         </outline>
         <outline text="module|opentelemetry.instrumentation.pixeltable">
           <outline text="func|opentelemetry.instrumentation.pixeltable.init" />
+          <outline text="group|Application Instrumentation">
+            <outline text="func|opentelemetry.instrumentation.pixeltable.instrument_fastapi" />
+            <outline text="func|opentelemetry.instrumentation.pixeltable.instrument_sqlalchemy" />
+          </outline>
           <outline text="class|opentelemetry.instrumentation.pixeltable.PixeltableInstrumentor">
             <outline text="method|opentelemetry.instrumentation.pixeltable.PixeltableInstrumentor.instrument" />
             <outline text="method|opentelemetry.instrumentation.pixeltable.PixeltableInstrumentor.uninstrument" />
