@@ -50,11 +50,19 @@ class McpFunction(Function):
     self_name: str
     _comment: str | None
 
+    # whether the server's current tool has been checked against this signature
+    _is_verified: bool
+
     def __init__(self, url: str, tool_name: str, signatures: list[Signature], self_name: str, comment: str | None):
         self.url = url
         self.tool_name = tool_name
         self.self_name = self_name
         self._comment = comment
+
+        # set on first aexec() so that reconstructing the function (eg, when loading a computed column) does not require
+        # contacting the server
+        self._is_verified = False
+
         super().__init__(signatures, self_path=None)
 
     def _update_as_overload_resolution(self, signature_idx: int) -> None:
@@ -80,7 +88,7 @@ class McpFunction(Function):
         return self._comment
 
     async def aexec(self, *args: Any, **kwargs: Any) -> str:
-        # TODO: this contains a lot of per-call overhead; consolidate this into a setup phase
+        # TODO: open one session per McpFunction rather than one per call
         Env.get().require_package('mcp')
         import mcp
         from mcp.client.streamable_http import streamablehttp_client
@@ -92,21 +100,26 @@ class McpFunction(Function):
             mcp.ClientSession(read_stream, write_stream) as session,
         ):
             await session.initialize()
-            current_tool = next(
-                (tool for tool in (await session.list_tools()).tools if tool.name == self.tool_name), None
-            )
-            if current_tool is None:
-                error_msg = (
-                    f'MCP tool {self.tool_name!r} is no longer available at {self.url}.\n'
-                    f'Recreate the affected column(s) from the current pxt.mcp_udfs({self.url!r}).'
+
+            if not self._is_verified:
+                current_tool = next(
+                    (tool for tool in (await session.list_tools()).tools if tool.name == self.tool_name), None
                 )
-            elif _signature_from_tool(current_tool).as_dict() != self.signature.as_dict():
-                error_msg = (
-                    f'The interface of MCP tool {self.tool_name!r} at {self.url} has changed since the column\n'
-                    f'using it was created. Recreate the affected column(s) from the current '
-                    f'pxt.mcp_udfs({self.url!r}).'
-                )
-            else:
+                if current_tool is None:
+                    error_msg = (
+                        f'MCP tool {self.tool_name!r} is no longer available at {self.url}.\n'
+                        f'Recreate the affected column(s) from the current pxt.mcp_udfs({self.url!r}).'
+                    )
+                elif _signature_from_tool(current_tool).as_dict() != self.signature.as_dict():
+                    error_msg = (
+                        f'The interface of MCP tool {self.tool_name!r} at {self.url} has changed since the column\n'
+                        f'using it was created. Recreate the affected column(s) from the current '
+                        f'pxt.mcp_udfs({self.url!r}).'
+                    )
+                else:
+                    self._is_verified = True
+
+            if self._is_verified:
                 res = await session.call_tool(name=self.tool_name, arguments=kwargs)
                 # TODO Handle image/audio responses?
                 result = res.content[0].text  # type: ignore[union-attr]
