@@ -1,14 +1,16 @@
 import logging
+import os
 import subprocess
 import sys
 import time
+from contextlib import contextmanager
 from typing import Iterator
 
 import pytest
 
 import pixeltable as pxt
 
-from .utils import rerun, skip_test_if_no_client, skip_test_if_not_installed
+from .utils import reload_catalog, rerun, skip_test_if_no_client, skip_test_if_not_installed
 
 pytestmark = pytest.mark.local('launches an MCP server subprocess')
 
@@ -32,6 +34,45 @@ class TestMcp:
         res = t.order_by(t.a).collect()
         assert res[0]['pixelmultiple'] == str((3 + 22) * 4)
         assert res[1]['pixelmultiple'] == str((5 + 22) * 6)
+
+    def test_mcp_persistence(self, uses_db: None, init_mcp_server: None) -> None:
+        # a column backed by an MCP UDF survives a catalog reload: its stored values read back, and the
+        # reconstructed function still computes newly inserted rows against the server
+        skip_test_if_not_installed('mcp')
+
+        udfs = pxt.mcp_udfs('http://localhost:8000/mcp')
+        t = pxt.create_table('test_mcp', {'a': pxt.Int, 'b': pxt.Int})
+        t.add_computed_column(pixelmultiple=udfs[0](a=t.a, b=t.b))
+        t.insert([{'a': 3, 'b': 4}])
+
+        reload_catalog()
+        t = pxt.get_table('test_mcp')
+        assert t.where(t.a == 3).collect()[0]['pixelmultiple'] == str((3 + 22) * 4)
+        t.insert([{'a': 5, 'b': 6}])
+        assert t.where(t.a == 5).collect()[0]['pixelmultiple'] == str((5 + 22) * 6)
+
+    def test_mcp_tool_changed(self, uses_db: None) -> None:
+        # evaluating an MCP-backed column reports a clear error if the server's tool set has drifted since the
+        # column was created: the tool's signature changed, or the tool is gone entirely
+        skip_test_if_not_installed('mcp')
+        url = 'http://localhost:8001/mcp'
+
+        with _mcp_server_variant('full'):
+            udfs = pxt.mcp_udfs(url)
+            pixelmultiple = next(udf for udf in udfs if udf.name == 'pixelmultiple')
+            t = pxt.create_table('test_mcp', {'a': pxt.Int, 'b': pxt.Int})
+            t.add_computed_column(pixelmultiple=pixelmultiple(a=t.a, b=t.b))
+            assert t.insert([{'a': 3, 'b': 4}]).num_excs == 0
+
+        # the live 'pixelmultiple' tool now takes only (a), no longer matching the stored (a, b) signature
+        with _mcp_server_variant('changed'):
+            assert t.insert([{'a': 5, 'b': 6}], on_error='ignore').num_excs > 0
+            assert 'has changed' in t.where(t.a == 5).select(m=t.pixelmultiple.errormsg).collect()[0]['m']
+
+        # the tool is no longer advertised at all
+        with _mcp_server_variant('gone'):
+            assert t.insert([{'a': 7, 'b': 8}], on_error='ignore').num_excs > 0
+            assert 'no longer available' in t.where(t.a == 7).select(m=t.pixelmultiple.errormsg).collect()[0]['m']
 
     def test_mcp_as_tools(self, uses_db: None, init_mcp_server: None) -> None:
         skip_test_if_not_installed('mcp', 'openai')
@@ -61,3 +102,16 @@ def init_mcp_server(init_env: None) -> Iterator[None]:
 
     _logger.info('Terminating MCP server pytest fixture.')
     mcp_process.kill()
+
+
+@contextmanager
+def _mcp_server_variant(variant: str) -> Iterator[None]:
+    # Run the example server on a dedicated port so its lifecycle is independent of the session-scoped server.
+    env = {**os.environ, 'PIXELTABLE_MCP_PORT': '8001', 'PIXELTABLE_MCP_VARIANT': variant}
+    process = subprocess.Popen([sys.executable, 'tests/example_mcp_server.py'], env=env)
+    time.sleep(5)  # Wait for the MCP server to start
+    try:
+        yield
+    finally:
+        process.kill()
+        process.wait()

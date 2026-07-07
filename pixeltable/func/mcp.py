@@ -1,10 +1,11 @@
 import inspect
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Sequence
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.env import Env
-from pixeltable.func.signature import Parameter
+from pixeltable.func.function import Function
+from pixeltable.func.signature import Parameter, Signature
 
 if TYPE_CHECKING:
     import mcp
@@ -34,24 +35,108 @@ async def mcp_udfs_async(url: str) -> list['pxt.func.Function']:
 
 
 def mcp_tool_to_udf(url: str, mcp_tool: 'mcp.types.Tool') -> 'pxt.func.Function':
-    Env.get().require_package('mcp')
-    import mcp
-    from mcp.client.streamable_http import streamablehttp_client
+    return McpFunction(url, mcp_tool.name, [_signature_from_tool(mcp_tool)], mcp_tool.name, mcp_tool.description)
 
-    async def invoke(**kwargs: Any) -> str:
-        # TODO: Cache session objects rather than creating a new one each time?
+
+class McpFunction(Function):
+    """A Pixeltable function backed by a tool on a remote MCP server.
+
+    Serialized by reference (server url, tool name, and signature) so that it can be persisted in a computed column and
+    reconstructed later without contacting the server.
+    """
+
+    url: str
+    tool_name: str
+    self_name: str
+    _comment: str | None
+
+    def __init__(self, url: str, tool_name: str, signatures: list[Signature], self_name: str, comment: str | None):
+        self.url = url
+        self.tool_name = tool_name
+        self.self_name = self_name
+        self._comment = comment
+        super().__init__(signatures, self_path=None)
+
+    def _update_as_overload_resolution(self, signature_idx: int) -> None:
+        pass  # an MCP tool has a single signature
+
+    @property
+    def is_storable(self) -> bool:
+        return True
+
+    @property
+    def is_async(self) -> bool:
+        return True
+
+    @property
+    def name(self) -> str:
+        return self.self_name
+
+    @property
+    def display_name(self) -> str:
+        return self.self_name
+
+    def comment(self) -> str | None:
+        return self._comment
+
+    async def aexec(self, *args: Any, **kwargs: Any) -> str:
+        # TODO: this contains a lot of per-call overhead; consolidate this into a setup phase
+        Env.get().require_package('mcp')
+        import mcp
+        from mcp.client.streamable_http import streamablehttp_client
+
+        error_msg: str | None = None
+        result: str | None = None
         async with (
-            streamablehttp_client(url) as (read_stream, write_stream, _),
+            streamablehttp_client(self.url) as (read_stream, write_stream, _),
             mcp.ClientSession(read_stream, write_stream) as session,
         ):
             await session.initialize()
-            res = await session.call_tool(name=mcp_tool.name, arguments=kwargs)
-            # TODO Handle image/audio responses?
-            return res.content[0].text  # type: ignore[union-attr]
+            current_tool = next(
+                (tool for tool in (await session.list_tools()).tools if tool.name == self.tool_name), None
+            )
+            if current_tool is None:
+                error_msg = (
+                    f'MCP tool {self.tool_name!r} is no longer available at {self.url}.\n'
+                    f'Recreate the affected column(s) from the current pxt.mcp_udfs({self.url!r}).'
+                )
+            elif _signature_from_tool(current_tool).as_dict() != self.signature.as_dict():
+                error_msg = (
+                    f'The interface of MCP tool {self.tool_name!r} at {self.url} has changed since the column\n'
+                    f'using it was created. Recreate the affected column(s) from the current '
+                    f'pxt.mcp_udfs({self.url!r}).'
+                )
+            else:
+                res = await session.call_tool(name=self.tool_name, arguments=kwargs)
+                # TODO Handle image/audio responses?
+                result = res.content[0].text  # type: ignore[union-attr]
 
-    if mcp_tool.description is not None:
-        invoke.__doc__ = mcp_tool.description
+        # raise outside the client's async context: anyio wraps an exception thrown inside it in a TaskGroup group
+        if error_msg is not None:
+            raise excs.Error(excs.ErrorCode.GENERIC_USER_ERROR, error_msg)
+        assert result is not None
+        return result
 
+    def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
+        from pixeltable.runtime import get_runtime
+
+        return get_runtime().run_coro(self.aexec(*args, **kwargs))
+
+    def _as_dict(self) -> dict:
+        return {
+            'url': self.url,
+            'tool_name': self.tool_name,
+            'signature': self.signature.as_dict(),
+            'name': self.self_name,
+            'comment': self._comment,
+        }
+
+    @classmethod
+    def _from_dict(cls, d: dict) -> Function:
+        return cls(d['url'], d['tool_name'], [Signature.from_dict(d['signature'])], d['name'], d.get('comment'))
+
+
+def _signature_from_tool(mcp_tool: 'mcp.types.Tool') -> Signature:
     input_schema = mcp_tool.inputSchema
     params = {
         name: __mcp_param_to_pxt_type(mcp_tool.name, name, param) for name, param in input_schema['properties'].items()
@@ -63,12 +148,10 @@ def mcp_tool_to_udf(url: str, mcp_tool: 'mcp.types.Tool') -> 'pxt.func.Function'
     for name in params.keys() - required:
         params[name] = params[name].copy(nullable=True)
 
-    signature = pxt.func.Signature(
+    return Signature(
         return_type=ts.StringType(),  # Return type is always string
         parameters=[Parameter(name, col_type, inspect.Parameter.KEYWORD_ONLY) for name, col_type in params.items()],
     )
-
-    return pxt.func.CallableFunction(signatures=[signature], py_fns=[invoke], self_name=mcp_tool.name)
 
 
 def __mcp_param_to_pxt_type(tool_name: str, name: str, param: dict[str, Any]) -> ts.ColumnType:
