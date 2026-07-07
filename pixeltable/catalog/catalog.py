@@ -1500,13 +1500,17 @@ class Catalog(CatalogBase):
         media_validation: MediaValidation,
         create_default_idxs: bool,
         is_versioned: bool,
-        additional_idxs: list[tuple[Column, str | None, 'index.IndexBase']],
-        tbl_id: UUID | None = None,
+        additional_idxs: list[tuple[Column, str | None, 'index.IndexBase']] | None = None,
+        explicit_tbl_id: UUID | None = None,
     ) -> tuple[UUID, bool]:
         import pixeltable.metadata.schema
 
+        assert explicit_tbl_id is None or if_exists == IfExistsParam.ERROR
+
         if primary_key is None:
             primary_key = []
+        if additional_idxs is None:
+            additional_idxs = []
 
         existing = self._handle_path_collision(path, InsertableTable, False, if_exists)
         if existing is not None:
@@ -1516,7 +1520,11 @@ class Catalog(CatalogBase):
         dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
         assert dir is not None
 
+        # This is an actual table creation event; if no explicit_tbl_id was provided, assign a random one now.
+        tbl_id = explicit_tbl_id or uuid4()
+
         md, ops = InsertableTable._create(
+            tbl_id,
             path.name,
             columns,
             primary_key=primary_key,
@@ -1525,11 +1533,9 @@ class Catalog(CatalogBase):
             media_validation=media_validation,
             create_default_idxs=create_default_idxs,
             is_versioned=is_versioned,
-            tbl_id=tbl_id,
             additional_idxs=additional_idxs,
         )
-        if tbl_id is None:
-            tbl_id = UUID(md.tbl_md.tbl_id)
+        assert tbl_id == UUID(md.tbl_md.tbl_id)
         md.tbl_md.pending_stmt = pixeltable.metadata.schema.TableStatement.CREATE_TABLE
         self.write_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
         return tbl_id, True
@@ -1570,7 +1576,6 @@ class Catalog(CatalogBase):
                 custom_metadata,
                 media_validation,
                 if_exists,
-                additional_idxs=[],
             )
 
         self._roll_forward_ids.clear()
@@ -1602,9 +1607,14 @@ class Catalog(CatalogBase):
         custom_metadata: Any,
         media_validation: MediaValidation,
         if_exists: IfExistsParam,
-        additional_idxs: list[tuple[Column, str | None, 'index.IndexBase']],
-        tbl_id: UUID | None = None,
+        additional_idxs: list[tuple[Column, str | None, 'index.IndexBase']] | None = None,
+        explicit_tbl_id: UUID | None = None,
     ) -> tuple[UUID, bool]:
+        assert explicit_tbl_id is None or if_exists == IfExistsParam.ERROR
+
+        if additional_idxs is None:
+            additional_idxs = []
+
         existing = self._handle_path_collision(path, View, is_snapshot, if_exists, base=base)
         if existing is not None:
             assert isinstance(existing, View)
@@ -1628,7 +1638,11 @@ class Catalog(CatalogBase):
 
         dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
         assert dir is not None
+
+        tbl_id = explicit_tbl_id or uuid4()
+
         md, ops = View._create(
+            tbl_id,
             path.name,
             base=base,
             select_list=select_list,
@@ -1641,10 +1655,9 @@ class Catalog(CatalogBase):
             comment=comment,
             custom_metadata=custom_metadata,
             media_validation=media_validation,
-            tbl_id=tbl_id,
             additional_idxs=additional_idxs,
         )
-        tbl_id = UUID(md.tbl_md.tbl_id)
+        assert tbl_id == UUID(md.tbl_md.tbl_id)
         md.tbl_md.pending_stmt = schema.TableStatement.CREATE_VIEW
         self.write_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
         fault_injection.process_fault(FaultLocation.CATALOG_CREATE_VIEW_BEFORE_MD_COMMITTED)
@@ -1790,7 +1803,7 @@ class Catalog(CatalogBase):
                     media_validation=media_validation,
                     create_default_idxs=create_default_idxs,
                     is_versioned=True,
-                    tbl_id=tbl_id,
+                    explicit_tbl_id=tbl_id,
                     additional_idxs=resolved_idxs,
                 )
         else:
@@ -1812,7 +1825,7 @@ class Catalog(CatalogBase):
                     custom_metadata=custom_metadata,
                     media_validation=media_validation,
                     if_exists=IfExistsParam.ERROR,
-                    tbl_id=tbl_id,
+                    explicit_tbl_id=tbl_id,
                     additional_idxs=resolved_idxs,
                 )
 

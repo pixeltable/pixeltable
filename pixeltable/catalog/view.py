@@ -79,6 +79,7 @@ class View(LocalTable):
     @classmethod
     def _create(
         cls,
+        tbl_id: UUID,
         name: str,
         base: TableVersionPath,
         select_list: list[tuple[exprs.Expr, str | None]] | None,
@@ -92,11 +93,10 @@ class View(LocalTable):
         media_validation: MediaValidation,
         iterator_call: func.GeneratingFunctionCall | None,
         additional_idxs: list[tuple[Column, str | None, index.IndexBase]],
-        tbl_id: UUID | None = None,
     ) -> tuple[TableVersionMd, list[TableOp] | None]:
         from pixeltable.exprs import InlineDict
 
-        tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None)) if tbl_id is not None else None
+        tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
 
         # Convert select_list to more additional_columns if present
         initial_col_id = len(iterator_call.outputs) if iterator_call is not None else 0
@@ -105,9 +105,8 @@ class View(LocalTable):
         if not include_base_columns:
             for i, (col_name, spec) in enumerate(cls.select_list_to_additional_columns(select_list).items()):
                 col = Column.create(col_name, spec)
-                if tbl_id is not None:
-                    col.id = initial_col_id + i
-                    col.tbl_handle = tbl_handle
+                col.id = initial_col_id + i
+                col.tbl_handle = tbl_handle
                 select_list_columns.append(col)
 
         iterator_cols: list[Column] = []
@@ -139,9 +138,8 @@ class View(LocalTable):
                     stored=output_info.is_stored,
                     stores_cellmd=stores_cellmd,
                 )
-                if tbl_id is not None:
-                    col.id = i
-                    col.tbl_handle = tbl_handle
+                col.id = i
+                col.tbl_handle = tbl_handle
                 iterator_cols.append(col)
 
         cls._verify_schema(select_list_columns + additional_columns)
@@ -176,7 +174,7 @@ class View(LocalTable):
         # reference preceding columns that might not have been created yet.
         # TODO: Normalize _create() to make tbl_id a required parameter (always externally generated)
         for i, col in enumerate(columns):
-            antecedent_cols = columns[:i] if tbl_id is not None else []
+            antecedent_cols = columns[:i]
             if (
                 col.is_computed
                 and col.value_expr is not None
@@ -213,6 +211,7 @@ class View(LocalTable):
         )
 
         md = TableVersion.create_initial_md(
+            tbl_id,
             name,
             columns,
             comment,
@@ -221,14 +220,13 @@ class View(LocalTable):
             view_md=view_md,
             create_default_idxs=create_default_idxs,
             is_versioned=base.is_versioned(),
-            tbl_id=tbl_id,
             additional_idxs=additional_idxs,
         )
         if md.tbl_md.is_pure_snapshot:
             # this is purely a snapshot: no store table to create or load
             return md, None
         else:
-            tbl_id = UUID(md.tbl_md.tbl_id)
+            assert tbl_id == UUID(md.tbl_md.tbl_id)
             key = TableVersionKey(tbl_id, 0 if is_snapshot else None)
             view_path = TableVersionPath(TableVersionHandle(key), base=base_version_path)
             ops = (

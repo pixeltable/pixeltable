@@ -234,6 +234,7 @@ class TableVersion:
     @classmethod
     def create_initial_md(
         cls,
+        tbl_id: UUID,
         name: str,
         cols: list[Column],
         comment: str | None,
@@ -243,16 +244,12 @@ class TableVersion:
         view_md: schema.ViewMd | None,
         is_versioned: bool,
         additional_idxs: list[tuple[Column, str | None, index.IndexBase]],
-        tbl_id: uuid.UUID | None = None,
     ) -> TableVersionMd:
         from .table_version_handle import TableVersionHandle
 
         user = Env.get().user
         timestamp = time.time()
 
-        if tbl_id is None:
-            # tbl_id not specified; create a new one.
-            tbl_id = uuid.uuid4()
         tbl_id_str = str(tbl_id)
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
         column_ids = itertools.count()

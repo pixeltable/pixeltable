@@ -66,6 +66,7 @@ class InsertableTable(LocalTable):
     @classmethod
     def _create(
         cls,
+        tbl_id: UUID,
         name: str,
         columns: list[Column],
         primary_key: list[str],
@@ -75,7 +76,6 @@ class InsertableTable(LocalTable):
         create_default_idxs: bool,
         is_versioned: bool,
         additional_idxs: list[tuple[Column, str | None, index.IndexBase]],
-        tbl_id: UUID | None = None,
     ) -> tuple[TableVersionMd, list[TableOp]]:
         cls._verify_schema(columns)
         column_names = [col.name for col in columns]
@@ -94,6 +94,7 @@ class InsertableTable(LocalTable):
             col.is_pk = True
 
         md = TableVersion.create_initial_md(
+            tbl_id,
             name,
             columns,
             comment,
@@ -102,7 +103,6 @@ class InsertableTable(LocalTable):
             create_default_idxs=create_default_idxs,
             view_md=None,
             is_versioned=is_versioned,
-            tbl_id=tbl_id,
             additional_idxs=additional_idxs,
         )
 
