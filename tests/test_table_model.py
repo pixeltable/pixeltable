@@ -475,11 +475,7 @@ class TestTableModel:
         )
         view_from_query2.add_computed_column(view_col_2=view_from_query2.view_col_1.rotate(90))
         view_from_query2.add_computed_column(view_col_3=view_from_query2.img.rotate(90))
-        # The model's `view_col_4 = plusone + 5` references the named select column `plusone`, which the model
-        # substitutes with its underlying expression (`value + 1`); the stored expr is therefore `(value + 1) + 5`,
-        # not a reference to the materialized `plusone` column.
-        # TODO: Fix this; the model should be referencing the new column, not the expanded expression.
-        view_from_query2.add_computed_column(view_col_4=(view_from_query2.value + 1) + 5)
+        view_from_query2.add_computed_column(view_col_4=view_from_query2.plusone + 5)
         view_from_query2.add_embedding_index('view_col_2', idx_name='view_idx', embedding=dummy_embedding.using(n=768))
         view_from_query2.add_embedding_index(
             'img', idx_name='view_idx_on_base_tbl_col', embedding=dummy_embedding.using(n=768)

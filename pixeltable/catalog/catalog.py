@@ -1682,27 +1682,57 @@ class Catalog(CatalogBase):
         If a table already exists at `path`, validates the model against it and returns it (idempotent rebind);
         otherwise creates it. Returns `(table, was_created)`.
         """
-        subst_dict: dict[exprs.Expr, exprs.Expr] = {}
-
-        if base is not None:
-            # Build substitutions for the base table's columns.
-            if base.select_list is None:
-                # select(*): all visible columns from the base table
-                for col in base._first_tbl.columns():
-                    subst_dict[ModelColumnRef(col.name)] = exprs.ColumnRef(col.column_version_md())
-            else:
-                for expr, name in base.select_list:
-                    if name is not None:
-                        subst_dict[ModelColumnRef(name)] = expr
-                    elif isinstance(expr, exprs.ColumnRef):
-                        subst_dict[ModelColumnRef(expr.column_md.name)] = expr
-
         # We allocate the table id up front so that self-referential ColumnRefs (built below) point at it; since
         # this runs in the catalog that owns the table, no such reference ever needs to be serialized.
         tbl_id = uuid4()
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
 
-        initial_col_id = 0
+        # View columns always go in a specific order:
+        # - iterator columns first
+        # - then columns from the base query's select_list
+        #     (but not if it's a select(*): then just inherit the base table's columns)
+        # - finally, the view's additional_columns.
+        # TODO: Revisit this? It's a little hokey to put iterator columns before query columns, since the former may
+        #     depend on the latter (so by putting iterator columns first, we are violating topological sortedness of
+        #     the new columns). It also means the following logic is a little convoluted.
+
+        # Create a counter to track column ids. Iterator columns are handled separately (they have to be processed
+        # *after* the query columns, since they may depend on them, but their ids *precede* them; see above TODO).
+        next_col_id = itertools.count(len(iterator.outputs) if iterator is not None else 0)
+        visible_cols: dict[str, Column] = {}
+        subst_dict: dict[ModelColumnRef, exprs.ColumnRef] = {}
+
+        if base is not None:
+            # Build substitutions for the base table/query's columns.
+            if base.select_list is None:
+                # select(*): all visible columns from the base table
+                for col in base._first_tbl.columns():
+                    visible_cols[col.name] = col
+                    subst_dict[ModelColumnRef(col.name)] = exprs.ColumnRef(col.column_version_md())
+            else:
+                # explicit select list: new columns will be created that represent the selected expressions.
+                for expr, select_name in base.select_list:
+                    col_name: str | None
+                    if select_name is not None:
+                        # The select list has an explicit name for this expression as a kwarg; use it.
+                        col_name = select_name
+                    elif isinstance(expr, exprs.ColumnRef):
+                        # It's an unnamed column reference; use the name of the referenced column as a fallback.
+                        col_name = expr.column_md.name
+                    else:
+                        # It's a compound expression with no explicit name. A name will be assigned when the table
+                        # is created, but it's anonymous to the TableModel.
+                        col_name = None
+
+                    id = next(next_col_id)  # increment the `id` whether or not this column is visible to the model
+                    if col_name is not None:
+                        catalog_col = Column.create(col_name, expr.col_type)
+                        catalog_col.id = id
+                        catalog_col.tbl_handle = tbl_handle
+                        visible_cols[col_name] = catalog_col
+                        subst_dict[ModelColumnRef(col_name)] = exprs.ColumnRef(catalog_col.column_version_md(), perform_validation=(media_validation == 'on_read'))
+
+        # Now the iterator columns. Their ids always start at 0 (see above).
         if iterator is not None:
             # Rebind the iterator with substitutions from the base table.
             subst_args = [arg.substitute(subst_dict) for arg in iterator.args]
@@ -1714,18 +1744,14 @@ class Catalog(CatalogBase):
             # Build substitutions for the iterator's output columns.
             for i, (name, output) in enumerate(iterator.outputs.items()):
                 catalog_col = Column.create(name, {'type': output.col_type, 'stored': output.is_stored})  # type: ignore[arg-type]
-                catalog_col.tbl_handle = tbl_handle
                 catalog_col.id = i
+                catalog_col.tbl_handle = tbl_handle
+                visible_cols[name] = catalog_col
                 subst_dict[ModelColumnRef(name)] = exprs.ColumnRef(
                     catalog_col.column_version_md(), perform_validation=(media_validation == 'on_read')
                 )
-            initial_col_id += len(iterator.outputs)
 
-        if base is not None and base.select_list is not None:
-            initial_col_id += len(base.select_list)
-
-        next_col_id = itertools.count(initial_col_id)
-        catalog_columns: list[Column] = []
+        additional_cols: list[Column] = []
         for name, spec in columns.items():
             subst_spec = spec.copy()
             if 'value' in subst_spec:
@@ -1740,7 +1766,8 @@ class Catalog(CatalogBase):
             catalog_col = Column.create(name, subst_spec)
             catalog_col.tbl_handle = tbl_handle
             catalog_col.id = next(next_col_id)
-            catalog_columns.append(catalog_col)
+            additional_cols.append(catalog_col)
+            visible_cols[name] = catalog_col
             subst_dict[ModelColumnRef(name, catalog_col.col_type)] = exprs.ColumnRef(
                 catalog_col.column_version_md(),
                 perform_validation=subst_spec.get('media_validation', media_validation) == 'on_read',
@@ -1753,18 +1780,16 @@ class Catalog(CatalogBase):
             self._validate_model(existing, display_name, base, iterator)
             return existing, False
 
-        # Resolve each declared embedding index against the model's own columns (or, for a view, an inherited base
-        # column) and construct its index instance. These are woven into the initial table metadata by
-        # `create_initial_md`, so the index storage and physical (pgvector) index are created as part of the same
-        # table-creation unit rather than as follow-up operations.
-        own_cols_by_name = {col.name: col for col in catalog_columns}
+        # Resolve each declared embedding index against the model's visible columns.
         resolved_idxs: list[tuple[Column, str | None, index.IndexBase]] = []
         for idx_name, idx_spec in embedding_idxs.items():
+            if not isinstance(idx_spec.column, ModelColumnRef):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'Embedding index {idx_name!r} in {display_name} has an invalid column reference.'
+                )
             col_name = idx_spec.column.name
-            idx_col = own_cols_by_name.get(col_name)
-            if idx_col is None and base is not None:
-                idx_col = base._first_tbl.get_column(col_name)
-            if idx_col is None:
+            if col_name not in visible_cols:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
                     f'Embedding index {idx_name!r} in {display_name} references unknown column {col_name!r}.',
@@ -1778,14 +1803,14 @@ class Catalog(CatalogBase):
                 audio_embed=idx_spec.audio_embed,
                 video_embed=idx_spec.video_embed,
                 document_embed=idx_spec.document_embed,
-                column=idx_col,
+                column=visible_cols[col_name],
             )
-            resolved_idxs.append((idx_col, idx_name, idx))
+            resolved_idxs.append((visible_cols[col_name], idx_name, idx))
 
         if base is None:
             return self._create_table(
                 path=path,
-                columns=catalog_columns,
+                columns=additional_cols,
                 if_exists=IfExistsParam.ERROR,
                 primary_key=None,
                 comment=comment,
@@ -1804,7 +1829,7 @@ class Catalog(CatalogBase):
                 select_list=base.select_list,
                 where=base.where_clause,
                 sample_clause=base.sample_clause,
-                additional_columns=catalog_columns,
+                additional_columns=additional_cols,
                 is_snapshot=False,
                 create_default_idxs=create_default_idxs,
                 iterator=iterator,
