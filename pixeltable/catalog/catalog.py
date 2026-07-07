@@ -1692,31 +1692,52 @@ class Catalog(CatalogBase):
         # - then columns from the base query's select_list
         #     (but not if it's a select(*): then just inherit the base table's columns)
         # - finally, the view's additional_columns.
-        # TODO: Revisit this? It's a little hokey to put iterator columns before query columns, since the former may
-        #     depend on the latter (so by putting iterator columns first, we are violating topological sortedness of
-        #     the new columns). It also means the following logic is a little convoluted.
 
-        # Create a counter to track column ids. Iterator columns are handled separately (they have to be processed
-        # *after* the query columns, since they may depend on them, but their ids *precede* them; see above TODO).
-        next_col_id = itertools.count(len(iterator.outputs) if iterator is not None else 0)
+        # Create a counter to track column ids.
+        next_col_id = itertools.count()
+
+        # A registry of visible columns of the table (base table/query columns, iterator columns,
+        # and additional columns).
         visible_cols: dict[str, Column] = {}
-        # `subst_dict` resolves model column references (in the view's own computed columns) to the columns of the
-        # view being created. `iter_subst_dict` resolves them for the iterator's arguments instead: the iterator's
-        # inputs are expressions over the base query, so they must resolve to those base(-query) expressions, not to
-        # the view's own select-list columns -- otherwise the view's iterator would reference the view itself,
-        # creating a self-referential dependency (which loops forever when the view is loaded).
+
+        # A substitution dictionary resolving ModelColumnRefs to actual ColumnRefs; we'll build this up incrementally
+        # as we process the model's columns.
         subst_dict: dict[exprs.Expr, exprs.Expr] = {}
-        iter_subst_dict: dict[exprs.Expr, exprs.Expr] = {}
+
+        # First the iterator columns, if present.
+        if iterator is not None:
+            # Rebind the iterator, resolving its argument references against the base table.
+            assert base is not None
+            base_tbl_subst_dict: dict[exprs.Expr, exprs.Expr] = {
+                ModelColumnRef(col.name): exprs.ColumnRef(col.column_version_md()) for col in base._first_tbl.columns()
+            }
+            subst_args = [arg.substitute(base_tbl_subst_dict) for arg in iterator.args]
+            subst_kwargs = {k: v.substitute(base_tbl_subst_dict) for k, v in iterator.kwargs.items()}
+            subst_bound_args = {k: v.substitute(base_tbl_subst_dict) for k, v in iterator.bound_args.items()}
+            iterator = func.GeneratingFunctionCall(
+                iterator.it, subst_args, subst_kwargs, subst_bound_args, iterator.outputs, iterator.validation_error
+            )
+            # Build substitutions for the iterator's output columns.
+            for name, output in iterator.outputs.items():
+                catalog_col = Column.create(name, {'type': output.col_type, 'stored': output.is_stored})  # type: ignore[arg-type]
+                catalog_col.id = next(next_col_id)
+                catalog_col.tbl_handle = tbl_handle
+                visible_cols[name] = catalog_col
+                subst_dict[ModelColumnRef(name)] = exprs.ColumnRef(
+                    catalog_col.column_version_md(), perform_validation=(media_validation == 'on_read')
+                )
 
         if base is not None:
             # Build substitutions for the base table/query's columns.
             if base.select_list is None:
                 # select(*): all visible columns from the base table
                 for col in base._first_tbl.columns():
-                    visible_cols[col.name] = col
-                    ref = exprs.ColumnRef(col.column_version_md())
-                    subst_dict[ModelColumnRef(col.name)] = ref
-                    iter_subst_dict[ModelColumnRef(col.name)] = ref
+                    # Iterator column names take precedence over base table column names in the model namespace, so
+                    # only update the substitution dicts if the name isn't already present.
+                    if col.name not in visible_cols:
+                        visible_cols[col.name] = col
+                        ref = exprs.ColumnRef(col.column_version_md())
+                        subst_dict[ModelColumnRef(col.name)] = ref
             else:
                 # explicit select list: new columns will be created that represent the selected expressions.
                 for expr, select_name in base.select_list:
@@ -1732,37 +1753,21 @@ class Catalog(CatalogBase):
                         # is created, but it's anonymous to the TableModel.
                         col_name = None
 
-                    id = next(next_col_id)  # increment the `id` whether or not this column is visible to the model
+                    # Increment the `id` whether or not this column is visible to the model, to ensure we have
+                    # ids that are consistent at table creation time.
+                    id = next(next_col_id)
                     if col_name is not None:
-                        catalog_col = Column.create(col_name, {'type': expr.col_type})  # type: ignore[arg-type]
+                        # Column names that arrived via an explicit select list take precedence over iterator column
+                        # names in the model namespace, so here we always update the dicts.
+                        catalog_col = Column.create(col_name, expr.col_type)
                         catalog_col.id = id
                         catalog_col.tbl_handle = tbl_handle
                         visible_cols[col_name] = catalog_col
                         subst_dict[ModelColumnRef(col_name)] = exprs.ColumnRef(
                             catalog_col.column_version_md(), perform_validation=(media_validation == 'on_read')
                         )
-                        # The iterator sees the underlying base-query expression, not the view's materialized column.
-                        iter_subst_dict[ModelColumnRef(col_name)] = expr
 
-        # Now the iterator columns. Their ids always start at 0 (see above).
-        if iterator is not None:
-            # Rebind the iterator, resolving its argument references against the base query (see `iter_subst_dict`).
-            subst_args = [arg.substitute(iter_subst_dict) for arg in iterator.args]
-            subst_kwargs = {k: v.substitute(iter_subst_dict) for k, v in iterator.kwargs.items()}
-            subst_bound_args = {k: v.substitute(iter_subst_dict) for k, v in iterator.bound_args.items()}
-            iterator = func.GeneratingFunctionCall(
-                iterator.it, subst_args, subst_kwargs, subst_bound_args, iterator.outputs, iterator.validation_error
-            )
-            # Build substitutions for the iterator's output columns.
-            for i, (name, output) in enumerate(iterator.outputs.items()):
-                catalog_col = Column.create(name, {'type': output.col_type, 'stored': output.is_stored})  # type: ignore[arg-type]
-                catalog_col.id = i
-                catalog_col.tbl_handle = tbl_handle
-                visible_cols[name] = catalog_col
-                subst_dict[ModelColumnRef(name)] = exprs.ColumnRef(
-                    catalog_col.column_version_md(), perform_validation=(media_validation == 'on_read')
-                )
-
+        # Process any additional columns specified in the view model body.
         additional_cols: list[Column] = []
         for name, spec in columns.items():
             subst_spec = spec.copy()
