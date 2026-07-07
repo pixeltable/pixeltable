@@ -3,6 +3,7 @@ from __future__ import annotations
 import enum
 import json
 import logging
+import sys
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Sequence, cast
@@ -452,8 +453,8 @@ class HFTableDataConduit(TableDataConduit):
     @classmethod
     def is_applicable(cls, tds: TableDataConduit) -> bool:
         try:
-            return (isinstance(tds.source_format, str) and tds.source_format.lower() == 'huggingface') or isinstance(
-                tds.source, cls._get_dataset_classes()
+            return (isinstance(tds.source_format, str) and tds.source_format.lower() == 'huggingface') or (
+                'datasets' in sys.modules and isinstance(tds.source, cls._get_dataset_classes())
             )
         except ImportError:
             return False
