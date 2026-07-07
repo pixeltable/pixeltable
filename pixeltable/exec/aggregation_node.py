@@ -106,7 +106,7 @@ class AggregationNode(ExecNode):
 
                 if group != current_group:
                     # we're entering a new group, emit a row for the previous one
-                    with hooks.span(f'pixeltable.agg.{self._agg_name}', level=hooks.DEBUG, parent=self._span):
+                    with hooks.span(f'pixeltable.agg.{self._agg_name}', level=hooks.DEBUG):
                         self.row_builder.eval(prev_row, self.agg_fn_eval_ctx, profile=self.ctx.profile)
                     self.output_batch.add_row(prev_row)
                     num_output_rows += 1
@@ -120,7 +120,7 @@ class AggregationNode(ExecNode):
 
         if prev_row is not None:
             # emit the last group
-            with hooks.span(f'pixeltable.agg.{self._agg_name}', level=hooks.DEBUG, parent=self._span):
+            with hooks.span(f'pixeltable.agg.{self._agg_name}', level=hooks.DEBUG):
                 self.row_builder.eval(prev_row, self.agg_fn_eval_ctx, profile=self.ctx.profile)
             self.output_batch.add_row(prev_row)
 

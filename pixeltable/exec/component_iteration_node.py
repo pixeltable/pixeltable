@@ -48,7 +48,7 @@ class ComponentIterationNode(ExecNode):
     def _instrumented_iter(self, iterator: Iterator[dict]) -> Iterator[dict]:
         """Wraps each iterator step (eg, one decoded frame) in a per-step span at TRACE."""
         while True:
-            with hooks.span(f'pixeltable.iter.{self._iter_name}', level=hooks.TRACE, parent=self._span):
+            with hooks.span(f'pixeltable.iter.{self._iter_name}', level=hooks.TRACE):
                 try:
                     item = next(iterator)
                 except StopIteration:

@@ -64,9 +64,6 @@ class ExprEvalNode(ExecNode):
     output_buffer: RowBuffer  # holds rows that are ready to be returned, in order
     progress_reporter: ProgressReporter | None
 
-    # instrumentation state (see Dispatcher protocol)
-    span_handle: hooks.SpanHandle | None
-
     # debugging
     num_input_rows: int
     num_output_rows: int
@@ -118,12 +115,10 @@ class ExprEvalNode(ExecNode):
         for evaluator in self.eval_ctx.slot_evaluators.values():
             evaluator.reset()
         self.progress_reporter = None
-        self.span_handle = None
 
     def _open(self) -> None:
         self._init_exec_state()
         self.progress_reporter = self.ctx.add_progress_reporter('Cell computations', 'cells')
-        self.span_handle = self._span
 
     def set_input_order(self, maintain_input_order: bool) -> None:
         self.maintain_input_order = maintain_input_order
@@ -207,7 +202,7 @@ class ExprEvalNode(ExecNode):
             # operation span, so a bare query with no operation span stays dark
             for row in rows:
                 if row.parent_row is None and len(self._span_rows) < self.MAX_ROW_SPANS:
-                    row.span = hooks.span_start('pixeltable.row', level=hooks.DEBUG, parent=hooks.current_span())
+                    row.span = hooks.span_start('pixeltable.row', level=hooks.DEBUG)
                     if row.span is not None:
                         self._span_rows.append(row)
         self.dispatch(rows, self.eval_ctx)
