@@ -243,7 +243,7 @@ _RUNTIME_UPDATE_TIMEOUT = 900  # 15 minutes max (CodeBuild can take up to ~8 min
 
 
 def database_update_runtime(
-    db_slug: str, org_slug: str | None = None, watch: bool = False, json_output: bool = False
+    db_slug: str, org_slug: str | None = None, watch: bool = True, json_output: bool = False
 ) -> None:
     import json as _json
 
