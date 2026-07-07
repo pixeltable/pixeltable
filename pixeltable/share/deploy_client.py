@@ -118,7 +118,7 @@ def database_create(
     resp = _post(CreateDatabaseRequest(org_slug=org_slug, db_slug=db_slug, location=location))
     db = resp['database']
 
-    if db.get('state') == 'PROVISIONING' and not json_output:
+    if db.get('state') == 'PROVISIONING':
         db = _poll_db(
             org_slug, db_slug,
             frozenset({'PROVISIONING'}),
@@ -192,7 +192,7 @@ def database_update(
         )
     )
     db = resp['database']
-    if db.get('state') == 'UPDATING' and not json_output:
+    if db.get('state') == 'UPDATING':
         db = _poll_db(
             org_slug, db_slug,
             frozenset({'UPDATING'}),
