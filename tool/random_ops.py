@@ -217,10 +217,10 @@ class RandomTableOps:
         self.logger.addHandler(random_ops_log_handler)
         self.logger.propagate = False  # prevents double logging to stdout
 
-        logging.getLogger('pixeltable').setLevel(logging.DEBUG)
+        logging.getLogger('pixeltable').setLevel(logging.WARNING)
         logging.getLogger('pixeltable').addHandler(random_ops_log_handler)
 
-        logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
+        logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
 
     def _flush_stats(self, *, force: bool = False) -> None:
         if self.stats_file is None:
