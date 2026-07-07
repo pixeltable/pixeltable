@@ -5,6 +5,7 @@ import platform
 import subprocess
 import sys
 import uuid
+import warnings
 from datetime import datetime
 from typing import Any
 
@@ -95,11 +96,6 @@ class TestMigration:
 
     @rerun(reruns=3, reruns_delay=8)  # Deal with occasional concurrency issues
     @pytest.mark.skipif(platform.system() == 'Windows', reason='Does not run on Windows')
-    @pytest.mark.skipif(sys.version_info >= (3, 11), reason='Runs only on Python 3.10 (due to pickling issue)')
-    # Dumps at or below version 54 contain computed columns backed by pickled functions (apply()/stored UDFs).
-    # Migrating them past 54 leaves those references in place, so the columns load as InvalidFunction and warn;
-    # that is expected here and must not fail the test.
-    @pytest.mark.filterwarnings('ignore::pixeltable.exceptions.PixeltableWarning')
     def test_db_migration(self, init_env: None) -> None:
         skip_test_if_not_installed('transformers')
 
@@ -155,38 +151,50 @@ class TestMigration:
                 assert md['schema_version'] == VERSION
 
             try:
-                reload_catalog()
+                # PixeltableWarning is configured as an error in tests (see pyproject.toml). Dumps at or below
+                # version 54 may contain computed columns backed by pickled functions (apply()/stored UDFs); those
+                # references are left in place by the 54->55 converter and load as InvalidFunction, which warns that
+                # the column is no longer valid. Tolerate only that specific warning, and only for pre-55 dumps, so
+                # any other PixeltableWarning (or an invalid-column warning from a >= 55 dump) still fails the test.
+                with warnings.catch_warnings():
+                    if old_version < 55:
+                        warnings.filterwarnings(
+                            'ignore',
+                            message='The computed column .* is no longer valid',
+                            category=excs.PixeltableWarning,
+                        )
 
-                # Some dumps (version <= 54) contain computed columns backed by pickled functions, which now load
-                # as InvalidFunction. Drop them so the insert-based verification below can run; a real user would
-                # do the same to make such a table writable again.
-                self._drop_pickled_columns()
+                    reload_catalog()
 
-                # TODO: We need many more of these sorts of checks.
-                if 12 <= old_version <= 14:
-                    self._run_v12_tests()
-                if 13 <= old_version <= 14:
-                    self._run_v13_tests()
-                if old_version >= 15:
-                    self._run_v15_tests()
-                if old_version >= 19:
-                    self._run_v19_tests(old_version)
-                if old_version >= 30:
-                    self._run_v30_tests()
-                if old_version >= 33:
-                    self._verify_v33()
-                if old_version >= 45:
-                    self._verify_v45()
-                if old_version >= 48:
-                    self._verify_v48()
-                # For version 49, the test can only be run on the exact version since creating tables with invalid
-                # primary keys fails post version 49. Therefore the dump cannot have invalid primary keys.
-                if old_version == 49:
-                    self._verify_v49()
-                if old_version >= 50:
-                    self._verify_v49_query_scalar()
+                    # Drop the pickled-function columns so the insert-based verification below can run; a real user
+                    # would do the same to make such a table writable again.
+                    self._drop_pickled_columns()
 
-                pxt.drop_table('sample_table', force=True)
+                    # TODO: We need many more of these sorts of checks.
+                    if 12 <= old_version <= 14:
+                        self._run_v12_tests()
+                    if 13 <= old_version <= 14:
+                        self._run_v13_tests()
+                    if old_version >= 15:
+                        self._run_v15_tests()
+                    if old_version >= 19:
+                        self._run_v19_tests(old_version)
+                    if old_version >= 30:
+                        self._run_v30_tests()
+                    if old_version >= 33:
+                        self._verify_v33()
+                    if old_version >= 45:
+                        self._verify_v45()
+                    if old_version >= 48:
+                        self._verify_v48()
+                    # For version 49, the test can only be run on the exact version since creating tables with
+                    # invalid primary keys fails post version 49. Therefore the dump cannot have invalid primary keys.
+                    if old_version == 49:
+                        self._verify_v49()
+                    if old_version >= 50:
+                        self._verify_v49_query_scalar()
+
+                    pxt.drop_table('sample_table', force=True)
 
             except Exception as e:
                 raise RuntimeError(

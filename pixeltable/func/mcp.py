@@ -99,7 +99,7 @@ class McpFunction(Function):
         )
 
     def __hash__(self) -> int:
-        # we leave the signature out of this, because it's no immediately hashable (and collisions here have no perf
+        # we leave the signature out of this, because it's not immediately hashable (and collisions here have no perf
         # impact)
         return hash((self.url, self.tool_name))
 
