@@ -1470,7 +1470,7 @@ class Catalog(CatalogBase):
             custom_metadata,
             media_validation,
             create_default_idxs,
-            is_versioned
+            is_versioned,
         )
 
     def _create_table(
@@ -1486,7 +1486,7 @@ class Catalog(CatalogBase):
         is_versioned: bool,
         additional_idxs: list[tuple[Column, str | None, 'index.IndexBase']] | None = None,
         explicit_tbl_id: UUID | None = None,
-    ) -> tuple[UUID, bool]:
+    ) -> tuple[LocalTable, bool]:
         import pixeltable.metadata.schema
 
         assert explicit_tbl_id is None or if_exists == IfExistsParam.ERROR
@@ -1531,7 +1531,7 @@ class Catalog(CatalogBase):
         self._roll_forward()
 
         @retry_loop(read_tbl_ids=[tbl_id])
-        def get_tbl_fn() -> tuple[LocalTable, bool]:
+        def get_tbl_fn() -> LocalTable:
             return self.get_table_by_id(tbl_id)
 
         return get_tbl_fn(), is_created
@@ -1589,7 +1589,7 @@ class Catalog(CatalogBase):
         if_exists: IfExistsParam,
         additional_idxs: list[tuple[Column, str | None, 'index.IndexBase']] | None = None,
         explicit_tbl_id: UUID | None = None,
-    ) -> tuple[UUID, bool]:
+    ) -> tuple[LocalTable, bool]:
         assert explicit_tbl_id is None or if_exists == IfExistsParam.ERROR
 
         if additional_idxs is None:

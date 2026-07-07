@@ -94,7 +94,7 @@ class Column:
 class EmbeddingIndex:
     """An embedding index specification used in a TableModel or ViewModel definition."""
 
-    column: ModelColumnRef
+    column: Any
     embedding: func.Function | None = None
     string_embed: func.Function | None = None
     image_embed: func.Function | None = None

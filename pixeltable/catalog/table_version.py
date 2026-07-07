@@ -5,7 +5,6 @@ import dataclasses
 import itertools
 import logging
 import time
-import uuid
 import warnings
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal
 from uuid import UUID
