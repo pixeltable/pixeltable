@@ -47,9 +47,6 @@ class ExecNode(abc.ABC):
     # values bound for this node's parameters (typically Variables); populated by bind_params()
     bound_args: dict[str, Any]
 
-    # per-execution instrumentation span (open/close lifetime); set in _open_aux()
-    _span: hooks.SpanHandle | None
-
     def __init__(
         self,
         row_builder: exprs.RowBuilder,
@@ -71,7 +68,6 @@ class ExecNode(abc.ABC):
         self.bind_sources = []
         self.vars = []
         self.bound_args = {}
-        self._span = None
 
     def set_ctx(self, ctx: ExecContext) -> None:
         self.ctx = ctx
@@ -189,17 +185,10 @@ class ExecNode(abc.ABC):
         self._open_aux()
         return self
 
-    def _open_aux(self, consumer_span: hooks.SpanHandle | None = None) -> None:
-        """Call _open() bottom-up; node spans are created top-down so each node nests under its consumer.
-
-        The plan head parents on the ambient operation span; spans are only emitted under an enclosing
-        operation span (a bare query would produce orphan roots).
-        """
-        self._span = None
-        if consumer_span is not None or hooks.current_span() is not None:
-            self._span = hooks.span_start(f'pixeltable.exec.{type(self).__name__}', parent=consumer_span)
+    def _open_aux(self) -> None:
+        """Call _open() bottom-up"""
         if self.input is not None:
-            self.input._open_aux(self._span)
+            self.input._open_aux()
         self._open()
 
     def __exit__(
@@ -207,19 +196,13 @@ class ExecNode(abc.ABC):
     ) -> None:
         # Ensure progress stops on exit (including empty results, errors, interrupts)
         get_runtime().stop_progress()
-        self._close_aux(exc_val)
+        self._close_aux()
 
-    def _close_aux(self, exc: BaseException | None = None) -> None:
-        """Call _close() top-down; node spans end bottom-up so children end before their consumer's span.
-
-        A plan-terminating exception is recorded on every open node span so failed queries surface as errored.
-        """
+    def _close_aux(self) -> None:
+        """Call _close() top-down"""
         self._close()
         if self.input is not None:
-            self.input._close_aux(exc)
-        if self._span is not None:
-            hooks.span_end(self._span, exc=exc)
-            self._span = None
+            self.input._close_aux()
 
     def _open(self) -> None:
         pass
