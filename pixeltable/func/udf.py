@@ -5,6 +5,7 @@ import sys
 from typing import TYPE_CHECKING, Any, Callable, Sequence, overload
 
 from pixeltable import catalog, exceptions as excs, type_system as ts
+from pixeltable.env import Env
 
 from .callable_function import CallableFunction
 from .expr_template_function import ExprTemplate, ExprTemplateFunction
@@ -127,10 +128,10 @@ def make_function(
     if force_stored:
         # force storing the function in the db
         function_path = None
-    elif decorated_fn.__module__ != '__main__' and decorated_fn.__name__.isidentifier():  # noqa: SIM114
+    elif decorated_fn.__module__ != '__main__' and decorated_fn.__name__.isidentifier():
         function_path = f'{decorated_fn.__module__}.{decorated_fn.__qualname__}'
 
-    elif from_decorator and hasattr(sys, 'ps1') and decorated_fn.__name__.isidentifier():
+    elif from_decorator and Env.get().is_interactive() and decorated_fn.__name__.isidentifier():
         # Give a udf inlined in a notebook cell a __main__.<name> path to enable computed columns with inlined udfs;
         # resolves only within the session and degrades to InvalidFunction elsewhere
         # TODO: remove and rework the offending notebooks
