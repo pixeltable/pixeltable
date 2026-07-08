@@ -211,7 +211,7 @@ class Catalog(CatalogBase):
     # - mutable version of a table: version == None (even though TableVersion.version is set correctly)
     # - snapshot versions: records the version of the snapshot
     _tbl_versions: dict[TableVersionKey, TableVersion]
-    _tbls: dict[tuple[UUID, int | None], LocalTable]
+    _tbls: dict[TableVersionKey, LocalTable]
     _in_write_xact: bool  # True if we're in a write transaction
     _x_locked_tbl_ids: set[UUID]  # Ids of tables exclusively locked for write in the current transaction
     _modified_tvs: set[TableVersionHandle]  # TableVersion instances modified in the current transaction
@@ -1425,7 +1425,8 @@ class Catalog(CatalogBase):
     ) -> LocalTable | None:
         """Loads the table if it isn't already cached, starting its own (re-entrant) transaction to do so.
         Might raise PendingTableOpsError."""
-        if (tbl_id, version) not in self._tbls:
+        key = TableVersionKey(tbl_id, version)
+        if key not in self._tbls:
             # begin_xact() is re-entrant: it joins the caller's transaction if there is one, and otherwise
             # starts a fresh read transaction (which also permits the metadata load). Cache hits stay xact-free.
             with self.begin_xact(for_write=False):
@@ -1434,7 +1435,7 @@ class Catalog(CatalogBase):
                 else:
                     tbl = self._load_tbl_at_version(tbl_id, version)
         else:
-            tbl = self._tbls.get((tbl_id, version))
+            tbl = self._tbls.get(key)
         if tbl is not None:
             Env.get().record_tbl_catalog_uri(tbl._id, ROOT_PATH)
         return tbl
@@ -1972,12 +1973,11 @@ class Catalog(CatalogBase):
 
         tvp.clear_cached_md()
 
-        assert (tbl_id, None) in self._tbls  # tables must have an entry with effective_version=None
-
         # Remove visible Table references.
-        versions = [version for id, version in self._tbls if id == tbl_id]
-        for version in versions:
-            del self._tbls[tbl_id, version]
+        keys = [k for k in self._tbls if k.tbl_id == tbl_id]
+        assert any(k.effective_version is None for k in keys)  # tables must have an entry with effective_version=None
+        for k in keys:
+            del self._tbls[k]
 
         _logger.info(f'Dropped table {tbl_path_repr}.')
 
@@ -2306,7 +2306,7 @@ class Catalog(CatalogBase):
             if key not in self._tbl_versions:
                 _ = self._load_tbl_version(key)
             tbl = InsertableTable(TableVersionHandle(key))
-            self._tbls[tbl_id, None] = tbl
+            self._tbls[TableVersionKey(tbl_id, None)] = tbl
             return tbl
 
         # this is a view; determine the sequence of TableVersions to load
@@ -2333,7 +2333,7 @@ class Catalog(CatalogBase):
             view_path = TableVersionPath(TableVersionHandle(key), base=base_path)
             base_path = view_path
         view = View(tbl_id, view_path, snapshot_only=tbl_md.is_pure_snapshot)
-        self._tbls[tbl_id, None] = view
+        self._tbls[TableVersionKey(tbl_id, None)] = view
         return view
 
     def _load_tbl_at_version(self, tbl_id: UUID, version: int) -> LocalTable | None:
@@ -2361,7 +2361,7 @@ class Catalog(CatalogBase):
 
         # snapshot_only=True: an anonymous snapshot doesn't have a physical table
         view = View(tbl_id, tvp, snapshot_only=True)
-        self._tbls[tbl_id, version] = view
+        self._tbls[TableVersionKey(tbl_id, version)] = view
         return view
 
     def construct_tvp(
