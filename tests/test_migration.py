@@ -25,6 +25,7 @@ from pixeltable.metadata.converters.convert_54 import _contains_pickled_fn
 from pixeltable.metadata.converters.util import convert_table_md
 from pixeltable.metadata.notes import VERSION_NOTES
 from pixeltable.metadata.schema import Table, TableSchemaVersion, TableVersion
+
 from .conftest import clean_db
 from .utils import (
     SAMPLE_IMAGE_URL,
