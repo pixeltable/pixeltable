@@ -6,7 +6,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 
-from ..utils import ensure_s3_pytest_resources_access, pxt_raises
+from ..utils import ensure_s3_pytest_resources_access, pxt_raises, rerun
 
 pytestmark = pytest.mark.local('TODO: convert; import/export (import)')
 
@@ -85,6 +85,7 @@ class TestImport:
         t2.insert(data)
         assert t2.count() == 8
 
+    @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
     def test_import_json(self, uses_db: None) -> None:
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
         jeopardy = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/json/jeopardy.json'
@@ -105,6 +106,7 @@ class TestImport:
             's3://pxt-test/pytest-resources/example.json',
         ],
     )
+    @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
     def test_import_json_from_remote(self, uses_db: None, source: str) -> None:
         if source.startswith('s3://'):
             ensure_s3_pytest_resources_access()
@@ -112,6 +114,7 @@ class TestImport:
         assert tab.count() == 4
         assert tab._get_schema() == EXPECTED_SCHEMA
 
+    @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
     def test_insert_json(self, uses_db: None) -> None:
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
         jeopardy = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/json/jeopardy.json'

@@ -7,7 +7,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable.config import Config
 
-from ..utils import create_all_datatypes_tbl, get_image_files, skip_test_if_not_installed, validate_update_status
+from ..utils import create_all_datatypes_tbl, get_image_files, rerun, skip_test_if_not_installed, validate_update_status
 
 pytestmark = pytest.mark.local('TODO: convert; import/export (json)')
 
@@ -155,6 +155,7 @@ class TestJson:
 
         assert original == reimported
 
+    @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
     def test_export_remote_urls(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Verify that remote URLs (S3, HTTPS) are exported as-is."""
         skip_test_if_not_installed('boto3')

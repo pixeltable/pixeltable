@@ -16,6 +16,7 @@ from ..utils import (
     get_image_files,
     make_test_arrow_table,
     pxt_raises,
+    rerun,
     skip_test_if_not_installed,
     validate_update_status,
 )
@@ -105,6 +106,7 @@ class TestParquet:
             's3://pxt-test/pytest-resources/alltypes_plain.parquet',
         ],
     )
+    @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
     def test_import_parquet_from_remote(self, uses_db: None, source: str) -> None:
         skip_test_if_not_installed('pyarrow')
         if source.startswith('s3://'):
