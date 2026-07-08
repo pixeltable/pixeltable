@@ -15,8 +15,9 @@ def is_interactive_env() -> bool:
     # Python interactive shell
     if hasattr(sys, 'ps1'):
         return True
-    # for script execution, __main__ has __file__
-    return not hasattr(__main__, '__file__')
+    # an embedded interpreter has no __main__ source file; require the interactive flag too, so `python -c`
+    # and piped stdin (which also lack a source file) are not mistaken for an interactive session
+    return not hasattr(__main__, '__file__') and bool(sys.flags.interactive)
 
 
 def set_file_descriptor_limit(preferred_limit: int) -> None:
