@@ -11,7 +11,7 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable.env import Env
 
-from ..utils import ensure_s3_pytest_resources_access, pxt_raises, skip_test_if_not_installed
+from ..utils import ensure_s3_pytest_resources_access, pxt_raises, rerun, skip_test_if_not_installed
 
 pytestmark = pytest.mark.local('TODO: convert; import/export (pandas)')
 
@@ -175,6 +175,7 @@ class TestPandas:
             's3://pxt-test/pytest-resources/onlinefoods.csv',
         ],
     )
+    @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
     def test_import_csv_from_remote(self, uses_db: None, source: str) -> None:
         if source.startswith('s3://'):
             ensure_s3_pytest_resources_access()
@@ -221,6 +222,7 @@ class TestPandas:
             's3://pxt-test/pytest-resources/Financial Sample.xlsx',
         ],
     )
+    @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
     def test_import_excel_from_remote(self, uses_db: None, source: str) -> None:
         skip_test_if_not_installed('openpyxl')
         if source.startswith('s3://'):
