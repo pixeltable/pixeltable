@@ -10,7 +10,6 @@ SKIP_NOTEBOOKS=(
     working-with-reve               # [PXT-1116] Out of credits
     working-with-runwayml           # [PXT-1120] RunwayML integration is very broken
     working-with-twelvelabs         # [PXT-1119] Exceeds rate limit
-    working-with-fal                # [PXT-1220] fal.ai integration failing on CI
 
     # [PXT-1220] Temporarily disabled: these use `.apply()` or locally-defined UDFs in computed columns, which
     # are now prohibited. Re-enable once they are reworked to use module-level `@pxt.udf`.
@@ -43,6 +42,7 @@ VERY_EXPENSIVE_NOTEBOOKS=(
     img-detection-vs-segmentation   # Resource intensive
     video-generate-ai               # High dollar cost
     working-with-gemini             # High dollar cost
+    working-with-fal                # [PXT-1220] fal.ai integration failing on CI
     working-with-together           # Poor reliability
 )
 
