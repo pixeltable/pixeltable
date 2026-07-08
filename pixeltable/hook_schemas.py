@@ -6,12 +6,15 @@ written inventory of what every span carries. Keys are unprefixed; the hub adds 
 export. The hub boundary itself (`span(**attrs)`, `add_attrs(**attrs)`) stays untyped: these schemas are
 a construction-time contract, not a runtime enforcement.
 
-Metric instruments are a separate concern; see `hooks.counter()` / `hooks.histogram()`.
+Metric instruments are declared at the bottom of this module (the single inventory of pixeltable metrics)
+and recorded from exactly one owning call site each.
 """
 
 from __future__ import annotations
 
 from typing import TypedDict as Attrs
+
+from pixeltable import hooks
 
 
 class OpAttrs(Attrs, total=False):
@@ -143,3 +146,16 @@ class ModelLoadAttrs(Attrs):
     device: str | None
     param_count: int | None
     size_bytes: int | None
+
+
+rows_written = hooks.counter('pixeltable.rows.written', '{row}')
+cells_computed = hooks.counter('pixeltable.cells.computed', '{cell}')
+cells_errors = hooks.counter('pixeltable.cells.errors', '{error}')
+udf_calls = hooks.counter('pixeltable.udf.calls', '{call}')
+udf_errors = hooks.counter('pixeltable.udf.errors', '{error}')
+udf_retries = hooks.counter('pixeltable.udf.retries', '{retry}')
+udf_latency = hooks.histogram('pixeltable.udf.latency', 's')
+udf_input_tokens = hooks.counter('pixeltable.udf.input_tokens', '{token}')
+udf_output_tokens = hooks.counter('pixeltable.udf.output_tokens', '{token}')
+media_fetched_bytes = hooks.counter('pixeltable.media.fetched_bytes', 'By')
+media_saved_bytes = hooks.counter('pixeltable.media.saved_bytes', 'By')

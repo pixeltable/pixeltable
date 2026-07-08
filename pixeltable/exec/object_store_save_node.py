@@ -8,7 +8,7 @@ from concurrent import futures
 from pathlib import Path
 from typing import Any, AsyncIterator, Iterator, NamedTuple
 
-from pixeltable import exprs, hooks
+from pixeltable import exprs, hook_schemas, hooks
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectPath, ObjectStoreBase, StorageTarget
 from pixeltable.utils.progress_reporter import ProgressReporter
 
@@ -207,6 +207,7 @@ class ObjectStoreSaveNode(ExecNode):
                     del self.in_flight_rows[id(row)]
                     self.__add_ready_row(row, state.idx)
 
+        hook_schemas.media_saved_bytes.add(num_bytes)
         if self.ctx.show_progress:
             self.progress_reporter.update(num_objects, num_bytes)
 

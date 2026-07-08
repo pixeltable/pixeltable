@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import multiprocessing
 import os
@@ -20,6 +21,19 @@ from opentelemetry.trace import ProxyTracerProvider
 
 import pixeltable as pxt
 from pixeltable import hooks
+
+
+@pxt.udf
+def fail_on_marker(s: str) -> str:
+    if s == 'fail':
+        raise ValueError('deliberate failure')
+    return s.upper()
+
+
+@pxt.udf
+async def mock_llm(s: str) -> dict:
+    await asyncio.sleep(0)
+    return {'choice': s, 'usage': {'prompt_tokens': 7, 'completion_tokens': 3}}
 
 
 def _set_env(env: dict[str, str]) -> None:
@@ -235,6 +249,55 @@ class TestBridge:
         assert point.count == 2
         assert point.sum == 2.0
         assert dict(point.attributes) == {'pxt.udf': 'f'}
+
+    def test_metrics_end_to_end(self, metric_reader: Any) -> None:
+        pxt.create_dir('otel_metrics_smoke', if_exists='replace_force')
+        try:
+            t = pxt.create_table('otel_metrics_smoke.tbl', {'a': pxt.String, 'b': pxt.String})
+            # casefold: an existing scalar sync UDF without a to_sql translation, so both the insert and
+            # the update recompute run through the Python evaluator and the metric counts are deterministic
+            t.add_computed_column(folded=t.a.casefold())
+            t.add_computed_column(checked=fail_on_marker(t.b))
+            t.add_computed_column(llm=mock_llm(t.a))
+            rows = [{'a': f'r{i}', 'b': 'fail' if i == 0 else f'r{i}'} for i in range(4)]
+            status = t.insert(rows, on_error='ignore')
+            assert status.num_excs > 0
+            t.update({'a': t.a + '!'})
+
+            def point(name: str, **attrs: str) -> Any:
+                metric = self._metric(metric_reader, name)
+                pts = [
+                    p
+                    for p in metric.data.data_points
+                    if all(dict(p.attributes).get(f'pxt.{k}') == v for k, v in attrs.items())
+                ]
+                assert len(pts) == 1, f'{name} {attrs}: expected 1 matching data point, got {len(pts)}'
+                return pts[0]
+
+            # 4 rows inserted, then re-inserted as new versions by the update
+            rows_written = point('pixeltable.rows.written', table='tbl')
+            assert rows_written.value == 8
+            assert 'pxt.table_id' in dict(rows_written.attributes)
+
+            assert point('pixeltable.cells.computed', table='tbl').value >= 8
+
+            assert point('pixeltable.cells.errors', table='tbl').value == 1
+            assert point('pixeltable.udf.errors', udf='fail_on_marker').value == 1
+
+            # 4 calls on insert + 4 on update (both columns depend on 'a')
+            assert point('pixeltable.udf.calls', udf='casefold').value == 8
+            assert point('pixeltable.udf.calls', udf='mock_llm').value == 8
+            # 4 attempts on insert, 1 failed; not recomputed by the update ('checked' depends on 'b')
+            assert point('pixeltable.udf.calls', udf='fail_on_marker').value == 3
+
+            latency = point('pixeltable.udf.latency', udf='casefold')
+            assert latency.count == 8
+            assert latency.sum >= 0
+
+            assert point('pixeltable.udf.input_tokens', udf='mock_llm').value == 7 * 8
+            assert point('pixeltable.udf.output_tokens', udf='mock_llm').value == 3 * 8
+        finally:
+            pxt.drop_dir('otel_metrics_smoke', force=True)
 
     def test_uninstrument_stops_emission(self) -> None:
         span_exporter = InMemorySpanExporter()

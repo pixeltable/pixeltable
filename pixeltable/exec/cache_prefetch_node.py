@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Iterator
 from uuid import UUID
 
-from pixeltable import exceptions as excs, exprs, hooks
+from pixeltable import exceptions as excs, exprs, hook_schemas, hooks
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.http import fetch_url
 from pixeltable.utils.progress_reporter import ProgressReporter
@@ -178,6 +178,7 @@ class CachePrefetchNode(ExecNode):
                     del self.in_flight_rows[id(row)]
                     self.__add_ready_row(row, state.idx)
 
+        hook_schemas.media_fetched_bytes.add(num_bytes)
         if self.ctx.show_progress:
             self.progress_reporter.update(num_objects, num_bytes)
 

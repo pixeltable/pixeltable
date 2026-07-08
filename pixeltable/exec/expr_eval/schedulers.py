@@ -9,7 +9,7 @@ import sys
 import time
 from typing import Collection
 
-from pixeltable import env, exceptions as excs, func, hooks
+from pixeltable import env, exceptions as excs, func, hook_schemas, hooks
 from pixeltable.config import Config
 from pixeltable.utils import fault_injection
 from pixeltable.utils.fault_injection import FaultLocation
@@ -201,6 +201,7 @@ class RateLimitsScheduler(Scheduler):
                 f'start evaluating slot {request.fn_call.slot_idx}, batch_size={len(request.rows)}'
             )
             self.total_requests += 1
+            start = time.perf_counter()
             with hooks.span(
                 f'pixeltable.udf.{request.fn_call.fn.display_name}',
                 level=hooks.DEBUG,
@@ -219,6 +220,9 @@ class RateLimitsScheduler(Scheduler):
                     fault_injection.process_fault(FaultLocation.SCHEDULER_RATE_LIMITS_AEXEC)
                     result = await pxt_fn.aexec(*request.args, **request_kwargs)
                     request.row[request.fn_call.slot_idx] = result
+            fn_name = request.fn_call.fn.display_name
+            hook_schemas.udf_calls.add(1, udf=fn_name)
+            hook_schemas.udf_latency.record(time.perf_counter() - start, udf=fn_name)
             end_ts = datetime.datetime.now(tz=datetime.timezone.utc)
             _logger.debug(
                 f'scheduler {self.resource_pool}: evaluated slot {request.fn_call.slot_idx} '
@@ -255,6 +259,7 @@ class RateLimitsScheduler(Scheduler):
                             f' attempt {num_retries} based on the information in the error'
                         )
                         await asyncio.sleep(retry_delay)
+                        hook_schemas.udf_retries.add(1, udf=request.fn_call.fn.display_name)
                         self.queue.put_nowait(self.QueueItem(request, num_retries + 1, exec_ctx))
                         return
 
@@ -377,6 +382,7 @@ class RequestRateScheduler(Scheduler):
                 f'start evaluating slot {request.fn_call.slot_idx}, batch_size={len(request.rows)}'
             )
             self.total_requests += 1
+            start = time.perf_counter()
             with hooks.span(
                 f'pixeltable.udf.{request.fn_call.fn.display_name}',
                 level=hooks.DEBUG,
@@ -391,6 +397,9 @@ class RequestRateScheduler(Scheduler):
                 else:
                     result = await pxt_fn.aexec(*request.args, **request.kwargs)
                     request.row[request.fn_call.slot_idx] = result
+            fn_name = request.fn_call.fn.display_name
+            hook_schemas.udf_calls.add(1, udf=fn_name)
+            hook_schemas.udf_latency.record(time.perf_counter() - start, udf=fn_name)
             end_ts = datetime.datetime.now(tz=datetime.timezone.utc)
             _logger.debug(
                 f'scheduler {self.resource_pool}: evaluated slot {request.fn_call.slot_idx} '
@@ -409,6 +418,7 @@ class RequestRateScheduler(Scheduler):
                 now = time.monotonic()
                 # put the request back in the queue right away, which prevents new requests from being generated until
                 # this one succeeds or exceeds its retry limit
+                hook_schemas.udf_retries.add(1, udf=request.fn_call.fn.display_name)
                 self.queue.put_nowait(self.QueueItem(request, num_retries + 1, exec_ctx, retry_after=now + retry_delay))
                 return
 
