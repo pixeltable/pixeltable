@@ -97,6 +97,8 @@ class TestMigration:
     @pytest.mark.skipif(platform.system() == 'Windows', reason='Does not run on Windows')
     def test_db_migration(self, init_env: None) -> None:
         skip_test_if_not_installed('transformers')
+        # the dumps contain a sentence-mode string_splitter view, which needs spacy to compute inserted rows
+        skip_test_if_not_installed('spacy')
 
         env = Env.get()
         pg_package_dir = os.path.dirname(pixeltable_pgserver.__file__)
