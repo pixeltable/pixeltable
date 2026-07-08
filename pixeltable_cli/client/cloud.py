@@ -12,7 +12,7 @@ from typing import Any
 
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
-from .http import get, post
+from .http import get
 
 _DB_POLL_INTERVAL = 5
 _DB_POLL_TIMEOUT = 600
@@ -235,32 +235,3 @@ def poll_db_runtime(org_slug: str, db_slug: str) -> dict[str, Any]:
             break
     print()
     return db
-
-
-def read_service_config(service_name: str) -> str | None:
-    """Read pixeltable.toml and return the matching service block as a JSON string, or None."""
-    import pathlib
-
-    toml_path = pathlib.Path('pixeltable.toml')
-    if not toml_path.exists():
-        return None
-
-    try:
-        try:
-            import tomllib
-
-            with open(toml_path, 'rb') as f:
-                data = tomllib.load(f)
-        except ImportError:
-            import toml
-
-            with open(toml_path) as f:
-                data = toml.load(f)
-    except Exception:
-        return None
-
-    services = data.get('pixeltable', {}).get('service', [])
-    if not isinstance(services, list):
-        services = [services]
-    svc = next((s for s in services if s.get('name') == service_name), None)
-    return json.dumps(svc) if svc is not None else None

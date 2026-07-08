@@ -10,7 +10,7 @@ def run(argv: list[str]) -> None:
     parser = Parser(prog='pxt service create', description='Create a service from a table in a cloud-hosted database.')
     parser.add_argument('table_uri', help='Table URI: pxt://org:db/tables/<path>')
     parser.add_argument(
-        '--name', required=True, help='Service name (must match a [[service]] block in pixeltable.toml)'
+        '--name', required=True, help='Service name (must match a [[service]] block in the Pixeltable config)'
     )
     parser.add_argument('--workers', type=int, default=1, help='Number of workers (default: 1)')
     parser.add_argument('--cpu', type=float, default=0.5, help='CPU cores per worker (default: 0.5)')
@@ -18,16 +18,22 @@ def run(argv: list[str]) -> None:
         '--memory', type=int, default=512, dest='memory_mb', help='Memory per worker in MB (default: 512)'
     )
     parser.add_argument('--disk', type=int, default=10, dest='disk_gb', help='Disk per worker in GB (default: 10)')
+    parser.add_argument('--config', default=None, metavar='FILE', help='Path to an additional config file (TOML)')
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
 
-    from ..cloud import parse_table_uri, poll_svc, print_service, read_service_config
+    from pixeltable import config as pxt_config
+    from pixeltable.serving._config import lookup_service_config
+
+    from ..cloud import parse_table_uri, poll_svc, print_service
     from ..http import post
 
     try:
         org_slug, db_slug, table_path = parse_table_uri(args.table_uri, prog='pxt service create')
 
-        service_config = read_service_config(args.name)
+        if args.config is not None:
+            pxt_config.Config.init({}, additional_config_files=[args.config])
+        service_config = lookup_service_config(args.name).model_dump_json()
 
         resp = post(
             f'/api/cloud/orgs/{org_slug}/dbs/{db_slug}/services',

@@ -47,6 +47,7 @@ class ServiceOperationType(str, Enum):
 
 # Database operations
 
+
 class CreateDatabaseRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.CREATE_DATABASE] = ServiceOperationType.CREATE_DATABASE
     org_slug: Optional[str] = None
@@ -119,6 +120,7 @@ class GetBundleUploadUrlResponse(BaseModel):
 
 # Secrets
 
+
 class SetSecretRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.SET_SECRET] = ServiceOperationType.SET_SECRET
     org_slug: str
@@ -153,6 +155,7 @@ class ListSecretsResponse(BaseModel):
 
 
 # Services
+
 
 class ServiceRecord(BaseModel):
     service_id: str
@@ -311,6 +314,7 @@ class GetServiceRunResponse(BaseModel):
 
 # Orgs
 
+
 class OrgRecord(BaseModel):
     org_id: str
     org_slug: str
@@ -328,6 +332,7 @@ class ListOrgsResponse(BaseModel):
 
 
 # Home bucket credentials and presigned URLs
+
 
 class GetBucketCredentialsRequest(BaseModel):
     operation_type: Literal[PixeltableStoreOperationType.GET_BUCKET_CREDENTIALS] = (

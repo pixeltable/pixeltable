@@ -650,8 +650,12 @@ def cloud_stop_db(req: Request) -> dict[str, Any]:
 def cloud_update_db(req: Request) -> dict[str, Any]:
     body = req.body(models.CloudUpdateDbBody)
     return cloud_client.update_db(
-        req.path_params['org_slug'], req.path_params['db_slug'],
-        workers=body.workers, cpu=body.cpu, memory_mb=body.memory_mb, disk_gb=body.disk_gb,
+        req.path_params['org_slug'],
+        req.path_params['db_slug'],
+        workers=body.workers,
+        cpu=body.cpu,
+        memory_mb=body.memory_mb,
+        disk_gb=body.disk_gb,
     )
 
 
@@ -677,9 +681,14 @@ def cloud_list_services(req: Request) -> dict[str, Any]:
 def cloud_create_service(req: Request) -> dict[str, Any]:
     body = req.body(models.CloudCreateServiceBody)
     return cloud_client.create_service(
-        req.path_params['org_slug'], req.path_params['db_slug'],
-        body.service_name, body.table_path,
-        workers=body.workers, cpu=body.cpu, memory_mb=body.memory_mb, disk_gb=body.disk_gb,
+        req.path_params['org_slug'],
+        req.path_params['db_slug'],
+        body.service_name,
+        body.table_path,
+        workers=body.workers,
+        cpu=body.cpu,
+        memory_mb=body.memory_mb,
+        disk_gb=body.disk_gb,
         service_config=body.service_config,
     )
 
@@ -716,7 +725,12 @@ def cloud_stop_service(req: Request) -> dict[str, Any]:
 def cloud_update_service(req: Request) -> dict[str, Any]:
     body = req.body(models.CloudUpdateServiceBody)
     return cloud_client.update_service(
-        req.path_params['org_slug'], req.path_params['db_slug'], req.path_params['svc_name'],
-        workers=body.workers, cpu=body.cpu, memory_mb=body.memory_mb, disk_gb=body.disk_gb,
+        req.path_params['org_slug'],
+        req.path_params['db_slug'],
+        req.path_params['svc_name'],
+        workers=body.workers,
+        cpu=body.cpu,
+        memory_mb=body.memory_mb,
+        disk_gb=body.disk_gb,
         service_config=body.service_config,
     )

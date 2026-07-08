@@ -14,9 +14,11 @@ _RUNTIME_POLL_TIMEOUT = 900
 def run(argv: list[str]) -> None:
     parser = Parser(prog='pxt db update-runtime', description='Rebuild the Python runtime for a cloud-hosted database.')
     parser.add_argument('db_uri', help='Database URI: pxt://org:db')
+    parser.add_argument('--config', default=None, metavar='FILE', help='Path to an additional config file (TOML)')
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
 
+    from pixeltable import config as pxt_config
     from pixeltable.serving.deploy import build_runtime_bundle
 
     from ..cloud import parse_db_uri
@@ -24,6 +26,9 @@ def run(argv: list[str]) -> None:
 
     try:
         org_slug, db_slug = parse_db_uri(args.db_uri, prog='pxt db update-runtime')
+
+        if args.config is not None:
+            pxt_config.Config.init({}, additional_config_files=[args.config])
 
         if not args.json_output:
             print('Building runtime bundle...', end=' ', flush=True)
