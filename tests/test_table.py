@@ -61,6 +61,21 @@ def add_unstored_table_base_val(vals: Batch[int]) -> Batch[int]:
     return results
 
 
+@pxt.udf
+def square(x: int) -> int:
+    return x * x
+
+
+@pxt.udf
+def fill_3x4(x: int) -> pxt.Array[(3, 4), pxt.Int]:
+    return np.full((3, 4), x)
+
+
+@pxt.udf
+def raises_when_evaluated(x: str) -> str:
+    raise AssertionError()
+
+
 class TestTable:
     # exc for a % 10 == 0
     @staticmethod
@@ -2368,12 +2383,8 @@ class TestTable:
 
         # test that insert skips expression evaluation for
         # any columns that are not part of the current schema.
-        @pxt.udf(_force_stored=True)
-        def bad_udf(x: str) -> str:
-            raise AssertionError()
-
         t = pxt.create_table(p('test'), {'str_col': pxt.String})
-        t.add_computed_column(bad=bad_udf(t.str_col))  # Succeeds because the table has no data
+        t.add_computed_column(bad=raises_when_evaluated(t.str_col))  # Succeeds because the table has no data
         t.drop_column('bad')
         t.insert(str_col='Hello there.')  # Succeeds because column 'bad' is dropped
         pxt.drop_table(p('test'))
@@ -2849,12 +2860,17 @@ class TestTable:
         t.drop_column('c4')
 
     def test_computed_col_apply(self, make_catalog_path: Callable[[str], str]) -> None:
+        # apply() produces a function without a fully-qualified path, which can't be persisted into a computed column
         p = make_catalog_path
         t = pxt.create_table(p('test'), {'c2': pxt.Float})
-        status = t.add_computed_column(c9=t.c2.apply(math.sqrt, col_type=pxt.Float))
-        assert status.num_excs == 0
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r"Computed column 'c9' uses `sqrt\(\)`, which was created with `\.apply\(\)`",
+        ):
+            t.add_computed_column(c9=t.c2.apply(math.sqrt, col_type=pxt.Float))
+        # apply() still works as a query expression
         t.insert([{'c2': 4.0}, {'c2': 9.0}])
-        assert sorted(t.select(t.c9).collect()['c9']) == [2.0, 3.0]
+        assert sorted(t.select(r=t.c2.apply(math.sqrt, col_type=pxt.Float)).collect()['r']) == [2.0, 3.0]
 
     # TODO: cannot be converted because the UDF reads a client-process-local module global the daemon cannot see
     @pytest.mark.local('UDF reads a client-process-local module global the daemon cannot see')
@@ -3039,7 +3055,7 @@ class TestTable:
 
         schema = {'c2': pxt.Int, 'c3': pxt.Float, 'c4': pxt.Bool}
         new_t = pxt.create_table(p('insert_test'), schema)
-        new_t.add_computed_column(c5=t.c2.apply(lambda x: x * x, col_type=pxt.Int))
+        new_t.add_computed_column(c5=square(new_t.c2))
         new_t.add_computed_column(c6=pxtf.sum(new_t.c5, group_by=new_t.c4, order_by=new_t.c3))
         rows = list(t.select(t.c2, t.c4, t.c3).collect())
         new_t.insert(rows)
@@ -3723,7 +3739,7 @@ class TestTable:
 
         # test case: view with additional columns
         v2 = pxt.create_view(p('test_subview'), v.where(v.c1 != None), comment='This is an intriguing table comment.')
-        v2.add_computed_column(computed1=v2.c2.apply(lambda x: np.full((3, 4), x), col_type=pxt.Array[(3, 4), pxt.Int]))  # type: ignore[misc]
+        v2.add_computed_column(computed1=fill_3x4(v2.c2))
         v2.add_embedding_index('c1', string_embed=local_embed)
         validate_repr(
             v2,
@@ -3733,7 +3749,7 @@ class TestTable:
 
              Column Name                            Type        Source           Computed With                      Comment
             ---------------------------------------------------------------------------------------------------------------
-               computed1  Required[Array[(3, 4), int64]]  test_subview            <lambda>(c2)
+               computed1  Required[Array[(3, 4), int64]]  test_subview            fill_3x4(c2)
             ...............................................................................................................
                      c1                Required[String]      test_tbl                          String column with no nulls
                     c1n                          String      test_tbl
@@ -3762,7 +3778,7 @@ class TestTable:
 
              Column Name                            Type        Source           Computed With                      Comment
             ---------------------------------------------------------------------------------------------------------------
-               computed1  Required[Array[(3, 4), int64]]  test_subview            <lambda>(c2)
+               computed1  Required[Array[(3, 4), int64]]  test_subview            fill_3x4(c2)
             ...............................................................................................................
                      c1                Required[String]      test_tbl                          String column with no nulls
                     c1n                          String      test_tbl
@@ -3848,7 +3864,7 @@ class TestTable:
                     out1                Required[String]  iterator_view_1           DummyIterator
                     out2                   Required[Int]  iterator_view_1           DummyIterator
             ..................................................................................................................
-               computed1  Required[Array[(3, 4), int64]]     test_subview            <lambda>(c2)
+               computed1  Required[Array[(3, 4), int64]]     test_subview            fill_3x4(c2)
             ..................................................................................................................
                       c1                Required[String]         test_tbl                          String column with no nulls
                      c1n                          String         test_tbl
@@ -3885,7 +3901,7 @@ class TestTable:
                                out1                Required[String]  iterator_view_1                       DummyIterator
                                out2                   Required[Int]  iterator_view_1                       DummyIterator
             .........................................................................................................................................
-                          computed1  Required[Array[(3, 4), int64]]     test_subview                        <lambda>(c2)
+                          computed1  Required[Array[(3, 4), int64]]     test_subview                        fill_3x4(c2)
             .........................................................................................................................................
                                c1                Required[String]         test_tbl                                      String column with no nulls
                               c1n                          String         test_tbl

@@ -461,7 +461,7 @@ class FunctionCall(Expr):
     def _as_dict(self) -> dict:
         return {
             'fn': self.fn.as_dict(),
-            'return_type': self.return_type.as_dict(),
+            'return_type': self.return_type.as_dict() if self.return_type is not None else None,
             'arg_idxs': self.arg_idxs,
             'kwarg_idxs': self.kwarg_idxs,
             'group_by_start_idx': self.group_by_start_idx,
@@ -474,7 +474,7 @@ class FunctionCall(Expr):
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> FunctionCall:
         fn = func.Function.from_dict(d['fn'])
-        return_type = ts.ColumnType.from_dict(d['return_type']) if 'return_type' in d else None
+        return_type = ts.ColumnType.from_dict(d['return_type']) if d.get('return_type') is not None else None
         arg_idxs: list[int] = d['arg_idxs']
         kwarg_idxs: dict[str, int] = d['kwarg_idxs']
         group_by_start_idx: int = d['group_by_start_idx']

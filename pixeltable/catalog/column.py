@@ -332,25 +332,6 @@ class Column:
                 ) from err
 
     @classmethod
-    def create_stored_proxy_column(cls, col: Column) -> Column:
-        """Creates a proxy column for the specified column."""
-        from pixeltable import exprs
-
-        assert col.col_type.is_media_type() and not (col.is_stored and col.is_computed)
-        proxy_col = cls(
-            name=None,
-            # Force images in the proxy column to be materialized inside the media store, in a normalized format.
-            # TODO(aaron-siegel): This is a temporary solution and it will be replaced by a proper `destination`
-            #   parameter for computed columns. Among other things, this solution does not work for video or audio.
-            #   Once `destination` is implemented, it can be replaced with a simple `ColumnRef`.
-            computed_with=exprs.ColumnRef(col.column_version_md()).apply(lambda x: x, col_type=col.col_type),
-            sa_col_type=col.col_type.to_sa_type(),
-            stored=True,
-            stores_cellmd=True,
-        )
-        return proxy_col
-
-    @classmethod
     def validate_name(cls, name: str) -> None:
         """Check that a name is usable as a pixeltable column name"""
         if is_system_column_name(name) or is_python_keyword(name):
@@ -498,6 +479,7 @@ class Column:
 
     def check_value_expr(self) -> None:
         assert self._value_expr is not None
+        self._value_expr.validate_storable(f'Computed column {self.name!r}')
         if not self.stored and self.is_computed and self.has_window_fn_call():
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,

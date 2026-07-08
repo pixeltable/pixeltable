@@ -83,6 +83,18 @@ class QueryTemplateFunction(Function):
         pass  # only one signature supported for QueryTemplateFunction
 
     @property
+    def is_storable(self) -> bool:
+        # the query is serialized inline by value, so it is storable only if every function embedded in its
+        # clauses is itself storable
+        if self.template_query is None:
+            return True
+        return all(
+            fn_call.fn.is_storable
+            for query_expr in self.template_query._component_exprs()
+            for fn_call in query_expr.subexprs(exprs.FunctionCall)
+        )
+
+    @property
     def is_async(self) -> bool:
         return True
 

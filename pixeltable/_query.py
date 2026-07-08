@@ -609,6 +609,27 @@ class Query:
                 )
         return unique_vars
 
+    def _component_exprs(self) -> list[exprs.Expr]:
+        """Returns all exprs referenced in this query's clauses"""
+        result: list[exprs.Expr] = []
+        if self._select_list_exprs is not None:
+            result.extend(self._select_list_exprs)
+        if self.where_clause is not None:
+            result.append(self.where_clause)
+        if self.group_by_clause is not None:
+            result.extend(self.group_by_clause)
+        if self.order_by_clause is not None:
+            result.extend(expr for expr, _ in self.order_by_clause)
+        if self.limit_val is not None:
+            result.append(self.limit_val)
+        if self.offset_val is not None:
+            result.append(self.offset_val)
+        if self.sample_clause is not None and self.sample_clause.stratify_exprs is not None:
+            result.extend(self.sample_clause.stratify_exprs)
+        if self._from_clause is not None:
+            result.extend(c.join_predicate for c in self._from_clause.join_clauses if c.join_predicate is not None)
+        return result
+
     @classmethod
     def _convert_param_to_typed_expr(
         cls, v: Any, required_type: ts.ColumnType, required: bool, name: str, range: tuple[Any, Any] | None = None
