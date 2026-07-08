@@ -19,32 +19,31 @@ def run(argv: list[str]) -> None:
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
 
-    from pixeltable.service.utils import PxtUri
-    from pixeltable.serving._config import lookup_service_config
-    from pixeltable.share.deploy_client import service_update
+    from ..cloud import parse_service_uri, print_service, read_service_config
+    from ..http import post
 
     try:
-        p = PxtUri(args.service_uri)
-        if p.db is None or not p.path or not p.path.startswith('services/'):
-            parser.error('service_uri must be pxt://org:db/services/<name>')
-        service_name = p.path[len('services/'):]
-        if not service_name:
-            parser.error('service_uri must include a service name')
+        org_slug, db_slug, svc_name = parse_service_uri(args.service_uri, prog='pxt service update')
 
-        service_cfg = lookup_service_config(service_name)
-        service_config_json = service_cfg.model_dump_json()
+        service_config = read_service_config(svc_name)
 
-        service_update(
-            p.org,
-            p.db,
-            service_name,
-            workers_min=args.workers,
-            cpu=args.cpu,
-            memory_mb=args.memory_mb,
-            disk_gb=args.disk_gb,
-            service_config=service_config_json,
-            json_output=args.json_output,
+        resp = post(
+            f'/api/cloud/orgs/{org_slug}/dbs/{db_slug}/services/{svc_name}/update',
+            {
+                'workers': args.workers,
+                'cpu': args.cpu,
+                'memory_mb': args.memory_mb,
+                'disk_gb': args.disk_gb,
+                'service_config': service_config,
+            },
         )
+        svc = resp.get('service', resp) if isinstance(resp, dict) else {}
+        if args.json_output:
+            print(json.dumps(svc))
+        else:
+            print_service(svc)
+    except SystemExit:
+        raise
     except Exception as e:
         if args.json_output:
             print(json.dumps({'error': str(e)}), file=sys.stderr)

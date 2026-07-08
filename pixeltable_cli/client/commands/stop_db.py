@@ -8,23 +8,22 @@ from ..parser import Parser
 
 def run(argv: list[str]) -> None:
     parser = Parser(prog='pxt db stop', description='Stop (sleep) a running cloud-hosted Pixeltable database.')
-    parser.add_argument('db_uri', help='Database URI: pxt://org:db or just the db slug')
+    parser.add_argument('db_uri', help='Database URI: pxt://org:db')
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
 
-    from pixeltable.share.deploy_client import database_stop
+    from ..cloud import parse_db_uri
+    from ..http import post
 
     try:
-        uri = args.db_uri
-        if uri.startswith('pxt://'):
-            from pixeltable.catalog.path import Path as PxtPath
-
-            p = PxtPath.parse(uri, allow_empty_path=True)
-            if p.db is None:
-                parser.error('db_uri must be pxt://org:db')
-            database_stop(p.db, org_slug=p.org, json_output=args.json_output)
+        org_slug, db_slug = parse_db_uri(args.db_uri, prog='pxt db stop')
+        resp = post(f'/api/cloud/orgs/{org_slug}/dbs/{db_slug}/stop', {})
+        if args.json_output:
+            print(json.dumps(resp))
         else:
-            database_stop(uri, json_output=args.json_output)
+            print(resp.get('message', 'stopped') if isinstance(resp, dict) else 'stopped')
+    except SystemExit:
+        raise
     except Exception as e:
         if args.json_output:
             print(json.dumps({'error': str(e)}), file=sys.stderr)

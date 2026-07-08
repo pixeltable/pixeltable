@@ -177,3 +177,41 @@ class RevertResponse(BaseModel):
     path: str
     from_version: int
     to_version: int
+
+
+# ---- Cloud control-plane request body models ---------------------------
+
+
+class CloudCreateDbBody(BaseModel):
+    db_slug: str
+    location: str = 'aws'
+    region: str = 'us-east-1'
+
+
+class CloudUpdateDbBody(BaseModel):
+    workers: int | None = None
+    cpu: float | None = None
+    memory_mb: int | None = None
+    disk_gb: int | None = None
+
+
+class CloudUpdateRuntimeBody(BaseModel):
+    bundle_s3_key: str
+
+
+class CloudCreateServiceBody(BaseModel):
+    service_name: str
+    table_path: str
+    workers: int = 1
+    cpu: float = 0.5
+    memory_mb: int = 512
+    disk_gb: int = 10
+    service_config: str | None = None
+
+
+class CloudUpdateServiceBody(BaseModel):
+    workers: int | None = None
+    cpu: float | None = None
+    memory_mb: int | None = None
+    disk_gb: int | None = None
+    service_config: str | None = None

@@ -12,14 +12,19 @@ def run(argv: list[str]) -> None:
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
 
-    from pixeltable.service.utils import PxtUri
-    from pixeltable.share.deploy_client import org_get
+    from ..cloud import parse_org_uri, print_org
+    from ..http import get
 
     try:
-        p = PxtUri(args.org_uri)
-        result = org_get(p.org, json_output=args.json_output)
-        if result is None:
-            sys.exit(1)
+        org_slug = parse_org_uri(args.org_uri, prog='pxt org status')
+        resp = get(f'/api/cloud/orgs/{org_slug}')
+        org = resp.get('org', resp) if isinstance(resp, dict) else {}
+        if args.json_output:
+            print(json.dumps(org))
+        else:
+            print_org(org)
+    except SystemExit:
+        raise
     except Exception as e:
         if args.json_output:
             print(json.dumps({'error': str(e)}), file=sys.stderr)

@@ -13,6 +13,7 @@ from pixeltable import exceptions as excs
 from pixeltable.catalog.path import Path as PxtPath
 from pixeltable.config import Config
 from pixeltable.env import Env
+from pixeltable.share import cloud_client
 from pixeltable.types import TreeNode
 from pixeltable_cli import models
 from pixeltable_cli.utils import identity, validate_path_shape
@@ -594,3 +595,128 @@ def _redact_db_password(url: str | None) -> str | None:
         return sa.make_url(url).render_as_string(hide_password=True)
     except Exception:
         return None
+
+
+# Cloud control-plane proxy routes
+# Each handler parses HTTP input and delegates to cloud_client; no protocol model assembly here.
+
+
+@router.get('/api/cloud/orgs')
+def cloud_list_orgs(_req: Request) -> dict[str, Any]:
+    return cloud_client.list_orgs()
+
+
+@router.get('/api/cloud/orgs/{org_slug}')
+def cloud_get_org(req: Request) -> dict[str, Any]:
+    org_slug = req.path_params['org_slug']
+    org = cloud_client.get_org(org_slug)
+    if org is None:
+        raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, f"Org '{org_slug}' not found")
+    return {'org': org}
+
+
+@router.get('/api/cloud/orgs/{org_slug}/dbs')
+def cloud_list_dbs(req: Request) -> dict[str, Any]:
+    return cloud_client.list_dbs(req.path_params['org_slug'])
+
+
+@router.post('/api/cloud/orgs/{org_slug}/dbs')
+def cloud_create_db(req: Request) -> dict[str, Any]:
+    body = req.body(models.CloudCreateDbBody)
+    return cloud_client.create_db(req.path_params['org_slug'], body.db_slug, body.location, body.region)
+
+
+@router.get('/api/cloud/orgs/{org_slug}/dbs/{db_slug}')
+def cloud_get_db(req: Request) -> dict[str, Any]:
+    return cloud_client.get_db(req.path_params['org_slug'], req.path_params['db_slug'])
+
+
+@router.post('/api/cloud/orgs/{org_slug}/dbs/{db_slug}/delete')
+def cloud_delete_db(req: Request) -> dict[str, Any]:
+    return cloud_client.delete_db(req.path_params['org_slug'], req.path_params['db_slug'])
+
+
+@router.post('/api/cloud/orgs/{org_slug}/dbs/{db_slug}/start')
+def cloud_start_db(req: Request) -> dict[str, Any]:
+    return cloud_client.start_db(req.path_params['org_slug'], req.path_params['db_slug'])
+
+
+@router.post('/api/cloud/orgs/{org_slug}/dbs/{db_slug}/stop')
+def cloud_stop_db(req: Request) -> dict[str, Any]:
+    return cloud_client.stop_db(req.path_params['org_slug'], req.path_params['db_slug'])
+
+
+@router.post('/api/cloud/orgs/{org_slug}/dbs/{db_slug}/update')
+def cloud_update_db(req: Request) -> dict[str, Any]:
+    body = req.body(models.CloudUpdateDbBody)
+    return cloud_client.update_db(
+        req.path_params['org_slug'], req.path_params['db_slug'],
+        workers=body.workers, cpu=body.cpu, memory_mb=body.memory_mb, disk_gb=body.disk_gb,
+    )
+
+
+@router.get('/api/cloud/orgs/{org_slug}/dbs/{db_slug}/upload-url')
+def cloud_get_upload_url(req: Request) -> dict[str, Any]:
+    return cloud_client.get_upload_url(req.path_params['org_slug'], req.path_params['db_slug'])
+
+
+@router.post('/api/cloud/orgs/{org_slug}/dbs/{db_slug}/update-runtime')
+def cloud_trigger_runtime_update(req: Request) -> dict[str, Any]:
+    body = req.body(models.CloudUpdateRuntimeBody)
+    return cloud_client.trigger_runtime_update(
+        req.path_params['org_slug'], req.path_params['db_slug'], body.bundle_s3_key
+    )
+
+
+@router.get('/api/cloud/orgs/{org_slug}/dbs/{db_slug}/services')
+def cloud_list_services(req: Request) -> dict[str, Any]:
+    return cloud_client.list_services(req.path_params['org_slug'], req.path_params['db_slug'])
+
+
+@router.post('/api/cloud/orgs/{org_slug}/dbs/{db_slug}/services')
+def cloud_create_service(req: Request) -> dict[str, Any]:
+    body = req.body(models.CloudCreateServiceBody)
+    return cloud_client.create_service(
+        req.path_params['org_slug'], req.path_params['db_slug'],
+        body.service_name, body.table_path,
+        workers=body.workers, cpu=body.cpu, memory_mb=body.memory_mb, disk_gb=body.disk_gb,
+        service_config=body.service_config,
+    )
+
+
+@router.get('/api/cloud/orgs/{org_slug}/dbs/{db_slug}/services/{svc_name}')
+def cloud_get_service(req: Request) -> dict[str, Any]:
+    return cloud_client.get_service(
+        req.path_params['org_slug'], req.path_params['db_slug'], req.path_params['svc_name']
+    )
+
+
+@router.post('/api/cloud/orgs/{org_slug}/dbs/{db_slug}/services/{svc_name}/delete')
+def cloud_delete_service(req: Request) -> dict[str, Any]:
+    return cloud_client.delete_service(
+        req.path_params['org_slug'], req.path_params['db_slug'], req.path_params['svc_name']
+    )
+
+
+@router.post('/api/cloud/orgs/{org_slug}/dbs/{db_slug}/services/{svc_name}/start')
+def cloud_start_service(req: Request) -> dict[str, Any]:
+    return cloud_client.start_service(
+        req.path_params['org_slug'], req.path_params['db_slug'], req.path_params['svc_name']
+    )
+
+
+@router.post('/api/cloud/orgs/{org_slug}/dbs/{db_slug}/services/{svc_name}/stop')
+def cloud_stop_service(req: Request) -> dict[str, Any]:
+    return cloud_client.stop_service(
+        req.path_params['org_slug'], req.path_params['db_slug'], req.path_params['svc_name']
+    )
+
+
+@router.post('/api/cloud/orgs/{org_slug}/dbs/{db_slug}/services/{svc_name}/update')
+def cloud_update_service(req: Request) -> dict[str, Any]:
+    body = req.body(models.CloudUpdateServiceBody)
+    return cloud_client.update_service(
+        req.path_params['org_slug'], req.path_params['db_slug'], req.path_params['svc_name'],
+        workers=body.workers, cpu=body.cpu, memory_mb=body.memory_mb, disk_gb=body.disk_gb,
+        service_config=body.service_config,
+    )

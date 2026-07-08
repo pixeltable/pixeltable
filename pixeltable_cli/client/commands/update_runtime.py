@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import json
 import sys
+import time
+import urllib.request
 
 from ..parser import Parser
+
+_RUNTIME_POLL_INTERVAL = 10
+_RUNTIME_POLL_TIMEOUT = 900
 
 
 def run(argv: list[str]) -> None:
@@ -12,17 +17,71 @@ def run(argv: list[str]) -> None:
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
 
-    from pixeltable.catalog.path import Path as PxtPath
-    from pixeltable.share.deploy_client import database_update_runtime
+    from pixeltable.serving.deploy import build_runtime_bundle
+
+    from ..cloud import parse_db_uri
+    from ..http import get, post
 
     try:
-        uri = args.db_uri
-        if not uri.startswith('pxt://'):
-            parser.error('db_uri must be a pxt:// URI, e.g. pxt://org:db')
-        p = PxtPath.parse(uri, allow_empty_path=True)
-        if p.org is None or p.db is None:
-            parser.error('db_uri must be pxt://org:db')
-        database_update_runtime(p.db, org_slug=p.org, watch=True, json_output=args.json_output)
+        org_slug, db_slug = parse_db_uri(args.db_uri, prog='pxt db update-runtime')
+
+        if not args.json_output:
+            print('Building runtime bundle...', end=' ', flush=True)
+        bundle_path = build_runtime_bundle()
+        if not args.json_output:
+            size_mb = bundle_path.stat().st_size / (1024 * 1024)
+            print(f'done ({size_mb:.1f} MB)')
+
+        try:
+            if not args.json_output:
+                print('Uploading bundle...', end=' ', flush=True)
+            url_resp = get(f'/api/cloud/orgs/{org_slug}/dbs/{db_slug}/upload-url')
+            presigned_url = url_resp['presigned_url']
+            bundle_s3_key = url_resp['bundle_s3_key']
+
+            with bundle_path.open('rb') as fh:
+                bundle_data = fh.read()
+            req = urllib.request.Request(presigned_url, data=bundle_data, method='PUT')
+            with urllib.request.urlopen(req, timeout=300) as r:
+                if r.status >= 400:
+                    raise RuntimeError(f'Bundle upload failed: HTTP {r.status}')
+            if not args.json_output:
+                print('done')
+        finally:
+            bundle_path.unlink(missing_ok=True)
+
+        post(f'/api/cloud/orgs/{org_slug}/dbs/{db_slug}/update-runtime', {'bundle_s3_key': bundle_s3_key})
+
+        # Poll until state leaves UPDATING
+        db: dict = {}
+        deadline = time.monotonic() + _RUNTIME_POLL_TIMEOUT
+        if not args.json_output:
+            print('Waiting for runtime build', end='', flush=True)
+        while time.monotonic() < deadline:
+            time.sleep(_RUNTIME_POLL_INTERVAL)
+            try:
+                resp = get(f'/api/cloud/orgs/{org_slug}/dbs/{db_slug}')
+                db = resp.get('database', resp) if isinstance(resp, dict) else {}
+            except SystemExit:
+                break
+            except Exception:
+                pass
+            if not args.json_output:
+                print('.', end='', flush=True)
+            if db.get('state') != 'UPDATING':
+                break
+        if not args.json_output:
+            print()
+            final_state = db.get('state', '')
+            if final_state:
+                print(f'Runtime build {final_state.lower()}.')
+            else:
+                print('Timed out waiting for runtime build.')
+
+        if args.json_output:
+            print(json.dumps(db))
+    except SystemExit:
+        raise
     except Exception as e:
         if args.json_output:
             print(json.dumps({'error': str(e)}), file=sys.stderr)

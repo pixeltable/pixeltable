@@ -14,14 +14,23 @@ def run(argv: list[str]) -> None:
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
 
-    from pixeltable.catalog.path import Path as PxtPath
-    from pixeltable.share.deploy_client import database_create
+    from ..cloud import parse_db_uri, poll_db, print_db
+    from ..http import post
 
     try:
-        p = PxtPath.parse(args.db_uri, allow_empty_path=True)
-        if p.org is None or p.db is None:
-            parser.error('db_uri must be pxt://org:db')
-        database_create(p.org, p.db, location=args.location, region=args.region, json_output=args.json_output)
+        org_slug, db_slug = parse_db_uri(args.db_uri, prog='pxt db create')
+        resp = post(
+            f'/api/cloud/orgs/{org_slug}/dbs', {'db_slug': db_slug, 'location': args.location, 'region': args.region}
+        )
+        db = resp.get('database', resp) if isinstance(resp, dict) else {}
+        if db.get('state') == 'PROVISIONING':
+            db = poll_db(org_slug, db_slug, frozenset({'PROVISIONING'}), f"Database '{db_slug}' is provisioning...")
+        if args.json_output:
+            print(json.dumps(db))
+        else:
+            print_db(db)
+    except SystemExit:
+        raise
     except Exception as e:
         if args.json_output:
             print(json.dumps({'error': str(e)}), file=sys.stderr)

@@ -12,14 +12,22 @@ def run(argv: list[str]) -> None:
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
 
-    from pixeltable.catalog.path import Path as PxtPath
-    from pixeltable.share.deploy_client import database_list
+    from ..cloud import parse_org_uri, print_db
+    from ..http import get
 
     try:
-        p = PxtPath.parse(args.org_uri, allow_empty_path=True)
-        if p.org is None:
-            parser.error('org_uri must be pxt://org')
-        database_list(p.org, json_output=args.json_output)
+        org_slug = parse_org_uri(args.org_uri, prog='pxt db list')
+        resp = get(f'/api/cloud/orgs/{org_slug}/dbs')
+        dbs = resp.get('databases', []) if isinstance(resp, dict) else []
+        if args.json_output:
+            print(json.dumps(dbs))
+        elif not dbs:
+            print('No databases.')
+        else:
+            for db in dbs:
+                print_db(db)
+    except SystemExit:
+        raise
     except Exception as e:
         if args.json_output:
             print(json.dumps({'error': str(e)}), file=sys.stderr)

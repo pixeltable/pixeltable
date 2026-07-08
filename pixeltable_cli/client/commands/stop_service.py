@@ -12,15 +12,19 @@ def run(argv: list[str]) -> None:
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
 
-    from pixeltable.service.utils import PxtUri
-    from pixeltable.share.deploy_client import service_stop
+    from ..cloud import parse_service_uri, print_service
+    from ..http import post
 
     try:
-        p = PxtUri(args.service_uri)
-        svc_name = p.service
-        if p.db is None or svc_name is None:
-            parser.error('service_uri must be pxt://org:db/services/<name>')
-        service_stop(p.org, p.db, svc_name, json_output=args.json_output)
+        org_slug, db_slug, svc_name = parse_service_uri(args.service_uri, prog='pxt service stop')
+        resp = post(f'/api/cloud/orgs/{org_slug}/dbs/{db_slug}/services/{svc_name}/stop', {})
+        svc = resp.get('service', resp) if isinstance(resp, dict) else {}
+        if args.json_output:
+            print(json.dumps(svc))
+        else:
+            print_service(svc)
+    except SystemExit:
+        raise
     except Exception as e:
         if args.json_output:
             print(json.dumps({'error': str(e)}), file=sys.stderr)

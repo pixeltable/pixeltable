@@ -11,10 +11,21 @@ def run(argv: list[str]) -> None:
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
 
-    from pixeltable.share.deploy_client import org_list
+    from ..cloud import print_org
+    from ..http import get
 
     try:
-        org_list(json_output=args.json_output)
+        resp = get('/api/cloud/orgs')
+        orgs = resp.get('orgs', []) if isinstance(resp, dict) else []
+        if args.json_output:
+            print(json.dumps(orgs))
+        elif not orgs:
+            print('No orgs.')
+        else:
+            for org in orgs:
+                print_org(org)
+    except SystemExit:
+        raise
     except Exception as e:
         if args.json_output:
             print(json.dumps({'error': str(e)}), file=sys.stderr)

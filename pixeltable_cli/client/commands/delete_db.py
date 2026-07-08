@@ -12,14 +12,18 @@ def run(argv: list[str]) -> None:
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
 
-    from pixeltable.catalog.path import Path as PxtPath
-    from pixeltable.share.deploy_client import database_delete
+    from ..cloud import parse_db_uri
+    from ..http import post
 
     try:
-        p = PxtPath.parse(args.db_uri, allow_empty_path=True)
-        if p.org is None or p.db is None:
-            parser.error('db_uri must be pxt://org:db')
-        database_delete(p.org, p.db, json_output=args.json_output)
+        org_slug, db_slug = parse_db_uri(args.db_uri, prog='pxt db delete')
+        post(f'/api/cloud/orgs/{org_slug}/dbs/{db_slug}/delete', {})
+        if args.json_output:
+            print(json.dumps({'deleted': db_slug}))
+        else:
+            print(f"Deleted database '{db_slug}'.")
+    except SystemExit:
+        raise
     except Exception as e:
         if args.json_output:
             print(json.dumps({'error': str(e)}), file=sys.stderr)

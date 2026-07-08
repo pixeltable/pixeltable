@@ -199,7 +199,7 @@ def _export_tables_md(table_paths: set[str]) -> dict[str, Any]:
 def _export_conda_env() -> bytes | None:
     """Export the active conda environment as YAML, without platform-specific build strings.
 
-    Returns the conda-env.yml content as bytes, or None if not running in a conda environment.
+    Returns the environment.yml content as bytes, or None if not running in a conda environment.
     """
     conda_exe = os.environ.get('CONDA_EXE')
     if conda_exe is None or 'CONDA_DEFAULT_ENV' not in os.environ:
@@ -238,7 +238,7 @@ def package(
         deployment_config: Deployment configuration.
         config_export: The deployment and service configuration to include in the bundle, as a dict.
         md_export: The table metadata to include in the bundle, as a dict.
-        conda_export: Output of `conda env export --no-builds`, included as `conda-env.yml`
+        conda_export: Output of `conda env export --no-builds`, included as `environment.yml`
             in the bundle when provided.
         project_dir: Path to the project directory. Defaults to the current working directory.
 
@@ -262,7 +262,7 @@ def package(
         __add_tarfile(tf, 'config.toml', toml.dumps(config_export).encode('utf-8'))
         __add_tarfile(tf, 'metadata.json', json.dumps(md_export).encode('utf-8'))
         if conda_export is not None:
-            __add_tarfile(tf, 'conda-env.yml', conda_export)
+            __add_tarfile(tf, 'environment.yml', conda_export)
         for f in files:
             relpath = f.relative_to(project_dir)
             tf.add(f, arcname=f'project/{relpath}')
@@ -285,7 +285,7 @@ def build_runtime_bundle(project_dir: Path | None = None) -> Path:
     only source files, dependency lockfiles, and an optional pixeltable source override.
 
     Bundle layout:
-        conda-env.yml        (optional — present when running inside a conda environment)
+        environment.yml        (optional — present when running inside a conda environment)
         runtime_config.json  (optional — present when [database.pixeltable_source] is configured)
         project/             (all project source files: UDFs, lockfiles, pyproject.toml, etc.)
     """
@@ -321,7 +321,7 @@ def build_runtime_bundle(project_dir: Path | None = None) -> Path:
         manifest = {'pxt_md_version': metadata.VERSION}
         __add_tarfile(tf, 'metadata.json', json.dumps(manifest).encode('utf-8'))
         if conda_export is not None:
-            __add_tarfile(tf, 'conda-env.yml', conda_export)
+            __add_tarfile(tf, 'environment.yml', conda_export)
         if pxt_source is not None:
             rt_config = {'pixeltable_source': pxt_source.model_dump(exclude_none=True)}
             __add_tarfile(tf, 'runtime_config.json', json.dumps(rt_config).encode('utf-8'))
