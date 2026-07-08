@@ -1,7 +1,22 @@
+import builtins
 import logging
 import os
+import sys
+
+import __main__
 
 _logger = logging.getLogger(__name__)
+
+
+def is_interactive_env() -> bool:
+    """Return True if running in an interactive environment."""
+    if getattr(builtins, '__IPYTHON__', False):
+        return True
+    # Python interactive shell
+    if hasattr(sys, 'ps1'):
+        return True
+    # for script execution, __main__ has __file__
+    return not hasattr(__main__, '__file__')
 
 
 def set_file_descriptor_limit(preferred_limit: int) -> None:

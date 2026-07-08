@@ -5,7 +5,7 @@ import sys
 from typing import TYPE_CHECKING, Any, Callable, Sequence, overload
 
 from pixeltable import catalog, exceptions as excs, type_system as ts
-from pixeltable.env import Env
+from pixeltable.utils.system import is_interactive_env
 
 from .callable_function import CallableFunction
 from .expr_template_function import ExprTemplate, ExprTemplateFunction
@@ -131,7 +131,7 @@ def make_function(
     elif decorated_fn.__module__ != '__main__' and decorated_fn.__name__.isidentifier():
         function_path = f'{decorated_fn.__module__}.{decorated_fn.__qualname__}'
 
-    elif from_decorator and Env.get().is_interactive() and decorated_fn.__name__.isidentifier():
+    elif from_decorator and is_interactive_env() and decorated_fn.__name__.isidentifier():
         # Give a udf inlined in a notebook cell a __main__.<name> path to enable computed columns with inlined udfs;
         # resolves only within the session and degrades to InvalidFunction elsewhere
         # TODO: remove and rework the offending notebooks
