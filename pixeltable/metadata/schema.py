@@ -6,7 +6,7 @@ from typing import Any, TypeVar
 
 import sqlalchemy as sql
 from pydantic import TypeAdapter
-from sqlalchemy import BigInteger, ForeignKey, Integer, LargeBinary, orm
+from sqlalchemy import BigInteger, ForeignKey, Integer, orm
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm.decl_api import DeclarativeMeta
 
@@ -406,40 +406,3 @@ class PendingTableOp(Base):
     )
     op_sn: orm.Mapped[int] = orm.mapped_column(Integer, primary_key=True, nullable=False)  # catalog.TableOp.op_sn
     op: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # catalog.TableOp
-
-
-@dataclasses.dataclass
-class FunctionMd:
-    name: str
-    py_version: str  # platform.python_version
-    class_name: str  # name of the Function subclass
-    md: dict  # part of the output of Function.to_store()
-
-
-class Function(Base):
-    """
-    User-defined functions that are not module functions (ie, aren't available at runtime as a symbol in a known
-    module).
-    Functions without a name are anonymous functions used in the definition of a computed column.
-    Functions that have names are also assigned to a database and directory.
-    We store the Python version under which a Function was created (and the callable pickled) in order to warn
-    against version mismatches.
-    """
-
-    # TODO: deprecate this table. Anonymous CallableFunctions now serialize their pickled body by value, inline
-    # in the expr dict, instead of as a row here; the only remaining use is the legacy read path in
-    # CallableFunction._from_dict() for the id-based form. To finish removal:
-    #   1. add a metadata converter that reads each referenced row here and rewrites the embedded id-based
-    #      function ref in persisted metadata to the inline by-value form;
-    #   2. delete the id-based branch in CallableFunction._from_dict();
-    #   3. delete FunctionRegistry.create_stored_function(), get_stored_function(), and stored_fns_by_id;
-    #   4. drop this table.
-
-    __tablename__ = 'functions'
-
-    id: orm.Mapped[uuid.UUID] = orm.mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False
-    )
-    dir_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=True)
-    md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # FunctionMd
-    binary_obj: orm.Mapped[bytes | None] = orm.mapped_column(LargeBinary, nullable=True)
