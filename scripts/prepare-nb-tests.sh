@@ -42,7 +42,7 @@ VERY_EXPENSIVE_NOTEBOOKS=(
     img-detection-vs-segmentation   # Resource intensive
     video-generate-ai               # High dollar cost
     working-with-gemini             # High dollar cost
-    working-with-fal                # [PXT-1220] fal.ai integration failing on CI
+    working-with-fal                # [PXT-1233] fal.ai integration failing on CI
     working-with-together           # Poor reliability
 )
 
