@@ -26,6 +26,7 @@ from pixeltable.io.data_sources import SqlDataSource
 from pixeltable.runtime import get_runtime
 from pixeltable.utils import parse_local_file_path
 from pixeltable.utils.local_store import TempStore
+
 from . import proxy_protocol
 from .proxy_protocol import PROTOCOL_VERSION, LocalFile, MediaPath, ProxyRequest, ProxyResponse
 
