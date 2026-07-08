@@ -12,8 +12,6 @@ import os
 import pathlib
 import shutil
 import traceback
-import urllib.parse
-import urllib.request
 from typing import TYPE_CHECKING, Any, Callable, cast
 from uuid import UUID, uuid4
 
@@ -26,8 +24,8 @@ from pixeltable.catalog.table_version import TableVersionKey
 from pixeltable.env import Env
 from pixeltable.io.data_sources import SqlDataSource
 from pixeltable.runtime import get_runtime
+from pixeltable.utils import parse_local_file_path
 from pixeltable.utils.local_store import TempStore
-
 from . import proxy_protocol
 from .proxy_protocol import PROTOCOL_VERSION, LocalFile, MediaPath, ProxyRequest, ProxyResponse
 
@@ -116,21 +114,11 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
                 pass
 
 
-def _result_local_path(val: str) -> pathlib.Path | None:
-    """Resolve a result media value to a local fs path (bare path or file:// URI), or None for a remote URL."""
-    parsed = urllib.parse.urlparse(val)
-    if len(parsed.scheme) <= 1:
-        return pathlib.Path(val)  # bare local path (scheme <= 1 also covers Windows drive letters)
-    if parsed.scheme == 'file':
-        return pathlib.Path(urllib.parse.unquote(urllib.request.url2pathname(parsed.path)))
-    return None
-
-
 def _encode_local_path(value: Any) -> Any:
     """Encode local file paths as LocalFile/MediaPath."""
     if not isinstance(value, str):
         return value
-    path = _result_local_path(value)
+    path = parse_local_file_path(value)
     if path is None:
         return value  # remote URL: the client fetches it directly
     if TempStore.contains_path(path):

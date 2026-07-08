@@ -166,9 +166,6 @@ class TableProxy(Table):
     def columns(self) -> list[str]:
         return [col_md.name for col_md in self._tbl_path.column_md() if col_md.name is not None]
 
-    def _get_schema(self) -> dict[str, 'ts.ColumnType']:
-        return {col_md.name: col_md.col_type for col_md in self._tbl_path.column_md() if col_md.name is not None}
-
     def describe(self) -> None:
         if getattr(builtins, '__IPYTHON__', False):
             from IPython.display import Markdown, display

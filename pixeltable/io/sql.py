@@ -3,6 +3,7 @@ from typing import Any, Literal
 import sqlalchemy as sql
 
 import pixeltable as pxt
+import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.io.data_sources import SqlDataSource
@@ -199,7 +200,7 @@ def import_sql(
 
         existing = pxt.get_table(tbl_name, if_not_exists='ignore')
         if if_exists == 'append' and existing is not None:
-            if existing._display_name() != 'table':
+            if not isinstance(existing, (catalog.InsertableTable, catalog.InsertableTableProxy)):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'`import_sql` requires a base table; {tbl_name!r} is a {existing._display_name()}.',

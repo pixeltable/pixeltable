@@ -4,16 +4,14 @@ import os
 import pathlib
 import shutil
 import tempfile
-import urllib.parse
-import urllib.request
-from typing import TYPE_CHECKING, Any, Iterator, Literal, Sequence, cast
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Sequence, cast
 from uuid import UUID
 
 import pyarrow.parquet as pq
 import pydantic
 
 from pixeltable import exceptions as excs
-from pixeltable.utils import arrow
+from pixeltable.utils import arrow, parse_local_file_path
 
 from .globals import is_hf_dataset
 from .table_path import TableMdPath
@@ -91,7 +89,7 @@ class InsertableTableProxy(TableProxy):
                 )
                 data_source.src_pk = []
                 data_source.infer_schema()
-                rows = self._convert_local_paths([row for batch in data_source.valid_row_batch() for row in batch])
+                rows = self._convert_local_paths(row for batch in data_source.valid_row_batch() for row in batch)
                 return self._dispatch(
                     'insert',
                     {'rows': rows, 'on_error': on_error, 'print_stats': print_stats, 'return_rows': return_rows},
@@ -270,18 +268,6 @@ class InsertableTableProxy(TableProxy):
             },
         )
 
-    def _local_path(self, val: str) -> str | None:
-        """The local filesystem path for a bare path or file:// URL; None for a remote (http/s3/...) URL.
-
-        Mirrors DataRow.__setitem__()'s local-vs-remote classification.
-        """
-        parsed = urllib.parse.urlparse(val)
-        if len(parsed.scheme) <= 1:
-            return val  # bare local path (scheme <= 1 also covers Windows drive letters)
-        if parsed.scheme == 'file':
-            return urllib.parse.unquote(urllib.request.url2pathname(parsed.path))
-        return None  # remote URL
-
     def _media_column_names(self) -> set[str]:
         return {
             col_md.name
@@ -303,7 +289,7 @@ class InsertableTableProxy(TableProxy):
         """Send a media-free file/directory/URL source to the daemon."""
         from pixeltable.service.proxy_protocol import LocalFile, encode_dir_tree
 
-        local = self._local_path(source)
+        local = parse_local_file_path(source)
         wire_source: Any
         if local is None:
             wire_source = source  # remote URL: the daemon reads it directly
@@ -315,7 +301,7 @@ class InsertableTableProxy(TableProxy):
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot insert from an empty directory: {source}'
                 )
         else:
-            wire_source = LocalFile(local)
+            wire_source = LocalFile(str(local))
         return self._dispatch(
             'insert_source',
             {
@@ -389,23 +375,26 @@ class InsertableTableProxy(TableProxy):
             for name, t in schema_overrides.items()
         }
 
-    def _convert_local_paths(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _convert_local_paths(self, rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
         """Convert local file path values of media columns to LocalFile for correct request serialization."""
         from pixeltable.service.proxy_protocol import LocalFile
 
+        rows = list(rows)
         media_cols = self._media_column_names()
         if len(media_cols) == 0:
             return rows
 
         converted: list[dict[str, Any]] = []
         for row in rows:
-            new_row = dict(row)
-            for name in media_cols & new_row.keys():
-                val = new_row[name]
+            new_row = row
+            for name in media_cols & row.keys():
+                val = row[name]
                 if isinstance(val, str):
-                    p = self._local_path(val)
+                    p = parse_local_file_path(val)
                     if p is not None:
-                        new_row[name] = LocalFile(p)
+                        if new_row is row:
+                            new_row = dict(row)
+                        new_row[name] = LocalFile(str(p))
             converted.append(new_row)
         return converted
 

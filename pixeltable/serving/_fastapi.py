@@ -11,7 +11,7 @@ import urllib.parse
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
-from typing import Annotated, Any, Callable, Literal, Optional, TypeVar, get_type_hints
+from typing import Annotated, Any, Callable, Literal, NamedTuple, Optional, TypeVar, get_type_hints
 
 import fastapi
 import numpy as np
@@ -1676,6 +1676,12 @@ class FastAPIRouter(fastapi.APIRouter):
             )
         return return_annot
 
+    class DmlArgsValidationResult(NamedTuple):
+        pk_col_names: list[str]
+        input_col_names: list[str]
+        output_col_names: list[str]
+        cols_by_name: dict[str, catalog.ColumnVersionMd]
+
     def _validate_dml_args(
         self,
         t: pxt.Table,
@@ -1687,7 +1693,7 @@ class FastAPIRouter(fastapi.APIRouter):
         background: bool,
         error_prefix: str,
         route_type: Literal['insert', 'update', 'compute'],
-    ) -> tuple[list[str], list[str], list[str], dict[str, catalog.ColumnVersionMd]]:
+    ) -> DmlArgsValidationResult:
         """
         Validate insert-/update-route args. Returns (pk_col_names, input_col_names, output_col_names, cols_by_name).
         """
@@ -1751,7 +1757,7 @@ class FastAPIRouter(fastapi.APIRouter):
             input_item_str='column',
             output_item_str='column',
         )
-        return pk_col_names, input_col_names, output_col_names, cols_by_name
+        return self.DmlArgsValidationResult(pk_col_names, input_col_names, output_col_names, cols_by_name)
 
     def _validate_args(
         self,
