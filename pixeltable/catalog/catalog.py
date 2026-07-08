@@ -6,7 +6,7 @@ import itertools
 import logging
 import random
 import time
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from collections.abc import Collection
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Mapping, TypeVar
@@ -78,6 +78,8 @@ def _unpack_row(row: sql.engine.Row | None, entities: list[type[sql.orm.decl_api
 # for now, we don't limit the number of retries, because we haven't seen situations where the actual number of retries
 # grows uncontrollably
 _MAX_RETRIES = -1
+
+_MAX_TBL_CACHE_SIZE = 1024
 
 T = TypeVar('T')
 
@@ -210,8 +212,8 @@ class Catalog(CatalogBase):
     # cached TableVersion instances; key: [id, version]
     # - mutable version of a table: version == None (even though TableVersion.version is set correctly)
     # - snapshot versions: records the version of the snapshot
-    _tbl_versions: dict[TableVersionKey, TableVersion]
-    _tbls: dict[TableVersionKey, LocalTable]
+    _tbl_versions: OrderedDict[TableVersionKey, TableVersion]
+    _tbls: OrderedDict[TableVersionKey, LocalTable]
     _in_write_xact: bool  # True if we're in a write transaction
     _x_locked_tbl_ids: set[UUID]  # Ids of tables exclusively locked for write in the current transaction
     _modified_tvs: set[TableVersionHandle]  # TableVersion instances modified in the current transaction
@@ -232,8 +234,8 @@ class Catalog(CatalogBase):
     _column_dependents: dict[QColumnId, set[QColumnId]] | None
 
     def __init__(self) -> None:
-        self._tbl_versions = {}
-        self._tbls = {}  # don't use a defaultdict here, it doesn't cooperate with the debugger
+        self._tbl_versions = OrderedDict()
+        self._tbls = OrderedDict()
         self._in_write_xact = False
         self._x_locked_tbl_ids = set()
         self._modified_tvs = set()
@@ -476,8 +478,23 @@ class Catalog(CatalogBase):
                     for tvp in [*write_tvps, *read_tvps]:
                         tvp.clear_cached_md()
 
+                self._evict_caches()
                 self._undo_actions.clear()
                 self._modified_tvs.clear()
+
+    def _evict_caches(self) -> None:
+        # Evict LRU _tbls entries. Safe to evict freely: LocalTable is a handle wrapper;
+        # existing Python variables remain valid, and the next get_table_by_id reloads.
+        while len(self._tbls) > _MAX_TBL_CACHE_SIZE:
+            self._tbls.popitem(last=False)
+
+        # Evict LRU _tbl_versions entries.
+        # Live TVs (effective_version=None) already have is_validated=False (set by begin_xact).
+        # Snapshot TVs (effective_version!=None): del without touching is_validated, so thread-local
+        # handles continue returning the old immutable instance safely (avoids the assertion in
+        # TableVersionHandle.get() that fires when is_validated=False on a snapshot).
+        while len(self._tbl_versions) > _MAX_TBL_CACHE_SIZE:
+            self._tbl_versions.popitem(last=False)
 
     def _acquire_locks(
         self,
@@ -1436,6 +1453,7 @@ class Catalog(CatalogBase):
                     tbl = self._load_tbl_at_version(tbl_id, version)
         else:
             tbl = self._tbls.get(key)
+            self._tbls.move_to_end(key)
         if tbl is not None:
             Env.get().record_tbl_catalog_uri(tbl._id, ROOT_PATH)
         return tbl
@@ -2115,6 +2133,8 @@ class Catalog(CatalogBase):
         conn = get_runtime().conn
         assert conn is not None
         tv = self._tbl_versions.get(key)
+        if tv is not None:
+            self._tbl_versions.move_to_end(key)
         if tv is None and not self._tbl_md_read_allowed:
             raise AssertionError(
                 'Loading new table metadata is not allowed in the middle of a transaction. '
