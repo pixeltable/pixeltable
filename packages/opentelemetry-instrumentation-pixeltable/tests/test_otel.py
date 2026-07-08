@@ -11,6 +11,8 @@ import pytest
 from opentelemetry import trace
 from opentelemetry.instrumentation.pixeltable import PixeltableInstrumentor, _sdk
 from opentelemetry.instrumentation.pixeltable._sdk import _use_grpc
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -196,6 +198,43 @@ class TestBridge:
         spans = {s.name: s for s in span_exporter.get_finished_spans()}
         assert spans['pixeltable.udf.foo'].parent is not None
         assert spans['pixeltable.udf.foo'].parent.span_id == spans['pixeltable.op'].context.span_id
+
+    @pytest.fixture
+    def metric_reader(self) -> Iterator[Any]:
+        reader = InMemoryMetricReader()
+        meter_provider = MeterProvider(metric_readers=[reader])
+        instrumentor = PixeltableInstrumentor()
+        instrumentor.instrument(meter_provider=meter_provider)
+        yield reader
+        instrumentor.uninstrument()
+        meter_provider.shutdown()
+
+    def _metric(self, reader: Any, name: str) -> Any:
+        data = reader.get_metrics_data()
+        all_metrics = [m for rm in data.resource_metrics for sm in rm.scope_metrics for m in sm.metrics]
+        matches = [m for m in all_metrics if m.name == name]
+        assert len(matches) == 1, f'expected exactly one metric named {name!r}, got {len(matches)}'
+        return matches[0]
+
+    def test_counter_export(self, metric_reader: Any) -> None:
+        c = hooks.counter('pixeltable.test.rows', unit='{row}')
+        c.add(3, table='dir.tbl')
+        c.add(5, table='dir.tbl')
+        metric = self._metric(metric_reader, 'pixeltable.test.rows')
+        assert metric.unit == '{row}'
+        (point,) = metric.data.data_points
+        assert point.value == 8
+        assert dict(point.attributes) == {'pxt.table': 'dir.tbl'}
+
+    def test_histogram_export(self, metric_reader: Any) -> None:
+        h = hooks.histogram('pixeltable.test.latency', unit='s')
+        h.record(0.5, udf='f')
+        h.record(1.5, udf='f')
+        metric = self._metric(metric_reader, 'pixeltable.test.latency')
+        (point,) = metric.data.data_points
+        assert point.count == 2
+        assert point.sum == 2.0
+        assert dict(point.attributes) == {'pxt.udf': 'f'}
 
     def test_uninstrument_stops_emission(self) -> None:
         span_exporter = InMemorySpanExporter()

@@ -1,35 +1,17 @@
-"""Shared schemas for the telemetry reported through `pixeltable.hooks`.
+"""Span-attribute schemas for the telemetry reported through `pixeltable.hooks`.
 
-Each span family and each event gets a TypedDict here describing its payload; core call sites construct
-these dicts and the OTEL bridge derives its metric instruments from them, so a field's name, type, and
-metric binding are declared exactly once. Keys are unprefixed; the hub adds the `pxt.` prefix on export.
+Each span family gets a TypedDict here describing its attributes; call sites construct these dicts, so
+key names and value types are mypy-checked at the point of production, and the file doubles as the
+written inventory of what every span carries. Keys are unprefixed; the hub adds the `pxt.` prefix on
+export. The hub boundary itself (`span(**attrs)`, `add_attrs(**attrs)`) stays untyped: these schemas are
+a construction-time contract, not a runtime enforcement.
 
-`Attrs` schemas describe span attributes (both are plain TypedDicts; the alias only marks the role). A
-field annotated with a `CounterMetric` marker feeds that counter instrument; a field marked `DIM` is
-exported as a metric attribute and must therefore be low-cardinality.
+Metric instruments are a separate concern; see `hooks.counter()` / `hooks.histogram()`.
 """
 
 from __future__ import annotations
 
-import dataclasses
-import typing
-from typing import TypedDict as Attrs, TypedDict as Event
-
-
-@dataclasses.dataclass(frozen=True)
-class CounterMetric:
-    """Marks a field whose value is added to the named counter instrument."""
-
-    name: str
-    unit: str = ''
-
-
-class _Dim:
-    pass
-
-
-# Marks a field exported as a metric attribute on the datapoints its schema produces.
-DIM: typing.Final = _Dim()
+from typing import TypedDict as Attrs
 
 
 class OpAttrs(Attrs, total=False):
@@ -40,8 +22,8 @@ class OpAttrs(Attrs, total=False):
     `UpdateStatus`, on the operations that produce one).
     """
 
-    table: typing.Annotated[str, DIM]
-    table_id: typing.Annotated[str, DIM]
+    table: str
+    table_id: str
     version: int
     num_rows: int
     num_computed_values: int
@@ -93,7 +75,7 @@ class ExecNodeAttrs(Attrs):
     ...); those keys are dynamic and therefore live outside this schema.
     """
 
-    node: typing.Annotated[str, DIM]
+    node: str
     rows: int
     batches: int
 
@@ -116,14 +98,14 @@ class MediaFetchAttrs(Attrs):
 
     # redacted at the call site (userinfo/query/fragment stripped): presigned URLs carry credentials
     url: str
-    bytes: typing.Annotated[int, CounterMetric('pixeltable.media.fetched_bytes', 'By')]
+    bytes: int
 
 
 class MediaSaveAttrs(Attrs):
     """Span attributes for `pixeltable.media.save` (one span per persisted file)."""
 
     destination: str
-    bytes: typing.Annotated[int, CounterMetric('pixeltable.media.saved_bytes', 'By')]
+    bytes: int
 
 
 class MediaDeleteAttrs(Attrs):
@@ -161,50 +143,3 @@ class ModelLoadAttrs(Attrs):
     device: str | None
     param_count: int | None
     size_bytes: int | None
-
-
-class RowsWritten(Event):
-    """Payload for the `pixeltable.rows.written` event, emitted per store write batch."""
-
-    table: typing.Annotated[str, DIM]
-    table_id: typing.Annotated[str, DIM]
-    rows: typing.Annotated[int, CounterMetric('pixeltable.rows.written', '{row}')]
-
-
-class CellsComputed(Event):
-    """Payload for the `pixeltable.cells.computed` event, emitted per dispatched batch in ExprEvalNode."""
-
-    table: typing.Annotated[str, DIM]
-    table_id: typing.Annotated[str, DIM]
-    cells: typing.Annotated[int, CounterMetric('pixeltable.cells.computed', '{cell}')]
-    errors: typing.Annotated[int, CounterMetric('pixeltable.cells.errors', '{error}')]
-
-
-class UdfStats(Event):
-    """Payload for the `pixeltable.udf.stats` event, emitted once per UDF slot when its node closes.
-
-    `column` is None for slots that don't materialize a named column. `total_s` is exported as a counter
-    rather than a histogram: sum plus `count` lets backends compute an average over any window without
-    per-call instrument overhead. `min_s`/`max_s` appear on the ExprEvalNode span only.
-    """
-
-    udf: typing.Annotated[str, DIM]
-    column: str | None
-    count: typing.Annotated[int, CounterMetric('pixeltable.udf.calls', '{call}')]
-    errors: typing.Annotated[int, CounterMetric('pixeltable.udf.errors', '{error}')]
-    retries: typing.Annotated[int, CounterMetric('pixeltable.udf.retries', '{retry}')]
-    total_s: typing.Annotated[float, CounterMetric('pixeltable.udf.duration_total', 's')]
-    min_s: float | None
-    max_s: float | None
-
-
-class UdfUsage(Event):
-    """Payload for the `pixeltable.udf.usage` event: token usage of one provider call.
-
-    Emitted only when the provider response carries recognizable usage; extraction happens at the emit
-    site (core owns the response shapes).
-    """
-
-    udf: typing.Annotated[str, DIM]
-    input_tokens: typing.Annotated[int, CounterMetric('pixeltable.udf.input_tokens', '{token}')]
-    output_tokens: typing.Annotated[int, CounterMetric('pixeltable.udf.output_tokens', '{token}')]

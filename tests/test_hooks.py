@@ -13,6 +13,8 @@ class RecordingSubscriber(hooks.Subscriber):
     def __init__(self) -> None:
         self.spans: list[dict[str, Any]] = []
         self.events: list[tuple[str, dict[str, Any] | None]] = []
+        self.counter_adds: list[tuple[hooks.Counter, int | float, dict[str, Any]]] = []
+        self.histogram_records: list[tuple[hooks.Histogram, int | float, dict[str, Any]]] = []
         self.ctx_restores: list[Any] = []
         self.ctx_exits: list[Any] = []
 
@@ -37,6 +39,12 @@ class RecordingSubscriber(hooks.Subscriber):
 
     def on_event(self, name: str, attrs: dict[str, Any] | None) -> None:
         self.events.append((name, attrs))
+
+    def on_counter_add(self, counter: hooks.Counter, value: int | float, attrs: dict[str, Any]) -> None:
+        self.counter_adds.append((counter, value, attrs))
+
+    def on_histogram_record(self, histogram: hooks.Histogram, value: int | float, attrs: dict[str, Any]) -> None:
+        self.histogram_records.append((histogram, value, attrs))
 
     def capture_context(self) -> Any:
         return 'ctx'
@@ -63,6 +71,12 @@ class RaisingSubscriber(hooks.Subscriber):
 
     def on_event(self, name: str, attrs: dict[str, Any] | None) -> None:
         raise RuntimeError('on_event')
+
+    def on_counter_add(self, counter: hooks.Counter, value: int | float, attrs: dict[str, Any]) -> None:
+        raise RuntimeError('on_counter_add')
+
+    def on_histogram_record(self, histogram: hooks.Histogram, value: int | float, attrs: dict[str, Any]) -> None:
+        raise RuntimeError('on_histogram_record')
 
     def capture_context(self) -> Any:
         raise RuntimeError('capture_context')
@@ -118,6 +132,30 @@ class TestHooks:
         assert not hooks.active()
         assert hooks.span_start('b', set_current=True) is None
         assert len(s.spans) == 1
+
+    def test_counter_and_histogram(self, sub: RecordingSubscriber) -> None:
+        c = hooks.counter('pixeltable.test.rows', unit='{row}')
+        h = hooks.histogram('pixeltable.test.latency', unit='s')
+        c.add(5, table='dir.tbl', skipped=None)
+        h.record(0.25, udf='f')
+        assert sub.counter_adds == [(c, 5, {'pxt.table': 'dir.tbl'})]
+        assert sub.histogram_records == [(h, 0.25, {'pxt.udf': 'f'})]
+
+    def test_metrics_inactive_noop(self) -> None:
+        assert not hooks.active()
+        hooks.counter('pixeltable.test.rows').add(1, table='t')
+        hooks.histogram('pixeltable.test.latency').record(1.0)
+
+    def test_metrics_exception_isolation(self, sub: RecordingSubscriber) -> None:
+        raising = RaisingSubscriber()
+        hooks.subscribe(raising)
+        try:
+            hooks.counter('pixeltable.test.rows').add(1)
+            hooks.histogram('pixeltable.test.latency').record(1.0)
+        finally:
+            hooks.unsubscribe(raising)
+        assert len(sub.counter_adds) == 1
+        assert len(sub.histogram_records) == 1
 
     def test_ambient_nesting(self, sub: RecordingSubscriber) -> None:
         op = hooks.span_start('op', set_current=True)

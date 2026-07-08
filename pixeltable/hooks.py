@@ -1,9 +1,11 @@
 """Dependency-free instrumentation hooks.
 
-Core pixeltable reports spans (timed, nested units of work) and discrete events through this module;
-subscribers (e.g. the bridge in `opentelemetry-instrumentation-pixeltable`) translate them into a
-telemetry backend. With no subscribers registered every call is a near-free no-op, but hot loops should
-still guard with `if hooks.active():` before building attribute dicts (or pass `attrs` as a callable).
+Core pixeltable reports spans (timed, nested units of work), discrete events, and metrics through this
+module; subscribers (e.g. the bridge in `opentelemetry-instrumentation-pixeltable`) translate them into a
+telemetry backend. Metric instruments are declared once at module level (`_rows = hooks.counter(...)`)
+and recorded into where the measurement happens (`_rows.add(n, table=path)`). With no subscribers
+registered every call is a near-free no-op, but hot loops should still guard with `if hooks.active():`
+before building attribute dicts (or pass `attrs` as a callable).
 
 Spans should cover contiguous units of real computation (a UDF call, a DB insert batch, model loading) or
 serve as structural containers (operation and exec-node spans). A CPU work span must not contain a
@@ -55,6 +57,12 @@ class Subscriber:
         pass
 
     def on_event(self, name: str, attrs: dict[str, Any] | None) -> None:
+        pass
+
+    def on_counter_add(self, counter: Counter, value: int | float, attrs: dict[str, Any]) -> None:
+        pass
+
+    def on_histogram_record(self, histogram: Histogram, value: int | float, attrs: dict[str, Any]) -> None:
         pass
 
     def capture_context(self) -> Any:
@@ -225,6 +233,74 @@ def emit(name: str, attrs: HookAttrs = None) -> None:
             s.on_event(name, attrs)
         except Exception as e:
             _log_subscriber_error(s, 'on_event', e)
+
+
+class Counter:
+    """A monotonic count of things; declare once at module level with counter().
+
+    `name`/`unit` identify the backend instrument (unit is a UCUM code, e.g. '{row}', 'By', 's').
+    """
+
+    __slots__ = ('name', 'unit')
+
+    def __init__(self, name: str, unit: str) -> None:
+        self.name = name
+        self.unit = unit
+
+    def add(self, value: int | float, **attrs: Any) -> None:
+        """Add value to the counter; keyword attrs get a 'pxt.' prefix, None values are skipped.
+
+        Attrs become metric dimensions (one time series per distinct value combination), so only pass
+        low-cardinality values (table path, UDF name); ids, urls, and versions belong on spans.
+        """
+        subs = _SUBSCRIBERS
+        if not subs:
+            return
+        prefixed = {f'pxt.{k}': v for k, v in attrs.items() if v is not None}
+        for s in subs:
+            try:
+                s.on_counter_add(self, value, prefixed)
+            except Exception as e:
+                _log_subscriber_error(s, 'on_counter_add', e)
+
+
+class Histogram:
+    """A distribution of per-observation values; declare once at module level with histogram().
+
+    Record individual observations only (a call's latency, a file's size); recording pre-aggregated
+    sums produces meaningless percentiles.
+    """
+
+    __slots__ = ('name', 'unit')
+
+    def __init__(self, name: str, unit: str) -> None:
+        self.name = name
+        self.unit = unit
+
+    def record(self, value: int | float, **attrs: Any) -> None:
+        """Record one observation; keyword attrs get a 'pxt.' prefix, None values are skipped.
+
+        The same low-cardinality rule as Counter.add() applies to attrs.
+        """
+        subs = _SUBSCRIBERS
+        if not subs:
+            return
+        prefixed = {f'pxt.{k}': v for k, v in attrs.items() if v is not None}
+        for s in subs:
+            try:
+                s.on_histogram_record(self, value, prefixed)
+            except Exception as e:
+                _log_subscriber_error(s, 'on_histogram_record', e)
+
+
+def counter(name: str, unit: str = '') -> Counter:
+    """Declare a counter instrument; module-level, once per metric name."""
+    return Counter(name, unit)
+
+
+def histogram(name: str, unit: str = '') -> Histogram:
+    """Declare a histogram instrument; module-level, once per metric name."""
+    return Histogram(name, unit)
 
 
 @contextlib.contextmanager
