@@ -21,8 +21,6 @@ from pixeltable import exceptions as excs, hooks
 from pixeltable.config import Config
 from pixeltable.env import Env
 
-from . import PixeltableInstrumentor
-
 _logger = logging.getLogger('pixeltable.otel')
 
 _SPAN_LEVELS = {'info': hooks.INFO, 'debug': hooks.DEBUG, 'trace': hooks.TRACE}
@@ -171,6 +169,7 @@ def _setup(
     from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from . import PixeltableInstrumentor
 
     if span_level is None:
         span_level = config.get_string_value('span_level', section='otel') or 'info'
