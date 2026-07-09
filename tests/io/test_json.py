@@ -12,6 +12,7 @@ from ..utils import (
     ALL_DATATYPES_SCHEMA,
     create_all_datatypes_tbl,
     get_image_files,
+    rerun,
     skip_test_if_not_installed,
     validate_update_status,
 )
@@ -169,6 +170,7 @@ class TestJson:
 
         assert original == reimported
 
+    @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
     def test_export_remote_urls(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """Verify that remote URLs (S3, HTTPS) are exported as-is."""
         p = make_catalog_path

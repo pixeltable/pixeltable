@@ -34,6 +34,7 @@ from .utils import (
     get_image_files,
     pxt_raises,
     reload_catalog,
+    rerun,
     skip_test_if_not_installed,
     validate_update_status,
 )
@@ -1201,6 +1202,7 @@ class TestExprs:
         result = t.select(t.img, t.img.height, t.img.rotate(90)).show(n=100)
         _ = result._repr_html_()
 
+    @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
     def test_ext_imgs(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('img_test'), {'img': pxt.Image})

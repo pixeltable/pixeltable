@@ -24,6 +24,7 @@ from .utils import (
     local_embedding,
     pxt_raises,
     reload_catalog,
+    rerun,
     skip_test_if_not_installed,
     validate_update_status,
 )
@@ -79,6 +80,7 @@ class TestIndex:
         reload_tester.run_reload_test(clear=True)
 
     @pytest.mark.parametrize('use_index_name,use_separate_embeddings', [(False, False), (True, False), (False, True)])
+    @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
     def test_similarity(
         self,
         use_index_name: bool,

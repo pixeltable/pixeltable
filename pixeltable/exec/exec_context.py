@@ -9,6 +9,7 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.progress_reporter import ProgressReporter
+from pixeltable.utils.system import is_interactive_env
 
 
 class ExecContext:
@@ -41,9 +42,7 @@ class ExecContext:
             self.show_progress = show_progress
         else:
             self.show_progress = (
-                bool(Config.get().get_bool_value('show_progress'))
-                and Env.get().verbosity >= 1
-                and Env.get().is_interactive()
+                bool(Config.get().get_bool_value('show_progress')) and Env.get().verbosity >= 1 and is_interactive_env()
             )
 
         # disable progress reporting in Jupyter if ipywidgets is not installed

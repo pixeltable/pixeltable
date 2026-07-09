@@ -309,7 +309,7 @@ class RandomTableOps:
         if r >= freq:
             return None
 
-        match random.randint(0, 4):
+        match random.randint(0, 3):
             case 0:
                 return {'this': 'is', 'a': 'simple', 'json': 'dict'}
             case 1:
