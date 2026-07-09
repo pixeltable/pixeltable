@@ -87,19 +87,22 @@ def lookup_database_runtime_config() -> config.DatabaseRuntimeConfig | None:
         ) from e
 
 
-def create_service_from_config(cfg: config.ServiceConfig) -> 'fastapi.FastAPI':
+def create_service_from_config(cfg: config.ServiceConfig, base_path: str = '') -> 'fastapi.FastAPI':
     """Build a FastAPI instance from a ServiceConfig"""
     Env.get().require_package('fastapi')
     import fastapi
 
     from pixeltable.serving import FastAPIRouter
 
+    def _resolve(relative: str) -> str:
+        return f'{base_path}/{relative}' if base_path else relative
+
     app = fastapi.FastAPI(title=cfg.name)
     router = FastAPIRouter()
 
     for route in cfg.routes:
         if isinstance(route, config.InsertRouteConfig):
-            t = pxt.get_table(route.table)
+            t = pxt.get_table(_resolve(route.table))
             router.add_insert_route(
                 t,
                 path=route.path,
@@ -111,7 +114,7 @@ def create_service_from_config(cfg: config.ServiceConfig) -> 'fastapi.FastAPI':
                 background=route.background,
             )
         elif isinstance(route, config.UpdateRouteConfig):
-            t = pxt.get_table(route.table)
+            t = pxt.get_table(_resolve(route.table))
             router.add_update_route(
                 t,
                 path=route.path,
@@ -122,7 +125,7 @@ def create_service_from_config(cfg: config.ServiceConfig) -> 'fastapi.FastAPI':
                 background=route.background,
             )
         elif isinstance(route, config.DeleteRouteConfig):
-            t = pxt.get_table(route.table)
+            t = pxt.get_table(_resolve(route.table))
             router.add_delete_route(t, path=route.path, match_columns=route.match_columns, background=route.background)
         elif isinstance(route, config.QueryRouteConfig):
             query_fn = _resolve_module_attr(route.query)

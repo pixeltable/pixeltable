@@ -7,10 +7,14 @@ from ..parser import Parser
 
 
 def run(argv: list[str]) -> None:
-    parser = Parser(prog='pxt service create', description='Create a service from a table in a cloud-hosted database.')
-    parser.add_argument('table_uri', help='Table URI: pxt://org:db/tables/<path>')
+    parser = Parser(prog='pxt service create', description='Create a cloud-hosted service.')
+    parser.add_argument('name', help='Service name (must match a [[pixeltable.service]] block in the config)')
     parser.add_argument(
-        '--name', required=True, help='Service name (must match a [[service]] block in the Pixeltable config)'
+        '--base-uri',
+        required=True,
+        dest='base_uri',
+        metavar='URI',
+        help='pxt://org:db[/<dir>] — identifies the database and the base path for resolving relative table paths in routes',
     )
     parser.add_argument('--workers', type=int, default=1, help='Number of workers (default: 1)')
     parser.add_argument('--cpu', type=float, default=0.5, help='CPU cores per worker (default: 0.5)')
@@ -25,11 +29,11 @@ def run(argv: list[str]) -> None:
     from pixeltable import config as pxt_config
     from pixeltable.serving._config import lookup_service_config
 
-    from ..cloud import parse_table_uri, poll_svc, print_service
+    from ..cloud import parse_base_uri, poll_svc, print_service
     from ..http import post
 
     try:
-        org_slug, db_slug, table_path = parse_table_uri(args.table_uri, prog='pxt service create')
+        org_slug, db_slug, base_path = parse_base_uri(args.base_uri, prog='pxt service create')
 
         if args.config is not None:
             pxt_config.Config.init({}, additional_config_files=[args.config])
@@ -39,7 +43,7 @@ def run(argv: list[str]) -> None:
             f'/api/cloud/orgs/{org_slug}/dbs/{db_slug}/services',
             {
                 'service_name': args.name,
-                'table_path': table_path,
+                'base_path': base_path,
                 'workers': args.workers,
                 'cpu': args.cpu,
                 'memory_mb': args.memory_mb,

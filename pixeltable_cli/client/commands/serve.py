@@ -198,6 +198,13 @@ def run(argv: list[str]) -> None:
     # not a known subcommand and not a flag, treat it as a service name.
     if len(argv) >= 1 and argv[0] not in _SUBCOMMANDS and not argv[0].startswith('-'):
         parser.add_argument('service', help='Name of the configured service to start')
+        parser.add_argument(
+            '--base-uri',
+            default=None,
+            dest='base_uri',
+            metavar='PATH',
+            help='Base path prefix for resolving relative table paths in route config',
+        )
         _add_service_args(parser)
         _add_output_args(parser)
     else:
@@ -236,7 +243,8 @@ def _serve(args: argparse.Namespace) -> None:
         _print_dry_run(cfg, args.json)
         return
 
-    _run(cfg, create_service_from_config(cfg), args.json)
+    base_path = getattr(args, 'base_uri', None) or ''
+    _run(cfg, create_service_from_config(cfg, base_path=base_path), args.json)
 
 
 def _print_dry_run(cfg: config.ServiceConfig, json_output: bool) -> None:

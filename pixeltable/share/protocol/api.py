@@ -162,7 +162,7 @@ class ServiceRecord(BaseModel):
     org_id: str
     database_id: str
     service_name: str
-    table_path: str
+    base_path: str = ''
     workers_min: int = 1
     workers_max: int = 1
     state: str  # DEPLOYING | AVAILABLE | STOPPED | UPDATING | FAILED
@@ -177,7 +177,7 @@ class CreateServiceRequest(BaseModel):
     org_slug: Optional[str] = None
     db_slug: str
     service_name: str
-    table_path: str
+    base_path: str = ''
     workers_min: int = 1
     description: Optional[str] = None
     cpu: float = 0.5

@@ -40,17 +40,13 @@ def parse_org_uri(uri: str, prog: str = 'pxt') -> str:
     return org
 
 
-def parse_table_uri(uri: str, prog: str = 'pxt') -> tuple[str, str, str]:
-    """Parse pxt://org:db/tables/<path> and return (org, db, table_path). Exits on error."""
+def parse_base_uri(uri: str, prog: str = 'pxt') -> tuple[str, str, str]:
+    """Parse pxt://org:db[/<path>] and return (org, db, base_path). Exits on error."""
     org, db, path = _split_pxt_uri(uri)
-    if not org or not db or not path or not path.startswith('tables/'):
-        print(f'{prog}: error: URI must be pxt://org:db/tables/<path>, got {uri!r}', file=sys.stderr)
+    if not org or not db:
+        print(f'{prog}: error: --base-uri must be pxt://org:db[/<dir>], got {uri!r}', file=sys.stderr)
         sys.exit(2)
-    table_path = path[len('tables/') :]
-    if not table_path:
-        print(f'{prog}: error: URI must include a table path', file=sys.stderr)
-        sys.exit(2)
-    return org, db, table_path
+    return org, db, path or ''
 
 
 def parse_service_uri(uri: str, prog: str = 'pxt') -> tuple[str, str, str]:
@@ -129,14 +125,14 @@ def print_db(db: dict[str, Any]) -> None:
 def print_service(svc: dict[str, Any]) -> None:
     name = svc.get('service_name', '')
     state = svc.get('state', '')
-    table = svc.get('table_path', '')
+    base = svc.get('base_path', '')
     workers_max = svc.get('workers_max')
     if workers_max is not None:
         workers_str = f'workers={svc.get("workers_min", 1)}-{workers_max}'
     else:
         workers_str = f'workers={svc.get("workers_min", 1)}'
     endpoint = svc.get('endpoint') or ''
-    print(f'{name}  state={state}  table={table}  {workers_str}  {endpoint}'.rstrip())
+    print(f'{name}  state={state}  base={base}  {workers_str}  {endpoint}'.rstrip())
     # Print route URLs from service_config
     svc_config_str = svc.get('service_config')
     if svc_config_str and endpoint:
