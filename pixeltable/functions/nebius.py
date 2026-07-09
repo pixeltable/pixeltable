@@ -28,7 +28,7 @@ def _(api_key: str) -> 'openai.AsyncOpenAI':
 
     return openai.AsyncOpenAI(
         api_key=api_key,
-        base_url='https://api.tokenfactory.nebius.com/v1/',
+        base_url='https://api.tokenfactory.nebius.com/v1',
         http_client=httpx.AsyncClient(limits=httpx.Limits(max_keepalive_connections=100, max_connections=500)),
     )
 
@@ -90,6 +90,8 @@ async def chat_completions(
     """
     if model_kwargs is None:
         model_kwargs = {}
+
+    env.Env.get().require_package('openai')
 
     if tools is not None:
         model_kwargs['tools'] = [{'type': 'function', 'function': tool} for tool in tools]
@@ -166,6 +168,7 @@ async def embeddings(
     """
     if model_kwargs is None:
         model_kwargs = {}
+    env.Env.get().require_package('openai')
     result = await _nebius_client().embeddings.create(input=input, model=model, **model_kwargs)
     return [np.array(data.embedding, dtype=np.float64) for data in result.data]
 
