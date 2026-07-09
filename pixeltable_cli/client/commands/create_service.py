@@ -14,7 +14,7 @@ def run(argv: list[str]) -> None:
         required=True,
         dest='base_uri',
         metavar='URI',
-        help='pxt://org:db[/<dir>] — identifies the database and the base path for resolving relative table paths in routes',
+        help='pxt://org:db[/<dir>] — database and base path prefix for resolving relative table paths in routes',
     )
     parser.add_argument('--workers', type=int, default=1, help='Number of workers (default: 1)')
     parser.add_argument('--cpu', type=float, default=0.5, help='CPU cores per worker (default: 0.5)')
