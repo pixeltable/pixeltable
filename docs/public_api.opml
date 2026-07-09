@@ -532,7 +532,6 @@
         </outline>
         <outline text="group|Application Instrumentation">
             <outline text="func|opentelemetry.instrumentation.pixeltable.instrument_fastapi" />
-            <outline text="func|opentelemetry.instrumentation.pixeltable.instrument_sqlalchemy" />
         </outline>
       </outline>
 

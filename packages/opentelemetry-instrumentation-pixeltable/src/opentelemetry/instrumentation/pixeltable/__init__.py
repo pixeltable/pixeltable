@@ -23,10 +23,10 @@ from opentelemetry.trace import StatusCode, set_span_in_context
 
 from pixeltable import __version__, hooks
 
-from ._sdk import _resolve_span_level, init, instrument_fastapi, instrument_sqlalchemy
+from ._sdk import _resolve_span_level, init, instrument_fastapi, _instrument_sqlalchemy
 from .package import _instruments
 
-__all__ = ['PixeltableInstrumentor', 'init', 'instrument_fastapi', 'instrument_sqlalchemy']
+__all__ = ['PixeltableInstrumentor', 'init', 'instrument_fastapi']
 
 _ATTR_TYPES = (str, bool, int, float)
 

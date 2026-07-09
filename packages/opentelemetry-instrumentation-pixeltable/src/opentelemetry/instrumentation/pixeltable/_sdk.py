@@ -130,7 +130,7 @@ def instrument_fastapi(app: Any, **kwargs: Any) -> None:
     FastAPIInstrumentor.instrument_app(app, **kwargs)
 
 
-def instrument_sqlalchemy(**kwargs: Any) -> None:
+def _instrument_sqlalchemy(**kwargs: Any) -> None:
     """Instrument SQLAlchemy so its query spans are exported alongside pixeltable spans.
 
     Passthrough to the `opentelemetry-instrumentation-sqlalchemy` package (which must be installed),
@@ -144,14 +144,14 @@ def instrument_sqlalchemy(**kwargs: Any) -> None:
         >>> import opentelemetry.instrumentation.pixeltable as pxt_otel
         ...
         ... pxt_otel.init(endpoint='http://localhost:4318')
-        ... pxt_otel.instrument_sqlalchemy(engine=engine)
+        ... pxt_otel._instrument_sqlalchemy(engine=engine)
     """
     try:
         from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor  # type: ignore[import-untyped]
     except ImportError as exc:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            'instrument_sqlalchemy() requires the `opentelemetry-instrumentation-sqlalchemy` package. '
+            '_instrument_sqlalchemy() requires the `opentelemetry-instrumentation-sqlalchemy` package. '
             'To install it, run: `pip install -U opentelemetry-instrumentation-sqlalchemy`',
         ) from exc
     kwargs.setdefault('tracer_provider', _state.tracer_provider)
