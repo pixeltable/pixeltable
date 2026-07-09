@@ -10,8 +10,8 @@ _logger = logging.getLogger(__name__)
 
 
 @register_converter(version=40)
-def _(engine: sql.engine.Engine) -> None:
-    convert_table_md(engine, table_modifier=__table_modifier)
+def _(conn: sql.Connection) -> None:
+    convert_table_md(conn, table_modifier=__table_modifier)
 
 
 def __table_modifier(conn: sql.Connection, tbl_id: UUID, orig_table_md: dict, updated_table_md: dict) -> None:

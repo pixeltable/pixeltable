@@ -54,8 +54,6 @@ env:
   PIXELTABLE_R2_PROFILE: r2_profile
   PIXELTABLE_TIGRIS_PROFILE: tigris_profile
   PIXELTABLE_VERBOSITY: 0  # Suppress console output; we'll get log messages anyway when we need them
-  PXTTEST_COCKROACH_DB_CONNECT_STR: ${{ secrets.PXTTEST_COCKROACH_DB_CONNECT_STR }}
-  PXTTEST_COCKROACH_DB_ROOT_CERT: ${{ secrets.PXTTEST_COCKROACH_DB_ROOT_CERT }}
   PXTTEST_IN_CI: 1
   MINTLIFY_VERSION: 4.2.506
   # HF-dependent notebooks (--include-expensive) and resource/dollar-heavy notebooks (--include-very-expensive) run
@@ -248,7 +246,10 @@ jobs:
         run: ./scripts/stress-tests.sh 12 360
       - name: Type check
         if: ${{ matrix.test-category == 'lint' }}
-        run: mypy pixeltable tests tool
+        run: |
+          python tool/generate_type_stubs.py
+          mypy pixeltable tests tool
+          mypy pixeltable/catalog/model.py
       - name: Validate docstrings
         if: ${{ matrix.test-category == 'lint' }}
         run: |
@@ -274,8 +275,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: pixeltable-pytest-logs-${{ matrix.display-name }}-${{ matrix.os }}-${{ matrix.python-version }}
-          # xdist workers create their homes under popen-gw*/base*/; glob to catch all of them
-          path: /tmp/pytest-of-runner/**/.pixeltable/logs
+          path: |
+            /tmp/pytest-of-runner/**/.pixeltable/logs
+            /tmp/pytest-of-runner/**/.pixeltable/proxy_*/logs
       - name: Print utilization info
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
         run: |

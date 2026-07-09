@@ -11,6 +11,8 @@ from pixeltable.utils.object_stores import ObjectOps, ObjectPath
 
 from .utils import pxt_raises, skip_test_if_no_pxt_credentials, skip_test_if_not_installed, validate_update_status
 
+pytestmark = pytest.mark.local('exercises ObjectOps/object-store internals')
+
 PXT_DEST_URI = 'pxtfs://pixeltable:main/home/pytest'
 
 

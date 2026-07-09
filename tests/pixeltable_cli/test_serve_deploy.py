@@ -166,7 +166,8 @@ class TestCLI:
         with (
             patch('pixeltable_cli.client.commands.serve.lookup_service_config') as mock_load,
             patch('pixeltable_cli.client.commands.serve.create_service_from_config') as mock_create,
-            patch('uvicorn.run') as mock_run,
+            patch('uvicorn.Config') as mock_uvi_config,
+            patch('uvicorn.Server.run') as mock_run,
         ):
             mock_create.return_value = 'fake_app'
 
@@ -193,9 +194,11 @@ class TestCLI:
             assert cfg.port == 9999
             assert cfg.host == '127.0.0.1'
             assert cfg.name == 'test-service'
-            mock_run.assert_called_once_with('fake_app', host='127.0.0.1', port=9999)
+            mock_uvi_config.assert_called_once_with('fake_app', host='127.0.0.1', port=9999, log_config=None)
+            mock_run.assert_called_once_with()
 
             mock_create.reset_mock()
+            mock_uvi_config.reset_mock()
             mock_run.reset_mock()
 
             # insert
@@ -215,9 +218,11 @@ class TestCLI:
             assert route.outputs == ['id', 'name', 'name_upper']
             assert route.background is True
             assert route.return_fileresponse is False
-            mock_run.assert_called_once_with('fake_app', host='0.0.0.0', port=9000)
+            mock_uvi_config.assert_called_once_with('fake_app', host='0.0.0.0', port=9000, log_config=None)
+            mock_run.assert_called_once_with()
 
             mock_create.reset_mock()
+            mock_uvi_config.reset_mock()
             mock_run.reset_mock()
 
             # update
@@ -306,29 +311,49 @@ class TestCLI:
             assert route.one_row is True
             assert cfg.host == '127.0.0.1'
 
+    def test_started_status_json(self) -> None:
+        from pixeltable_cli.client.commands.serve import _started_status
+
+        data = json.loads(_started_status(host='127.0.0.1', port=8080, is_ssl=False, n_routes=1, json_output=True))
+        assert data['status'] == 'started'
+        assert data['host'] == '127.0.0.1'
+        assert data['port'] == 8080
+        assert data['url'] == 'http://127.0.0.1:8080'
+        assert data['docs_url'] == 'http://127.0.0.1:8080/docs'
+        assert data['routes'] == 1
+
+        # wildcard host is reported verbatim, but the URL uses localhost
+        data = json.loads(_started_status(host='0.0.0.0', port=8080, is_ssl=False, n_routes=1, json_output=True))
+        assert data['host'] == '0.0.0.0'
+        assert data['url'] == 'http://localhost:8080'
+
+        # IPv6 host is bracket-formatted in the URL
+        data = json.loads(_started_status(host='::1', port=8000, is_ssl=False, n_routes=1, json_output=True))
+        assert data['url'] == 'http://[::1]:8000'
+
+        # ssl flips the protocol
+        data = json.loads(_started_status(host='127.0.0.1', port=443, is_ssl=True, n_routes=1, json_output=True))
+        assert data['url'] == 'https://127.0.0.1:443'
+
+    def test_started_status_plain(self) -> None:
+        """Plain-text startup record renders URL, route count, and docs URL."""
+        from pixeltable_cli.client.commands.serve import _started_status
+
+        out = _started_status(host='127.0.0.1', port=8080, is_ssl=False, n_routes=3, json_output=False)
+        assert 'Pixeltable is running on http://127.0.0.1:8080' in out
+        assert 'Routes: 3' in out
+        assert 'API docs at http://127.0.0.1:8080/docs' in out
+
     def test_serve_output(self, capsys: pytest.CaptureFixture) -> None:
-        """--json startup record and EADDRINUSE error output (plain and JSON)."""
+        """EADDRINUSE error output (plain and JSON) and other startup error paths."""
         skip_test_if_not_installed('fastapi', 'uvicorn')
-
-        with (
-            patch('pixeltable_cli.client.commands.serve.create_service_from_config') as mock_create,
-            patch('uvicorn.run'),
-        ):
-            mock_create.return_value = 'fake_app'
-
-            # --json startup record
-            _run_cli(['pxt', 'serve', 'insert', '--table', 'd.t', '--path', '/ins', '--port', '8080', '--json'], capsys)
-            data = json.loads(capsys.readouterr().out)
-            assert data['status'] == 'starting'
-            assert data['port'] == 8080
-            assert 'url' in data and 'docs_url' in data
-            assert data['routes'] == 1
 
         eaddrinuse = OSError(errno.EADDRINUSE, 'Address already in use')
 
         with (
             patch('pixeltable_cli.client.commands.serve.create_service_from_config') as mock_create,
-            patch('uvicorn.run', side_effect=eaddrinuse),
+            patch('uvicorn.Config'),
+            patch('uvicorn.Server.run', side_effect=eaddrinuse),
         ):
             mock_create.return_value = 'fake_app'
 
@@ -384,15 +409,6 @@ class TestCLI:
                 exit_code=1,
                 stderr='pixeltable[serve]',
             )
-
-        # IPv6 host: URL is bracket-formatted in --json startup record
-        with (
-            patch('pixeltable_cli.client.commands.serve.create_service_from_config', return_value='fake_app'),
-            patch('uvicorn.run'),
-        ):
-            _run_cli(['pxt', 'serve', 'insert', '--table', 'd.t', '--path', '/ins', '--host', '::1', '--json'], capsys)
-            data = json.loads(capsys.readouterr().out)
-            assert data['url'] == 'http://[::1]:8000'
 
     def test_deploy(self, capsys: pytest.CaptureFixture) -> None:
         # missing deployment arg

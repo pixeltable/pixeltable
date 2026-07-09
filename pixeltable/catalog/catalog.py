@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import dataclasses
 import functools
+import itertools
 import logging
 import random
 import time
@@ -9,7 +10,7 @@ from collections import defaultdict
 from collections.abc import Collection
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Mapping, TypeVar
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import psycopg
 import sqlalchemy as sql
@@ -17,7 +18,7 @@ import sqlalchemy.exc as sql_exc
 from sqlalchemy.dialects.postgresql import array as pg_array
 
 import pixeltable.index as index
-from pixeltable import exceptions as excs, func
+from pixeltable import exceptions as excs, exprs, func
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
@@ -26,14 +27,16 @@ from pixeltable.utils import fault_injection
 from pixeltable.utils.exception_handler import run_cleanup
 from pixeltable.utils.fault_injection import FaultLocation
 
+from .catalog_base import CatalogBase
 from .column import Column
 from .dir import Dir
-from .globals import IfExistsParam, IfNotExistsParam, MediaValidation, QColumnId
+from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation, QColumnId
 from .insertable_table import InsertableTable
+from .local_table import LocalTable
+from .model import ModelColumnRef
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
-from .table import Table
-from .table_path import TableVersionPath
+from .table_path import TablePath, TableVersionPath
 from .table_version import TableVersion, TableVersionKey, TableVersionMd
 from .table_version_handle import TableVersionHandle
 from .tbl_ops import DeleteTableMdOp, OpStatus, TableOp
@@ -165,7 +168,7 @@ class PendingTableOpsError(Exception):
         self.tbl_id = tbl_id
 
 
-class Catalog:
+class Catalog(CatalogBase):
     """The functional interface to getting access to catalog objects
 
     All interface functions must be called in the context of a transaction, started with Catalog.begin_xact() or
@@ -208,7 +211,7 @@ class Catalog:
     # - mutable version of a table: version == None (even though TableVersion.version is set correctly)
     # - snapshot versions: records the version of the snapshot
     _tbl_versions: dict[TableVersionKey, TableVersion]
-    _tbls: dict[tuple[UUID, int | None], Table]
+    _tbls: dict[tuple[UUID, int | None], LocalTable]
     _in_write_xact: bool  # True if we're in a write transaction
     _x_locked_tbl_ids: set[UUID]  # Ids of tables exclusively locked for write in the current transaction
     _modified_tvs: set[TableVersionHandle]  # TableVersion instances modified in the current transaction
@@ -933,8 +936,9 @@ class Catalog:
 
             except Exception as e:
                 if excs.is_table_not_found_error(e):
-                    _logger.error(f'Finalize pending ops({tbl_id}): table not found', exc_info=True)
-                    raise
+                    _logger.debug(f'Finalize pending ops({tbl_id}): table not found, exiting')
+                    # nothing to do
+                    return None
 
                 if not is_rollback and tbl_md is not None and tbl_md.pending_stmt.can_abort():
                     _logger.error(
@@ -1190,16 +1194,6 @@ class Catalog:
         rows = get_runtime().conn.execute(stmt).all()
         return {r.tbl_id: r.errors for r in rows}
 
-    @dataclasses.dataclass
-    class DirEntry:
-        dir: schema.Dir | None
-        dir_entries: dict[str, Catalog.DirEntry]
-        table: schema.Table | None
-
-        # Only populated for table entries when get_dir_contents() was called with with_error_counts=True;
-        # None otherwise (including for directory entries).
-        table_error_count: int | None = None
-
     @retry_loop(for_write=False)
     def get_dir_contents(
         self, dir_path: Path, recursive: bool = False, with_error_counts: bool = False
@@ -1213,23 +1207,23 @@ class Catalog:
     ) -> dict[str, DirEntry]:
         """Returns a dict mapping the entry names to DirEntry objects"""
         conn = get_runtime().conn
-        result: dict[str, Catalog.DirEntry] = {}
+        result: dict[str, DirEntry] = {}
 
         q = sql.select(schema.Dir).where(schema.Dir.parent_id == dir_id)
         rows = conn.execute(q).all()
         for row in rows:
             dir = schema.Dir(**row._mapping)
-            dir_contents: dict[str, Catalog.DirEntry] = {}
+            dir_contents: dict[str, DirEntry] = {}
             if recursive:
                 dir_contents = self._get_dir_contents(dir.id, recursive=True, error_counts=error_counts)
-            result[dir.md['name']] = self.DirEntry(dir=dir, dir_entries=dir_contents, table=None)
+            result[dir.md['name']] = DirEntry(dir=dir, dir_entries=dir_contents, table=None)
 
         q = sql.select(schema.Table).where(self._active_tbl_clause(dir_id=dir_id))
         rows = conn.execute(q).all()
         for row in rows:
             tbl = schema.Table(**row._mapping)
             err_count = error_counts.get(tbl.id, 0) if error_counts is not None else None
-            result[tbl.md['name']] = self.DirEntry(dir=None, dir_entries={}, table=tbl, table_error_count=err_count)
+            result[tbl.md['name']] = DirEntry(dir=None, dir_entries={}, table=tbl, table_error_count=err_count)
 
         return result
 
@@ -1252,7 +1246,7 @@ class Catalog:
             # If dest_obj is not None, it means `if_exists='ignore'` and the destination already exists.
             # If src_obj is None, it means `if_not_exists='ignore'` and the source doesn't exist.
             # If dest_obj is None and src_obj is not None, then we can proceed with the move.
-            if isinstance(src_obj, Table):
+            if isinstance(src_obj, LocalTable):
                 self._move_table(src_obj._id, new_path.name, dest_dir._id)
             elif isinstance(src_obj, Dir):
                 self._move_dir(src_obj._id, new_path.name, dest_dir._id)
@@ -1286,7 +1280,7 @@ class Catalog:
         - if both add and drop (= two directories are involved), lock the directories in a pre-determined order
           (in this case, by name) in order to prevent deadlocks between concurrent directory modifications
         """
-        assert drop_expected in (None, Table, Dir), drop_expected
+        assert drop_expected in (None, LocalTable, Dir), drop_expected
         assert (add_dir_path is None) == (add_name is None)
         assert (drop_dir_path is None) == (drop_name is None)
         dir_paths: set[Path] = set()
@@ -1329,7 +1323,7 @@ class Catalog:
             if drop_obj is None and raise_if_not_exists:
                 raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, f'Path {drop_path!r} does not exist.')
             if drop_obj is not None and drop_expected is not None and not isinstance(drop_obj, drop_expected):
-                expected_name = 'table' if drop_expected is Table else 'directory'
+                expected_name = 'table' if drop_expected is LocalTable else 'directory'
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT,
                     f'{drop_path!r} needs to be a {expected_name} but is a {drop_obj._display_name()}',
@@ -1389,7 +1383,7 @@ class Catalog:
         - raise_if_not_exists is True and the path does not exist
         - expected is not None and the existing object has a different type
         """
-        assert expected in (None, Table, Dir), expected
+        assert expected in (None, LocalTable, Dir), expected
 
         if path.is_root:
             # the root dir
@@ -1419,7 +1413,7 @@ class Catalog:
                 excs.ErrorCode.PATH_ALREADY_EXISTS, f'Path {path!r} is an existing {obj._display_name()}.'
             )
         elif obj is not None and expected is not None and not isinstance(obj, expected):
-            expected_name = 'table' if expected is Table else 'directory'
+            expected_name = 'table' if expected is LocalTable else 'directory'
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT,
                 f'{path!r} needs to be a {expected_name} but is a {obj._display_name()}.',
@@ -1428,19 +1422,27 @@ class Catalog:
 
     def get_table_by_id(
         self, tbl_id: UUID, version: int | None = None, ignore_if_dropped: bool = False
-    ) -> Table | None:
-        """Must be executed inside a transaction. Might raise PendingTableOpsError."""
+    ) -> LocalTable | None:
+        """Loads the table if it isn't already cached, starting its own (re-entrant) transaction to do so.
+        Might raise PendingTableOpsError."""
         if (tbl_id, version) not in self._tbls:
-            if version is None:
-                return self._load_tbl(tbl_id, ignore_pending_drop=ignore_if_dropped)
-            else:
-                return self._load_tbl_at_version(tbl_id, version)
-        return self._tbls.get((tbl_id, version))
+            # begin_xact() is re-entrant: it joins the caller's transaction if there is one, and otherwise
+            # starts a fresh read transaction (which also permits the metadata load). Cache hits stay xact-free.
+            with self.begin_xact(for_write=False):
+                if version is None:
+                    tbl = self._load_tbl(tbl_id, ignore_pending_drop=ignore_if_dropped)
+                else:
+                    tbl = self._load_tbl_at_version(tbl_id, version)
+        else:
+            tbl = self._tbls.get((tbl_id, version))
+        if tbl is not None:
+            Env.get().record_tbl_catalog_uri(tbl._id, ROOT_PATH)
+        return tbl
 
     def create_table(
         self,
         path: Path,
-        schema: dict[str, type | ColumnSpec | exprs.Expr],
+        schema: dict[str, ColumnSpec],
         if_exists: IfExistsParam,
         primary_key: list[str] | None,
         comment: str | None,
@@ -1448,7 +1450,7 @@ class Catalog:
         media_validation: MediaValidation,
         create_default_idxs: bool,
         is_versioned: bool,
-    ) -> tuple[Table, bool]:
+    ) -> tuple[LocalTable, bool]:
         """
         Creates a new InsertableTable at the given path.
 
@@ -1457,39 +1459,28 @@ class Catalog:
         Otherwise, creates a new table `t` and returns `t, True` (or raises an exception if the operation fails).
         """
 
+        columns = [Column.create(name, spec) for name, spec in schema.items()]
+
         @retry_loop(for_write=True)
         def create_fn() -> tuple[UUID, bool]:
-            import pixeltable.metadata.schema
-
-            existing = self._handle_path_collision(path, InsertableTable, False, if_exists)
-            if existing is not None:
-                assert isinstance(existing, Table)
-                return existing._id, False
-
-            dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
-            assert dir is not None
-
-            md, ops = InsertableTable._create(
-                path.name,
-                schema,
-                primary_key=primary_key,
-                comment=comment,
-                custom_metadata=custom_metadata,
-                media_validation=media_validation,
-                create_default_idxs=create_default_idxs,
-                is_versioned=is_versioned,
+            return self._create_table(
+                path,
+                columns,
+                if_exists,
+                primary_key,
+                comment,
+                custom_metadata,
+                media_validation,
+                create_default_idxs,
+                is_versioned,
             )
-            tbl_id = UUID(md.tbl_md.tbl_id)
-            md.tbl_md.pending_stmt = pixeltable.metadata.schema.TableStatement.CREATE_TABLE
-            self.write_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
-            return tbl_id, True
 
         self._roll_forward_ids.clear()
         tbl_id, is_created = create_fn()
         self._roll_forward()
 
         @retry_loop(read_tbl_ids=[tbl_id])
-        def _get_tbl() -> tuple[Table, bool]:
+        def _get_tbl() -> tuple[LocalTable, bool]:
             tbl = self.get_table_by_id(tbl_id)
             _logger.info(f'Created table {tbl._name()!r}, id={tbl._id}')
             Env.get().console_logger.info(f'Created table {tbl._name()!r}.')
@@ -1497,14 +1488,57 @@ class Catalog:
 
         return _get_tbl()
 
+    def _create_table(
+        self,
+        path: Path,
+        columns: list[Column],
+        if_exists: IfExistsParam,
+        primary_key: list[str] | None,
+        comment: str | None,
+        custom_metadata: Any,
+        media_validation: MediaValidation,
+        create_default_idxs: bool,
+        is_versioned: bool,
+        tbl_id: UUID | None = None,
+    ) -> tuple[UUID, bool]:
+        import pixeltable.metadata.schema
+
+        if primary_key is None:
+            primary_key = []
+
+        existing = self._handle_path_collision(path, InsertableTable, False, if_exists)
+        if existing is not None:
+            assert isinstance(existing, LocalTable)
+            return existing._id, False
+
+        dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
+        assert dir is not None
+
+        md, ops = InsertableTable._create(
+            path.name,
+            columns,
+            primary_key=primary_key,
+            comment=comment,
+            custom_metadata=custom_metadata,
+            media_validation=media_validation,
+            create_default_idxs=create_default_idxs,
+            is_versioned=is_versioned,
+            tbl_id=tbl_id,
+        )
+        if tbl_id is None:
+            tbl_id = UUID(md.tbl_md.tbl_id)
+        md.tbl_md.pending_stmt = pixeltable.metadata.schema.TableStatement.CREATE_TABLE
+        self.write_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
+        return tbl_id, True
+
     def create_view(
         self,
         path: Path,
-        base: TableVersionPath,
+        base: TablePath,
         select_list: list[tuple[exprs.Expr, str | None]] | None,
         where: exprs.Expr | None,
         sample_clause: 'SampleClause' | None,
-        additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None,
+        additional_columns: Mapping[str, ColumnSpec] | None,
         is_snapshot: bool,
         create_default_idxs: bool,
         iterator: func.GeneratingFunctionCall | None,
@@ -1512,54 +1546,31 @@ class Catalog:
         custom_metadata: Any,
         media_validation: MediaValidation,
         if_exists: IfExistsParam,
-    ) -> Table:
+    ) -> tuple[LocalTable, bool]:
+        assert isinstance(base, TableVersionPath)
+
+        additional_columns_ = [Column.create(name, spec) for name, spec in additional_columns.items()]
+
         @retry_loop(for_write=True)
-        def create_fn() -> UUID:
-            if not is_snapshot and base.is_mutable():
-                # this is a mutable view of a mutable base; X-lock the base and advance its view_sn before adding
-                # the view
-                base_id = base.tbl_id
-                assert len(self._acquire_write_lock(tbl_id=base_id)) == 1, base_id
-                self._x_locked_tbl_ids.add(base_id)
-                base_tv = self._get_tbl_version(TableVersionKey(base.tbl_id, None), validate_initialized=True)
-                self.mark_modified_tv(base_tv.handle)
-                base_tv.tbl_md.view_sn += 1
-                result = get_runtime().conn.execute(
-                    sql.update(schema.Table)
-                    .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md, dict_factory=schema.md_dict_factory)})
-                    .where(schema.Table.id == base.tbl_id)
-                )
-                assert result.rowcount == 1, result.rowcount
-
-            existing = self._handle_path_collision(path, View, is_snapshot, if_exists, base=base)
-            if existing is not None:
-                assert isinstance(existing, View)
-                return existing._id
-
-            dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
-            assert dir is not None
-            md, ops = View._create(
-                path.name,
-                base=base,
-                select_list=select_list,
-                additional_columns=additional_columns,
-                predicate=where,
-                sample_clause=sample_clause,
-                is_snapshot=is_snapshot,
-                create_default_idxs=create_default_idxs,
-                iterator_call=iterator,
-                comment=comment,
-                custom_metadata=custom_metadata,
-                media_validation=media_validation,
+        def create_fn() -> tuple[UUID, bool]:
+            return self._create_view(
+                path,
+                base,
+                select_list,
+                where,
+                sample_clause,
+                additional_columns_,
+                is_snapshot,
+                create_default_idxs,
+                iterator,
+                comment,
+                custom_metadata,
+                media_validation,
+                if_exists,
             )
-            tbl_id = UUID(md.tbl_md.tbl_id)
-            md.tbl_md.pending_stmt = schema.TableStatement.CREATE_VIEW
-            self.write_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
-            fault_injection.process_fault(FaultLocation.CATALOG_CREATE_VIEW_BEFORE_MD_COMMITTED)
-            return tbl_id
 
         self._roll_forward_ids.clear()
-        view_id = create_fn()
+        view_id, is_created = create_fn()
         if not is_snapshot and base.is_mutable():
             # invalidate base's TableVersion instance, so that it gets reloaded with the new mutable view
             self._clear_tv_cache(base.tbl_version.key)
@@ -1567,10 +1578,249 @@ class Catalog:
         self._roll_forward()
 
         @retry_loop(read_tbl_ids=[view_id])
-        def _get_tbl() -> Table:
-            return self.get_table_by_id(view_id)
+        def _get_tbl() -> tuple[LocalTable, bool]:
+            return self.get_table_by_id(view_id), is_created
 
         return _get_tbl()
+
+    def _create_view(
+        self,
+        path: Path,
+        base: TableVersionPath,
+        select_list: list[tuple[exprs.Expr, str | None]] | None,
+        where: exprs.Expr | None,
+        sample_clause: 'SampleClause' | None,
+        additional_columns: list[Column],
+        is_snapshot: bool,
+        create_default_idxs: bool,
+        iterator: func.GeneratingFunctionCall | None,
+        comment: str | None,
+        custom_metadata: Any,
+        media_validation: MediaValidation,
+        if_exists: IfExistsParam,
+        tbl_id: UUID | None = None,
+    ) -> tuple[UUID, bool]:
+        existing = self._handle_path_collision(path, View, is_snapshot, if_exists, base=base)
+        if existing is not None:
+            assert isinstance(existing, View)
+            return existing._id, False
+
+        if not is_snapshot and base.is_mutable():
+            # this is a mutable view of a mutable base; X-lock the base and advance its view_sn before adding
+            # the view
+            base_id = base.tbl_id
+            assert len(self._acquire_write_lock(tbl_id=base_id)) == 1, base_id
+            self._x_locked_tbl_ids.add(base_id)
+            base_tv = self._get_tbl_version(TableVersionKey(base.tbl_id, None), validate_initialized=True)
+            self.mark_modified_tv(base_tv.handle)
+            base_tv.tbl_md.view_sn += 1
+            result = get_runtime().conn.execute(
+                sql.update(schema.Table)
+                .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md, dict_factory=schema.md_dict_factory)})
+                .where(schema.Table.id == base.tbl_id)
+            )
+            assert result.rowcount == 1, result.rowcount
+
+        dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
+        assert dir is not None
+        md, ops = View._create(
+            path.name,
+            base=base,
+            select_list=select_list,
+            additional_columns=additional_columns,
+            predicate=where,
+            sample_clause=sample_clause,
+            is_snapshot=is_snapshot,
+            create_default_idxs=create_default_idxs,
+            iterator_call=iterator,
+            comment=comment,
+            custom_metadata=custom_metadata,
+            media_validation=media_validation,
+            tbl_id=tbl_id,
+        )
+        tbl_id = UUID(md.tbl_md.tbl_id)
+        md.tbl_md.pending_stmt = schema.TableStatement.CREATE_VIEW
+        self.write_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
+        fault_injection.process_fault(FaultLocation.CATALOG_CREATE_VIEW_BEFORE_MD_COMMITTED)
+        return tbl_id, True
+
+    def create_from_model(
+        self,
+        path: Path,
+        columns: dict[str, ColumnSpec],
+        display_name: str,
+        create_default_idxs: bool,
+        media_validation: MediaValidation,
+        comment: str | None,
+        custom_metadata: Any,
+        iterator: func.GeneratingFunctionCall | None,
+        base: 'pxt.Query | None',
+    ) -> tuple[LocalTable, bool]:
+        """Create a table or view from a declarative model.
+
+        A model's column value expressions can contain placeholder references to other columns in the same table.
+        Those references arrive as
+        `ModelColumnRef`s and are substituted here, in the catalog that owns `path`, so they never have to
+        be resolved across a proxy boundary. `base`, when present (i.e. this is a view), is an already-bound Query
+        over the existing base table.
+
+        If a table already exists at `path`, validates the model against it and returns it (idempotent rebind);
+        otherwise creates it. Returns `(table, was_created)`.
+        """
+        subst_dict: dict[exprs.Expr, exprs.Expr] = {}
+
+        if base is not None:
+            # Build substitutions for the base table's columns.
+            if base.select_list is None:
+                # select(*): all visible columns from the base table
+                for col in base._first_tbl.columns():
+                    subst_dict[ModelColumnRef(col.name)] = exprs.ColumnRef(col.column_version_md())
+            else:
+                for expr, name in base.select_list:
+                    if name is not None:
+                        subst_dict[ModelColumnRef(name)] = expr
+                    elif isinstance(expr, exprs.ColumnRef):
+                        subst_dict[ModelColumnRef(expr.column_md.name)] = expr
+
+        # We allocate the table id up front so that self-referential ColumnRefs (built below) point at it; since
+        # this runs in the catalog that owns the table, no such reference ever needs to be serialized.
+        tbl_id = uuid4()
+        tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
+
+        initial_col_id = 0
+        if iterator is not None:
+            # Rebind the iterator with substitutions from the base table.
+            subst_args = [arg.substitute(subst_dict) for arg in iterator.args]
+            subst_kwargs = {k: v.substitute(subst_dict) for k, v in iterator.kwargs.items()}
+            subst_bound_args = {k: v.substitute(subst_dict) for k, v in iterator.bound_args.items()}
+            iterator = func.GeneratingFunctionCall(
+                iterator.it, subst_args, subst_kwargs, subst_bound_args, iterator.outputs, iterator.validation_error
+            )
+            # Build substitutions for the iterator's output columns.
+            for i, (name, output) in enumerate(iterator.outputs.items()):
+                catalog_col = Column.create(name, {'type': output.col_type, 'stored': output.is_stored})  # type: ignore[arg-type]
+                catalog_col.tbl_handle = tbl_handle
+                catalog_col.id = i
+                subst_dict[ModelColumnRef(name)] = exprs.ColumnRef(
+                    catalog_col.column_version_md(), perform_validation=(media_validation == 'on_read')
+                )
+            initial_col_id += len(iterator.outputs)
+
+        if base is not None and base.select_list is not None:
+            initial_col_id += len(base.select_list)
+
+        next_col_id = itertools.count(initial_col_id)
+        catalog_columns: list[Column] = []
+        for name, spec in columns.items():
+            subst_spec = spec.copy()
+            if 'value' in subst_spec:
+                subst_spec['value'] = subst_spec['value'].substitute(subst_dict)
+                residual_placeholders = list(subst_spec['value'].subexprs(ModelColumnRef))
+                if len(residual_placeholders) > 0:
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_SCHEMA,
+                        f'Column {name!r} in {display_name} references columns that are not in '
+                        f"the model's scope: {[c.name for c in residual_placeholders]}",
+                    )
+            catalog_col = Column.create(name, subst_spec)
+            catalog_col.tbl_handle = tbl_handle
+            catalog_col.id = next(next_col_id)
+            catalog_columns.append(catalog_col)
+            subst_dict[ModelColumnRef(name, catalog_col.col_type)] = exprs.ColumnRef(
+                catalog_col.column_version_md(),
+                perform_validation=subst_spec.get('media_validation', media_validation) == 'on_read',
+            )
+
+        # If the table already exists, validate the model against it and rebind (the server enforces its own
+        # consistency; we never trust a client to have validated).
+        existing = self.get_table(path, IfNotExistsParam.IGNORE)
+        if existing is not None:
+            self._validate_model(existing, display_name, base, iterator)
+            return existing, False
+
+        base_tvp: TableVersionPath | None
+        if base is None:
+            base_tvp = None
+
+            @retry_loop(for_write=True)
+            def create_fn() -> tuple[UUID, bool]:
+                return self._create_table(
+                    path=path,
+                    columns=catalog_columns,
+                    if_exists=IfExistsParam.ERROR,
+                    primary_key=None,
+                    comment=comment,
+                    custom_metadata=custom_metadata,
+                    media_validation=media_validation,
+                    create_default_idxs=create_default_idxs,
+                    is_versioned=True,
+                    tbl_id=tbl_id,
+                )
+        else:
+            base_tvp = base._first_tbl
+
+            @retry_loop(for_write=True)
+            def create_fn() -> tuple[UUID, bool]:
+                return self._create_view(
+                    path=path,
+                    base=base_tvp,
+                    select_list=base.select_list,
+                    where=base.where_clause,
+                    sample_clause=base.sample_clause,
+                    additional_columns=catalog_columns,
+                    is_snapshot=False,
+                    create_default_idxs=create_default_idxs,
+                    iterator=iterator,
+                    comment=comment,
+                    custom_metadata=custom_metadata,
+                    media_validation=media_validation,
+                    if_exists=IfExistsParam.ERROR,
+                    tbl_id=tbl_id,
+                )
+
+        self._roll_forward_ids.clear()
+        created_id, _ = create_fn()
+        assert created_id == tbl_id
+        if base_tvp is not None and base_tvp.is_mutable():
+            # invalidate base's TableVersion instance, so that it gets reloaded with the new mutable view
+            self._clear_tv_cache(base_tvp.tbl_version.key)
+        self._roll_forward()
+
+        @retry_loop(read_tbl_ids=[tbl_id])
+        def _get_tbl() -> LocalTable:
+            return self.get_table_by_id(tbl_id)
+
+        return _get_tbl(), True
+
+    def _validate_model(
+        self,
+        existing: LocalTable,
+        display_name: str,
+        base: pxt.Query | None,
+        iterator: func.GeneratingFunctionCall | None,
+    ) -> None:
+        """Raise if a model's schema is incompatible with an already-existing table of the same name."""
+        existing_md = existing.get_metadata()
+        model_kind = 'table' if base is None else 'view'
+        if model_kind != existing_md['kind']:
+            raise excs.RequestError(
+                excs.ErrorCode.SCHEMA_MISMATCH,
+                f'{display_name} is defined as a {model_kind}, '
+                f'but the existing {existing_md["path"]!r} is a {existing_md["kind"]}.',
+            )
+
+        # TODO: validate table properties (comment, custom_metadata, media_validation, primary_key, etc.)
+        # TODO: validate base table query
+        # TODO: inspect columns and indices
+
+        bound_iterator_str = 'None' if iterator is None else iterator.display_str()
+        if bound_iterator_str != str(existing_md['iterator_call']):
+            raise excs.RequestError(
+                excs.ErrorCode.SCHEMA_MISMATCH,
+                f'Iterator for {display_name} does not match the existing table {existing_md["path"]!r}.\n'
+                f'  Model iterator: {bound_iterator_str}\n'
+                f'  Existing iterator: {existing_md["iterator_call"]}',
+            )
 
     def add_columns(self, tbl: TableVersionPath, cols: list[Column]) -> None:
         @retry_loop(for_write=True, write_tvps=[tbl], lock_mutable_tree=False)
@@ -1601,15 +1851,15 @@ class Catalog:
             del self._tbl_versions[key]
 
     @retry_loop(for_write=False)
-    def get_table(self, path: Path, if_not_exists: IfNotExistsParam) -> Table | None:
+    def get_table(self, path: Path, if_not_exists: IfNotExistsParam) -> LocalTable | None:
         obj = self._get_schema_object(
-            path, expected=Table, raise_if_not_exists=(if_not_exists == IfNotExistsParam.ERROR)
+            path, expected=LocalTable, raise_if_not_exists=(if_not_exists == IfNotExistsParam.ERROR)
         )
         if obj is None:
             _logger.info(f'Skipped table {path!r} (does not exist).')
             return None
 
-        assert isinstance(obj, Table)
+        assert isinstance(obj, LocalTable)
         # We need to clear cached metadata from tbl_version_path, in case the schema has been changed
         # by another process.
         obj._tbl_version_path.clear_cached_md()
@@ -1620,7 +1870,7 @@ class Catalog:
         def drop_fn() -> None:
             tbl = self._get_schema_object(
                 path,
-                expected=Table,
+                expected=LocalTable,
                 raise_if_not_exists=(if_not_exists == IfNotExistsParam.ERROR and not force),
                 lock_parent=True,
                 lock_obj=False,
@@ -1628,14 +1878,14 @@ class Catalog:
             if tbl is None:
                 _logger.info(f'Skipped table {path!r} (does not exist).')
                 return
-            assert isinstance(tbl, Table)
+            assert isinstance(tbl, LocalTable)
             self._drop_tbl(tbl, force=force, is_replace=False)
 
         self._roll_forward_ids.clear()
         drop_fn()
         self._roll_forward()
 
-    def _drop_tbl(self, tbl: Table | TableVersionPath, force: bool, is_replace: bool) -> None:
+    def _drop_tbl(self, tbl: LocalTable | TableVersionPath, force: bool, is_replace: bool) -> None:
         """
         Drop the table (and recursively its views, if force == True).
 
@@ -1697,21 +1947,6 @@ class Catalog:
                     msg = f'{tbl._display_str()} has dependents.'
                 raise excs.RequestError(excs.ErrorCode.CONSTRAINT_VIOLATION, msg)
 
-        # if this is a mutable view of a mutable base, advance the base's view_sn
-        if isinstance(tbl, View) and tvp.is_mutable() and tvp.base.is_mutable():
-            base_id = tvp.base.tbl_id
-            base_tv = self._get_tbl_version(TableVersionKey(base_id, None), validate_initialized=True)
-            self.mark_modified_tv(base_tv.handle)
-            base_tv.tbl_md.view_sn += 1
-            result = get_runtime().conn.execute(
-                sql.update(schema.Table.__table__)
-                .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md, dict_factory=schema.md_dict_factory)})
-                .where(schema.Table.id == base_id)
-            )
-            assert result.rowcount == 1, result.rowcount
-            # force reload of base TV instance in order to make its state consistent with the stored metadata
-            self._clear_tv_cache(base_tv.key)
-
         if is_pure_snapshot:
             # there is no physical table, but we still need to delete the Table record; we can do that right now
             # as part of the current transaction
@@ -1745,6 +1980,23 @@ class Catalog:
             del self._tbls[tbl_id, version]
 
         _logger.info(f'Dropped table {tbl_path_repr}.')
+
+    def _incr_view_sn(self, tbl_id: UUID) -> None:
+        """Increments the table's view_sn in the store within the current transaction"""
+        self._clear_tv_cache(TableVersionKey(tbl_id, None))
+        assert self._acquire_write_lock(tbl_id=tbl_id, check_pending_ops=False), tbl_id
+        result = get_runtime().conn.execute(
+            sql.update(schema.Table)
+            .values(
+                md=sql.func.jsonb_set(
+                    schema.Table.md,
+                    pg_array(['view_sn']),
+                    sql.func.to_jsonb(sql.cast(schema.Table.md['view_sn'].astext, sql.Integer) + 1),
+                )
+            )
+            .where(schema.Table.id == tbl_id)
+        )
+        assert result.rowcount == 1, (tbl_id, result.rowcount)
 
     @retry_loop(for_write=True)
     def create_dir(self, path: Path, if_exists: IfExistsParam, parents: bool) -> Dir:
@@ -2007,7 +2259,7 @@ class Catalog:
             row = conn.execute(q).one_or_none()
             return schema.Dir(**row._mapping) if row is not None else None
 
-    def _load_tbl(self, tbl_id: UUID, ignore_pending_drop: bool = False) -> Table | None:
+    def _load_tbl(self, tbl_id: UUID, ignore_pending_drop: bool = False) -> LocalTable | None:
         """Loads metadata for the table with the given id and caches it."""
         from .insertable_table import InsertableTable
         from .view import View
@@ -2021,7 +2273,7 @@ class Catalog:
             # check whether this table is in the process of being dropped or has already been dropped
             q: sql.Executable = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
             row = conn.execute(q).one_or_none()
-            if row is None or row.md['pending_stmt'] == schema.TableStatement.DROP_TABLE.value:
+            if row is None or row.md.get('pending_stmt') == schema.TableStatement.DROP_TABLE.value:
                 return None
 
         # check for pending ops
@@ -2084,7 +2336,7 @@ class Catalog:
         self._tbls[tbl_id, None] = view
         return view
 
-    def _load_tbl_at_version(self, tbl_id: UUID, version: int) -> Table | None:
+    def _load_tbl_at_version(self, tbl_id: UUID, version: int) -> LocalTable | None:
         from .view import View
 
         # Load the specified TableMd and TableVersionMd records from the db.
@@ -2101,9 +2353,13 @@ class Catalog:
             return None
         tbl_record, version_record = _unpack_row(row, [schema.Table, schema.TableVersion])
         tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
+        if tbl_md.is_pure_snapshot:
+            # a pure snapshot has no physical table to load at a version; resolve it via its base_versions
+            return self._load_tbl(tbl_id)
         version_md = schema.md_from_dict(schema.VersionMd, version_record.md)
         tvp = self.construct_tvp(tbl_id, version, tbl_md.ancestors, version_md.created_at)
 
+        # snapshot_only=True: an anonymous snapshot doesn't have a physical table
         view = View(tbl_id, tvp, snapshot_only=True)
         self._tbls[tbl_id, version] = view
         return view
@@ -2299,6 +2555,13 @@ class Catalog:
                 assert tbl_md.current_schema_version == version_md.schema_version
             if schema_version_md is not None:
                 assert tbl_md.current_schema_version == schema_version_md.schema_version
+                # Validate that the columns in schema_version_md are consistent with tbl_md.
+                sch_col_ids = set(schema_version_md.columns.keys())
+                for tbl_col_id, tbl_col_md in tbl_md.column_md.items():
+                    if tbl_col_md.is_visible_in_version(tbl_md.current_schema_version):
+                        assert tbl_col_id in sch_col_ids, (tbl_md.tbl_id, tbl_col_id)
+                        sch_col_ids.remove(tbl_col_id)
+                assert len(sch_col_ids) == 0, (tbl_md.tbl_id, sch_col_ids)
             if pending_ops is not None:
                 assert tbl_md.pending_stmt is not None
                 assert all(op.tbl_id == str(tbl_id) for op in pending_ops)
@@ -2457,7 +2720,7 @@ class Catalog:
         status = conn.execute(sql.delete(schema.Table).where(schema.Table.id == tbl_id))
         assert status.rowcount == 1, status.rowcount
 
-    def load_md_for_export(self, tbl: Table) -> list[TableVersionMd]:
+    def read_md_for_export(self, tbl: LocalTable) -> list[TableVersionMd]:
         """
         Load metadata for the given table along with all its ancestors. The values of TableMd.current_version and
         TableMd.current_schema_version will be adjusted to ensure that the metadata represent a valid (internally
@@ -2546,7 +2809,7 @@ class Catalog:
                     TableVersionKey(UUID(view_md.base_versions[0][0]), view_md.base_versions[0][1])
                 )
             else:
-                base_path = TableVersionPath.from_md(tbl_md.view_md.base_versions)
+                base_path = TableVersionPath.from_schema_path(tbl_md.view_md.base_versions)
                 base = base_path.tbl_version
 
             tbl_version = TableVersion(
@@ -2558,6 +2821,7 @@ class Catalog:
         # register this instance as modified, so that it gets purged if the transaction fails, it may not be
         # fully initialized
         self.mark_modified_tv(tbl_version.handle)
+        fault_injection.process_fault(FaultLocation.CATALOG_LOAD_TBL_VERSION_BEFORE_INIT)
         tbl_version.init()
         return tbl_version
 
@@ -2678,7 +2942,7 @@ class Catalog:
 
         # Check for circularity
         if base is not None:
-            assert isinstance(obj, Table)  # or else it would have been caught above
+            assert isinstance(obj, LocalTable)  # or else it would have been caught above
             if obj._id in tuple(version.id for version in base.get_tbl_versions()):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -2696,7 +2960,7 @@ class Catalog:
                 )
             self._drop_dir(obj._id, path, force=True)
         else:
-            assert isinstance(obj, Table)
+            assert isinstance(obj, LocalTable)
             self._drop_tbl(obj, force=if_exists == IfExistsParam.REPLACE_FORCE, is_replace=True)
         return None
 

@@ -4,6 +4,8 @@ import pytest
 import pixeltable as pxt
 from tests.utils import skip_test_if_not_installed, validate_update_status
 
+pytestmark = pytest.mark.local('UDF/integration test')
+
 _ollama_available: bool | None = None
 _ollama_exception: Exception | None = None
 

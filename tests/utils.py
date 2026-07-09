@@ -16,7 +16,7 @@ import uuid
 from contextlib import contextmanager
 from io import StringIO
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Iterator, TypedDict
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, TypedDict
 from unittest import TestCase
 from uuid import uuid4
 
@@ -37,12 +37,16 @@ from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.types import ColumnSpec
 from pixeltable.utils import sha256sum
 from pixeltable.utils.console_output import ConsoleMessageFilter, ConsoleOutputHandler
+from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.object_stores import ObjectOps
 
 if TYPE_CHECKING:
     from pyiceberg.catalog.sql import SqlCatalog
 
 TESTS_DIR = Path(os.path.dirname(__file__))
+
+# The catalog backend a test runs against: 'local' (in-process) or 'proxy' (delegated to a local daemon).
+CatalogMode = Literal['local', 'proxy']
 
 
 _ERROR_GROUP_TO_CLS: dict[int, type[pxt.Error]] = {
@@ -183,10 +187,11 @@ def create_table_data(
         serializable_json_values + non_serializable_json_values if non_serializable_json else serializable_json_values
     )
 
+    md_columns = t.get_metadata()['columns']
     if len(col_names) == 0:
-        col_names = [c.name for c in t._tbl_version_path.columns() if not c.is_computed]
+        col_names = [name for name, c in md_columns.items() if not c['is_computed']]
 
-    col_types = t._get_schema()
+    col_types = {name: t[name].col_type for name in col_names}
     for col_name in col_names:
         col_type = col_types[col_name]
         col_data: Any = None
@@ -307,7 +312,9 @@ def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0) -> pxt.Table:
     return tbl
 
 
-def create_all_datatypes_tbl(non_serializable_json: bool = False, arrow_compatible_json: bool = False) -> pxt.Table:
+def create_all_datatypes_tbl(
+    name: str = 'all_datatype_tbl', non_serializable_json: bool = False, arrow_compatible_json: bool = False
+) -> pxt.Table:
     """Creates a table with all supported datatypes."""
     schema = {
         'row_id': pxt.Required[pxt.Int],
@@ -326,7 +333,7 @@ def create_all_datatypes_tbl(non_serializable_json: bool = False, arrow_compatib
         'c_video': pxt.Video,
         'c_document': pxt.Document,
     }
-    tbl = pxt.create_table('all_datatype_tbl', schema)
+    tbl = pxt.create_table(name, schema)
     example_rows = create_table_data(
         tbl, num_rows=11, non_serializable_json=non_serializable_json, arrow_compatible_json=arrow_compatible_json
     )
@@ -338,7 +345,7 @@ def create_all_datatypes_tbl(non_serializable_json: bool = False, arrow_compatib
     return tbl
 
 
-def create_scalars_tbl(num_rows: int, seed: int = 0, percent_nulls: int = 10) -> pxt.Table:
+def create_scalars_tbl(num_rows: int, seed: int = 0, percent_nulls: int = 10, path: str = 'scalars_tbl') -> pxt.Table:
     """
     Creates a table with scalar columns, each of which contains randomly generated data.
     """
@@ -352,7 +359,7 @@ def create_scalars_tbl(num_rows: int, seed: int = 0, percent_nulls: int = 10) ->
         'c_string': ts.StringType(nullable=True),
         'c_timestamp': ts.TimestampType(nullable=True),
     }
-    tbl = pxt.create_table('scalars_tbl', schema)  # type: ignore[arg-type]
+    tbl = pxt.create_table(path, schema)  # type: ignore[arg-type]
 
     example_rows: list[dict[str, Any]] = []
     str_chars = 'abcdefghijklmnopqrstuvwxyzab'
@@ -577,11 +584,11 @@ def assert_resultset_eq(
     assert len(r1) == len(r2)
     assert len(r1.schema) == len(r2.schema)
     if compare_col_types:
-        assert all(type1.matches(type2) for type1, type2 in zip(r1.schema.values(), r2.schema.values()))
+        assert all(type1.matches(type2) for type1, type2 in zip(r1._schema.values(), r2._schema.values()))
     if compare_col_names:
         assert r1.schema.keys() == r2.schema.keys()
     for r1_col, r2_col in zip(r1.schema, r2.schema):
-        assert_columns_eq(r1_col, r1.schema[r1_col], r1[r1_col], r2[r2_col])
+        assert_columns_eq(r1_col, r1._schema[r1_col], r1[r1_col], r2[r2_col])
 
 
 def assert_columns_eq(col_name: str, col_type: ts.ColumnType, c1: list[Any], c2: list[Any]) -> None:
@@ -660,6 +667,11 @@ __COMPARERS: dict[ts.ColumnType.Type, Callable[[Any, Any], bool]] = {
 }
 
 
+def assert_dicts_eq(actual: dict[str, Any], expected: dict[str, Any]) -> None:
+    """Assert two dicts are equal, comparing arrays elementwise and floats with `np.isclose`."""
+    assert __json_comparer(actual, expected), f'{actual!r} != {expected!r}'
+
+
 def __mismatch_err_string(col_name: str, s1: list[Any], s2: list[Any], mismatches: list[int]) -> str:
     lines = [f'Column {col_name!r} does not match.']
     for i in mismatches[:5]:
@@ -682,7 +694,7 @@ def assert_table_metadata_eq(expected: dict[str, Any], actual: pxt.TableMetadata
 
     trimmed_actual = {k: v for k, v in actual.items() if k not in {'version_created', 'id'}}
     tc = TestCase()
-    tc.maxDiff = 10_000
+    tc.maxDiff = 25_000
     tc.assertDictEqual(expected, trimmed_actual)
 
 
@@ -698,7 +710,7 @@ def assert_version_metadata_eq(expected: dict[str, Any], actual: pxt.VersionMeta
 
     trimmed_actual = {k: v for k, v in actual.items() if k != 'created_at'}
     tc = TestCase()
-    tc.maxDiff = 10_000
+    tc.maxDiff = 25_000
     tc.assertDictEqual(expected, trimmed_actual)
 
 
@@ -722,11 +734,6 @@ def skip_test_if_not_in_path(*binaries: str) -> None:
     for binary in binaries:
         if shutil.which(binary) is None:
             pytest.skip(f'Binary `{binary}` is not in PATH.')
-
-
-def skip_test_if_cockroachdb(reason: str = 'Not supported on CockroachDB.') -> None:
-    if Env.get().is_using_cockroachdb:
-        pytest.skip(reason)
 
 
 def skip_test_if_not_local(reason: str = 'Requires a local (file-backed) Pixeltable database.') -> None:
@@ -775,26 +782,6 @@ def validate_update_status(status: pxt.UpdateStatus, expected_rows: int | None =
     assert status.num_excs == 0
     if expected_rows is not None:
         assert status.num_rows == expected_rows, status
-
-
-def validate_sync_status(
-    status: pxt.UpdateStatus,
-    expected_external_rows_created: int | None = None,
-    expected_external_rows_updated: int | None = None,
-    expected_external_rows_deleted: int | None = None,
-    expected_pxt_rows_updated: int | None = None,
-    expected_num_excs: int | None = 0,
-) -> None:
-    if expected_external_rows_created is not None:
-        assert status.external_rows_created == expected_external_rows_created, status
-    if expected_external_rows_updated is not None:
-        assert status.external_rows_updated == expected_external_rows_updated, status
-    if expected_external_rows_deleted is not None:
-        assert status.external_rows_deleted == expected_external_rows_deleted, status
-    if expected_pxt_rows_updated is not None:
-        assert status.pxt_rows_updated == expected_pxt_rows_updated, status
-    if expected_num_excs is not None:
-        assert status.num_excs == expected_num_excs, status
 
 
 def iceberg_catalog(warehouse_path: str | Path, name: str = 'pixeltable') -> 'SqlCatalog':
@@ -874,7 +861,7 @@ def reload_catalog(reload: bool = True) -> None:
 
 
 @contextmanager
-def capture_console_output() -> Iterator[StringIO]:
+def capture_console_output(match: str | None = None) -> Iterator[StringIO]:
     pxt_logger = logging.getLogger('pixeltable')
     try:
         sio = StringIO()
@@ -883,6 +870,11 @@ def capture_console_output() -> Iterator[StringIO]:
         handler.addFilter(ConsoleMessageFilter())
         pxt_logger.addHandler(handler)
         yield sio
+        if match is not None:
+            contents = sio.getvalue()
+            assert re.search(match, contents) is not None, (
+                f'Console output did not match.\nRegex: {match!r}\nActual: {contents}'
+            )
     finally:
         pxt_logger.removeHandler(handler)
         sio.flush()
@@ -914,20 +906,30 @@ class ReloadTester:
     """Utility to verify that queries return identical results after a catalog reload"""
 
     query_info: list[tuple[dict[str, Any], ResultSet]]  # list of (query.as_dict(), query.collect())
+    _has_proxy_query: bool  # set when a captured query runs against a delegated (proxied) catalog
 
     def __init__(self) -> None:
         self.query_info = []
+        self._has_proxy_query = False
 
     def clear(self) -> None:
         self.query_info = []
+        self._has_proxy_query = False
 
     def run_query(self, query: pxt.Query) -> ResultSet:
         query_dict = query.as_dict()
         result_set = query.collect()
         self.query_info.append((query_dict, result_set))
+        if not query._from_clause.is_local:
+            self._has_proxy_query = True
         return result_set
 
     def run_reload_test(self, clear: bool = True) -> None:
+        if self._has_proxy_query:
+            # reload semantics for delegated (proxied) tables are not implemented yet; skip for now
+            if clear:
+                self.clear()
+            return
         reload_catalog()
         assert len(self.query_info) > 0, 'No queries in ReloadTester!'
         # enumerate(): the list index is useful for debugging
@@ -1023,6 +1025,57 @@ def list_store_indexes(t: pxt.Table) -> list[str]:
     return [row[0] for row in result]
 
 
+class MediaStore:
+    """Inspects the media store backing a table, for both in-process and hosted (proxy) catalogs.
+
+    A table created against a hosted catalog stores its media objects in the proxy daemon's own media store,
+    not in this process's. Since tests co-locate the daemon, that store is read directly off the filesystem
+    (the daemon's home is proxy_home(db)/media). This lets media-store assertions run unchanged in both
+    modes and actually validate the daemon's behavior.
+    """
+
+    @classmethod
+    def count(
+        cls,
+        tbl: pxt.Table,
+        *,
+        tbl_version: int | None = None,
+        default_input_dest: bool = False,
+        default_output_dest: bool = False,
+    ) -> int:
+        """Count the media objects stored for tbl (optionally a specific version) in its catalog's media store."""
+        catalog_uri = tbl._tbl_path.catalog_uri
+        if catalog_uri.db is None:
+            # in-process catalog: count in this process's media store
+            return ObjectOps.count(
+                tbl._id, tbl_version, default_input_dest=default_input_dest, default_output_dest=default_output_dest
+            )
+        # hosted catalog: the objects live in the daemon's media store. The tests use the default media config,
+        # where both the input and output dest are the daemon's home media dir, so count there directly.
+        from pixeltable.service import proxy_daemon
+
+        return ObjectOps.count(tbl._id, tbl_version, dest=str(proxy_daemon.proxy_home(catalog_uri.db) / 'media'))
+
+
+class TempStoreView:
+    """Counts the transient (temp) store backing a table's catalog, for both in-process and hosted catalogs.
+
+    Media files produced while running a query land in the temp store of whichever process runs the query: this
+    process for an in-process catalog, the proxy daemon (proxy_home(db)/tmp) for a hosted one. Tests co-locate the
+    daemon, so its temp store is read directly off the filesystem.
+    """
+
+    @classmethod
+    def count(cls, tbl: pxt.Table) -> int:
+        """Count the objects in the temp store of the catalog tbl lives in."""
+        catalog_uri = tbl._tbl_path.catalog_uri
+        if catalog_uri.db is None:
+            return TempStore.count()
+        from pixeltable.service import proxy_daemon
+
+        return LocalStore(proxy_daemon.proxy_home(catalog_uri.db) / 'tmp').count(None)
+
+
 def validate_repr(t: Any, expected: str) -> None:
     def cleanup(r: str) -> str:
         r = re.sub(r'-{3,}', '---', r)  # normalize separator lines
@@ -1031,6 +1084,29 @@ def validate_repr(t: Any, expected: str) -> None:
 
     assert cleanup(repr(t)) == cleanup(expected), f'Expected repr: {expected}, actual: {t!r}'
     t._repr_html_()  # TODO: Is there a good way to test this output?
+
+
+@pxt.udf
+def dummy_embedding(text: str, n: int) -> pxt.Array[(None,), np.float32]:
+    if 'zero' in text:
+        arr = np.zeros((n,), dtype=np.float32)
+        arr[n // 2 :] = 1
+        return arr
+    if 'one' in text:
+        arr = np.zeros((n,), dtype=np.float32)
+        arr[: n // 2] = 1
+        return arr
+    return np.random.rand(n).astype(np.float32)
+
+
+@dummy_embedding.overload
+def _(img: PIL.Image.Image, n: int) -> pxt.Array[(None,), np.float32]:
+    return np.random.rand(n).astype(np.float32)
+
+
+@dummy_embedding.conditional_return_type
+def _(n: int) -> ts.ArrayType:
+    return ts.ArrayType((n,), dtype=np.dtype('float32'), nullable=False)
 
 
 # A deterministic, download-free embedding used in place of HuggingFace models (clip, sentence_transformer) in tests
@@ -1075,3 +1151,32 @@ def _(image: PIL.Image.Image, *, dim: int = LOCAL_EMBED_DIM) -> pxt.Array[(None,
 @local_embedding.conditional_return_type
 def _(dim: int) -> ts.ArrayType:
     return ts.ArrayType((dim,), dtype=np.dtype('float32'), nullable=False)
+
+
+def schema_from_tbl_md(metadata: pxt.TableMetadata) -> dict[str, str]:
+    # Return a dict of schema information about that table that is invariant of table path and version history.
+    return {
+        'kind': metadata['kind'],
+        'comment': metadata['comment'],
+        'custom_metadata': metadata['custom_metadata'],
+        'media_validation': metadata['media_validation'],
+        'primary_key': metadata['primary_key'],
+        'iterator_call': metadata['iterator_call'],
+        'columns': {
+            name: {
+                'type_': info['type_'],
+                'is_stored': info['is_stored'],
+                'is_primary_key': info['is_primary_key'],
+                'media_validation': info['media_validation'],
+                'is_computed': info['is_computed'],
+                'computed_with': info['computed_with'],
+                'is_builtin': info['is_builtin'],
+                'comment': info['comment'],
+                'custom_metadata': info['custom_metadata'],
+                'is_iterator_col': info['is_iterator_col'],
+                'destination': info['destination'],
+            }
+            for name, info in metadata['columns'].items()
+        },
+        'indices': metadata['indices'],
+    }

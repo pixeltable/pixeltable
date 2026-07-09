@@ -5,6 +5,8 @@ import pixeltable.exceptions as excs
 
 from .utils import ReloadTester, validate_update_status
 
+pytestmark = pytest.mark.local('TODO: convert; unversioned-table feature')
+
 
 class TestUnversionedTable:
     def test_basic_ops(self, uses_db: None, reload_tester: ReloadTester) -> None:

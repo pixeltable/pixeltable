@@ -20,6 +20,7 @@ import pixeltable as pxt
 import pixeltable.utils.fault_injection as prod_fault_injection
 import tests.fault_injection as test_fault_injection
 from pixeltable import exprs, functions as pxtf
+from pixeltable.catalog.model import TableModelMeta
 from pixeltable.config import Config
 from pixeltable.env import LOG_FMT_STR, Env
 from pixeltable.functions.huggingface import clip, sentence_transformer
@@ -31,6 +32,7 @@ from pixeltable.utils.sql import add_option_to_db_url
 
 from .utils import (
     IN_CI,
+    CatalogMode,
     ReloadTester,
     create_all_datatypes_tbl,
     create_img_tbl,
@@ -63,6 +65,19 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     for item in items:
         if _HF_FIXTURES.intersection(getattr(item, 'fixturenames', ())):
             item.add_marker(pytest.mark.very_expensive)
+
+    offenders: list[str] = []
+    for item in items:
+        if 'uses_db' not in getattr(item, 'fixturenames', ()):
+            continue
+        marker = item.get_closest_marker('local')
+        if marker is None or not marker.args or not isinstance(marker.args[0], str) or not marker.args[0].strip():
+            offenders.append(item.nodeid)
+    if offenders:
+        raise pytest.UsageError(
+            "tests using the 'uses_db' fixture must be marked @pytest.mark.local('<reason>'):\n  "
+            + '\n  '.join(offenders)
+        )
 
 
 def pytest_runtest_setup(item: pytest.Item) -> None:
@@ -196,14 +211,12 @@ def fault_injection() -> Iterator[None]:
         reset_runtime()
 
 
-@pytest.fixture(scope='function')
-def uses_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
-    """Fixture for tests that interact with the underlying store (PosgreSQL or CockroachDB).
-    Cleans up the database before the test, and validates it after the test.
-    """
+def _reset_catalog_state() -> None:
+    """Clean and reinitialize the store/catalog before a test. Shared by the db-backed fixtures."""
     # Clean the DB *before* reloading. This is because some tests
     # (such as test_migration.py) may leave the DB in a broken state.
     clean_db()
+    TableModelMeta.registered_models.clear()
     Config.init({}, reinit=True)
     Env.get().default_time_zone = None
     Env.get().user = None
@@ -216,10 +229,99 @@ def uses_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
     FileCache.get().validate()
     FileCache.get().set_capacity(10 << 30)  # 10 GiB
 
-    yield
 
+def _validate_catalog_state() -> None:
+    """Validate the store after a test. Shared by the db-backed fixtures."""
     Env.get().user = None
     get_runtime().catalog.validate_store()
+
+
+@pytest.fixture(scope='function')
+def uses_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
+    """Fixture for tests that interact with the underlying store (PosgreSQL or CockroachDB).
+    Cleans up the database before the test, and validates it after the test.
+    """
+    _reset_catalog_state()
+    yield
+    _validate_catalog_state()
+
+
+@pytest.fixture(scope='session')
+def proxy_daemon_db(init_env: None, worker_id: str) -> Iterator[str]:
+    """A per-worker local proxy daemon, started once for the session and reused across tests.
+
+    The db name is worker-scoped so parallel xdist workers don't share a catalog. start() is idempotent,
+    so the per-test make_catalog_path fixture only resets the daemon's catalog rather than restarting the process.
+    """
+    # the proxy daemon serves over HTTP via fastapi/uvicorn (the serve extra); a minimal install omits them
+    pytest.importorskip('fastapi')
+    pytest.importorskip('uvicorn')
+    from pixeltable.service import proxy_daemon
+
+    db = f'testdb_{worker_id}'
+    proxy_daemon.start(db)
+    try:
+        yield db
+    finally:
+        proxy_daemon.delete(db)
+
+
+def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
+    """Drive the catalog-backend axis: any test that (transitively) reaches catalog_mode runs against both
+    'local' and 'proxy', unless marked @pytest.mark.local, in which case it runs 'local' only.
+
+    metafunc.fixturenames is the transitive fixture closure, so a test reaching make_catalog_path (directly
+    or via an adapted fixture like test_tbl) auto-forks with no per-test boilerplate. Tests that touch neither
+    catalog_mode nor make_catalog_path run once.
+    """
+    if 'catalog_mode' not in metafunc.fixturenames:
+        return
+    if metafunc.definition.get_closest_marker('local') is not None:
+        # local-only: don't fork the axis; catalog_mode defaults to 'local' and the nodeid stays unparametrized
+        return
+    metafunc.parametrize('catalog_mode', ['local', 'proxy'], indirect=True)
+
+
+@pytest.fixture(scope='function')
+def catalog_mode(request: pytest.FixtureRequest) -> CatalogMode:
+    """The catalog backend under test: 'local' (in-process) or 'proxy' (delegated to a local daemon).
+
+    The local/proxy axis is assigned by pytest_generate_tests(); a test marked @pytest.mark.local isn't
+    parametrized and gets 'local' here. Request this alongside make_catalog_path() to gate assertions that only
+    make sense in one mode (e.g. inspecting the client-side LocalStore, which is empty over proxy).
+    """
+    return getattr(request, 'param', 'local')
+
+
+@pytest.fixture(scope='function')
+def make_catalog_path(
+    init_env: None, catalog_mode: CatalogMode, request: pytest.FixtureRequest
+) -> Iterator[Callable[[str], str]]:
+    """Parameterized variant of uses_db: runs a test against both the in-process catalog and a delegated
+    (proxied) catalog served by a local daemon.
+
+    Yields a path-builder mapping a bare path to the active catalog: the identity for local, and the bare
+    path prefixed with the daemon's pxt:// uri for proxy (with an empty path mapping to the catalog root).
+    """
+    _reset_catalog_state()
+
+    if catalog_mode == 'proxy':
+        from pixeltable.service import proxy_daemon
+
+        db = request.getfixturevalue('proxy_daemon_db')
+        proxy_daemon.reset(db)
+        prefix = f'pxt://local:{db}'
+
+        def p(path: str) -> str:
+            return f'{prefix}/{path}' if path else prefix
+    else:
+
+        def p(path: str) -> str:
+            return path
+
+    yield p
+
+    _validate_catalog_state()
 
 
 def _free_disk_space() -> None:
@@ -327,8 +429,8 @@ def clean_db(drop_md_tables: bool = False) -> None:
 
 
 @pytest.fixture(scope='function')
-def test_tbl(uses_db: None) -> pxt.Table:
-    return create_test_tbl()
+def test_tbl(make_catalog_path: Callable[[str], str]) -> pxt.Table:
+    return create_test_tbl(make_catalog_path('test_tbl'))
 
 
 @pytest.fixture(scope='function')
@@ -372,13 +474,13 @@ def test_tbl_exprs(test_tbl: pxt.Table) -> list[exprs.Expr]:
 
 
 @pytest.fixture(scope='function')
-def all_datatypes_tbl(uses_db: None) -> pxt.Table:
-    return create_all_datatypes_tbl()
+def all_datatypes_tbl(make_catalog_path: Callable[[str], str]) -> pxt.Table:
+    return create_all_datatypes_tbl(name=make_catalog_path('all_datatype_tbl'))
 
 
 @pytest.fixture(scope='function')
-def img_tbl(uses_db: None) -> pxt.Table:
-    return create_img_tbl('test_img_tbl')
+def img_tbl(make_catalog_path: Callable[[str], str]) -> pxt.Table:
+    return create_img_tbl(make_catalog_path('test_img_tbl'))
 
 
 @pytest.fixture(scope='function')
@@ -402,13 +504,13 @@ def multi_img_tbl_exprs(multi_idx_img_tbl: pxt.Table) -> list[exprs.Expr]:
 
 
 @pytest.fixture(scope='function')
-def small_img_tbl(uses_db: None) -> pxt.Table:
-    return create_img_tbl('small_img_tbl', num_rows=40)
+def small_img_tbl(make_catalog_path: Callable[[str], str]) -> pxt.Table:
+    return create_img_tbl(make_catalog_path('small_img_tbl'), num_rows=40)
 
 
 @pytest.fixture(scope='function')
-def indexed_img_tbl(uses_db: None, local_embed: pxt.Function) -> pxt.Table:
-    t = create_img_tbl('indexed_img_tbl', num_rows=40)
+def indexed_img_tbl(make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> pxt.Table:
+    t = create_img_tbl(make_catalog_path('indexed_img_tbl'), num_rows=40)
     t.add_embedding_index(
         'img', idx_name='img_idx0', metric='cosine', image_embed=local_embed, string_embed=local_embed
     )
@@ -416,8 +518,8 @@ def indexed_img_tbl(uses_db: None, local_embed: pxt.Function) -> pxt.Table:
 
 
 @pytest.fixture(scope='function')
-def multi_idx_img_tbl(uses_db: None, local_embed: pxt.Function) -> pxt.Table:
-    t = create_img_tbl('multi_idx_img_tbl', num_rows=4)
+def multi_idx_img_tbl(make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> pxt.Table:
+    t = create_img_tbl(make_catalog_path('multi_idx_img_tbl'), num_rows=4)
     t.add_embedding_index(
         'img', idx_name='img_idx1', metric='cosine', image_embed=local_embed, string_embed=local_embed
     )

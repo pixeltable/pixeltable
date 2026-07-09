@@ -7,6 +7,8 @@ import pixeltable as pxt
 from ..utils import rerun, skip_test_if_no_config, skip_test_if_not_installed, validate_update_status
 from .tool_utils import stock_price, weather
 
+pytestmark = pytest.mark.local('UDF/integration test')
+
 
 @pytest.fixture(autouse=True)
 def cleanup_llama_cpp() -> Iterator[None]:
@@ -16,6 +18,7 @@ def cleanup_llama_cpp() -> Iterator[None]:
     llama_cpp.cleanup()
 
 
+@pytest.mark.expensive  # downloads from HF
 @rerun(reruns=3, reruns_delay=15)  # Since it involves a HF model download
 class TestLlamaCpp:
     def test_create_chat_completions(self, uses_db: None) -> None:
@@ -54,7 +57,6 @@ class TestLlamaCpp:
         assert len(result['choices'][0]['message']['content']) > 0
         assert len(result2['choices'][0]['message']['content']) > 0
 
-    @pytest.mark.expensive  # downloads large models
     @pytest.mark.parametrize('model', ['mistral', 'gemma', 'qwen'])
     def test_tool_invocations(self, uses_db: None, model: str) -> None:
         skip_test_if_not_installed('llama_cpp')

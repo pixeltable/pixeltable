@@ -1,12 +1,12 @@
 import dataclasses
-import types
-import typing
+import threading
 import uuid
 from enum import Enum
-from typing import Any, TypeVar, Union, get_type_hints
+from typing import Any, TypeVar
 
 import sqlalchemy as sql
-from sqlalchemy import BigInteger, ForeignKey, Integer, LargeBinary, orm
+from pydantic import TypeAdapter
+from sqlalchemy import BigInteger, ForeignKey, Integer, orm
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm.decl_api import DeclarativeMeta
 
@@ -22,34 +22,31 @@ base_metadata = Base.metadata
 T = TypeVar('T')
 
 
-def md_from_dict(type_: type[T], data: Any) -> T:
-    """Re-instantiate a dataclass instance that contains nested dataclasses from a dict."""
-    if dataclasses.is_dataclass(type_):
-        fieldtypes = get_type_hints(type_)
-        return type_(**{f: md_from_dict(fieldtypes[f], data[f]) for f in data})
+# we use pydantic TypeAdapters for fast serialization/deserialization of metadata and cache them here
+_md_adapters: dict[Any, TypeAdapter] = {}
+_md_adapters_lock = threading.Lock()
 
-    origin = typing.get_origin(type_)
-    if origin is not None:
-        type_args = typing.get_args(type_)
-        if (origin is Union or origin is types.UnionType) and type(None) in type_args:
-            # handling T | None, T | None
-            non_none_args = [arg for arg in type_args if arg is not type(None)]
-            assert len(non_none_args) == 1
-            return md_from_dict(non_none_args[0], data) if data is not None else None
-        elif origin is list:
-            return [md_from_dict(type_args[0], elem) for elem in data]  # type: ignore[return-value]
-        elif origin is dict:
-            key_type = type_args[0]
-            val_type = type_args[1]
-            return {key_type(key): md_from_dict(val_type, val) for key, val in data.items()}  # type: ignore[return-value]
-        elif origin is tuple:
-            return tuple(md_from_dict(arg_type, elem) for arg_type, elem in zip(type_args, data))  # type: ignore[return-value]
-        else:
-            raise AssertionError(origin)
-    elif isinstance(type_, type) and issubclass(type_, Enum):
-        return type_(data)
-    else:
-        return data
+
+def _md_adapter(type_: Any) -> TypeAdapter:
+    adapter = _md_adapters.get(type_)
+    if adapter is None:
+        with _md_adapters_lock:
+            # re-check under the lock: another thread may have built it while we waited
+            adapter = _md_adapters.get(type_)
+            if adapter is None:
+                adapter = _md_adapters[type_] = TypeAdapter(type_)
+    return adapter
+
+
+def md_from_dict(type_: type[T], data: Any) -> T:
+    """Re-instantiate a dataclass instance that contains nested dataclasses from a JSON-able dict."""
+    return _md_adapter(type_).validate_python(data)
+
+
+def md_to_dict(obj: Any) -> dict:
+    """Serialize an md dataclass instance (with nested dataclasses) to a JSON-able dict."""
+    # dump_python(mode='json') matches dataclasses.asdict()'s output
+    return _md_adapter(type(obj)).dump_python(obj, mode='json')
 
 
 def md_dict_factory(data: list[tuple[str, Any]]) -> dict:
@@ -107,7 +104,7 @@ class Dir(Base):
 class ColumnMd:
     """
     Records the non-versioned metadata of a column.
-    - immutable attributes: type, primary key, etc.
+    - immutable attributes: id, stored, stores_cellmd, sa_col_type
     - when a column was added/dropped, which is needed to GC unreachable storage columns
       (a column that was added after table snapshot n and dropped before table snapshot n+1 can be removed
       from the stored table).
@@ -116,13 +113,6 @@ class ColumnMd:
     id: int
     schema_version_add: int
     schema_version_drop: int | None
-    col_type: dict
-
-    # if True, is part of the primary key
-    is_pk: bool
-
-    # if set, this is a computed column
-    value_expr: dict | None
 
     # if True, the column is present in the stored table
     stored: bool | None
@@ -130,8 +120,16 @@ class ColumnMd:
     # Indicates if this column has another accessory column that stores cell metadata such as execution errors
     stores_cellmd: bool
 
+    # For stored columns, this is a serialized sqlalchemy type of the store column. For unstored columns, it's None.
+    sa_col_type: dict | None = None
+
     # If present, the URI for the destination for column values
     destination: str | None = None
+
+    def is_visible_in_version(self, schema_version: int) -> bool:
+        return self.schema_version_add <= schema_version and (
+            self.schema_version_drop is None or self.schema_version_drop > schema_version
+        )
 
 
 @dataclasses.dataclass
@@ -150,6 +148,11 @@ class IndexMd:
     schema_version_drop: int | None
     class_fqn: str
     init_args: dict[str, Any]
+
+    def is_visible_in_version(self, schema_version: int) -> bool:
+        return self.schema_version_add <= schema_version and (
+            self.schema_version_drop is None or self.schema_version_drop > schema_version
+        )
 
 
 # a stored table version path is a list of (table id as str, effective table version)
@@ -228,10 +231,6 @@ class TableMd:
     # - only maintained for mutable tables
     # TODO: replace with mutable_views: list[UUID] to help with debugging
     view_sn: int
-
-    # Metadata format for external stores:
-    # {'class': 'pixeltable.io.label_studio.LabelStudioProject', 'md': {'project_id': 3}}
-    external_stores: list[dict[str, Any]]
 
     column_md: dict[int, ColumnMd]  # col_id -> ColumnMd
     index_md: dict[int, IndexMd]  # index_id -> IndexMd
@@ -321,20 +320,40 @@ class TableVersion(Base):
     additional_md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False, default=dict)
 
 
+# TODO: rename to ColumnVersionMd
 @dataclasses.dataclass
 class SchemaColumn:
     """
     Records the versioned metadata of a column.
     """
 
-    pos: int
-    name: str
+    # pos and name must be set for user columns, and be None for system columns
+    pos: int | None
+    name: str | None
+
+    col_type: dict
+    # True if this column is part of the primary key
+    is_pk: bool
+    # Value expression of a computed column
+    value_expr: dict | None
+
     # media validation strategy of this particular media column; if not set, TableMd.media_validation applies
-    # stores column.MediaValiation.name.lower()
+    # stores column.MediaValidation.name.lower()
     media_validation: str | None
     comment: str | None = None
     # user-defined metadata - must be a valid JSON-serializable object
     custom_metadata: Any = None
+
+    def __post_init__(self) -> None:
+        assert (self.pos is None) == (self.name is None), (
+            f'Invalid SchemaColumn: pos and name must both be set or both unset: {self}'
+        )
+
+    # TODO there are opportunities to use this throughout the codebase instead of name is [not] None
+    @property
+    def is_system_column(self) -> bool:
+        """Returns True if this is a system column (i.e. not user-visible), such as an index value column."""
+        return self.name is None
 
 
 @dataclasses.dataclass
@@ -346,12 +365,13 @@ class SchemaVersionMd:
     tbl_id: str  # uuid.UUID
     schema_version: int
     preceding_schema_version: int | None
+    # User and system columns visible in this schema version
     columns: dict[int, SchemaColumn]  # col_id -> SchemaColumn
     # TODO: Before next release, add migration to preexisting empty strings to None
     comment: str | None
 
     # default validation strategy for any media column of this table
-    # stores column.MediaValiation.name.lower()
+    # stores column.MediaValidation.name.lower()
     media_validation: str
     additional_md: dict[str, Any]  # deprecated
     # user-defined metadata - must be a valid JSON-serializable object
@@ -368,7 +388,7 @@ class TableSchemaVersion(Base):
         UUID(as_uuid=True), ForeignKey('tables.id'), primary_key=True, nullable=False
     )
     schema_version: orm.Mapped[int] = orm.mapped_column(BigInteger, primary_key=True, nullable=False)
-    md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # TableSchemaVersionMd
+    md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # SchemaVersionMd
     additional_md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False, default=dict)
 
 
@@ -386,31 +406,3 @@ class PendingTableOp(Base):
     )
     op_sn: orm.Mapped[int] = orm.mapped_column(Integer, primary_key=True, nullable=False)  # catalog.TableOp.op_sn
     op: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # catalog.TableOp
-
-
-@dataclasses.dataclass
-class FunctionMd:
-    name: str
-    py_version: str  # platform.python_version
-    class_name: str  # name of the Function subclass
-    md: dict  # part of the output of Function.to_store()
-
-
-class Function(Base):
-    """
-    User-defined functions that are not module functions (ie, aren't available at runtime as a symbol in a known
-    module).
-    Functions without a name are anonymous functions used in the definition of a computed column.
-    Functions that have names are also assigned to a database and directory.
-    We store the Python version under which a Function was created (and the callable pickled) in order to warn
-    against version mismatches.
-    """
-
-    __tablename__ = 'functions'
-
-    id: orm.Mapped[uuid.UUID] = orm.mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False
-    )
-    dir_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=True)
-    md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # FunctionMd
-    binary_obj: orm.Mapped[bytes | None] = orm.mapped_column(LargeBinary, nullable=True)

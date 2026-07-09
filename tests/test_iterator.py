@@ -1,7 +1,7 @@
 import re
 import warnings
 from textwrap import dedent
-from typing import Any, Iterator, TypedDict
+from typing import Any, Callable, Iterator, TypedDict
 
 import numpy as np
 import pytest
@@ -133,14 +133,33 @@ class CustomLegacyIterator(ComponentIterator):
         self.idx = pos
 
 
+# Module-level iterators whose output schema is only validated at create_view() time (not at decoration).
+# They live at module scope so they are resolvable by fqn on the proxy daemon.
+@pxt.iterator
+def plain_dict_iterator(x: int) -> Iterator[dict]:
+    yield from []
+
+
+@pxt.iterator
+def conditional_returns_none(x: int) -> Iterator[dict]:
+    yield from []
+
+
+@conditional_returns_none.conditional_output_schema
+def _(bound_args: dict[str, Any]) -> dict[str, type] | None:
+    return None
+
+
 class TestIterator:
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_iterator(self, uses_db: None, do_reload_catalog: bool) -> None:
+    def test_iterator(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
+        p = make_catalog_path
         for n, it in enumerate((simple_iterator, class_based_iterator, iterator_with_seek)):
             assert callable(it)
-            t = pxt.create_table(f'tbl_{n}', schema={'input': pxt.Int})
+            tbl_path = p(f'tbl_{n}')
+            t = pxt.create_table(tbl_path, schema={'input': pxt.Int})
             t.insert([{'input': 2}])
-            v = pxt.create_view(f'view_{n}', t, iterator=it(t.input))
+            v = pxt.create_view(p(f'view_{n}'), t, iterator=it(t.input))
             t.insert([{'input': 3}, {'input': 5}])
             reload_catalog(do_reload_catalog)
             rs = v.order_by(v.input, v.pos).collect()
@@ -171,41 +190,46 @@ class TestIterator:
             ):
                 it(t.input, str_text='I am not a valid identifier!')
 
-            pxt.drop_table(t.get_metadata()['name'], force=True)
+            pxt.drop_table(tbl_path, force=True)
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_iterator_column_renames(self, uses_db: None, do_reload_catalog: bool) -> None:
-        t = pxt.create_table('tbl', schema={'pos': pxt.String, 'input': pxt.Int, 'scol': pxt.Float})
+    def test_iterator_column_renames(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('tbl'), schema={'pos': pxt.String, 'input': pxt.Int, 'scol': pxt.Float})
         t.insert([{'pos': 'a', 'input': 5, 'scol': 1.0}, {'pos': 'b', 'input': 3, 'scol': 2.0}])
-        v = pxt.create_view('view', t, iterator=simple_iterator(t.input))
+        v = pxt.create_view(p('view'), t, iterator=simple_iterator(t.input))
         # Try adding a "second round" of iteration
-        vv = pxt.create_view('view2', v, iterator=simple_iterator(v.icol))
+        vv = pxt.create_view(p('view2'), v, iterator=simple_iterator(v.icol))
 
         reload_catalog(do_reload_catalog)
 
-        assert v._get_schema() == {
-            'pos_1': ts.IntType(),
-            'icol': ts.IntType(),
-            'scol_1': ts.StringType(),
-            'acol': ts.ArrayType((None, 512), ts.FloatType(), nullable=True),
-            'input': ts.IntType(nullable=True),
-            'pos': ts.StringType(nullable=True),
-            'scol': ts.FloatType(nullable=True),
+        def schema(tbl: pxt.Table) -> dict[str, str]:
+            return {name: col['type_'] for name, col in tbl.get_metadata()['columns'].items()}
+
+        assert schema(v) == {
+            'pos_1': 'Required[Int]',
+            'icol': 'Required[Int]',
+            'scol_1': 'Required[String]',
+            'acol': 'Array[(None, 512), float32]',
+            'input': 'Int',
+            'pos': 'String',
+            'scol': 'Float',
         }
-        assert vv._get_schema() == {
-            'pos_2': ts.IntType(),
-            'icol_1': ts.IntType(),
-            'scol_2': ts.StringType(),
-            'acol_1': ts.ArrayType((None, 512), ts.FloatType(), nullable=True),
-            'pos_1': ts.IntType(),
-            'icol': ts.IntType(),
-            'scol_1': ts.StringType(),
-            'acol': ts.ArrayType((None, 512), ts.FloatType(), nullable=True),
-            'input': ts.IntType(nullable=True),
-            'pos': ts.StringType(nullable=True),
-            'scol': ts.FloatType(nullable=True),
+        assert schema(vv) == {
+            'pos_2': 'Required[Int]',
+            'icol_1': 'Required[Int]',
+            'scol_2': 'Required[String]',
+            'acol_1': 'Array[(None, 512), float32]',
+            'pos_1': 'Required[Int]',
+            'icol': 'Required[Int]',
+            'scol_1': 'Required[String]',
+            'acol': 'Array[(None, 512), float32]',
+            'input': 'Int',
+            'pos': 'String',
+            'scol': 'Float',
         }
 
+    @pytest.mark.local('validates the @pxt.iterator decorator on client-process-local classes')
     def test_iterator_errors(self, uses_db: None) -> None:
         # Error: class not a subclass of PxtIterator
         with pxt_raises(
@@ -328,34 +352,6 @@ class TestIterator:
             def bad_field_iterator(x: int) -> Iterator[BadFieldType]:
                 yield from []
 
-        # Error: plain dict return without conditional_output_schema
-        @pxt.iterator
-        def plain_dict_iterator(x: int) -> Iterator[dict]:
-            yield from []
-
-        t = pxt.create_table('tbl_plain_dict', schema={'input': pxt.Int})
-        with pxt_raises(
-            pxt.ErrorCode.INVALID_CONFIGURATION,
-            match=r'Iterator `.*plain_dict_iterator` must either return a `TypedDict` '
-            r'or define a `conditional_output_schema`.',
-        ):
-            pxt.create_view('view_plain_dict', t, iterator=plain_dict_iterator(t.input))
-
-        # Error: conditional_output_schema returns None
-        @pxt.iterator
-        def conditional_returns_none(x: int) -> Iterator[dict]:
-            yield from []
-
-        @conditional_returns_none.conditional_output_schema
-        def _(bound_args: dict[str, Any]) -> dict[str, type] | None:
-            return None
-
-        with pxt_raises(
-            pxt.ErrorCode.INVALID_CONFIGURATION,
-            match=r'The `conditional_output_schema` for iterator `.*conditional_returns_none` returned None',
-        ):
-            pxt.create_view('view_cond_none', t, iterator=conditional_returns_none(t.input))
-
         # Error: duplicate validate() decorator
         @pxt.iterator
         class iterator_with_validate(pxt.PxtIterator[MyRow]):
@@ -429,6 +425,31 @@ class TestIterator:
             def reserved_pos_iterator(x: int) -> Iterator[PosRow]:
                 yield from []
 
+    def test_create_view_schema_errors(self, make_catalog_path: Callable[[str], str]) -> None:
+        """create_view() validates the iterator's output schema; these errors surface in both local and proxy mode."""
+        p = make_catalog_path
+        t = pxt.create_table(p('tbl_plain_dict'), schema={'input': pxt.Int})
+
+        # iterator returns a plain dict without a conditional_output_schema
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION,
+            match=r'Iterator `.*plain_dict_iterator` must either return a `TypedDict` '
+            r'or define a `conditional_output_schema`.',
+        ):
+            pxt.create_view(p('view_plain_dict'), t, iterator=plain_dict_iterator(t.input))
+
+        # conditional_output_schema yields None
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION,
+            match=r'The `conditional_output_schema` for iterator `.*conditional_returns_none` returned None',
+        ):
+            pxt.create_view(p('view_cond_none'), t, iterator=conditional_returns_none(t.input))
+
+    # test_evolving_iterator stays local-only: it monkey-patches the module-global `evolving_iterator` in this
+    # process, which the proxy daemon (a separate process resolving its own module state) would never observe.
+    @pytest.mark.local(
+        'monkey-patches the module-global evolving_iterator in this process, which the daemon would never observe'
+    )
     @pytest.mark.parametrize('as_kwarg', [False, True])
     def test_evolving_iterator(self, as_kwarg: bool, uses_db: None) -> None:
         """
@@ -646,16 +667,17 @@ class TestIterator:
         pxt.drop_table('view')
         reload_and_validate_table(has_view=False)
 
-    def test_retrofit(self, uses_db: None) -> None:
+    def test_retrofit(self, make_catalog_path: Callable[[str], str]) -> None:
         """
         Tests that legacy iterators defined as subclasses of ComponentIterator can be retrofitted
         into the new GeneratingFunction-based iterator system.
         """
-        t = pxt.create_table('test', schema={'input': pxt.String})
+        p = make_catalog_path
+        t = pxt.create_table(p('test'), schema={'input': pxt.String})
         t.insert([{'input': 'balloon'}])
         with pytest.warns(DeprecationWarning, match=r'The `ComponentIterator` class is deprecated'):
             v = pxt.create_view(
-                'view_legacy_iterator', t, iterator=CustomLegacyIterator.create(text=t.input, expand_by=4)
+                p('view_legacy_iterator'), t, iterator=CustomLegacyIterator.create(text=t.input, expand_by=4)
             )
         rs = v.order_by(v.input, v.pos).collect()
         assert list(rs) == [
@@ -665,78 +687,42 @@ class TestIterator:
             {'input': 'balloon', 'pos': 3, 'output_text': 'stored balloon 3', 'unstored_text': 'unstored balloon 3'},
         ]
 
-    def test_nested_iterator(self, uses_db: None) -> None:
+    def test_nested_iterator(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         n = 5
-        t = pxt.create_table('test_nested', schema={'input': pxt.Int})
+        t = pxt.create_table(p('test_nested'), schema={'input': pxt.Int})
         t.insert([{'input': n}])
 
         v1 = pxt.create_view(
-            'v1', t, iterator=simple_iterator(t.input), additional_columns={'additional_col_1': pxt.Int}
+            p('v1'), t, iterator=simple_iterator(t.input), additional_columns={'additional_col_1': pxt.Int}
         )
         assert len(v1.collect()) == n
 
         v2 = pxt.create_view(
-            'v2', v1, iterator=simple_iterator(v1.icol), additional_columns={'additional_col_2': pxt.Int}
+            p('v2'), v1, iterator=simple_iterator(v1.icol), additional_columns={'additional_col_2': pxt.Int}
         )
         assert len(v2.collect()) == n * (n - 1) // 2
 
+        def iterator_cols(tbl: pxt.Table) -> list[str]:
+            return [name for name, col in tbl.get_metadata()['columns'].items() if col['is_iterator_col']]
+
+        def non_iterator_cols(tbl: pxt.Table) -> set[str]:
+            return {name for name, col in tbl.get_metadata()['columns'].items() if not col['is_iterator_col']}
+
         for _ in range(2):
-            assert not v1._tbl_version.get().is_iterator_column(v1.input.col)
-            assert not v1.input.col.is_iterator_col
-            assert not v2._tbl_version.get().is_iterator_column(v2.input.col)
-            assert not v2.input.col.is_iterator_col
+            # base, iterator-param, and additional columns are not iterator columns
+            assert {'input', 'additional_col_1'} <= non_iterator_cols(v1)
+            assert {'input', 'additional_col_1', 'additional_col_2'} <= non_iterator_cols(v2)
 
-            assert v1._tbl_version.get().is_iterator_column(v1.acol.col)
-            assert v1.acol.col.is_iterator_col
-            assert v2._tbl_version.get().is_iterator_column(v2.acol.col)
-            assert v2.acol.col.is_iterator_col
-
-            assert v1.scol.col.is_iterator_col
-            assert v1._tbl_version.get().is_iterator_column(v1.scol.col)
-            assert v2.scol.col.is_iterator_col
-            assert v2._tbl_version.get().is_iterator_column(v2.scol.col)
-
-            assert v1.icol.col.is_iterator_col
-            assert v1._tbl_version.get().is_iterator_column(v1.icol.col)
-            assert v2.icol.col.is_iterator_col
-            assert v2._tbl_version.get().is_iterator_column(v2.icol.col)
-
-            assert v1.pos.col.is_iterator_col
-            assert v1._tbl_version.get().is_iterator_column(v1.pos.col)
-            assert v2.pos.col.is_iterator_col
-            assert v2._tbl_version.get().is_iterator_column(v2.pos.col)
-
-            assert not v1.additional_col_1.col.is_iterator_col
-            assert not v1._tbl_version.get().is_iterator_column(v1.additional_col_1.col)
-            assert not v2.additional_col_1.col.is_iterator_col
-            assert not v2._tbl_version.get().is_iterator_column(v2.additional_col_1.col)
-
-            assert v2.acol_1.col.is_iterator_col
-            assert v2._tbl_version.get().is_iterator_column(v2.acol_1.col)
-
-            assert v2.scol_1.col.is_iterator_col
-            assert v2._tbl_version.get().is_iterator_column(v2.scol_1.col)
-
-            assert v2.icol_1.col.is_iterator_col
-            assert v2._tbl_version.get().is_iterator_column(v2.icol_1.col)
-
-            assert v2.pos_1.col.is_iterator_col
-            assert v2._tbl_version.get().is_iterator_column(v2.pos_1.col)
-
-            assert not v2.additional_col_2.col.is_iterator_col
-            assert not v2._tbl_version.get().is_iterator_column(v2.additional_col_2.col)
-
-            assert v1._tbl_version.get().iterator_columns() == [v1.pos.col, v1.icol.col, v1.scol.col, v1.acol.col]
-            assert v2._tbl_version.get().iterator_columns() == [
-                v2.pos_1.col,
-                v2.icol_1.col,
-                v2.scol_1.col,
-                v2.acol_1.col,
-            ]
+            # v1 exposes exactly its own iterator outputs, in order
+            assert iterator_cols(v1) == ['pos', 'icol', 'scol', 'acol']
+            # v2's nested iterator outputs collide with v1's and are renamed with a _1 suffix; v1's iterator outputs
+            # remain visible (and still flagged as iterator columns) alongside them
+            assert iterator_cols(v2) == ['pos_1', 'icol_1', 'scol_1', 'acol_1', 'pos', 'icol', 'scol', 'acol']
 
             reload_catalog()
-            v1 = pxt.get_table('v1')
-            v2 = pxt.get_table('v2')
+            v1 = pxt.get_table(p('v1'))
+            v2 = pxt.get_table(p('v2'))
 
 
 evolving_iterator: func.GeneratingFunction | None = None

@@ -5,6 +5,8 @@ import pixeltable as pxt
 from ..utils import rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 from .tool_utils import stock_price
 
+pytestmark = pytest.mark.local('UDF/integration test')
+
 
 @pytest.mark.remote_api
 @rerun(reruns=3, reruns_delay=8)

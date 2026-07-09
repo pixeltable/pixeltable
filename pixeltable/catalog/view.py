@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import copy
 import dataclasses
-from typing import TYPE_CHECKING, Any, List, Literal, Mapping
+from typing import TYPE_CHECKING, Any, Literal, Sequence
 from uuid import UUID
+
+import pydantic
 
 import pixeltable.exceptions as excs
 import pixeltable.metadata.schema as md_schema
@@ -16,7 +18,7 @@ from pixeltable.types import ColumnSpec
 
 from .column import Column
 from .globals import MediaValidation
-from .table import Table
+from .local_table import LocalTable
 from .table_path import TableVersionPath
 from .table_version import TableVersion, TableVersionKey, TableVersionMd
 from .table_version_handle import TableVersionHandle
@@ -24,12 +26,15 @@ from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, LoadViewOp, TableOp, T
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
-    from pixeltable.catalog.table import TableMetadata
     from pixeltable.globals import TableDataSource
     from pixeltable.plan import SampleClause
 
+    from .path import Path
+    from .table import Table
+    from .table_metadata import TableMetadata
 
-class View(Table):
+
+class View(LocalTable):
     """A `Table` that presents a virtual view of another table (or view).
 
     A view is typically backed by a store table, which records the view's columns and is joined back to the bases
@@ -37,6 +42,8 @@ class View(Table):
     The exception is a snapshot view without a predicate and without additional columns: in that case, the view
     is simply a reference to a specific set of base versions.
     """
+
+    _snapshot_only: bool
 
     def __init__(self, id: UUID, tbl_version_path: TableVersionPath, snapshot_only: bool):
         super().__init__(id, tbl_version_path)
@@ -74,7 +81,7 @@ class View(Table):
         name: str,
         base: TableVersionPath,
         select_list: list[tuple[exprs.Expr, str | None]] | None,
-        additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr],
+        additional_columns: list[Column],
         predicate: 'exprs.Expr' | None,
         sample_clause: 'SampleClause' | None,
         is_snapshot: bool,
@@ -83,56 +90,28 @@ class View(Table):
         custom_metadata: Any,
         media_validation: MediaValidation,
         iterator_call: func.GeneratingFunctionCall | None,
+        tbl_id: UUID | None = None,
     ) -> tuple[TableVersionMd, list[TableOp] | None]:
         from pixeltable.exprs import InlineDict
 
+        tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None)) if tbl_id is not None else None
+
         # Convert select_list to more additional_columns if present
+        initial_col_id = len(iterator_call.outputs) if iterator_call is not None else 0
         include_base_columns: bool = select_list is None
-        select_list_columns: List[Column] = []
+        select_list_columns: list[Column] = []
         if not include_base_columns:
-            r = cls.select_list_to_additional_columns(select_list)
-            select_list_columns = [Column.create(name, spec) for name, spec in r.items()]
+            for i, (col_name, spec) in enumerate(cls.select_list_to_additional_columns(select_list).items()):
+                col = Column.create(col_name, spec)
+                if tbl_id is not None:
+                    col.id = initial_col_id + i
+                    col.tbl_handle = tbl_handle
+                select_list_columns.append(col)
 
-        columns = select_list_columns + [Column.create(name, spec) for name, spec in additional_columns.items()]
-        cls._verify_schema(columns)
-
-        # verify that filters can be evaluated in the context of the base
-        if predicate is not None:
-            if not predicate.is_bound_by([base]):
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'View filter cannot be computed in the context of the base table {base.tbl_name()!r}',
-                )
-            # create a copy that we can modify and store
-            predicate = predicate.copy()
-        if sample_clause is not None:
-            # make sure that the sample clause can be computed in the context of the base
-            if sample_clause.stratify_exprs is not None and not all(
-                stratify_expr.is_bound_by([base]) for stratify_expr in sample_clause.stratify_exprs
-            ):
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'View sample clause cannot be computed in the context of the base table {base.tbl_name()!r}',
-                )
-
-            # create a copy that we can modify and store
-            sample_clause = dataclasses.replace(sample_clause, stratify_exprs=copy.copy(sample_clause.stratify_exprs))
-
-        # same for value exprs
-        for col in columns:
-            if not col.is_computed:
-                continue
-            # make sure that the value can be computed in the context of the base
-            if col.value_expr is not None and not col.value_expr.is_bound_by([base]):
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Column {col.name!r}: Value expression cannot be computed in the context of the '
-                    f'base table {base.tbl_name()!r}',
-                )
-
+        iterator_cols: list[Column] = []
         if iterator_call is not None:
             assert _POS_COLUMN_NAME in iterator_call.outputs
-            known_col_names = {col.name for col in columns}
+            known_col_names = {col.name for col in select_list_columns + additional_columns}
             if include_base_columns:
                 known_col_names.update(col.name for col in base.columns())
             if any(name in known_col_names for name in iterator_call.outputs):
@@ -146,24 +125,73 @@ class View(Table):
                     updated_outputs[unique_name] = output_info
                 iterator_call = dataclasses.replace(iterator_call, outputs=updated_outputs)
 
-            iterator_cols = []
-            for col_name, output_info in iterator_call.outputs.items():
+            for i, (col_name, output_info) in enumerate(iterator_call.outputs.items()):
                 stores_cellmd = Column.should_store_cellmd(
                     col_type=output_info.col_type, is_stored=output_info.is_stored, is_computed=False
                 )
-                iterator_cols.append(
-                    Column(
-                        col_name,
-                        col_type=output_info.col_type,
-                        is_iterator_col=True,
-                        stored=output_info.is_stored,
-                        stores_cellmd=stores_cellmd,
-                    )
+                col = Column(
+                    col_name,
+                    col_type=output_info.col_type,
+                    sa_col_type=output_info.col_type.to_sa_type() if output_info.is_stored else None,
+                    is_iterator_col=True,
+                    stored=output_info.is_stored,
+                    stores_cellmd=stores_cellmd,
+                )
+                if tbl_id is not None:
+                    col.id = i
+                    col.tbl_handle = tbl_handle
+                iterator_cols.append(col)
+
+        cls._verify_schema(select_list_columns + additional_columns)
+        columns = iterator_cols + select_list_columns + additional_columns
+
+        # verify that filters can be evaluated in the context of the base
+        if predicate is not None:
+            if not predicate.is_bound_by([base]):
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'View filter cannot be computed in the context of the base table {base.tbl_name()!r}',
+                )
+            predicate.validate_storable("A view's filter")
+            # create a copy that we can modify and store
+            predicate = predicate.copy()
+
+        # verify that the sample clause can be computed in the context of the base
+        if sample_clause is not None:
+            if sample_clause.stratify_exprs is not None and not all(
+                stratify_expr.is_bound_by([base]) for stratify_expr in sample_clause.stratify_exprs
+            ):
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'View sample clause cannot be computed in the context of the base table {base.tbl_name()!r}',
                 )
 
-            columns = iterator_cols + columns
+            for stratify_expr in sample_clause.stratify_exprs or []:
+                stratify_expr.validate_storable("A view's sample clause")
+            # create a copy that we can modify and store
+            sample_clause = dataclasses.replace(sample_clause, stratify_exprs=copy.copy(sample_clause.stratify_exprs))
+
+        # verify that computed column expressions can be evaluated in the context of the base
+        # We also include additional columns that are antecedent in the given column
+        # ordering. This is necessary to resolve class-based TableModel definitions, where computed columns may
+        # reference preceding columns that might not have been created yet.
+        # TODO: Normalize _create() to make tbl_id a required parameter (always externally generated)
+        for i, col in enumerate(columns):
+            antecedent_cols = columns[:i] if tbl_id is not None else []
+            if (
+                col.is_computed
+                and col.value_expr is not None
+                and not col.value_expr.is_bound_by([base], antecedent_cols)
+            ):
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Column {col.name!r}: Value expression cannot be computed in the context of the '
+                    f'base table {base.tbl_name()!r}\n{col.value_expr}',
+                )
 
         iterator_args_expr: exprs.Expr = InlineDict(iterator_call.bound_args) if iterator_call is not None else None
+        if iterator_args_expr is not None:
+            iterator_args_expr.validate_storable("A view's iterator arguments")
         base_version_path = cls._get_snapshot_path(base) if is_snapshot else base
 
         # if this is a snapshot, we need to retarget all exprs to the snapshot tbl versions
@@ -183,7 +211,7 @@ class View(Table):
             include_base_columns=include_base_columns,
             predicate=predicate.as_dict() if predicate is not None else None,
             sample_clause=sample_clause.as_dict() if sample_clause is not None else None,
-            base_versions=base_version_path.as_md(),
+            base_versions=base_version_path.as_schema_path(),
             iterator_call=iterator_call.as_dict() if iterator_call is not None else None,
         )
 
@@ -196,16 +224,17 @@ class View(Table):
             view_md=view_md,
             create_default_idxs=create_default_idxs,
             is_versioned=base.is_versioned(),
+            tbl_id=tbl_id,
         )
         if md.tbl_md.is_pure_snapshot:
             # this is purely a snapshot: no store table to create or load
             return md, None
         else:
-            tbl_id = md.tbl_md.tbl_id
-            key = TableVersionKey(UUID(tbl_id), 0 if is_snapshot else None)
+            tbl_id = UUID(md.tbl_md.tbl_id)
+            key = TableVersionKey(tbl_id, 0 if is_snapshot else None)
             view_path = TableVersionPath(TableVersionHandle(key), base=base_version_path)
             ops = (
-                TableOpsBuilder(tbl_id, tbl_version=md.tbl_md.current_version)
+                TableOpsBuilder(str(tbl_id), tbl_version=md.tbl_md.current_version)
                 .add(CreateTableMdOp)
                 .add(CreateStoreTableOp)
                 .add(LoadViewOp, view_path=view_path.as_dict())
@@ -277,7 +306,7 @@ class View(Table):
             # base_tbl_id is set, so this view has a base schema object, which must still exist
             base_tbl = self._get_base_table()
             assert base_tbl is not None
-            base_path = base_tbl._path()
+            base_path = str(base_tbl._path())
             base_version = self._effective_base_versions[0]
             md['base'] = base_path if base_version is None else f'{base_path}:{base_version}'
 
@@ -288,13 +317,7 @@ class View(Table):
             for col in columns:
                 if col.name in md['columns'] and tv.is_iterator_column(col):
                     md['columns'][col.name]['is_iterator_col'] = True
-            # Build the iterator expression string: "iterator_name(arg1, arg2=expr2, ...)"
-            arg_strs: list[str] = []
-            for arg_expr in tv.iterator_call.args:
-                arg_strs.append(arg_expr.display_str(inline=True))
-            for arg_name, arg_expr in tv.iterator_call.kwargs.items():
-                arg_strs.append(f'{arg_name}={arg_expr.display_str(inline=True)}')
-            md['iterator_call'] = f'{tv.iterator_call.it.name}({", ".join(arg_strs)})'
+            md['iterator_call'] = tv.iterator_call.display_str()
 
         return md
 
@@ -311,6 +334,18 @@ class View(Table):
     ) -> UpdateStatus:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION, f'{self._display_str()}: Cannot insert into a {self._display_name()}.'
+        )
+
+    def compute(
+        self,
+        source: Sequence[dict[str, Any]] | Sequence[pydantic.BaseModel],
+        /,
+        *,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+    ) -> list[dict[str, Any]]:
+        self._validate_thread()
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, f'{self._display_str()}: compute() is only supported for base tables.'
         )
 
     def delete(self, where: exprs.Expr | None = None) -> UpdateStatus:
@@ -349,8 +384,8 @@ class View(Table):
         else:
             return effective_versions[1:]
 
-    def _table_descriptor(self) -> str:
-        result = [self._display_str()]
+    def _table_descriptor(self, path: 'Path | None' = None) -> str:
+        result = [self._display_str(path)]
         bases_descrs: list[str] = []
         for base, effective_version in zip(self._get_base_tables(), self._effective_base_versions):
             if effective_version is None:

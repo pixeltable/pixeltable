@@ -11,10 +11,10 @@ from pixeltable.metadata.converters.util import convert_sql_table_record, conver
 
 
 @register_converter(version=30)
-def _(engine: sql.engine.Engine) -> None:
-    convert_table_md(engine, table_md_updater=__update_table_md)
-    convert_sql_table_record(TableVersionAtV30, engine, record_updater=__update_table_version_record)
-    convert_sql_table_record(TableSchemaVersionAtV30, engine, record_updater=__update_table_schema_version_record)
+def _(conn: sql.Connection) -> None:
+    convert_table_md(conn, table_md_updater=__update_table_md)
+    convert_sql_table_record(TableVersionAtV30, conn, record_updater=__update_table_version_record)
+    convert_sql_table_record(TableSchemaVersionAtV30, conn, record_updater=__update_table_schema_version_record)
 
 
 def __update_table_md(md: dict, tbl_id: uuid.UUID) -> None:

@@ -14,6 +14,8 @@ import uuid
 from pathlib import Path
 from typing import Any, ClassVar, Iterable, Literal, Mapping, Sequence, Union
 
+import pgvector.sqlalchemy  # type: ignore[import-untyped]
+
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
 import av
@@ -614,6 +616,13 @@ class ColumnType:
     def create_literal(self, val: Any) -> Any:
         """Create a literal of this type from val or raise TypeError if not possible"""
         if val is not None:
+            if isinstance(val, enum.Enum):
+                # an enum member is stored as its underlying value
+                val = val.value
+            if isinstance(val, Path):
+                # normalize a filesystem path to its string form, so a pathlib.Path (e.g. from a pydantic field
+                # typed Path) is treated like the equivalent str path
+                val = str(val)
             val = self._create_literal(val)
 
         self.validate_literal(val)
@@ -684,12 +693,11 @@ class ColumnType:
         # types that can be offloaded to file-based storage via a CellMaterializationNode
         return self.is_array_type() or self.is_json_type() or self.is_binary_type()
 
-    @classmethod
-    @abc.abstractmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
+    def to_sa_type(self) -> sql.types.TypeEngine:
         """
         Return corresponding SQLAlchemy type.
         """
+        return to_sa_type(self._type)
 
     def to_json_schema(self) -> dict[str, Any]:
         if self.nullable:
@@ -761,14 +769,60 @@ class ColumnType:
 
         return None
 
+    @classmethod
+    def from_sa_type(cls, sa_type: sql.types.TypeEngine, nullable: bool) -> ColumnType | None:
+        """
+        Return the pixeltable type corresponding to a SQLAlchemy type, or None if there is no mapping.
+
+        The inverse of `to_sa_type()`; used to infer a schema from an external SQL source.
+        """
+        if isinstance(sa_type, sql.types.Boolean):
+            return BoolType(nullable=nullable)
+        if isinstance(sa_type, sql.types.Integer):
+            return IntType(nullable=nullable)
+        if isinstance(sa_type, (sql.types.Numeric, sql.types.Float)):
+            return FloatType(nullable=nullable)
+        if isinstance(sa_type, sql.types.DateTime):
+            return TimestampType(nullable=nullable)
+        if isinstance(sa_type, sql.types.Date):
+            return DateType(nullable=nullable)
+        if isinstance(sa_type, sql.types.Uuid):
+            return UUIDType(nullable=nullable)
+        if isinstance(sa_type, sql.types.LargeBinary):
+            return BinaryType(nullable=nullable)
+        if isinstance(sa_type, sql.types.JSON):
+            return JsonType(nullable=nullable)
+        if isinstance(sa_type, sql.types.String):
+            return StringType(nullable=nullable)
+        return None
+
+
+_SA_TYPE_MAP: dict[ColumnType.Type, sql.types.TypeEngine] = {
+    ColumnType.Type.INVALID: sql.types.NullType(),
+    ColumnType.Type.STRING: sql.String(),
+    ColumnType.Type.INT: sql.BigInteger(),
+    ColumnType.Type.FLOAT: sql.Float(),
+    ColumnType.Type.BOOL: sql.Boolean(),
+    ColumnType.Type.TIMESTAMP: sql.TIMESTAMP(timezone=True),
+    ColumnType.Type.DATE: sql.Date(),
+    ColumnType.Type.UUID: sql.UUID(as_uuid=True),
+    ColumnType.Type.BINARY: sql.LargeBinary(),
+    ColumnType.Type.JSON: sql.dialects.postgresql.JSONB(),
+    ColumnType.Type.ARRAY: sql.LargeBinary(),
+    ColumnType.Type.IMAGE: sql.String(),
+    ColumnType.Type.VIDEO: sql.String(),
+    ColumnType.Type.AUDIO: sql.String(),
+    ColumnType.Type.DOCUMENT: sql.String(),
+}
+
+
+def to_sa_type(t: ColumnType.Type) -> sql.types.TypeEngine:
+    return _SA_TYPE_MAP[t]
+
 
 class InvalidType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.INVALID, nullable=nullable)
-
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        return sql.types.NullType()
 
     def print_value(self, val: Any) -> str:
         return str(val)
@@ -783,10 +837,6 @@ class StringType(ColumnType):
 
     def has_supertype(self) -> bool:
         return not self.nullable
-
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        return sql.String()
 
     def _to_json_schema(self) -> dict[str, Any]:
         return {'type': 'string'}
@@ -811,10 +861,6 @@ class IntType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.INT, nullable=nullable)
 
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        return sql.BigInteger()
-
     def _to_json_schema(self) -> dict[str, Any]:
         return {'type': 'integer'}
 
@@ -828,10 +874,6 @@ class IntType(ColumnType):
 class FloatType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.FLOAT, nullable=nullable)
-
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        return sql.Float()
 
     def _to_json_schema(self) -> dict[str, Any]:
         return {'type': 'number'}
@@ -849,10 +891,6 @@ class FloatType(ColumnType):
 class BoolType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.BOOL, nullable=nullable)
-
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        return sql.Boolean()
 
     def _to_json_schema(self) -> dict[str, Any]:
         return {'type': 'boolean'}
@@ -874,10 +912,6 @@ class TimestampType(ColumnType):
     def has_supertype(self) -> bool:
         return not self.nullable
 
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        return sql.TIMESTAMP(timezone=True)
-
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, datetime.datetime):
             raise TypeError(f'Expected datetime.datetime, got {val.__class__.__name__}')
@@ -886,7 +920,7 @@ class TimestampType(ColumnType):
         from pixeltable.env import Env  # local import to avoid circular imports
 
         if isinstance(val, str):
-            return datetime.datetime.fromisoformat(val)
+            val = datetime.datetime.fromisoformat(val)
         # Place naive timestamps in the default time zone
         if isinstance(val, datetime.datetime) and val.tzinfo is None:
             return val.replace(tzinfo=Env.get().default_time_zone)
@@ -899,10 +933,6 @@ class DateType(ColumnType):
 
     def has_supertype(self) -> bool:
         return not self.nullable
-
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        return sql.Date()
 
     def _validate_literal(self, val: Any) -> None:
         if not isinstance(val, datetime.date):
@@ -922,10 +952,6 @@ class UUIDType(ColumnType):
 
     def has_supertype(self) -> bool:
         return not self.nullable
-
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        return sql.UUID(as_uuid=True)
 
     def _to_json_schema(self) -> dict[str, Any]:
         return {'type': 'string', 'format': 'uuid'}
@@ -949,10 +975,6 @@ class UUIDType(ColumnType):
 class BinaryType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.BINARY, nullable=nullable)
-
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        return sql.LargeBinary()
 
     def _to_base_str(self) -> str:
         return 'Binary'
@@ -1081,10 +1103,6 @@ class JsonType(ColumnType):
             type_schema=JsonType.TypeSchema.from_dict(type_schema) if type_schema is not None else None,
             nullable=d['nullable'],
         )
-
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        return sql.dialects.postgresql.JSONB()
 
     def print_value(self, val: Any) -> str:
         val_type = self.infer_literal_type(val)
@@ -1356,12 +1374,17 @@ class JsonType(ColumnType):
 
         def as_dict(self) -> dict[str, Any]:
             type_spec_d: list | dict
+            type_spec_key_order: list[str] | None = None
             if isinstance(self.type_spec, list):
                 type_spec_d = [t.as_dict() for t in self.type_spec]
             else:
                 type_spec_d = {k: t.as_dict() for k, t in self.type_spec.items()}
+                # Postgres JSONB does not necessarily preserve the dictionary key ordering. We need to separately
+                # preserve it in order to get consistent output from t.describe() and related operations.
+                type_spec_key_order = list(self.type_spec.keys())
             return {
                 'type_spec': type_spec_d,
+                'type_spec_key_order': type_spec_key_order,
                 'variadic_type': self.variadic_type.as_dict() if self.variadic_type is not None else None,
                 # there is no functional need for optional_keys to be sorted in the dict; it's purely to ensure a
                 # canonical dict representation (i.e., list(self.optional_keys) would be functionally equivalent here)
@@ -1377,6 +1400,11 @@ class JsonType(ColumnType):
             else:
                 assert isinstance(type_spec_d, dict)
                 type_spec = {k: ColumnType.from_dict(t) for k, t in type_spec_d.items()}
+                type_spec_key_order = d.get('type_spec_key_order')
+                if type_spec_key_order is not None:
+                    assert isinstance(type_spec_key_order, list)
+                    assert len(type_spec_key_order) == len(type_spec)
+                    type_spec = {k: type_spec[k] for k in type_spec_key_order}
             variadic_type_d = d['variadic_type']
             return cls(
                 type_spec=type_spec,
@@ -1559,10 +1587,6 @@ class ArrayType(ColumnType):
             return np.array(val, dtype=self.dtype)
         return val
 
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        return sql.LargeBinary()
-
 
 class ImageType(ColumnType):
     def __init__(
@@ -1643,10 +1667,6 @@ class ImageType(ColumnType):
         assert 'mode' in d
         return cls(width=d['width'], height=d['height'], mode=d['mode'], nullable=d['nullable'])
 
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        return sql.String()
-
     def _create_literal(self, val: Any) -> Any:
         if isinstance(val, str) and val.startswith('data:'):
             # try parsing this as a `data:` URL, and if successful, decode the image immediately
@@ -1681,11 +1701,6 @@ class VideoType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.VIDEO, nullable=nullable)
 
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        # stored as a file path
-        return sql.String()
-
     def _validate_literal(self, val: Any) -> None:
         self._validate_file_path(val)
 
@@ -1713,11 +1728,6 @@ class VideoType(ColumnType):
 class AudioType(ColumnType):
     def __init__(self, nullable: bool = False):
         super().__init__(self.Type.AUDIO, nullable=nullable)
-
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        # stored as a file path
-        return sql.String()
 
     def _validate_literal(self, val: Any) -> None:
         self._validate_file_path(val)
@@ -1790,11 +1800,6 @@ class DocumentType(ColumnType):
 
     def __hash__(self) -> int:
         return hash((self._type, self.nullable, self._doc_formats))
-
-    @classmethod
-    def to_sa_type(cls) -> sql.types.TypeEngine:
-        # stored as a file path
-        return sql.String()
 
     def _validate_literal(self, val: Any) -> None:
         self._validate_file_path(val)
@@ -1980,3 +1985,50 @@ ALL_PIXELTABLE_TYPES = (
     UUID,
     Binary,
 )
+
+
+_SA_TYPE_NAMES: dict[type, str] = {
+    sql.types.String: 'String',
+    sql.types.BigInteger: 'BigInteger',
+    sql.types.Float: 'Float',
+    sql.types.Boolean: 'Boolean',
+    sql.types.TIMESTAMP: 'Timestamp',
+    sql.types.LargeBinary: 'LargeBinary',
+    sql.types.Date: 'Date',
+    sql.types.UUID: 'UUID',
+    sql.dialects.postgresql.json.JSONB: 'JSONB',
+    pgvector.sqlalchemy.HALFVEC: 'HalfVec',
+    pgvector.sqlalchemy.Vector: 'Vector',
+}
+
+_SA_TYPE_BY_NAME: dict[str, type] = {name: t for t, name in _SA_TYPE_NAMES.items()}
+
+
+def sa_type_as_dict(t: sql.types.TypeEngine) -> dict:
+    d = {'type': _SA_TYPE_NAMES[type(t)]}
+    if isinstance(t, sql.types.String):
+        assert t.length is None
+    if isinstance(t, sql.types.TIMESTAMP):
+        assert t.timezone
+    if isinstance(t, sql.types.UUID):
+        assert t.as_uuid
+    if isinstance(t, sql.types.LargeBinary):
+        assert t.length is None
+    if isinstance(t, (pgvector.sqlalchemy.HALFVEC, pgvector.sqlalchemy.Vector)):
+        assert t.dim is not None
+        d['dim'] = t.dim
+    return d
+
+
+def sa_type_from_dict(d: dict) -> sql.types.TypeEngine:
+    clazz = _SA_TYPE_BY_NAME[d['type']]
+    t: sql.types.TypeEngine
+    if clazz == sql.types.TIMESTAMP:
+        t = sql.types.TIMESTAMP(timezone=True)
+    elif clazz == sql.types.UUID:
+        t = sql.types.UUID(as_uuid=True)
+    elif clazz in (pgvector.sqlalchemy.HALFVEC, pgvector.sqlalchemy.Vector):
+        t = clazz(d['dim'])
+    else:
+        t = clazz()
+    return t

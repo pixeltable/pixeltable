@@ -1,15 +1,15 @@
 from __future__ import annotations
 
+import base64
 import inspect
 from typing import TYPE_CHECKING, Any, Callable, Sequence
-from uuid import UUID
 
 import cloudpickle  # type: ignore[import-untyped]
 
 import pixeltable.exceptions as excs
 from pixeltable.runtime import get_runtime
 
-from .function import Function
+from .function import Function, InvalidFunction
 from .signature import Signature
 
 if TYPE_CHECKING:
@@ -20,7 +20,7 @@ class CallableFunction(Function):
     """Pixeltable Function backed by a Python Callable.
 
     CallableFunctions come in two flavors:
-    - references to lambdas and functions defined in notebooks, which are pickled and serialized to the store
+    - references to lambdas and functions defined in notebooks, which are pickled and cannot be serialized to the store
     - functions that are defined in modules are serialized via the default mechanism
     """
 
@@ -157,6 +157,12 @@ class CallableFunction(Function):
     def name(self) -> str:
         return self.self_name
 
+    @property
+    def is_storable(self) -> bool:
+        # a CallableFunction without a fully-qualified path has no serialized form other than a pickled body, which
+        # we don't want to store in the db; one with a path is serialized by reference and can be stored
+        return self.self_path is not None
+
     def overload(self, fn: Callable) -> CallableFunction:
         if self.self_path is None:
             raise excs.RequestError(
@@ -183,20 +189,32 @@ class CallableFunction(Function):
 
     def _as_dict(self) -> dict:
         if self.self_path is None:
-            # this is not a module function
+            # anonymous function (e.g. from Expr.apply() or a locally-defined @pxt.udf): serialize the pickled
+            # body by value so the result is self-contained (no reference into a particular catalog)
             assert not self.is_method and not self.is_property
-            from .function_registry import FunctionRegistry
-
-            id = FunctionRegistry.get().create_stored_function(self)
-            return {'id': id.hex}
+            store_md, binary = self.to_store()
+            return {'name': self.name, 'store_md': store_md, 'binary': base64.b64encode(binary).decode('ascii')}
         return super()._as_dict()
 
     @classmethod
     def _from_dict(cls, d: dict) -> Function:
+        if 'binary' in d:
+            try:
+                return cls.from_store(d['name'], d['store_md'], base64.b64decode(d['binary']))
+            except Exception:
+                error_msg = (
+                    f'the locally defined UDF {d["name"]!r} could not be deserialized. This probably means the UDF\n'
+                    'was defined in a notebook (or other interactive environment), and the environment has changed\n'
+                    'since the UDF was defined.'
+                )
+                return InvalidFunction(d['name'], d, error_msg)
         if 'id' in d:
-            from .function_registry import FunctionRegistry
-
-            return FunctionRegistry.get().get_stored_function(UUID(hex=d['id']))
+            # a legacy reference into the now-removed 'functions' table; the pickled body cannot be resolved from
+            # this dict alone, so it loads as an InvalidFunction rather than a usable function
+            name = d.get('name', str(d['id']))
+            return InvalidFunction(
+                name, d, f'the UDF {name!r} was stored in the legacy functions table, which is no longer supported'
+            )
         return super()._from_dict(d)
 
     def to_store(self) -> tuple[dict, bytes]:

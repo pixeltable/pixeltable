@@ -4,6 +4,5 @@ from pixeltable.metadata import register_converter
 
 
 @register_converter(version=42)
-def _(engine: sql.engine.Engine) -> None:
-    with engine.begin() as conn:
-        conn.execute(sql.text('ALTER TABLE tables ALTER COLUMN dir_id DROP NOT NULL'))
+def _(conn: sql.Connection) -> None:
+    conn.execute(sql.text('ALTER TABLE tables ALTER COLUMN dir_id DROP NOT NULL'))

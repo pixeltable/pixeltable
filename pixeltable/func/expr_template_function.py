@@ -69,6 +69,18 @@ class ExprTemplateFunction(Function):
         assert not self.is_polymorphic
         return self.templates[0]
 
+    @property
+    def is_storable(self) -> bool:
+        # with a fully-qualified path this serializes by reference; otherwise the template expressions are inlined
+        # by value, so it is storable only if every function embedded in them is itself storable
+        if self.self_path is not None:
+            return True
+        return all(
+            fn_call.fn.is_storable
+            for template in self.templates
+            for fn_call in template.expr.subexprs(exprs.FunctionCall)
+        )
+
     def instantiate(self, args: Sequence[Any], kwargs: dict[str, Any]) -> exprs.Expr:
         assert not self.is_polymorphic
         template = self.template
@@ -153,14 +165,17 @@ class ExprTemplateFunction(Function):
     def _as_dict(self) -> dict:
         if self.self_path is not None:
             return super()._as_dict()
-        assert not self.is_polymorphic
-        assert len(self.templates) == 1
-        return {'expr': self.template.expr.as_dict(), 'signature': self.signature.as_dict(), 'name': self.name}
+        return {
+            'templates': [{'expr': t.expr.as_dict(), 'signature': t.signature.as_dict()} for t in self.templates],
+            'name': self.name,
+        }
 
     @classmethod
     def _from_dict(cls, d: dict) -> Function:
-        if 'expr' not in d:
+        if 'templates' not in d:
+            # serialized by path; see Function._as_dict
             return super()._from_dict(d)
-        assert 'signature' in d and 'name' in d
-        template = ExprTemplate(exprs.Expr.from_dict(d['expr']), Signature.from_dict(d['signature']))
-        return cls([template], name=d['name'])
+        templates = [
+            ExprTemplate(exprs.Expr.from_dict(t['expr']), Signature.from_dict(t['signature'])) for t in d['templates']
+        ]
+        return cls(templates, name=d['name'])

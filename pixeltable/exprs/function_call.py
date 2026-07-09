@@ -145,8 +145,11 @@ class FunctionCall(Expr):
         self.id = self._create_id()
 
     def _create_rowid_refs(self, tbl: catalog.Table) -> list[Expr]:
-        target = tbl._tbl_version_path.tbl_version
-        return [RowidRef(target, i) for i in range(target.get().num_rowid_columns())]
+        path = tbl._tbl_path
+        return [
+            RowidRef(tbl=None, idx=i, tbl_id=path.tbl_id, normalized_base_id=path.rowid_normalized_base_id(i))
+            for i in range(path.num_rowid_columns())
+        ]
 
     def tbl_ids(self) -> set[UUID]:
         ids = super().tbl_ids()
@@ -458,7 +461,7 @@ class FunctionCall(Expr):
     def _as_dict(self) -> dict:
         return {
             'fn': self.fn.as_dict(),
-            'return_type': self.return_type.as_dict(),
+            'return_type': self.return_type.as_dict() if self.return_type is not None else None,
             'arg_idxs': self.arg_idxs,
             'kwarg_idxs': self.kwarg_idxs,
             'group_by_start_idx': self.group_by_start_idx,
@@ -471,7 +474,7 @@ class FunctionCall(Expr):
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> FunctionCall:
         fn = func.Function.from_dict(d['fn'])
-        return_type = ts.ColumnType.from_dict(d['return_type']) if 'return_type' in d else None
+        return_type = ts.ColumnType.from_dict(d['return_type']) if d.get('return_type') is not None else None
         arg_idxs: list[int] = d['arg_idxs']
         kwarg_idxs: dict[str, int] = d['kwarg_idxs']
         group_by_start_idx: int = d['group_by_start_idx']

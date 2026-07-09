@@ -2,11 +2,9 @@ from __future__ import annotations
 
 import builtins
 import copy
-import dataclasses
 import hashlib
 import itertools
 import json
-import traceback
 from pathlib import Path
 from types import TracebackType
 from typing import (
@@ -23,6 +21,7 @@ from typing import (
     Sequence,
     TypeVar,
     cast,
+    overload,
 )
 from uuid import UUID
 
@@ -72,18 +71,20 @@ class ResultSet:
 
     _rows: list[Row]
     _col_names: list[str]
-    __schema: dict[str, ColumnType]
+    _schema: dict[str, ColumnType]  # internal column types
     __formatter: Formatter
 
     def __init__(self, rows: list[Row], schema: dict[str, ColumnType]):
         self._rows = rows
         self._col_names = list(schema.keys())
-        self.__schema = schema
+        self._schema = schema
         self.__formatter = Formatter(len(self._rows), len(self._col_names), Env.get().http_address)
 
     @property
-    def schema(self) -> dict[str, ColumnType]:
-        return self.__schema
+    def schema(self) -> dict[str, str]:
+        """The result columns as a mapping from name to its type string."""
+        # matches Table.get_metadata()
+        return {name: col_type._to_str(as_schema=True) for name, col_type in self._schema.items()}
 
     def __len__(self) -> int:
         return len(self._rows)
@@ -93,7 +94,7 @@ class ResultSet:
 
     def _repr_html_(self) -> str:
         formatters: dict[Hashable, Callable[[object], str]] = {}
-        for col_name, col_type in self.schema.items():
+        for col_name, col_type in self._schema.items():
             formatter = self.__formatter.get_pandas_formatter(col_type)
             if formatter is not None:
                 formatters[col_name] = formatter
@@ -306,6 +307,12 @@ class ResultCursor(Iterable[Row]):
         self._columns = {name: i for i, name in enumerate(self._schema)}
         self._closed = False
 
+    @property
+    def schema(self) -> dict[str, str]:
+        """The result columns as a mapping from name to its type string."""
+        # matches Table.get_metadata()
+        return {name: col_type._to_str(as_schema=True) for name, col_type in self._schema.items()}
+
     def open(self) -> None:
         """Start the underlying query and prepare the cursor for iteration.
 
@@ -367,6 +374,30 @@ class ResultCursor(Iterable[Row]):
         return f'ResultCursor({state}, columns=[{cols}])'
 
 
+class ProxyResultCursor(ResultCursor):
+    """A ResultCursor over a result already materialized from a proxy catalog.
+
+    TODO: implement a streaming protocol
+    """
+
+    _result_set: ResultSet
+
+    def __init__(self, query: Query, result_set: ResultSet):
+        super().__init__(query)
+        self._result_set = result_set
+        # use the fetched result's schema/columns as authoritative (avoids any client-side schema staleness)
+        self._schema = result_set._schema
+        self._columns = {name: i for i, name in enumerate(result_set._schema)}
+
+    def open(self) -> None:
+        if self._row_iterator is not None:
+            raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'Cursor is already open.')
+        if self._closed:
+            raise excs.RequestError(excs.ErrorCode.INVALID_STATE, 'Cursor is closed and cannot be reopened.')
+        # a generator (not a plain iterator) so the inherited close() can call _row_iterator.close()
+        self._row_iterator = (list(row._data) for row in self._result_set._rows)
+
+
 class Query:
     """
     Represents a query for retrieving and transforming data from Pixeltable tables.
@@ -385,7 +416,7 @@ class Query:
 
     where_clause: exprs.Expr | None
     group_by_clause: list[exprs.Expr] | None
-    grouping_tbl: catalog.TableVersionHandle | None
+    grouping_tbl_key: catalog.TableVersionKey | None
     order_by_clause: list[tuple[exprs.Expr, bool]] | None
     limit_val: exprs.Expr | None
     offset_val: exprs.Expr | None
@@ -401,7 +432,7 @@ class Query:
         select_list: list[tuple[exprs.Expr, str | None]] | None = None,
         where_clause: exprs.Expr | None = None,
         group_by_clause: list[exprs.Expr] | None = None,
-        grouping_tbl: catalog.TableVersionHandle | None = None,
+        grouping_tbl_key: catalog.TableVersionKey | None = None,
         order_by_clause: list[tuple[exprs.Expr, bool]] | None = None,  # list[(expr, asc)]
         limit: exprs.Expr | None = None,
         offset: exprs.Expr | None = None,
@@ -426,9 +457,9 @@ class Query:
             self._schema = {column_names[i]: select_list_exprs[i].col_type for i in range(len(column_names))}
 
         self.where_clause = copy.deepcopy(where_clause)
-        assert group_by_clause is None or grouping_tbl is None
+        assert group_by_clause is None or grouping_tbl_key is None
         self.group_by_clause = copy.deepcopy(group_by_clause)
-        self.grouping_tbl = grouping_tbl
+        self.grouping_tbl_key = grouping_tbl_key
         self.order_by_clause = copy.deepcopy(order_by_clause)
         self.limit_val = limit
         self.offset_val = offset
@@ -446,15 +477,7 @@ class Query:
         """
         if select_list is None:
             select_list = [
-                (
-                    exprs.ColumnRef(
-                        col_md,
-                        cast(catalog.TableVersionPath, tbl).is_validate_on_read(col_md)
-                        if isinstance(tbl, catalog.TableVersionPath)
-                        else False,
-                    ),
-                    None,
-                )
+                (exprs.ColumnRef(col_md, tbl.is_validate_on_read(col_md)), None)
                 for tbl in tbls
                 for col_md in tbl.column_md()
             ]
@@ -496,6 +519,12 @@ class Query:
         assert self._from_clause.is_local
         return self._from_clause.tvps[0]
 
+    def _mutation_target(self) -> catalog.Table:
+        from_path = self._from_clause.tbls[0]
+        tbl = get_runtime().get_table_by_id(from_path.tbl_id, version=from_path.effective_version())
+        assert tbl is not None
+        return tbl
+
     @property
     def _effective_select_list(self) -> list[tuple[exprs.Expr, str]]:
         """Return the select list that would get materialized by collect()."""
@@ -533,6 +562,27 @@ class Query:
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'Multiple definitions of parameter {var.name!r}'
                 )
         return unique_vars
+
+    def _component_exprs(self) -> list[exprs.Expr]:
+        """Returns all exprs referenced in this query's clauses"""
+        result: list[exprs.Expr] = []
+        if self._select_list_exprs is not None:
+            result.extend(self._select_list_exprs)
+        if self.where_clause is not None:
+            result.append(self.where_clause)
+        if self.group_by_clause is not None:
+            result.extend(self.group_by_clause)
+        if self.order_by_clause is not None:
+            result.extend(expr for expr, _ in self.order_by_clause)
+        if self.limit_val is not None:
+            result.append(self.limit_val)
+        if self.offset_val is not None:
+            result.append(self.offset_val)
+        if self.sample_clause is not None and self.sample_clause.stratify_exprs is not None:
+            result.extend(self.sample_clause.stratify_exprs)
+        if self._from_clause is not None:
+            result.extend(c.join_predicate for c in self._from_clause.join_clauses if c.join_predicate is not None)
+        return result
 
     @classmethod
     def _convert_param_to_typed_expr(
@@ -657,15 +707,16 @@ class Query:
             # For now, we only support queries of the simplest form on unversioned tables
             assert len(self._from_clause.tbls) == 1, 'TODO: implement for unversioned tables [PXT-1101]'
             assert len(self._from_clause.join_clauses) == 0, 'TODO: implement for unversioned tables [PXT-1101]'
-            assert self.grouping_tbl is None, 'TODO: implement for unversioned tables [PXT-1101]'
+            assert self.grouping_tbl_key is None, 'TODO: implement for unversioned tables [PXT-1101]'
             assert self.group_by_clause is None, 'TODO: implement for unversioned tables [PXT-1101]'
             assert self.sample_clause is None, 'TODO: implement for unversioned tables [PXT-1101]'
 
         # construct a group-by clause if we're grouping by a table
         group_by_clause = self.group_by_clause
-        if self.grouping_tbl is not None:
+        if self.grouping_tbl_key is not None:
             assert group_by_clause is None
-            num_rowid_cols = len(self.grouping_tbl.get().store_tbl.rowid_columns())
+            grouping_tv = get_runtime().catalog.get_tbl_version(self.grouping_tbl_key)
+            num_rowid_cols = len(grouping_tv.store_tbl.rowid_columns())
             # the grouping table must be a base of self.tbl
             first_tbl = tvps[0]
             assert num_rowid_cols <= len(first_tbl.tbl_version.get().store_tbl.rowid_columns())
@@ -729,6 +780,9 @@ class Query:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'head() cannot be used with sample()')
         if self.group_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'head() cannot be used with group_by()')
+        if not self._from_clause.is_local:
+            # the rowid order_by needs the table's local store; run head() on the hosting catalog instead
+            return self._exec_proxy('head', n=n)
         num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         return self.order_by(*order_by_clause, asc=True).limit(n).collect()
@@ -756,6 +810,9 @@ class Query:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'tail() cannot be used with sample()')
         if self.group_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'tail() cannot be used with group_by()')
+        if not self._from_clause.is_local:
+            # the rowid order_by needs the table's local store; run tail() on the hosting catalog instead
+            return self._exec_proxy('tail', n=n)
         num_rowid_cols = len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         result = self.order_by(*order_by_clause, asc=False).limit(n).collect()
@@ -784,7 +841,7 @@ class Query:
             select_list=select_list,
             where_clause=self.where_clause,
             group_by_clause=self.group_by_clause,
-            grouping_tbl=self.grouping_tbl,
+            grouping_tbl_key=self.grouping_tbl_key,
             order_by_clause=self.order_by_clause,
             limit=copy.deepcopy(self.limit_val),
             offset=copy.deepcopy(self.offset_val),
@@ -792,23 +849,7 @@ class Query:
         )
 
     def _raise_expr_eval_err(self, e: excs.ExprEvalError) -> NoReturn:
-        msg = f'In row {e.row_num} the {e.expr_msg} encountered exception {type(e.exc).__name__}:\n{e.exc}'
-        if len(e.input_vals) > 0:
-            input_msgs = [
-                f"'{d}' = {d.col_type.print_value(e.input_vals[i])}" for i, d in enumerate(e.expr.dependencies())
-            ]
-            msg += f'\nwith {", ".join(input_msgs)}'
-        assert e.exc_tb is not None
-        stack_trace = traceback.format_tb(e.exc_tb)
-        if len(stack_trace) > 2:
-            # append a stack trace if the exception happened in user code
-            # (frame 0 is ExprEvaluator and frame 1 is some expr's eval()
-            nl = '\n'
-            # [-1:0:-1]: leave out entry 0 and reverse order, so that the most recent frame is at the top
-            msg += f'\nStack:\n{nl.join(stack_trace[-1:1:-1])}'
-        if isinstance(e.exc, excs.Error):
-            raise type(e.exc)(e.exc.error_code, msg) from e
-        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, msg) from e
+        excs.raise_from_expr_eval_err(e)
 
     def referenced_tbl_ids(self) -> set[UUID]:
         """Returns the IDs of all tables referenced by this query.
@@ -854,10 +895,24 @@ class Query:
                 raise  # just re-raise if not converted to a Pixeltable error
 
     def collect(self) -> ResultSet:
-        assert self._from_clause.is_local
+        if not self._from_clause.is_local:
+            return self._collect_proxy()
         tvps = self._from_clause.tvps
         with get_runtime().catalog.begin_xact(for_write=False, read_tvps=tvps, read_tbl_ids=self.referenced_tbl_ids()):
             return self._collect()
+
+    def _collect_proxy(self) -> ResultSet:
+        return self._exec_proxy('collect')
+
+    def _exec_proxy(self, method: str, **extra: Any) -> ResultSet:
+        from pixeltable.catalog.catalog_proxy import CatalogProxy
+
+        cat = get_runtime().get_catalog(self._from_clause.catalog_uri)
+        assert isinstance(cat, CatalogProxy)
+        result = cat.run_query(method, self.as_dict(), **extra)
+        schema: dict[str, ColumnType] = result['schema']
+        columns = {name: i for i, name in enumerate(schema)}
+        return ResultSet([Row(data, columns, schema) for data in result['rows']], schema)
 
     def _collect(self, args: dict[str, Any] | None = None) -> ResultSet:
         assert get_runtime().in_xact
@@ -873,6 +928,8 @@ class Query:
 
         See [`ResultCursor`][pixeltable.ResultCursor] for usage examples and lifecycle details.
         """
+        if not self._from_clause.is_local:
+            return ProxyResultCursor(self, self._collect_proxy())
         return ResultCursor(self)
 
     async def _acollect(self, args: dict[str, Any] | None = None) -> ResultSet:
@@ -911,15 +968,22 @@ class Query:
                 'count() cannot be used with limit() or offset(). Use `select(pxtf.count())` instead.',
             )
 
+        if not self._from_clause.is_local:
+            from pixeltable.catalog.catalog_proxy import CatalogProxy
+
+            cat = get_runtime().get_catalog(self._from_clause.catalog_uri)
+            assert isinstance(cat, CatalogProxy)
+            return cat.run_query('count', self.as_dict())
+
         count_query = Query(
             from_clause=self._from_clause,
             select_list=[(pxt_count(1), 'count')],
             where_clause=self.where_clause,
             group_by_clause=self.group_by_clause,
-            grouping_tbl=self.grouping_tbl,
+            grouping_tbl_key=self.grouping_tbl_key,
             sample_clause=copy.deepcopy(self.sample_clause),
         )
-        is_grouped = self.group_by_clause is not None or self.grouping_tbl is not None
+        is_grouped = self.group_by_clause is not None or self.grouping_tbl_key is not None
 
         assert self._from_clause.is_local
         with get_runtime().catalog.begin_xact(for_write=False, read_tvps=self._from_clause.tvps):
@@ -1091,7 +1155,7 @@ class Query:
             select_list=select_list,
             where_clause=self.where_clause,
             group_by_clause=self.group_by_clause,
-            grouping_tbl=self.grouping_tbl,
+            grouping_tbl_key=self.grouping_tbl_key,
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
             offset=self.offset_val,
@@ -1139,7 +1203,7 @@ class Query:
             select_list=self.select_list,
             where_clause=pred,
             group_by_clause=self.group_by_clause,
-            grouping_tbl=self.grouping_tbl,
+            grouping_tbl_key=self.grouping_tbl_key,
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
             offset=self.offset_val,
@@ -1190,7 +1254,7 @@ class Query:
         assert len(col_refs) > 0 and len(joined_tbls) >= 2
         for col_ref in col_refs:
             # identify the referenced column by name in 'other'
-            col_name = col_ref.col.name
+            col_name = col_ref.col_md.name
             rhs_col_md = other.get_column_md_by_name(col_name)
             if rhs_col_md is None:
                 raise excs.NotFoundError(
@@ -1199,26 +1263,25 @@ class Query:
             rhs_col_ref = exprs.ColumnRef(rhs_col_md)
 
             lhs_col_ref: exprs.ColumnRef | None = None
-            if any(tbl.has_column(col_ref.col.qid) for tbl in self._from_clause.tbls):
+            if any(tbl.has_column(col_ref.col_md.qcolid) for tbl in self._from_clause.tbls):
                 # col_ref comes from the existing from_clause, we use that directly
                 lhs_col_ref = col_ref
             else:
                 # col_ref comes from other, we need to look for a match in the existing from_clause by name
                 for tbl in self._from_clause.tbls:
-                    col_md = tbl.get_column_md_by_name(col_ref.col.name)
+                    col_md = tbl.get_column_md_by_name(col_name)
                     if col_md is None:
                         continue
                     if lhs_col_ref is not None:
                         raise excs.RequestError(
-                            excs.ErrorCode.UNSUPPORTED_OPERATION,
-                            f'`on`: ambiguous column reference: {col_ref.col.name}',
+                            excs.ErrorCode.UNSUPPORTED_OPERATION, f'`on`: ambiguous column reference: {col_name!r}'
                         )
                     lhs_col_ref = exprs.ColumnRef(col_md)
                 if lhs_col_ref is None:
                     tbl_names = [tbl.tbl_name() for tbl in self._from_clause.tbls]
                     raise excs.NotFoundError(
                         excs.ErrorCode.COLUMN_NOT_FOUND,
-                        f'`on`: column {col_ref.col.name!r} not found in any of: {" ".join(tbl_names)}',
+                        f'`on`: column {col_name!r} not found in any of: {" ".join(tbl_names)}',
                     )
             pred = exprs.Comparison(exprs.ComparisonOperator.EQ, lhs_col_ref, rhs_col_ref)
             predicates.append(pred)
@@ -1282,6 +1345,7 @@ class Query:
             >>> query = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
         """
         assert len(self._from_clause.tbls) > 0
+        # a join mixing catalogs (e.g. local + hosted) is rejected by FromClause's same-catalog check below
         if self._from_clause.tbls[0].is_versioned() != other._is_versioned():
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, 'join is not supported between versioned and unversioned tables'
@@ -1298,23 +1362,31 @@ class Query:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'`how={how!r}` requires `on` to be present'
                 )
-            join_pred = self._create_join_predicate(other.tbl_path, on)
+            join_pred = self._create_join_predicate(other._tbl_path, on)
         join_clause = JoinClause(join_type=JoinType.validated(how, '`how`'), join_predicate=join_pred)
         from_clause = FromClause(
-            tbls=[*self._from_clause.tbls, other.tbl_path], join_clauses=[*self._from_clause.join_clauses, join_clause]
+            tbls=[*self._from_clause.tbls, other._tbl_path], join_clauses=[*self._from_clause.join_clauses, join_clause]
         )
         return Query(
             from_clause=from_clause,
             select_list=self.select_list,
             where_clause=self.where_clause,
             group_by_clause=self.group_by_clause,
-            grouping_tbl=self.grouping_tbl,
+            grouping_tbl_key=self.grouping_tbl_key,
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
             offset=self.offset_val,
         )
 
-    def group_by(self, *grouping_items: Any) -> Query:
+    @overload
+    def group_by(self, grouping_tbl: catalog.Table, /) -> Query:
+        """Group a component view by its base table's rows."""
+
+    @overload
+    def group_by(self, *grouping_items: exprs.Expr) -> Query:
+        """Group by the given expressions."""
+
+    def group_by(self, *grouping_items: exprs.Expr | catalog.Table) -> Query:
         """Add a group-by clause to this Query.
 
         Variants:
@@ -1362,10 +1434,10 @@ class Query:
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'group_by() cannot be used with sample()')
 
-        grouping_tbl: catalog.TableVersionHandle | None = None
+        grouping_tbl_key: catalog.TableVersionKey | None = None
         group_by_clause: list[exprs.Expr] | None = None
         for item in grouping_items:
-            if isinstance(item, (catalog.Table, catalog.TableVersion)):
+            if isinstance(item, catalog.Table):
                 if len(grouping_items) > 1:
                     raise excs.RequestError(
                         excs.ErrorCode.UNSUPPORTED_OPERATION, 'group_by(): only one Table can be specified'
@@ -1374,28 +1446,27 @@ class Query:
                     raise excs.RequestError(
                         excs.ErrorCode.UNSUPPORTED_OPERATION, 'group_by() with Table not supported for joins'
                     )
-                # Take a handle (identity), not a TV instance: the Query may be invoked from a
-                # different thread/xact than the one that built it.
-                grouping_tv = item if isinstance(item, catalog.TableVersion) else item._tbl_version.get()
-                grouping_tbl = grouping_tv.handle
-                # we need to make sure that the grouping table is a base of self.tbl
-                base = self._first_tbl.find_tbl_version(grouping_tbl.id)
-                if base is None or base.id == self._first_tbl.tbl_id:
+                # the grouping table must be a base of this query's table (and not the table itself)
+                from_path = self._from_clause.tbls[0]
+                grouping_path = item._tbl_path
+                grouping_tbl_key = from_path.find_tbl_version(grouping_path.tbl_id)
+                if grouping_tbl_key is None or grouping_tbl_key.tbl_id == from_path.tbl_id:
                     raise excs.RequestError(
                         excs.ErrorCode.UNSUPPORTED_OPERATION,
-                        f'group_by(): {grouping_tv.name!r} is not a base table of {self._first_tbl.tbl_name()!r}',
+                        f'group_by(): {grouping_path.tbl_name()!r} is not a base table of {from_path.tbl_name()!r}',
                     )
                 break
             if not isinstance(item, exprs.Expr):
                 raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression in group_by(): {item}')
-        if grouping_tbl is None:
-            group_by_clause = list(grouping_items)
+        if grouping_tbl_key is None:
+            # no Table item was found, so every item passed the Expr check above
+            group_by_clause = cast('list[exprs.Expr]', list(grouping_items))
         return Query(
             from_clause=self._from_clause,
             select_list=self.select_list,
             where_clause=self.where_clause,
             group_by_clause=group_by_clause,
-            grouping_tbl=grouping_tbl,
+            grouping_tbl_key=grouping_tbl_key,
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
             offset=self.offset_val,
@@ -1464,13 +1535,13 @@ class Query:
             if not isinstance(e, exprs.Expr):
                 raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression in order_by(): {e}')
         order_by_clause = self.order_by_clause if self.order_by_clause is not None else []
-        order_by_clause.extend([(e.copy(), asc) for e in expr_list])
+        order_by_clause.extend((e.copy(), asc) for e in expr_list)
         return Query(
             from_clause=self._from_clause,
             select_list=self.select_list,
             where_clause=self.where_clause,
             group_by_clause=self.group_by_clause,
-            grouping_tbl=self.grouping_tbl,
+            grouping_tbl_key=self.grouping_tbl_key,
             order_by_clause=order_by_clause,
             limit=self.limit_val,
             offset=self.offset_val,
@@ -1528,7 +1599,7 @@ class Query:
             select_list=self.select_list,
             where_clause=self.where_clause,
             group_by_clause=self.group_by_clause,
-            grouping_tbl=self.grouping_tbl,
+            grouping_tbl_key=self.grouping_tbl_key,
             order_by_clause=self.order_by_clause,
             limit=limit_expr,
             offset=offset_expr,
@@ -1655,7 +1726,7 @@ class Query:
             select_list=self.select_list,
             where_clause=self.where_clause,
             group_by_clause=self.group_by_clause,
-            grouping_tbl=self.grouping_tbl,
+            grouping_tbl_key=self.grouping_tbl_key,
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
             offset=self.offset_val,
@@ -1691,8 +1762,7 @@ class Query:
             >>> person.where(t.year == 2014).update({'age': 30})
         """
         self._validate_mutable('update', False)
-        with get_runtime().catalog.begin_xact(for_write=True, write_tvps=[self._first_tbl], lock_mutable_tree=True):
-            return self._first_tbl.tbl_version.get().update(value_spec, where=self.where_clause, cascade=cascade)
+        return self._mutation_target().update(value_spec, where=self.where_clause, cascade=cascade)
 
     def recompute_columns(
         self, *columns: str | exprs.ColumnRef, errors_only: bool = False, cascade: bool = True
@@ -1715,10 +1785,9 @@ class Query:
             >>> query = person.where(t.age < 18).recompute_columns(person.height)
         """
         self._validate_mutable('recompute_columns', False)
-        with get_runtime().catalog.begin_xact(for_write=True, write_tvps=[self._first_tbl], lock_mutable_tree=True):
-            tbl = get_runtime().catalog.get_table_by_id(self._first_tbl.tbl_id)
-
-        return tbl.recompute_columns(*columns, where=self.where_clause, errors_only=errors_only, cascade=cascade)
+        return self._mutation_target().recompute_columns(
+            *columns, where=self.where_clause, errors_only=errors_only, cascade=cascade
+        )
 
     def delete(self) -> UpdateStatus:
         """Delete rows form the underlying table of the Query.
@@ -1734,10 +1803,9 @@ class Query:
             >>> person.where(t.age < 18).delete()
         """
         self._validate_mutable('delete', False)
-        if not self._first_tbl.is_insertable():
+        if self._from_clause.tbls[0].is_view():
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot use `delete` on a view.')
-        with get_runtime().catalog.begin_xact(for_write=True, write_tvps=[self._first_tbl], lock_mutable_tree=True):
-            return self._first_tbl.tbl_version.get().delete(where=self.where_clause)
+        return self._mutation_target().delete(where=self.where_clause)
 
     def _validate_mutable(self, op_name: str, allow_select: bool) -> None:
         """Tests whether this Query can be mutated (such as by an update operation).
@@ -1750,12 +1818,15 @@ class Query:
 
         # TODO: Reconcile these with Table.__check_mutable()
         assert len(self._from_clause.tbls) == 1
-        if self._first_tbl.is_snapshot():
+        # A pinned version is immutable. For a delegated catalog the from table of a pure-snapshot query is the base
+        # pinned at the snapshot version, which reports is_snapshot() == False but a non-None effective_version().
+        from_tbl = self._from_clause.tbls[0]
+        if from_tbl.is_snapshot() or from_tbl.effective_version() is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` on a snapshot.')
 
     def _validate_mutable_op_sequence(self, op_name: str, allow_select: bool) -> None:
         """Tests whether the sequence of operations on this Query is valid for a mutation operation."""
-        if self.group_by_clause is not None or self.grouping_tbl is not None:
+        if self.group_by_clause is not None or self.grouping_tbl_key is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `group_by`.')
         if self.order_by_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `order_by`.')
@@ -1774,8 +1845,16 @@ class Query:
         d = {
             '_classname': 'Query',
             'from_clause': {
-                'tbls': [tbl.as_dict() for tbl in self._from_clause.tvps],
-                'join_clauses': [dataclasses.asdict(clause) for clause in self._from_clause.join_clauses],
+                'tbls': [tbl.key().as_dict() for tbl in self._from_clause.tbls],
+                'join_clauses': [
+                    {
+                        'join_type': clause.join_type.name,
+                        'join_predicate': clause.join_predicate.as_dict()
+                        if clause.join_predicate is not None
+                        else None,
+                    }
+                    for clause in self._from_clause.join_clauses
+                ],
             },
             'select_list': [(e.as_dict(), name) for (e, name) in self.select_list]
             if self.select_list is not None
@@ -1784,7 +1863,7 @@ class Query:
             'group_by_clause': [e.as_dict() for e in self.group_by_clause]
             if self.group_by_clause is not None
             else None,
-            'grouping_tbl': self.grouping_tbl.as_dict() if self.grouping_tbl is not None else None,
+            'grouping_tbl': self.grouping_tbl_key.as_dict() if self.grouping_tbl_key is not None else None,
             'order_by_clause': [(e.as_dict(), asc) for (e, asc) in self.order_by_clause]
             if self.order_by_clause is not None
             else None,
@@ -1798,9 +1877,18 @@ class Query:
     def from_dict(cls, d: dict[str, Any]) -> 'Query':
         assert get_runtime().in_xact, 'Run Query.from_dict() in a transaction because it may involve metadata loading'
         tbls: list[catalog.TablePath] = [
-            catalog.TableVersionPath.from_dict(tbl_dict) for tbl_dict in d['from_clause']['tbls']
+            catalog.TableVersionPath.from_key(catalog.TablePathKey.from_dict(tbl_dict))
+            for tbl_dict in d['from_clause']['tbls']
         ]
-        join_clauses = [JoinClause(**clause_dict) for clause_dict in d['from_clause']['join_clauses']]
+        join_clauses = [
+            JoinClause(
+                join_type=JoinType[clause_dict['join_type']],
+                join_predicate=exprs.Expr.from_dict(clause_dict['join_predicate'])
+                if clause_dict['join_predicate'] is not None
+                else None,
+            )
+            for clause_dict in d['from_clause']['join_clauses']
+        ]
         from_clause = FromClause(tbls=tbls, join_clauses=join_clauses)
         select_list = (
             [(exprs.Expr.from_dict(e), name) for e, name in d['select_list']] if d['select_list'] is not None else None
@@ -1809,8 +1897,8 @@ class Query:
         group_by_clause = (
             [exprs.Expr.from_dict(e) for e in d['group_by_clause']] if d['group_by_clause'] is not None else None
         )
-        grouping_tbl = (
-            catalog.TableVersionHandle.from_dict(d['grouping_tbl']) if d['grouping_tbl'] is not None else None
+        grouping_tbl_key = (
+            catalog.TableVersionKey.from_dict(d['grouping_tbl']) if d['grouping_tbl'] is not None else None
         )
         order_by_clause = (
             [(exprs.Expr.from_dict(e), asc) for e, asc in d['order_by_clause']]
@@ -1826,7 +1914,7 @@ class Query:
             select_list=select_list,
             where_clause=where_clause,
             group_by_clause=group_by_clause,
-            grouping_tbl=grouping_tbl,
+            grouping_tbl_key=grouping_tbl_key,
             order_by_clause=order_by_clause,
             limit=limit_val,
             offset=offset_val,

@@ -3,17 +3,19 @@ from __future__ import annotations
 import enum
 import time
 from typing import TYPE_CHECKING, Any, Literal, Sequence, overload
+from uuid import UUID
+
+import pydantic
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
-from pixeltable.types import ColumnSpec
 from pixeltable.utils.filecache import FileCache
 
 from .column import Column
 from .globals import MediaValidation
-from .table import Table
+from .local_table import LocalTable
 from .table_path import TableVersionPath
 from .table_version import TableVersion, TableVersionMd
 from .table_version_handle import TableVersionHandle
@@ -23,7 +25,10 @@ from .update_status import UpdateStatus
 if TYPE_CHECKING:
     from pixeltable import exprs
     from pixeltable.globals import TableDataSource
+    from pixeltable.io.data_sources import SqlDataSource
     from pixeltable.io.table_data_conduit import TableDataConduit
+
+    from .table import Table
 
 
 class OnErrorParameter(enum.Enum):
@@ -47,7 +52,7 @@ class OnErrorParameter(enum.Enum):
         return True
 
 
-class InsertableTable(Table):
+class InsertableTable(LocalTable):
     """A `Table` that allows inserting and deleting rows."""
 
     def __init__(self, tbl_version: TableVersionHandle):
@@ -62,15 +67,15 @@ class InsertableTable(Table):
     def _create(
         cls,
         name: str,
-        schema: dict[str, type | ColumnSpec | exprs.Expr],
+        columns: list[Column],
         primary_key: list[str],
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
         create_default_idxs: bool,
         is_versioned: bool,
+        tbl_id: UUID | None = None,
     ) -> tuple[TableVersionMd, list[TableOp]]:
-        columns = [Column.create(name, spec) for name, spec in schema.items()]
         cls._verify_schema(columns)
         column_names = [col.name for col in columns]
         for pk_col in primary_key:
@@ -96,6 +101,7 @@ class InsertableTable(Table):
             create_default_idxs=create_default_idxs,
             view_md=None,
             is_versioned=is_versioned,
+            tbl_id=tbl_id,
         )
 
         ops = (
@@ -145,8 +151,7 @@ class InsertableTable(Table):
     ) -> UpdateStatus:
         from pixeltable.io.table_data_conduit import TableDataConduit
 
-        if source is not None and isinstance(source, Sequence) and len(source) == 0:
-            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot insert an empty sequence.')
+        self._validate_insert_source(source)
         fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
 
         if source is None:
@@ -156,20 +161,56 @@ class InsertableTable(Table):
         data_source = TableDataConduit.create(
             source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
         )
-        if data_source.source_column_map is None:
-            data_source.src_pk = []
-
         data_source.add_table_info(self)
         data_source.prepare_for_insert_into_table()
 
-        return self.insert_table_data_source(
+        return self._insert_table_data_source(
             data_source=data_source,
             fail_on_exception=fail_on_exception,
             print_stats=print_stats,
             return_rows=return_rows,
         )
 
-    def insert_table_data_source(
+    def compute(
+        self,
+        source: Sequence[dict[str, Any]] | Sequence[pydantic.BaseModel],
+        /,
+        *,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+    ) -> list[dict[str, Any]]:
+        from pixeltable.io.table_data_conduit import PydanticTableDataConduit, RowDataTableDataConduit, TableDataConduit
+
+        # str/bytes are technically Sequences; reject them explicitly so we don't fall through to
+        # TableDataConduit.create() which would treat a string as a path/URL and trigger file I/O.
+        if isinstance(source, (str, bytes)) or not isinstance(source, Sequence) or len(source) == 0:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'compute() requires a non-empty sequence of dicts or pydantic models; got {type(source).__name__}',
+            )
+        fail_on_exc = OnErrorParameter.fail_on_exception(on_error)
+        # TableDataConduit.is_rowdata_structure() only accepts list (not arbitrary Sequence) for the
+        # dict-source dispatch, so normalize to list here.
+        data_source = TableDataConduit.create(list(source))
+        if not isinstance(data_source, (RowDataTableDataConduit, PydanticTableDataConduit)):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'compute() requires a sequence of dicts or pydantic models; got {type(source).__name__}',
+            )
+        data_source.add_table_info(self)
+        data_source.prepare_for_insert_into_table()
+
+        result: list[dict[str, Any]] = []
+        try:
+            with get_runtime().catalog.begin_xact(read_tbl_ids=[self._id]):
+                for row_batch in data_source.valid_row_batch():
+                    result.extend(self._tbl_version.get().compute(row_batch, fail_on_exc=fail_on_exc))
+        except excs.ExprEvalError as e:
+            excs.raise_from_expr_eval_err(e)
+
+        FileCache.get().emit_eviction_warnings()
+        return result
+
+    def _insert_table_data_source(
         self,
         data_source: TableDataConduit,
         fail_on_exception: bool,
@@ -184,19 +225,56 @@ class InsertableTable(Table):
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
-            if isinstance(data_source, QueryTableDataConduit):
-                status += self._tbl_version.get().insert(
-                    rows=None, query=data_source.pxt_query, print_stats=print_stats, fail_on_exception=fail_on_exception
-                )
-            else:
-                for row_batch in data_source.valid_row_batch():
+            # in on_error='abort' mode the exec raises the internal ExprEvalError on the first failing cell;
+            # convert it to a user-facing Error (on_error='ignore' records per-cell errors and never raises)
+            try:
+                if isinstance(data_source, QueryTableDataConduit):
                     status += self._tbl_version.get().insert(
-                        rows=row_batch,
-                        query=None,
+                        source=None,
+                        query=data_source.pxt_query,
                         print_stats=print_stats,
                         fail_on_exception=fail_on_exception,
-                        return_rows=return_rows,
                     )
+                else:
+                    for row_batch in data_source.valid_row_batch():
+                        status += self._tbl_version.get().insert(
+                            source=row_batch,
+                            query=None,
+                            print_stats=print_stats,
+                            fail_on_exception=fail_on_exception,
+                            return_rows=return_rows,
+                        )
+            except excs.ExprEvalError as e:
+                excs.raise_from_expr_eval_err(e)
+
+        Env.get().console_logger.info(status.insert_msg(start_ts))
+        FileCache.get().emit_eviction_warnings()
+        return status
+
+    def _insert_sql_source(
+        self,
+        sql_source: SqlDataSource,
+        *,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+        print_stats: bool = False,
+        return_rows: bool = False,
+    ) -> pxt.UpdateStatus:
+        """Stream a SqlDataSource into this table through a single insert plan.
+
+        Assumes the source's columns have already been validated against this table's schema.
+        """
+        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
+        start_ts = time.perf_counter()
+        with get_runtime().catalog.begin_xact(
+            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+        ):
+            status = self._tbl_version.get().insert(
+                source=sql_source,
+                query=None,
+                print_stats=print_stats,
+                fail_on_exception=fail_on_exception,
+                return_rows=return_rows,
+            )
 
         Env.get().console_logger.info(status.insert_msg(start_ts))
         FileCache.get().emit_eviction_warnings()
@@ -217,6 +295,7 @@ class InsertableTable(Table):
 
             >>> tbl.delete(tbl.a > 5)
         """
+        self._validate_where(where)
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
@@ -229,5 +308,5 @@ class InsertableTable(Table):
     def _effective_base_versions(self) -> list[int | None]:
         return []
 
-    def _table_descriptor(self) -> str:
-        return self._display_str()
+    def _table_descriptor(self, path: 'pxt.catalog.Path | None' = None) -> str:
+        return self._display_str(path)

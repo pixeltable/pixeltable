@@ -1,19 +1,22 @@
 import math
-from typing import Callable, Counter
+import os
+from pathlib import Path
+from typing import Callable
 
 import av
 import numpy as np
 import pytest
 
 import pixeltable as pxt
+from pixeltable import exprs
 from pixeltable.functions import util as functions_util
 from pixeltable.functions.audio import audio_splitter, encode_audio
 from pixeltable.utils import av as av_utils
-from pixeltable.utils.local_store import TempStore
-from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
+    MediaStore,
     ReloadTester,
+    TempStoreView,
     get_audio_file,
     get_audio_files,
     get_video_files,
@@ -43,6 +46,7 @@ class TestAudio:
             if codec is not None:
                 assert codec == audio_stream.codec_context.codec.name
 
+    @pytest.mark.local('audio media storage')
     def test_basic(self, uses_db: None) -> None:
         audio_filepaths = get_audio_files()
         audio_t = pxt.create_table('audio', {'audio_file': pxt.Audio})
@@ -52,44 +56,46 @@ class TestAudio:
         paths = audio_t.select(output=audio_t.audio_file.localpath).collect()['output']
         assert set(paths) == set(audio_filepaths)
 
-    def test_extract(self, uses_db: None) -> None:
+    def test_extract(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         video_filepaths = get_video_files()
-        video_t = pxt.create_table('videos', {'video': pxt.Video})
+        video_t = pxt.create_table(p('videos'), {'video': pxt.Video})
         video_t.add_computed_column(audio=video_t.video.extract_audio())
 
         # Directly count the number of videos with audio streams, without relying on the UDF
         videos_with_audio = 0
-        for p in video_filepaths:
-            md = functions_util.get_metadata(p)
+        for path in video_filepaths:
+            md = functions_util.get_metadata(path)
             if sum(1 for stream in md['streams'] if stream['type'] == 'audio') > 0:
                 videos_with_audio += 1
 
         validate_update_status(
-            video_t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths)
+            video_t.insert({'video': path} for path in video_filepaths), expected_rows=len(video_filepaths)
         )
-        assert ObjectOps.count(video_t._id, default_output_dest=True) == videos_with_audio
+        assert MediaStore.count(video_t, default_output_dest=True) == videos_with_audio
         assert video_t.where(video_t.audio != None).count() == videos_with_audio
-        tmp_files_before = TempStore.count()
+        tmp_files_before = TempStoreView.count(video_t)
 
-        video_t = pxt.get_table('videos')
+        video_t = pxt.get_table(p('videos'))
         assert video_t.where(video_t.audio != None).count() == videos_with_audio
 
         # test generating different formats and codecs
         paths = video_t.select(output=video_t.video.extract_audio(format='wav', codec='pcm_s16le')).collect()['output']
         # media files that are created as a part of a query end up in the tmp dir
-        assert TempStore.count() == tmp_files_before + video_t.where(video_t.audio != None).count()
-        for path in [p for p in paths if p is not None]:
+        assert TempStoreView.count(video_t) == tmp_files_before + video_t.where(video_t.audio != None).count()
+        for path in [pth for pth in paths if pth is not None]:
             self.check_audio_params(path, format='wav', codec='pcm_s16le')
         # higher resolution
         paths = video_t.select(output=video_t.video.extract_audio(format='wav', codec='pcm_s32le')).collect()['output']
-        for path in [p for p in paths if p is not None]:
+        for path in [pth for pth in paths if pth is not None]:
             self.check_audio_params(path, format='wav', codec='pcm_s32le')
 
         for format in av_utils.AUDIO_FORMATS.keys() - 'wav':
             paths = video_t.select(output=video_t.video.extract_audio(format=format)).collect()['output']
-            for path in [p for p in paths if p is not None]:
+            for path in [pth for pth in paths if pth is not None]:
                 self.check_audio_params(path, format=format)
 
+    @pytest.mark.local('pure UDF test')
     def test_get_metadata(self, uses_db: None) -> None:
         audio_filepaths = get_audio_files()
         base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
@@ -125,45 +131,23 @@ class TestAudio:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="cannot resolve 'not_an_attr'"):
             _ = base_t.audio.get_metadata().streams[0].not_an_attr
 
-    def __count_segments(
-        self,
-        start_time_sec: float,
-        total_duration_sec: float,
-        duration: float,
-        overlap: float,
-        min_segment_duration: float,
-    ) -> int:
-        effective_duration = duration - overlap
-        segment_count = 0
-        start = start_time_sec
-        end = start_time_sec + total_duration_sec
-        while True:
-            if start + duration >= end:
-                last_segment_size = end - start
-                if last_segment_size > 0 and last_segment_size >= min_segment_duration:
-                    segment_count += 1
-                break
-            start += effective_duration
-            segment_count += 1
-        return segment_count
+    def __has_audio(self, path: str) -> bool:
+        with av.open(path) as container:
+            return len(container.streams.audio) > 0
 
-    def __get_segment_count(
-        self, file: str, target_segment_size_sec: float, overlap: float, min_segment_duration: float
-    ) -> int:
-        container = av.open(file)
-        if len(container.streams.audio) == 0:
-            return 0
-        total_duration = container.streams.audio[0].duration or 0
-        start_time = container.streams.audio[0].start_time or 0
-        time_base = container.streams.audio[0].time_base
-        return self.__count_segments(
-            float(start_time * time_base),
-            float(total_duration * time_base),
-            target_segment_size_sec,
-            overlap,
-            min_segment_duration,
+    def __assert_tiling(self, segments: list[dict], *, overlap: float) -> None:
+        # segments for a single source, in ascending start order, must tile it: positive spans, strictly advancing
+        # starts, and no gap between consecutive segments (overlapping when overlap is requested)
+        assert len(segments) > 0
+        assert all(seg['segment_end'] > seg['segment_start'] for seg in segments)
+        assert all(segments[i + 1]['segment_start'] > segments[i]['segment_start'] for i in range(len(segments) - 1))
+        assert all(
+            segments[i + 1]['segment_start'] <= segments[i]['segment_end'] + 1e-3 for i in range(len(segments) - 1)
         )
+        if overlap > 0.0:
+            assert all(segments[i + 1]['segment_start'] < segments[i]['segment_end'] for i in range(len(segments) - 1))
 
+    @pytest.mark.local('TODO: convert; audio-splitter view')
     def test_audio_splitter_on_audio(self, uses_db: None, reload_tester: ReloadTester) -> None:
         audio_filepaths = get_audio_files()
         base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
@@ -173,111 +157,39 @@ class TestAudio:
             base_t,
             iterator=audio_splitter(audio=base_t.audio, duration=5.0, overlap=1.25, min_segment_duration=0.5),
         )
-        file_to_segments = {file: self.__get_segment_count(file, 5.0, 1.25, 0.5) for file in audio_filepaths}
-        results = reload_tester.run_query(audio_segment_view.order_by(audio_segment_view.pos))
-        file_to_segments_from_view: dict[str, int] = dict(Counter(result['audio'] for result in results))
-        assert len(results) == sum(file_to_segments.values())
-        for file, count in file_to_segments.items():
-            assert count == file_to_segments_from_view.get(file, 0)
+        results = reload_tester.run_query(
+            audio_segment_view.order_by(audio_segment_view.audio, audio_segment_view.segment_start).select(
+                audio_segment_view.audio, audio_segment_view.segment_start, audio_segment_view.segment_end
+            )
+        )
+        segments_by_file: dict[str, list[dict]] = {}
+        for result in results:
+            segments_by_file.setdefault(result['audio'], []).append(result)
+        # every source that has an audio stream is split into a tiling of overlapping segments
+        assert set(segments_by_file) == {file for file in audio_filepaths if self.__has_audio(file)}
+        for segments in segments_by_file.values():
+            self.__assert_tiling(segments, overlap=1.25)
         reload_tester.run_reload_test()
 
-    def test_audio_splitter_on_videos_revert_media_store(self, uses_db: None, reload_tester: ReloadTester) -> None:
+    def test_audio_splitter_on_videos_revert_media_store(
+        self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester
+    ) -> None:
+        p = make_catalog_path
         video_filepaths = get_video_files()
-        video_t = pxt.create_table('videos', {'video': pxt.Video})
-        video_t.insert({'video': p} for p in video_filepaths)
+        video_t = pxt.create_table(p('videos'), {'video': pxt.Video})
+        video_t.insert({'video': path} for path in video_filepaths)
 
-        pre_count = ObjectOps.count(video_t._id, default_output_dest=True)
+        pre_count = MediaStore.count(video_t, default_output_dest=True)
         # extract audio
         video_t.add_computed_column(audio=video_t.video.extract_audio(format='mp3'))
-        post_count = ObjectOps.count(video_t._id, default_output_dest=True)
+        post_count = MediaStore.count(video_t, default_output_dest=True)
         assert post_count > pre_count  # Some files should have been added
 
-        print(video_t.history())
         video_t.revert()
-        final_count = ObjectOps.count(video_t._id, default_output_dest=True)
+        final_count = MediaStore.count(video_t, default_output_dest=True)
         assert final_count == pre_count  # Reverting should remove the added files
 
-    def test_audio_splitter_on_videos(self, uses_db: None, reload_tester: ReloadTester) -> None:
-        video_filepaths = get_video_files()
-        video_t = pxt.create_table('videos', {'video': pxt.Video})
-        video_t.insert({'video': p} for p in video_filepaths)
-        # extract audio
-        video_t.add_computed_column(audio=video_t.video.extract_audio(format='mp3'))
-        audio_segment_view = pxt.create_view(
-            'audio_segments',
-            video_t,
-            iterator=audio_splitter(audio=video_t.audio, duration=2.0, overlap=0.5, min_segment_duration=0.25),
-        )
-        audio_files = [
-            result['audio'] for result in video_t.select(video_t.audio).where(video_t.audio != None).collect()
-        ]
-        results = reload_tester.run_query(audio_segment_view.order_by(audio_segment_view.pos))
-        file_to_segments = {file: self.__get_segment_count(file, 2.0, 0.5, 0.25) for file in audio_files}
-        file_to_segments_from_view: dict[str, int] = dict(Counter(result['audio'] for result in results))
-        assert len(results) == sum(file_to_segments.values())
-        for file, count in file_to_segments.items():
-            assert count == file_to_segments_from_view.get(file, 0)
-        reload_tester.run_reload_test()
-
-    def test_audio_splitter_build_segments(self) -> None:
-        build_segments: Callable = audio_splitter.decorated_callable.build_segments  # type: ignore[attr-defined]
-        segments = build_segments(0, 1005, 100, 0, 10)
-        assert len(segments) == self.__count_segments(0, 1005, 100, 0, 10)
-        assert all((segment[1] - segment[0]) == 100 for segment in segments)
-        segments = build_segments(0, 1005, 100, 10, 16)
-        assert len(segments) == self.__count_segments(0, 1005, 100, 10, 16)
-        assert all((segment[1] - segment[0]) == 100 for segment in segments)
-        assert segments[-1][0] == 900
-        assert segments[-1][1] == 1000
-        segments = build_segments(0, 1005, 100, 10, 0)
-        assert len(segments) == self.__count_segments(0, 1005, 100, 10, 0)
-        assert all((segment[1] - segment[0]) == 100 for segment in segments[:-1])
-        assert segments[-1][0] == 990
-        assert segments[-1][1] == 1005
-        segments = build_segments(0, 1005, 100, 0, 0)
-        assert len(segments) == self.__count_segments(0, 1005, 100, 0, 0)
-        assert all((segment[1] - segment[0]) == 100 for segment in segments[:-1])
-        assert segments[-1][0] == 1000
-        assert segments[-1][1] == 1005
-        segments = build_segments(0, 1.25, 0.15, 0, 0.051)
-        assert len(segments) == self.__count_segments(0, 1.25, 0.15, 0, 0.051)
-        assert all(round((segment[1] - segment[0]), 2) == 0.15 for segment in segments)
-        assert round(segments[-1][0], 2) == 1.05
-        assert round(segments[-1][1], 2) == 1.2
-        segments = build_segments(0.2, 1.25, 0.15, 0, 0.05)
-        assert len(segments) == self.__count_segments(0.2, 1.25, 0.15, 0, 0.05)
-        assert all(round((segment[1] - segment[0]), 2) == 0.15 for segment in segments[:-1])
-        assert round(segments[-1][0], 2) == 1.4
-        assert round(segments[-1][1], 2) == 1.45
-        segments = build_segments(1000, 5, 100, 0, 10)
-        assert len(segments) == 0
-        segments = build_segments(1000, 1005, 100, 0, 10)
-        assert len(segments) == 10
-        segments = build_segments(0, 5, 100, 0, 10)
-        assert len(segments) == 0
-        segments = build_segments(0, 0, 100, 10, 0)
-        assert len(segments) == 0
-        segments = build_segments(0, 11.17, 0.5, 0.25, 0)
-        assert len(segments) == self.__count_segments(0, 11.17, 0.5, 0.25, 0.0)
-        assert round(segments[-1][0], 2) == 10.75
-        assert round(segments[-1][1], 2) == 11.17
-        segments = build_segments(0, 11.17, 0.5, 0.1, 0)
-        assert len(segments) == self.__count_segments(0, 11.17, 0.5, 0.1, 0.0)
-        assert round(segments[-1][0], 2) == 10.8
-        assert round(segments[-1][1], 2) == 11.17
-        segments = build_segments(0, 11.17, 0.5, 0.1, 0.4)
-        assert len(segments) == self.__count_segments(0, 11.17, 0.5, 0.1, 0.4)
-        assert round(segments[-1][0], 2) == 10.40
-        assert round(segments[-1][1], 2) == 10.90
-        segments = build_segments(0, 60, 14, 7.5, 10)
-        assert len(segments) == self.__count_segments(0, 60, 14, 7.5, 10)
-        assert round(segments[-1][0], 2) == 45.5
-        assert round(segments[-1][1], 2) == 59.5
-        segments = build_segments(10, 60, 14, 7.5, 10)
-        assert len(segments) == self.__count_segments(0, 60, 14, 7.5, 10)
-        assert round(segments[-1][0], 2) == 55.5
-        assert round(segments[-1][1], 2) == 69.5
-
+    @pytest.mark.local('TODO: convert; audio-splitter view')
     def test_audio_splitter_single_file(self, uses_db: None, reload_tester: ReloadTester) -> None:
         audio_filepath = get_audio_file('jfk_1961_0109_cityuponahill-excerpt.flac')  # 60s audio file
         base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
@@ -287,38 +199,235 @@ class TestAudio:
             base_t,
             iterator=audio_splitter(audio=base_t.audio, duration=5.0, overlap=0.0, min_segment_duration=0.0),
         )
-        assert audio_segment_view.count() == self.__get_segment_count(audio_filepath, 5.0, 0.0, 0.0)
+        # a 60s file split into non-overlapping 5s segments yields 12 segments landing exactly on the k * duration
+        # grid (no drift) and covering the whole file
+        assert audio_segment_view.count() == 12
         results = reload_tester.run_query(audio_segment_view.order_by(audio_segment_view.pos))
-        for result in results:
-            assert result['audio'] == audio_filepath
+        assert all(result['audio'] == audio_filepath for result in results)
         assert results[-1]['segment_end'] == 60
-        for i in range(len(results)):
-            assert math.floor(results[i]['segment_start']) == i * 5.0
-        for i in range(len(results) - 1):
-            assert round(results[i]['segment_end'] - results[i]['segment_start']) == 5.0
-
-        audio_segment_view = pxt.create_view(
-            'audio_segments_overlap',
-            base_t,
-            iterator=audio_splitter(audio=base_t.audio, duration=14.0, overlap=2.5, min_segment_duration=0.0),
+        assert all(math.floor(results[i]['segment_start']) == i * 5.0 for i in range(len(results)))
+        assert all(
+            round(results[i]['segment_end'] - results[i]['segment_start']) == 5.0 for i in range(len(results) - 1)
         )
-        assert audio_segment_view.count() == self.__get_segment_count(audio_filepath, 14.0, 2.5, 0.0)
-        results = reload_tester.run_query(audio_segment_view.order_by(audio_segment_view.pos))
-        for result in results:
-            assert result['audio'] == audio_filepath
-        assert results[-1]['segment_end'] == 60
 
-        audio_segment_view = pxt.create_view(
-            'audio_segments_overlap_with_drop',
+        # 60s / 7s leaves a 4s trailing segment; min_segment_duration=5 drops it, so 8 segments end at 56 rather than 9
+        drop_view = pxt.create_view(
+            'audio_segments_drop',
             base_t,
-            iterator=audio_splitter(audio=base_t.audio, duration=14.0, overlap=7.5, min_segment_duration=10),
+            iterator=audio_splitter(audio=base_t.audio, duration=7.0, min_segment_duration=5.0),
         )
-        assert audio_segment_view.count() == self.__get_segment_count(audio_filepath, 14.0, 7.5, 10.0)
-        results = reload_tester.run_query(audio_segment_view.order_by(audio_segment_view.pos))
-        for result in results:
-            assert result['audio'] == audio_filepath
+        assert drop_view.count() == 8
+        drop_results = drop_view.order_by(drop_view.pos).select(drop_view.segment_end).collect()
+        assert math.floor(drop_results[-1]['segment_end']) == 56
         reload_tester.run_reload_test()
 
+    @pytest.mark.local('TODO: convert; audio-splitter view')
+    def test_audio_splitter_overlap_smaller_than_packet(self, uses_db: None) -> None:
+        # sample.flac has ~0.096s packets; an overlap smaller than a single packet must still be honored. Selecting
+        # overlap packets by start timestamp drops the final packet (its start precedes the overlap window) and would
+        # yield contiguous, non-overlapping segments.
+        audio_filepath = get_audio_file('sample.flac')
+        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
+        validate_update_status(base_t.insert([{'audio': audio_filepath}]))
+        view = pxt.create_view(
+            'audio_segments', base_t, iterator=audio_splitter(audio=base_t.audio, duration=1.0, overlap=0.05)
+        )
+        results = view.order_by(view.pos).select(view.segment_start, view.segment_end).collect()
+        assert len(results) > 1
+        # consecutive segments overlap in time despite the requested overlap being smaller than one packet
+        assert all(results[i + 1]['segment_start'] < results[i]['segment_end'] for i in range(len(results) - 1))
+
+    def __frame_count(self, path: str) -> int:
+        with av.open(path) as container:
+            return sum(1 for _ in container.decode(audio=0))
+
+    @pytest.mark.local('TODO: convert; audio-splitter view')
+    def test_audio_splitter_max_size(self, uses_db: None, reload_tester: ReloadTester) -> None:
+        # exercise the byte-driven packing across every container layout and codec in the fixtures
+        audio_filepaths = get_audio_files()
+        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
+        validate_update_status(base_t.insert({'audio': p} for p in audio_filepaths), expected_rows=len(audio_filepaths))
+
+        max_size = 128 * 1024
+        view = pxt.create_view('audio_segments', base_t, iterator=audio_splitter(audio=base_t.audio, max_size=max_size))
+        results = reload_tester.run_query(
+            view.order_by(view.audio, view.pos).select(
+                view.audio, view.segment_start, view.segment_end, path=view.audio_segment.localpath
+            )
+        )
+        # every emitted segment stays within the byte budget
+        assert all(os.path.getsize(r['path']) <= max_size for r in results)
+        # every segment spans a positive amount of time
+        assert all(r['segment_end'] > r['segment_start'] for r in results)
+        # each source produces more than one segment for this budget
+        assert all(sum(1 for r in results if r['audio'] == src) > 1 for src in audio_filepaths)
+        # with no overlap, the segments together cover each source exactly: no audio is lost or duplicated
+        assert all(
+            sum(self.__frame_count(r['path']) for r in results if r['audio'] == src) == self.__frame_count(src)
+            for src in audio_filepaths
+        )
+        reload_tester.run_reload_test()
+
+    @pytest.mark.local('TODO: convert; audio-splitter view')
+    def test_audio_splitter_max_size_overlap(self, uses_db: None) -> None:
+        audio_filepath = get_audio_file('sample.flac')
+        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
+        validate_update_status(base_t.insert([{'audio': audio_filepath}]))
+
+        max_size = 128 * 1024
+        view = pxt.create_view(
+            'audio_segments', base_t, iterator=audio_splitter(audio=base_t.audio, max_size=max_size, overlap=0.5)
+        )
+        results = (
+            view.order_by(view.pos)
+            .select(view.segment_start, view.segment_end, path=view.audio_segment.localpath)
+            .collect()
+        )
+        assert all(os.path.getsize(r['path']) <= max_size for r in results)
+        # consecutive segments overlap in time
+        assert all(results[i + 1]['segment_start'] < results[i]['segment_end'] for i in range(len(results) - 1))
+        # overlap means the segments together cover more audio than the source
+        total_frames = sum(self.__frame_count(r['path']) for r in results)
+        assert total_frames > self.__frame_count(audio_filepath)
+
+    @pytest.mark.local('TODO: convert; audio-splitter view')
+    def test_audio_splitter_max_size_errors(self, uses_db: None) -> None:
+        audio_filepath = get_audio_file('sample.flac')
+        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
+        validate_update_status(base_t.insert([{'audio': audio_filepath}]))
+
+        # These conditions depend on the packet sizes of the actual audio, so they are detected during view
+        # population rather than by the static validate() hook; population surfaces them as an aborted table op.
+
+        # max_size too small to hold even a single packet
+        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match=r'too small to hold a single packet'):
+            _ = pxt.create_view(
+                'audio_segments_tiny', base_t, iterator=audio_splitter(audio=base_t.audio, max_size=1024)
+            )
+
+        # overlap so large relative to max_size that segments cannot advance
+        with pxt_raises(pxt.ErrorCode.INTERNAL_ERROR, match=r'`overlap` is too large relative to `max_size`'):
+            _ = pxt.create_view(
+                'audio_segments_overlap',
+                base_t,
+                iterator=audio_splitter(audio=base_t.audio, max_size=128 * 1024, overlap=100.0),
+            )
+
+    def __make_tone_silence_wav(self, path: str, tone_sec: float, silence_sec: float, cycles: int) -> None:
+        # Write a mono wav alternating a 440 Hz tone with true silence, so silence boundaries are at known offsets.
+        sr = 16000
+        tone_samples = (0.3 * np.sin(2 * np.pi * 440 * np.arange(int(tone_sec * sr)) / sr) * 32767).astype(np.int16)
+        silence_samples = np.zeros(int(silence_sec * sr), dtype=np.int16)
+        audio = np.tile(np.concatenate([tone_samples, silence_samples]), cycles)
+        with av.open(path, mode='w') as out:
+            stream = out.add_stream('pcm_s16le', rate=sr)
+            assert isinstance(stream, av.AudioStream)
+            stream.layout = 'mono'
+            frame = av.AudioFrame.from_ndarray(audio.reshape(1, -1), format='s16', layout='mono')
+            frame.sample_rate = sr
+            for packet in stream.encode(frame):
+                out.mux(packet)
+            for packet in stream.encode():
+                out.mux(packet)
+
+    def __edge_rms(self, path: str, *, at_start: bool) -> float:
+        # rms of the first or last packet of a segment, normalized to full scale; a packet is the granularity at
+        # which silence detection and leading-trim operate
+        with av.open(path) as c:
+            packets = [p for p in c.demux(c.streams.audio[0]) if p.size > 0]
+            target = packets[0] if at_start else packets[-1]
+            chunks: list[np.ndarray] = []
+            for fr in target.decode():
+                assert isinstance(fr, av.AudioFrame)
+                chunks.append(fr.to_ndarray().reshape(-1))
+            samples = np.concatenate(chunks).astype(np.float64)
+        samples /= 32768.0
+        return float(np.sqrt(np.mean(samples**2))) if len(samples) > 0 else 0.0
+
+    @pytest.mark.local('TODO: convert; audio-splitter view')
+    def test_audio_splitter_silence(self, uses_db: None, tmp_path: Path, reload_tester: ReloadTester) -> None:
+        # 10 cycles of 0.8s tone + 0.4s silence = 12s, with silence gaps every 1.2s
+        audio_filepath = str(tmp_path / 'tone_silence.wav')
+        self.__make_tone_silence_wav(audio_filepath, tone_sec=0.8, silence_sec=0.4, cycles=10)
+        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
+        validate_update_status(base_t.insert([{'audio': audio_filepath}]))
+
+        view = pxt.create_view(
+            'audio_segments',
+            base_t,
+            iterator=audio_splitter(audio=base_t.audio, duration=3.0, min_silence_len=0.2, silence_thresh=-40.0),
+        )
+        results = reload_tester.run_query(
+            view.order_by(view.pos).select(view.segment_start, view.segment_end, path=view.audio_segment.localpath)
+        )
+        # every segment ends in silence rather than mid-tone, and stays within the duration budget
+        assert all(self.__edge_rms(r['path'], at_start=False) < 0.05 for r in results)
+        assert all(r['segment_end'] - r['segment_start'] <= 3.0 + 0.1 for r in results)
+        # the segments are contiguous and cover the whole clip
+        assert results[0]['segment_start'] == 0.0
+        assert results[-1]['segment_end'] == 12.0
+        assert all(results[i + 1]['segment_start'] == results[i]['segment_end'] for i in range(len(results) - 1))
+        reload_tester.run_reload_test()
+
+        # silence-aware cutting also works under a byte budget
+        size_view = pxt.create_view(
+            'audio_segments_size',
+            base_t,
+            iterator=audio_splitter(audio=base_t.audio, max_size=128 * 1024, min_silence_len=0.2, silence_thresh=-40.0),
+        )
+        size_results = size_view.order_by(size_view.pos).select(path=size_view.audio_segment.localpath).collect()
+        assert all(os.path.getsize(r['path']) <= 128 * 1024 for r in size_results)
+        assert all(self.__edge_rms(r['path'], at_start=False) < 0.05 for r in size_results)
+
+    @pytest.mark.local('TODO: convert; audio-splitter view')
+    def test_audio_splitter_trim_leading_silence(self, uses_db: None, tmp_path: Path) -> None:
+        # fixed-duration cuts land mid-cycle, so without trimming some segments would start in a silence gap
+        audio_filepath = str(tmp_path / 'tone_silence.wav')
+        self.__make_tone_silence_wav(audio_filepath, tone_sec=0.8, silence_sec=0.4, cycles=10)
+        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
+        validate_update_status(base_t.insert([{'audio': audio_filepath}]))
+
+        view = pxt.create_view(
+            'audio_segments',
+            base_t,
+            iterator=audio_splitter(audio=base_t.audio, duration=1.0, silence_thresh=-40.0, trim_leading_silence=True),
+        )
+        results = view.order_by(view.pos).select(path=view.audio_segment.localpath).collect()
+        # every emitted segment begins at audible content
+        assert len(results) > 0
+        assert all(self.__edge_rms(r['path'], at_start=True) > 0.05 for r in results)
+
+    @pytest.mark.local('TODO: convert; audio-splitter view')
+    def test_audio_splitter_trim_leading_silence_all_silent(self, uses_db: None, tmp_path: Path) -> None:
+        # 1s tone, then 4s of silence, then 1s tone: fixed-duration segments that fall entirely in the gap are dropped
+        audio_filepath = str(tmp_path / 'gap.wav')
+        sr = 16000
+        tone = (0.3 * np.sin(2 * np.pi * 440 * np.arange(sr) / sr) * 32767).astype(np.int16)
+        audio = np.concatenate([tone, np.zeros(4 * sr, dtype=np.int16), tone])
+        with av.open(audio_filepath, mode='w') as out:
+            stream = out.add_stream('pcm_s16le', rate=sr)
+            assert isinstance(stream, av.AudioStream)
+            stream.layout = 'mono'
+            frame = av.AudioFrame.from_ndarray(audio.reshape(1, -1), format='s16', layout='mono')
+            frame.sample_rate = sr
+            for packet in stream.encode(frame):
+                out.mux(packet)
+            for packet in stream.encode():
+                out.mux(packet)
+        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
+        validate_update_status(base_t.insert([{'audio': audio_filepath}]))
+
+        view = pxt.create_view(
+            'audio_segments',
+            base_t,
+            iterator=audio_splitter(audio=base_t.audio, duration=1.0, silence_thresh=-40.0, trim_leading_silence=True),
+        )
+        results = view.order_by(view.pos).select(path=view.audio_segment.localpath).collect()
+        # no emitted segment is entirely silent: every one begins at audible content
+        assert len(results) > 0
+        assert all(self.__edge_rms(r['path'], at_start=True) > 0.05 for r in results)
+
+    @pytest.mark.local('TODO: convert; audio-splitter view')
     def test_create_audio_splitter(self, uses_db: None) -> None:
         audio_filepath = get_audio_file('jfk_1961_0109_cityuponahill-excerpt.flac')  # 60s audio file
         base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
@@ -344,6 +453,43 @@ class TestAudio:
                 iterator=audio_splitter(audio=base_t.audio, duration=1, overlap=1, min_segment_duration=0),
             )
 
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`overlap` must be non-negative'):
+            _ = pxt.create_view(
+                'audio_segments', base_t, iterator=audio_splitter(audio=base_t.audio, duration=5.0, overlap=-1.0)
+            )
+
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`min_segment_duration` must be non-negative'):
+            _ = pxt.create_view(
+                'audio_segments',
+                base_t,
+                iterator=audio_splitter(audio=base_t.audio, duration=5.0, min_segment_duration=-1.0),
+            )
+
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'Exactly one of `duration` or `max_size`'):
+            _ = pxt.create_view('audio_segments', base_t, iterator=audio_splitter(audio=base_t.audio))
+
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'Exactly one of `duration` or `max_size`'):
+            _ = pxt.create_view(
+                'audio_segments',
+                base_t,
+                iterator=audio_splitter(audio=base_t.audio, duration=5.0, max_size=1024 * 1024),
+            )
+
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`max_size` must be a positive number of bytes'):
+            _ = pxt.create_view('audio_segments', base_t, iterator=audio_splitter(audio=base_t.audio, max_size=0))
+
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`min_silence_len` must be a positive number'):
+            _ = pxt.create_view(
+                'audio_segments', base_t, iterator=audio_splitter(audio=base_t.audio, duration=5.0, min_silence_len=0)
+            )
+
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`silence_thresh` must be negative'):
+            _ = pxt.create_view(
+                'audio_segments',
+                base_t,
+                iterator=audio_splitter(audio=base_t.audio, duration=5.0, min_silence_len=0.2, silence_thresh=0.0),
+            )
+
     @pytest.mark.parametrize(
         'format,stereo,downsample,as_1d_array',
         [
@@ -365,6 +511,7 @@ class TestAudio:
             'mp4_1d_array_mono',
         ],
     )
+    @pytest.mark.local('pure UDF test')
     def test_encode_array_to_audio(
         self, format: str, stereo: bool, downsample: bool, as_1d_array: bool, uses_db: None
     ) -> None:
@@ -412,6 +559,7 @@ class TestAudio:
         assert len(audio_data) > 0
         return audio_data, duration_seconds, sample_rate
 
+    @pytest.mark.local('pure UDF test')
     @pytest.mark.very_expensive  # Downloads a Hugging Face dataset
     @rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading datasets
     def test_encode_dataset_audio(self, uses_db: None) -> None:
@@ -442,28 +590,43 @@ class TestAudio:
             assert set(row.keys()) == {'audio', 'sentence', 'audio_file'}
             print(f'Encoded audio file: {row["audio_file"]}')
 
-    def test_multiply_volume(self, uses_db: None) -> None:
+    @pytest.mark.parametrize(
+        'make_columns',
+        [
+            pytest.param(
+                lambda audio: {
+                    'louder': audio.multiply_volume(factor=2.0),
+                    'quieter': audio.multiply_volume(factor=0.5),
+                    'partial': audio.multiply_volume(factor=3.0, start_time=1.0, end_time=3.0),
+                    'from_start': audio.multiply_volume(factor=2.0, end_time=3.0),
+                    'to_end': audio.multiply_volume(factor=2.0, start_time=1.0),
+                },
+                id='multiply_volume',
+            ),
+            pytest.param(lambda audio: {'faded': audio.fade_in(duration=2.0)}, id='fade_in'),
+            pytest.param(lambda audio: {'faded': audio.fade_out(duration=2.0)}, id='fade_out'),
+            pytest.param(lambda audio: {'normed': audio.normalize()}, id='normalize'),
+        ],
+    )
+    @pytest.mark.local('pure UDF test')
+    def test_audio_effects(
+        self, make_columns: Callable[[exprs.ColumnRef], dict[str, exprs.Expr]], uses_db: None
+    ) -> None:
         audio_paths = get_audio_files()
         t = pxt.create_table('test_audio', {'audio': pxt.Audio})
-        t.add_computed_column(louder=t.audio.multiply_volume(factor=2.0))
-        t.add_computed_column(quieter=t.audio.multiply_volume(factor=0.5))
-        t.add_computed_column(partial=t.audio.multiply_volume(factor=3.0, start_time=1.0, end_time=3.0))
-        t.add_computed_column(from_start=t.audio.multiply_volume(factor=2.0, end_time=3.0))
-        t.add_computed_column(to_end=t.audio.multiply_volume(factor=2.0, start_time=1.0))
+        columns = make_columns(t.audio)
+        for name, expr in columns.items():
+            t.add_computed_column(**{name: expr})
         validate_update_status(t.insert({'audio': p} for p in audio_paths), expected_rows=len(audio_paths))
-        result = t.select(t.louder, t.quieter, t.partial, t.from_start, t.to_end).collect()
-        assert all(
-            r['louder'] is not None
-            and r['quieter'] is not None
-            and r['partial'] is not None
-            and r['from_start'] is not None
-            and r['to_end'] is not None
-            for r in result
-        )
-        self._validate_audio(
-            result['louder'] + result['quieter'] + result['partial'] + result['from_start'] + result['to_end']
-        )
+        result = t.select(*(getattr(t, name) for name in columns)).collect()
+        # the effect produces a valid audio file for every input and every output column
+        assert all(row[name] is not None for row in result for name in columns)
+        outputs: list[str] = []
+        for name in columns:
+            outputs += result[name]
+        self._validate_audio(outputs)
 
+    @pytest.mark.local('pure UDF test')
     def test_multiply_volume_errors(self, uses_db: None) -> None:
         audio_paths = get_audio_files()
         t = pxt.create_table('test_audio', {'audio': pxt.Audio})
@@ -482,53 +645,23 @@ class TestAudio:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`end_time` .* must be greater than `start_time`'):
             t.select(t.audio.multiply_volume(factor=1.0, start_time=5.0, end_time=5.0)).collect()
 
-    def test_fade_in(self, uses_db: None) -> None:
-        audio_paths = get_audio_files()
-        t = pxt.create_table('test_audio', {'audio': pxt.Audio})
-        t.add_computed_column(faded=t.audio.fade_in(duration=2.0))
-        validate_update_status(t.insert({'audio': p} for p in audio_paths), expected_rows=len(audio_paths))
-        result = t.select(t.faded).collect()
-        assert all(r['faded'] is not None for r in result)
-        self._validate_audio(result['faded'])
-
-    def test_fade_in_errors(self, uses_db: None) -> None:
-        audio_paths = get_audio_files()
-        t = pxt.create_table('test_audio', {'audio': pxt.Audio})
-        validate_update_status(t.insert({'audio': p} for p in audio_paths), expected_rows=len(audio_paths))
-
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`duration` must be positive'):
-            t.select(t.audio.fade_in(duration=0)).collect()
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`duration` must be positive'):
-            t.select(t.audio.fade_in(duration=-1.0)).collect()
-
-    def test_fade_out(self, uses_db: None) -> None:
-        audio_paths = get_audio_files()
-        t = pxt.create_table('test_audio', {'audio': pxt.Audio})
-        t.add_computed_column(faded=t.audio.fade_out(duration=2.0))
-        validate_update_status(t.insert({'audio': p} for p in audio_paths), expected_rows=len(audio_paths))
-        result = t.select(t.faded).collect()
-        assert all(r['faded'] is not None for r in result)
-        self._validate_audio(result['faded'])
-
-    def test_fade_out_errors(self, uses_db: None) -> None:
+    @pytest.mark.parametrize(
+        'make_expr',
+        [
+            pytest.param(lambda audio, duration: audio.fade_in(duration=duration), id='fade_in'),
+            pytest.param(lambda audio, duration: audio.fade_out(duration=duration), id='fade_out'),
+        ],
+    )
+    @pytest.mark.local('pure UDF test')
+    def test_audio_fade_errors(self, make_expr: Callable[[exprs.ColumnRef, float], exprs.Expr], uses_db: None) -> None:
         audio_paths = get_audio_files()
         t = pxt.create_table('test_audio', {'audio': pxt.Audio})
         validate_update_status(t.insert({'audio': p} for p in audio_paths), expected_rows=len(audio_paths))
+        for bad_duration in (0, -1.0):
+            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`duration` must be positive'):
+                t.select(make_expr(t.audio, bad_duration)).collect()
 
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`duration` must be positive'):
-            t.select(t.audio.fade_out(duration=0)).collect()
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`duration` must be positive'):
-            t.select(t.audio.fade_out(duration=-1.0)).collect()
-
-    def test_normalize(self, uses_db: None) -> None:
-        audio_paths = get_audio_files()
-        t = pxt.create_table('test_audio', {'audio': pxt.Audio})
-        t.add_computed_column(normed=t.audio.normalize())
-        validate_update_status(t.insert({'audio': p} for p in audio_paths), expected_rows=len(audio_paths))
-        result = t.select(t.normed).collect()
-        assert all(r['normed'] is not None for r in result)
-        self._validate_audio(result['normed'])
-
+    @pytest.mark.local('pure UDF test')
     def test_encode_audio_errors(self, uses_db: None) -> None:
         # invalid format
         t = pxt.create_table('test_encode', {'audio_array': pxt.Array[pxt.Float]})  # type: ignore[misc]

@@ -17,20 +17,19 @@ from pixeltable.metadata.schema import Dir, Table, TableVersion
 
 
 @register_converter(version=50)
-def _(engine: sql.engine.Engine) -> None:
-    with engine.begin() as conn:
-        # Check before making any changes, so that a database with replicas is left untouched at its current version.
-        replica_paths = __user_replica_paths(conn)
-        if len(replica_paths) > 0:
-            raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, __replica_error_message(replica_paths))
+def _(conn: sql.Connection) -> None:
+    # Check before making any changes, so that a database with replicas is left untouched at its current version.
+    replica_paths = __user_replica_paths(conn)
+    if len(replica_paths) > 0:
+        raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, __replica_error_message(replica_paths))
 
-        # No replicas: drop the now-obsolete metadata keys.
-        conn.execute(sql.update(Table).values(md=Table.md.op('-')('is_replica')))
-        conn.execute(sql.update(TableVersion).values(md=TableVersion.md.op('-')('is_fragment')))
+    # No replicas: drop the now-obsolete metadata keys.
+    conn.execute(sql.update(Table).values(md=Table.md.op('-')('is_replica')))
+    conn.execute(sql.update(TableVersion).values(md=TableVersion.md.op('-')('is_fragment')))
 
-        # Remove the system directory used to hide anonymous replica base tables. With no replicas left it is empty;
-        # the dirs.id foreign key on tables restricts deletion, so this aborts rather than orphaning any stray table.
-        conn.execute(sql.delete(Dir).where(Dir.md['name'].astext == '_system'))
+    # Remove the system directory used to hide anonymous replica base tables. With no replicas left it is empty;
+    # the dirs.id foreign key on tables restricts deletion, so this aborts rather than orphaning any stray table.
+    conn.execute(sql.delete(Dir).where(Dir.md['name'].astext == '_system'))
 
 
 def __user_replica_paths(conn: sql.Connection) -> list[str]:

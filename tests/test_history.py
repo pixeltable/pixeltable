@@ -21,14 +21,16 @@ class TestHistory:
         print('============================================================')
 
     @pytest.mark.parametrize('variant', ['get_versions', 'history'])
-    def test_history(self, variant: Literal['get_versions', 'history'], uses_db: None) -> None:
-        fn: Callable[[pxt.Table, int | None], Any]
-        if variant == 'get_versions':
-            fn = pxt.Table.get_versions
-        else:
-            fn = pxt.Table.history
+    def test_history(
+        self, variant: Literal['get_versions', 'history'], make_catalog_path: Callable[[str], str]
+    ) -> None:
+        p = make_catalog_path
+
+        def fn(tbl: pxt.Table, n: int | None = None) -> Any:
+            return tbl.get_versions(n) if variant == 'get_versions' else tbl.history(n)
+
         t = pxt.create_table(
-            'test',
+            p('test'),
             source=[{'c1': 1, 'c2': 'a'}, {'c1': 2, 'c2': 'b'}],
             schema_overrides={'c1': pxt.Required[pxt.Int], 'c2': pxt.String},
             comment='some random table comment',
@@ -44,16 +46,14 @@ class TestHistory:
         self.pr_us(s, 'acc1')
         s = t.add_computed_column(c4=t.c2.upper())
         self.pr_us(s, 'acc2')
-        v = pxt.create_view('view_of_test', t, comment='view of test table')
+        v = pxt.create_view(p('view_of_test'), t, comment='view of test table')
         r = fn(v)
         print(r)
-        view_created_at = (
-            r[0]['created_at'] if variant == 'get_versions' else r['created_at'][0]  # type: ignore[call-overload]
-        )
+        view_created_at = r[0]['created_at'] if variant == 'get_versions' else r['created_at'][0]
         # created_at should be recent
         assert view_created_at > datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(seconds=30)
         assert view_created_at < datetime.datetime.now(tz=datetime.timezone.utc)
-        inserts = r[0]['inserts'] if variant == 'get_versions' else r['inserts'][0]  # type: ignore[call-overload]
+        inserts = r[0]['inserts'] if variant == 'get_versions' else r['inserts'][0]
         assert inserts > 0
         assert len(r) == 1
 
@@ -115,7 +115,7 @@ class TestHistory:
         print(r)
         assert len(r) == 8
 
-        s = pxt.create_snapshot('snapshot_of_test_view', t, comment='snapshot of view of test table')
+        s = pxt.create_snapshot(p('snapshot_of_test_view'), t, comment='snapshot of view of test table')
         r = fn(s)
         print(r)
         assert len(r) == 1
@@ -129,7 +129,7 @@ class TestHistory:
                 'updates': 2,
                 'deletes': 0,
                 'errors': 0,
-                'schema_change': 'Deleted: c4',
+                'schema_change': 'Dropped: c4',
             },
             {
                 'version': 12,
@@ -139,7 +139,7 @@ class TestHistory:
                 'updates': 2,
                 'deletes': 0,
                 'errors': 0,
-                'schema_change': "Renamed: 'c2' to 'c2_renamed'",
+                'schema_change': 'Altered: c2 (renamed to c2_renamed)',
             },
             {
                 'version': 11,

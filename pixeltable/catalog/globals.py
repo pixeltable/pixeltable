@@ -3,12 +3,19 @@ from __future__ import annotations
 import dataclasses
 import enum
 import itertools
-from typing import Any
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
+
+from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.metadata import schema
+from pixeltable.types import ColumnSpec
+
+if TYPE_CHECKING:
+    from pixeltable import exprs
 
 # name of the position column in a component view
 _POS_COLUMN_NAME = 'pos'
@@ -17,6 +24,17 @@ _ROWID_COLUMN_NAME = '_rowid'
 # Set of symbols that are predefined in the `InsertableTable` class (and are therefore not allowed as column names).
 # This will be populated lazily to avoid circular imports.
 _PREDEF_SYMBOLS: set[str] | None = None
+
+
+@dataclasses.dataclass
+class DirEntry:
+    dir: schema.Dir | None
+    dir_entries: dict[str, DirEntry]
+    table: schema.Table | None
+
+    # Only populated for table entries when get_dir_contents() was called with with_error_counts=True;
+    # None otherwise (including for directory entries).
+    table_error_count: int | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -40,7 +58,7 @@ class TableVersionMd:
         )
 
     def as_dict(self) -> dict:
-        return dataclasses.asdict(self, dict_factory=schema.md_dict_factory)
+        return schema.md_to_dict(self)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TableVersionMd:
@@ -68,8 +86,8 @@ class ColumnVersionMd:
     # version-independent metadata
     col_md: schema.ColumnMd
 
-    # versioned metadata; None for system columns
-    schema_col: schema.SchemaColumn | None
+    # versioned metadata
+    schema_col: schema.SchemaColumn
 
     is_iterator_col: bool = False
 
@@ -78,20 +96,24 @@ class ColumnVersionMd:
         return self.col_md.id
 
     @property
+    def is_system_col(self) -> bool:
+        return self.schema_col.name is None
+
+    @property
     def name(self) -> str | None:
-        return self.schema_col.name if self.schema_col is not None else None
+        return self.schema_col.name
 
     @property
     def col_type(self) -> ts.ColumnType:
-        return ts.ColumnType.from_dict(self.col_md.col_type)
+        return ts.ColumnType.from_dict(self.schema_col.col_type)
 
     @property
     def is_pk(self) -> bool:
-        return self.col_md.is_pk
+        return self.schema_col.is_pk
 
     @property
     def is_computed(self) -> bool:
-        return self.col_md.value_expr is not None
+        return self.schema_col.value_expr is not None
 
     @property
     def is_stored(self) -> bool:
@@ -99,7 +121,7 @@ class ColumnVersionMd:
 
     @property
     def media_validation(self) -> MediaValidation | None:
-        if self.schema_col is None or self.schema_col.media_validation is None:
+        if self.schema_col.media_validation is None:
             return None
         return MediaValidation[self.schema_col.media_validation.upper()]
 
@@ -202,3 +224,29 @@ def is_system_column_name(name: str) -> bool:
     if _PREDEF_SYMBOLS is None:
         _PREDEF_SYMBOLS = set(itertools.chain(dir(InsertableTable), dir(View)))
     return name in _PREDEF_SYMBOLS
+
+
+def normalize_schema(schema: Mapping[str, type | ColumnSpec | exprs.Expr]) -> dict[str, ColumnSpec]:
+    """Canonicalize a create_table schema to a {name: ColumnSpec} mapping with resolved ColumnTypes."""
+    from pixeltable import exprs
+
+    from .column import Column
+
+    result: dict[str, ColumnSpec] = {}
+    for name, spec in schema.items():
+        if isinstance(spec, exprs.Expr):
+            result[name] = {'value': spec}
+            continue
+        if isinstance(spec, dict):
+            col_spec: dict[str, Any] = dict(spec)
+            Column._validate_column_spec(name, cast(ColumnSpec, col_spec))
+        elif isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
+            col_spec = {'type': spec}
+        else:
+            raise excs.RequestError(excs.ErrorCode.TYPE_MISMATCH, f'Invalid spec for column {name!r}: {spec!r}')
+        if col_spec.get('type') is not None:
+            col_spec['type'] = ts.ColumnType.normalize_type(
+                col_spec['type'], nullable_default=True, allow_builtin_types=False
+            )
+        result[name] = cast(ColumnSpec, col_spec)
+    return result

@@ -93,7 +93,7 @@ endif
 	@python -m pip install -q uv==$(UV_VERSION)
 	@echo 'Installing conda packages ...'
 	@if ! which mamba >/dev/null 2>&1; then conda install -q -y -c conda-forge mamba; fi
-	@mamba install -q -y -c conda-forge libiconv 'ffmpeg==$(FFMPEG_VERSION)' quarto nodejs lychee 'cmake>=3.22'
+	@mamba install -q -y -c conda-forge libiconv 'ffmpeg==$(FFMPEG_VERSION)' quarto 'nodejs>=20' lychee 'cmake>=3.22'
 	@echo 'Installing mintlify ...'
 	@if ! which mint >/dev/null 2>&1 || ! mint --version | grep -Fq '$(MINTLIFY_VERSION)'; then \
 		npm install --silent -g mint@$(MINTLIFY_VERSION); \
@@ -128,8 +128,11 @@ install-deps:
 	@python -m ipykernel install --user --name=pixeltable
 	@touch .make-install/others
 
+pixeltable/catalog/model.pyi: pixeltable/catalog/model.py pixeltable/catalog/table.py tool/generate_type_stubs.py
+	@python tool/generate_type_stubs.py
+
 .PHONY: install
-install: setup-install .make-install/env .make-install/dashboard install-deps .make-install/others
+install: setup-install .make-install/env .make-install/dashboard install-deps .make-install/others pixeltable/catalog/model.pyi
 
 .PHONY: test
 test: pytest check
@@ -160,7 +163,8 @@ fullpytest: install
 .PHONY: slimpytest
 slimpytest: install
 	@echo 'Running `pytest` on a slim configuration ...'
-	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) tests/test_{catalog,dirs,env,exprs,function,index,snapshot,table,unversioned_table,view}.py
+	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) \
+	    tests/test_{catalog,dirs,env,exprs,function,index,snapshot,table,table_model,unversioned_table,view}.py
 
 .PHONY: nbtest
 nbtest: install
@@ -176,6 +180,8 @@ stresstest: install
 typecheck: install
 	@echo 'Running `mypy` ...'
 	@mypy pixeltable pixeltable_cli tests tool
+	# Separate direct check of model.py (which is shadowed by the generated model.pyi in the main run)
+	@mypy pixeltable/catalog/model.py
 
 .PHONY: lint
 lint: install

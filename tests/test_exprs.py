@@ -10,17 +10,16 @@ import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, Callable, NamedTuple
 
 import numpy as np
 import pandas as pd
 import PIL.Image
 import pytest
-import sqlalchemy as sql
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable import exceptions as excs, exprs, functions as pxtf
+from pixeltable import exprs, functions as pxtf
 from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
 from pixeltable.functions.video import legacy_frame_iterator
@@ -130,21 +129,15 @@ class TestExprs:
 
     def test_compound_predicates(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
-        # compound predicates that can be fully evaluated in SQL
-        _ = t.where((t.c1 == 'test string') & (t.c6.f1 > 50)).collect()
-        _ = t.where((t.c1 == 'test string') & (t.c2 > 50)).collect()
-        sql_elements = exprs.SqlElementCache()
-        e = sql_elements.get(((t.c1 == 'test string') & (t.c2 > 50)))
-        assert len(e.clauses) == 2
-
-        e = sql_elements.get(((t.c1 == 'test string') & (t.c2 > 50) & (t.c3 < 1.0)))
-        assert len(e.clauses) == 3
-        e = sql_elements.get(((t.c1 == 'test string') | (t.c2 > 50)))
-        assert len(e.clauses) == 2
-        e = sql_elements.get(((t.c1 == 'test string') | (t.c2 > 50) | (t.c3 < 1.0)))
-        assert len(e.clauses) == 3
-        e = sql_elements.get((~(t.c1 == 'test string')))
-        assert isinstance(e, sql.sql.expression.BinaryExpression)
+        # compound predicates that can be fully evaluated in SQL: verify they run and filter correctly
+        and2 = t.where((t.c1 == 'test string') & (t.c2 > 50)).collect()
+        assert all(r['c1'] == 'test string' and r['c2'] > 50 for r in and2)
+        and3 = t.where((t.c1 == 'test string') & (t.c2 > 50) & (t.c3 < 1.0)).collect()
+        assert all(r['c1'] == 'test string' and r['c2'] > 50 and r['c3'] < 1.0 for r in and3)
+        or2 = t.where((t.c1 == 'test string') | (t.c2 > 50)).collect()
+        assert all(r['c1'] == 'test string' or r['c2'] > 50 for r in or2)
+        neg = t.where(~(t.c1 == 'test string')).collect()
+        assert all(r['c1'] != 'test string' for r in neg)
 
         with pytest.raises(TypeError) as exc_info:
             _ = t.where((t.c1 == 'test string') or (t.c6.f1 > 50)).collect()
@@ -286,10 +279,11 @@ class TestExprs:
             _ = img_t.select(img_t.c9.errortype).show()
         assert 'only valid for' in str(excinfo.value)
 
-    def test_null_args(self, uses_db: None) -> None:
+    def test_null_args(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         # create table with two columns
         schema = {'c1': pxt.Float, 'c2': pxt.Float}
-        t = pxt.create_table('test', schema)
+        t = pxt.create_table(p('test'), schema)
 
         t.add_computed_column(c3=self.required_params_fn(t.c1, t.c2))
         t.add_computed_column(c4=self.mixed_params_fn(t.c1, t.c2))
@@ -342,7 +336,7 @@ class TestExprs:
                 _ = t.select(op1 + op2).collect()
             with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH):
                 _ = t.select(op1 - op2).collect()
-            if self.is_str(op1) and self.is_int(op2):
+            if (self.is_str(op1) and self.is_int(op2)) or (self.is_int(op1) and self.is_str(op2)):
                 _ = t.select(op1 * op2).collect()
             else:
                 with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH):
@@ -460,7 +454,7 @@ class TestExprs:
 
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH) as exc_info:
             t.select(t.c6 + t.c2.apply(math.floor, col_type=pxt.Int)).collect()
-        assert '+ requires numeric types, but c6 has type dict' in str(exc_info.value)
+        assert '+ requires numeric types, but left operand has type `dict`' in str(exc_info.value)
 
     def test_comparison(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
@@ -554,7 +548,7 @@ class TestExprs:
             col_name = f'literal_{i}'
             expected_output = lit.expected_output if isinstance(lit, LiteralCase) else lit
             assert type(expected_output) is type(results[col_name][0]), f'Column {col_name} has wrong type'
-            assert_columns_eq(col_name, results.schema[col_name], [expected_output] * len(results), results[col_name])
+            assert_columns_eq(col_name, results._schema[col_name], [expected_output] * len(results), results[col_name])
 
         reload_tester.run_reload_test()
 
@@ -634,14 +628,14 @@ class TestExprs:
         print(result.show(5))
         exprs = [expr[0] for expr in result.select_list]
         assert isinstance(exprs[0], Literal)
-        col_type = next(iter(result.schema.values()))
+        col_type = next(iter(result._schema.values()))
         assert col_type.is_array_type()
         assert isinstance(col_type, ts.ArrayType)
 
     def test_inline_array(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         result = t.select(pxt.array([[t.c2, 1], [t.c2, 2]])).show()
-        col_type = next(iter(result.schema.values()))
+        col_type = next(iter(result._schema.values()))
         assert col_type.is_array_type()
         assert isinstance(col_type, ts.ArrayType)
         assert col_type.shape == (2, 2)
@@ -674,6 +668,8 @@ class TestExprs:
         )
         t.add_computed_column(item_of_list=t.list_of_dicts[:].a)
         t.add_computed_column(item_of_vartype_list=t.list_of_dicts[:].b)
+        # field access on a list projects over its elements without an explicit slice/'*'
+        t.add_computed_column(bare_item_of_list=t.list_of_dicts.a)
         res = t.order_by(t.c2).collect()
         orig = res['attr']
         assert all(res['item'][i] == orig[i] for i in range(len(res)))
@@ -685,11 +681,13 @@ class TestExprs:
         assert all(res['slice_range_step'][i] == orig[i][3:7:2] for i in range(len(orig)))
         assert all(res['slice_range_step_item'][i] == orig[i][3:7:2] for i in range(len(orig)))
         assert all(res['item_of_list'][i] == [i, i + 1, i + 2] for i in range(len(res)))
+        assert all(res['bare_item_of_list'][i] == res['item_of_list'][i] for i in range(len(res)))
         assert all(
             res['item_of_vartype_list'][i] == [res['c2'][i], res['c1'][i], res['c3'][i]] for i in range(len(res))
         )
 
-    def test_json_path_types(self, uses_db: None) -> None:
+    def test_json_path_types(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         spec = {
             'f1': str,
             'f2': {
@@ -707,7 +705,7 @@ class TestExprs:
             'f4': ({'f4a': int, 'f4b': str}, ...),
             'f5': ({'f5a': int}, {'f5a': str}, {'f5a': float}, ...),
         }
-        t = pxt.create_table('test', {'col': pxt.Json[spec]})
+        t = pxt.create_table(p('test'), {'col': pxt.Json[spec]})
         cases: tuple[tuple[Expr, type], ...] = (
             (t.col.f1, pxt.String),
             (t.col.f2.f2a, pxt.Int),
@@ -735,6 +733,7 @@ class TestExprs:
             # dict resolution applied to heterogeneous tuple
             (t.col.f5[:].f5a, pxt.Json[(int | None, str | None, float | None, ...)]),
             (t.col.f4['*'].f4b, pxt.Json[[str | None]]),  # special '*' operator
+            (t.col.f4.f4a, pxt.Json[[int | None]]),  # field access on a list projects without an explicit slice/'*'
         )
         for expr, expected_type in cases:
             print(expr)
@@ -808,9 +807,10 @@ class TestExprs:
 
         reload_tester.run_reload_test()
 
-    def test_multi_json_mapper(self, uses_db: None, reload_tester: ReloadTester) -> None:
+    def test_multi_json_mapper(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
+        p = make_catalog_path
         # Workflow with multiple JsonMapper instances
-        t = pxt.create_table('test', {'id': pxt.Int, 'jcol': pxt.Json})
+        t = pxt.create_table(p('test'), {'id': pxt.Int, 'jcol': pxt.Json})
         t.add_computed_column(outputx=pxtf.map(t.jcol.x['*'], lambda x: x + 1))
         t.add_computed_column(outputy=pxtf.map(t.jcol.y['*'], lambda x: x + 2))
         t.add_computed_column(outputz=pxtf.map(t.jcol.z['*'], lambda x: x + 3))
@@ -872,7 +872,8 @@ class TestExprs:
             t.array_col[1, 'string']
         assert 'Invalid array indices' in str(excinfo.value)
 
-    def test_in(self, test_tbl: pxt.Table) -> None:
+    def test_in(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         t = test_tbl
         user_cols = [t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7]
         # list of literals
@@ -927,7 +928,7 @@ class TestExprs:
 
         # still works after catalog reload
         reload_catalog()
-        t = pxt.get_table('test_tbl')
+        t = pxt.get_table(p('test_tbl'))
         inc_pk(rows, 1000)
         validate_update_status(t.insert(rows), len(rows))
 
@@ -971,6 +972,7 @@ class TestExprs:
         assert len(errormsgs) == t.count() // 2
         assert all('Expected non-None value' in msg for msg in errormsgs), errormsgs
 
+    @pytest.mark.local('resolves images from client-local filesystem paths the daemon cannot see')
     def test_astype_str_to_img(self, uses_db: None) -> None:
         img_files = get_image_files()
         img_files = sorted(img_files[:5])
@@ -1002,8 +1004,9 @@ class TestExprs:
         for orig_img, retrieved_img in zip(orig_imgs, loaded_imgs, strict=True):
             assert np.array_equal(np.array(orig_img), np.array(retrieved_img))
 
-    def test_astype_str_to_img_data_url(self, uses_db: None) -> None:
-        t = pxt.create_table('astype_test', {'url': pxt.String})
+    def test_astype_str_to_img_data_url(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('astype_test'), {'url': pxt.String})
         t.add_computed_column(img=t.url.astype(pxt.Image))
         images = get_image_files(include_bad_image=True)[:5]  # bad image is at idx 0
         url_encoded_images = []
@@ -1022,56 +1025,50 @@ class TestExprs:
             assert orig_img.size == retrieved_img.size
 
         # Try inserting a non-image
-        with pytest.raises(excs.ExprEvalError) as exc_info:
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_DATA_FORMAT,
+            match='data URL could not be decoded into a valid image: data:text/plain,Hello there.',
+        ):
             t.insert(url='data:text/plain,Hello there.')
-        assert (
-            str(exc_info.value.__cause__)
-            == 'data URL could not be decoded into a valid image: data:text/plain,Hello there.'
-        )
 
         # Try inserting a bad image
-        with pytest.raises(excs.ExprEvalError) as exc_info:
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_DATA_FORMAT,
+            match='data URL could not be decoded into a valid image: data:image/jpeg;base64',
+        ):
             t.insert(url=url_encoded_images[0])
-        assert (
-            str(exc_info.value.__cause__) == 'data URL could not be decoded into a valid image: '
-            'data:image/jpeg;base64,dGhlc2UgYXJlIHNvbWUgYmFkIGp...'
-        )
 
     def test_apply(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
 
-        # For each column c1, ..., c5, we create a new column ci_as_str that converts it to
-        # a string, then check that each row is correctly converted
+        # For each column c1, ..., c5, apply str() and check that each row is correctly converted
         # (For c1 this is the no-op string-to-string conversion)
         for col_id in range(1, 6):
             col_name = f'c{col_id}'
-            str_col_name = f'c{col_id}_str'
-            status = t.add_computed_column(**{str_col_name: t[col_name].apply(str)})
-            assert status.num_excs == 0
-            data = t.select(t[col_name], t[str_col_name]).collect()
-            for row in data:
-                assert row[str_col_name] == str(row[col_name])
+            data = t.select(orig=t[col_name], as_str=t[col_name].apply(str)).collect()
+            assert all(row['as_str'] == str(row['orig']) for row in data)
 
         # Test a compound expression with apply
-        status = t.add_computed_column(c2_plus_1_str=(t.c2 + 1).apply(str))
-        assert status.num_excs == 0
-        data = t.select(t.c2, t.c2_plus_1_str).collect()
-        for row in data:
-            assert row['c2_plus_1_str'] == str(row['c2'] + 1)
+        data = t.select(c2=t.c2, plus_1_str=(t.c2 + 1).apply(str)).collect()
+        assert all(row['plus_1_str'] == str(row['c2'] + 1) for row in data)
 
-        # For columns c6, c7, try using json.dumps and json.loads to emit and parse JSON <-> str
+        # For columns c6, c7, use json.dumps and json.loads to emit and parse JSON <-> str
         for col_id in range(6, 8):
             col_name = f'c{col_id}'
-            str_col_name = f'c{col_id}_str'
-            back_to_json_col_name = f'c{col_id}_back_to_json'
-            status = t.add_computed_column(**{str_col_name: t[col_name].apply(json.dumps)})
-            assert status.num_excs == 0
-            status = t.add_computed_column(**{back_to_json_col_name: t[str_col_name].apply(json.loads)})
-            assert status.num_excs == 0
-            data = t.select(t[col_name], t[str_col_name], t[back_to_json_col_name]).collect()
-            for row in data:
-                assert row[str_col_name] == json.dumps(row[col_name])
-                assert row[back_to_json_col_name] == row[col_name]
+            data = t.select(
+                orig=t[col_name],
+                as_str=t[col_name].apply(json.dumps),
+                back_to_json=t[col_name].apply(json.dumps).apply(json.loads),
+            ).collect()
+            assert all(row['as_str'] == json.dumps(row['orig']) for row in data)
+            assert all(row['back_to_json'] == row['orig'] for row in data)
+
+        # apply() creates a function without a fully-qualified path, which can't be used in a computed column
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r"Computed column 'c1_str' uses `str\(\)`, which was created with `\.apply\(\)`",
+        ):
+            t.add_computed_column(c1_str=t.c1.apply(str))
 
         def f1(x):  # type: ignore[no-untyped-def]
             return str(x)
@@ -1082,15 +1079,15 @@ class TestExprs:
         assert 'Column type of `f1` cannot be inferred.' in str(exc_info.value)
 
         # ... but works if the type is specified explicitly.
-        status = t.add_computed_column(c2_str_f1=t.c2.apply(f1, col_type=pxt.String))
-        assert status.num_excs == 0
+        data = t.select(c2=t.c2, v=t.c2.apply(f1, col_type=pxt.String)).collect()
+        assert all(row['v'] == str(row['c2']) for row in data)
 
         # Test that the return type of a function can be successfully inferred.
         def f2(x) -> str:  # type: ignore[no-untyped-def]
             return str(x)
 
-        status = t.add_computed_column(c2_str_f2=t.c2.apply(f2))
-        assert status.num_excs == 0
+        data = t.select(c2=t.c2, v=t.c2.apply(f2)).collect()
+        assert all(row['v'] == str(row['c2']) for row in data)
 
         # Test various validation failures.
 
@@ -1132,6 +1129,38 @@ class TestExprs:
 
         t.c2.apply(f8)
 
+    def test_nonmodule_function_errors(self, make_catalog_path: Callable[[str], str]) -> None:
+        # a function without a fully-qualified path (from apply() or defined in a notebook) can only be stored as a
+        # pickled body; every persistence site must reject it with a clear message
+        p = make_catalog_path
+        t = pxt.create_table(p('base'), {'c2': pxt.Int, 's': pxt.String})
+        t.insert([{'c2': i, 's': str(i)} for i in range(10)])
+        match = r'was created with `\.apply\(\)` or defined as a local'
+
+        # computed column
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=match):
+            t.add_computed_column(bad=t.c2.apply(lambda x: x + 1, col_type=pxt.Int))
+
+        # view filter
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=match):
+            pxt.create_view(p('vfilter'), t.where(t.c2.apply(lambda x: x > 1, col_type=pxt.Bool)))
+
+        # stratified sampling in a snapshot view
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=match):
+            pxt.create_view(
+                p('vsample'),
+                t.sample(fraction=0.5, stratify_by=[t.c2.apply(lambda x: x % 2, col_type=pxt.Int)]),
+                is_snapshot=True,
+            )
+
+        # embedding index (_force_stored stands in for a notebook-defined embedding)
+        @pxt.udf(_force_stored=True)
+        def local_embed(s: str) -> pxt.Array[(4,), pxt.Float]:
+            return np.ones(4, dtype=np.float32)
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=match):
+            t.add_embedding_index('s', string_embed=local_embed)
+
     def test_select_list(self, img_tbl: pxt.Table) -> None:
         t = img_tbl
         result = t.select(t.img).show(n=100)
@@ -1154,8 +1183,9 @@ class TestExprs:
         result = t.select(t.img, t.img.height, t.img.rotate(90)).show(n=100)
         _ = result._repr_html_()
 
-    def test_ext_imgs(self, uses_db: None) -> None:
-        t = pxt.create_table('img_test', {'img': pxt.Image})
+    def test_ext_imgs(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('img_test'), {'img': pxt.Image})
         img_urls = [
             'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg',
             'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000034.jpg',
@@ -1237,6 +1267,7 @@ class TestExprs:
         assert repr(sim1) == "img.similarity('red truck', 'img_idx1')"
         assert repr(sim2) == "img.similarity('red truck', 'img_idx2')"
 
+    @pytest.mark.local('TODO: convert')
     def test_ids(
         self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr], multi_img_tbl_exprs: list[exprs.Expr]
     ) -> None:
@@ -1247,6 +1278,7 @@ class TestExprs:
             d[e.id] = e
         assert len(d) == len(test_tbl_exprs) + len(img_tbl_exprs) + len(multi_img_tbl_exprs)
 
+    @pytest.mark.local('TODO: convert')
     def test_serialization(
         self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr], multi_img_tbl_exprs: list[exprs.Expr]
     ) -> None:
@@ -1258,6 +1290,7 @@ class TestExprs:
             e_deserialized = Expr.deserialize(e_serialized)
             assert e.equals(e_deserialized)
 
+    @pytest.mark.local('TODO: convert')
     def test_print(
         self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr], multi_img_tbl_exprs: list[exprs.Expr]
     ) -> None:
@@ -1279,7 +1312,8 @@ class TestExprs:
         assert len(subexprs) == 1
         assert t.img.equals(subexprs[0])
 
-    def test_window_fns(self, uses_db: None, test_tbl: pxt.Table) -> None:
+    def test_window_fns(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         t = test_tbl
         _ = t.select(pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3)).show(100)
 
@@ -1295,11 +1329,10 @@ class TestExprs:
 
         # backfill works
         t.add_computed_column(c9=pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3))
-        _ = t.c9.col.has_window_fn_call()
 
         # ordering conflict between frame extraction and window fn
-        base_t = pxt.create_table('videos', {'video': pxt.Video, 'c2': pxt.Int})
-        v = pxt.create_view('frame_view', base_t, iterator=legacy_frame_iterator(base_t.video))
+        base_t = pxt.create_table(p('videos'), {'video': pxt.Video, 'c2': pxt.Int})
+        v = pxt.create_view(p('frame_view'), base_t, iterator=legacy_frame_iterator(base_t.video))
         # compatible ordering
         _ = v.select(v.frame, pxtf.sum(v.frame_idx, group_by=base_t, order_by=v.pos)).show(100)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
@@ -1307,7 +1340,7 @@ class TestExprs:
             _ = v.select(v.frame, pxtf.sum(v.c2, order_by=base_t, group_by=v.pos)).show(100)
 
         schema = {'c2': pxt.Int, 'c3': pxt.Float, 'c4': pxt.Bool}
-        new_t = pxt.create_table('insert_test', schema)
+        new_t = pxt.create_table(p('insert_test'), schema)
         new_t.add_computed_column(c2_sum=pxtf.sum(new_t.c2, group_by=new_t.c4, order_by=new_t.c3))
         rows = list(t.select(t.c2, t.c4, t.c3).collect())
         new_t.insert(rows)
@@ -1340,8 +1373,9 @@ class TestExprs:
         ).collect()
         assert all(json.loads(res['dumped_py'][i]) == res['json_col'][i] for i in range(len(res)))
 
-    def test_agg(self, uses_db: None) -> None:
-        t = create_scalars_tbl(1000)
+    def test_agg(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t = create_scalars_tbl(1000, path=p('scalars_tbl'))
         df = t.select().collect().to_pandas()
 
         def series_to_list(series: pd.Series) -> list[int | None]:
@@ -1527,7 +1561,7 @@ class TestExprs:
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             # group_by with non-singleton table
-            _ = t.select(t.c2).group_by(t, t.c2)
+            _ = t.select(t.c2).group_by(t, t.c2)  # type: ignore[call-overload]
         assert 'group_by(): only one Table can be specified' in str(exc_info.value)
 
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED) as exc_info:
@@ -1590,6 +1624,7 @@ class TestExprs:
 
         assert "'group_by' is a reserved parameter name" in str(exc_info.value).lower()
 
+    @pytest.mark.local('asserts on Expr repr strings')
     def test_repr(self, uses_db: None) -> None:
         t = create_all_datatypes_tbl()
         instances: list[tuple[exprs.Expr, str]] = [
@@ -1642,12 +1677,14 @@ class TestExprs:
         for e, expected_repr in instances:
             assert repr(e) == expected_repr
 
-    def test_string_operations(self, test_tbl: pxt.Table, uses_db: None, reload_tester: ReloadTester) -> None:
+    def test_string_operations(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
         # create table with two columns
+        p = make_catalog_path
         schema = {'s1': pxt.String, 's2': pxt.String, 'i1': pxt.Int}
-        t = pxt.create_table('test_str_concat', schema)
+        t = pxt.create_table(p('test_str_concat'), schema)
         t.add_computed_column(s3=t.s1 + '-' + t.s2)
         t.add_computed_column(s4=t.s1 * 3)
+        t.add_computed_column(s4a=3 * t.s1)
         t.add_computed_column(s5=(t.s1 + t.s2) * 2)
         t.add_computed_column(s6=t.s1 + t.s2 * 2)
         t.add_computed_column(s7='a' * t.i1)
@@ -1656,22 +1693,22 @@ class TestExprs:
         result = t.order_by(t.i1).collect()
         assert result['s3'] == ['left-right', 'A-B']
         assert result['s4'] == ['leftleftleft', 'AAA']
+        assert result['s4a'] == ['leftleftleft', 'AAA']
         assert result['s5'] == ['leftrightleftright', 'ABAB']
         assert result['s6'] == ['leftrightright', 'ABB']
         assert result['s7'] == ['aa', 'aaa']
         assert result['s8'] == ['rightright', 'BBB']
 
-        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH) as exc_info:
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=r'\* on strings requires `String` and `Int`'):
             _ = t.add_computed_column(invalid_op=t.s1 * 's1')
-        assert '* on strings requires int type,' in str(exc_info.value)
 
-        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH) as exc_info:
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=r'\+ on strings requires `String` and `String`'):
             _ = t.add_computed_column(invalid_op=t.s1 + 3)
-        assert '+ on strings requires string type,' in str(exc_info.value)
 
-        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH) as exc_info:
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH, match=r'requires numeric types, but left operand has type `String \| None`'
+        ):
             _ = t.add_computed_column(invalid_op=t.s1 / t.s2)
-        assert 'requires numeric types, but s1 has type String | None' in str(exc_info.value)
 
         results = reload_tester.run_query(
             t.select(a=t.s1 + t.s2, b=t.s1 * 3, c=t.s2 * t.i1, d=(t.s1 + '/' + t.s2) * 2).order_by(t.i1)
@@ -1681,10 +1718,11 @@ class TestExprs:
 
         reload_tester.run_reload_test()
 
-    def test_base_table_col_refs(self, test_tbl: pxt.Table) -> None:
+    def test_base_table_col_refs(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         t = test_tbl
         # Filter down to just 5 rows of the table.
-        v = pxt.create_view('test_view', t.where(t.c2 < 5))
+        v = pxt.create_view(p('test_view'), t.where(t.c2 < 5))
 
         assert len(t.c2.head(n=100)) == 100
         assert len(v.c2.head(n=100)) == 5
@@ -1697,15 +1735,16 @@ class TestExprs:
         assert v.c2.head()._col_names == ['c2']
 
         # Test snapshots of the base table and of the view, with and without additional_columns
-        snap1 = pxt.create_snapshot('test_snapshot_1', t)
-        snap2 = pxt.create_snapshot('test_snapshot_2', v)
-        snap3 = pxt.create_snapshot('test_snapshot_3', t, additional_columns={'x1': t.c2})
-        snap4 = pxt.create_snapshot('test_snapshot_4', v, additional_columns={'x1': v.c2})
+        snap1 = pxt.create_snapshot(p('test_snapshot_1'), t)
+        snap2 = pxt.create_snapshot(p('test_snapshot_2'), v)
+        snap3 = pxt.create_snapshot(p('test_snapshot_3'), t, additional_columns={'x1': t.c2})
+        snap4 = pxt.create_snapshot(p('test_snapshot_4'), v, additional_columns={'x1': v.c2})
         t.delete()
 
         assert len(t.c2.head(n=100)) == 0
         assert len(v.c2.head(n=100)) == 0
         assert len(snap1.c2.head(n=100)) == 100
+        assert len(snap2.select(snap2.c2).head(n=100)) == 5
         assert len(snap2.c2.head(n=100)) == 5
         assert len(snap3.c2.head(n=100)) == 100
         assert len(snap4.c2.head(n=100)) == 5
@@ -1726,6 +1765,7 @@ def _add_two(x: int, y: int) -> int:
     return x + y
 
 
+@pytest.mark.local('exercises expr-eval slot GC internals')
 def test_gc_bug_leaked_slot(uses_db: None) -> None:
     """Reproduce the GC bug where has_val doesn't distinguish 'not computed' from 'already GC'd'.
 

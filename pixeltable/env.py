@@ -21,7 +21,8 @@ import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import Any, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, TypeVar
+from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pixeltable_pgserver
@@ -37,6 +38,10 @@ from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import _logger as _http_server_logger, make_server
 from pixeltable.utils.object_stores import ObjectPath
 from pixeltable.utils.sql import add_option_to_db_url
+
+if TYPE_CHECKING:
+    # aliased to avoid clashing with pathlib.Path above; env<->catalog is circular, so this stays type-only
+    from pixeltable.catalog.path import Path as CatalogPath
 
 _logger = logging.getLogger(__name__)
 
@@ -143,6 +148,13 @@ class Env:
         self._resource_pool_lock = threading.Lock()
         self._dbms = None
 
+        # Maps a table's id to the catalog uri it belongs to ('' for the in-process catalog). Populated whenever
+        # a table is materialized, so a ColumnRef can resolve its table against the right catalog. Lives here
+        # (process-global) rather than on the per-thread runtime because Table handles are shared across threads;
+        # the mapping is immutable per table id, so concurrent updates are idempotent.
+        self._tbl_catalog_uris: dict[UUID, CatalogPath] = {}
+        self._tbl_catalog_uris_lock = threading.Lock()
+
     @property
     def db_url(self) -> str:
         assert self._db_url is not None
@@ -182,12 +194,24 @@ class Env:
         self.engine.dispose()
         self._create_engine(time_zone_name=tz_name)
 
+    def record_tbl_catalog_uri(self, tbl_id: UUID, catalog_uri: CatalogPath) -> None:
+        """Record which catalog a table belongs to. The mapping is immutable per table id."""
+        with self._tbl_catalog_uris_lock:
+            self._tbl_catalog_uris[tbl_id] = catalog_uri
+
+    def tbl_catalog_uri(self, tbl_id: UUID) -> CatalogPath:
+        """Return the catalog a table belongs to, defaulting to ROOT_PATH (the in-process catalog) if unrecorded."""
+        from pixeltable.catalog.path import ROOT_PATH
+
+        with self._tbl_catalog_uris_lock:
+            return self._tbl_catalog_uris.get(tbl_id, ROOT_PATH)
+
     @property
     def verbosity(self) -> int:
         return self._verbosity
 
     @property
-    def dbms(self) -> Dbms | None:
+    def dbms(self) -> Dbms:
         assert self._dbms is not None
         return self._dbms
 
@@ -355,6 +379,14 @@ class Env:
         _http_server_logger.addHandler(http_fh)
         self._managed_logging_handlers.append((_http_server_logger, http_fh))
         _http_server_logger.propagate = False
+
+        # Route uvicorn's loggers to the main pxt log file
+        uvicorn_logger = logging.getLogger('uvicorn')
+        if uvicorn_logger.level == logging.NOTSET:
+            uvicorn_logger.setLevel(logging.INFO)
+        uvicorn_logger.addHandler(fh)
+        uvicorn_logger.propagate = False
+        self._managed_logging_handlers.append((uvicorn_logger, fh))
 
         self.clear_tmp_dir()
         tz_name = self._get_tz_name()
@@ -667,7 +699,6 @@ class Env:
         self.__register_package('groq')
         self.__register_package('huggingface_hub', library_name='huggingface-hub')
         self.__register_package('imagehash')
-        self.__register_package('label_studio_sdk', library_name='label-studio-sdk')
         self.__register_package('lance', library_name='pylance')
         self.__register_package('lancedb')
         self.__register_package('librosa')
@@ -896,7 +927,7 @@ def register_client(name: str, *, credential_param: str | None) -> Callable:
     otherwise it throws an exception.
 
     Args:
-        name: The name of the API client (e.g., 'openai' or 'label_studio').
+        name: The name of the API client (e.g., 'openai' or 'anthropic').
         credential_param: The factory parameter whose value must be treated as a secret, or
             None for factories whose parameters carry no credentials (e.g. object-store clients
             that read their auth from the surrounding AWS_*/GCS_* environment).

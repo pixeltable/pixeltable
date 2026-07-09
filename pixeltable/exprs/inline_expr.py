@@ -41,6 +41,7 @@ class InlineArray(Expr):
                 )
             inferred_element_type = supertype
 
+        col_type: ts.ColumnType
         if inferred_element_type.is_scalar_type():
             col_type = ts.ArrayType((len(exprs),), inferred_element_type)
         elif inferred_element_type.is_array_type():
