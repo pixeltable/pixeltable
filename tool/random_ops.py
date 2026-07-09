@@ -174,6 +174,7 @@ class RandomTableOps:
         self._op_counts: dict[str, int] = {name: 0 for name, *_ in TABLE_OPS}
         self._err_counts: dict[str, dict[str, int]] = {}  # op_name -> {sanitized_msg -> count}
         self._last_flush_ts: float = 0.0
+        self._emit_count: int = 0
         self.base_table_names = tuple(f'tbl_{i}' for i in range(config.num_base_tables))
 
         selected_ops: set[str]
@@ -232,6 +233,18 @@ class RandomTableOps:
         self._last_flush_ts = time.monotonic()
 
     def emit(self, op: Callable, result: OpResult) -> None:
+        self._emit_count += 1
+        if self._emit_count % 100 == 0:
+            try:
+                from pixeltable.runtime import get_runtime
+
+                cat = get_runtime().catalog
+                print(
+                    f'[{datetime.now()}] [Worker {self.worker_id:02d}] [cache stats         ]'
+                    f' [cache: tbls={len(cat._tbls)} tv={len(cat._tbl_versions)}]'
+                )
+            except Exception:
+                pass
         status = result.status.value
         line = f'[{datetime.now()}] [Worker {self.worker_id:02d}] [{op.__name__:19s}] [{status}]: {result.msg}'
         print(line)
