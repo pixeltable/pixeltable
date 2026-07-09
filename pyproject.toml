@@ -82,7 +82,7 @@ serve = ["fastapi[standard]>=0.120.0"]
 # separate distribution, opt-in via opentelemetry.instrumentation.pixeltable. The SDK and exporters live
 # here rather than in that package so it stays api-only, per contrib convention.
 otel = [
-    "opentelemetry-instrumentation-pixeltable",
+    "opentelemetry-instrumentation-pixeltable==0.1.0",
     "opentelemetry-sdk>=1.39.0",
     "opentelemetry-exporter-otlp-proto-http>=1.39.0",
     "opentelemetry-exporter-otlp-proto-grpc>=1.39.0",
