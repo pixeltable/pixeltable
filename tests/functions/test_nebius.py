@@ -43,8 +43,10 @@ class TestNebius:
         result = t.collect()
         assert len(result['embedding'][0]) == 4096
 
-        # Via add_embedding_index(), which requires a statically known embedding dimension
-        t.add_embedding_index(t.input, embedding=embeddings.using(model='Qwen/Qwen3-Embedding-8B'))
+        # Via add_embedding_index(), which requires a statically known embedding dimension. The default
+        # 4096 dimensions exceed pgvector's indexing limits, so request a truncated size instead.
+        indexed_embedding = embeddings.using(model='Qwen/Qwen3-Embedding-8B', model_kwargs={'dimensions': 1024})
+        t.add_embedding_index(t.input, embedding=indexed_embedding)
         validate_update_status(t.insert(input='Another sentence for you to index.'), 1)
         _ = t.head()
 

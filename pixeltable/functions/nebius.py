@@ -115,11 +115,13 @@ async def chat_completions(
     return json.loads(result.text)
 
 
-_embedding_dimensions_cache: dict[str, int] = {'Qwen/Qwen3-Embedding-8B': 4096, 'BAAI/bge-en-icl': 4096}
+_embedding_dimensions_cache: dict[str, int] = {'Qwen/Qwen3-Embedding-8B': 4096}
 
 
 @pxt.udf(batch_size=32, resource_pool='request-rate:nebius')
-async def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,), pxt.Float]]:
+async def embeddings(
+    input: Batch[str], *, model: str, model_kwargs: dict[str, Any] | None = None
+) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
     Query an embedding model for a given string of text.
 
@@ -137,6 +139,8 @@ async def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,
     Args:
         input: A string providing the text for the model to embed.
         model: The name of the embedding model to use.
+        model_kwargs: Additional keyword args for the Nebius `embeddings` API, e.g. `dimensions` to
+            request a truncated embedding for models that support it (see the note below).
 
     Returns:
         An array representing the application of the given embedding to `input`.
@@ -148,17 +152,29 @@ async def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,
         >>> tbl.add_computed_column(
         ...     response=embeddings(tbl.text, model='Qwen/Qwen3-Embedding-8B')
         ... )
+
+        `Qwen/Qwen3-Embedding-8B` produces 4096-dimensional embeddings by default, which exceed
+        pgvector's dimensionality limits for `add_embedding_index()` (2000 for `fp32` precision,
+        4000 for the default `fp16`). Request a smaller, indexable size via `model_kwargs`:
+
+        >>> tbl.add_embedding_index(
+        ...     'text',
+        ...     embedding=embeddings.using(
+        ...         model='Qwen/Qwen3-Embedding-8B', model_kwargs={'dimensions': 1024}
+        ...     ),
+        ... )
     """
-    result = await _nebius_client().embeddings.create(input=input, model=model)
+    if model_kwargs is None:
+        model_kwargs = {}
+    result = await _nebius_client().embeddings.create(input=input, model=model, **model_kwargs)
     return [np.array(data.embedding, dtype=np.float64) for data in result.data]
 
 
 @embeddings.conditional_return_type
-def _(model: str) -> ts.ArrayType:
-    if model not in _embedding_dimensions_cache:
-        # TODO: find some other way to retrieve a sample
-        return ts.ArrayType((None,), dtype=ts.FloatType())
-    dimensions = _embedding_dimensions_cache[model]
+def _(model: str, model_kwargs: dict[str, Any] | None = None) -> ts.ArrayType:
+    dimensions = model_kwargs.get('dimensions') if model_kwargs is not None else None
+    if dimensions is None:
+        dimensions = _embedding_dimensions_cache.get(model)  # `None` if unknown model
     return ts.ArrayType((dimensions,), dtype=ts.FloatType())
 
 
