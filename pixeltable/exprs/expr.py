@@ -282,9 +282,14 @@ class Expr(abc.ABC):
                 return result
             result = result.substitute({ref: ref.col.value_expr for ref in target_col_refs})
 
-    def is_bound_by(self, tbls: list[catalog.TablePath]) -> bool:
+    def is_bound_by(self, tbls: list[catalog.TablePath], siblings: list[catalog.Column] | None = None) -> bool:
         """Returns True if this expr can be evaluated in the context of tbls."""
         from .column_ref import ColumnRef
+
+        if siblings is None:
+            siblings = []
+        else:
+            assert all(sibling.tbl_handle is not None for sibling in siblings)
 
         def is_in(col_md: catalog.ColumnVersionMd, tbl: catalog.TablePath) -> bool:
             # the column must be physically present *and* pinned to the same version: the same physical column
@@ -294,7 +299,10 @@ class Expr(abc.ABC):
             return tbl.get_column_md(col_md.qcolid).col_effective_version == col_md.col_effective_version
 
         col_refs = self.subexprs(ColumnRef)
-        return all(any(is_in(col_ref.col_md, tbl) for tbl in tbls) for col_ref in col_refs)
+        return all(
+            any(is_in(col_ref.col_md, tbl) for tbl in tbls) or any(col_ref.col_md.qcolid == col.qid for col in siblings)
+            for col_ref in col_refs
+        )
 
     def retarget(self, tbl_versions: dict[UUID, catalog.TableVersion]) -> Self:
         """Retarget ColumnRefs in this expr to the given TableVersion instances (keyed by table id)."""
@@ -420,16 +428,13 @@ class Expr(abc.ABC):
     def tbl_ids(self) -> set[UUID]:
         """Returns table ids referenced by this expr.
 
-        Avoids calling col_handle.get() / tbl_handle.get() / col property,
-        because those resolve through the per-thread catalog and would fire the cross-thread
-        assertion on a Query that's being used from a different thread than where it was
-        constructed.
+        Must only access metadata, not execution structures (eg, TableVersion).
         """
         from .column_ref import ColumnRef
         from .rowid_ref import RowidRef
 
         col_ref_ids = {ref.col_md.qcolid.tbl_id for ref in self.subexprs(ColumnRef)}
-        rowid_ids = {ref.tbl.id for ref in self.subexprs(RowidRef)}
+        rowid_ids = {ref.tbl_id for ref in self.subexprs(RowidRef)}
         return col_ref_ids | rowid_ids
 
     @classmethod
@@ -527,7 +532,6 @@ class Expr(abc.ABC):
         Compute the expr value for data_row and store the result in data_row[slot_idx].
         Not called if sql_expr() != None (exception: Literal).
         """
-        pass
 
     def prepare(self, args: dict[str, Any], bound_args: dict[str, Any]) -> None:
         """
@@ -655,7 +659,6 @@ class Expr(abc.ABC):
             at runtime if there are values in `t.json_col` that are not strings. It will _not_ convert those values to
             a string representation. (For that, use the [`dumps()`][pixeltable.functions.json.dumps] UDF instead.)
         """
-
         from pixeltable.exprs import TypeCast
 
         # Interpret the type argument the same way we would if given in a schema
@@ -691,13 +694,12 @@ class Expr(abc.ABC):
         raise NotImplementedError(f'Expression of type `{type(self)}` is not callable')
 
     def __getitem__(self, index: object) -> Expr:
-        if self.col_type.is_json_type():
-            from .json_path import JsonPath
+        from .array_slice import ArraySlice
+        from .json_path import JsonPath
 
+        if self.col_type.is_json_type():
             return JsonPath(self)[index]
         if self.col_type.is_array_type():
-            from .array_slice import ArraySlice
-
             if not isinstance(index, tuple):
                 index = (index,)
             if any(not isinstance(i, (int, slice)) for i in index):
@@ -774,15 +776,19 @@ class Expr(abc.ABC):
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, -1)
 
     def __add__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp:
-        if isinstance(self, str) or (isinstance(self, Expr) and self.col_type.is_string_type()):
+        if self.col_type.is_string_type():
             return self._make_string_expr(StringOperator.CONCAT, other)
         return self._make_arithmetic_expr(ArithmeticOperator.ADD, other)
 
     def __sub__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.SUB, other)
 
-    def __mul__(self, other: object) -> 'exprs.ArithmeticExpr' | 'exprs.StringOp':
-        if isinstance(self, str) or (isinstance(self, Expr) and self.col_type.is_string_type()):
+    def __mul__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp:
+        if (
+            self.col_type.is_string_type()
+            or isinstance(other, str)
+            or (isinstance(other, Expr) and other.col_type.is_string_type())
+        ):
             return self._make_string_expr(StringOperator.REPEAT, other)
         return self._make_arithmetic_expr(ArithmeticOperator.MUL, other)
 
@@ -795,16 +801,16 @@ class Expr(abc.ABC):
     def __floordiv__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
 
-    def __radd__(self, other: object) -> 'exprs.ArithmeticExpr' | 'exprs.StringOp':
-        if isinstance(other, str) or (isinstance(other, Expr) and other.col_type.is_string_type()):
+    def __radd__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp:
+        if self.col_type.is_string_type():
             return self._rmake_string_expr(StringOperator.CONCAT, other)
         return self._rmake_arithmetic_expr(ArithmeticOperator.ADD, other)
 
     def __rsub__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._rmake_arithmetic_expr(ArithmeticOperator.SUB, other)
 
-    def __rmul__(self, other: object) -> 'exprs.ArithmeticExpr' | 'exprs.StringOp':
-        if isinstance(other, str) or (isinstance(other, Expr) and other.col_type.is_string_type()):
+    def __rmul__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp:
+        if self.col_type.is_string_type() or isinstance(other, str):
             return self._rmake_string_expr(StringOperator.REPEAT, other)
         return self._rmake_arithmetic_expr(ArithmeticOperator.MUL, other)
 

@@ -3,6 +3,8 @@ from datetime import date
 from typing import Callable
 from zoneinfo import ZoneInfo
 
+import pytest
+
 import pixeltable as pxt
 from pixeltable import exprs
 from pixeltable.env import Env
@@ -20,6 +22,8 @@ from pixeltable.functions.date import (
 )
 
 from ..utils import pxt_raises, validate_update_status
+
+pytestmark = pytest.mark.local('UDF/integration test')
 
 
 class TestDate:

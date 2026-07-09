@@ -47,7 +47,7 @@ class Comparison(Expr):
             # we can't use an index for this after all
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'String literal too long for comparison against indexed column {self._op1.col.name!r} '
+                f'String literal too long for comparison against indexed column {self._op1.col_md.name!r} '
                 f'(max length is {index.BtreeIndex.MAX_STRING_LEN - 1})',
             )
 

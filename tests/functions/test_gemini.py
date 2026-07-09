@@ -25,6 +25,8 @@ from ..utils import (
 )
 from .tool_utils import run_tool_invocations_test
 
+pytestmark = pytest.mark.local('UDF/integration test')
+
 _logger = logging.getLogger('pixeltable_test')
 
 

@@ -10,6 +10,8 @@ import pixeltable as pxt
 
 from .utils import rerun, skip_test_if_no_client, skip_test_if_not_installed
 
+pytestmark = pytest.mark.local('launches an MCP server subprocess')
+
 _logger = logging.getLogger('pixeltable_test')
 
 

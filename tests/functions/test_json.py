@@ -8,6 +8,8 @@ import pixeltable.functions as pxtf
 
 from ..utils import pxt_raises, skip_test_if_no_config, skip_test_if_not_installed
 
+pytestmark = pytest.mark.local('UDF/integration test')
+
 
 class TestJson:
     def test_list_iterator(self, uses_db: None) -> None:

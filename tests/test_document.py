@@ -23,6 +23,8 @@ from .utils import (
     validate_update_status,
 )
 
+pytestmark = pytest.mark.local('TODO: convert; document-splitter view/parsing')
+
 
 def _check_pdf_metadata(rec: dict, sep1: str, metadata: list[str]) -> None:
     assert sep1 != 'paragraph'  # not currently supported for PDF

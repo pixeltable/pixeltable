@@ -1,5 +1,6 @@
 import re
 
+import pytest
 from PIL.Image import Dither, Image, Quantize, Transpose
 
 import pixeltable as pxt
@@ -7,6 +8,8 @@ import pixeltable.type_system as ts
 from pixeltable.functions.image import alpha_composite, blend, composite, tile_iterator
 
 from ..utils import SAMPLE_IMAGE_URL, pxt_raises
+
+pytestmark = pytest.mark.local('UDF/integration test')
 
 
 class TestImage:

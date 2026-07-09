@@ -16,7 +16,6 @@ import toml
 from sqlalchemy import orm
 
 import pixeltable as pxt
-import pixeltable.type_system as ts
 from pixeltable.env import Env
 from pixeltable.exprs import FunctionCall, Literal
 from pixeltable.func import CallableFunction
@@ -42,12 +41,62 @@ _logger = logging.getLogger('pixeltable_test')
 
 
 class TestMigration:
+    def test_convert_53_normalize(self) -> None:
+        """Unit test for the version 53->54 function-serialization normalization (no DB needed)."""
+        from pixeltable.metadata.converters.convert_53 import _normalize
+
+        # base form (Function._as_dict, non-polymorphic): singular 'signature' -> 'signatures' list, even when
+        # the function dict is nested (here as a computed-column value_expr)
+        md = {'cols': {'c': {'value_expr': {'_classpath': 'p.CallableFunction', 'path': 'a.f', 'signature': {'s': 1}}}}}
+        _normalize(md)
+        assert md['cols']['c']['value_expr'] == {
+            '_classpath': 'p.CallableFunction',
+            'path': 'a.f',
+            'signatures': [{'s': 1}],
+        }
+
+        # by-value ExprTemplateFunction: 'expr' + 'signature' -> 'templates' list
+        md = {'fn': {'_classpath': 'p.ExprTemplateFunction', 'expr': {'e': 1}, 'signature': {'s': 2}, 'name': 'g'}}
+        _normalize(md)
+        assert md['fn'] == {
+            '_classpath': 'p.ExprTemplateFunction',
+            'name': 'g',
+            'templates': [{'expr': {'e': 1}, 'signature': {'s': 2}}],
+        }
+
+        # a root-level function dict is rewritten too (the substitution_fn-based walkers never visit the root)
+        md = {'_classpath': 'p.CallableFunction', 'path': 'a.f', 'signature': {'s': 1}}
+        _normalize(md)
+        assert md == {'_classpath': 'p.CallableFunction', 'path': 'a.f', 'signatures': [{'s': 1}]}
+
+        # non-targets are left untouched:
+        # QueryTemplateFunction carries its own 'signature' (no 'path'/'expr')
+        qtf = {
+            '_classpath': 'p.QueryTemplateFunction',
+            'name': 'q',
+            'signature': {'s': 1},
+            'df': {},
+            'return_scalar': False,
+        }
+        md = {'fn': {**qtf}}
+        _normalize(md)
+        assert md['fn'] == qtf
+        # the store_md of a pickled UDF has a 'signature' but no '_classpath'
+        store = {'name': 'h', 'store_md': {'signature': {'s': 1}, 'batch_size': None}, 'binary': '=='}
+        md = {'fn': {'name': 'h', 'store_md': {'signature': {'s': 1}, 'batch_size': None}, 'binary': '=='}}
+        _normalize(md)
+        assert md['fn'] == store
+        # already-converted (list) forms are idempotent
+        already = {'_classpath': 'p.CallableFunction', 'path': 'a.f', 'signatures': [{'s': 1}]}
+        md = {'fn': {**already}}
+        _normalize(md)
+        assert md['fn'] == already
+
     @rerun(reruns=3, reruns_delay=8)  # Deal with occasional concurrency issues
     @pytest.mark.skipif(platform.system() == 'Windows', reason='Does not run on Windows')
     @pytest.mark.skipif(sys.version_info >= (3, 11), reason='Runs only on Python 3.10 (due to pickling issue)')
     def test_db_migration(self, init_env: None) -> None:
         skip_test_if_not_installed('transformers')
-        skip_test_if_not_installed('label_studio_sdk')
 
         env = Env.get()
         pg_package_dir = os.path.dirname(pixeltable_pgserver.__file__)
@@ -89,7 +138,8 @@ class TestMigration:
             # perform a manual database "migration" to alter these specific UDF names before proceeding with the
             # main part of the migration test.
             with orm.Session(env.engine) as session:
-                convert_table_md(env.engine, substitution_fn=self.__substitute_md)
+                convert_table_md(session.connection(), substitution_fn=self.__substitute_md)
+                session.commit()
 
             # make sure we run the env db setup
             Env._init_env()
@@ -105,7 +155,8 @@ class TestMigration:
             # `test_udf_stored_batched` in the DB artifact metadata with a non-pickled variant.
             # TODO: Remove this workaround once we implement a better solution for dealing with legacy pickled UDFs.
             with orm.Session(env.engine) as session:
-                convert_table_schema_version_md(env.engine, schema_column_updater=self.__replace_pickled_udfs)
+                convert_table_schema_version_md(session.connection(), schema_column_updater=self.__replace_pickled_udfs)
+                session.commit()
 
             try:
                 reload_catalog()
@@ -119,8 +170,6 @@ class TestMigration:
                     self._run_v14_tests()
                 if old_version >= 15:
                     self._run_v15_tests()
-                if old_version >= 17:
-                    self._run_v17_tests()
                 if old_version >= 19:
                     self._run_v19_tests(old_version)
                 if old_version >= 30:
@@ -223,31 +272,6 @@ class TestMigration:
         # Test that InlineDicts are properly loaded
         inline_dict = v.where(v.c2 == 19).select(v.base_table_inline_dict).head(1)['base_table_inline_dict'][0]
         assert inline_dict == {'int': 22, 'dict': {'key': 'val'}, 'expr': 'test string 19'}
-
-    @classmethod
-    def _run_v17_tests(cls) -> None:
-        from pixeltable.io.external_store import MockProject
-        from pixeltable.io.label_studio import LabelStudioProject
-
-        t = pxt.get_table('base_table')
-        v = pxt.get_table('views/view')
-
-        # Test that external stores are loaded properly.
-        assert len(v.external_stores()) == 2
-        stores = list(v._tbl_version.get().external_stores.values())
-        assert len(stores) == 2
-        store0 = stores[0]
-        assert isinstance(store0, MockProject)
-        assert store0.get_export_columns() == {'int_field': ts.IntType()}
-        assert store0.get_import_columns() == {'str_field': ts.StringType()}
-        assert store0.col_mapping == {v.view_test_udf.col.handle: 'int_field', t.c1.col.handle: 'str_field'}
-        store1 = stores[1]
-        assert isinstance(store1, LabelStudioProject)
-        assert store1.project_id == 4171780
-
-        # Test that the stored proxies were retained properly
-        assert len(store1.stored_proxies) == 1
-        assert t.base_table_image_rot.col.handle in store1.stored_proxies
 
     @classmethod
     def _run_v19_tests(cls, version: int) -> None:

@@ -7,6 +7,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from pixeltable import exprs, func
+    from pixeltable._query import Query
     from pixeltable.plan import SampleClause
     from pixeltable.types import ColumnSpec
 
@@ -26,7 +27,7 @@ class CatalogBase(abc.ABC):
     def create_table(
         self,
         path: Path,
-        schema: dict[str, type | ColumnSpec | exprs.Expr],
+        schema: dict[str, ColumnSpec],
         if_exists: IfExistsParam,
         primary_key: list[str] | None,
         comment: str | None,
@@ -44,7 +45,7 @@ class CatalogBase(abc.ABC):
         select_list: list[tuple[exprs.Expr, str | None]] | None,
         where: exprs.Expr | None,
         sample_clause: SampleClause | None,
-        additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None,
+        additional_columns: Mapping[str, ColumnSpec] | None,
         is_snapshot: bool,
         create_default_idxs: bool,
         iterator: func.GeneratingFunctionCall | None,
@@ -52,7 +53,21 @@ class CatalogBase(abc.ABC):
         custom_metadata: Any,
         media_validation: MediaValidation,
         if_exists: IfExistsParam,
-    ) -> Table: ...
+    ) -> tuple[Table, bool]: ...
+
+    @abc.abstractmethod
+    def create_from_model(
+        self,
+        path: Path,
+        columns: dict[str, ColumnSpec],
+        display_name: str,
+        create_default_idxs: bool,
+        media_validation: MediaValidation,
+        comment: str | None,
+        custom_metadata: Any,
+        iterator: func.GeneratingFunctionCall | None,
+        base: 'Query | None',
+    ) -> tuple[Table, bool]: ...
 
     @abc.abstractmethod
     def get_table(self, path: Path, if_not_exists: IfNotExistsParam) -> Table | None: ...

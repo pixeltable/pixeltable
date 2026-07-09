@@ -50,7 +50,6 @@ jobs:
           - "fal-client reve runwayml twelvelabs voyageai"
           - "huggingface-hub llama-cpp-python openai-whisper"
           - "datasets boto3 openpyxl tiktoken pymupdf mistune spacy 'markitdown[pptx,docx,xlsx]'"
-          - "label_studio_sdk"
           - "pixeltable-yolox"
         os: [ubuntu-24.04]
         include:

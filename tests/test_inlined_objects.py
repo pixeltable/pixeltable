@@ -1,6 +1,6 @@
 import random
 import time
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import PIL.Image
@@ -11,6 +11,7 @@ from pixeltable.env import Env
 from pixeltable.utils.local_store import LocalStore
 
 from .utils import (
+    CatalogMode,
     ReloadTester,
     assert_columns_eq,
     inf_array_iterator,
@@ -22,8 +23,9 @@ from .utils import (
 
 @pytest.mark.expensive  # Large data volumes involved; must run on larger instances
 class TestInlinedObjects:
-    def test_null_arrays(self, uses_db: None) -> None:
-        t = pxt.create_table('test_tbl', {'i': pxt.Int, 'data': pxt.Array})
+    def test_null_arrays(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('test_tbl'), {'i': pxt.Int, 'data': pxt.Array})
         validate_update_status(
             t.insert(
                 {'i': i, 'data': np.random.rand(256, 256, 3).astype(np.float32) if i % 2 == 0 else None}
@@ -38,13 +40,14 @@ class TestInlinedObjects:
         assert all(row['data'] is not None for row in res)
         assert all(row['i'] % 2 == 0 for row in res)
 
-    def test_insert_arrays(self, uses_db: None) -> None:
+    def test_insert_arrays(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         """Test storing arrays of various sizes and dtypes."""
+        p = make_catalog_path
         reload_tester = ReloadTester()
 
         # 5 columns: cycle through different shapes and sizes in each row
         t = pxt.create_table(
-            'test',
+            p('test'),
             {'id': pxt.Int, 'ar1': pxt.Array, 'ar2': pxt.Array, 'ar3': pxt.Array, 'ar4': pxt.Array, 'ar5': pxt.Array},
         )
 
@@ -68,11 +71,12 @@ class TestInlinedObjects:
         )
         validate_update_status(status, expected_rows=len(rows))
         tbl_id = t._id
-        assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
+        if catalog_mode == 'local':
+            assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
 
         res = reload_tester.run_query(t.order_by(t.id))
         for col in ('ar1', 'ar2', 'ar3', 'ar4', 'ar5'):
-            assert_columns_eq(col, res.schema[col], [row[col] for row in rows], res[col])
+            assert_columns_eq(col, res._schema[col], [row[col] for row in rows], res[col])
 
         # Reference the same array column multiple times in one query
         res = reload_tester.run_query(t.select(t.ar1[0], t.ar1, t.ar1[-1]).order_by(t.id))
@@ -82,30 +86,35 @@ class TestInlinedObjects:
 
         reload_tester.run_reload_test()
 
-        pxt.drop_table('test')
-        assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
+        pxt.drop_table(p('test'))
+        if catalog_mode == 'local':
+            assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
-    def test_insert_binary(self, uses_db: None) -> None:
+    def test_insert_binary(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         """Test storing binary data of various sizes."""
+        p = make_catalog_path
         reload_tester = ReloadTester()
-        t = pxt.create_table('test', {'id': pxt.Int, 'data': pxt.Binary})
+        t = pxt.create_table(p('test'), {'id': pxt.Int, 'data': pxt.Binary})
 
         rnd = random.Random(4171780)
         data = [rnd.randbytes(size) for size in (0, 2**10, 2**5, 2**20, 2**8)]
         validate_update_status(t.insert({'id': i, 'data': d} for i, d in enumerate(data)), expected_rows=len(data))
         tbl_id = t._id
-        assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
+        if catalog_mode == 'local':
+            assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
 
         res = reload_tester.run_query(t.order_by(t.id))
-        assert_columns_eq('data', res.schema['data'], data, res['data'])
+        assert_columns_eq('data', res._schema['data'], data, res['data'])
 
         reload_tester.run_reload_test()
 
-        pxt.drop_table('test')
-        assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
+        pxt.drop_table(p('test'))
+        if catalog_mode == 'local':
+            assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
-    def test_insert_inlined_objects(self, uses_db: None) -> None:
+    def test_insert_inlined_objects(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         """Test storing lists and dicts with arrays of various sizes and dtypes."""
+        p = make_catalog_path
         skip_test_if_not_installed('imagehash')
         reload_tester = ReloadTester()
         rnd = random.Random(4171780)
@@ -122,7 +131,7 @@ class TestInlinedObjects:
             'bytes_list': pxt.Json,
             'bytes_dict': pxt.Json,
         }
-        t = pxt.create_table('test', schema)
+        t = pxt.create_table(p('test'), schema)
 
         array_vals = inf_array_iterator(
             shapes=[(4, 4), (100, 100), (500, 500), (1000, 2000)], dtypes=[np.int64, np.float32, np.bool_]
@@ -152,32 +161,37 @@ class TestInlinedObjects:
             )
         validate_update_status(t.insert(rows), expected_rows=len(rows))
         tbl_id = t._id
-        assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
+        if catalog_mode == 'local':
+            assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
 
         res = reload_tester.run_query(t.order_by(t.id))
         for col in ('array_list', 'array_dict', 'bytes_list', 'bytes_dict'):
-            assert_columns_eq(col, res.schema[col], [row[col] for row in rows], res[col])
+            assert_columns_eq(col, res._schema[col], [row[col] for row in rows], res[col])
 
         # For img_list and img_dict, we need to compare the images as they appear in the DB, on both sides.
         assert_columns_eq(
             'img_list',
-            res.schema['img_list'],
+            res._schema['img_list'],
             [[row['img1'], row['img2'], row['img3']] for row in res],
             res['img_list'],
         )
         assert_columns_eq(
             'img_dict',
-            res.schema['img_dict'],
+            res._schema['img_dict'],
             [{'img1': row['img1'], 'img2': row['img2'], 'img3': row['img3']} for row in res],
             res['img_dict'],
         )
 
         reload_tester.run_reload_test()
 
-        pxt.drop_table('test')
-        assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
+        pxt.drop_table(p('test'))
+        if catalog_mode == 'local':
+            assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
-    def test_nonstandard_json_construction(self, uses_db: None) -> None:
+    def test_nonstandard_json_construction(
+        self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode
+    ) -> None:
+        p = make_catalog_path
         skip_test_if_not_installed('imagehash')
         reload_tester = ReloadTester()
 
@@ -195,7 +209,7 @@ class TestInlinedObjects:
             'img3': pxt.Image,
             'img4': pxt.Image,
         }
-        t = pxt.create_table('test', schema)
+        t = pxt.create_table(p('test'), schema)
         array_vals = inf_array_iterator(
             shapes=[(4, 4), (100, 100), (500, 500), (1000, 2000)], dtypes=[np.int64, np.float32, np.bool_]
         )
@@ -233,13 +247,14 @@ class TestInlinedObjects:
         )
 
         tbl_id = t._id
-        assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
+        if catalog_mode == 'local':
+            assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
 
         # list construction
         res = reload_tester.run_query(
             t.select(t.l1, l2=[t.a1, t.img1, t.a2, t.img2, t.a3, t.img3, t.a4, t.img4, t.a5]).order_by(t.id)
         )
-        assert_columns_eq('l1', res.schema['l1'], res['l1'], res['l2'])
+        assert_columns_eq('l1', res._schema['l1'], res['l1'], res['l2'])
 
         # dict construction
         res = reload_tester.run_query(
@@ -258,30 +273,32 @@ class TestInlinedObjects:
                 },
             ).order_by(t.id)
         )
-        assert_columns_eq('d1', res.schema['d1'], res['d1'], res['d2'])
+        assert_columns_eq('d1', res._schema['d1'], res['d1'], res['d2'])
 
         # test json path materialization (instead of full reconstruction of l1/d1)
         # TODO: collect runtime information to verify that we're only reconstructing l1[0], not the entire cell
         res = reload_tester.run_query(t.select(t.a1, l_a1=t.l1[0]).order_by(t.id))
-        assert_columns_eq('a1', res.schema['a1'], res['a1'], res['l_a1'])
+        assert_columns_eq('a1', res._schema['a1'], res['a1'], res['l_a1'])
         res = reload_tester.run_query(t.select(t.img1, l_img1=t.l1[1]).order_by(t.id))
-        assert_columns_eq('img1', res.schema['img1'], res['img1'], res['l_img1'])
+        assert_columns_eq('img1', res._schema['img1'], res['img1'], res['l_img1'])
         res = reload_tester.run_query(t.select(t.a2, d_a2=t.d1['b']).order_by(t.id))
-        assert_columns_eq('a2', res.schema['a2'], res['a2'], res['d_a2'])
+        assert_columns_eq('a2', res._schema['a2'], res['a2'], res['d_a2'])
         res = reload_tester.run_query(t.select(t.img2, d_img2=t.d1['y']).order_by(t.id))
-        assert_columns_eq('img2', res.schema['img2'], res['img2'], res['d_img2'])
+        assert_columns_eq('img2', res._schema['img2'], res['img2'], res['d_img2'])
 
         reload_tester.run_reload_test()
 
-        pxt.drop_table('test')
-        assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
+        pxt.drop_table(p('test'))
+        if catalog_mode == 'local':
+            assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
-    def test_samples(self, uses_db: None) -> None:
+    def test_samples(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
         skip_test_if_not_installed('imagehash')
         reload_tester = ReloadTester()
 
         schema = {'id': pxt.Int, 'c': pxt.Int, 'a': pxt.Array, 'd': pxt.Json}
-        t = pxt.create_table('test', schema)
+        t = pxt.create_table(p('test'), schema)
 
         rows = [
             {

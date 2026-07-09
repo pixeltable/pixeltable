@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import abc
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping
 
+import pandas as pd
 from typing_extensions import overload
 
+from pixeltable import exceptions as excs
+
+from .globals import is_valid_identifier
 from .schema_object import SchemaObject
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
     from pathlib import Path
 
-    import pandas as pd
     import pydantic
     import torch.utils.data
 
@@ -39,7 +42,7 @@ class Table(SchemaObject):
     @property
     @abc.abstractmethod
     def _tbl_path(self) -> 'TablePath':
-        """The metadata path backing this handle. Implemented by LocalTable and TableProxy."""
+        """The metadata path backing this handle."""
 
     @abc.abstractmethod
     def get_metadata(self) -> 'TableMetadata':
@@ -71,43 +74,52 @@ class Table(SchemaObject):
             A list of view paths.
         """
 
-    @abc.abstractmethod
     def select(self, *items: Any, **named_items: Any) -> 'Query':
         """Select columns or expressions from this table.
 
         See [`Query.select`][pixeltable.Query.select] for more details.
         """
+        from pixeltable._query import Query
+        from pixeltable.query_clauses import FromClause
 
-    @abc.abstractmethod
+        query = Query(FromClause(tbls=[self._tbl_path]))
+        if len(items) == 0 and len(named_items) == 0:
+            return query
+        return query.select(*items, **named_items)
+
     def where(self, pred: 'exprs.Expr') -> 'Query':
         """Filter rows from this table based on the expression.
 
         See [`Query.where`][pixeltable.Query.where] for more details.
         """
+        return self.select().where(pred)
 
-    @abc.abstractmethod
     def join(self, other: 'Table', *, on: 'exprs.Expr' | None = None, how: 'JoinType.LiteralType' = 'inner') -> 'Query':
         """Join this table with another table."""
+        return self.select().join(other, on=on, how=how)
 
-    @abc.abstractmethod
     def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'Query':
         """Order the rows of this table based on the expression.
 
         See [`Query.order_by`][pixeltable.Query.order_by] for more details.
         """
+        return self.select().order_by(*items, asc=asc)
 
-    @abc.abstractmethod
-    def group_by(self, *items: 'exprs.Expr') -> 'Query':
+    @overload
+    def group_by(self, grouping_tbl: 'Table', /) -> 'Query': ...
+    @overload
+    def group_by(self, *grouping_items: 'exprs.Expr') -> 'Query': ...
+    def group_by(self, *items: 'exprs.Expr | Table') -> 'Query':
         """Group the rows of this table based on the expression.
 
         See [`Query.group_by`][pixeltable.Query.group_by] for more details.
         """
+        return self.select().group_by(*items)  # type: ignore[arg-type]
 
-    @abc.abstractmethod
     def distinct(self) -> 'Query':
         """Remove duplicate rows from table."""
+        return self.select().distinct()
 
-    @abc.abstractmethod
     def limit(self, n: int, offset: int | None = None) -> 'Query':
         """Select a limited number of rows from the Table, optionally skipping rows for pagination.
 
@@ -127,8 +139,8 @@ class Table(SchemaObject):
 
             >>> t.limit(10, offset=20).collect()
         """
+        return self.select().limit(n, offset=offset)
 
-    @abc.abstractmethod
     def sample(
         self,
         n: int | None = None,
@@ -141,33 +153,36 @@ class Table(SchemaObject):
 
         See [`Query.sample`][pixeltable.Query.sample] for more details.
         """
+        return self.select().sample(
+            n=n, n_per_stratum=n_per_stratum, fraction=fraction, seed=seed, stratify_by=stratify_by
+        )
 
-    @abc.abstractmethod
     def collect(self) -> 'ResultSet':
         """Return rows from this table."""
+        return self.select().collect()
 
-    @abc.abstractmethod
     def cursor(self) -> 'ResultCursor':
         """Return a [`ResultCursor`][pixeltable.ResultCursor] that iterates over this table's rows.
 
         See [`ResultCursor`][pixeltable.ResultCursor] for usage examples and lifecycle details.
         """
+        return self.select().cursor()
 
-    @abc.abstractmethod
     def show(self, n: int = 20) -> 'ResultSet':
         """Return the first n rows from this table."""
+        return self.select().show(n)
 
-    @abc.abstractmethod
     def head(self, n: int = 10) -> 'ResultSet':
         """Return the first n rows inserted into this table."""
+        return self.select().head(n)
 
-    @abc.abstractmethod
     def tail(self, n: int = 10) -> 'ResultSet':
         """Return the last n rows inserted into this table."""
+        return self.select().tail(n)
 
-    @abc.abstractmethod
     def count(self) -> int:
         """Return the number of rows in this table."""
+        return self.select().count()
 
     @abc.abstractmethod
     def columns(self) -> list[str]:
@@ -425,6 +440,9 @@ class Table(SchemaObject):
         embedding: Function | None = None,
         string_embed: Function | None = None,
         image_embed: Function | None = None,
+        audio_embed: Function | None = None,
+        video_embed: Function | None = None,
+        document_embed: Function | None = None,
         metric: Literal['cosine', 'ip', 'l2'] = 'cosine',
         precision: Literal['fp16', 'fp32'] = 'fp16',
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
@@ -434,36 +452,46 @@ class Table(SchemaObject):
         rows are inserted into the table.
 
         To add an embedding index, specify the column to be indexed and, if the column is not an `Array` column, an
-        embedding UDF. `String`, `Image`, `Video`, `Audio` and `Array` columns are currently supported.
+        embedding UDF. `String`, `Image`, `Audio`, `Video`, `Document`, and `Array` columns are currently supported.
+
+        Multimodal embeddings can be specified in one of two ways: via a single `embedding` argument with a
+        multi-signature UDF (one signature per modality), or via separate modality-specific arguments (`string_embed`,
+        `image_embed`, etc.). If both are provided, the modality-specific arguments will supersede the corresponding
+        signatures of the `embedding` UDF.
 
         For `Array` columns, which are assumed to contain precomputed embeddings, an embedding function is optional;
         if provided, it will be used to convert query values into embeddings for similarity search.
 
         Args:
-            column: The name of, or reference to, the column to be indexed; must be a `String`, `Image` or
-                `Array` column.
+            column: The name of, or reference to, the column to be indexed; must be a `String`, `Image`, `Audio`,
+                `Video`, `Document`, or `Array` column.
             idx_name: An optional name for the index. If not specified, a name such as `'idx0'` will be generated
                 automatically. If specified, the name must be unique for this table and a valid pixeltable column name.
+                When `idx_name` is omitted, duplicates are detected by the index definition (the embedding
+                function(s), `metric`, and `precision`) on the column: re-adding an index with an identical
+                definition is governed by `if_exists`.
             embedding: The UDF to use for the embedding. Must be a UDF that accepts a single argument of type `String`
                 or `Image` (as appropriate for the column being indexed) and returns a fixed-size 1-dimensional
-                array of floats.
+                array of floats. If omitted, then at least one of the modality-specific `*_embed` arguments must be
+                supplied.
             string_embed: An optional UDF to use for the string embedding component of this index.
-                Can be used in conjunction with `image_embed` to construct multimodal embeddings manually, by
-                specifying different embedding functions for different data types.
             image_embed: An optional UDF to use for the image embedding component of this index.
-                Can be used in conjunction with `string_embed` to construct multimodal embeddings manually, by
-                specifying different embedding functions for different data types.
+            audio_embed: An optional UDF to use for the audio embedding component of this index.
+            video_embed: An optional UDF to use for the video embedding component of this index.
+            document_embed: An optional UDF to use for the document embedding component of this index.
             metric: Distance metric to use for the index; one of `'cosine'`, `'ip'`, or `'l2'`.
                 The default is `'cosine'`.
             precision: level of precision for the embeddings; one of `'fp16'` or `'fp32'`.
-            if_exists: Directive for handling an existing index with the same name. Must be one of the following:
+            if_exists: Directive for handling an existing index. The existing index is the one with the same name
+                (if `idx_name` is given), or one with an identical definition on the same column (if `idx_name` is
+                omitted). Must be one of the following:
 
-                - `'error'`: raise an error if an index with the same name already exists.
-                - `'ignore'`: do nothing if an index with the same name already exists.
+                - `'error'`: raise an error if such an index already exists.
+                - `'ignore'`: do nothing if such an index already exists.
                 - `'replace'` or `'replace_force'`: replace the existing index with the new one.
 
         Raises:
-            Error: If an index with the specified name already exists for the table and `if_exists='error'`, or if
+            Error: If a matching index already exists for the table and `if_exists='error'`, or if
                 the specified column does not exist.
 
         Examples:
@@ -815,6 +843,73 @@ class Table(SchemaObject):
             ... # contains {'errortype': ..., 'errormsg': ...}.
         """
 
+    def _validate_update_value_spec(self, value_spec: dict[str, Any]) -> None:
+        from pixeltable import exprs
+
+        for col_name, val in value_spec.items():
+            if not isinstance(col_name, str):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT,
+                    f'Update specification: dict key must be column name; got {col_name!r}',
+                )
+            if not is_valid_identifier(col_name):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT, f'Update specification: invalid column name {col_name!r}'
+                )
+            if exprs.Expr.from_object(val) is None:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Column {col_name!r}: value is not a recognized literal or expression: {val!r}',
+                )
+
+    def _validate_where(self, where: 'exprs.Expr' | None) -> None:
+        from pixeltable import exprs
+
+        if where is not None and not isinstance(where, exprs.Expr):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_EXPRESSION,
+                f'`where` argument must be a valid Pixeltable expression; got `{type(where)}`',
+            )
+
+    def _validate_column_schema(self, schema: Mapping[str, type | ColumnSpec]) -> None:
+        from .column import Column
+
+        for name, spec in schema.items():
+            if isinstance(spec, dict):
+                Column._validate_column_spec(name, spec)
+
+    def _validate_insert_source(self, source: TableDataSource | None) -> None:
+        if source is not None and isinstance(source, Sequence) and len(source) == 0:
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot insert an empty sequence.')
+
+    def _validate_embedding_args(
+        self, embedding: Function | None, string_embed: Function | None, image_embed: Function | None
+    ) -> None:
+        from pixeltable.func.function import Function
+
+        for name, fn in (('embedding', embedding), ('string_embed', string_embed), ('image_embed', image_embed)):
+            if fn is not None and not isinstance(fn, Function):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT,
+                    f'`{name}` must be a Pixeltable function; got `{type(fn).__name__}`',
+                )
+
+    def _check_mutable(self, op_descr: str) -> None:
+        if self._tbl_path.is_snapshot():
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'{self._display_str()}: Cannot {op_descr} a {self._display_name()}.',
+            )
+
+    def _check_single_column_kwarg(self, method: str, value_form: str, kwargs: Mapping[str, Any]) -> None:
+        """Enforce that a single-column method (add_column/add_computed_column) got exactly one col_name= kwarg."""
+        if len(kwargs) != 1:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'{method}() requires exactly one keyword argument of the form {value_form}; '
+                f'got {len(kwargs)} arguments instead ({", ".join(kwargs.keys())})',
+            )
+
     @abc.abstractmethod
     def update(
         self,
@@ -963,39 +1058,6 @@ class Table(SchemaObject):
         """
 
     @abc.abstractmethod
-    def external_stores(self) -> list[str]: ...
-
-    @abc.abstractmethod
-    def unlink_external_stores(
-        self, stores: str | list[str] | None = None, *, delete_external_data: bool = False, ignore_errors: bool = False
-    ) -> None:
-        """
-        Unlinks this table's external stores.
-
-        Args:
-            stores: If specified, will unlink only the specified named store or list of stores. If not specified,
-                will unlink all of this table's external stores.
-            ignore_errors (bool): If `True`, no exception will be thrown if a specified store is not linked
-                to this table.
-            delete_external_data (bool): If `True`, then the external data store will also be deleted. WARNING: This
-                is a destructive operation that will delete data outside Pixeltable, and cannot be undone.
-        """
-
-    @abc.abstractmethod
-    def sync(
-        self, stores: str | list[str] | None = None, *, export_data: bool = True, import_data: bool = True
-    ) -> UpdateStatus:
-        """
-        Synchronizes this table with its linked external stores.
-
-        Args:
-            stores: If specified, will synchronize only the specified named store or list of stores. If not specified,
-                will synchronize all of this table's external stores.
-            export_data: If `True`, data from this table will be exported to the external stores during synchronization.
-            import_data: If `True`, data from the external stores will be imported to this table during synchronization.
-        """
-
-    @abc.abstractmethod
     def get_versions(self, n: int | None = None) -> list[VersionMetadata]:
         """
         Returns information about versions of this table, most recent first.
@@ -1020,7 +1082,6 @@ class Table(SchemaObject):
             >>> tbl.get_versions(n=5)
         """
 
-    @abc.abstractmethod
     def history(self, n: int | None = None) -> pd.DataFrame:
         """
         Returns a human-readable report about versions of this table.
@@ -1043,3 +1104,6 @@ class Table(SchemaObject):
 
             >>> tbl.history(n=5)
         """
+        versions = self.get_versions(n)
+        assert len(versions) > 0
+        return pd.DataFrame([list(v.values()) for v in versions], columns=list(versions[0].keys()))

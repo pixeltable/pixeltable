@@ -6,10 +6,13 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import PIL.Image
+import pytest
 
 import pixeltable as pxt
 
 from ..utils import pxt_raises, skip_test_if_not_installed
+
+pytestmark = pytest.mark.local('TODO: convert; import/export (lancedb)')
 
 
 @pxt.udf

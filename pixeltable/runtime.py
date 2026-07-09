@@ -6,12 +6,14 @@ import logging
 import threading
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Coroutine, Iterator, Literal, TypeVar
+from uuid import UUID
 from weakref import WeakKeyDictionary
 
 import sqlalchemy as sql
 from rich.progress import Progress
 from sqlalchemy import orm
 
+from pixeltable import exceptions as excs
 from pixeltable.env import Env
 from pixeltable.utils import fault_injection
 
@@ -20,6 +22,7 @@ if TYPE_CHECKING:
     from pixeltable.catalog.catalog import Catalog
     from pixeltable.catalog.catalog_base import CatalogBase
     from pixeltable.catalog.path import Path
+    from pixeltable.catalog.table import Table
     from pixeltable.exec import ExecPlan
 
 _logger = logging.getLogger(__name__)
@@ -35,8 +38,8 @@ class Runtime:
     All state that cannot be shared process-wide (and would therefore be located in Env) is stored here.
     """
 
-    # catalogs keyed by Path.catalog_uri
-    _catalogs: dict[str, CatalogBase]
+    # catalogs keyed by their catalog_uri Path (ROOT_PATH = the in-process catalog)
+    _catalogs: dict[Path, CatalogBase]
 
     conn: sql.Connection | None
     session: orm.Session | None
@@ -92,26 +95,59 @@ class Runtime:
     def catalog(self) -> Catalog:
         """The local Catalog instance."""
         from pixeltable.catalog.catalog import Catalog
+        from pixeltable.catalog.path import ROOT_PATH
 
-        cat = self._catalogs.get('')
+        cat = self._catalogs.get(ROOT_PATH)
         if cat is None:
             cat = Catalog()
-            self._catalogs[''] = cat
+            self._catalogs[ROOT_PATH] = cat
         assert isinstance(cat, Catalog)
         return cat
 
     def get_catalog(self, path: Path) -> CatalogBase:
-        """Return the catalog that the given path lives in, creating it on first use."""
-        if path.is_local:
-            return self.catalog
-        key = path.catalog_uri
-        cat = self._catalogs.get(key)
-        if cat is None:
-            from pixeltable.catalog.catalog_proxy import CatalogProxy
+        """Return the catalog the given path lives in, creating it on first use."""
+        from pixeltable.catalog.path import ROOT_PATH
 
-            cat = CatalogProxy(key)
-            self._catalogs[key] = cat
+        catalog_uri = path.catalog_uri
+        if catalog_uri == ROOT_PATH:  # the in-process catalog
+            return self.catalog
+        cat = self._catalogs.get(catalog_uri)
+        if cat is None:
+            cat = self._make_proxy_catalog(catalog_uri)
+            self._catalogs[catalog_uri] = cat
         return cat
+
+    def get_table_by_id(
+        self, tbl_id: UUID, version: int | None = None, ignore_if_dropped: bool = False
+    ) -> Table | None:
+        """Load the table with the given id, routing to whichever catalog owns it.
+
+        The owning catalog is determined from the URI Env records when a table is first loaded; tables that
+        haven't been seen yet resolve to the local catalog.
+        """
+        cat = self.get_catalog(Env.get().tbl_catalog_uri(tbl_id))
+        return cat.get_table_by_id(tbl_id, version=version, ignore_if_dropped=ignore_if_dropped)
+
+    def _make_proxy_catalog(self, catalog_uri: Path) -> CatalogBase:
+        from pixeltable.catalog.catalog_proxy import CatalogProxy
+
+        if catalog_uri.org != 'local':
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Hosted catalog {catalog_uri!r} is not supported yet'
+            )
+
+        from pixeltable.service import proxy_daemon
+        from pixeltable.service.proxy_client import ProxyHttpClient
+
+        assert catalog_uri.db is not None
+        info = proxy_daemon.read_port_lock(catalog_uri.db)
+        if info is None:
+            db = catalog_uri.db
+            raise excs.NotFoundError(
+                excs.ErrorCode.SERVICE_NOT_FOUND,
+                f'No local proxy is running for {db!r}. Start it with: pxt localproxy start {db}',
+            )
+        return CatalogProxy(catalog_uri, ProxyHttpClient(f'http://127.0.0.1:{info["port"]}'))
 
     @property
     def event_loop(self) -> asyncio.AbstractEventLoop:
@@ -250,7 +286,9 @@ def reset_runtime() -> None:
     """Reset the current thread's Runtime instance. Used for testing."""
     runtime = getattr(_thread_local, 'runtime', None)
     if runtime is not None:
-        local_catalog = runtime._catalogs.get('')
+        from pixeltable.catalog.path import ROOT_PATH
+
+        local_catalog = runtime._catalogs.get(ROOT_PATH)
         if local_catalog is not None:
             from pixeltable.catalog.catalog import Catalog
 

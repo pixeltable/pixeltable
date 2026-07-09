@@ -18,6 +18,8 @@ from ..utils import (
     validate_update_status,
 )
 
+pytestmark = pytest.mark.local('TODO: convert; import/export (iceberg)')
+
 
 class TestIceberg:
     @classmethod
