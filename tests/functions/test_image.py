@@ -8,7 +8,7 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable.functions.image import alpha_composite, blend, composite, stitch_tiles, tile_iterator
 
-from ..utils import SAMPLE_IMAGE_URL, pxt_raises
+from ..utils import SAMPLE_IMAGE_URL, get_image_files, pxt_raises
 
 
 class TestImage:
@@ -100,24 +100,29 @@ class TestImage:
     @pytest.mark.parametrize('overlap', [(0, 0), (10, 10)])
     @pytest.mark.parametrize('mode', ['RGB', 'L', 'RGBA'])
     def test_stitch_tiles(self, mode: str, overlap: tuple[int, int], uses_db: None) -> None:
-        # a deterministic 256x256 source image; tiling at (100, 100) exercises edge tiles and padding
-        gradient = PIL.Image.linear_gradient('L')
+        image_files = get_image_files()
         t = pxt.create_table('test_tbl', {'image': pxt.Image})
-        t.insert(image=PIL.Image.merge('RGB', (gradient, gradient.rotate(90), gradient.rotate(180))))
-        image: Image = t.collect()[0]['image'].convert(mode)
+        t.insert({'image': f} for f in image_files)
+        # tiling at (100, 100) exercises edge tiles and padding on the variously sized test images
         v = pxt.create_view('test_view', t, iterator=tile_iterator(t.image, (100, 100), overlap=overlap))
         # tiles are unstored, so the mode of the tile expression flows straight into stitch_tiles; the
         # stitched image must preserve it
-        result = (
-            v.select(stitched=stitch_tiles(v.pos, v.tile.convert(mode=mode), v.tile_box, v.image.width, v.image.height))
+        results = (
+            v.select(
+                v.image.localpath,
+                stitched=stitch_tiles(v.pos, v.tile.convert(mode=mode), v.tile_box, v.image.width, v.image.height),
+            )
             .group_by(t)
             .collect()
         )
-        assert len(result) == 1
-        stitched: Image = result[0]['stitched']
-        assert stitched.mode == mode
-        assert stitched.size == image.size
-        assert stitched.tobytes() == image.tobytes()
+        assert len(results) == len(image_files)
+        for row in results:
+            stitched: Image = row['stitched']
+            with PIL.Image.open(row['localpath']) as src:
+                expected = src.convert(mode)
+            assert stitched.mode == mode
+            assert stitched.size == expected.size
+            assert stitched.tobytes() == expected.tobytes()
 
     def test_stitch_tiles_edge_cases(self, uses_db: None) -> None:
         tiles = pxt.create_table('tiles', {'pos': pxt.Int, 'tile': pxt.Image, 'tile_box': pxt.Json, 'width': pxt.Int})

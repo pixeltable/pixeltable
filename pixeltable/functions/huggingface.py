@@ -379,6 +379,14 @@ def detr_for_segmentation(image: Batch[PIL.Image.Image], *, model_id: str, thres
 
 
 class SamForSegmentationResponse(TypedDict):
+    """
+    Instance segmentation results, as returned by
+    [`sam3_for_segmentation()`][pixeltable.functions.huggingface.sam3_for_segmentation] or
+    [`sam_automatic_mask_generation()`][pixeltable.functions.huggingface.sam_automatic_mask_generation]:
+    per detected instance, a confidence score, a bounding box `[x1, y1, x2, y2]` in absolute pixel
+    coordinates, and a binary `(H, W)` mask.
+    """
+
     scores: pxt.Array[(None,), pxt.Float]
     boxes: pxt.Array[(None, 4), pxt.Float]
     masks: pxt.Array[(None, None, None), pxt.Bool]
@@ -533,8 +541,8 @@ def sam_automatic_mask_generation(
     """
     Segments every object in an image with SAM (Segment Anything Model), with no prompt. `model_id` should
     be a reference to a pretrained
-    [SAM Model](https://huggingface.co/docs/transformers/model_doc/sam3) such as `facebook/sam3` or 
-    `facebook/sam2-hierra-large`. This is not exclusive to a specific SAM version it works with any SAM model 
+    [SAM Model](https://huggingface.co/docs/transformers/model_doc/sam3) such as `facebook/sam3` or
+    `facebook/sam2-hiera-large`. This UDF is not tied to a specific SAM version; it works with any SAM model
     that supports automatic mask generation.
 
     Works by sampling a grid of points across the image and returns a binary mask for every distinct object it
@@ -551,7 +559,7 @@ def sam_automatic_mask_generation(
 
     Args:
         image: The image to segment.
-        model_id: The pretrained SAM 3 model to use (default `facebook/sam3`).
+        model_id: The pretrained SAM model to use.
         points_per_batch: Number of grid points run through the model at once. Higher values are faster but
             use more memory.
         points_per_crop: Number of grid points sampled along each side of the image. Higher values find more
@@ -630,10 +638,9 @@ class Sam3VideoSegmentationFrame(TypedDict):
 class sam3_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
     """
     Tracks objects across the frames of a video using SAM 3 (Segment Anything Model 3) Promptable Concept
-    Segmentation. This is the video counterpart of
-    [`sam3_for_segmentation()`][pixeltable.functions.huggingface.sam3_for_segmentation]: given a concept prompt,
-    it detects every matching object and follows each instance across frames, assigning a stable `object_id`
-    that is preserved as the object moves, is occluded, and reappears.
+    Segmentation: given a concept prompt, it detects every object instance that matches the prompt and follows
+    each instance across frames, assigning a stable `object_id` that is preserved as the object moves, is
+    occluded, and reappears.
 
     Unlike a plain frame iterator, this iterator carries the tracker's memory across frames, so it both extracts
     frames and produces their tracked segmentation in a single pass.
@@ -669,12 +676,12 @@ class sam3_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
         text: A list of one or more concept prompts, each a short noun phrase (e.g., `['person', 'car']`). Every
             matching object instance is detected and tracked; the `labels` output identifies which prompt matched
             each object.
-        model_id: The pretrained SAM 3 model to use (default `facebook/sam3`).
+        model_id: The pretrained SAM 3 model to use.
         fps: The frames per second to sample from the video. If not specified, uses the video's native fps.
         max_frame_num_to_track: The maximum number of frames to track, counting from the first frame. If not
             specified, all frames are tracked. When set, the view contains only the tracked frames (fewer rows
             than the video has frames).
-        image_size: The square input resolution (in pixels) the model runs at (default 1008). Lowering it (e.g.
+        image_size: The square input resolution (in pixels) the model runs at. Lowering it (e.g.
             `560`) is substantially faster but reduces accuracy, since SAM 3 is tuned for 1008px.
         revision: The specific model revision to use (e.g., a branch, tag, or git identifier). If not specified,
             uses the default revision for the model.
@@ -721,6 +728,7 @@ class sam3_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
         image_size: int = 1008,
         revision: str | None = None,
     ) -> None:
+        env.Env.get().require_package('torch')
         env.Env.get().require_package('transformers')
         from pixeltable.functions.video import frame_iterator
 
