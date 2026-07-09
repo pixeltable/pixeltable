@@ -11,23 +11,6 @@ SKIP_NOTEBOOKS=(
     working-with-runwayml           # [PXT-1120] RunwayML integration is very broken
     working-with-twelvelabs         # [PXT-1119] Exceeds rate limit
     working-with-fal                # [PXT-1220] fal.ai integration failing on CI
-
-    # [PXT-1220] Temporarily disabled: these use `.apply()` or locally-defined UDFs in computed columns, which
-    # are now prohibited. Re-enable once they are reworked to use module-level `@pxt.udf`.
-    agentic-patterns
-    dev-iterative-workflow
-    img-add-watermarks
-    img-adjust-opacity
-    img-apply-filters
-    img-brightness-contrast
-    img-detect-objects
-    img-rgb-to-grayscale
-    notebook-test
-    pattern-agent-memory
-    pattern-rag-pipeline
-    udfs-in-pixeltable
-    working-with-cli
-    working-with-pydantic
 )
 
 # Check if `nvidia-smi` returns success; if not, skip GPU notebooks too
