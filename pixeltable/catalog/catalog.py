@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import dataclasses
 import functools
-import itertools
 import logging
 import random
 import time
@@ -33,7 +32,7 @@ from .dir import Dir
 from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation, QColumnId
 from .insertable_table import InsertableTable
 from .local_table import LocalTable
-from .model import EmbeddingIndex, ModelColumnRef
+from .model import EmbeddingIndex, prepare_model
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
 from .table_path import TablePath, TableVersionPath
@@ -1689,110 +1688,9 @@ class Catalog(CatalogBase):
         tbl_id = uuid4()
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
 
-        # View columns always go in a specific order:
-        # - iterator columns first
-        # - then columns from the base query's select_list
-        #     (but not if it's a select(*): then just inherit the base table's columns)
-        # - finally, the view's additional_columns.
-
-        # Create a counter to track column ids.
-        next_col_id = itertools.count()
-
-        # A registry of visible columns of the table (base table/query columns, iterator columns,
-        # and additional columns).
-        visible_cols: dict[str, Column] = {}
-
-        # A substitution dictionary resolving ModelColumnRefs to actual ColumnRefs; we'll build this up incrementally
-        # as we process the model's columns.
-        subst_dict: dict[exprs.Expr, exprs.Expr] = {}
-
-        # First the iterator columns, if present.
-        if iterator is not None:
-            # Rebind the iterator, resolving its argument references against the base table.
-            assert base is not None
-            base_tbl_subst_dict: dict[exprs.Expr, exprs.Expr] = {
-                ModelColumnRef(col.name): exprs.ColumnRef(col.column_version_md()) for col in base._first_tbl.columns()
-            }
-            subst_args = [arg.substitute(base_tbl_subst_dict) for arg in iterator.args]
-            subst_kwargs = {k: v.substitute(base_tbl_subst_dict) for k, v in iterator.kwargs.items()}
-            subst_bound_args = {k: v.substitute(base_tbl_subst_dict) for k, v in iterator.bound_args.items()}
-            iterator = func.GeneratingFunctionCall(
-                iterator.it, subst_args, subst_kwargs, subst_bound_args, iterator.outputs, iterator.validation_error
-            )
-            # Build substitutions for the iterator's output columns.
-            for name, output in iterator.outputs.items():
-                catalog_col = Column.create(name, {'type': output.col_type, 'stored': output.is_stored})  # type: ignore[arg-type]
-                catalog_col.id = next(next_col_id)
-                catalog_col.tbl_handle = tbl_handle
-                visible_cols[name] = catalog_col
-                subst_dict[ModelColumnRef(name)] = exprs.ColumnRef(
-                    catalog_col.column_version_md(), perform_validation=(media_validation == 'on_read')
-                )
-
-        if base is not None:
-            # Build substitutions for the base table/query's columns.
-            if base.select_list is None:
-                # select(*): all visible columns from the base table
-                for col in base._first_tbl.columns():
-                    # Iterator column names take precedence over base table column names in the model namespace, so
-                    # only update the substitution dicts if the name isn't already present.
-                    if col.name not in visible_cols:
-                        visible_cols[col.name] = col
-                        ref = exprs.ColumnRef(col.column_version_md())
-                        subst_dict[ModelColumnRef(col.name)] = ref
-            else:
-                # explicit select list: new columns will be created that represent the selected expressions.
-                for expr, select_name in base.select_list:
-                    col_name: str | None
-                    if select_name is not None:
-                        # The select list has an explicit name for this expression as a kwarg; use it.
-                        col_name = select_name
-                    elif isinstance(expr, exprs.ColumnRef):
-                        # It's an unnamed column reference; use the name of the referenced column as a fallback.
-                        col_name = expr.column_md.name
-                    else:
-                        # It's a compound expression with no explicit name. A name will be assigned when the table
-                        # is created, but it's anonymous to the TableModel.
-                        # TODO: Revisit this behavior. Should we be allowing unnamed compound expressions in the
-                        #     first place?
-                        col_name = None
-
-                    # Increment the `id` whether or not this column is visible to the model, to ensure we have
-                    # ids that are consistent at table creation time.
-                    id = next(next_col_id)
-                    if col_name is not None:
-                        # Column names that arrived via an explicit select list take precedence over iterator column
-                        # names in the model namespace, so here we always update the dicts.
-                        catalog_col = Column.create(col_name, expr.col_type)
-                        catalog_col.id = id
-                        catalog_col.tbl_handle = tbl_handle
-                        visible_cols[col_name] = catalog_col
-                        subst_dict[ModelColumnRef(col_name)] = exprs.ColumnRef(
-                            catalog_col.column_version_md(), perform_validation=(media_validation == 'on_read')
-                        )
-
-        # Process any additional columns specified in the view model body.
-        additional_cols: list[Column] = []
-        for name, spec in columns.items():
-            subst_spec = spec.copy()
-            if 'value' in subst_spec:
-                subst_spec['value'] = subst_spec['value'].substitute(subst_dict)
-                residual_placeholders = list(subst_spec['value'].subexprs(ModelColumnRef))
-                if len(residual_placeholders) > 0:
-                    raise excs.RequestError(
-                        excs.ErrorCode.INVALID_SCHEMA,
-                        f'Column {name!r} in {display_name} references columns that are not in '
-                        f"the model's scope: {[c.name for c in residual_placeholders]}",
-                    )
-            catalog_col = Column.create(name, subst_spec)
-            catalog_col.tbl_handle = tbl_handle
-            catalog_col.id = next(next_col_id)
-            additional_cols.append(catalog_col)
-            visible_cols[name] = catalog_col
-            subst_dict[ModelColumnRef(name, catalog_col.col_type)] = exprs.ColumnRef(
-                catalog_col.column_version_md(),
-                perform_validation=subst_spec.get('media_validation', media_validation) == 'on_read',
-            )
+        iterator, additional_cols, resolved_idxs = prepare_model(
+            tbl_handle, columns, display_name, media_validation, iterator, base, embedding_idxs
+        )
 
         # If the table already exists, validate the model against it and rebind (the server enforces its own
         # consistency; we never trust a client to have validated).
@@ -1800,33 +1698,6 @@ class Catalog(CatalogBase):
         if existing is not None:
             self._validate_model(existing, display_name, base, iterator)
             return existing, False
-
-        # Resolve each declared embedding index against the model's visible columns.
-        resolved_idxs: list[tuple[Column, str | None, index.IndexBase]] = []
-        for idx_name, idx_spec in embedding_idxs.items():
-            if not isinstance(idx_spec.column, ModelColumnRef):
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA,
-                    f'Embedding index {idx_name!r} in {display_name} has an invalid column reference.',
-                )
-            col_name = idx_spec.column.name
-            if col_name not in visible_cols:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA,
-                    f'Embedding index {idx_name!r} in {display_name} references unknown column {col_name!r}.',
-                )
-            idx = index.EmbeddingIndex(
-                metric=idx_spec.metric,
-                precision=idx_spec.precision,
-                embed=idx_spec.embedding,
-                string_embed=idx_spec.string_embed,
-                image_embed=idx_spec.image_embed,
-                audio_embed=idx_spec.audio_embed,
-                video_embed=idx_spec.video_embed,
-                document_embed=idx_spec.document_embed,
-                column=visible_cols[col_name],
-            )
-            resolved_idxs.append((visible_cols[col_name], idx_name, idx))
 
         if base is None:
             return self._create_table(
