@@ -270,7 +270,7 @@ jobs:
           cd target/docs && mint broken-links
       - name: Lint
         if: ${{ matrix.test-category == 'lint' }}
-        run: ruff check pixeltable tests tool packages/opentelemetry-instrumentation-pixeltable/src packages/opentelemetry-instrumentation-pixeltable/tests
+        run: ruff check pixeltable tests tool packages/**/src packages/**/tests
       - name: Formatter check
         if: ${{ matrix.test-category == 'lint' }}
         run: |
