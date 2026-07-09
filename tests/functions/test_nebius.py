@@ -1,6 +1,7 @@
 import pytest
 
 import pixeltable as pxt
+import pixeltable.type_system as ts
 
 from ..utils import rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 
@@ -34,6 +35,19 @@ class TestNebius:
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         t.add_computed_column(embedding=embeddings(t.input, model='Qwen/Qwen3-Embedding-8B'))
 
+        type_info = t._get_schema()
+        assert isinstance(type_info['embedding'], ts.ArrayType)
+        assert type_info['embedding'].shape == (4096,)
+
         validate_update_status(t.insert(input='Hello, world!'), 1)
         result = t.collect()
-        assert len(result['embedding'][0]) > 0
+        assert len(result['embedding'][0]) == 4096
+
+        # Via add_embedding_index(), which requires a statically known embedding dimension
+        t.add_embedding_index(t.input, embedding=embeddings.using(model='Qwen/Qwen3-Embedding-8B'))
+        validate_update_status(t.insert(input='Another sentence for you to index.'), 1)
+        _ = t.head()
+
+        sim = t.input.similarity(string='Indexing sentences is fun.')
+        res = t.select(t.input, sim=sim).order_by(sim, asc=False).collect()
+        assert res[0]['input'] == 'Another sentence for you to index.'
