@@ -626,13 +626,25 @@ def sam_automatic_mask_generation(
 
 
 class Sam3VideoSegmentationFrame(TypedDict):
+    """
+    Per-frame tracked segmentation results, as returned by
+    [`sam3_for_video_segmentation()`][pixeltable.functions.huggingface.sam3_for_video_segmentation].
+    """
+
     frame: pxt.Image
+    """The video frame. Not stored; re-extracted from the source video on demand."""
     frame_attrs: pxt.Json
+    """Frame metadata from `frame_iterator` (e.g. `index`, `time`), used to re-extract `frame` on demand."""
     object_ids: pxt.Array[(None,), pxt.Int]
+    """Persistent id of each tracked object in the frame, shape `(num_objects,)`. Stable across frames."""
     labels: pxt.Array[(None,), pxt.String]
+    """The concept prompt that detected each object, shape `(num_objects,)`, aligned with `object_ids`."""
     scores: pxt.Array[(None,), pxt.Float]
+    """The detection score of each object, shape `(num_objects,)`, aligned with `object_ids`."""
     boxes: pxt.Array[(None, 4), pxt.Float]
+    """Bounding box `[x1, y1, x2, y2]` per object in absolute pixel coordinates, shape `(num_objects, 4)`."""
     masks: pxt.Array[(None, None, None), pxt.Bool]
+    """Binary mask per object, shape `(num_objects, H, W)`, aligned with `object_ids`."""
 
 
 @pxt.iterator(unstored_cols=['frame'])
