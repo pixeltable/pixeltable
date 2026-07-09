@@ -15,10 +15,12 @@ from typing import Any, Literal
 
 from opentelemetry import metrics as otel_metrics, trace
 from opentelemetry.trace import ProxyTracerProvider
+from opentelemetry._logs import set_logger_provider
 
 from pixeltable import exceptions as excs, hooks
 from pixeltable.config import Config
 from pixeltable.env import Env
+from . import PixeltableInstrumentor
 
 _logger = logging.getLogger('pixeltable.otel')
 
@@ -161,6 +163,12 @@ def _setup(
     meter_provider: Any,
 ) -> None:
     """Provider setup proper; runs once, under _setup_lock held by init()."""
+    Env.get().require_package('opentelemetry-sdk')
+    from opentelemetry.sdk.metrics import MeterProvider
+    from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
     if span_level is None:
         span_level = config.get_string_value('span_level', section='otel') or 'info'
     # applied by instrument() below; validate now, before the set-once providers are mutated
@@ -196,9 +204,6 @@ def _setup(
         elif std_traces_env or cfg_endpoint is not None:
             # plain SDK with an OTLP exporter; config-derived kwargs are withheld whenever the standard
             # env vars are set, so the exporter's native env resolution wins
-            from opentelemetry.sdk.trace import TracerProvider
-            from opentelemetry.sdk.trace.export import BatchSpanProcessor
-
             exporter = _span_exporter(use_grpc, cfg_endpoint, cfg_headers, withhold=std_traces_env)
             tp = TracerProvider(resource=_create_resource(cfg_service))
             tp.add_span_processor(BatchSpanProcessor(exporter))
@@ -217,9 +222,6 @@ def _setup(
         if 'Proxy' not in type(existing_mp).__name__:
             mp = existing_mp
         else:
-            from opentelemetry.sdk.metrics import MeterProvider
-            from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-
             metric_exporter = _metric_exporter(use_grpc, cfg_endpoint, cfg_headers, withhold=metrics_env)
             mp = MeterProvider(
                 resource=_create_resource(cfg_service), metric_readers=[PeriodicExportingMetricReader(metric_exporter)]
@@ -239,8 +241,6 @@ def _setup(
     if owns_mp:
         otel_metrics.set_meter_provider(mp)
     if logger_provider is not None:
-        from opentelemetry._logs import set_logger_provider
-
         set_logger_provider(logger_provider)
         logging.getLogger('pixeltable').addHandler(log_handler)
     _state.owns_tracer_provider = owns_tp
@@ -248,8 +248,6 @@ def _setup(
     _state.tracer_provider = tp
     _state.meter_provider = mp
     _state.logger_provider = logger_provider
-
-    from . import PixeltableInstrumentor
 
     PixeltableInstrumentor().instrument(tracer_provider=tp, meter_provider=mp, span_level=span_level)
     _state.initialized = True
@@ -277,6 +275,7 @@ def _use_grpc(cfg_protocol: str | None) -> bool:
 
 
 def _span_exporter(use_grpc: bool, endpoint: str | None, headers: str | None, *, withhold: bool) -> Any:
+    Env.get().require_package('opentelemetry-exporter-otlp-proto-grpc' if use_grpc else 'opentelemetry-exporter-otlp-proto-http')
     ep = None if withhold else endpoint
     hdrs = _parse_headers(headers) if headers is not None and not withhold else None
     if use_grpc:
@@ -289,6 +288,7 @@ def _span_exporter(use_grpc: bool, endpoint: str | None, headers: str | None, *,
 
 
 def _metric_exporter(use_grpc: bool, endpoint: str | None, headers: str | None, *, withhold: bool) -> Any:
+    Env.get().require_package('opentelemetry-exporter-otlp-proto-grpc' if use_grpc else 'opentelemetry-exporter-otlp-proto-http')
     ep = None if withhold else endpoint
     hdrs = _parse_headers(headers) if headers is not None and not withhold else None
     if use_grpc:
@@ -301,6 +301,7 @@ def _metric_exporter(use_grpc: bool, endpoint: str | None, headers: str | None, 
 
 
 def _log_exporter(use_grpc: bool, endpoint: str | None, headers: str | None, *, withhold: bool) -> Any:
+    Env.get().require_package('opentelemetry-exporter-otlp-proto-grpc' if use_grpc else 'opentelemetry-exporter-otlp-proto-http')
     ep = None if withhold else endpoint
     hdrs = _parse_headers(headers) if headers is not None and not withhold else None
     if use_grpc:
@@ -315,6 +316,7 @@ def _log_exporter(use_grpc: bool, endpoint: str | None, headers: str | None, *, 
 def _build_log_export(
     use_grpc: bool, cfg_endpoint: str | None, cfg_headers: str | None, cfg_service: str, logs_env: bool
 ) -> tuple[Any, logging.Handler]:
+    Env.get().require_package('opentelemetry-sdk')
     from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
     from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 
@@ -325,6 +327,7 @@ def _build_log_export(
 
 
 def _create_resource(service_name: str) -> Any:
+    Env.get().require_package('opentelemetry-sdk')
     from opentelemetry.sdk.resources import Resource
 
     # OTEL_SERVICE_NAME (read natively by Resource.create) wins over pixeltable config
