@@ -11,6 +11,7 @@ import pydantic
 
 import pixeltable as pxt
 from pixeltable import config, exceptions as excs
+from pixeltable.env import Env
 from pixeltable.serving._config import create_service_from_config, lookup_service_config
 
 from ..parser import Parser
@@ -242,13 +243,11 @@ def _serve(args: argparse.Namespace) -> None:
         return
 
     if args.otel:
-        try:
-            import opentelemetry.instrumentation.pixeltable as pxt_otel
-        except ImportError as e:
-            raise excs.RequestError(
-                excs.ErrorCode.MISSING_REQUIRED,
-                "--otel requires the instrumentation package; install it with `pip install 'pixeltable[otel]'`",
-            ) from e
+        Env.get().require_package(
+            'opentelemetry-instrumentation-pixeltable',
+            not_installed_msg="--otel requires the instrumentation package; install: `pip install 'pixeltable[otel]'`",
+        )
+        import opentelemetry.instrumentation.pixeltable as pxt_otel
         pxt_otel.init()
 
     _run(cfg, create_service_from_config(cfg), args.json)

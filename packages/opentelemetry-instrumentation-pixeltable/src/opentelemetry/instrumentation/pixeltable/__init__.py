@@ -23,7 +23,7 @@ from opentelemetry.trace import StatusCode, set_span_in_context
 
 from pixeltable import __version__, hooks
 
-from ._sdk import _resolve_span_level, init, instrument_fastapi, _instrument_sqlalchemy
+from ._sdk import _instrument_sqlalchemy, _resolve_span_level, init, instrument_fastapi  # noqa: F401
 from .package import _instruments
 
 __all__ = ['PixeltableInstrumentor', 'init', 'instrument_fastapi']

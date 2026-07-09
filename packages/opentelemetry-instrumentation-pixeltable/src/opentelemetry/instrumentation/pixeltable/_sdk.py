@@ -14,12 +14,13 @@ import threading
 from typing import Any, Literal
 
 from opentelemetry import metrics as otel_metrics, trace
-from opentelemetry.trace import ProxyTracerProvider
 from opentelemetry._logs import set_logger_provider
+from opentelemetry.trace import ProxyTracerProvider
 
 from pixeltable import exceptions as excs, hooks
 from pixeltable.config import Config
 from pixeltable.env import Env
+
 from . import PixeltableInstrumentor
 
 _logger = logging.getLogger('pixeltable.otel')
@@ -123,6 +124,7 @@ def instrument_fastapi(app: Any, **kwargs: Any) -> None:
     """
     Env.get().require_package('opentelemetry-instrumentation-fastapi')
     from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor  # type: ignore[import-untyped]
+
     kwargs.setdefault('tracer_provider', _state.tracer_provider)
     FastAPIInstrumentor.instrument_app(app, **kwargs)
 
@@ -145,6 +147,7 @@ def _instrument_sqlalchemy(**kwargs: Any) -> None:
     """
     Env.get().require_package('opentelemetry-instrumentation-sqlalchemy')
     from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor  # type: ignore[import-untyped]
+
     kwargs.setdefault('tracer_provider', _state.tracer_provider)
     SQLAlchemyInstrumentor().instrument(**kwargs)
 
@@ -275,7 +278,9 @@ def _use_grpc(cfg_protocol: str | None) -> bool:
 
 
 def _span_exporter(use_grpc: bool, endpoint: str | None, headers: str | None, *, withhold: bool) -> Any:
-    Env.get().require_package('opentelemetry-exporter-otlp-proto-grpc' if use_grpc else 'opentelemetry-exporter-otlp-proto-http')
+    Env.get().require_package(
+        'opentelemetry-exporter-otlp-proto-grpc' if use_grpc else 'opentelemetry-exporter-otlp-proto-http'
+    )
     ep = None if withhold else endpoint
     hdrs = _parse_headers(headers) if headers is not None and not withhold else None
     if use_grpc:
@@ -288,7 +293,9 @@ def _span_exporter(use_grpc: bool, endpoint: str | None, headers: str | None, *,
 
 
 def _metric_exporter(use_grpc: bool, endpoint: str | None, headers: str | None, *, withhold: bool) -> Any:
-    Env.get().require_package('opentelemetry-exporter-otlp-proto-grpc' if use_grpc else 'opentelemetry-exporter-otlp-proto-http')
+    Env.get().require_package(
+        'opentelemetry-exporter-otlp-proto-grpc' if use_grpc else 'opentelemetry-exporter-otlp-proto-http'
+    )
     ep = None if withhold else endpoint
     hdrs = _parse_headers(headers) if headers is not None and not withhold else None
     if use_grpc:
@@ -301,7 +308,9 @@ def _metric_exporter(use_grpc: bool, endpoint: str | None, headers: str | None, 
 
 
 def _log_exporter(use_grpc: bool, endpoint: str | None, headers: str | None, *, withhold: bool) -> Any:
-    Env.get().require_package('opentelemetry-exporter-otlp-proto-grpc' if use_grpc else 'opentelemetry-exporter-otlp-proto-http')
+    Env.get().require_package(
+        'opentelemetry-exporter-otlp-proto-grpc' if use_grpc else 'opentelemetry-exporter-otlp-proto-http'
+    )
     ep = None if withhold else endpoint
     hdrs = _parse_headers(headers) if headers is not None and not withhold else None
     if use_grpc:
