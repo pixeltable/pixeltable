@@ -7,8 +7,8 @@ from pixeltable.metadata.converters.util import convert_table_md
 
 
 @register_converter(version=20)
-def _(engine: sql.engine.Engine) -> None:
-    convert_table_md(engine, substitution_fn=__substitute_md)
+def _(conn: sql.Connection) -> None:
+    convert_table_md(conn, substitution_fn=__substitute_md)
 
 
 def __substitute_md(k: str | None, v: Any) -> tuple[str | None, Any] | None:

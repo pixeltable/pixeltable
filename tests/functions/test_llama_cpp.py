@@ -7,6 +7,8 @@ import pixeltable as pxt
 from ..utils import rerun, skip_test_if_no_config, skip_test_if_not_installed, validate_update_status
 from .tool_utils import stock_price, weather
 
+pytestmark = pytest.mark.local('UDF/integration test')
+
 
 @pytest.fixture(autouse=True)
 def cleanup_llama_cpp() -> Iterator[None]:

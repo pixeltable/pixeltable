@@ -1,10 +1,14 @@
 import uuid
 from typing import Callable
 
+import pytest
+
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 
 from ..utils import validate_update_status
+
+pytestmark = pytest.mark.local('UDF/integration test')
 
 
 class TestUuid:

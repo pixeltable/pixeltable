@@ -4,5 +4,5 @@ from pixeltable.metadata import register_converter
 
 
 @register_converter(version=12)
-def _(engine: sql.engine.Engine) -> None:
+def _(conn: sql.Connection) -> None:
     pass

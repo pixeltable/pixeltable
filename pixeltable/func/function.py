@@ -106,6 +106,11 @@ class Function(ABC):
         return self.self_path is not None and self.self_path.startswith('pixeltable.')
 
     @property
+    def is_storable(self) -> bool:
+        """True if the serialized form of this function (as_dict()) can be stored in the db."""
+        return True
+
+    @property
     def signature(self) -> Signature:
         assert not self.is_polymorphic
         return self.signatures[0]
@@ -513,15 +518,13 @@ class Function(ABC):
         to an instance with from_dict().
         Subclasses can override _as_dict().
         """
-        # We currently only ever serialize a function that has a specific signature (not a polymorphic form).
-        assert not self.is_polymorphic
         classpath = f'{self.__class__.__module__}.{self.__class__.__qualname__}'
         return {'_classpath': classpath, **self._as_dict()}
 
     def _as_dict(self) -> dict:
-        """Default serialization: store the path to self (which includes the module path) and signature."""
+        """Default serialization: store the path to self (which includes the module path) and its signatures."""
         assert self.self_path is not None
-        return {'path': self.self_path, 'signature': self.signature.as_dict()}
+        return {'path': self.self_path, 'signatures': [sig.as_dict() for sig in self.signatures]}
 
     @classmethod
     def from_dict(cls, d: dict) -> Function:
@@ -577,6 +580,11 @@ class InvalidFunction(Function):
         super().__init__([], self_path)
         self.fn_dict = fn_dict
         self.error_msg = error_msg
+
+    @property
+    def is_storable(self) -> bool:
+        # we should never be storing invalid functions
+        return False
 
     def _as_dict(self) -> dict:
         """

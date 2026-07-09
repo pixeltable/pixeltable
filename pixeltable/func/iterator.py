@@ -510,6 +510,15 @@ class GeneratingFunctionCall:
 
         return cls(it, args, kwargs, bound_args, outputs, validation_error)
 
+    def display_str(self) -> str:
+        # Build the iterator expression string: "iterator_name(arg1, arg2=expr2, ...)"
+        arg_strs: list[str] = []
+        for arg_expr in self.args:
+            arg_strs.append(arg_expr.display_str(inline=True))
+        for arg_name, arg_expr in self.kwargs.items():
+            arg_strs.append(f'{arg_name}={arg_expr.display_str(inline=True)}')
+        return f'{self.it.name}({", ".join(arg_strs)})'
+
 
 @overload
 def iterator(decorated_fn: Callable) -> GeneratingFunction: ...

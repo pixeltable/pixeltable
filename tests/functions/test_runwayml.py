@@ -7,6 +7,8 @@ import pixeltable as pxt
 
 from ..utils import get_image_files, rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 
+pytestmark = pytest.mark.local('UDF/integration test')
+
 
 @rerun(reruns=3, reruns_delay=30)
 class TestRunwayML:

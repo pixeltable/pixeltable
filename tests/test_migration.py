@@ -3,8 +3,8 @@ import logging
 import os
 import platform
 import subprocess
-import sys
 import uuid
+import warnings
 from datetime import datetime
 from typing import Any
 
@@ -16,13 +16,13 @@ import toml
 from sqlalchemy import orm
 
 import pixeltable as pxt
-import pixeltable.type_system as ts
+import pixeltable.exceptions as excs
 from pixeltable.env import Env
 from pixeltable.exprs import FunctionCall, Literal
 from pixeltable.func import CallableFunction
-from pixeltable.func.signature import Batch
 from pixeltable.metadata import VERSION, SystemInfo
-from pixeltable.metadata.converters.util import convert_table_md, convert_table_schema_version_md
+from pixeltable.metadata.converters.convert_54 import _contains_pickled_fn
+from pixeltable.metadata.converters.util import convert_table_md
 from pixeltable.metadata.notes import VERSION_NOTES
 from pixeltable.metadata.schema import Table, TableSchemaVersion, TableVersion
 
@@ -42,12 +42,63 @@ _logger = logging.getLogger('pixeltable_test')
 
 
 class TestMigration:
+    def test_convert_53_normalize(self) -> None:
+        """Unit test for the version 53->54 function-serialization normalization (no DB needed)."""
+        from pixeltable.metadata.converters.convert_53 import _normalize
+
+        # base form (Function._as_dict, non-polymorphic): singular 'signature' -> 'signatures' list, even when
+        # the function dict is nested (here as a computed-column value_expr)
+        md = {'cols': {'c': {'value_expr': {'_classpath': 'p.CallableFunction', 'path': 'a.f', 'signature': {'s': 1}}}}}
+        _normalize(md)
+        assert md['cols']['c']['value_expr'] == {
+            '_classpath': 'p.CallableFunction',
+            'path': 'a.f',
+            'signatures': [{'s': 1}],
+        }
+
+        # by-value ExprTemplateFunction: 'expr' + 'signature' -> 'templates' list
+        md = {'fn': {'_classpath': 'p.ExprTemplateFunction', 'expr': {'e': 1}, 'signature': {'s': 2}, 'name': 'g'}}
+        _normalize(md)
+        assert md['fn'] == {
+            '_classpath': 'p.ExprTemplateFunction',
+            'name': 'g',
+            'templates': [{'expr': {'e': 1}, 'signature': {'s': 2}}],
+        }
+
+        # a root-level function dict is rewritten too (the substitution_fn-based walkers never visit the root)
+        md = {'_classpath': 'p.CallableFunction', 'path': 'a.f', 'signature': {'s': 1}}
+        _normalize(md)
+        assert md == {'_classpath': 'p.CallableFunction', 'path': 'a.f', 'signatures': [{'s': 1}]}
+
+        # non-targets are left untouched:
+        # QueryTemplateFunction carries its own 'signature' (no 'path'/'expr')
+        qtf = {
+            '_classpath': 'p.QueryTemplateFunction',
+            'name': 'q',
+            'signature': {'s': 1},
+            'df': {},
+            'return_scalar': False,
+        }
+        md = {'fn': {**qtf}}
+        _normalize(md)
+        assert md['fn'] == qtf
+        # the store_md of a pickled UDF has a 'signature' but no '_classpath'
+        store = {'name': 'h', 'store_md': {'signature': {'s': 1}, 'batch_size': None}, 'binary': '=='}
+        md = {'fn': {'name': 'h', 'store_md': {'signature': {'s': 1}, 'batch_size': None}, 'binary': '=='}}
+        _normalize(md)
+        assert md['fn'] == store
+        # already-converted (list) forms are idempotent
+        already = {'_classpath': 'p.CallableFunction', 'path': 'a.f', 'signatures': [{'s': 1}]}
+        md = {'fn': {**already}}
+        _normalize(md)
+        assert md['fn'] == already
+
     @rerun(reruns=3, reruns_delay=8)  # Deal with occasional concurrency issues
     @pytest.mark.skipif(platform.system() == 'Windows', reason='Does not run on Windows')
-    @pytest.mark.skipif(sys.version_info >= (3, 11), reason='Runs only on Python 3.10 (due to pickling issue)')
     def test_db_migration(self, init_env: None) -> None:
         skip_test_if_not_installed('transformers')
-        skip_test_if_not_installed('label_studio_sdk')
+        # the dumps contain a sentence-mode string_splitter view, which needs spacy to compute inserted rows
+        skip_test_if_not_installed('spacy')
 
         env = Env.get()
         pg_package_dir = os.path.dirname(pixeltable_pgserver.__file__)
@@ -89,9 +140,10 @@ class TestMigration:
             # perform a manual database "migration" to alter these specific UDF names before proceeding with the
             # main part of the migration test.
             with orm.Session(env.engine) as session:
-                convert_table_md(env.engine, substitution_fn=self.__substitute_md)
+                convert_table_md(session.connection(), substitution_fn=self.__substitute_md)
+                session.commit()
 
-            # make sure we run the env db setup
+            # make sure we run the env db setup, migrating to the current version
             Env._init_env()
             env = Env.get()
 
@@ -99,46 +151,51 @@ class TestMigration:
                 md = session.query(SystemInfo).one().md
                 assert md['schema_version'] == VERSION
 
-            # Most DB artifacts were created using Python 3.9, but there is a pickling incompatibility between
-            # Python 3.9 and 3.10 that affects the specific UDF `test_udf_stored_batched`. Eventually pickled UDFs
-            # will go away; until we find a better solution, the workaround is to surgically replace references to
-            # `test_udf_stored_batched` in the DB artifact metadata with a non-pickled variant.
-            # TODO: Remove this workaround once we implement a better solution for dealing with legacy pickled UDFs.
-            with orm.Session(env.engine) as session:
-                convert_table_schema_version_md(env.engine, schema_column_updater=self.__replace_pickled_udfs)
-
             try:
-                reload_catalog()
+                # PixeltableWarning is configured as an error in tests (see pyproject.toml). Dumps at or below
+                # version 54 may contain computed columns backed by pickled functions (apply()/stored UDFs); those
+                # references are left in place by the 54->55 converter and load as InvalidFunction, which warns that
+                # the column is no longer valid. Tolerate only that specific warning, and only for pre-55 dumps, so
+                # any other PixeltableWarning (or an invalid-column warning from a >= 55 dump) still fails the test.
+                with warnings.catch_warnings():
+                    if old_version < 55:
+                        warnings.filterwarnings(
+                            'ignore',
+                            message='The computed column .* is no longer valid',
+                            category=excs.PixeltableWarning,
+                        )
 
-                # TODO: We need many more of these sorts of checks.
-                if 12 <= old_version <= 14:
-                    self._run_v12_tests()
-                if 13 <= old_version <= 14:
-                    self._run_v13_tests()
-                if old_version == 14:
-                    self._run_v14_tests()
-                if old_version >= 15:
-                    self._run_v15_tests()
-                if old_version >= 17:
-                    self._run_v17_tests()
-                if old_version >= 19:
-                    self._run_v19_tests(old_version)
-                if old_version >= 30:
-                    self._run_v30_tests()
-                if old_version >= 33:
-                    self._verify_v33()
-                if old_version >= 45:
-                    self._verify_v45()
-                if old_version >= 48:
-                    self._verify_v48()
-                # For version 49, the test can only be run on the exact version since creating tables with invalid
-                # primary keys fails post version 49. Therefore the dump cannot have invalid primary keys.
-                if old_version == 49:
-                    self._verify_v49()
-                if old_version >= 50:
-                    self._verify_v49_query_scalar()
+                    reload_catalog()
 
-                pxt.drop_table('sample_table', force=True)
+                    # Drop the pickled-function columns so the insert-based verification below can run; a real user
+                    # would do the same to make such a table writable again.
+                    self._drop_pickled_columns()
+
+                    # TODO: We need many more of these sorts of checks.
+                    if 12 <= old_version <= 14:
+                        self._run_v12_tests()
+                    if 13 <= old_version <= 14:
+                        self._run_v13_tests()
+                    if old_version >= 15:
+                        self._run_v15_tests()
+                    if old_version >= 19:
+                        self._run_v19_tests(old_version)
+                    if old_version >= 30:
+                        self._run_v30_tests()
+                    if old_version >= 33:
+                        self._verify_v33()
+                    if old_version >= 45:
+                        self._verify_v45()
+                    if old_version >= 48:
+                        self._verify_v48()
+                    # For version 49, the test can only be run on the exact version since creating tables with
+                    # invalid primary keys fails post version 49. Therefore the dump cannot have invalid primary keys.
+                    if old_version == 49:
+                        self._verify_v49()
+                    if old_version >= 50:
+                        self._verify_v49_query_scalar()
+
+                    pxt.drop_table('sample_table', force=True)
 
             except Exception as e:
                 raise RuntimeError(
@@ -157,6 +214,39 @@ class TestMigration:
         )
 
     @classmethod
+    def _drop_pickled_columns(cls) -> None:
+        """Drop every computed column backed by a pickled function from all (mutable) tables in the catalog.
+
+        A pickled function is a CallableFunction without a fully-qualified path (an apply() result or a stored UDF)
+        and loads as an InvalidFunction; @pxt.query columns are a different function type and are left in place.
+        Snapshots are skipped because their columns are immutable; a pickled column visible through a snapshot
+        lives in the base version it pins, which no drop can rewrite.
+        """
+        # A pickled column may have dependents in other tables (a view's computed column referencing a base
+        # table's column), and a column with dependents can't be dropped.
+        # Sweeping all tables until a sweep drops nothing lets each dependent drop before the column it needs.
+        while True:
+            dropped_any = False
+            for path in pxt.list_tables():
+                t = pxt.get_table(path)
+                if t._tbl_path.is_snapshot():
+                    continue
+                for name in [n for n in t.columns() if cls.__is_pickled_column(t, n)]:
+                    try:
+                        t.drop_column(name)
+                        dropped_any = True
+                    except excs.Error:
+                        pass
+            if not dropped_any:
+                break
+
+    @staticmethod
+    def __is_pickled_column(t: pxt.Table, name: str) -> bool:
+        # Inspect the serialized value_expr, not the loaded expr: a legacy pickled function loads as an
+        # InvalidFunction, but its stored dict still carries the pickle markers _contains_pickled_fn() looks for.
+        return _contains_pickled_fn(t[name].col.value_expr_dict)
+
+    @classmethod
     def _run_v12_tests(cls) -> None:
         """Tests that apply to DB artifacts of version 12-14."""
         pxt.get_table('sample_table').describe()
@@ -169,14 +259,6 @@ class TestMigration:
         t = pxt.get_table('views/empty_view')
         # Test that the batched function is properly loaded as batched
         expr = t['batched'].col.value_expr
-        assert isinstance(expr, FunctionCall) and isinstance(expr.fn, CallableFunction) and expr.fn.is_batched
-
-    @classmethod
-    def _run_v14_tests(cls) -> None:
-        """Tests that apply to DB artifacts of version ==14."""
-        t = pxt.get_table('views/sample_view')
-        # Test that stored batched functions are properly loaded as batched
-        expr = t['test_udf_batched'].col.value_expr
         assert isinstance(expr, FunctionCall) and isinstance(expr.fn, CallableFunction) and expr.fn.is_batched
 
     @classmethod
@@ -195,10 +277,6 @@ class TestMigration:
 
         # Test that batched functions are properly loaded as batched
         expr = e['empty_view_batched'].col.value_expr
-        assert isinstance(expr, FunctionCall) and isinstance(expr.fn, CallableFunction) and expr.fn.is_batched
-
-        # Test that stored batched functions are properly loaded as batched
-        expr = v['view_test_udf_batched'].col.value_expr
         assert isinstance(expr, FunctionCall) and isinstance(expr.fn, CallableFunction) and expr.fn.is_batched
 
         # Test that timestamp literals are properly stored as aware datetimes
@@ -223,31 +301,6 @@ class TestMigration:
         # Test that InlineDicts are properly loaded
         inline_dict = v.where(v.c2 == 19).select(v.base_table_inline_dict).head(1)['base_table_inline_dict'][0]
         assert inline_dict == {'int': 22, 'dict': {'key': 'val'}, 'expr': 'test string 19'}
-
-    @classmethod
-    def _run_v17_tests(cls) -> None:
-        from pixeltable.io.external_store import MockProject
-        from pixeltable.io.label_studio import LabelStudioProject
-
-        t = pxt.get_table('base_table')
-        v = pxt.get_table('views/view')
-
-        # Test that external stores are loaded properly.
-        assert len(v.external_stores()) == 2
-        stores = list(v._tbl_version.get().external_stores.values())
-        assert len(stores) == 2
-        store0 = stores[0]
-        assert isinstance(store0, MockProject)
-        assert store0.get_export_columns() == {'int_field': ts.IntType()}
-        assert store0.get_import_columns() == {'str_field': ts.StringType()}
-        assert store0.col_mapping == {v.view_test_udf.col.handle: 'int_field', t.c1.col.handle: 'str_field'}
-        store1 = stores[1]
-        assert isinstance(store1, LabelStudioProject)
-        assert store1.project_id == 4171780
-
-        # Test that the stored proxies were retained properly
-        assert len(store1.stored_proxies) == 1
-        assert t.base_table_image_rot.col.handle in store1.stored_proxies
 
     @classmethod
     def _run_v19_tests(cls, version: int) -> None:
@@ -293,21 +346,6 @@ class TestMigration:
         if k == 'path' and v == 'pixeltable.tool.embed_udf.clip_text_embed':
             return 'path', 'tool.embed_udf.clip_text_embed'
         return None
-
-    @staticmethod
-    def __replace_pickled_udfs(column_md: dict) -> None:
-        # The following set of conditions uniquely identifies FunctionCall instances in the artifacts whose function
-        # is `test_udf_stored_batched`. See comment above re: pickled UDFs in Python 3.10.
-        # TODO: Remove this method once we implement a better solution for dealing with legacy pickled UDFs.
-        if (
-            column_md['value_expr'] is not None
-            and column_md['value_expr'].get('_classname', None) == 'FunctionCall'
-            and 'id' in column_md['value_expr']['fn']
-            and len(column_md['value_expr']['kwarg_idxs']) == 1
-        ):
-            del column_md['value_expr']['fn']['id']
-            column_md['value_expr']['fn']['path'] = replacement_batched_udf.self_path
-            column_md['value_expr']['fn']['signature'] = replacement_batched_udf.signature.as_dict()
 
     @classmethod
     def _run_v30_tests(cls) -> None:
@@ -425,8 +463,3 @@ class TestMigration:
             assert result.fetchone() is not None, f'Expected pk index {good_idx_name} to exist for pk_test_good'
             result = conn.execute(sql.text('SELECT 1 FROM pg_indexes WHERE indexname = :idx'), {'idx': bad_idx_name})
             assert result.fetchone() is None, f'Expected pk index {bad_idx_name} to NOT exist for pk_test_bad'
-
-
-@pxt.udf(batch_size=4)
-def replacement_batched_udf(strings: Batch[str], *, upper: bool = True) -> Batch[pxt.String]:
-    return [string.upper() if upper else string.lower() for string in strings]

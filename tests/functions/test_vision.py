@@ -23,6 +23,8 @@ from pixeltable.functions.vision import (
 
 from ..utils import get_image_files, get_video_files, pxt_raises, skip_test_if_not_installed, validate_update_status
 
+pytestmark = pytest.mark.local('UDF/integration test')
+
 
 class TestVision:
     def test_eval(self, uses_db: None) -> None:

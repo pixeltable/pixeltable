@@ -616,6 +616,13 @@ class ColumnType:
     def create_literal(self, val: Any) -> Any:
         """Create a literal of this type from val or raise TypeError if not possible"""
         if val is not None:
+            if isinstance(val, enum.Enum):
+                # an enum member is stored as its underlying value
+                val = val.value
+            if isinstance(val, Path):
+                # normalize a filesystem path to its string form, so a pathlib.Path (e.g. from a pydantic field
+                # typed Path) is treated like the equivalent str path
+                val = str(val)
             val = self._create_literal(val)
 
         self.validate_literal(val)
@@ -913,7 +920,7 @@ class TimestampType(ColumnType):
         from pixeltable.env import Env  # local import to avoid circular imports
 
         if isinstance(val, str):
-            return datetime.datetime.fromisoformat(val)
+            val = datetime.datetime.fromisoformat(val)
         # Place naive timestamps in the default time zone
         if isinstance(val, datetime.datetime) and val.tzinfo is None:
             return val.replace(tzinfo=Env.get().default_time_zone)
@@ -1367,12 +1374,17 @@ class JsonType(ColumnType):
 
         def as_dict(self) -> dict[str, Any]:
             type_spec_d: list | dict
+            type_spec_key_order: list[str] | None = None
             if isinstance(self.type_spec, list):
                 type_spec_d = [t.as_dict() for t in self.type_spec]
             else:
                 type_spec_d = {k: t.as_dict() for k, t in self.type_spec.items()}
+                # Postgres JSONB does not necessarily preserve the dictionary key ordering. We need to separately
+                # preserve it in order to get consistent output from t.describe() and related operations.
+                type_spec_key_order = list(self.type_spec.keys())
             return {
                 'type_spec': type_spec_d,
+                'type_spec_key_order': type_spec_key_order,
                 'variadic_type': self.variadic_type.as_dict() if self.variadic_type is not None else None,
                 # there is no functional need for optional_keys to be sorted in the dict; it's purely to ensure a
                 # canonical dict representation (i.e., list(self.optional_keys) would be functionally equivalent here)
@@ -1388,6 +1400,11 @@ class JsonType(ColumnType):
             else:
                 assert isinstance(type_spec_d, dict)
                 type_spec = {k: ColumnType.from_dict(t) for k, t in type_spec_d.items()}
+                type_spec_key_order = d.get('type_spec_key_order')
+                if type_spec_key_order is not None:
+                    assert isinstance(type_spec_key_order, list)
+                    assert len(type_spec_key_order) == len(type_spec)
+                    type_spec = {k: type_spec[k] for k in type_spec_key_order}
             variadic_type_d = d['variadic_type']
             return cls(
                 type_spec=type_spec,

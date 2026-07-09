@@ -10,6 +10,8 @@ from pixeltable.functions.image import alpha_composite, blend, composite, stitch
 
 from ..utils import SAMPLE_IMAGE_URL, get_image_files, pxt_raises
 
+pytestmark = pytest.mark.local('UDF/integration test')
+
 
 class TestImage:
     def test_image(self, img_tbl: pxt.Table) -> None:

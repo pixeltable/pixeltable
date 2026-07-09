@@ -1,5 +1,5 @@
 import datetime
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 import pytest
 
@@ -21,12 +21,16 @@ class TestHistory:
         print('============================================================')
 
     @pytest.mark.parametrize('variant', ['get_versions', 'history'])
-    def test_history(self, variant: Literal['get_versions', 'history'], uses_db: None) -> None:
+    def test_history(
+        self, variant: Literal['get_versions', 'history'], make_catalog_path: Callable[[str], str]
+    ) -> None:
+        p = make_catalog_path
+
         def fn(tbl: pxt.Table, n: int | None = None) -> Any:
             return tbl.get_versions(n) if variant == 'get_versions' else tbl.history(n)
 
         t = pxt.create_table(
-            'test',
+            p('test'),
             source=[{'c1': 1, 'c2': 'a'}, {'c1': 2, 'c2': 'b'}],
             schema_overrides={'c1': pxt.Required[pxt.Int], 'c2': pxt.String},
             comment='some random table comment',
@@ -42,7 +46,7 @@ class TestHistory:
         self.pr_us(s, 'acc1')
         s = t.add_computed_column(c4=t.c2.upper())
         self.pr_us(s, 'acc2')
-        v = pxt.create_view('view_of_test', t, comment='view of test table')
+        v = pxt.create_view(p('view_of_test'), t, comment='view of test table')
         r = fn(v)
         print(r)
         view_created_at = r[0]['created_at'] if variant == 'get_versions' else r['created_at'][0]
@@ -111,7 +115,7 @@ class TestHistory:
         print(r)
         assert len(r) == 8
 
-        s = pxt.create_snapshot('snapshot_of_test_view', t, comment='snapshot of view of test table')
+        s = pxt.create_snapshot(p('snapshot_of_test_view'), t, comment='snapshot of view of test table')
         r = fn(s)
         print(r)
         assert len(r) == 1

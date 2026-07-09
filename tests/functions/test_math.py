@@ -8,6 +8,8 @@ import pytest
 import pixeltable as pxt
 from pixeltable import env, exprs, functions as pxtf
 
+pytestmark = pytest.mark.local('UDF/integration test')
+
 
 class TestMath:
     TEST_FLOATS = (0.0, 1.6, -19.27469, 1.32e57, math.inf, -math.inf, math.nan)

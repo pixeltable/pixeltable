@@ -23,6 +23,8 @@ from ..utils import (
     validate_update_status,
 )
 
+pytestmark = pytest.mark.local('UDF/integration test')
+
 
 @pytest.mark.very_expensive  # Downloads Hugging Face models
 @rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading models

@@ -1,12 +1,12 @@
 import dataclasses
-import types
-import typing
+import threading
 import uuid
 from enum import Enum
-from typing import Any, TypeVar, Union, get_type_hints
+from typing import Any, TypeVar
 
 import sqlalchemy as sql
-from sqlalchemy import BigInteger, ForeignKey, Integer, LargeBinary, orm
+from pydantic import TypeAdapter
+from sqlalchemy import BigInteger, ForeignKey, Integer, orm
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm.decl_api import DeclarativeMeta
 
@@ -22,34 +22,31 @@ base_metadata = Base.metadata
 T = TypeVar('T')
 
 
-def md_from_dict(type_: type[T], data: Any) -> T:
-    """Re-instantiate a dataclass instance that contains nested dataclasses from a dict."""
-    if dataclasses.is_dataclass(type_):
-        fieldtypes = get_type_hints(type_)
-        return type_(**{f: md_from_dict(fieldtypes[f], data[f]) for f in data})
+# we use pydantic TypeAdapters for fast serialization/deserialization of metadata and cache them here
+_md_adapters: dict[Any, TypeAdapter] = {}
+_md_adapters_lock = threading.Lock()
 
-    origin = typing.get_origin(type_)
-    if origin is not None:
-        type_args = typing.get_args(type_)
-        if (origin is Union or origin is types.UnionType) and type(None) in type_args:
-            # handling T | None, T | None
-            non_none_args = [arg for arg in type_args if arg is not type(None)]
-            assert len(non_none_args) == 1
-            return md_from_dict(non_none_args[0], data) if data is not None else None
-        elif origin is list:
-            return [md_from_dict(type_args[0], elem) for elem in data]  # type: ignore[return-value]
-        elif origin is dict:
-            key_type = type_args[0]
-            val_type = type_args[1]
-            return {key_type(key): md_from_dict(val_type, val) for key, val in data.items()}  # type: ignore[return-value]
-        elif origin is tuple:
-            return tuple(md_from_dict(arg_type, elem) for arg_type, elem in zip(type_args, data))  # type: ignore[return-value]
-        else:
-            raise AssertionError(origin)
-    elif isinstance(type_, type) and issubclass(type_, Enum):
-        return type_(data)
-    else:
-        return data
+
+def _md_adapter(type_: Any) -> TypeAdapter:
+    adapter = _md_adapters.get(type_)
+    if adapter is None:
+        with _md_adapters_lock:
+            # re-check under the lock: another thread may have built it while we waited
+            adapter = _md_adapters.get(type_)
+            if adapter is None:
+                adapter = _md_adapters[type_] = TypeAdapter(type_)
+    return adapter
+
+
+def md_from_dict(type_: type[T], data: Any) -> T:
+    """Re-instantiate a dataclass instance that contains nested dataclasses from a JSON-able dict."""
+    return _md_adapter(type_).validate_python(data)
+
+
+def md_to_dict(obj: Any) -> dict:
+    """Serialize an md dataclass instance (with nested dataclasses) to a JSON-able dict."""
+    # dump_python(mode='json') matches dataclasses.asdict()'s output
+    return _md_adapter(type(obj)).dump_python(obj, mode='json')
 
 
 def md_dict_factory(data: list[tuple[str, Any]]) -> dict:
@@ -235,10 +232,6 @@ class TableMd:
     # TODO: replace with mutable_views: list[UUID] to help with debugging
     view_sn: int
 
-    # Metadata format for external stores:
-    # {'class': 'pixeltable.io.label_studio.LabelStudioProject', 'md': {'project_id': 3}}
-    external_stores: list[dict[str, Any]]
-
     column_md: dict[int, ColumnMd]  # col_id -> ColumnMd
     index_md: dict[int, IndexMd]  # index_id -> IndexMd
     view_md: ViewMd | None
@@ -413,31 +406,3 @@ class PendingTableOp(Base):
     )
     op_sn: orm.Mapped[int] = orm.mapped_column(Integer, primary_key=True, nullable=False)  # catalog.TableOp.op_sn
     op: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # catalog.TableOp
-
-
-@dataclasses.dataclass
-class FunctionMd:
-    name: str
-    py_version: str  # platform.python_version
-    class_name: str  # name of the Function subclass
-    md: dict  # part of the output of Function.to_store()
-
-
-class Function(Base):
-    """
-    User-defined functions that are not module functions (ie, aren't available at runtime as a symbol in a known
-    module).
-    Functions without a name are anonymous functions used in the definition of a computed column.
-    Functions that have names are also assigned to a database and directory.
-    We store the Python version under which a Function was created (and the callable pickled) in order to warn
-    against version mismatches.
-    """
-
-    __tablename__ = 'functions'
-
-    id: orm.Mapped[uuid.UUID] = orm.mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, nullable=False
-    )
-    dir_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=True)
-    md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # FunctionMd
-    binary_obj: orm.Mapped[bytes | None] = orm.mapped_column(LargeBinary, nullable=True)
