@@ -1489,7 +1489,9 @@ class Catalog(CatalogBase):
     ) -> tuple[LocalTable, bool]:
         import pixeltable.metadata.schema
 
-        assert explicit_tbl_id is None or if_exists == IfExistsParam.ERROR
+        # If a table id is passed in advance, we guarantee that the returned table will be created with that id.
+        # Therefore IfExistsParam.IGNORE is incompatible with explicit_tbl_id.
+        assert explicit_tbl_id is None or if_exists != IfExistsParam.IGNORE
 
         if primary_key is None:
             primary_key = []
@@ -1751,6 +1753,8 @@ class Catalog(CatalogBase):
                     else:
                         # It's a compound expression with no explicit name. A name will be assigned when the table
                         # is created, but it's anonymous to the TableModel.
+                        # TODO: Revisit this behavior. Should we be allowing unnamed compound expressions in the
+                        #     first place?
                         col_name = None
 
                     # Increment the `id` whether or not this column is visible to the model, to ensure we have

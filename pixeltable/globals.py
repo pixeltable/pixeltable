@@ -247,8 +247,10 @@ def create_table(
     )
 
     if was_created:
-        _logger.info(f'Created table {tbl._name()!r}, id={tbl._id}')
+        _logger.info(f'Created table {tbl._name()!r}; id={tbl._id}')
         Env.get().console_logger.info(f'Created table {tbl._name()!r}.')
+    else:
+        Env.get().console_logger.info(f'Table {tbl._name()!r} already exists.')
 
     # TODO: combine data loading with table creation into a single transaction
     if was_created and data_source is not None:
@@ -443,7 +445,10 @@ def create_view(
 
     if was_created:
         _logger.info(f'Created {view._display_str()}, id={view._id}')
-        Env.get().console_logger.info(f'Created {view._display_str()!r}.')
+        Env.get().console_logger.info(f'Created {view._display_str()}.')
+    else:
+        d = view._display_str()
+        Env.get().console_logger.info(f'{d[0].upper()}{d[1:]} already exists.')
 
     return view
 
