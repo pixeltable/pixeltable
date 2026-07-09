@@ -3,9 +3,6 @@ import platform
 
 import sqlalchemy as sql
 
-# Default for PostgreSQL; CockroachDB overrides this with SERIALIZABLE.
-_DEFAULT_ISOLATION_LEVEL = 'REPEATABLE READ'
-
 
 class Dbms(abc.ABC):
     """
@@ -44,7 +41,7 @@ class PostgresqlDbms(Dbms):
     """
 
     def __init__(self, db_url: sql.URL):
-        super().__init__('postgresql', _DEFAULT_ISOLATION_LEVEL, 'brin', db_url)
+        super().__init__('postgresql', 'REPEATABLE READ', 'brin', db_url)
 
     def drop_db_stmt(self, database: str) -> str:
         return f'DROP DATABASE {database}'
