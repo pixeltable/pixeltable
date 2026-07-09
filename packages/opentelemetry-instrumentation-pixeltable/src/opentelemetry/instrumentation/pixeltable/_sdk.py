@@ -18,6 +18,7 @@ from opentelemetry.trace import ProxyTracerProvider
 
 from pixeltable import exceptions as excs, hooks
 from pixeltable.config import Config
+from pixeltable.env import Env
 
 _logger = logging.getLogger('pixeltable.otel')
 
@@ -118,14 +119,8 @@ def instrument_fastapi(app: Any, **kwargs: Any) -> None:
         ... pxt_otel.init(endpoint='http://localhost:4318')
         ... pxt_otel.instrument_fastapi(app)
     """
-    try:
-        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor  # type: ignore[import-untyped]
-    except ImportError as exc:
-        raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION,
-            'instrument_fastapi() requires the `opentelemetry-instrumentation-fastapi` package. '
-            'To install it, run: `pip install -U opentelemetry-instrumentation-fastapi`',
-        ) from exc
+    Env.get().require_package('opentelemetry-instrumentation-fastapi')
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor  # type: ignore[import-untyped]
     kwargs.setdefault('tracer_provider', _state.tracer_provider)
     FastAPIInstrumentor.instrument_app(app, **kwargs)
 
@@ -146,14 +141,8 @@ def _instrument_sqlalchemy(**kwargs: Any) -> None:
         ... pxt_otel.init(endpoint='http://localhost:4318')
         ... pxt_otel._instrument_sqlalchemy(engine=engine)
     """
-    try:
-        from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor  # type: ignore[import-untyped]
-    except ImportError as exc:
-        raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION,
-            '_instrument_sqlalchemy() requires the `opentelemetry-instrumentation-sqlalchemy` package. '
-            'To install it, run: `pip install -U opentelemetry-instrumentation-sqlalchemy`',
-        ) from exc
+    Env.get().require_package('opentelemetry-instrumentation-sqlalchemy')
+    from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor  # type: ignore[import-untyped]
     kwargs.setdefault('tracer_provider', _state.tracer_provider)
     SQLAlchemyInstrumentor().instrument(**kwargs)
 
