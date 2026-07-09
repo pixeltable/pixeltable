@@ -249,7 +249,11 @@ def make_function(
     if function_path is not None:
         # do the validation at the very end, so it's easier to write tests for other failure scenarios
         validate_symbol_path(function_path)
-        FunctionRegistry.get().register_function(function_path, result)
+        # a __main__ path (a udf inlined in a notebook cell) is not importable across sessions and would collide
+        # in the registry if the cell is re-run, so it carries a path for serialization but is not registered
+        # TODO: remove this when removing support for inlined udfs in notebooks
+        if decorated_fn.__module__ != '__main__':
+            FunctionRegistry.get().register_function(function_path, result)
 
     return result
 
