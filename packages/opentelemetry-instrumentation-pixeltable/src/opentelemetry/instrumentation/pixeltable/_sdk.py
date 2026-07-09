@@ -120,7 +120,7 @@ def instrument_fastapi(app: Any, **kwargs: Any) -> None:
         ... pxt_otel.init(endpoint='http://localhost:4318')
         ... pxt_otel.instrument_fastapi(app)
     """
-    Env.get().require_package('opentelemetry-instrumentation-fastapi')
+    Env.get().require_package('opentelemetry.instrumentation.fastapi')
     from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor  # type: ignore[import-untyped]
 
     kwargs.setdefault('tracer_provider', _state.tracer_provider)
@@ -143,7 +143,7 @@ def _instrument_sqlalchemy(**kwargs: Any) -> None:
         ... pxt_otel.init(endpoint='http://localhost:4318')
         ... pxt_otel._instrument_sqlalchemy(engine=engine)
     """
-    Env.get().require_package('opentelemetry-instrumentation-sqlalchemy')
+    Env.get().require_package('opentelemetry.instrumentation.sqlalchemy')
     from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor  # type: ignore[import-untyped]
 
     kwargs.setdefault('tracer_provider', _state.tracer_provider)
@@ -164,7 +164,7 @@ def _setup(
     meter_provider: Any,
 ) -> None:
     """Provider setup proper; runs once, under _setup_lock held by init()."""
-    Env.get().require_package('opentelemetry-sdk')
+    Env.get().require_package('opentelemetry.sdk')
     from opentelemetry.sdk.metrics import MeterProvider
     from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
     from opentelemetry.sdk.trace import TracerProvider
@@ -278,7 +278,7 @@ def _use_grpc(cfg_protocol: str | None) -> bool:
 
 def _span_exporter(use_grpc: bool, endpoint: str | None, headers: str | None, *, withhold: bool) -> Any:
     Env.get().require_package(
-        'opentelemetry-exporter-otlp-proto-grpc' if use_grpc else 'opentelemetry-exporter-otlp-proto-http'
+        'opentelemetry.exporter.otlp.proto.grpc' if use_grpc else 'opentelemetry.exporter.otlp.proto.http'
     )
     ep = None if withhold else endpoint
     hdrs = _parse_headers(headers) if headers is not None and not withhold else None
@@ -293,7 +293,7 @@ def _span_exporter(use_grpc: bool, endpoint: str | None, headers: str | None, *,
 
 def _metric_exporter(use_grpc: bool, endpoint: str | None, headers: str | None, *, withhold: bool) -> Any:
     Env.get().require_package(
-        'opentelemetry-exporter-otlp-proto-grpc' if use_grpc else 'opentelemetry-exporter-otlp-proto-http'
+        'opentelemetry.exporter.otlp.proto.grpc' if use_grpc else 'opentelemetry.exporter.otlp.proto.http'
     )
     ep = None if withhold else endpoint
     hdrs = _parse_headers(headers) if headers is not None and not withhold else None
@@ -308,7 +308,7 @@ def _metric_exporter(use_grpc: bool, endpoint: str | None, headers: str | None, 
 
 def _log_exporter(use_grpc: bool, endpoint: str | None, headers: str | None, *, withhold: bool) -> Any:
     Env.get().require_package(
-        'opentelemetry-exporter-otlp-proto-grpc' if use_grpc else 'opentelemetry-exporter-otlp-proto-http'
+        'opentelemetry.exporter.otlp.proto.grpc' if use_grpc else 'opentelemetry.exporter.otlp.proto.http'
     )
     ep = None if withhold else endpoint
     hdrs = _parse_headers(headers) if headers is not None and not withhold else None
@@ -324,7 +324,7 @@ def _log_exporter(use_grpc: bool, endpoint: str | None, headers: str | None, *, 
 def _build_log_export(
     use_grpc: bool, cfg_endpoint: str | None, cfg_headers: str | None, cfg_service: str, logs_env: bool
 ) -> tuple[Any, logging.Handler]:
-    Env.get().require_package('opentelemetry-sdk')
+    Env.get().require_package('opentelemetry.sdk')
     from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
     from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 
@@ -335,7 +335,7 @@ def _build_log_export(
 
 
 def _create_resource(service_name: str) -> Any:
-    Env.get().require_package('opentelemetry-sdk')
+    Env.get().require_package('opentelemetry.sdk')
     from opentelemetry.sdk.resources import Resource
 
     # OTEL_SERVICE_NAME (read natively by Resource.create) wins over pixeltable config

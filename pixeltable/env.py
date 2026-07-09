@@ -710,6 +710,19 @@ class Env:
         self.__register_package('ollama')
         self.__register_package('openai')
         self.__register_package('openpyxl')
+        self.__register_package(
+            'opentelemetry.exporter.otlp.proto.grpc', library_name='opentelemetry-exporter-otlp-proto-grpc'
+        )
+        self.__register_package(
+            'opentelemetry.exporter.otlp.proto.http', library_name='opentelemetry-exporter-otlp-proto-http'
+        )
+        self.__register_package(
+            'opentelemetry.instrumentation.fastapi', library_name='opentelemetry-instrumentation-fastapi'
+        )
+        self.__register_package(
+            'opentelemetry.instrumentation.sqlalchemy', library_name='opentelemetry-instrumentation-sqlalchemy'
+        )
+        self.__register_package('opentelemetry.sdk', library_name='opentelemetry-sdk')
         self.__register_package('pyarrow')
         self.__register_package('pydantic')
         self.__register_package('pyiceberg')
