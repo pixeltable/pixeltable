@@ -31,40 +31,6 @@ __all__ = ['PixeltableInstrumentor', 'init', 'instrument_fastapi']
 _ATTR_TYPES = (str, bool, int, float)
 
 
-_prev_record_factory: Callable[..., logging.LogRecord] | None = None
-
-
-def _install_record_factory() -> None:
-    """Stamp pixeltable log records with otelTraceID/otelSpanID so logs are filterable by trace.
-
-    A record factory (the mechanism opentelemetry-instrumentation-logging uses) rather than a filter on
-    the 'pixeltable' logger: logging runs logger-level filters only on the originating logger, so a filter
-    there never sees records created on child loggers (`pixeltable.exec...` etc.), which is where nearly
-    all pixeltable records originate.
-    """
-    global _prev_record_factory  # noqa: PLW0603
-    prev = logging.getLogRecordFactory()
-    _prev_record_factory = prev
-
-    def factory(*args: Any, **kwargs: Any) -> logging.LogRecord:
-        record = prev(*args, **kwargs)
-        if record.name == 'pixeltable' or record.name.startswith('pixeltable.'):
-            span_context = trace.get_current_span().get_span_context()
-            if span_context.is_valid:
-                record.otelTraceID = trace.format_trace_id(span_context.trace_id)
-                record.otelSpanID = trace.format_span_id(span_context.span_id)
-        return record
-
-    logging.setLogRecordFactory(factory)
-
-
-def _uninstall_record_factory() -> None:
-    global _prev_record_factory  # noqa: PLW0603
-    if _prev_record_factory is not None:
-        logging.setLogRecordFactory(_prev_record_factory)
-        _prev_record_factory = None
-
-
 def _clean_attrs(attrs: dict[str, Any] | None) -> dict[str, Any]:
     """Drop None values and internal ('_'-prefixed) keys; coerce non-primitive values to str."""
     if not attrs:
@@ -146,6 +112,7 @@ class PixeltableInstrumentor(BaseInstrumentor):
     """
 
     _subscriber: _OtelSubscriber | None = None
+    _prev_record_factory: Callable[..., logging.LogRecord] | None = None
 
     def instrumentation_dependencies(self) -> Collection[str]:
         return _instruments
@@ -156,10 +123,37 @@ class PixeltableInstrumentor(BaseInstrumentor):
             hooks.set_span_level(_resolve_span_level(span_level))
         self._subscriber = _OtelSubscriber(kwargs.get('tracer_provider'), kwargs.get('meter_provider'))
         hooks.subscribe(self._subscriber)
-        _install_record_factory()
+        self._install_record_factory()
 
     def _uninstrument(self, **kwargs: Any) -> None:
         if self._subscriber is not None:
             hooks.unsubscribe(self._subscriber)
             self._subscriber = None
-        _uninstall_record_factory()
+        self._uninstall_record_factory()
+
+    def _install_record_factory(self) -> None:
+        """Stamp pixeltable log records with otelTraceID/otelSpanID so logs are filterable by trace.
+
+        A record factory (the mechanism opentelemetry-instrumentation-logging uses) rather than a filter on
+        the 'pixeltable' logger: logging runs logger-level filters only on the originating logger, so a filter
+        there never sees records created on child loggers (`pixeltable.exec...` etc.), which is where nearly
+        all pixeltable records originate.
+        """
+        self._prev_record_factory = logging.getLogRecordFactory()
+
+        def factory(*args: Any, **kwargs: Any) -> logging.LogRecord:
+            assert self._prev_record_factory is not None
+            record = self._prev_record_factory(*args, **kwargs)
+            if record.name == 'pixeltable' or record.name.startswith('pixeltable.'):
+                span_context = trace.get_current_span().get_span_context()
+                if span_context.is_valid:
+                    record.otelTraceID = trace.format_trace_id(span_context.trace_id)
+                    record.otelSpanID = trace.format_span_id(span_context.span_id)
+            return record
+
+        logging.setLogRecordFactory(factory)
+
+    def _uninstall_record_factory(self) -> None:
+        if self._prev_record_factory is not None:
+            logging.setLogRecordFactory(self._prev_record_factory)
+            self._prev_record_factory = None
