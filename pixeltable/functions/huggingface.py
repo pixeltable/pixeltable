@@ -382,14 +382,15 @@ class SamForSegmentationResponse(TypedDict):
     """
     Instance segmentation results, as returned by
     [`sam3_for_segmentation()`][pixeltable.functions.huggingface.sam3_for_segmentation] or
-    [`sam_automatic_mask_generation()`][pixeltable.functions.huggingface.sam_automatic_mask_generation]:
-    per detected instance, a confidence score, a bounding box `[x1, y1, x2, y2]` in absolute pixel
-    coordinates, and a binary `(H, W)` mask.
+    [`sam_automatic_mask_generation()`][pixeltable.functions.huggingface.sam_automatic_mask_generation].
     """
 
     scores: pxt.Array[(None,), pxt.Float]
+    """Confidence score per detected instance, shape `(num_instances,)`."""
     boxes: pxt.Array[(None, 4), pxt.Float]
+    """Bounding box `[x1, y1, x2, y2]` per detected instance in absolute coordinates, shape `(num_instances, 4)`."""
     masks: pxt.Array[(None, None, None), pxt.Bool]
+    """Binary mask per detected instance, shape `(num_instances, H, W)`."""
 
 
 @pxt.udf
