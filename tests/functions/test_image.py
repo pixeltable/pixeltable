@@ -107,21 +107,21 @@ class TestImage:
         t.insert({'image': f} for f in image_files)
         # tiling at (100, 100) exercises edge tiles and padding on the variously sized test images
         v = pxt.create_view('test_view', t, iterator=tile_iterator(t.image, (100, 100), overlap=overlap))
-        # tiles are unstored, so the mode of the tile expression flows straight into stitch_tiles; the
-        # stitched image must preserve it
+        # group the tiles back per source image; selecting t.image (the grouping expr) gives each stitched
+        # result's source to compare against. tiles are unstored, so the mode of the tile expression flows
+        # straight into stitch_tiles; the stitched image must preserve it
         results = (
             v.select(
-                v.image.localpath,
+                t.image,
                 stitched=stitch_tiles(v.pos, v.tile.convert(mode=mode), v.tile_box, v.image.width, v.image.height),
             )
-            .group_by(t)
+            .group_by(t.image)
             .collect()
         )
         assert len(results) == len(image_files)
         for row in results:
             stitched: Image = row['stitched']
-            with PIL.Image.open(row['localpath']) as src:
-                expected = src.convert(mode)
+            expected = row['image'].convert(mode)
             assert stitched.mode == mode
             assert stitched.size == expected.size
             assert stitched.tobytes() == expected.tobytes()
