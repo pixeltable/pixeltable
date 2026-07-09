@@ -10,7 +10,6 @@ import opentelemetry.instrumentation.pixeltable as pxt_otel
 import pytest
 from opentelemetry import trace
 from opentelemetry.instrumentation.pixeltable import PixeltableInstrumentor, _sdk
-from opentelemetry.instrumentation.pixeltable._sdk import _use_grpc
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -114,7 +113,7 @@ def test_span_level_kwarg_overrides_config(tmp_path: Path) -> None:
     # the init() argument wins over the config-derived value
     _run_isolated(
         check_span_level_kwarg_overrides_config,
-        {'PIXELTABLE_OTEL_SPAN_LEVEL': 'trace', 'OTEL_EXPORTER_OTLP_TIMEOUT': '1'},
+        {'OTEL_SPAN_LEVEL': 'trace', 'OTEL_EXPORTER_OTLP_TIMEOUT': '1'},
         tmp_path,
     )
 
@@ -152,23 +151,6 @@ def test_protocol_grpc(tmp_path: Path) -> None:
         },
         tmp_path,
     )
-
-
-class TestProtocolSelection:
-    """Unit tests for the OTLP transport selection (pure function, no providers touched)."""
-
-    def test_default_is_http(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv('OTEL_EXPORTER_OTLP_PROTOCOL', raising=False)
-        assert _use_grpc(None) is False
-        assert _use_grpc('http/protobuf') is False
-
-    def test_grpc_selected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv('OTEL_EXPORTER_OTLP_PROTOCOL', raising=False)
-        assert _use_grpc('grpc') is True
-
-    def test_env_overrides_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv('OTEL_EXPORTER_OTLP_PROTOCOL', 'grpc')
-        assert _use_grpc('http/protobuf') is True
 
 
 class TestBridge:
