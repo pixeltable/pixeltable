@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import fields
 
+import pixeltable.type_system as ts
 from pixeltable.metadata import schema
 
 
@@ -73,7 +74,9 @@ class MetadataUtils:
         if old.name != new.name:
             diff.append(f'renamed to {new.name}')
         assert old.is_pk == new.is_pk, 'Not implemented: describe a primary key change'
-        assert old.col_type == new.col_type, 'Not implemented: describe a column type change'
+        if old.col_type != new.col_type:
+            new_type = ts.ColumnType.from_dict(new.col_type)
+            diff.append(f'type changed to {new_type!r}')
         assert old.value_expr == new.value_expr, 'Not implemented: describe a value expression change'
         assert old.media_validation == new.media_validation, 'Not implemented: describe a media validation change'
         assert old.comment == new.comment, 'Not implemented: describe a comment change'

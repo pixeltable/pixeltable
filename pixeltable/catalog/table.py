@@ -436,6 +436,28 @@ class Table(SchemaObject):
         """
 
     @abc.abstractmethod
+    def alter_column(self, column: str | ColumnRef, *, new_type: type | ts.ColumnType) -> None:
+        """Alter the type of a column.
+
+        Currently, the only supported change is widening a non-computed column from non-nullable to
+        nullable.
+
+        Args:
+            column: The name or reference of the column to alter.
+            new_type: The new type for the column.
+
+        Raises:
+            Error: If the column does not exist, is a computed column, if `new_type` is not a supported widening of the
+            current type, or if the change cannot be performed for any other reason.
+
+        Examples:
+            Make a previously required column nullable:
+
+            >>> tbl = pxt.create_table('my_table', {'col': pxt.Required[pxt.String]})
+            ... tbl.alter_column('col', new_type=pxt.String)
+        """
+
+    @abc.abstractmethod
     def add_embedding_index(
         self,
         column: str | ColumnRef,

@@ -351,9 +351,12 @@ class ColumnType:
                     return underlying.copy(nullable=True)
         elif origin is Required:
             assert len(type_args) == 1
-            return cls.from_python_type(
+            underlying = cls.from_python_type(
                 type_args[0], nullable_default=False, allow_builtin_types=allow_builtin_types
-            ).copy(nullable=False)
+            )
+            if underlying is None:
+                return None
+            return underlying.copy(nullable=False)
         elif origin is typing.Annotated:
             origin = type_args[0]
             parameters = type_args[1]

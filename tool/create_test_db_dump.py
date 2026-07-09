@@ -309,6 +309,11 @@ class Dumper:
 
         self._create_pk_test_tables()
 
+        # Make c7 nullable
+        t.alter_column(t.c7, new_type=pxt.Json)
+        # Insert new row that confirms that c7 is not required
+        t.insert(c1=c1_data[0], c2=num_rows, c3=c3_data[0], c4=c4_data[0], c5=c5_data[0], c6=c6_data[0])
+
     def _create_pk_test_tables(self) -> None:
         pk_good = pxt.create_table(
             'pk_test_good', {'id': pxt.Required[pxt.Int], 'name': pxt.Required[pxt.String]}, primary_key='id'
