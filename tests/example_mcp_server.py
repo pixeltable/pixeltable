@@ -1,14 +1,31 @@
+import os
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
-mcp = FastMCP('PixeltableDemo', stateless_http=True, debug=True, log_level='DEBUG')
+# Variant and port come from the environment so alternate servers can run:
+# - 'changed' changes 'pixelmultiple's signature
+# - 'gone' omits it entirely
+# - the port lets several run at once.
+_VARIANT = os.environ.get('PIXELTABLE_MCP_VARIANT', 'full')
+_PORT = int(os.environ.get('PIXELTABLE_MCP_PORT', '8000'))
+
+mcp = FastMCP('PixeltableDemo', stateless_http=True, debug=True, log_level='DEBUG', port=_PORT)
 
 
-@mcp.tool()
-def pixelmultiple(a: int, b: int) -> int:
-    """Computes the Pixelmultiple of two integers."""
-    return (a + 22) * b
+if _VARIANT == 'changed':
+
+    @mcp.tool(name='pixelmultiple')
+    def pixelmultiple_changed(a: int) -> int:
+        """Computes the Pixelmultiple of an integer."""
+        return a + 22
+
+elif _VARIANT != 'gone':
+
+    @mcp.tool(name='pixelmultiple')
+    def pixelmultiple(a: int, b: int) -> int:
+        """Computes the Pixelmultiple of two integers."""
+        return (a + 22) * b
 
 
 @mcp.tool()

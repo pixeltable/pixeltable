@@ -737,6 +737,8 @@ class TableVersion:
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'Cannot add primary key column {col.name!r} after table creation',
                 )
+            if col.is_computed:
+                col.check_value_expr()
             col.tbl_handle = self.handle
             col.id = self.next_col_id()
 

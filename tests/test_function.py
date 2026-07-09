@@ -41,6 +41,27 @@ def _expr_property_double(x: int) -> int:
     return x * 2
 
 
+# Module-level udfs with non-JSON-serializable default arguments, used by TestFunction.test_constants.
+# The timestamp default is timezone-aware so that building its Literal at import time does not require an
+# initialized Env (a naive datetime would need Env.get().default_time_zone).
+_epoch = datetime.fromtimestamp(0, tz=timezone.utc)
+
+
+@pxt.udf
+def udf_with_timestamp_constants(ts1: datetime, ts2: datetime = _epoch) -> float:
+    return (ts1 - ts2).seconds
+
+
+_ones_arr = np.ones(6, dtype=np.float32)
+
+
+@pxt.udf
+def udf_with_array_constants(
+    a: pxt.Array[pxt.Float, (6,)], b: pxt.Array[pxt.Float, (6,)] = _ones_arr
+) -> pxt.Array[pxt.Float, (6,)]:
+    return a + b
+
+
 T = typing.TypeVar('T')
 
 
@@ -70,7 +91,6 @@ class TestFunction:
         d = self.func.as_dict()
         assert 'signatures' in d and 'signature' not in d
         assert isinstance(d['signatures'], list) and len(d['signatures']) == 1
-        FunctionRegistry.get().clear_cache()
         deserialized = Function.from_dict(d)
         assert isinstance(deserialized, func.CallableFunction)
         # TODO: add Function.exec() and then use that
@@ -94,6 +114,8 @@ class TestFunction:
         print(_)
 
     def test_stored_udf(self, make_catalog_path: Callable[[str], str]) -> None:
+        # a udf without a fully-qualified path (forced here via _force_stored) can't be persisted into a
+        # computed column, but still works as a query expression
         p = make_catalog_path
         t = pxt.create_table(p('test'), {'c1': pxt.Int, 'c2': pxt.Float})
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
@@ -105,14 +127,65 @@ class TestFunction:
         def f1(a: int, b: float) -> float:
             return a + b
 
-        t.add_computed_column(f1=f1(t.c1, t.c2))
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r"Computed column 'f1' uses `f1\(\)`, which was created with `\.apply\(\)` or defined as a local",
+        ):
+            t.add_computed_column(f1=f1(t.c1, t.c2))
 
-        FunctionRegistry.get().clear_cache()
-        reload_catalog()
-        t = pxt.get_table(p('test'))
-        status = t.insert(rows)
-        assert status.num_rows == len(rows)
-        assert status.num_excs == 0
+        data = t.select(c1=t.c1, c2=t.c2, r=f1(t.c1, t.c2)).collect()
+        assert all(row['r'] == row['c1'] + row['c2'] for row in data)
+
+    def test_using_storable(self, make_catalog_path: Callable[[str], str]) -> None:
+        # .using() on a module UDF yields a storable template (its inlined expression references the function by
+        # path), so it can back a computed column; .using() on a local UDF inlines a pickled function and cannot
+        p = make_catalog_path
+        t = pxt.create_table(p('test'), {'c1': pxt.Int, 'c2': pxt.Float})
+        t.insert([{'c1': i, 'c2': i + 0.5} for i in range(10)])
+
+        from_module = self.f1.using(c=2.0, d=3.0)
+        assert from_module.is_storable
+        t.add_computed_column(from_module=from_module(t.c1, t.c2))
+        assert all(row['from_module'] == row['c1'] + row['c2'] + 5.0 for row in t.collect())
+
+        @pxt.udf(_force_stored=True)
+        def local_udf(a: int, b: float, c: float = 0.0) -> float:
+            return a + b + c
+
+        from_local = local_udf.using(c=2.0)
+        assert not from_local.is_storable
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'which was created with `\.apply\(\)` or defined as a local'
+        ):
+            t.add_computed_column(from_local=from_local(t.c1, t.c2))
+
+    def test_query_storable(self, make_catalog_path: Callable[[str], str]) -> None:
+        # a @pxt.query is serialized by value, so it is storable only if its clauses embed no pickled function: one
+        # built from storable exprs can back a computed column, one that filters with a local UDF cannot
+        p = make_catalog_path
+        t = pxt.create_table(p('test'), {'c1': pxt.Int, 'c2': pxt.Float})
+        t.insert([{'c1': i, 'c2': i + 0.5} for i in range(10)])
+
+        @pxt.query
+        def storable_q(threshold: int) -> pxt.Query:
+            return t.where(t.c1 >= threshold).select(t.c1)
+
+        assert storable_q.is_storable
+        t.add_computed_column(ok=storable_q(t.c1))
+
+        @pxt.udf(_force_stored=True)
+        def local_pred(x: int) -> bool:
+            return x > 2
+
+        @pxt.query
+        def pickled_q(threshold: int) -> pxt.Query:
+            return t.where(local_pred(t.c1)).select(t.c1)
+
+        assert not pickled_q.is_storable
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'which was created with `\.apply\(\)` or defined as a local'
+        ):
+            t.add_computed_column(bad=pickled_q(t.c1))
 
     @staticmethod
     @pxt.udf
@@ -1241,23 +1314,9 @@ class TestFunction:
         """
         p = make_catalog_path
 
-        epoch = datetime.fromtimestamp(0)
-
-        @pxt.udf(_force_stored=True)
-        def udf_with_timestamp_constants(ts1: datetime, ts2: datetime = epoch) -> float:
-            return (ts1 - ts2).seconds
-
         t = pxt.create_table(p('test1'), {'ts1': pxt.Timestamp})
         t.add_computed_column(seconds_since_epoch=udf_with_timestamp_constants(t.ts1))
         t.add_computed_column(seconds_since_2000=udf_with_timestamp_constants(t.ts1, ts2=datetime(2000, 1, 1)))
-
-        ones_arr = np.ones(6, dtype=np.float32)
-
-        @pxt.udf(_force_stored=True)
-        def udf_with_array_constants(
-            a: pxt.Array[pxt.Float, (6,)], b: pxt.Array[pxt.Float, (6,)] = ones_arr
-        ) -> pxt.Array[pxt.Float, (6,)]:
-            return a + b
 
         t = pxt.create_table(p('test2'), {'a': pxt.Array[pxt.Float, (6,)]})  # type: ignore[misc]
         t.add_computed_column(add_one=udf_with_array_constants(t.a))
