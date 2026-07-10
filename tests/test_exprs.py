@@ -5,6 +5,7 @@ import base64
 import datetime
 import json
 import math
+import os
 import re
 import urllib.parse
 import urllib.request
@@ -25,6 +26,7 @@ from pixeltable.functions.globals import cast
 from pixeltable.functions.video import legacy_frame_iterator
 
 from .utils import (
+    CatalogMode,
     ReloadTester,
     assert_columns_eq,
     create_all_datatypes_tbl,
@@ -32,6 +34,7 @@ from .utils import (
     get_image_files,
     pxt_raises,
     reload_catalog,
+    rerun,
     skip_test_if_not_installed,
     validate_update_status,
 )
@@ -221,7 +224,7 @@ class TestExprs:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
             _ = t.where(t.c2 <= 2).select(self.value_exc(t.c2 - 1)).show()
 
-    def test_props(self, test_tbl: pxt.Table, img_tbl: pxt.Table) -> None:
+    def test_props(self, test_tbl: pxt.Table, img_tbl: pxt.Table, catalog_mode: CatalogMode) -> None:
         t = test_tbl
         # errortype/-msg for computed column
         res = t.select(error=t.c8.errortype).collect()
@@ -234,15 +237,23 @@ class TestExprs:
         res = img_t.select(img_t.img.fileurl).collect().to_pandas()
         stored_urls = set(res.iloc[:, 0])
         assert len(stored_urls) == len(res)
-        all_urls = {urllib.parse.urljoin('file:', urllib.request.pathname2url(path)) for path in get_image_files()}
-        assert stored_urls <= all_urls
+        if catalog_mode == 'local':
+            all_urls = {urllib.parse.urljoin('file:', urllib.request.pathname2url(path)) for path in get_image_files()}
+            assert stored_urls <= all_urls
+        else:
+            # over the proxy each fileurl is a fetchable daemon media URL, not the local source file
+            assert all(urllib.parse.urlparse(u).scheme in ('http', 'https') and '/media/' in u for u in stored_urls)
 
         # localpath
         res = img_t.select(img_t.img.localpath).collect().to_pandas()
         stored_paths = set(res.iloc[:, 0])
         assert len(stored_paths) == len(res)
-        all_paths = set(get_image_files())
-        assert stored_paths <= all_paths
+        if catalog_mode == 'local':
+            all_paths = set(get_image_files())
+            assert stored_paths <= all_paths
+        else:
+            # over the proxy each localpath is a fetched local copy, openable but not the original source file
+            assert all(os.path.exists(p) for p in stored_paths)
 
         # errortype/-msg for image column
         res = img_t.select(error=img_t.img.errortype).collect().to_pandas()
@@ -690,6 +701,7 @@ class TestExprs:
         p = make_catalog_path
         spec = {
             'f1': str,
+            'img': pxt.Image,
             'f2': {
                 'f2a': int,
                 'f2b': (int, str, pxt.Video, {'f2b1': str}),
@@ -734,6 +746,9 @@ class TestExprs:
             (t.col.f5[:].f5a, pxt.Json[(int | None, str | None, float | None, ...)]),
             (t.col.f4['*'].f4b, pxt.Json[[str | None]]),  # special '*' operator
             (t.col.f4.f4a, pxt.Json[[int | None]]),  # field access on a list projects without an explicit slice/'*'
+            # attribute access on a json path that resolves to a non-JSON type dispatches to that type's UDFs
+            (t.col.img.width, pxt.Int),  # is_property UDF auto-invokes
+            (t.col.img.rotate(90), pxt.Image),  # is_method UDF
         )
         for expr, expected_type in cases:
             print(expr)
@@ -755,6 +770,10 @@ class TestExprs:
             regex = rf'Invalid JsonPath: cannot resolve {re.escape(errstring)}'
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=regex):
                 _ = expr[el]
+
+        # an unknown method/property on such a json path raises, like any missing attribute
+        with pytest.raises(AttributeError):
+            _ = t.col.img.not_a_method
 
     def test_json_mapper(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl
@@ -1041,38 +1060,34 @@ class TestExprs:
     def test_apply(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
 
-        # For each column c1, ..., c5, we create a new column ci_as_str that converts it to
-        # a string, then check that each row is correctly converted
+        # For each column c1, ..., c5, apply str() and check that each row is correctly converted
         # (For c1 this is the no-op string-to-string conversion)
         for col_id in range(1, 6):
             col_name = f'c{col_id}'
-            str_col_name = f'c{col_id}_str'
-            status = t.add_computed_column(**{str_col_name: t[col_name].apply(str)})
-            assert status.num_excs == 0
-            data = t.select(t[col_name], t[str_col_name]).collect()
-            for row in data:
-                assert row[str_col_name] == str(row[col_name])
+            data = t.select(orig=t[col_name], as_str=t[col_name].apply(str)).collect()
+            assert all(row['as_str'] == str(row['orig']) for row in data)
 
         # Test a compound expression with apply
-        status = t.add_computed_column(c2_plus_1_str=(t.c2 + 1).apply(str))
-        assert status.num_excs == 0
-        data = t.select(t.c2, t.c2_plus_1_str).collect()
-        for row in data:
-            assert row['c2_plus_1_str'] == str(row['c2'] + 1)
+        data = t.select(c2=t.c2, plus_1_str=(t.c2 + 1).apply(str)).collect()
+        assert all(row['plus_1_str'] == str(row['c2'] + 1) for row in data)
 
-        # For columns c6, c7, try using json.dumps and json.loads to emit and parse JSON <-> str
+        # For columns c6, c7, use json.dumps and json.loads to emit and parse JSON <-> str
         for col_id in range(6, 8):
             col_name = f'c{col_id}'
-            str_col_name = f'c{col_id}_str'
-            back_to_json_col_name = f'c{col_id}_back_to_json'
-            status = t.add_computed_column(**{str_col_name: t[col_name].apply(json.dumps)})
-            assert status.num_excs == 0
-            status = t.add_computed_column(**{back_to_json_col_name: t[str_col_name].apply(json.loads)})
-            assert status.num_excs == 0
-            data = t.select(t[col_name], t[str_col_name], t[back_to_json_col_name]).collect()
-            for row in data:
-                assert row[str_col_name] == json.dumps(row[col_name])
-                assert row[back_to_json_col_name] == row[col_name]
+            data = t.select(
+                orig=t[col_name],
+                as_str=t[col_name].apply(json.dumps),
+                back_to_json=t[col_name].apply(json.dumps).apply(json.loads),
+            ).collect()
+            assert all(row['as_str'] == json.dumps(row['orig']) for row in data)
+            assert all(row['back_to_json'] == row['orig'] for row in data)
+
+        # apply() creates a function without a fully-qualified path, which can't be used in a computed column
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r"Computed column 'c1_str' uses `str\(\)`, which was created with `\.apply\(\)`",
+        ):
+            t.add_computed_column(c1_str=t.c1.apply(str))
 
         def f1(x):  # type: ignore[no-untyped-def]
             return str(x)
@@ -1083,15 +1098,15 @@ class TestExprs:
         assert 'Column type of `f1` cannot be inferred.' in str(exc_info.value)
 
         # ... but works if the type is specified explicitly.
-        status = t.add_computed_column(c2_str_f1=t.c2.apply(f1, col_type=pxt.String))
-        assert status.num_excs == 0
+        data = t.select(c2=t.c2, v=t.c2.apply(f1, col_type=pxt.String)).collect()
+        assert all(row['v'] == str(row['c2']) for row in data)
 
         # Test that the return type of a function can be successfully inferred.
         def f2(x) -> str:  # type: ignore[no-untyped-def]
             return str(x)
 
-        status = t.add_computed_column(c2_str_f2=t.c2.apply(f2))
-        assert status.num_excs == 0
+        data = t.select(c2=t.c2, v=t.c2.apply(f2)).collect()
+        assert all(row['v'] == str(row['c2']) for row in data)
 
         # Test various validation failures.
 
@@ -1133,6 +1148,38 @@ class TestExprs:
 
         t.c2.apply(f8)
 
+    def test_nonmodule_function_errors(self, make_catalog_path: Callable[[str], str]) -> None:
+        # a function without a fully-qualified path (from apply() or defined in a notebook) can only be stored as a
+        # pickled body; every persistence site must reject it with a clear message
+        p = make_catalog_path
+        t = pxt.create_table(p('base'), {'c2': pxt.Int, 's': pxt.String})
+        t.insert([{'c2': i, 's': str(i)} for i in range(10)])
+        match = r'was created with `\.apply\(\)` or defined as a local'
+
+        # computed column
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=match):
+            t.add_computed_column(bad=t.c2.apply(lambda x: x + 1, col_type=pxt.Int))
+
+        # view filter
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=match):
+            pxt.create_view(p('vfilter'), t.where(t.c2.apply(lambda x: x > 1, col_type=pxt.Bool)))
+
+        # stratified sampling in a snapshot view
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=match):
+            pxt.create_view(
+                p('vsample'),
+                t.sample(fraction=0.5, stratify_by=[t.c2.apply(lambda x: x % 2, col_type=pxt.Int)]),
+                is_snapshot=True,
+            )
+
+        # embedding index (_force_stored stands in for a notebook-defined embedding)
+        @pxt.udf(_force_stored=True)
+        def local_embed(s: str) -> pxt.Array[(4,), pxt.Float]:
+            return np.ones(4, dtype=np.float32)
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=match):
+            t.add_embedding_index('s', string_embed=local_embed)
+
     def test_select_list(self, img_tbl: pxt.Table) -> None:
         t = img_tbl
         result = t.select(t.img).show(n=100)
@@ -1155,6 +1202,7 @@ class TestExprs:
         result = t.select(t.img, t.img.height, t.img.rotate(90)).show(n=100)
         _ = result._repr_html_()
 
+    @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
     def test_ext_imgs(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('img_test'), {'img': pxt.Image})

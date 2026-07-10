@@ -8,13 +8,21 @@ EPILOG = """\
 Examples:
   pxt idxs                         # every index across every table
   pxt idxs my_dir/my_table         # indexes on one table
+  pxt idxs my_dir                  # every table under a directory, recursively
+  pxt idxs pxt://org:db            # every table in a hosted database
+  pxt idxs pxt://org:db/my_dir     # every table under a directory, recursively
   pxt idxs --embedding             # only embedding indexes (skip auto-created btrees)
   pxt idxs --json"""
 
 
 def run(argv: list[str]) -> None:
     ap = Parser(prog='pxt idxs', epilog=EPILOG)
-    ap.add_argument('path', nargs='?', default=None, help='if omitted: every index in the catalog')
+    ap.add_argument(
+        'path',
+        nargs='?',
+        default=None,
+        help='a table, or a directory to walk recursively; if omitted, every table in the catalog',
+    )
     ap.add_argument('--embedding', action='store_true', dest='embedding_only', help='restrict to embedding indexes')
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)

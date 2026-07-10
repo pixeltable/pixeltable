@@ -2288,7 +2288,7 @@ class Catalog(CatalogBase):
             # check whether this table is in the process of being dropped or has already been dropped
             q: sql.Executable = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
             row = conn.execute(q).one_or_none()
-            if row is None or row.md['pending_stmt'] == schema.TableStatement.DROP_TABLE.value:
+            if row is None or row.md.get('pending_stmt') == schema.TableStatement.DROP_TABLE.value:
                 return None
 
         # check for pending ops

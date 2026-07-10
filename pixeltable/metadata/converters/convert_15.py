@@ -6,7 +6,7 @@ import cloudpickle  # type: ignore[import-untyped]
 import sqlalchemy as sql
 
 from pixeltable.metadata import register_converter
-from pixeltable.metadata.schema import Function
+from pixeltable.metadata.converters.util import legacy_functions
 
 _logger = logging.getLogger(__name__)
 
@@ -14,21 +14,25 @@ _logger = logging.getLogger(__name__)
 @register_converter(version=15)
 def _(conn: sql.Connection) -> None:
     # select explicit columns (not SELECT *) so a future column addition/reorder can't shift the unpacking
-    for row in conn.execute(sql.select(Function.id, Function.md, Function.binary_obj)):
+    for row in conn.execute(sql.select(legacy_functions.c.id, legacy_functions.c.md, legacy_functions.c.binary_obj)):
         id, md, binary_obj = row
         md['md'] = __update_md(md['md'], binary_obj)
         _logger.info(f'Updating function: {id}')
-        conn.execute(sql.update(Function).where(Function.id == id).values(md=md))
+        conn.execute(sql.update(legacy_functions).where(legacy_functions.c.id == id).values(md=md))
 
 
 def __update_md(orig_d: dict, binary_obj: bytes) -> Any:
-    # construct dict produced by CallableFunction.to_store()
-    py_fn = cloudpickle.loads(binary_obj)
-    py_params = inspect.signature(py_fn, eval_str=True).parameters
+    # The pickled body is needed only to recover parameter default values. A function pickled under an older Python
+    # can fail to unpickle on a newer one (cloudpickle code-object incompatibility); such a pickle-backed function
+    # can no longer be used or persisted anyway, so migrate its signature without defaults instead of failing.
+    try:
+        py_params: Any = inspect.signature(cloudpickle.loads(binary_obj), eval_str=True).parameters
+    except Exception:
+        py_params = None
     return_type = orig_d['return_type']
     params: list[dict] = []
     for name, col_type_dict, kind_int, is_batched in orig_d['parameters']:
-        default = py_params[name].default
+        default = py_params[name].default if py_params is not None else inspect.Parameter.empty
         kind = inspect._ParameterKind(kind_int)
         params.append(
             {

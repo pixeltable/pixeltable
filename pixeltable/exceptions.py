@@ -166,6 +166,7 @@ class Error(Exception):
         override this to restore it. Bypasses __init__ (which may require args not on the wire)."""
         err = cls.__new__(cls)
         Error.__init__(err, error_code, d.get('message', ''), retry_after=d.get('retry_after'))
+        err.detail = d.get('detail')
         return err
 
 
