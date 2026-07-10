@@ -139,7 +139,7 @@ class Runtime:
             )
 
         from pixeltable.service import proxy_daemon
-        from pixeltable.service.proxy_client import ProxyHttpClient
+        from pixeltable.service.proxy_client import ProxyClient
 
         assert catalog_uri.db is not None
         info = proxy_daemon.read_port_lock(catalog_uri.db)
@@ -149,7 +149,7 @@ class Runtime:
                 excs.ErrorCode.SERVICE_NOT_FOUND,
                 f'No local proxy is running for {db!r}. Start it with: pxt localproxy start {db}',
             )
-        return CatalogProxy(catalog_uri, ProxyHttpClient(f'http://127.0.0.1:{info["port"]}'))
+        return CatalogProxy(catalog_uri, ProxyClient(f'http://127.0.0.1:{info["port"]}'))
 
     @property
     def event_loop(self) -> asyncio.AbstractEventLoop:

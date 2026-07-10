@@ -6,7 +6,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 
-from ..utils import pxt_raises, skip_test_if_no_config, skip_test_if_not_installed
+from ..utils import pxt_raises, rerun, skip_test_if_no_config, skip_test_if_not_installed
 
 pytestmark = pytest.mark.local('UDF/integration test')
 
@@ -88,6 +88,7 @@ class TestJson:
         assert res['my_str'] == [f'string_{j}' if j < i else None for i in range(50) for j in range(i + 1)]
 
     @pytest.mark.very_expensive  # Downloads a Hugging Face model
+    @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
     def test_list_iterator_appl(self, uses_db: None) -> None:
         """
         Fully worked example of flattening object detection output.

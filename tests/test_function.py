@@ -1,4 +1,5 @@
 # ruff: noqa: RUF029
+import builtins
 import re
 import subprocess
 import typing
@@ -10,6 +11,7 @@ from typing import Any, Callable
 import numpy as np
 import pytest
 
+import __main__
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
@@ -186,6 +188,34 @@ class TestFunction:
             pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'which was created with `\.apply\(\)` or defined as a local'
         ):
             t.add_computed_column(bad=pickled_q(t.c1))
+
+    @pytest.mark.local('inline __main__ UDF resolves only in the defining process')
+    def test_inline_notebook_udf(
+        self, make_catalog_path: Callable[[str], str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # a udf defined at the top level of module __main__, as in a notebook cell or a script
+        def word_count(s: str) -> int:
+            return len(s.split())
+
+        word_count.__module__ = '__main__'
+        word_count.__qualname__ = 'word_count'
+
+        # outside an interactive session such a definition is treated as a script global and rejected
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='global namespace of a Python script'):
+            pxt.udf(word_count)
+
+        # in an interactive session (eg a notebook) it is assigned a __main__ path and can back a computed column
+        monkeypatch.setattr(builtins, '__IPYTHON__', True, raising=False)
+        wc = pxt.udf(word_count)
+        monkeypatch.setattr(__main__, 'word_count', wc, raising=False)
+        assert wc.self_path == '__main__.word_count'
+        assert wc.is_storable
+
+        p = make_catalog_path
+        t = pxt.create_table(p('articles'), {'content': pxt.String})
+        t.add_computed_column(word_count=wc(t.content))
+        t.insert([{'content': 'a b c'}, {'content': 'one two three four'}])
+        assert sorted(row['word_count'] for row in t.collect()) == [3, 4]
 
     @staticmethod
     @pxt.udf

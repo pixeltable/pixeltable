@@ -44,6 +44,10 @@ class Table(SchemaObject):
     def _tbl_path(self) -> 'TablePath':
         """The metadata path backing this handle."""
 
+    def _get_schema(self) -> dict[str, 'ts.ColumnType']:
+        """Return the schema (column names and types) of this table, including columns inherited from bases."""
+        return {md.name: md.col_type for md in self._tbl_path.column_md() if md.name is not None}
+
     @abc.abstractmethod
     def get_metadata(self) -> 'TableMetadata':
         """
