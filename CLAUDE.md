@@ -116,12 +116,13 @@ pytest -m "remote_api" tests/functions/test_openai.py
 
 ### Required After Every Code Change
 
-After every code change, run the following and ensure both pass before proceeding:
+After every code change, before reporting it done:
 
-```bash
-make format   # auto-formats code
-make check    # mypy + ruff static checks
-```
+1. `make format`: auto-formats code.
+2. `make check`: mypy + ruff static checks; both must pass.
+3. Review the diff (`git diff`) and read every comment, docstring, and string you added. A comment must
+   describe only the code at hand (never a caller's intent or a called function's internals) and must not
+   state behavior you have not verified. Fix violations before proceeding.
 
 Skip only if explicitly directed or if the environment makes it impossible.
 

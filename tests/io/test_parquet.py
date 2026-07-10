@@ -1,5 +1,6 @@
 import datetime
 import pathlib
+from typing import Callable
 
 import numpy as np
 import pandas as pd
@@ -12,6 +13,8 @@ from pixeltable.utils.arrow import to_pydict
 
 from ..utils import (
     SAMPLE_IMAGE_URL,
+    CatalogMode,
+    assert_schema_eq,
     ensure_s3_pytest_resources_access,
     get_image_files,
     make_test_arrow_table,
@@ -20,8 +23,6 @@ from ..utils import (
     skip_test_if_not_installed,
     validate_update_status,
 )
-
-pytestmark = pytest.mark.local('TODO: convert; import/export (parquet)')
 
 
 def validate_parquet_files(path: pathlib.Path, rows: list[dict]) -> None:
@@ -50,6 +51,7 @@ def validate_parquet_files(path: pathlib.Path, rows: list[dict]) -> None:
 
 
 class TestParquet:
+    @pytest.mark.local('uses import_pandas; an in-memory DataFrame source is not yet supported over the proxy')
     def test_import_parquet_examples(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
 
@@ -107,11 +109,12 @@ class TestParquet:
         ],
     )
     @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
-    def test_import_parquet_from_remote(self, uses_db: None, source: str) -> None:
+    def test_import_parquet_from_remote(self, make_catalog_path: Callable[[str], str], source: str) -> None:
+        p = make_catalog_path
         skip_test_if_not_installed('pyarrow')
         if source.startswith('s3://'):
             ensure_s3_pytest_resources_access()
-        tab = pxt.create_table('from_remote_parquet', source=source, source_format='parquet')
+        tab = pxt.create_table(p('from_remote_parquet'), source=source, source_format='parquet')
         assert tab.count() == 8
         for col in (
             'id',
@@ -134,7 +137,8 @@ class TestParquet:
         assert r1['bigint_col'] == 10 and r1['double_col'] == 10.1
         assert abs(r1['float_col'] - 1.1) < 1e-5  # float32 precision
 
-    def test_import_parquet(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_import_parquet(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+        p = make_catalog_path
         skip_test_if_not_installed('pyarrow')
         import pyarrow as pa
         from pyarrow import parquet
@@ -146,16 +150,15 @@ class TestParquet:
         _ = make_test_arrow_table(parquet_dir)
 
         # This test passes only a directory to the parquet reader. The source_format must be explicit in this case.
-        tab = pxt.io.import_parquet('test_parquet', parquet_path=str(parquet_dir), source_format='parquet')
-        assert 'test_parquet' in pxt.list_tables()
+        tab = pxt.io.import_parquet(p('test_parquet'), parquet_path=str(parquet_dir), source_format='parquet')
+        assert p('test_parquet') in pxt.list_tables(p(''))
         assert tab is not None
         num_elts = tab.count()
         arrow_tab: pa.Table = parquet.read_table(str(parquet_dir))
         assert num_elts == arrow_tab.num_rows
-        assert set(tab._get_schema().keys()) == set(arrow_tab.column_names)
+        assert set(tab.columns()) == set(arrow_tab.column_names)
 
         result_set = tab.order_by(tab.c_id).collect()
-        column_types = tab._get_schema()
 
         for tup, arrow_tup in zip(result_set, iter_tuples(arrow_tab)):
             assert tup['c_id'] == arrow_tup['c_id']
@@ -164,14 +167,15 @@ class TestParquet:
                     assert arrow_tup[col] is None
                     continue
 
-                if column_types[col].is_array_type():
+                if isinstance(val, np.ndarray):
                     assert (val == arrow_tup[col]).all()
-                elif column_types[col].is_timestamp_type():
+                elif isinstance(val, datetime.datetime):
                     assert val == arrow_tup[col].astimezone(None)
                 else:
                     assert val == arrow_tup[col]
 
-    def test_insert_parquet(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_insert_parquet(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+        p = make_catalog_path
         skip_test_if_not_installed('pyarrow')
 
         parquet_dir = tmp_path / 'test_data'
@@ -179,19 +183,53 @@ class TestParquet:
         _ = make_test_arrow_table(parquet_dir)
 
         # This test passes only a directory to the parquet reader. The source_format must be explicit in this case.
-        tab = pxt.io.import_parquet('test_parquet', parquet_path=str(parquet_dir), source_format='parquet')
+        tab = pxt.io.import_parquet(p('test_parquet'), parquet_path=str(parquet_dir), source_format='parquet')
         len1 = tab.count()
         tab.insert(str(parquet_dir), source_format='parquet')
         assert tab.count() == len1 * 2
 
-    def test_export_parquet_simple(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_insert_parquet_nested(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+        p = make_catalog_path
+        skip_test_if_not_installed('pyarrow')
+
+        # a directory whose parquet files live in subdirectories; the reader discovers them recursively. In hosted
+        # mode the client ships the tree and the daemon reassembles it, so the nesting must survive the round-trip.
+        parquet_dir = tmp_path / 'nested_data'
+        (parquet_dir / 'sub1').mkdir(parents=True)
+        (parquet_dir / 'sub2').mkdir(parents=True)
+        make_test_arrow_table(parquet_dir / 'sub1')
+        make_test_arrow_table(parquet_dir / 'sub2')
+
+        tab = pxt.io.import_parquet(p('nested_parquet'), parquet_path=str(parquet_dir), source_format='parquet')
+        len1 = tab.count()
+        assert len1 == 10  # 5 rows in each of the two subdirectory files
+        tab.insert(str(parquet_dir), source_format='parquet')
+        assert tab.count() == len1 * 2
+
+    def test_insert_empty_dir(
+        self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, tmp_path: pathlib.Path
+    ) -> None:
+        if catalog_mode != 'proxy':
+            pytest.skip('rejecting an empty directory is specific to the hosted insert path')
+        p = make_catalog_path
+        empty_dir = tmp_path / 'empty'
+        empty_dir.mkdir()
+        tab = pxt.create_table(p('empty_src'), {'c_id': pxt.Int})
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='empty directory'):
+            tab.insert(str(empty_dir), source_format='parquet')
+
+    @pytest.mark.local(
+        'export is read-side (collect then write a local parquet); dual-mode conversion is a separate follow-up'
+    )
+    def test_export_parquet_simple(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+        p = make_catalog_path
         skip_test_if_not_installed('pyarrow')
         from zoneinfo import ZoneInfo
 
         import pyarrow as pa
         from pyarrow import parquet
 
-        t = pxt.create_table('test1', {'c1': pxt.Int, 'c2': pxt.String, 'c3': pxt.Timestamp, 'c4': pxt.Json})
+        t = pxt.create_table(p('test1'), {'c1': pxt.Int, 'c2': pxt.String, 'c3': pxt.Timestamp, 'c4': pxt.Json})
 
         tz = ZoneInfo('America/Anchorage')
         ts1 = datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz)
@@ -241,16 +279,16 @@ class TestParquet:
         c4_data = pq3.column('c4').to_pylist()
         assert c4_data == [json_val1]
 
-        it = pxt.io.import_parquet('imported_test1', parquet_path=str(export_file1))
+        it = pxt.io.import_parquet(p('imported_test1'), parquet_path=str(export_file1))
         assert it.count() == t.count()
-        assert it._get_schema() == t._get_schema()
+        assert_schema_eq(it, t)
         assert it.select(it.c1).order_by(it.c1).collect() == t.select(t.c1).order_by(t.c1).collect()
         assert it.select(it.c2).order_by(it.c1).collect() == t.select(t.c2).order_by(t.c1).collect()
         c3_result = it.select(it.c3).order_by(it.c1).collect()
         assert c3_result == t.select(t.c3).order_by(t.c1).collect(), c3_result
         assert it.select(it.c4).order_by(it.c1).collect() == t.select(t.c4).order_by(t.c1).collect()
 
-        it = pxt.io.import_parquet('imported_test2', parquet_path=str(export_file2))
+        it = pxt.io.import_parquet(p('imported_test2'), parquet_path=str(export_file2))
         assert it.count() == t.count()
         assert it.columns() == ['c1', 'c2']
         assert it.c1.col_type == t.c1.col_type
@@ -258,15 +296,19 @@ class TestParquet:
         assert it.select(it.c1).order_by(it.c1).collect() == t.select(t.c1).order_by(t.c1).collect()
         assert it.select(it.c2).order_by(it.c1).collect() == t.select(t.c2).order_by(t.c1).collect()
 
-        it = pxt.io.import_parquet('imported_test3', parquet_path=str(export_file3))
+        it = pxt.io.import_parquet(p('imported_test3'), parquet_path=str(export_file3))
         assert it.count() == 1
-        assert it._get_schema() == t._get_schema()
+        assert_schema_eq(it, t)
         assert it.select(it.c1).collect() == t.where(t.c1 == 1).select(t.c1).collect()
         assert it.select(it.c2).collect() == t.where(t.c1 == 1).select(t.c2).collect()
         assert it.select(it.c3).collect() == t.where(t.c1 == 1).select(t.c3).collect()
         assert it.select(it.c4).collect() == t.where(t.c1 == 1).select(t.c4).collect()
 
-    def test_export_parquet(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    @pytest.mark.local(
+        'export is read-side (collect then write a local parquet); dual-mode conversion is a separate follow-up'
+    )
+    def test_export_parquet(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+        p = make_catalog_path
         skip_test_if_not_installed('pyarrow')
         import pyarrow as pa
         from pyarrow import parquet
@@ -275,8 +317,8 @@ class TestParquet:
         parquet_dir.mkdir()
         orig_file_path = make_test_arrow_table(parquet_dir)
 
-        tab = pxt.io.import_parquet('test_parquet', parquet_path=str(parquet_dir), source_format='parquet')
-        assert 'test_parquet' in pxt.list_tables()
+        tab = pxt.io.import_parquet(p('test_parquet'), parquet_path=str(parquet_dir), source_format='parquet')
+        assert p('test_parquet') in pxt.list_tables(p(''))
         assert tab is not None
         result_before = tab.order_by(tab.c_id).collect()
 
@@ -285,17 +327,16 @@ class TestParquet:
         assert export_path.exists()
 
         # verify the data is same by reading it back into pixeltable
-        exported_tab = pxt.io.import_parquet('exported', parquet_path=str(export_path))
-        assert 'exported' in pxt.list_tables()
+        exported_tab = pxt.io.import_parquet(p('exported'), parquet_path=str(export_path))
+        assert p('exported') in pxt.list_tables(p(''))
         assert exported_tab is not None
         assert tab.count() == exported_tab.count()
-        assert tab._get_schema() == exported_tab._get_schema()
+        assert_schema_eq(exported_tab, tab)
         result_after = exported_tab.order_by(exported_tab.c_id).collect()
         for tup1, tup2 in zip(result_before, result_after):
             for (col1, val1), (col2, val2) in zip(tup1.items(), tup2.items()):
                 assert col1 == col2
-                assert tab._get_schema()[col1] == exported_tab._get_schema()[col2]
-                if tab._get_schema()[col1].is_array_type():
+                if isinstance(val1, np.ndarray):
                     assert val1.all() == val2.all()
                 else:
                     assert val1 == val2
@@ -318,8 +359,9 @@ class TestParquet:
         #   So the schema and value of that column differ.
         #
 
-    def test_export_parquet_image(self, uses_db: None, tmp_path: pathlib.Path) -> None:
-        tab = pxt.create_table('test_image', {'c1': pxt.Image})
+    def test_export_parquet_image(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+        p = make_catalog_path
+        tab = pxt.create_table(p('test_image'), {'c1': pxt.Image})
         tab.insert([{'c1': get_image_files()[0]}])
 
         export_path = tmp_path / 'exported_image.parquet'
@@ -330,9 +372,12 @@ class TestParquet:
         assert export_path.exists()
 
         # Test that we can reimport the image (it will come back as bytes)
-        _ = pxt.io.import_parquet('imported_image', parquet_path=str(export_path))
+        _ = pxt.io.import_parquet(p('imported_image'), parquet_path=str(export_path))
 
-    def test_import_images(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_import_images(
+        self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, tmp_path: pathlib.Path
+    ) -> None:
+        p = make_catalog_path
         valid_images = get_image_files()
 
         # Parquet with valid image paths/URLs
@@ -341,9 +386,15 @@ class TestParquet:
         pa_parquet.write_table(img_data, str(img_pq))
 
         img_t = pxt.create_table(
-            'valid_images', source=str(img_pq), source_format='parquet', schema_overrides={'image_path': pxt.Image}
+            p('valid_images'), source=str(img_pq), source_format='parquet', schema_overrides={'image_path': pxt.Image}
         )
         assert img_t.count() == 4
+
+        # Bad media (a missing local path, an unreachable URL) is validated in the insert plan locally, honoring
+        # on_error. Over the proxy the source rows are shipped and the missing local path is rejected during the
+        # daemon's pre-insert row validation (before on_error applies), so this is exercised in local mode only.
+        if catalog_mode != 'local':
+            return
 
         # Parquet with invalid local path and invalid URL
         bad_data = pa.table(
@@ -355,7 +406,7 @@ class TestParquet:
         # on_error='abort' fails
         with pxt_raises(pxt.ErrorCode.PROVIDER_ERROR, match='Failed to download'):
             _ = pxt.create_table(
-                'bad_data_tbl',
+                p('bad_data_tbl'),
                 source=str(bad_pq),
                 source_format='parquet',
                 schema_overrides={'image_path': pxt.Image},
@@ -364,7 +415,7 @@ class TestParquet:
 
         # on_error='ignore' succeeds
         error_t = pxt.create_table(
-            'bad_ignore',
+            p('bad_ignore'),
             source=str(bad_pq),
             source_format='parquet',
             schema_overrides={'image_path': pxt.Image},
@@ -374,8 +425,9 @@ class TestParquet:
         errors = error_t.select(msg=error_t.image_path.errormsg).where(error_t.image_path.errormsg != None).collect()
         assert len(errors) == 2
 
-    def test_export_array(self, uses_db: None, tmp_path: pathlib.Path) -> None:
-        t = pxt.create_table('test_array1', {'idx': pxt.Int, 'a1': pxt.Array[(10, 10), np.int64]})  # type: ignore[misc]
+    def test_export_array(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('test_array1'), {'idx': pxt.Int, 'a1': pxt.Array[(10, 10), np.int64]})  # type: ignore[misc]
         rows = [{'idx': i, 'a1': np.ones((10, 10), dtype=np.int64) * i} for i in range(1000)]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
 
@@ -383,8 +435,9 @@ class TestParquet:
         pxt.io.export_parquet(t.order_by(t.idx), export_path)
         validate_parquet_files(export_path, rows)
 
-    def test_export_ragged_array(self, uses_db: None, tmp_path: pathlib.Path) -> None:
-        t = pxt.create_table('test_array1', {'idx': pxt.Int, 'a1': pxt.Array[(None, None), np.int64]})  # type: ignore[misc]
+    def test_export_ragged_array(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('test_array1'), {'idx': pxt.Int, 'a1': pxt.Array[(None, None), np.int64]})  # type: ignore[misc]
         rng = np.random.default_rng(0)
         rows = [
             {'idx': i, 'a1': np.ones((rng.integers(1, 10) + 1, rng.integers(1, 10) + 1), dtype=np.int64) * i}
@@ -397,7 +450,7 @@ class TestParquet:
         validate_parquet_files(export_path, rows)
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot export array column'):
-            u = pxt.create_table('test_array2', {'idx': pxt.Int, 'a1': pxt.Array[np.int64]})  # type: ignore[misc]
+            u = pxt.create_table(p('test_array2'), {'idx': pxt.Int, 'a1': pxt.Array[np.int64]})  # type: ignore[misc]
             validate_update_status(u.insert(rows), expected_rows=len(rows))
             export_path = tmp_path / 'error.pq'
             pxt.io.export_parquet(u.order_by(u.idx), export_path)

@@ -88,6 +88,7 @@ class TestIndex:
         small_img_tbl: pxt.Table,
         clip_or_local: tuple[pxt.Function, bool],
         reload_tester: ReloadTester,
+        catalog_mode: CatalogMode,
     ) -> None:
         embed, is_dummy_model = clip_or_local
         skip_test_if_not_installed('imagehash')
@@ -98,9 +99,15 @@ class TestIndex:
         sample_img = res[0, 'img']
         sample_img_localpath = res[0, 'img_localpath']
         sample_img_file_url = res[0, 'img_fileurl']
-        assert 'file:/' in sample_img_file_url
-        sample_img_filename = Path(sample_img_localpath).name
-        sample_img_http_url = f'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/imagenette2-160/{sample_img_filename}'
+        # A PIL image is a self-contained similarity input that works in both modes. A local path, file:// URL, or
+        # an http URL rebuilt from the original filename only identifies the same image against a collocated store:
+        # over the proxy .localpath is a fetched cache copy (hashed name) and .fileurl is a fetchable daemon URL.
+        img_inputs: list[Any] = [sample_img]
+        if catalog_mode == 'local':
+            assert 'file:/' in sample_img_file_url
+            sample_img_filename = Path(sample_img_localpath).name
+            sample_img_http_url = f'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/imagenette2-160/{sample_img_filename}'
+            img_inputs += [sample_img_localpath, sample_img_file_url, sample_img_http_url]
 
         for metric, is_asc in [('cosine', False), ('ip', False), ('l2', True)]:
             iname = f'idx_{metric}_{is_asc}' if use_index_name else None
@@ -112,7 +119,7 @@ class TestIndex:
 
             # Similarity search on the image itself should reliably retrieve it as the top choice.
             # Make sure it works to give it the image, local path, file:// URL, or http:// URL.
-            for img_input in [sample_img, sample_img_localpath, sample_img_file_url, sample_img_http_url]:
+            for img_input in img_inputs:
                 query = (
                     t.select(img=t.img, sim=t.img.similarity(image=img_input, idx=iname))
                     .order_by(t.img.similarity(image=sample_img, idx=iname), asc=is_asc)

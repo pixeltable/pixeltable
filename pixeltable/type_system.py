@@ -1692,7 +1692,8 @@ class ImageType(ColumnType):
     def validate_media(self, val: Any) -> None:
         assert isinstance(val, str)
         try:
-            _ = PIL.Image.open(val)
+            with PIL.Image.open(val):
+                pass
         except PIL.UnidentifiedImageError:
             raise excs.RequestError(excs.ErrorCode.INVALID_DATA_FORMAT, f'Not a valid image: {val}') from None
 
@@ -1806,9 +1807,9 @@ class DocumentType(ColumnType):
 
     def validate_media(self, val: Any) -> None:
         assert isinstance(val, str)
-        from pixeltable.utils.documents import get_document_handle
+        from pixeltable.utils.documents import DocumentHandle
 
-        _ = get_document_handle(val)
+        DocumentHandle.validate(val)
 
 
 T = typing.TypeVar('T')

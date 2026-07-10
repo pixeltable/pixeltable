@@ -5,11 +5,16 @@ can import without pulling in pxt or pydantic."""
 import hashlib
 import importlib.metadata
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
 
 DEFAULT_PORT = 22089
+
+# Mirrors pixeltable.catalog.path._URI_RE (duplicated so this module stays stdlib-only): a hosted path is
+# pxt://<org>:<db>/<in-catalog path>.
+_PXT_URI_RE = re.compile(r'^pxt://(?P<org>[^:/]+)(?::(?P<db>[^/]+))?(?:/(?P<rest>.*))?$')
 
 
 def _resolve_pixeltable_home() -> str:
@@ -44,16 +49,27 @@ def pidfile_path() -> str:
 
 
 def validate_path_shape(path: str) -> str | None:
-    """Return an error message if `path` violates pxt path shape rules, else None. Empty is allowed."""
+    """Return an error message if path violates pxt path shape rules, else None. Empty is allowed.
+
+    A hosted URI pxt://<org>:<db>/<in-catalog path> is accepted; only its in-catalog portion is shape-checked
+    here. The org/db and the overall URI form are validated by pixeltable when the path is resolved.
+    """
     if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in path):
         return f'pxt paths must not contain control characters; got {path!r}'
-    if '.' in path:
+    if path.startswith('pxt://'):
+        m = _PXT_URI_RE.match(path)
+        if m is None:
+            return f'invalid URI; expected pxt://<org>:<db>/<path>, got {path!r}'
+        in_catalog = m.group('rest') or ''
+    else:
+        in_catalog = path
+        if in_catalog.startswith('/'):
+            return f"pxt paths are relative; drop the leading '/' (use '' for root). Got {path!r}"
+    if '.' in in_catalog:
         return f"pxt paths use '/' as the separator; got {path!r}"
-    if path.startswith('/'):
-        return f"pxt paths are relative; drop the leading '/' (use '' for root). Got {path!r}"
-    if path.endswith('/'):
+    if in_catalog.endswith('/'):
         return f"pxt paths must not end with '/'; got {path!r}"
-    if '//' in path:
+    if '//' in in_catalog:
         return f"pxt paths must not contain empty components ('//'); got {path!r}"
     return None
 
@@ -78,7 +94,7 @@ def _pxt_version() -> str | None:
 
 
 def _pxt_install_dir() -> str | None:
-    """Stdlib-only equivalent of `Path(pixeltable.__file__).parent`. Returns None if pixeltable isn't installed."""
+    """Stdlib-only equivalent of Path(pixeltable.__file__).parent. Returns None if pixeltable isn't installed."""
     try:
         dist = importlib.metadata.distribution('pixeltable')
     except importlib.metadata.PackageNotFoundError:
