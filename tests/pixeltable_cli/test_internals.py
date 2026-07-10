@@ -1376,32 +1376,6 @@ class TestDashboardCommand:
         assert 'cannot reach daemon' in capsys.readouterr().err
 
 
-class TestDeployCommand:
-    """`pxt deploy` build-bundle error handling."""
-
-    def _run_with_error(self, args: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
-        import pixeltable as pxt
-        from pixeltable_cli.client.commands import deploy as deploy_cmd
-
-        def boom(_name: str) -> None:
-            raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, 'no such deployment')
-
-        monkeypatch.setattr(deploy_cmd.deploy, 'build_deploy_bundle', boom)
-        with pytest.raises(SystemExit) as info:
-            deploy_cmd.run(args)
-        assert info.value.code == 1
-
-    def test_deploy_failure_human(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        self._run_with_error(['prod'], monkeypatch)
-        assert 'no such deployment' in capsys.readouterr().err
-
-    def test_deploy_failure_json(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        self._run_with_error(['prod', '--json'], monkeypatch)
-        payload = json.loads(capsys.readouterr().err)
-        assert payload['status'] == 'error'
-        assert 'no such deployment' in payload['message']
-
-
 class TestBadPathArgRejection:
     """Each path-taking command rejects malformed paths client-side with argparse exit 2."""
 

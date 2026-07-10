@@ -201,7 +201,7 @@ class CloudUpdateRuntimeBody(BaseModel):
 
 class CloudCreateServiceBody(BaseModel):
     service_name: str
-    table_path: str
+    base_path: str
     workers: int = 1
     cpu: float = 0.5
     memory_mb: int = 512

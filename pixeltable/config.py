@@ -138,27 +138,6 @@ class ServiceConfig(pydantic.BaseModel):
         return v
 
 
-class DeploymentConfig(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra='forbid')
-
-    name: str
-    service: str
-    env: str
-    include: list[str] | None = None
-    exclude: list[str] | None = None
-    env_dependencies: list[str] = pydantic.Field(default_factory=list)
-    python_dependencies: list[str] = pydantic.Field(default_factory=list)
-
-    @pydantic.field_validator('name')
-    @classmethod
-    def _validate_name(cls, v: str) -> str:
-        from pixeltable.catalog import is_valid_identifier
-
-        if not is_valid_identifier(v, allow_hyphens=True):
-            raise ValueError(f'{v!r} is not a valid Pixeltable identifier')
-        return v
-
-
 class PixeltableSourceConfig(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(extra='forbid')
 
@@ -554,7 +533,6 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'b2_profile': 'AWS config profile name used to access Backblaze B2 storage',
         'tigris_profile': 'AWS config profile name used to access Tigris object storage',
         'service': ('Service configurations', list[ServiceConfig]),
-        'deployment': ('Deployment configurations', list[DeploymentConfig]),
         'database': 'Database runtime configuration',
         'daemon_host': 'Listen address for the proxy daemon in fixed-address mode (e.g. 0.0.0.0)',
         'daemon_port': ('Listen port for the proxy daemon in fixed-address mode (e.g. 8000)', int),

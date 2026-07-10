@@ -684,7 +684,7 @@ def cloud_create_service(req: Request) -> dict[str, Any]:
         req.path_params['org_slug'],
         req.path_params['db_slug'],
         body.service_name,
-        body.table_path,
+        body.base_path,
         workers=body.workers,
         cpu=body.cpu,
         memory_mb=body.memory_mb,

@@ -19,7 +19,7 @@ def run(argv: list[str]) -> None:
     args = parser.parse_args(argv)
 
     from pixeltable import config as pxt_config
-    from pixeltable.serving.deploy import build_runtime_bundle
+    from pixeltable.serving.deploy import build_db_runtime_bundle
 
     from ..cloud import parse_db_uri
     from ..http import get, post
@@ -32,7 +32,7 @@ def run(argv: list[str]) -> None:
 
         if not args.json_output:
             print('Building runtime bundle...', end=' ', flush=True)
-        bundle_path = build_runtime_bundle()
+        bundle_path = build_db_runtime_bundle()
         if not args.json_output:
             size_mb = bundle_path.stat().st_size / (1024 * 1024)
             print(f'done ({size_mb:.1f} MB)')

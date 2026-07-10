@@ -20,7 +20,13 @@ def run(argv: list[str]) -> None:
         resp = post(f'/api/cloud/orgs/{org_slug}/dbs/{db_slug}/services/{svc_name}/start', {})
         svc = resp.get('service', resp) if isinstance(resp, dict) else {}
         if svc.get('state') in ('STARTING', 'DEPLOYING'):
-            svc = poll_svc(org_slug, db_slug, svc_name, frozenset({'STARTING', 'DEPLOYING'}), f"Service '{svc_name}' is starting...")
+            svc = poll_svc(
+                org_slug,
+                db_slug,
+                svc_name,
+                frozenset({'STARTING', 'DEPLOYING'}),
+                f"Service '{svc_name}' is starting...",
+            )
         if args.json_output:
             print(json.dumps(svc))
         else:

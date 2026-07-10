@@ -69,11 +69,6 @@ def lookup_service_config(name: str) -> config.ServiceConfig:
     return _lookup_config('service', name, config.ServiceConfig, excs.ErrorCode.SERVICE_NOT_FOUND)
 
 
-def lookup_deployment_config(name: str) -> config.DeploymentConfig:
-    """Lookup a DeploymentConfig by name from the Pixeltable configuration."""
-    return _lookup_config('deployment', name, config.DeploymentConfig, excs.ErrorCode.DEPLOYMENT_NOT_FOUND)
-
-
 def lookup_database_runtime_config() -> config.DatabaseRuntimeConfig | None:
     """Return the [database] runtime config from pixeltable.toml, or None if absent."""
     raw = config.Config.get().get_value('database', dict)
