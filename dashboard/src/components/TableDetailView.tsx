@@ -1151,7 +1151,7 @@ function TableHeader({ metadata, versions, rowCount }: { metadata: TableMetadata
       <div className="flex items-center gap-2.5 mb-0.5">
         <KindBadge kind={kind} className="h-4 w-4 text-muted-foreground" />
         <h2 className="text-sm font-semibold text-foreground">{metadata.name}</h2>
-        <span className="text-xs font-mono text-muted-foreground">(/{metadata.path})</span>
+        <span className="text-xs font-mono text-muted-foreground">({metadata.path})</span>
         <span className="text-[11px] text-muted-foreground tabular-nums">
           {rowCount != null ? rowCount.toLocaleString() : '—'} rows × {columnCount} columns
         </span>
