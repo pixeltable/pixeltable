@@ -97,7 +97,7 @@ class TestImage:
                 assert result['tile_box'] == list(box)
                 assert result['tile'].size == (100, 100)
                 tile = image.crop(box)
-                assert list(result['tile'].getdata()) == list(tile.getdata())
+                assert result['tile'].tobytes() == tile.tobytes()
 
     @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
     def test_tile_iterator_errors(self, uses_db: None) -> None:
