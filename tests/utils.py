@@ -655,6 +655,10 @@ def __image_comparer(x: PIL.Image.Image, y: PIL.Image.Image) -> bool:
 
 
 def __json_comparer(x: Any, y: Any) -> bool:
+    # compare any two images by perceptual hash regardless of PIL subclass: the same stored image comes back as
+    # a different subclass depending on how it was materialized (a standalone column vs embedded in JSON)
+    if isinstance(x, PIL.Image.Image) and isinstance(y, PIL.Image.Image):
+        return __image_comparer(x, y)
     if type(x) is not type(y):
         return False
     if isinstance(x, dict):
@@ -665,8 +669,6 @@ def __json_comparer(x: Any, y: Any) -> bool:
         return __float_comparer(x, y)
     if isinstance(x, np.ndarray):
         return __array_comparer(x, y)
-    if isinstance(x, PIL.Image.Image):
-        return __image_comparer(x, y)
     return x == y
 
 
