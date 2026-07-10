@@ -8,7 +8,7 @@ import logging
 import sys
 from typing import Any, Callable, Iterator, cast
 
-from pixeltable import exceptions as excs, exprs, func, hooks
+from pixeltable import exceptions as excs, exprs, func, telemetry
 
 from .globals import Dispatcher, Evaluator, ExprEvalCtx, FnCallArgs
 
@@ -107,8 +107,8 @@ class FnCallEvaluator(Evaluator):
         # DEBUG so cell spans emit/suppress in lockstep with the row span they nest under.
         # set_current so provider instrumentors parent their spans here; each task copies the context at
         # creation, so the ambient span is task-specific and concurrent UDF calls don't see each other's
-        return hooks.span(
-            f'pixeltable.udf.{self.fn.display_name}', level=hooks.DEBUG, parent=row.span, set_current=True
+        return telemetry.span(
+            f'pixeltable.udf.{self.fn.display_name}', level=telemetry.DEBUG, parent=row.span, set_current=True
         )
 
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
@@ -201,8 +201,8 @@ class FnCallEvaluator(Evaluator):
         try:
             # batched calls process many rows in one invocation, so they can't nest under a single row
             # span; emit one span under the ambient operation span instead
-            with hooks.span(
-                f'pixeltable.udf.{self.fn.display_name}', level=hooks.DEBUG, batch_size=len(batched_call_args.rows)
+            with telemetry.span(
+                f'pixeltable.udf.{self.fn.display_name}', level=telemetry.DEBUG, batch_size=len(batched_call_args.rows)
             ):
                 if self.fn.is_async:
                     result_batch = await self.fn.aexec_batch(

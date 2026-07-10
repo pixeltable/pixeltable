@@ -21,8 +21,8 @@ from opentelemetry.context import Context, Token
 from opentelemetry.instrumentation.instrumentor import BaseInstrumentor  # type: ignore[attr-defined]
 from opentelemetry.trace import StatusCode, set_span_in_context
 
-from pixeltable import __version__, hooks
-from pixeltable.hooks import TelemetryEnv
+from pixeltable import __version__, telemetry
+from pixeltable.telemetry import TelemetryEnv
 
 from ._sdk import _instrument_sqlalchemy, _resolve_span_level, init, instrument_fastapi  # noqa: F401
 from .package import _instruments
@@ -55,12 +55,12 @@ class _SpanToken:
     ctx_token: Token[Context] | None
 
 
-class _OtelSubscriber(hooks.Subscriber):
+class _OtelSubscriber(telemetry.Subscriber):
     def __init__(self, tracer_provider: Any | None, meter_provider: Any | None) -> None:
         self._tracer = trace.get_tracer('pixeltable', __version__, tracer_provider=tracer_provider)
         self._meter = otel_metrics.get_meter('pixeltable', __version__, meter_provider=meter_provider)
         # TODO(part 2): create the metric instruments here and translate events in on_event() once core
-        # emits the corresponding hooks.emit() events
+        # emits the corresponding telemetry.emit() events
 
     def on_span_start(self, name: str, parent_token: Any, attrs: dict[str, Any] | None, set_current: bool) -> Any:
         if parent_token is not None:
@@ -121,7 +121,7 @@ class PixeltableInstrumentor(BaseInstrumentor):
     def _instrument(self, **kwargs: Any) -> None:
         span_level = kwargs.get('span_level')
         if span_level is not None:
-            hooks.set_span_level(_resolve_span_level(span_level))
+            telemetry.set_span_level(_resolve_span_level(span_level))
         self._subscriber = _OtelSubscriber(kwargs.get('tracer_provider'), kwargs.get('meter_provider'))
         TelemetryEnv.get().subscribe(self._subscriber)
         self._install_record_factory()

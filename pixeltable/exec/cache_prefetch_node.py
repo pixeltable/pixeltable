@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Iterator
 from uuid import UUID
 
-from pixeltable import exceptions as excs, exprs, hooks
+from pixeltable import exceptions as excs, exprs, telemetry
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.http import fetch_url
 from pixeltable.utils.progress_reporter import ProgressReporter
@@ -225,7 +225,7 @@ class CachePrefetchNode(ExecNode):
 
         _logger.debug(f'submitting {len(cache_misses)} urls')
         # carry the ambient instrumentation span onto the worker threads so fetch spans nest correctly
-        hooks_ctx = hooks.capture_context()
+        hooks_ctx = telemetry.capture_context()
         for url in cache_misses:
             f = executor.submit(self.__fetch_url, url, hooks_ctx)
             _logger.debug(f'submitted {url} for idx {url_pos[url]}')
@@ -233,7 +233,7 @@ class CachePrefetchNode(ExecNode):
 
     def __fetch_url(self, url: str, hooks_ctx: Any) -> tuple[Path | None, Exception | None]:
         """Runs on a worker thread of the ThreadPoolExecutor."""
-        hooks_token = hooks.restore_context(hooks_ctx)
+        hooks_token = telemetry.restore_context(hooks_ctx)
         try:
             # The raw URL can carry credentials that must not be exported to the telemetry backend:
             # for example https://user:pass@server/img.jpg?X-Amz-Signature=abc#frag
@@ -243,7 +243,7 @@ class CachePrefetchNode(ExecNode):
             parsed = urllib.parse.urlsplit(url)
             netloc = parsed.netloc.rpartition('@')[2]  # host[:port] after the last '@', ie without userinfo
             safe_url = urllib.parse.urlunsplit((parsed.scheme, netloc, parsed.path, '', ''))
-            with hooks.span('pixeltable.media.fetch', level=hooks.DEBUG, url=safe_url):
+            with telemetry.span('pixeltable.media.fetch', level=telemetry.DEBUG, url=safe_url):
                 return fetch_url(url), None
         except Exception as e:
             # we want to add the file url to the exception message
@@ -251,4 +251,4 @@ class CachePrefetchNode(ExecNode):
             _logger.debug(f'Failed to download {url}: {e}', exc_info=e)
             return None, exc
         finally:
-            hooks.exit_context(hooks_token)
+            telemetry.exit_context(hooks_token)

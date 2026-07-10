@@ -9,8 +9,8 @@ from typing import AsyncIterator, Iterable
 import numpy as np
 
 import pixeltable.exceptions as excs
-from pixeltable import exprs, hooks
-from pixeltable.hooks import TelemetryEnv
+from pixeltable import exprs, telemetry
+from pixeltable.telemetry import TelemetryEnv
 from pixeltable.utils.progress_reporter import ProgressReporter
 
 from ..data_row_batch import DataRowBatch
@@ -203,7 +203,9 @@ class ExprEvalNode(ExecNode):
             # operation span, so a bare query with no operation span stays dark
             for row in rows:
                 if row.parent_row is None and len(self._span_rows) < self.MAX_ROW_SPANS:
-                    row.span = hooks.span_start('pixeltable.row', level=hooks.DEBUG, parent=hooks.current_span())
+                    row.span = telemetry.span_start(
+                        'pixeltable.row', level=telemetry.DEBUG, parent=telemetry.current_span()
+                    )
                     if row.span is not None:
                         self._span_rows.append(row)
         self.dispatch(rows, self.eval_ctx)
@@ -345,7 +347,7 @@ class ExprEvalNode(ExecNode):
 
             for row in self._span_rows:
                 if row.span is not None:
-                    hooks.span_end(row.span, exc=self.error)
+                    telemetry.span_end(row.span, exc=self.error)
                     row.span = None
             self._span_rows = []
 
@@ -485,7 +487,7 @@ class ExprEvalNode(ExecNode):
                     row.parent_row.vals[row.parent_slot_idx].complete_row()
             else:
                 for i in completed_idxs:
-                    hooks.span_end(rows[i].span)
+                    telemetry.span_end(rows[i].span)
                     rows[i].span = None
                     self.completed_rows.put_nowait(rows[i])
                 self.completed_event.set()

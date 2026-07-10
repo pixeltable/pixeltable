@@ -16,8 +16,8 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from opentelemetry.trace import ProxyTracerProvider
 
 import pixeltable as pxt
-from pixeltable import hooks
-from pixeltable.hooks import TelemetryEnv
+from pixeltable import telemetry
+from pixeltable.telemetry import TelemetryEnv
 
 
 def _set_env(env: dict[str, str]) -> None:
@@ -107,7 +107,7 @@ def test_double_init_raises(tmp_path: Path) -> None:
 
 def check_span_level_kwarg_overrides_config() -> None:
     pxt_otel.init(span_level='debug')
-    assert TelemetryEnv.get()._span_level == hooks.DEBUG
+    assert TelemetryEnv.get()._span_level == telemetry.DEBUG
 
 
 def test_span_level_kwarg_overrides_config(tmp_path: Path) -> None:
@@ -128,7 +128,7 @@ def check_invalid_span_level_leaves_init_retryable() -> None:
     assert not _sdk._state.initialized
     pxt_otel.init(span_level='debug')
     assert _sdk._state.initialized
-    assert TelemetryEnv.get()._span_level == hooks.DEBUG
+    assert TelemetryEnv.get()._span_level == telemetry.DEBUG
 
 
 def test_invalid_span_level_leaves_init_retryable(tmp_path: Path) -> None:
@@ -168,14 +168,14 @@ class TestBridge:
         instrumentor.uninstrument()
 
     def test_span_capture(self, span_exporter: Any) -> None:
-        hooks.span_end(hooks.span_start('pixeltable.insert', set_current=True))
+        telemetry.span_end(telemetry.span_start('pixeltable.insert', set_current=True))
         assert [s.name for s in span_exporter.get_finished_spans()] == ['pixeltable.insert']
 
     def test_span_nesting(self, span_exporter: Any) -> None:
-        parent = hooks.span_start('pixeltable.op', set_current=True)
-        child = hooks.span_start('pixeltable.udf.foo', set_current=True)
-        hooks.span_end(child)
-        hooks.span_end(parent)
+        parent = telemetry.span_start('pixeltable.op', set_current=True)
+        child = telemetry.span_start('pixeltable.udf.foo', set_current=True)
+        telemetry.span_end(child)
+        telemetry.span_end(parent)
         spans = {s.name: s for s in span_exporter.get_finished_spans()}
         assert spans['pixeltable.udf.foo'].parent is not None
         assert spans['pixeltable.udf.foo'].parent.span_id == spans['pixeltable.op'].context.span_id
@@ -188,13 +188,13 @@ class TestBridge:
         prev_factory = logging.getLogRecordFactory()
         instrumentor.instrument(tracer_provider=tracer_provider)
         try:
-            hooks.span_end(hooks.span_start('pixeltable.op', set_current=True))
+            telemetry.span_end(telemetry.span_start('pixeltable.op', set_current=True))
             assert len(span_exporter.get_finished_spans()) == 1
         finally:
             instrumentor.uninstrument()
         assert not TelemetryEnv.get().active()
         assert logging.getLogRecordFactory() is prev_factory
-        hooks.span_end(hooks.span_start('pixeltable.op', set_current=True))
+        telemetry.span_end(telemetry.span_start('pixeltable.op', set_current=True))
         assert len(span_exporter.get_finished_spans()) == 1  # nothing new after uninstrument
 
     def test_instrument_span_level(self) -> None:
@@ -204,13 +204,13 @@ class TestBridge:
         instrumentor = PixeltableInstrumentor()
         instrumentor.instrument(tracer_provider=tracer_provider, span_level='debug')
         try:
-            parent = hooks.span_start('pixeltable.op', set_current=True)
-            hooks.span_end(hooks.span_start('pixeltable.row', level=hooks.DEBUG))
-            hooks.span_end(parent)
+            parent = telemetry.span_start('pixeltable.op', set_current=True)
+            telemetry.span_end(telemetry.span_start('pixeltable.row', level=telemetry.DEBUG))
+            telemetry.span_end(parent)
             assert {s.name for s in span_exporter.get_finished_spans()} == {'pixeltable.op', 'pixeltable.row'}
         finally:
             instrumentor.uninstrument()
-            hooks.set_span_level(hooks.INFO)
+            telemetry.set_span_level(telemetry.INFO)
 
     def test_instrument_invalid_span_level(self) -> None:
         instrumentor = PixeltableInstrumentor()
@@ -236,13 +236,13 @@ class TestBridge:
         old_level = pxt_logger.level
         pxt_logger.setLevel(logging.INFO)
         try:
-            span_handle = hooks.span_start('pixeltable.insert', set_current=True)
+            span_handle = telemetry.span_start('pixeltable.insert', set_current=True)
             try:
                 child_logger.info('correlated message')
                 ctx = trace.get_current_span().get_span_context()
                 assert ctx.is_valid
             finally:
-                hooks.span_end(span_handle)
+                telemetry.span_end(span_handle)
             record = next(r for r in records if r.getMessage() == 'correlated message')
             assert record.otelTraceID == trace.format_trace_id(ctx.trace_id)  # type: ignore[attr-defined]
             assert record.otelSpanID == trace.format_span_id(ctx.span_id)  # type: ignore[attr-defined]

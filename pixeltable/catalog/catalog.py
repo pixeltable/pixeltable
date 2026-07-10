@@ -18,7 +18,7 @@ import sqlalchemy.exc as sql_exc
 from sqlalchemy.dialects.postgresql import array as pg_array
 
 import pixeltable.index as index
-from pixeltable import exceptions as excs, exprs, func, hooks
+from pixeltable import exceptions as excs, exprs, func, telemetry
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
@@ -380,7 +380,7 @@ class Catalog(CatalogBase):
                 pending_ops_tbl_id = None
 
             # one span per acquisition attempt; retries show up as sibling spans
-            xact_span = hooks.span_start('pixeltable.catalog.begin_xact', attrs={'pxt.for_write': for_write})
+            xact_span = telemetry.span_start('pixeltable.catalog.begin_xact', attrs={'pxt.for_write': for_write})
             attempt_exc: BaseException | None = None
             try:
                 self._in_write_xact = for_write
@@ -431,7 +431,7 @@ class Catalog(CatalogBase):
                     assert not self._undo_actions
                     # success: end the attempt span here so it covers only the acquisition, not the
                     # caller's work under the yield; the finally below then sees None and no-ops
-                    hooks.span_end(xact_span)
+                    telemetry.span_end(xact_span)
                     xact_span = None
                     yield conn
                     return
@@ -463,7 +463,7 @@ class Catalog(CatalogBase):
                 # failure: xact_span is still non-None only if this attempt failed before the yield;
                 # attempt_exc is None on retry `continue`s (the attempt span ends clean and the retry
                 # shows up as a sibling), non-None when the attempt raised
-                hooks.span_end(xact_span, exc=attempt_exc)
+                telemetry.span_end(xact_span, exc=attempt_exc)
                 xact_span = None
                 self._in_write_xact = False
                 self._x_locked_tbl_ids.clear()

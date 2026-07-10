@@ -8,7 +8,7 @@ from uuid import UUID
 import pydantic
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs, hooks, type_system as ts
+from pixeltable import exceptions as excs, telemetry, type_system as ts
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.filecache import FileCache
@@ -158,8 +158,8 @@ class InsertableTable(LocalTable):
             source = [kwargs]
             kwargs = None
 
-        with hooks.span('pixeltable.insert', set_current=True):
-            with hooks.span('pixeltable.data_source.prepare'):
+        with telemetry.span('pixeltable.insert', set_current=True):
+            with telemetry.span('pixeltable.data_source.prepare'):
                 data_source = TableDataConduit.create(
                     source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
                 )

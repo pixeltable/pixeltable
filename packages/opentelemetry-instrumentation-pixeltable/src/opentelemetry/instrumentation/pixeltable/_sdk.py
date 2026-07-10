@@ -16,13 +16,13 @@ from opentelemetry import metrics as otel_metrics, trace
 from opentelemetry._logs import set_logger_provider
 from opentelemetry.trace import ProxyTracerProvider
 
-from pixeltable import exceptions as excs, hooks
+from pixeltable import exceptions as excs, telemetry
 from pixeltable.config import Config
 from pixeltable.env import Env
 
 _logger = logging.getLogger('pixeltable.otel')
 
-_SPAN_LEVELS = {'info': hooks.INFO, 'debug': hooks.DEBUG, 'trace': hooks.TRACE}
+_SPAN_LEVELS = {'info': telemetry.INFO, 'debug': telemetry.DEBUG, 'trace': telemetry.TRACE}
 _DEFAULT_SERVICE_NAME = 'pixeltable'
 
 

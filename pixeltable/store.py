@@ -9,7 +9,7 @@ from uuid import UUID
 import psycopg
 import sqlalchemy as sql
 
-from pixeltable import catalog, exceptions as excs, hooks
+from pixeltable import catalog, exceptions as excs, telemetry
 from pixeltable.catalog.update_status import RowCountStats
 from pixeltable.env import Env
 from pixeltable.exec import ExecNode
@@ -548,7 +548,7 @@ class StoreBase:
                 batch_table_rows: list[list[Any]] = []
 
                 # compute batch of rows and convert them into table rows
-                with hooks.span('pixeltable.store.build_rows', level=hooks.DEBUG, rows=len(row_batch)):
+                with telemetry.span('pixeltable.store.build_rows', level=telemetry.DEBUG, rows=len(row_batch)):
                     for row in row_batch:
                         # if abort_on_exc == True, we need to check for media validation exceptions
                         if abort_on_exc and row.has_exc():
@@ -599,7 +599,7 @@ class StoreBase:
         assert len(table_rows) > 0
         conn = get_runtime().conn
         try:
-            with hooks.span('pixeltable.sa.insert_rows'):
+            with telemetry.span('pixeltable.sa.insert_rows'):
                 conn.execute(sql.insert(sa_tbl), [dict(zip(store_col_names, table_row)) for table_row in table_rows])
         except sql.exc.IntegrityError as e:
             if (
