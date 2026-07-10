@@ -2,21 +2,24 @@
 Pixeltable UDFs for Nebius Token Factory models.
 
 Provides integration with Nebius Token Factory's language and embedding models. In order to use
-them, you must first `pip install openai` and configure your Nebius Token Factory API key.
+them, you must first `pip install openai` and configure your Nebius Token Factory API key, by
+setting the `NEBIUS_API_KEY` environment variable or `nebius.api_key` in the Pixeltable config file.
 """
 
+import copy
 import json
 from typing import TYPE_CHECKING, Any
 
-import httpx
 import numpy as np
+import PIL.Image
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable import env
+from pixeltable import env, exceptions as excs
 from pixeltable.func import Batch
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
+from pixeltable.utils.image import to_base64
 
 if TYPE_CHECKING:
     import openai
@@ -26,11 +29,7 @@ if TYPE_CHECKING:
 def _(api_key: str) -> 'openai.AsyncOpenAI':
     import openai
 
-    return openai.AsyncOpenAI(
-        api_key=api_key,
-        base_url='https://api.tokenfactory.nebius.com/v1',
-        http_client=httpx.AsyncClient(limits=httpx.Limits(max_keepalive_connections=100, max_connections=500)),
-    )
+    return openai.AsyncOpenAI(api_key=api_key, base_url='https://api.tokenfactory.nebius.com/v1')
 
 
 def _nebius_client() -> 'openai.AsyncOpenAI':
@@ -87,11 +86,30 @@ async def chat_completions(
         ...         messages, model='meta-llama/Llama-3.3-70B-Instruct'
         ...     )
         ... )
+
+        You can also include images in the messages list, for vision-capable models such as
+        `Qwen/Qwen2-VL-72B-Instruct`, by passing image data directly in the input dictionary, in
+        the `'image_url'` field of the message content, as in this example:
+
+        >>> messages = [
+        ...     {
+        ...         'role': 'user',
+        ...         'content': [
+        ...             {'type': 'text', 'text': "What's in this image?"},
+        ...             {'type': 'image_url', 'image_url': tbl.image},
+        ...         ],
+        ...     }
+        ... ]
+        >>> tbl.add_computed_column(
+        ...     response=chat_completions(
+        ...         messages, model='Qwen/Qwen2-VL-72B-Instruct'
+        ...     )
+        ... )
     """
+    env.Env.get().require_package('openai')
+
     if model_kwargs is None:
         model_kwargs = {}
-
-    env.Env.get().require_package('openai')
 
     if tools is not None:
         model_kwargs['tools'] = [{'type': 'function', 'function': tool} for tool in tools]
@@ -110,14 +128,31 @@ async def chat_completions(
             model_kwargs['extra_body'] = {}
         model_kwargs['extra_body']['parallel_tool_calls'] = False
 
+    # Serialize any images in `messages`
+    messages = copy.deepcopy(messages)
+    for message in messages:
+        content = message.get('content')
+        if isinstance(content, list):
+            for part in content:
+                if (
+                    isinstance(part, dict)
+                    and part.get('type') == 'image_url'
+                    and isinstance(part.get('image_url'), PIL.Image.Image)
+                ):
+                    b64_encoded_image = to_base64(part['image_url'], format='png')
+                    part['image_url'] = {'url': f'data:image/png;base64,{b64_encoded_image}'}
+
     result = await _nebius_client().chat.completions.with_raw_response.create(
         messages=messages, model=model, **model_kwargs
     )
 
-    return json.loads(result.text)
+    result_json = json.loads(result.text)
+    if 'error' in result_json:
+        raise excs.ExternalServiceError(excs.ErrorCode.PROVIDER_ERROR, str(result_json['error']), provider='nebius')
+    return result_json
 
 
-_embedding_dimensions_cache: dict[str, int] = {'Qwen/Qwen3-Embedding-8B': 4096}
+_embedding_dimensions: dict[str, int] = {'Qwen/Qwen3-Embedding-8B': 4096}
 
 
 @pxt.udf(batch_size=32, resource_pool='request-rate:nebius')
@@ -156,8 +191,8 @@ async def embeddings(
         ... )
 
         `Qwen/Qwen3-Embedding-8B` produces 4096-dimensional embeddings by default, which exceed
-        pgvector's dimensionality limits for `add_embedding_index()` (2000 for `fp32` precision,
-        4000 for the default `fp16`). Request a smaller, indexable size via `model_kwargs`:
+        the maximum of 4000 dimensions supported by Pixeltable embedding indexes. Request a
+        smaller, indexable size via `model_kwargs`:
 
         >>> tbl.add_embedding_index(
         ...     'text',
@@ -166,18 +201,24 @@ async def embeddings(
         ...     ),
         ... )
     """
+    env.Env.get().require_package('openai')
+
     if model_kwargs is None:
         model_kwargs = {}
-    env.Env.get().require_package('openai')
-    result = await _nebius_client().embeddings.create(input=input, model=model, **model_kwargs)
-    return [np.array(data.embedding, dtype=np.float64) for data in result.data]
+
+    result = await _nebius_client().embeddings.with_raw_response.create(input=input, model=model, **model_kwargs)
+
+    result_json = json.loads(result.text)
+    if 'error' in result_json:
+        raise excs.ExternalServiceError(excs.ErrorCode.PROVIDER_ERROR, str(result_json['error']), provider='nebius')
+    return [np.array(data['embedding'], dtype=np.float64) for data in result_json['data']]
 
 
 @embeddings.conditional_return_type
 def _(model: str, model_kwargs: dict[str, Any] | None = None) -> ts.ArrayType:
     dimensions = model_kwargs.get('dimensions') if model_kwargs is not None else None
     if dimensions is None:
-        dimensions = _embedding_dimensions_cache.get(model)  # `None` if unknown model
+        dimensions = _embedding_dimensions.get(model)  # `None` if unknown model
     return ts.ArrayType((dimensions,), dtype=ts.FloatType())
 
 
