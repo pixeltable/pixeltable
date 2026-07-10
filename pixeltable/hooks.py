@@ -3,7 +3,8 @@
 Core pixeltable reports spans (timed, nested units of work) and discrete events through this module;
 subscribers (e.g. the bridge in `opentelemetry-instrumentation-pixeltable`) translate them into a
 telemetry backend. With no subscribers registered every call is a near-free no-op, but hot loops should
-still guard with `if hooks.active():` before building attribute dicts (or pass `attrs` as a callable).
+still guard with `if TelemetryEnv.get().active():` before building attribute dicts (or pass `attrs` as a
+callable).
 
 Spans should cover contiguous units of real computation (a UDF call, a DB insert batch, model loading) or
 serve as structural containers (operation and exec-node spans). A CPU work span must not contain a
@@ -77,49 +78,73 @@ class SpanHandle:
         self.pending_attrs: dict[str, Any] | None = None
 
 
-_registry_lock = threading.Lock()
-_SUBSCRIBERS: tuple[Subscriber, ...] = ()
-_span_level = INFO
 _current_span: ContextVar[SpanHandle | None] = ContextVar('pxt_current_span', default=None)
-_logged_error_methods: WeakKeyDictionary[Subscriber, set[str]] = WeakKeyDictionary()
 
 
-def subscribe(subscriber: Subscriber) -> None:
-    """Register a subscriber to receive instrumentation callbacks; idempotent."""
-    global _SUBSCRIBERS  # noqa: PLW0603
-    with _registry_lock:
-        if all(s is not subscriber for s in _SUBSCRIBERS):
-            _SUBSCRIBERS = (*_SUBSCRIBERS, subscriber)
+class TelemetryEnv:
+    """Process-global instrumentation state: the subscriber registry and the span-level threshold.
 
+    Singleton accessed via TelemetryEnv.get(), mirroring pixeltable.env.Env. Subscriber management lives
+    here as methods; the span-emission API (span_start/span_end/emit/span/set_span_level/...) is
+    module-level, and the ambient-span ContextVar is module-level too because it must be per-context, not
+    process-wide.
+    """
 
-def unsubscribe(subscriber: Subscriber) -> None:
-    """Remove a previously registered subscriber; a no-op if it isn't registered."""
-    global _SUBSCRIBERS  # noqa: PLW0603
-    with _registry_lock:
-        _SUBSCRIBERS = tuple(s for s in _SUBSCRIBERS if s is not subscriber)
+    _instance: TelemetryEnv | None = None
+    # one lock guards both singleton creation and the read-modify-write mutations of _subscribers /
+    # _logged_error_methods; after creation get() takes the lock-free fast path, so registration never
+    # contends with it (_span_level is a plain scalar store and needs no lock)
+    _lock: threading.Lock = threading.Lock()
 
+    _subscribers: tuple[Subscriber, ...]
+    _span_level: int
+    _logged_error_methods: WeakKeyDictionary[Subscriber, set[str]]
 
-def active() -> bool:
-    return bool(_SUBSCRIBERS)
+    @classmethod
+    def get(cls) -> TelemetryEnv:
+        if cls._instance is not None:
+            return cls._instance
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = TelemetryEnv()
+        return cls._instance
+
+    def __init__(self) -> None:
+        assert self._instance is None, 'TelemetryEnv is a singleton; use TelemetryEnv.get() to access the instance'
+        self._subscribers = ()
+        self._span_level = INFO
+        self._logged_error_methods = WeakKeyDictionary()
+
+    def subscribe(self, subscriber: Subscriber) -> None:
+        """Register a subscriber to receive instrumentation callbacks; idempotent."""
+        with self._lock:
+            if all(s is not subscriber for s in self._subscribers):
+                self._subscribers = (*self._subscribers, subscriber)
+
+    def unsubscribe(self, subscriber: Subscriber) -> None:
+        """Remove a previously registered subscriber; a no-op if it isn't registered."""
+        with self._lock:
+            self._subscribers = tuple(s for s in self._subscribers if s is not subscriber)
+
+    def active(self) -> bool:
+        return bool(self._subscribers)
+
+    def _log_subscriber_error(self, subscriber: Subscriber, method: str, exc: Exception) -> None:
+        # warn once per (subscriber, method), then drop to debug to avoid log storms from per-row failures
+        with self._lock:
+            logged = self._logged_error_methods.setdefault(subscriber, set())
+            level = logging.DEBUG if method in logged else logging.WARNING
+            logged.add(method)
+        _logger.log(level, f'instrumentation subscriber {type(subscriber).__name__}.{method}() failed: {exc!r}')
 
 
 def set_span_level(level: int) -> None:
     """Set the global span emission threshold; spans with level < threshold are suppressed."""
-    global _span_level  # noqa: PLW0603
-    _span_level = level
+    TelemetryEnv.get()._span_level = level
 
 
 def current_span() -> SpanHandle | None:
     return _current_span.get()
-
-
-def _log_subscriber_error(subscriber: Subscriber, method: str, exc: Exception) -> None:
-    # warn once per (subscriber, method), then drop to debug to avoid log storms from per-row failures
-    with _registry_lock:
-        logged = _logged_error_methods.setdefault(subscriber, set())
-        level = logging.DEBUG if method in logged else logging.WARNING
-        logged.add(method)
-    _logger.log(level, f'instrumentation subscriber {type(subscriber).__name__}.{method}() failed: {exc!r}')
 
 
 def _resolve_attrs(attrs: HookAttrs) -> dict[str, Any] | None:
@@ -148,7 +173,8 @@ def span_start(
     on the same thread/context; use capture_context()/restore_context()/exit_context() for explicit
     thread handoffs.
     """
-    subs = _SUBSCRIBERS
+    env = TelemetryEnv.get()
+    subs = env._subscribers
     if not subs:
         return None
     if parent is None:
@@ -156,7 +182,7 @@ def span_start(
     # only operation spans (set_current=True) may be roots: spans reported from inside an operation that
     # carries no span (eg, a bare query) are suppressed rather than emitted as orphan roots. suppressed
     # spans return None; their descendants fall back to the ambient span via the parent lookup above
-    if level < _span_level or (parent is None and not set_current):
+    if level < env._span_level or (parent is None and not set_current):
         return None
     attrs = _resolve_attrs(attrs)
     tokens: list[Any] = []
@@ -168,7 +194,7 @@ def span_start(
         try:
             tokens.append(s.on_span_start(name, parent_token, attrs, set_current))
         except Exception as e:
-            _log_subscriber_error(s, 'on_span_start', e)
+            env._log_subscriber_error(s, 'on_span_start', e)
             tokens.append(None)
     handle = SpanHandle(subs, tuple(tokens))
     if set_current:
@@ -193,14 +219,14 @@ def span_end(handle: SpanHandle | None, *, exc: BaseException | None = None, att
         try:
             s.on_span_end(token, exc, attrs)
         except Exception as e:
-            _log_subscriber_error(s, 'on_span_end', e)
+            TelemetryEnv.get()._log_subscriber_error(s, 'on_span_end', e)
 
 
 def add_attrs(handle: SpanHandle | None, **attrs: Any) -> None:
     """Attach attrs ('pxt.'-prefixed, None values skipped) to be reported when the span ends.
 
     Argument computation is eager; call sites should guard with `if handle is not None:` (or
-    `hooks.active()`) when the values are expensive to produce.
+    `TelemetryEnv.get().active()`) when the values are expensive to produce.
     """
     if not isinstance(handle, SpanHandle):
         return
@@ -211,7 +237,7 @@ def add_attrs(handle: SpanHandle | None, **attrs: Any) -> None:
 
 def emit(name: str, attrs: HookAttrs = None) -> None:
     """Report a discrete event (e.g. a counter increment) to all subscribers."""
-    subs = _SUBSCRIBERS
+    subs = TelemetryEnv.get()._subscribers
     if not subs:
         return
     attrs = _resolve_attrs(attrs)
@@ -219,7 +245,7 @@ def emit(name: str, attrs: HookAttrs = None) -> None:
         try:
             s.on_event(name, attrs)
         except Exception as e:
-            _log_subscriber_error(s, 'on_event', e)
+            TelemetryEnv.get()._log_subscriber_error(s, 'on_event', e)
 
 
 @contextlib.contextmanager
@@ -230,7 +256,7 @@ def span(
 
     Keyword attrs get a 'pxt.' prefix; None values are skipped.
     """
-    if not _SUBSCRIBERS:
+    if not TelemetryEnv.get()._subscribers:
         yield None
         return
     handle = span_start(
@@ -261,7 +287,7 @@ _CtxToken = tuple[_CtxSnapshot, Token[SpanHandle | None], tuple[Any, ...]]
 
 def capture_context() -> _CtxSnapshot | None:
     """Snapshot the ambient instrumentation state; call on the spawning thread."""
-    subs = _SUBSCRIBERS
+    subs = TelemetryEnv.get()._subscribers
     if not subs:
         return None
     sub_ctxs: list[Any] = []
@@ -269,7 +295,7 @@ def capture_context() -> _CtxSnapshot | None:
         try:
             sub_ctxs.append(s.capture_context())
         except Exception as e:
-            _log_subscriber_error(s, 'capture_context', e)
+            TelemetryEnv.get()._log_subscriber_error(s, 'capture_context', e)
             sub_ctxs.append(None)
     return _CtxSnapshot(subs, _current_span.get(), tuple(sub_ctxs))
 
@@ -284,7 +310,7 @@ def restore_context(snapshot: _CtxSnapshot | None) -> _CtxToken | None:
         try:
             sub_tokens.append(s.restore_context(ctx))
         except Exception as e:
-            _log_subscriber_error(s, 'restore_context', e)
+            TelemetryEnv.get()._log_subscriber_error(s, 'restore_context', e)
             sub_tokens.append(None)
     return (snapshot, cv_token, tuple(sub_tokens))
 
@@ -297,7 +323,7 @@ def exit_context(token: _CtxToken | None) -> None:
         try:
             s.exit_context(t)
         except Exception as e:
-            _log_subscriber_error(s, 'exit_context', e)
+            TelemetryEnv.get()._log_subscriber_error(s, 'exit_context', e)
     try:
         _current_span.reset(cv_token)
     except Exception as e:

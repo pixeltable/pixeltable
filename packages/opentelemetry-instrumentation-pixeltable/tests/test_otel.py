@@ -17,6 +17,7 @@ from opentelemetry.trace import ProxyTracerProvider
 
 import pixeltable as pxt
 from pixeltable import hooks
+from pixeltable.hooks import TelemetryEnv
 
 
 def _set_env(env: dict[str, str]) -> None:
@@ -106,7 +107,7 @@ def test_double_init_raises(tmp_path: Path) -> None:
 
 def check_span_level_kwarg_overrides_config() -> None:
     pxt_otel.init(span_level='debug')
-    assert hooks._span_level == hooks.DEBUG
+    assert TelemetryEnv.get()._span_level == hooks.DEBUG
 
 
 def test_span_level_kwarg_overrides_config(tmp_path: Path) -> None:
@@ -127,7 +128,7 @@ def check_invalid_span_level_leaves_init_retryable() -> None:
     assert not _sdk._state.initialized
     pxt_otel.init(span_level='debug')
     assert _sdk._state.initialized
-    assert hooks._span_level == hooks.DEBUG
+    assert TelemetryEnv.get()._span_level == hooks.DEBUG
 
 
 def test_invalid_span_level_leaves_init_retryable(tmp_path: Path) -> None:
@@ -191,7 +192,7 @@ class TestBridge:
             assert len(span_exporter.get_finished_spans()) == 1
         finally:
             instrumentor.uninstrument()
-        assert not hooks.active()
+        assert not TelemetryEnv.get().active()
         assert logging.getLogRecordFactory() is prev_factory
         hooks.span_end(hooks.span_start('pixeltable.op', set_current=True))
         assert len(span_exporter.get_finished_spans()) == 1  # nothing new after uninstrument
@@ -217,7 +218,7 @@ class TestBridge:
             instrumentor.instrument(span_level='verbose')
         assert exc_info.value.error_code is pxt.exceptions.ErrorCode.INVALID_CONFIGURATION
         assert not instrumentor.is_instrumented_by_opentelemetry
-        assert not hooks.active()
+        assert not TelemetryEnv.get().active()
 
     def test_log_correlation(self, span_exporter: Any) -> None:
         records: list[logging.LogRecord] = []

@@ -10,6 +10,7 @@ import numpy as np
 
 import pixeltable.exceptions as excs
 from pixeltable import exprs, hooks
+from pixeltable.hooks import TelemetryEnv
 from pixeltable.utils.progress_reporter import ProgressReporter
 
 from ..data_row_batch import DataRowBatch
@@ -197,7 +198,7 @@ class ExprEvalNode(ExecNode):
 
         self.eval_ctx.init_rows(rows)
         self.set_var_slots(rows)
-        if hooks.active():
+        if TelemetryEnv.get().active():
             # per-row spans nest their UDF cell spans; suppressed (None) unless DEBUG is enabled under an
             # operation span, so a bare query with no operation span stays dark
             for row in rows:

@@ -5,6 +5,7 @@ from typing import Any, Iterator
 import pytest
 
 from pixeltable import hooks
+from pixeltable.hooks import TelemetryEnv
 
 
 class RecordingSubscriber(hooks.Subscriber):
@@ -77,9 +78,9 @@ class RaisingSubscriber(hooks.Subscriber):
 @pytest.fixture
 def sub() -> Iterator[RecordingSubscriber]:
     s = RecordingSubscriber()
-    hooks.subscribe(s)
+    TelemetryEnv.get().subscribe(s)
     yield s
-    hooks.unsubscribe(s)
+    TelemetryEnv.get().unsubscribe(s)
     hooks.set_span_level(hooks.INFO)
     # a test failing between span_start(set_current=True) and span_end would leak the ambient span into
     # subsequent tests
@@ -88,7 +89,7 @@ def sub() -> Iterator[RecordingSubscriber]:
 
 class TestHooks:
     def test_inactive_is_noop(self) -> None:
-        assert not hooks.active()
+        assert not TelemetryEnv.get().active()
         calls: list[str] = []
 
         def attrs() -> dict[str, Any]:
@@ -106,16 +107,16 @@ class TestHooks:
 
     def test_subscribe_unsubscribe(self) -> None:
         s = RecordingSubscriber()
-        hooks.subscribe(s)
-        hooks.subscribe(s)  # idempotent
+        TelemetryEnv.get().subscribe(s)
+        TelemetryEnv.get().subscribe(s)  # idempotent
         try:
-            assert hooks.active()
+            assert TelemetryEnv.get().active()
             handle = hooks.span_start('a', set_current=True)
             hooks.span_end(handle)
             assert len(s.spans) == 1
         finally:
-            hooks.unsubscribe(s)
-        assert not hooks.active()
+            TelemetryEnv.get().unsubscribe(s)
+        assert not TelemetryEnv.get().active()
         assert hooks.span_start('b', set_current=True) is None
         assert len(s.spans) == 1
 
@@ -189,7 +190,7 @@ class TestHooks:
 
     def test_exception_isolation(self, sub: RecordingSubscriber) -> None:
         bad = RaisingSubscriber()
-        hooks.subscribe(bad)
+        TelemetryEnv.get().subscribe(bad)
         try:
             handle = hooks.span_start('a', set_current=True)
             hooks.span_end(handle)
@@ -197,7 +198,7 @@ class TestHooks:
             token = hooks.restore_context(hooks.capture_context())
             hooks.exit_context(token)
         finally:
-            hooks.unsubscribe(bad)
+            TelemetryEnv.get().unsubscribe(bad)
         # the well-behaved subscriber saw everything despite the raising one
         assert sub.find('a')['ended']
         assert sub.events == [('e', {'k': 1})]
@@ -205,13 +206,13 @@ class TestHooks:
     def test_late_subscriber(self, sub: RecordingSubscriber) -> None:
         op = hooks.span_start('op', set_current=True)
         late = RecordingSubscriber()
-        hooks.subscribe(late)
+        TelemetryEnv.get().subscribe(late)
         try:
             child = hooks.span_start('child')
             hooks.span_end(child)
             hooks.span_end(op)
         finally:
-            hooks.unsubscribe(late)
+            TelemetryEnv.get().unsubscribe(late)
         # the late subscriber never sees an end without a start; its child span is a root
         assert [s['name'] for s in late.spans] == ['child']
         assert late.find('child')['parent_id'] is None
@@ -281,8 +282,8 @@ class TestHooks:
             try:
                 while not stop.is_set():
                     s = RecordingSubscriber()
-                    hooks.subscribe(s)
-                    hooks.unsubscribe(s)
+                    TelemetryEnv.get().subscribe(s)
+                    TelemetryEnv.get().unsubscribe(s)
             except Exception as e:
                 errors.append(e)
 
