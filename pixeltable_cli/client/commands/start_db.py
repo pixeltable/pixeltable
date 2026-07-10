@@ -12,16 +12,17 @@ def run(argv: list[str]) -> None:
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
 
-    from ..cloud import parse_db_uri
+    from ..cloud import parse_db_uri, poll_db, print_db
     from ..http import post
 
     try:
         org_slug, db_slug = parse_db_uri(args.db_uri, prog='pxt db start')
-        resp = post(f'/api/cloud/orgs/{org_slug}/dbs/{db_slug}/start', {})
+        post(f'/api/cloud/orgs/{org_slug}/dbs/{db_slug}/start', {})
+        db = poll_db(org_slug, db_slug, frozenset({'UPDATING', 'STARTING'}), f"Database '{db_slug}' is starting...")
         if args.json_output:
-            print(json.dumps(resp))
+            print(json.dumps(db))
         else:
-            print(resp.get('message', 'started') if isinstance(resp, dict) else 'started')
+            print_db(db)
     except SystemExit:
         raise
     except Exception as e:

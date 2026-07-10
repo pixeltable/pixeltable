@@ -47,6 +47,7 @@ def run(argv: list[str]) -> None:
             with bundle_path.open('rb') as fh:
                 bundle_data = fh.read()
             req = urllib.request.Request(presigned_url, data=bundle_data, method='PUT')
+            req.add_header('Content-Type', 'application/octet-stream')
             with urllib.request.urlopen(req, timeout=300) as r:
                 if r.status >= 400:
                     raise RuntimeError(f'Bundle upload failed: HTTP {r.status}')

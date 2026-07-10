@@ -23,7 +23,7 @@ def run(argv: list[str]) -> None:
     from pixeltable import config as pxt_config
     from pixeltable.serving._config import lookup_service_config
 
-    from ..cloud import parse_service_uri, print_service
+    from ..cloud import parse_service_uri, poll_svc, print_service
     from ..http import post
 
     try:
@@ -45,6 +45,8 @@ def run(argv: list[str]) -> None:
             },
         )
         svc = resp.get('service', resp) if isinstance(resp, dict) else {}
+        if svc.get('state') == 'UPDATING':
+            svc = poll_svc(org_slug, db_slug, svc_name, frozenset({'UPDATING'}), f"Service '{svc_name}' is updating...")
         if args.json_output:
             print(json.dumps(svc))
         else:

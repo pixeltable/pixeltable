@@ -12,13 +12,15 @@ def run(argv: list[str]) -> None:
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
 
-    from ..cloud import parse_service_uri, print_service
+    from ..cloud import parse_service_uri, poll_svc, print_service
     from ..http import post
 
     try:
         org_slug, db_slug, svc_name = parse_service_uri(args.service_uri, prog='pxt service stop')
         resp = post(f'/api/cloud/orgs/{org_slug}/dbs/{db_slug}/services/{svc_name}/stop', {})
         svc = resp.get('service', resp) if isinstance(resp, dict) else {}
+        if svc.get('state') == 'STOPPING':
+            svc = poll_svc(org_slug, db_slug, svc_name, frozenset({'STOPPING'}), f"Service '{svc_name}' is stopping...")
         if args.json_output:
             print(json.dumps(svc))
         else:
