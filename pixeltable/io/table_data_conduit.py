@@ -3,6 +3,7 @@ from __future__ import annotations
 import enum
 import json
 import logging
+import sys
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Sequence, cast
@@ -420,7 +421,7 @@ class HFTableDataConduit(TableDataConduit):
         t = cls(**kwargs)
         import datasets
 
-        assert isinstance(tds.source, cls._get_dataset_classes())
+        assert cls._is_dataset_class(tds.source)
         if 'column_name_for_split' in t.extra_fields:
             t.column_name_for_split = t.extra_fields['column_name_for_split']
 
@@ -444,19 +445,20 @@ class HFTableDataConduit(TableDataConduit):
         return t
 
     @classmethod
-    def _get_dataset_classes(cls) -> tuple[type, ...]:
+    def _is_dataset_class(cls, obj: Any) -> bool:
+        if 'datasets' not in sys.modules:
+            return False
         import datasets
 
-        return (datasets.Dataset, datasets.DatasetDict, datasets.IterableDataset, datasets.IterableDatasetDict)
+        return isinstance(
+            obj, (datasets.Dataset, datasets.DatasetDict, datasets.IterableDataset, datasets.IterableDatasetDict)
+        )
 
     @classmethod
     def is_applicable(cls, tds: TableDataConduit) -> bool:
-        try:
-            return (isinstance(tds.source_format, str) and tds.source_format.lower() == 'huggingface') or isinstance(
-                tds.source, cls._get_dataset_classes()
-            )
-        except ImportError:
-            return False
+        return (
+            isinstance(tds.source_format, str) and tds.source_format.lower() == 'huggingface'
+        ) or cls._is_dataset_class(tds.source)
 
     def infer_schema_part1(self) -> tuple[dict[str, ts.ColumnType], list[str]]:
         from pixeltable.io.hf_datasets import _get_hf_schema, huggingface_schema_to_pxt_schema
