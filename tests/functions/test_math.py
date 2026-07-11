@@ -110,3 +110,19 @@ class TestMath:
             mref = getattr(t.x, pxt_fn.name)
             assert isinstance(mref, exprs.MethodRef)
             assert mref.method_name == pxt_fn.name, pxt_fn
+
+    def test_pow(self, uses_db: None) -> None:
+        t = pxt.create_table('test_tbl', {'i': pxt.Int, 'f': pxt.Float})
+        t.insert([{'i': 2, 'f': 1.5}, {'i': 5, 'f': 0.25}])
+
+        # pow takes float parameters; int arguments are accepted in both call forms, and method syntax on an
+        # int column resolves via the Int-to-Float method lookup
+        res = (
+            t.select(ff=pxtf.math.pow(t.f, 2), fi=t.f.pow(t.i), ii=t.i.pow(2), int_sqrt=t.i.sqrt())
+            .order_by(t.i)
+            .collect()
+        )
+        assert np.allclose(res['ff'], [1.5**2, 0.25**2])
+        assert np.allclose(res['fi'], [1.5**2, 0.25**5])
+        assert np.allclose(res['ii'], [4.0, 25.0])
+        assert np.allclose(res['int_sqrt'], [math.sqrt(2), math.sqrt(5)])

@@ -98,11 +98,11 @@ def _(self: sql.ColumnElement, digits: sql.ColumnElement | None = None) -> sql.C
 
 
 @pxt.udf(is_method=True)
-def pow(self: int, other: int) -> float:
+def pow(self: float, other: float) -> float:
     """
     Raise `self` to the power of `other`.
 
-    Equivalent to Python [`self ** other`](https://docs.python.org/3/library/functions.html#pow).
+    Equivalent to Python [`builtins.pow()`](https://docs.python.org/3/library/functions.html#pow).
     """
     return self**other
 

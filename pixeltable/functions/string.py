@@ -478,16 +478,18 @@ def pad(self: str, width: int, side: str = 'left', fillchar: str = ' ') -> str:
 
 
 @pxt.udf(is_method=True)
-def partition(self: str, sep: str = ' ') -> list:
+def partition(self: str, sep: str = ' ') -> tuple[str, str, str]:
     """
     Splits string at the first occurrence of `sep`, and returns 3 elements containing the part before the
     separator, the separator itself, and the part after the separator. If the separator is not found, return 3 elements
     containing string itself, followed by two empty strings.
     """
+    # the runtime value is a list (json arrays are lists; path expressions index into them); the annotation
+    # carries the fixed three-element schema
     idx = self.find(sep)
     if idx == -1:
-        return [self, '', '']
-    return [self[:idx], sep, self[idx + builtins.len(sep) :]]
+        return [self, '', '']  # type: ignore[return-value]
+    return [self[:idx], sep, self[idx + builtins.len(sep) :]]  # type: ignore[return-value]
 
 
 @pxt.udf(is_method=True)
@@ -626,15 +628,17 @@ def rjust(self: str, width: int, fillchar: str = ' ') -> str:
 
 
 @pxt.udf(is_method=True)
-def rpartition(self: str, sep: str = ' ') -> list:
+def rpartition(self: str, sep: str = ' ') -> tuple[str, str, str]:
     """
     This method splits string at the last occurrence of `sep`, and returns a list containing the part before the
     separator, the separator itself, and the part after the separator.
     """
+    # the runtime value is a list (json arrays are lists; path expressions index into them); the annotation
+    # carries the fixed three-element schema
     idx = self.rfind(sep)
     if idx == -1:
-        return [self, '', '']
-    return [self[:idx], sep, self[idx + builtins.len(sep) :]]
+        return [self, '', '']  # type: ignore[return-value]
+    return [self[:idx], sep, self[idx + builtins.len(sep) :]]  # type: ignore[return-value]
 
 
 @pxt.udf(is_method=True)

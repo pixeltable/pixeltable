@@ -4,7 +4,7 @@ Pixeltable UDFs for `DocumentType`.
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, TypedDict, cast
 
 import ftfy
 import PIL.Image
@@ -43,6 +43,26 @@ class Separator(Enum):
     PAGE = 6
 
 
+class Heading(TypedDict, total=False):
+    """The heading hierarchy at a point in a document: the text of each currently open heading level."""
+
+    h1: str
+    h2: str
+    h3: str
+    h4: str
+    h5: str
+    h6: str
+
+
+class BoundingBox(TypedDict):
+    """A bounding box on a document page, in page coordinates."""
+
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+
+
 @dataclass
 class DocumentSectionMetadata:
     """Metadata for a subsection of a document (ie, a structural element like a heading or paragraph)"""
@@ -51,12 +71,11 @@ class DocumentSectionMetadata:
     sourceline: int | None = None
     # the stack of headings up to the most recently observed one;
     # eg, if the most recent one was an h2, 'headings' would contain keys 1 and 2, but nothing below that
-    heading: dict[str, str] | None = None
+    heading: Heading | None = None
 
     # pdf-specific metadata
     page: int | None = None
-    # bounding box as an {x1, y1, x2, y2} dictionary
-    bounding_box: dict[str, float] | None = None
+    bounding_box: BoundingBox | None = None
 
 
 @dataclass
@@ -118,12 +137,25 @@ def _parse_elements(elements: list[Literal['text', 'image']] | None) -> list[Ele
 
 _HTML_HEADINGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
 
+
+class DocumentChunk(TypedDict, total=False):
+    """One chunk of a split document; which fields are present depends on `elements` and `metadata`."""
+
+    text: str
+    image: PIL.Image.Image
+    title: str | None
+    heading: Heading | None
+    sourceline: int | None
+    page: int | None
+    bounding_box: BoundingBox | None
+
+
 _METADATA_COLUMN_TYPES = {
     ChunkMetadata.TITLE: ts.String | None,
-    ChunkMetadata.HEADING: ts.Json | None,
+    ChunkMetadata.HEADING: Heading | None,
     ChunkMetadata.SOURCELINE: ts.Int | None,
     ChunkMetadata.PAGE: ts.Int | None,
-    ChunkMetadata.BOUNDING_BOX: ts.Json | None,
+    ChunkMetadata.BOUNDING_BOX: BoundingBox | None,
 }
 
 
@@ -282,7 +314,7 @@ class document_splitter(pxt.PxtIterator):
         if Separator.CHAR_LIMIT in self._separators:
             self._sections = self._char_chunks(self._sections)
 
-    def __next__(self) -> dict[str, Any]:
+    def __next__(self) -> DocumentChunk:
         while True:
             section = next(self._sections)
             if section.text is None and section.image is None:
@@ -306,7 +338,7 @@ class document_splitter(pxt.PxtIterator):
                 elif md_field == ChunkMetadata.BOUNDING_BOX:
                     result[md_field.name.lower()] = section.metadata.bounding_box
 
-            return result
+            return cast(DocumentChunk, result)
 
     def _html_sections(self) -> Iterator[DocumentSection]:
         """Create DocumentSections reflecting the html-specific separators"""
@@ -335,7 +367,7 @@ class document_splitter(pxt.PxtIterator):
         def emit() -> Iterator[DocumentSection]:
             nonlocal accumulated_text, headings, sourceline
             if len(accumulated_text) > 0:
-                md = DocumentSectionMetadata(sourceline=sourceline, heading=headings.copy())
+                md = DocumentSectionMetadata(sourceline=sourceline, heading=cast(Heading, headings.copy()))
                 full_text = ' '.join(accumulated_text)
                 full_text = ftfy.fix_text(full_text)
                 yield DocumentSection(text=full_text, metadata=md)
@@ -395,7 +427,7 @@ class document_splitter(pxt.PxtIterator):
         def emit() -> Iterator[DocumentSection]:
             nonlocal accumulated_text, headings
             if len(accumulated_text) > 0:
-                metadata = DocumentSectionMetadata(sourceline=0, heading=headings.copy())
+                metadata = DocumentSectionMetadata(sourceline=0, heading=cast(Heading, headings.copy()))
                 yield DocumentSection(text=ftfy.fix_text(' '.join(accumulated_text)), metadata=metadata)
                 accumulated_text = []
 

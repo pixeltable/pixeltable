@@ -23,7 +23,7 @@ import numpy as np
 import PIL.Image
 import pydantic
 import sqlalchemy as sql
-from typing_extensions import _AnnotatedAlias
+from typing_extensions import NotRequired, _AnnotatedAlias, is_typeddict
 
 import pixeltable.exceptions as excs
 from pixeltable.utils import parse_local_file_path
@@ -354,6 +354,11 @@ class ColumnType:
             return cls.from_python_type(
                 type_args[0], nullable_default=False, allow_builtin_types=allow_builtin_types
             ).copy(nullable=False)
+        elif origin is NotRequired:
+            # NotRequired[T] marks an optional TypedDict field; the optionality is recorded in the TypedDict's
+            # __optional_keys__, so the field type is simply T
+            assert len(type_args) == 1
+            return cls.from_python_type(type_args[0], allow_builtin_types=allow_builtin_types)
         elif origin is typing.Annotated:
             origin = type_args[0]
             parameters = type_args[1]
@@ -368,8 +373,9 @@ class ColumnType:
                     # We always allow Pixeltable types
                     return origin.as_col_type(nullable=nullable_default)
 
-                if getattr(origin, '__orig_bases__', None) == (typing.TypedDict,):
-                    # We always allow TypedDicts
+                if is_typeddict(origin):
+                    # We always allow TypedDicts, including typing_extensions.TypedDict and TypedDict
+                    # subclasses (the pattern for mixing required and optional fields)
                     assert isinstance(origin, type)
                     return cls.__from_typed_dict(nullable_default, origin)
 

@@ -14,6 +14,7 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable.env import Env
+from pixeltable.functions.date import IsoCalendar
 from pixeltable.utils.code import local_public_names
 
 _SQL_ZERO = sql.literal(0)
@@ -189,7 +190,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 
 
 @pxt.udf(is_method=True)
-def isocalendar(self: datetime) -> dict:
+def isocalendar(self: datetime) -> IsoCalendar:
     """
     Return a dictionary with three entries: `'year'`, `'week'`, and `'weekday'`.
 

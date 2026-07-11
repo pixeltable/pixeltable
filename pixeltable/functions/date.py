@@ -9,6 +9,7 @@ Usage example:
 """
 
 from datetime import date, timedelta
+from typing import TypedDict
 
 import sqlalchemy as sql
 
@@ -117,8 +118,16 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
     return sql.extract('isodow', self)
 
 
+class IsoCalendar(TypedDict):
+    """The ISO year, week number, and weekday of a date or timestamp."""
+
+    year: int
+    week: int
+    weekday: int
+
+
 @pxt.udf(is_method=True)
-def isocalendar(self: date) -> dict:
+def isocalendar(self: date) -> IsoCalendar:
     """
     Return a dictionary with three entries: `'year'`, `'week'`, and `'weekday'`.
 
