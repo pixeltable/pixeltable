@@ -88,7 +88,7 @@ async def chat_completions(
         ... )
 
         You can also include images in the messages list, for vision-capable models such as
-        `Qwen/Qwen2-VL-72B-Instruct`, by passing image data directly in the input dictionary, in
+        `Qwen/Qwen2.5-VL-72B-Instruct`, by passing image data directly in the input dictionary, in
         the `'image_url'` field of the message content, as in this example:
 
         >>> messages = [
@@ -102,7 +102,7 @@ async def chat_completions(
         ... ]
         >>> tbl.add_computed_column(
         ...     response=chat_completions(
-        ...         messages, model='Qwen/Qwen2-VL-72B-Instruct'
+        ...         messages, model='Qwen/Qwen2.5-VL-72B-Instruct'
         ...     )
         ... )
     """

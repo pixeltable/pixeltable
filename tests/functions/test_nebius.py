@@ -3,7 +3,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 
-from ..utils import rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+from ..utils import SAMPLE_IMAGE_URL, rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 
 pytestmark = pytest.mark.local('UDF/integration test')
 
@@ -27,6 +27,27 @@ class TestNebius:
         validate_update_status(t.insert(input='What is the capital of France?'), 1)
         result = t.collect()
         assert 'paris' in result['chat_output'][0]['choices'][0]['message']['content'].lower()
+
+    def test_vision(self, uses_db: None) -> None:
+        skip_test_if_not_installed('openai')
+        skip_test_if_no_client('nebius')
+        from pixeltable.functions.nebius import chat_completions
+
+        t = pxt.create_table('test_tbl', {'image': pxt.Image})
+        msgs = [
+            {
+                'role': 'user',
+                'content': [
+                    {'type': 'text', 'text': "What's in this image?"},
+                    {'type': 'image_url', 'image_url': t.image},
+                ],
+            }
+        ]
+        t.add_computed_column(response=chat_completions(msgs, model='Qwen/Qwen2.5-VL-72B-Instruct'))
+
+        validate_update_status(t.insert(image=SAMPLE_IMAGE_URL), 1)
+        result = t.collect()
+        assert 'broccoli' in result['response'][0]['choices'][0]['message']['content'].lower()
 
     def test_embeddings(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
