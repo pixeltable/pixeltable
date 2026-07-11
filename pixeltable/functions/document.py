@@ -172,14 +172,15 @@ class document_splitter(pxt.PxtIterator):
         - `text` (`pxt.String`): The text of the chunk. Present if `'text'` is specified in `elements`.
         - `image` (`pxt.Image`): The image extracted from the chunk. Present if `'image'` is specified in `elements`.
         - `title` (`pxt.String | None`): The document title. Present if `'title'` is specified in `metadata`.
-        - `heading` (`pxt.Json | None`): The heading hierarchy at the start of the chunk (HTML and Markdown only).
+        - `heading` (`Heading | None`): The heading hierarchy at the start of the chunk, with the text of each
+            currently open heading level under the keys `h1` through `h6` (HTML and Markdown only).
             Present if `'heading'` is specified in `metadata`.
         - `sourceline` (`pxt.Int | None`): The source line number of the start of the chunk (HTML only).
             Present if `'sourceline'` is specified in `metadata`.
         - `page` (`pxt.Int | None`): The page number of the chunk (PDF only). Present if `'page'` is specified in
             `metadata`.
-        - `bounding_box` (`pxt.Json | None`): The bounding box of the chunk on the page, as an `{x1, y1, x2, y2}`
-            dictionary (PDF only). Present if `'bounding_box'` is specified in `metadata`.
+        - `bounding_box` (`BoundingBox | None`): The bounding box of the chunk on the page, with float entries
+            `x1`, `y1`, `x2`, `y2` (PDF only). Present if `'bounding_box'` is specified in `metadata`.
 
     Args:
         separators: separators to use to chunk the document. Options are:

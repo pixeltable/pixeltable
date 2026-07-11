@@ -194,22 +194,14 @@ def eval_detections(
             considered a true positive.
 
     Returns:
-        A list of dictionaries, one per label class, with the following structure:
-        ```python
-        {
-            'min_iou': float,  # The value of `min_iou` used for the detections
-            'category': int,  # The label class
-            # List of 1's and 0's indicating true positives for each
-            # predicted bounding box of this class
-            'tp': list[int],
-            # List of 1's and 0's indicating false positives for each
-            # predicted bounding box of this class; `fp[n] == 1 - tp[n]`
-            'fp': list[int],
-            # List of predicted scores for each bounding box of this class
-            'scores': list[float],
-            'num_gts': int,  # Number of ground truth bounding boxes of this class
-        }
-        ```
+        A list of dictionaries, one per label class, with the following entries:
+
+        - `min_iou` (`float`): the value of `min_iou` used for the detections
+        - `category` (`int`): the label class
+        - `tp` (`list[int]`): 1 or 0 for each predicted bounding box of this class, indicating a true positive
+        - `fp` (`list[int]`): 1 or 0 for each predicted bounding box of this class; `fp[n] == 1 - tp[n]`
+        - `scores` (`list[float]`): the predicted scores for each bounding box of this class
+        - `num_gts` (`int`): the number of ground truth bounding boxes of this class
     """
     class_idxs = list(set(pred_labels + gt_labels))
     result: list[DetectionEval] = []
