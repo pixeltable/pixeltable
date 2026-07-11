@@ -50,7 +50,8 @@ class FilterNode(ExecNode):
                 break
             output_batch = DataRowBatch(self.row_builder)
             for row in batch:
-                if not row[self.predicate_slot_idx]:
+                # a predicate whose evaluation failed (recorded under ignore_errors) counts as not passing
+                if row.has_exc(self.predicate_slot_idx) or not row[self.predicate_slot_idx]:
                     continue
                 num_passed += 1
                 if offset is not None and num_passed <= offset:

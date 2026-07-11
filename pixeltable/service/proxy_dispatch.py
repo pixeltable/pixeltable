@@ -23,6 +23,7 @@ from pixeltable.catalog import InsertableTable, Path, TablePathKey, retry_loop
 from pixeltable.catalog.table_version import TableVersionKey
 from pixeltable.env import Env
 from pixeltable.io.data_sources import SqlDataSource
+from pixeltable.row import RowBatch
 from pixeltable.runtime import get_runtime
 from pixeltable.utils import parse_local_file_path
 from pixeltable.utils.local_store import TempStore
@@ -355,8 +356,6 @@ def _insert_query(request: ProxyRequest, tbl: LocalTable) -> Any:
 
 
 def _compute(request: ProxyRequest, tbl: LocalTable) -> Any:
-    # only an InsertableTableProxy dispatches 'compute', so a non-InsertableTable here is an internal error
-    assert isinstance(tbl, InsertableTable), tbl
     kwargs = _deserialize_args(request)
     return tbl.compute(kwargs['rows'], on_error=kwargs['on_error'])
 
@@ -513,6 +512,11 @@ def _encode_row_media(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return rows
 
 
+def _encode_row_batch(batch: RowBatch) -> RowBatch:
+    """Converter for a RowBatch containing references to local files."""
+    return batch._map_values(_encode_local_path)
+
+
 def _encode_update_status(status: UpdateStatus) -> UpdateStatus:
     """Converter for handlers returning an UpdateStatus with rows."""
     if status.rows is not None:
@@ -608,7 +612,7 @@ _RESULT_CONVERTERS: dict[tuple[str, str], Callable[[Any], Any]] = {
     ('Table', 'insert_hf_dataset'): _encode_update_status,
     ('Table', 'insert_sql_source'): _encode_update_status,
     ('Table', 'insert_query'): _encode_update_status,
-    ('Table', 'compute'): _encode_row_media,
+    ('Table', 'compute'): _encode_row_batch,
     ('Table', 'update'): _encode_update_status,
     ('Table', 'batch_update'): _encode_update_status,
 }

@@ -11,7 +11,7 @@ import urllib.parse
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
-from typing import Annotated, Any, Callable, Literal, NamedTuple, Optional, TypeVar, get_type_hints
+from typing import Annotated, Any, Callable, Literal, Mapping, NamedTuple, Optional, Sequence, TypeVar, get_type_hints
 
 import fastapi
 import numpy as np
@@ -569,7 +569,7 @@ class FastAPIRouter(fastapi.APIRouter):
         path_str = ''.join(el.capitalize() for el in path.split('/') if len(el) > 0)
         response_model = self._create_model(f'{path_str}Response', output_cols=output_cols)
 
-        def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
+        def row_processor(row: Mapping[str, Any], url_for_media: Callable[[str], str]) -> Any:
             for name in json_output_col_names:
                 _check_json_value_servable(row.get(name), name)
             output = self._create_output([row], output_col_names, response_model, return_fileresponse, url_for_media)
@@ -809,7 +809,7 @@ class FastAPIRouter(fastapi.APIRouter):
                 export_sql, response_model=response_model, error_prefix=error_prefix
             )
 
-            def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> pydantic.BaseModel:
+            def row_processor(row: Mapping[str, Any], url_for_media: Callable[[str], str]) -> pydantic.BaseModel:
                 kwargs = {name: self._convert_media_val(row[name], url_for_media) for name in output_col_names}
                 result = user_fn(**kwargs)
                 if sql_exporter is not None:
@@ -956,7 +956,7 @@ class FastAPIRouter(fastapi.APIRouter):
         path_str = ''.join(el.capitalize() for el in path.split('/') if len(el) > 0)
         update_response_model = self._create_model(f'{path_str}Response', output_cols=output_cols)
 
-        def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
+        def row_processor(row: Mapping[str, Any], url_for_media: Callable[[str], str]) -> Any:
             for name in json_output_col_names:
                 _check_json_value_servable(row.get(name), name)
             output = self._create_output(
@@ -1114,7 +1114,7 @@ class FastAPIRouter(fastapi.APIRouter):
                 export_sql, response_model=response_model, error_prefix='update_route()'
             )
 
-            def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> pydantic.BaseModel:
+            def row_processor(row: Mapping[str, Any], url_for_media: Callable[[str], str]) -> pydantic.BaseModel:
                 kwargs = {name: self._convert_media_val(row[name], url_for_media) for name in output_col_names}
                 result = user_fn(**kwargs)
                 if sql_exporter is not None:
@@ -1542,7 +1542,7 @@ class FastAPIRouter(fastapi.APIRouter):
         return_fileresponse: bool,
         background: bool,
         endpoint_name: str,
-        row_processor: Callable[[dict[str, Any], Callable[[str], str]], Any],
+        row_processor: Callable[[Mapping[str, Any], Callable[[str], str]], Any],
         row_processor_model: type[pydantic.BaseModel] | None,
         route_type: Literal['insert', 'update', 'compute'],
     ) -> None:
@@ -1564,6 +1564,7 @@ class FastAPIRouter(fastapi.APIRouter):
         def run_dml(row_kwargs: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
             # the table handle is thread-safe, so reuse the captured one; re-validate the frozen contract
             _validate_registered_schema(t, schema_version)
+            rows: Sequence[Mapping[str, Any]]
             if route_type == 'update':
                 status = t.batch_update([row_kwargs], if_not_exists='ignore', return_rows=True)
                 if status.num_rows == 0:
@@ -1906,7 +1907,7 @@ class FastAPIRouter(fastapi.APIRouter):
 
     def _create_output(
         self,
-        rows: list[dict[str, Any]],
+        rows: Sequence[Mapping[str, Any]],
         output_names: list[str],
         output_model: type[pydantic.BaseModel] | None,
         return_fileresponse: bool,
@@ -1920,15 +1921,17 @@ class FastAPIRouter(fastapi.APIRouter):
         - a list of pydantic model instances, if output_model is not None
         - otherwise a list of row dicts
         """
-        # flush PIL images to temp files, store the local file:// uri
-        for row in rows:
-            for col_name, val in row.items():
-                if isinstance(val, PIL.Image.Image):
-                    fmt = image_utils.default_format(val)
-                    ext = f'.{fmt}'
-                    dest = TempStore.create_path(extension=ext)
-                    val.save(dest, format=fmt)
-                    row[col_name] = dest.as_uri()
+
+        def flush_image(val: Any) -> Any:
+            """Flush a PIL image to a temp file and return its local file:// uri; pass other values through."""
+            if not isinstance(val, PIL.Image.Image):
+                return val
+            fmt = image_utils.default_format(val)
+            dest = TempStore.create_path(extension=f'.{fmt}')
+            val.save(dest, format=fmt)
+            return dest.as_uri()
+
+        rows = [{col_name: flush_image(val) for col_name, val in row.items()} for row in rows]
 
         if return_fileresponse:
             assert len(output_names) == 1 and len(rows) == 1

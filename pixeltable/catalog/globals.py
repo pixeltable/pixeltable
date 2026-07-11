@@ -184,6 +184,27 @@ class MediaValidation(enum.Enum):
             ) from None
 
 
+class OnErrorParameter(enum.Enum):
+    """Supported values for the on_error parameter"""
+
+    ABORT = 'abort'
+    IGNORE = 'ignore'
+
+    @classmethod
+    def is_valid(cls, v: Any) -> bool:
+        if isinstance(v, str):
+            return v.lower() in [c.value for c in cls]
+        return False
+
+    @classmethod
+    def fail_on_exception(cls, v: Any) -> bool:
+        if not cls.is_valid(v):
+            raise ValueError(f'Invalid value for on_error: {v}')
+        if isinstance(v, str):
+            return v.lower() != cls.IGNORE.value
+        return True
+
+
 class IfExistsParam(enum.Enum):
     ERROR = 0
     IGNORE = 1

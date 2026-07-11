@@ -56,7 +56,7 @@ class Variable(Expr):
         # types that don't round-trip cleanly through SQLAlchemy parameter binding (eg, arrays bound to
         # LargeBinary expect serialized bytes, not the raw Python value, and media types hold PIL/file
         # refs) are evaluated in Python instead
-        if self.col_type.supports_file_offloading() or self.col_type.is_media_type():
+        if self.col_type.needs_cell_materialization() or self.col_type.is_media_type():
             return None
         return sql.bindparam(self._bind_name, type_=self.col_type.to_sa_type())
 

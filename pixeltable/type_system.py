@@ -706,8 +706,8 @@ class ColumnType:
         # types that refer to external media files
         return self.is_image_type() or self.is_video_type() or self.is_audio_type() or self.is_document_type()
 
-    def supports_file_offloading(self) -> bool:
-        # types that can be offloaded to file-based storage via a CellMaterializationNode
+    def needs_cell_materialization(self) -> bool:
+        """True if this type requires cell materialization/reconstruction"""
         return self.is_array_type() or self.is_json_type() or self.is_binary_type()
 
     def to_sa_type(self) -> sql.types.TypeEngine:

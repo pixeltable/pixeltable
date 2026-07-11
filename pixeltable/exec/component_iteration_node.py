@@ -22,24 +22,35 @@ class ComponentIterationNode(ExecNode):
 
     __OUTPUT_BATCH_SIZE = 1024
 
-    def __init__(self, view: catalog.TableVersionHandle, input: ExecNode):
+    def __init__(
+        self, view: catalog.TableVersionHandle, input: ExecNode, iterator_args: exprs.InlineDict | None = None
+    ):
         assert view.get().is_component_view
-        super().__init__(input.row_builder, [], [], input)
+        iterator_call = view.get().iterator_call
+        # referenced iterator output fields
+        refd_col_refs = [
+            e
+            for e in input.row_builder.unique_exprs
+            if isinstance(e, exprs.ColumnRef) and e.col.get_tbl().id == view.id and e.col.name in iterator_call.outputs
+        ]
+        super().__init__(input.row_builder, refd_col_refs, [], input)
 
         self.view = view
-        self.iterator_call = view.get().iterator_call
-        iterator_args_expr = [view.get().iterator_args_expr()]
-        self.row_builder.set_slot_idxs(iterator_args_expr)
-        self.iterator_args_expr = iterator_args_expr[0]
+        self.iterator_call = iterator_call
+        if iterator_args is not None:
+            # a recorded form of the view's iterator args; required when it differs structurally from
+            # iterator_args_expr() (eg, references to computed columns were resolved when it was recorded),
+            # in which case set_slot_idxs() cannot match a fresh copy
+            assert iterator_args.slot_idx is not None
+            self.iterator_args_expr = iterator_args
+        else:
+            iterator_args_expr = [view.get().iterator_args_expr()]
+            self.row_builder.set_slot_idxs(iterator_args_expr)
+            self.iterator_args_expr = iterator_args_expr[0]
         self.iterator_args_ctx = self.row_builder.create_eval_ctx([self.iterator_args_expr])
         self.iterator_output_cols = {name: self.view.get().cols_by_name[name] for name in self.iterator_call.outputs}
 
-        # referenced iterator output fields
-        self.refd_output_slot_idxs = {
-            e.col.name: e.slot_idx
-            for e in self.row_builder.unique_exprs
-            if isinstance(e, exprs.ColumnRef) and e.col.name in self.iterator_call.outputs
-        }
+        self.refd_output_slot_idxs = {e.col.name: e.slot_idx for e in refd_col_refs}
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         output_batch = DataRowBatch(self.row_builder)
@@ -87,7 +98,10 @@ class ComponentIterationNode(ExecNode):
         # if the column names differ from the component_dict keys, the remapping occurs here.
         for name, output_info in self.iterator_call.outputs.items():
             if output_info.is_pos_column:
-                continue  # this is taken care of as part of the pk
+                # the position is part of the pk; also materialize it if there's a slot for it
+                if name in self.refd_output_slot_idxs:
+                    output_row[self.refd_output_slot_idxs[name]] = pos
+                continue
             if output_info.orig_name not in component_dict:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_CONFIGURATION,

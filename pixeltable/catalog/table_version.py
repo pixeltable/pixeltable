@@ -1009,29 +1009,6 @@ class TableVersion:
             )
             return result
 
-    def compute(self, rows: list[dict[str, Any]], *, fail_on_exc: bool) -> list[dict[str, Any]]:
-        """Compute output rows for rows without persisting them."""
-        from pixeltable.plan import Planner
-
-        assert self.is_insertable
-        plan = Planner.create_compute_plan(self, rows, ignore_errors=not fail_on_exc)
-        row_builder = plan.row_builder
-
-        output_rows: list[dict[str, Any]] = []
-        with plan:
-            # TODO: fix progress reporter
-            # progress_reporter = plan.ctx.add_progress_reporter(f'Rows written (table {self.name!r})', 'rows')
-
-            for row_batch in plan:
-                if fail_on_exc:
-                    for row in row_batch:
-                        # if fail_on_exc == True, we need to check for media validation exceptions
-                        if row.has_exc():
-                            raise row.get_first_exc()
-                output_rows.extend(row_builder.create_output_rows(data_rows=row_batch.rows, has_pk=False))
-
-        return output_rows
-
     def _insert(
         self,
         exec_plan: 'exec.ExecNode',

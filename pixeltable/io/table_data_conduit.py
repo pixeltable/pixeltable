@@ -145,12 +145,17 @@ class TableDataConduit:
         """Add information about the table into which we are inserting data"""
         assert isinstance(table, pxt.Table)
         self.pxt_schema = table._get_schema()
-        self.pxt_pk = table._tbl_version.get().primary_key
-        for col in table._tbl_version_path.columns():
-            if col.is_required_for_insert:
-                self.reqd_col_names.add(col.name)
-            if col.is_computed:
-                self.computed_col_names.add(col.name)
+        self.pxt_pk = []
+        for col_md in table._tbl_path.column_md():
+            if col_md.name is None:
+                continue
+            if col_md.is_pk:
+                self.pxt_pk.append(col_md.name)
+            if col_md.is_computed:
+                self.computed_col_names.add(col_md.name)
+            elif not col_md.col_type.nullable:
+                # required for insert: non-nullable and not computed
+                self.reqd_col_names.add(col_md.name)
         self.src_pk = []
         self.tbl_name = table._name()
 

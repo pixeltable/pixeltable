@@ -92,6 +92,14 @@ class TablePath(abc.ABC):
     @abc.abstractmethod
     def is_mutable(self) -> bool: ...
 
+    def has_snapshot(self) -> bool:
+        """True if this table or one of its ancestors is a snapshot."""
+        return self.is_snapshot() or (self.base is not None and self.base.has_snapshot())
+
+    @abc.abstractmethod
+    def has_sample_clause(self) -> bool:
+        """True if this table or one of its ancestors is defined with a sample clause."""
+
     @abc.abstractmethod
     def is_versioned(self) -> bool: ...
 
@@ -337,6 +345,11 @@ class TableVersionPath(TablePath):
     def is_insertable(self) -> bool:
         return self._cached_tv().is_insertable
 
+    def has_sample_clause(self) -> bool:
+        if self._cached_tv().sample_clause is not None:
+            return True
+        return self.base is not None and self.base.has_sample_clause()
+
     def comment(self) -> str:
         return self._cached_tv().comment
 
@@ -574,6 +587,12 @@ class TableMdPath(TablePath):
 
     def is_mutable(self) -> bool:
         return self.md.tbl_md.is_mutable
+
+    def has_sample_clause(self) -> bool:
+        view_md = self.md.tbl_md.view_md
+        if view_md is not None and view_md.sample_clause is not None:
+            return True
+        return self.base is not None and self.base.has_sample_clause()
 
     def is_versioned(self) -> bool:
         return self.md.tbl_md.is_versioned

@@ -13,7 +13,7 @@ from pandas.io.formats.style import Styler
 
 from pixeltable import Query, catalog, exceptions as excs, exprs, func, type_system as ts
 from pixeltable.catalog import DirEntry, TablePath
-from pixeltable.catalog.insertable_table import OnErrorParameter
+from pixeltable.catalog.globals import OnErrorParameter
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.table_data_conduit import QueryTableDataConduit, RowDataTableDataConduit, TableDataConduit
