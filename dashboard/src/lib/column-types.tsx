@@ -4,6 +4,7 @@ import {
   Braces, List, Binary, Fingerprint,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 type TypeMeta = {
   icon: LucideIcon
@@ -50,12 +51,27 @@ export function ColumnTypeIcon({ type, className = 'h-3.5 w-3.5' }: { type: stri
   return <Icon className={`${className} ${color} shrink-0`} />
 }
 
-export function ColumnTypeBadge({ type }: { type: string }) {
+export function ColumnTypeBadge({ type, clamp, onExpand }: {
+  type: string
+  clamp?: boolean
+  onExpand?: () => void
+}) {
   const { icon: Icon, color, bg } = getColumnTypeMeta(type)
+  const interactive = Boolean(onExpand)
   return (
-    <span className={`inline-flex items-start gap-1 max-w-full min-w-0 px-1.5 py-0.5 rounded text-[11px] font-mono ${bg} ${color}`}>
+    <span
+      className={cn(
+        `flex items-start gap-1 w-full min-w-0 max-w-full overflow-hidden px-1.5 py-0.5 rounded text-[11px] font-mono ${bg} ${color}`,
+        interactive && 'cursor-pointer hover:brightness-110 transition-[filter]',
+      )}
+      title={interactive ? 'Click to expand' : undefined}
+      onClick={onExpand}
+      role={interactive ? 'button' : undefined}
+    >
       <Icon className="h-3 w-3 shrink-0 mt-0.5" />
-      <span className="min-w-0 break-all">{type}</span>
+      <span className={cn('min-w-0 flex-1 overflow-hidden break-all', clamp ? 'line-clamp-2' : 'truncate')}>
+        {type}
+      </span>
     </span>
   )
 }

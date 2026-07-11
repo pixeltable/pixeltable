@@ -759,10 +759,11 @@ const SCHEMA_FILTER_THRESHOLD = 20
 
 type SchemaColKey = 'name' | 'expr'
 type SchemaColWidths = Record<SchemaColKey, number>
-const SCHEMA_COL_DEFAULTS: SchemaColWidths = { name: 160, expr: 220 }
+const SCHEMA_COL_DEFAULTS: SchemaColWidths = { name: 200, expr: 220 }
 const SCHEMA_COL_MIN: SchemaColWidths = { name: 80, expr: 120 }
 const SCHEMA_COL_MAX = 800
-const SCHEMA_COLS_STORAGE_KEY = 'pxt-schema-cols'
+// v2: Name default widened to 200; Type is fluid (no stored width).
+const SCHEMA_COLS_STORAGE_KEY = 'pxt-schema-cols-v2'
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n))
@@ -829,7 +830,7 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
   columns: ColumnInfo[]; indices: IndexInfo[]; expanded: boolean; onToggle: () => void
 }) {
   const [filter, setFilter] = useState('')
-  const [expandedExpr, setExpandedExpr] = useState<string | null>(null)
+  const [detailModal, setDetailModal] = useState<{ value: string; python?: boolean } | null>(null)
   const [colWidths, setColWidths] = useState<SchemaColWidths>(() => loadSchemaColWidths())
   useEffect(() => {
     localStorage.setItem(SCHEMA_COLS_STORAGE_KEY, JSON.stringify(colWidths))
@@ -935,14 +936,15 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
       )}
 
       {expanded && (
-        <div data-schema-scroll className="border-t border-border/30 overflow-y-auto overflow-x-auto flex-1 min-h-0">
-          <div className="px-4 py-1">
-            <table className="w-full text-[11px] table-fixed">
+        <div data-schema-scroll className="border-t border-border/30 overflow-y-auto overflow-x-hidden flex-1 min-h-0">
+          <div className="px-4 py-1 min-w-0">
+            <table className="w-full max-w-full text-[11px] table-fixed">
               <colgroup>
                 <col style={{ width: colWidths.name }} />
-                <col />
+                <col className="min-w-0" />
                 <col style={{ width: colWidths.expr }} />
-                <col className="w-px" />
+                {/* Fixed width: table-fixed ignores shrink-wrap; w-px collapses Info to 1px. */}
+                <col style={{ width: 120 }} />
               </colgroup>
               <thead className="sticky top-0 bg-background z-10">
                 <tr className="border-b border-border/30 text-left text-muted-foreground">
@@ -978,8 +980,17 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
                         <span className="font-mono font-medium text-foreground truncate">{col.name}</span>
                       </div>
                     </td>
-                    <td className="py-1.5 px-2 min-w-0 overflow-hidden" title={col.type_}>
-                      <ColumnTypeBadge type={col.type_} />
+                    <td className="py-1.5 px-2 w-full max-w-0 min-w-0 overflow-hidden" title={col.type_}>
+                      {(() => {
+                        const isLong = col.type_.length > 48
+                        return (
+                          <ColumnTypeBadge
+                            type={col.type_}
+                            clamp={isLong}
+                            onExpand={isLong ? () => setDetailModal({ value: col.type_ }) : undefined}
+                          />
+                        )
+                      })()}
                     </td>
                     <td className="py-1.5 px-2 overflow-hidden">
                       {col.is_computed && col.computed_with ? (() => {
@@ -992,7 +1003,7 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
                               isLong && 'cursor-pointer hover:bg-accent/80 transition-colors',
                             )}
                             title={isLong ? 'Click to expand' : expr}
-                            onClick={isLong ? () => setExpandedExpr(expr) : undefined}
+                            onClick={isLong ? () => setDetailModal({ value: expr, python: true }) : undefined}
                           >
                             <PythonExpr code={expr} className="text-[11px] font-mono leading-relaxed break-all" />
                           </div>
@@ -1001,7 +1012,7 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
                         <span className="text-muted-foreground/60 text-[11px]">—</span>
                       )}
                     </td>
-                    <td className="py-1.5 px-2 text-[11px] text-muted-foreground whitespace-nowrap text-right">
+                    <td className="py-1.5 px-2 overflow-hidden text-[11px] text-muted-foreground whitespace-nowrap text-right">
                       <div className="flex flex-wrap items-center justify-end gap-x-1.5 gap-y-0.5">
                         <span className="tabular-nums">v{col.version_added}</span>
                         {col.is_iterator_col && (
@@ -1081,7 +1092,13 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
           Showing {filtered.length} of {columns.length} columns
         </div>
       )}
-      {expandedExpr && <CellDetail value={expandedExpr} onClose={() => setExpandedExpr(null)} pythonHighlight />}
+      {detailModal && (
+        <CellDetail
+          value={detailModal.value}
+          onClose={() => setDetailModal(null)}
+          pythonHighlight={detailModal.python}
+        />
+      )}
     </div>
   )
 }
