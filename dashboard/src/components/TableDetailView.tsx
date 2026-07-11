@@ -25,7 +25,7 @@ import {
   AlertTriangle, Clock,
 } from 'lucide-react'
 import { ColumnFlowDiagram } from './ColumnFlowDiagram'
-import { ColumnTypeBadge, ColumnTypeIcon } from '@/lib/column-types'
+import { ColumnTypeBadge, ColumnTypeIcon, getColumnTypeMeta } from '@/lib/column-types'
 import { PythonExpr } from '@/lib/python-highlight'
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -757,10 +757,10 @@ function FilterPanel({ columns, data, filters, onChange, onClose }: {
 
 const SCHEMA_FILTER_THRESHOLD = 20
 
-type SchemaColKey = 'name' | 'type' | 'expr'
+type SchemaColKey = 'name' | 'expr'
 type SchemaColWidths = Record<SchemaColKey, number>
-const SCHEMA_COL_DEFAULTS: SchemaColWidths = { name: 160, type: 140, expr: 360 }
-const SCHEMA_COL_MIN: SchemaColWidths = { name: 80, type: 80, expr: 120 }
+const SCHEMA_COL_DEFAULTS: SchemaColWidths = { name: 160, expr: 220 }
+const SCHEMA_COL_MIN: SchemaColWidths = { name: 80, expr: 120 }
 const SCHEMA_COL_MAX = 800
 const SCHEMA_COLS_STORAGE_KEY = 'pxt-schema-cols'
 
@@ -774,9 +774,9 @@ function loadSchemaColWidths(): SchemaColWidths {
     if (!raw) return SCHEMA_COL_DEFAULTS
     const parsed = JSON.parse(raw) as Partial<SchemaColWidths>
     if (!parsed || typeof parsed !== 'object') return SCHEMA_COL_DEFAULTS
+    // Ignore stale `type` width from older layouts; Type is now the fluid column.
     return {
       name: Number.isFinite(parsed.name) ? clamp(parsed.name as number, SCHEMA_COL_MIN.name, SCHEMA_COL_MAX) : SCHEMA_COL_DEFAULTS.name,
-      type: Number.isFinite(parsed.type) ? clamp(parsed.type as number, SCHEMA_COL_MIN.type, SCHEMA_COL_MAX) : SCHEMA_COL_DEFAULTS.type,
       expr: Number.isFinite(parsed.expr) ? clamp(parsed.expr as number, SCHEMA_COL_MIN.expr, SCHEMA_COL_MAX) : SCHEMA_COL_DEFAULTS.expr,
     }
   } catch {
@@ -900,17 +900,20 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
       {!expanded && (
         <div data-schema-scroll className="overflow-y-auto px-4 pb-2.5 flex-1 min-h-0">
           <div className="flex flex-wrap gap-1.5">
-            {filtered.map(col => (
+            {filtered.map(col => {
+              const typeLabel = getColumnTypeMeta(col.type_).label
+              return (
               <div
                 key={col.name}
                 className={cn(
-                  'group flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] border transition-colors',
+                  'group flex items-center gap-1 max-w-[14rem] rounded-md px-2 py-0.5 text-[10px] border transition-colors',
                   col.is_computed
                     ? 'border-amber-500/20 bg-amber-500/5 text-amber-400 hover:bg-amber-500/10'
                     : 'border-border/40 bg-muted/20 text-muted-foreground hover:bg-muted/40',
                 )}
                 title={[
                   col.is_computed && col.computed_with ? `${col.name}: ${col.computed_with}` : col.name,
+                  col.type_,
                   col.destination ? `→ ${col.destination}` : '',
                   col.media_validation ? `validation: ${col.media_validation}` : '',
                 ].filter(Boolean).join('\n')}
@@ -918,11 +921,12 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
                 {col.is_primary_key && <Key className="h-2.5 w-2.5 text-k-yellow shrink-0" />}
                 {col.is_computed && !col.is_primary_key && <Zap className="h-2.5 w-2.5 shrink-0" />}
                 {!col.is_computed && !col.is_primary_key && <ColumnTypeIcon type={col.type_} className="h-2.5 w-2.5" />}
-                <span className="font-mono font-medium">{col.name}</span>
-                <span className="text-[10px] opacity-70">{col.type_}</span>
+                <span className="font-mono font-medium truncate">{col.name}</span>
+                <span className="text-[10px] opacity-60 shrink-0">{typeLabel}</span>
                 {col.destination && <ExternalLink className="h-2.5 w-2.5 text-orange-400/70 shrink-0" />}
               </div>
-            ))}
+              )
+            })}
             {filter && filtered.length === 0 && (
               <span className="text-[11px] text-muted-foreground/60 py-1">No columns match "{filter}"</span>
             )}
@@ -936,9 +940,9 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
             <table className="w-full text-[11px] table-fixed">
               <colgroup>
                 <col style={{ width: colWidths.name }} />
-                <col style={{ width: colWidths.type }} />
-                <col style={{ width: colWidths.expr }} />
                 <col />
+                <col style={{ width: colWidths.expr }} />
+                <col className="w-px" />
               </colgroup>
               <thead className="sticky top-0 bg-background z-10">
                 <tr className="border-b border-border/30 text-left text-muted-foreground">
@@ -951,15 +955,7 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
                       onReset={() => resetCol('name')}
                     />
                   </th>
-                  <th className="relative py-1.5 px-2 font-medium overflow-visible">
-                    Type
-                    <ColResizeHandle
-                      atMin={colWidths.type <= SCHEMA_COL_MIN.type}
-                      getStartWidth={() => colWidths.type}
-                      onResize={handleResize('type')}
-                      onReset={() => resetCol('type')}
-                    />
-                  </th>
+                  <th className="py-1.5 px-2 font-medium min-w-0">Type</th>
                   <th className="relative py-1.5 px-2 font-medium overflow-visible">
                     Expression
                     <ColResizeHandle
@@ -969,7 +965,7 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
                       onReset={() => resetCol('expr')}
                     />
                   </th>
-                  <th className="py-1.5 px-2 font-medium">Info</th>
+                  <th className="py-1.5 px-2 font-medium text-right whitespace-nowrap">Info</th>
                 </tr>
               </thead>
               <tbody>
@@ -982,7 +978,7 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
                         <span className="font-mono font-medium text-foreground truncate">{col.name}</span>
                       </div>
                     </td>
-                    <td className="py-1.5 px-2 overflow-hidden" title={col.type_}>
+                    <td className="py-1.5 px-2 min-w-0 overflow-hidden" title={col.type_}>
                       <ColumnTypeBadge type={col.type_} />
                     </td>
                     <td className="py-1.5 px-2 overflow-hidden">
@@ -1005,8 +1001,8 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
                         <span className="text-muted-foreground/60 text-[11px]">—</span>
                       )}
                     </td>
-                    <td className="py-1.5 px-2 text-[11px] text-muted-foreground">
-                      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                    <td className="py-1.5 px-2 text-[11px] text-muted-foreground whitespace-nowrap text-right">
+                      <div className="flex flex-wrap items-center justify-end gap-x-1.5 gap-y-0.5">
                         <span className="tabular-nums">v{col.version_added}</span>
                         {col.is_iterator_col && (
                           <span className="px-1.5 py-0.5 rounded text-[10px] bg-violet-400/10 text-violet-400 font-medium">iterator</span>
@@ -1532,6 +1528,13 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
     setContentTab('data'); setSearchQuery('')
     mountedRef.current = false
   }, [tablePath])
+
+  // After layout restore (autoSaveId), sync chevron/content mode with the panel's physical state.
+  useLayoutEffect(() => {
+    if (!metadata) return
+    const p = schemaPanelRef.current
+    if (p) setSchemaExpanded(!p.isCollapsed())
+  }, [metadata])
 
   // Fit schema panel to its natural content height the first time we open this table.
   // Subsequent visits restore the user's last drag via autoSaveId.
