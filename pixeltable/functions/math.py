@@ -113,6 +113,66 @@ def _(self: sql.ColumnElement, other: sql.ColumnElement) -> sql.ColumnElement:
 
 
 @pxt.udf(is_method=True)
+def sqrt(self: float) -> float:
+    """
+    Return the square root of the given number.
+
+    Equivalent to Python [`math.sqrt()`](https://docs.python.org/3/library/math.html#math.sqrt).
+    """
+    return math.sqrt(self)
+
+
+@sqrt.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.func.sqrt(self)
+
+
+@pxt.udf(is_method=True)
+def exp(self: float) -> float:
+    """
+    Return `e` raised to the power of the given number.
+
+    Equivalent to Python [`math.exp()`](https://docs.python.org/3/library/math.html#math.exp).
+    """
+    return math.exp(self)
+
+
+@exp.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.func.exp(self)
+
+
+@pxt.udf(is_method=True)
+def ln(self: float) -> float:
+    """
+    Return the natural logarithm of the given number.
+
+    Equivalent to Python [`math.log()`](https://docs.python.org/3/library/math.html#math.log).
+    """
+    return math.log(self)
+
+
+@ln.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.func.ln(self)
+
+
+@pxt.udf(is_method=True)
+def log10(self: float) -> float:
+    """
+    Return the base-10 logarithm of the given number.
+
+    Equivalent to Python [`math.log10()`](https://docs.python.org/3/library/math.html#math.log10).
+    """
+    return math.log10(self)
+
+
+@log10.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.func.log10(self)
+
+
+@pxt.udf(is_method=True)
 def bitwise_and(self: int, other: int) -> int:
     """
     Bitwise AND of two integers.

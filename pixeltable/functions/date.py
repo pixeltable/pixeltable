@@ -179,6 +179,18 @@ def add_days(self: date, n: int) -> date:
     return self + timedelta(days=n)
 
 
+@pxt.udf(is_method=True)
+def replace(self: date, year: int | None = None, month: int | None = None, day: int | None = None) -> date:
+    """
+    Return a date with the same attributes, except for those attributes given new values by whichever keyword
+    arguments are specified.
+
+    Equivalent to [`date.replace()`](https://docs.python.org/3/library/datetime.html#datetime.date.replace).
+    """
+    kwargs = {k: v for k, v in locals().items() if k != 'self' and v is not None}
+    return self.replace(**kwargs)
+
+
 __all__ = local_public_names(__name__)
 
 

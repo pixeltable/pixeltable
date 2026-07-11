@@ -1744,15 +1744,15 @@ class TestExprs:
         # Filter down to just 5 rows of the table.
         v = pxt.create_view(p('test_view'), t.where(t.c2 < 5))
 
-        assert len(t.c2.head(n=100)) == 100
-        assert len(v.c2.head(n=100)) == 5
-        assert len(t.c2.tail(n=100)) == 100
-        assert len(v.c2.tail(n=100)) == 5
-        assert len(t.c2.show(n=100)) == 100
-        assert len(v.c2.show(n=100)) == 5
+        assert len(t.select(t.c2).head(n=100)) == 100
+        assert len(v.select(v.c2).head(n=100)) == 5
+        assert len(t.select(t.c2).tail(n=100)) == 100
+        assert len(v.select(v.c2).tail(n=100)) == 5
+        assert len(t.select(t.c2).show(n=100)) == 100
+        assert len(v.select(v.c2).show(n=100)) == 5
 
-        assert t.c2.head()._col_names == ['c2']
-        assert v.c2.head()._col_names == ['c2']
+        assert t.select(t.c2).head()._col_names == ['c2']
+        assert v.select(v.c2).head()._col_names == ['c2']
 
         # Test snapshots of the base table and of the view, with and without additional_columns
         snap1 = pxt.create_snapshot(p('test_snapshot_1'), t)
@@ -1761,13 +1761,31 @@ class TestExprs:
         snap4 = pxt.create_snapshot(p('test_snapshot_4'), v, additional_columns={'x1': v.c2})
         t.delete()
 
-        assert len(t.c2.head(n=100)) == 0
-        assert len(v.c2.head(n=100)) == 0
-        assert len(snap1.c2.head(n=100)) == 100
+        assert len(t.select(t.c2).head(n=100)) == 0
+        assert len(v.select(v.c2).head(n=100)) == 0
+        assert len(snap1.select(snap1.c2).head(n=100)) == 100
         assert len(snap2.select(snap2.c2).head(n=100)) == 5
-        assert len(snap2.c2.head(n=100)) == 5
-        assert len(snap3.c2.head(n=100)) == 100
-        assert len(snap4.c2.head(n=100)) == 5
+        assert len(snap3.select(snap3.c2).head(n=100)) == 100
+        assert len(snap4.select(snap4.c2).head(n=100)) == 5
+
+    def test_math_builtins(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        res = t.select(t.c3, p=t.c3**2, a=abs(-t.c3), r0=round(t.c3), r1=round(t.c3, 2)).order_by(t.c2).collect()
+        assert all(row['p'] == row['c3'] ** 2 for row in res)
+        assert all(row['a'] == abs(-row['c3']) for row in res)
+        assert all(row['r0'] == round(row['c3'], 0) for row in res)
+        assert all(row['r1'] == round(row['c3'], 2) for row in res)
+
+    def test_expr_not_iterable(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not iterable'):
+            iter(t.c1)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not iterable'):
+            list(t.c6)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not iterable'):
+            _, _ = t.c1
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'len\(\) of a Pixeltable expression'):
+            len(t.c1)
 
 
 @pxt.udf

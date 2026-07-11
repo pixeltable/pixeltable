@@ -22,7 +22,11 @@ class ArithmeticExpr(Expr):
     operator: ArithmeticOperator
 
     def __init__(self, operator: ArithmeticOperator, op1: Expr, op2: Expr):
-        if op1.col_type.is_json_type() or op2.col_type.is_json_type() or operator == ArithmeticOperator.DIV:
+        if (
+            op1.col_type.is_json_type()
+            or op2.col_type.is_json_type()
+            or operator in (ArithmeticOperator.DIV, ArithmeticOperator.POW)
+        ):
             # we assume it's a float
             super().__init__(ts.FloatType(nullable=(op1.col_type.nullable or op2.col_type.nullable)))
         else:
@@ -109,6 +113,9 @@ class ArithmeticExpr(Expr):
             zero = sql.cast(0, self._op2.col_type.to_sa_type())
             nullif = sql.cast(sql.func.nullif(right, zero), self.col_type.to_sa_type())
             return sql.func.floor(sql.cast(left, self.col_type.to_sa_type()) / nullif)
+        if self.operator == ArithmeticOperator.POW:
+            assert self.col_type.is_float_type()
+            return sql.func.pow(sql.cast(left, self.col_type.to_sa_type()), right)
         raise AssertionError()
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
@@ -154,6 +161,9 @@ class ArithmeticExpr(Expr):
             return op1_val % op2_val
         elif self.operator == ArithmeticOperator.FLOORDIV:
             return op1_val // op2_val
+        elif self.operator == ArithmeticOperator.POW:
+            # the result type is Float, so a float is returned even for int operands
+            return float(op1_val**op2_val)
 
     def as_literal(self) -> Literal | None:
         op1_lit = self._op1.as_literal()

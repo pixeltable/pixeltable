@@ -638,6 +638,21 @@ def rpartition(self: str, sep: str = ' ') -> list:
 
 
 @pxt.udf(is_method=True)
+def rsplit(self: str, sep: str | None = None, maxsplit: int = -1) -> list[str]:
+    """
+    Return a list of the words in the string, using `sep` as the delimiter string, splitting from the right.
+
+    Equivalent to [`str.rsplit()`](https://docs.python.org/3/library/stdtypes.html#str.rsplit).
+
+    Args:
+        sep: The delimiter string. If omitted or `None`, runs of consecutive whitespace are regarded as a single
+            separator.
+        maxsplit: Maximum number of splits (starting from the right). `-1` (the default) means no limit.
+    """
+    return self.rsplit(sep, maxsplit)
+
+
+@pxt.udf(is_method=True)
 def rstrip(self: str, chars: str | None = None) -> str:
     """
     Return a copy of string with trailing characters removed.
@@ -714,6 +729,34 @@ def slice_replace(self: str, start: int | None = None, stop: int | None = None, 
         repl: replacement value
     """
     return self[:start] + repl + self[stop:]
+
+
+@pxt.udf(is_method=True)
+def split(self: str, sep: str | None = None, maxsplit: int = -1) -> list[str]:
+    """
+    Return a list of the words in the string, using `sep` as the delimiter string.
+
+    Equivalent to [`str.split()`](https://docs.python.org/3/library/stdtypes.html#str.split).
+
+    Args:
+        sep: The delimiter string. If omitted or `None`, runs of consecutive whitespace are regarded as a single
+            separator.
+        maxsplit: Maximum number of splits. `-1` (the default) means no limit.
+    """
+    return self.split(sep, maxsplit)
+
+
+@pxt.udf(is_method=True)
+def splitlines(self: str, keepends: bool = False) -> list[str]:
+    """
+    Return a list of the lines in the string, breaking at line boundaries.
+
+    Equivalent to [`str.splitlines()`](https://docs.python.org/3/library/stdtypes.html#str.splitlines).
+
+    Args:
+        keepends: If `True`, line breaks are included in the resulting list.
+    """
+    return self.splitlines(keepends)
 
 
 @pxt.udf(is_method=True)
