@@ -2,6 +2,7 @@ import csv
 import datetime
 import json
 import pathlib
+from typing import Callable
 
 import pandas as pd
 import pytest
@@ -11,13 +12,12 @@ from pixeltable.config import Config
 
 from ..utils import create_all_datatypes_tbl, create_test_tbl, get_csv_file, get_image_files, validate_update_status
 
-pytestmark = pytest.mark.local('TODO: convert; import/export (csv)')
-
 
 class TestCsv:
-    def test_export_all_types(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_export_all_types(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """Export a table with every supported type and verify the CSV output."""
-        t = create_all_datatypes_tbl()
+        p = make_catalog_path
+        t = create_all_datatypes_tbl(name=p('all_datatype_tbl'))
         rows = t.order_by(t.row_id).collect()
 
         csv_path = tmp_path / 'all_types.csv'
@@ -53,33 +53,36 @@ class TestCsv:
             for col_name in media_cols:
                 assert exp_row[col_name] == url_row[f'{col_name}_fileurl']
 
-    def test_export_round_trip(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_export_round_trip(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """Export a table to CSV, re-import, and verify equality."""
-        t = create_test_tbl('test_csv_rt')
+        p = make_catalog_path
+        t = create_test_tbl(p('test_csv_rt'))
 
         csv_path = tmp_path / 'round_trip.csv'
         # Select only columns whose types survive CSV round-trip (string, int, float, bool)
         query = t.select(t.c1, t.c1n, t.c2, t.c3, t.c4)
         pxt.io.export_csv(query, csv_path)
 
-        t2 = pxt.io.import_csv('test_csv_rt_reimported', str(csv_path))
+        t2 = pxt.io.import_csv(p('test_csv_rt_reimported'), str(csv_path))
 
         assert query.order_by(t.c2).collect() == t2.order_by(t2.c2).collect()
 
-    def test_export_exact_output(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_export_exact_output(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """Verify exported CSV matches an expected file exactly."""
+        p = make_catalog_path
         expected_path = get_csv_file('expected_export.csv')
-        t = pxt.io.import_csv('test_csv_exact', expected_path, primary_key='c_int')
+        t = pxt.io.import_csv(p('test_csv_exact'), expected_path, primary_key='c_int')
 
         csv_path = tmp_path / 'exact.csv'
         pxt.io.export_csv(t.order_by(t.c_int), csv_path)
 
         assert csv_path.read_text(encoding='utf-8') == pathlib.Path(expected_path).read_text(encoding='utf-8')
 
-    def test_export_with_nulls(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_export_with_nulls(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """Nulls become empty strings in CSV."""
+        p = make_catalog_path
         t = pxt.create_table(
-            'test_csv_nulls', {'c_int': pxt.Int, 'c_string': pxt.String, 'c_float': pxt.Float, 'c_json': pxt.Json}
+            p('test_csv_nulls'), {'c_int': pxt.Int, 'c_string': pxt.String, 'c_float': pxt.Float, 'c_json': pxt.Json}
         )
         t.insert(
             [
@@ -99,9 +102,10 @@ class TestCsv:
         assert exported[0]['c_json'] == ''
         assert exported[1]['c_int'] == ''
 
-    def test_export_with_query(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_export_with_query(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """Test export with filtering and column selection."""
-        t = pxt.create_table('test_csv_query', {'c_int': pxt.Int, 'c_string': pxt.String})
+        p = make_catalog_path
+        t = pxt.create_table(p('test_csv_query'), {'c_int': pxt.Int, 'c_string': pxt.String})
         validate_update_status(t.insert([{'c_int': i, 'c_string': f'row_{i}'} for i in range(10)]), expected_rows=10)
 
         csv_path = tmp_path / 'filtered.csv'
@@ -117,9 +121,12 @@ class TestCsv:
         assert list(exported[0].keys()) == ['c_string']
 
     @pytest.mark.parametrize('delimiter', ['\t', ';', '|'])
-    def test_export_custom_delimiter(self, uses_db: None, tmp_path: pathlib.Path, delimiter: str) -> None:
+    def test_export_custom_delimiter(
+        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path, delimiter: str
+    ) -> None:
         """Test CSV export with custom delimiters."""
-        t = pxt.create_table('test_csv_delim', {'c_int': pxt.Int, 'c_string': pxt.String})
+        p = make_catalog_path
+        t = pxt.create_table(p('test_csv_delim'), {'c_int': pxt.Int, 'c_string': pxt.String})
         t.insert([{'c_int': 1, 'c_string': 'hello'}, {'c_int': 2, 'c_string': 'world'}])
 
         csv_path = tmp_path / 'delimited.csv'
@@ -131,12 +138,16 @@ class TestCsv:
         assert int(exported[0]['c_int']) == 1
         assert exported[1]['c_string'] == 'world'
 
-    def test_export_non_serializable_json_errors(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_export_non_serializable_json_errors(
+        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+    ) -> None:
         """Exporting a JSON column with non-serializable values should raise an error."""
-        t = create_all_datatypes_tbl(non_serializable_json=True)
+        p = make_catalog_path
+        t = create_all_datatypes_tbl(name=p('all_datatype_tbl'), non_serializable_json=True)
         with pytest.raises(pxt.Error, match='not JSON-serializable'):
             pxt.io.export_csv(t, tmp_path / 'should_fail.csv')
 
+    @pytest.mark.local('uses a local-filesystem destination, which a hosted table does not support')
     def test_export_computed_media_with_destination(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Computed media columns with a local file destination export their file URLs."""
         dest_path = Config.get().home / 'test-csv-dest'

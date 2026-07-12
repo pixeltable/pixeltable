@@ -14,6 +14,7 @@ from pixeltable.functions.audio import audio_splitter, encode_audio
 from pixeltable.utils import av as av_utils
 
 from .utils import (
+    CatalogMode,
     MediaStore,
     ReloadTester,
     TempStoreView,
@@ -56,7 +57,7 @@ class TestAudio:
         paths = audio_t.select(output=audio_t.audio_file.localpath).collect()['output']
         assert set(paths) == set(audio_filepaths)
 
-    def test_extract(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_extract(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         p = make_catalog_path
         video_filepaths = get_video_files()
         video_t = pxt.create_table(p('videos'), {'video': pxt.Video})
@@ -72,7 +73,10 @@ class TestAudio:
         validate_update_status(
             video_t.insert({'video': path} for path in video_filepaths), expected_rows=len(video_filepaths)
         )
-        assert MediaStore.count(video_t, default_output_dest=True) == videos_with_audio
+        # the default store holds one extracted-audio file per video with audio; over the proxy it additionally
+        # holds each input video, shipped and persisted there (local references the source files in place)
+        shipped_videos = len(video_filepaths) if catalog_mode == 'proxy' else 0
+        assert MediaStore.count(video_t, default_output_dest=True) == videos_with_audio + shipped_videos
         assert video_t.where(video_t.audio != None).count() == videos_with_audio
         tmp_files_before = TempStoreView.count(video_t)
 
