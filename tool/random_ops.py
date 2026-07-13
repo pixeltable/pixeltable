@@ -44,6 +44,7 @@ _EXPECTED_ERROR_PATTERNS = (
     re.compile(r'Table was dropped'),
     re.compile(r'Column was dropped'),
     re.compile(r"Cannot use if_exists=.+ with the same name as one of the view's own ancestors"),
+    re.compile(r'Cannot alter column .+ because the following columns depend on it.+'),
 )
 
 
@@ -75,6 +76,7 @@ TABLE_OPS = (
     ('drop_column', 3, False),
     ('create_view', 5, False),
     ('rename_view', 5, False),
+    ('alter_column_nullable', 1, False),
     ('drop_view', 1, False),
     ('drop_table', 0.25, False),
 )
@@ -419,6 +421,16 @@ class RandomTableOps:
         t = self.get_random_tbl(allow_view=False)
         pxt.drop_table(t, force=True, if_not_exists='ignore')
         return success(f'Dropped table {self.tbl_descr(t)}.')
+
+    def alter_column_nullable(self) -> OpResult:
+        t = self.get_random_tbl(allow_view=False)
+        required_cols = [col_name for col_name in BASIC_SCHEMA if not getattr(t, col_name).col_type.nullable]
+        if not required_cols:
+            return success(f'No Required columns to alter in {self.tbl_descr(t)}.')
+        col_name = random.choice(required_cols)
+        col_ref = getattr(t, col_name)
+        t.alter_column(col_name, new_type=col_ref.col_type.copy(nullable=True))
+        return success(f'Altered column {col_name!r} to nullable in {self.tbl_descr(t)}.')
 
     def run_op(self, op: Callable) -> None:
         """Run the given operation once. Capture any "expected" errors and fail fatally on unexpected ones."""
