@@ -757,13 +757,13 @@ function FilterPanel({ columns, data, filters, onChange, onClose }: {
 
 const SCHEMA_FILTER_THRESHOLD = 20
 
-type SchemaColKey = 'name' | 'expr'
+type SchemaColKey = 'name' | 'type'
 type SchemaColWidths = Record<SchemaColKey, number>
-const SCHEMA_COL_DEFAULTS: SchemaColWidths = { name: 200, expr: 220 }
-const SCHEMA_COL_MIN: SchemaColWidths = { name: 80, expr: 120 }
+const SCHEMA_COL_DEFAULTS: SchemaColWidths = { name: 200, type: 280 }
+const SCHEMA_COL_MIN: SchemaColWidths = { name: 80, type: 120 }
 const SCHEMA_COL_MAX = 800
-// v2: Name default widened to 200; Type is fluid (no stored width).
-const SCHEMA_COLS_STORAGE_KEY = 'pxt-schema-cols-v2'
+// v3: Type is fixed/resizable; Expression is the fluid column.
+const SCHEMA_COLS_STORAGE_KEY = 'pxt-schema-cols-v3'
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n))
@@ -775,10 +775,10 @@ function loadSchemaColWidths(): SchemaColWidths {
     if (!raw) return SCHEMA_COL_DEFAULTS
     const parsed = JSON.parse(raw) as Partial<SchemaColWidths>
     if (!parsed || typeof parsed !== 'object') return SCHEMA_COL_DEFAULTS
-    // Ignore stale `type` width from older layouts; Type is now the fluid column.
+    // Ignore stale `expr` width from older layouts; Expression is now the fluid column.
     return {
       name: Number.isFinite(parsed.name) ? clamp(parsed.name as number, SCHEMA_COL_MIN.name, SCHEMA_COL_MAX) : SCHEMA_COL_DEFAULTS.name,
-      expr: Number.isFinite(parsed.expr) ? clamp(parsed.expr as number, SCHEMA_COL_MIN.expr, SCHEMA_COL_MAX) : SCHEMA_COL_DEFAULTS.expr,
+      type: Number.isFinite(parsed.type) ? clamp(parsed.type as number, SCHEMA_COL_MIN.type, SCHEMA_COL_MAX) : SCHEMA_COL_DEFAULTS.type,
     }
   } catch {
     return SCHEMA_COL_DEFAULTS
@@ -941,8 +941,8 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
             <table className="w-full max-w-full text-[11px] table-fixed">
               <colgroup>
                 <col style={{ width: colWidths.name }} />
+                <col style={{ width: colWidths.type }} />
                 <col className="min-w-0" />
-                <col style={{ width: colWidths.expr }} />
                 {/* Fixed width: table-fixed ignores shrink-wrap; w-px collapses Info to 1px. */}
                 <col style={{ width: 120 }} />
               </colgroup>
@@ -957,16 +957,16 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
                       onReset={() => resetCol('name')}
                     />
                   </th>
-                  <th className="py-1.5 px-2 font-medium min-w-0">Type</th>
                   <th className="relative py-1.5 px-2 font-medium overflow-visible">
-                    Expression
+                    Type
                     <ColResizeHandle
-                      atMin={colWidths.expr <= SCHEMA_COL_MIN.expr}
-                      getStartWidth={() => colWidths.expr}
-                      onResize={handleResize('expr')}
-                      onReset={() => resetCol('expr')}
+                      atMin={colWidths.type <= SCHEMA_COL_MIN.type}
+                      getStartWidth={() => colWidths.type}
+                      onResize={handleResize('type')}
+                      onReset={() => resetCol('type')}
                     />
                   </th>
+                  <th className="py-1.5 px-2 font-medium min-w-0">Expression</th>
                   <th className="py-1.5 px-2 font-medium text-right whitespace-nowrap">Info</th>
                 </tr>
               </thead>
@@ -980,7 +980,7 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
                         <span className="font-mono font-medium text-foreground truncate">{col.name}</span>
                       </div>
                     </td>
-                    <td className="py-1.5 px-2 w-full max-w-0 min-w-0 overflow-hidden" title={col.type_}>
+                    <td className="py-1.5 px-2 overflow-hidden" title={col.type_}>
                       {(() => {
                         const isLong = col.type_.length > 48
                         return (
@@ -992,7 +992,7 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
                         )
                       })()}
                     </td>
-                    <td className="py-1.5 px-2 overflow-hidden">
+                    <td className="py-1.5 px-2 w-full max-w-0 min-w-0 overflow-hidden">
                       {col.is_computed && col.computed_with ? (() => {
                         const expr = col.computed_with
                         const isLong = expr.length > 60

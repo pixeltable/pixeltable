@@ -61,7 +61,7 @@ export function ColumnTypeBadge({ type, clamp, onExpand }: {
   return (
     <span
       className={cn(
-        `flex items-start gap-1 w-full min-w-0 max-w-full overflow-hidden px-1.5 py-0.5 rounded text-[11px] font-mono ${bg} ${color}`,
+        `inline-flex items-start gap-1 w-fit max-w-full min-w-0 overflow-hidden px-1.5 py-0.5 rounded text-[11px] font-mono ${bg} ${color}`,
         interactive && 'cursor-pointer hover:brightness-110 transition-[filter]',
       )}
       title={interactive ? 'Click to expand' : undefined}
@@ -69,7 +69,7 @@ export function ColumnTypeBadge({ type, clamp, onExpand }: {
       role={interactive ? 'button' : undefined}
     >
       <Icon className="h-3 w-3 shrink-0 mt-0.5" />
-      <span className={cn('min-w-0 flex-1 overflow-hidden break-all', clamp ? 'line-clamp-2' : 'truncate')}>
+      <span className={cn('min-w-0 overflow-hidden break-all', clamp ? 'line-clamp-2' : 'truncate')}>
         {type}
       </span>
     </span>
