@@ -132,7 +132,10 @@ def _serialize(obj: Any, binary_parts: list[bytes]) -> Any:
     if isinstance(obj, EmbeddingIndex):
         # A declarative model's embedding-index spec (a dataclass of an Expr column ref + embedding Functions +
         # scalars); serialize field-by-field so the nested Exprs/Functions round-trip via their own handlers.
-        return {_TAG: 'EmbeddingIndex', 'v': {f.name: _serialize(getattr(obj, f.name), []) for f in dataclasses.fields(obj)}}
+        return {
+            _TAG: 'EmbeddingIndex',
+            'v': {f.name: _serialize(getattr(obj, f.name), []) for f in dataclasses.fields(obj)},
+        }
     if isinstance(obj, DirEntry):
         # only the fields any get_dir_contents() consumer reads: dir presence, table id/md, error count
         return {
