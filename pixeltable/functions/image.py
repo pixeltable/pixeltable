@@ -572,6 +572,86 @@ class tile_iterator(pxt.PxtIterator[Tile]):
             )
 
 
+@pxt.uda(requires_order_by=True)
+class stitch_tiles(pxt.Aggregator):
+    """
+    Reconstructs a single image from the tiles produced by [`tile_iterator`][pixeltable.functions.image.tile_iterator],
+    pasting each tile back at its original position. This is the inverse of
+    [`tile_iterator`][pixeltable.functions.image.tile_iterator]:  aggregate the tiles of an image (grouped by a column
+    that identifies the source image) to obtain the full image, optionally after transforming each tile first
+    (e.g., drawing a segmentation overlay on it).
+
+    The reconstruction is naive: tiles are pasted in the order they arrive, so where tiles overlap, later tiles
+    overwrite earlier ones. It composites pixels and does not merge or deduplicate detections across tile seams.
+
+    Args:
+        tile: The image tile to paste, the same size as the tiles emitted by
+        [`tile_iterator`][pixeltable.functions.image.tile_iterator]. All tiles in a group must have the same mode
+            (and palette, for palette images).
+        tile_box: The `(x1, y1, x2, y2)` pixel coordinates of the tile in the original image, as emitted by
+            `tile_iterator`.
+        width: The width of the original image, in pixels.
+        height: The height of the original image, in pixels.
+
+    Returns:
+        The reconstructed image, of size `(width, height)` and in the mode of the tiles, or `None` if there
+        are no non-null tiles.
+
+    Examples:
+        Split each image into tiles, draw a segmentation overlay on every tile, then stitch the overlaid tiles
+        back into a single full-resolution image, one per source image. Assumes a view `tiles` created with
+        [`tile_iterator`][pixeltable.functions.image.tile_iterator], with an `overlay` column computed per tile:
+
+        >>> tiles.group_by(tiles.image).select(
+        ...     stitched=stitch_tiles(
+        ...         tiles.pos,
+        ...         tiles.overlay,
+        ...         tiles.tile_box,
+        ...         tiles.image.width,
+        ...         tiles.image.height,
+        ...     )
+        ... ).collect()
+    """
+
+    canvas: PIL.Image.Image | None
+
+    def __init__(self) -> None:
+        self.canvas = None
+
+    def update(self, tile: PIL.Image.Image, tile_box: tuple[int, int, int, int], width: int, height: int) -> None:
+        if self.canvas is None:
+            self.canvas = PIL.Image.new(tile.mode, (width, height))
+            palette = tile.getpalette()
+            if palette is not None:
+                self.canvas.putpalette(palette)
+
+        if self.canvas.size != (width, height):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'stitch_tiles(): width/height ({width}, {height}) does not match the size {self.canvas.size} '
+                'of previous tiles in the group',
+            )
+
+        if tile.mode != self.canvas.mode:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'stitch_tiles(): tile mode {tile.mode} does not match the mode {self.canvas.mode} '
+                'of previous tiles in the group',
+            )
+
+        if tile.getpalette() != self.canvas.getpalette():
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                'stitch_tiles(): tile palette does not match the palette of previous tiles in the group',
+            )
+        # Tiles that extend past the original image (the padding `tile_iterator` adds to edge tiles) are clipped
+        # by `paste`, so the padding never appears in the result.
+        self.canvas.paste(tile, (int(tile_box[0]), int(tile_box[1])))
+
+    def value(self) -> PIL.Image.Image | None:
+        return self.canvas
+
+
 @pxt.udf(is_method=True)
 def to_video(
     image: pxt.Image,
