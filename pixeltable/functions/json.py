@@ -9,11 +9,13 @@ Example:
 >>> t.select(pxtf.json.make_list(t.json_col)).collect()
 """
 
+import builtins
 import itertools
 import json
 from typing import Any, Iterator, Literal
 
 import sqlalchemy as sql
+from sqlalchemy.dialects.postgresql import array as pg_array
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, exprs, type_system as ts
@@ -39,6 +41,114 @@ def dumps(obj: pxt.Json) -> str:
 @dumps.to_sql
 def _(obj: sql.ColumnElement) -> sql.ColumnElement:
     return obj.cast(sql.Text)
+
+
+def _jsonb_object_length(obj: sql.ColumnElement) -> sql.ColumnElement:
+    """SQL expression for the number of keys in a jsonb object."""
+    return sql.select(sql.func.count()).select_from(sql.func.jsonb_object_keys(obj)).scalar_subquery()
+
+
+def _jsonb_as_text(obj: sql.ColumnElement) -> sql.ColumnElement:
+    """SQL expression for a jsonb string's underlying text (the empty path '{}' selects the whole value)."""
+    return obj.op('#>>')(pg_array([], type_=sql.Text))
+
+
+@pxt.udf(is_method=True)
+def len(self: pxt.Json) -> int:
+    """
+    Return the number of elements in a JSON array, keys in a JSON object, or characters in a JSON string.
+
+    Not defined for numbers or booleans. A `null` value (or missing path) yields `null`.
+
+    Example:
+
+        >>> t.select(t.detections.bboxes.len()).collect()
+    """
+    if isinstance(self, (list, dict, str)):
+        return builtins.len(self)
+    raise excs.Error(excs.ErrorCode.INVALID_ARGUMENT, f'len() is not defined for a JSON {type(self).__name__}')
+
+
+@len.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    type_of = sql.func.jsonb_typeof(self)
+    return sql.case(
+        (self.is_(None), sql.null()),
+        (type_of == 'null', sql.null()),
+        (type_of == 'array', sql.func.jsonb_array_length(self)),
+        (type_of == 'object', _jsonb_object_length(self)),
+        (type_of == 'string', sql.func.length(_jsonb_as_text(self))),
+        # a number or boolean is not sized: reuse jsonb_array_length's native scalar error
+        else_=sql.func.jsonb_array_length(self),
+    )
+
+
+@pxt.udf(is_method=True)
+def is_empty(self: pxt.Json | None) -> bool:
+    """
+    Return `True` if the value is `null`, an empty array, an empty object, or an empty string; `False` otherwise
+    (including for numbers and booleans).
+
+    Example:
+
+        >>> t.where(~t.detections.bboxes.is_empty()).collect()
+    """
+    if self is None:
+        return True
+    if isinstance(self, (list, dict, str)):
+        return builtins.len(self) == 0
+    return False
+
+
+@is_empty.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    type_of = sql.func.jsonb_typeof(self)
+    return sql.case(
+        (self.is_(None), sql.literal(True)),
+        (type_of == 'null', sql.literal(True)),
+        (type_of == 'array', sql.func.jsonb_array_length(self) == 0),
+        (type_of == 'object', _jsonb_object_length(self) == 0),
+        (type_of == 'string', _jsonb_as_text(self) == ''),
+        else_=sql.literal(False),
+    )
+
+
+@pxt.udf(is_method=True)
+def contains(self: pxt.Json, value: pxt.Json) -> bool:
+    """
+    Return `True` if `value` is an element of a JSON array or a key of a JSON object; `False` otherwise.
+
+    Example:
+
+        >>> t.where(t.detections.labels.contains('person')).collect()
+    """
+    if isinstance(self, list):
+        return value in self
+    if isinstance(self, dict):
+        return value in self
+    return False
+
+
+# TODO: add a to_sql for contains(). A jsonb value parameter binds as an untyped literal that Postgres can't
+# resolve during EXPLAIN, so the natural @> / jsonb_exists translation fails; it needs explicit jsonb typing.
+
+
+@pxt.udf(is_method=True)
+def get(self: pxt.Json | None, key: str, default: pxt.Json | None = None) -> pxt.Json:
+    """
+    Return the value of `key` if the value is a JSON object containing it, otherwise `default`.
+
+    Example:
+
+        >>> t.select(t.metadata.get('author', default='unknown')).collect()
+    """
+    if isinstance(self, dict):
+        return self.get(key, default)
+    return default
+
+
+# TODO: add a to_sql for get(). The jsonb `default` parameter binds as an untyped literal that Postgres can't
+# resolve during EXPLAIN (see contains()).
 
 
 @pxt.uda
@@ -91,7 +201,7 @@ def list_iterator(
         **kwargs: One or more lists to iterate over. The kwarg names will be used as column names in the output.
             Cannot be specified together with `elements`.
     """
-    assert (elements is None) != (len(kwargs) == 0)
+    assert (elements is None) != (builtins.len(kwargs) == 0)
 
     if elements is not None:
         yield from elements
@@ -119,7 +229,7 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, 'list_iterator(): `mode` argument cannot be used with `elements`'
             )
-        if len(bound_args) > 1:
+        if builtins.len(bound_args) > 1:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 'list_iterator(): Cannot specify both `elements` and keyword arguments',
@@ -131,7 +241,7 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
             not isinstance(el_col_type, ts.JsonType)
             or el_col_type.type_schema is None
             or not isinstance(el_col_type.type_schema.type_spec, list)
-            or len(el_col_type.type_schema.type_spec) != 0
+            or builtins.len(el_col_type.type_schema.type_spec) != 0
         ):
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -153,7 +263,7 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
     else:  # bound_args.get('element') is None
         mode = bound_args.get('mode')
         kwargs = bound_args.get('kwargs', {})  # type: ignore[var-annotated]
-        if len(kwargs) == 0:
+        if builtins.len(kwargs) == 0:
             raise excs.RequestError(excs.ErrorCode.MISSING_REQUIRED, 'list_iterator(): No inputs provided')
 
         output_schema: dict[str, ts.ColumnType] = {}

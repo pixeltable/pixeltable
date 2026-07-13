@@ -248,10 +248,17 @@ class JsonPath(Expr):
         return JsonPath(self.anchor, elements)
 
     def __getattr__(self, name: str) -> 'Expr':
+        from pixeltable.func import FunctionRegistry
+
         assert isinstance(name, str)
-        if not self.col_type.is_json_type():
-            return super().__getattr__(name)
-        return self._append_field(name)
+        # a registered method takes precedence over field access (delegating to Expr.__getattr__); a colliding
+        # field stays reachable via subscript, e.g. path['len']
+        if (
+            self.col_type.is_json_type()
+            and FunctionRegistry.get().lookup_type_method(self.col_type.type_enum, name) is None
+        ):
+            return self._append_field(name)
+        return super().__getattr__(name)
 
     def __getitem__(self, index: object) -> 'JsonPath':
         if isinstance(index, str):

@@ -204,6 +204,10 @@
         <outline text="module|pixeltable.functions.json">
           <outline text="iter|pixeltable.functions.json.list_iterator" />
           <outline text="udf|pixeltable.functions.json.dumps" />
+          <outline text="udf|pixeltable.functions.json.len" />
+          <outline text="udf|pixeltable.functions.json.is_empty" />
+          <outline text="udf|pixeltable.functions.json.contains" />
+          <outline text="udf|pixeltable.functions.json.get" />
           <outline text="uda|pixeltable.functions.json.make_list" />
         </outline>
         <outline text="module|pixeltable.functions.math">

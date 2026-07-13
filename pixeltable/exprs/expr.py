@@ -724,10 +724,17 @@ class Expr(abc.ABC):
         """
         ex.: <img col>.rotate(60)
         """
+        from pixeltable.func import FunctionRegistry
+
         from .json_path import JsonPath
         from .method_ref import MethodRef
 
-        if self.col_type.is_json_type():
+        # A json expr exposes its fields as attributes, but a registered method of the same name takes
+        # precedence (a colliding field stays reachable via subscript, e.g. t.col['len']).
+        if (
+            self.col_type.is_json_type()
+            and FunctionRegistry.get().lookup_type_method(self.col_type.type_enum, name) is None
+        ):
             return JsonPath(self).__getattr__(name)
         else:
             method_ref = MethodRef(self, name)
@@ -756,7 +763,7 @@ class Expr(abc.ABC):
     def __len__(self) -> NoReturn:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            f'len() of a Pixeltable expression is undefined; string columns support .len(), '
+            f'len() of a Pixeltable expression is undefined; string and json columns support .len(), '
             f'row counts are t.count(): {self}',
         )
 
