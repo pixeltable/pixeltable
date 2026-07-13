@@ -150,7 +150,6 @@ class PixeltableSourceConfig(pydantic.BaseModel):
 class DatabaseRuntimeConfig(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(extra='forbid')
 
-    uri: str  # pxt://org:db
     include: list[str] | None = None
     exclude: list[str] | None = None
     pixeltable_source: PixeltableSourceConfig | None = None

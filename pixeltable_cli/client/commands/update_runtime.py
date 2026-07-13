@@ -4,6 +4,7 @@ import json
 import sys
 import time
 import urllib.request
+from pathlib import Path
 
 from ..parser import Parser
 
@@ -32,7 +33,7 @@ def run(argv: list[str]) -> None:
 
         if not args.json_output:
             print('Building runtime bundle...', end=' ', flush=True)
-        bundle_path = build_db_runtime_bundle()
+        bundle_path = build_db_runtime_bundle(Path.cwd().resolve())
         if not args.json_output:
             size_mb = bundle_path.stat().st_size / (1024 * 1024)
             print(f'done ({size_mb:.1f} MB)')

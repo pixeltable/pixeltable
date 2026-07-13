@@ -8,11 +8,9 @@ import tarfile
 import tempfile
 from pathlib import Path
 
-import toml
 from pathspec import PathSpec
 
 from pixeltable import config, metadata
-from pixeltable.config import PixeltableSourceConfig
 from pixeltable.env import Env
 
 _logger = logging.getLogger(__name__)
@@ -101,22 +99,6 @@ def __add_tarfile(tf: tarfile.TarFile, name: str, content: bytes) -> None:
     tf.addfile(info, fileobj=io.BytesIO(content))
 
 
-def _load_database_runtime_config(project_dir: Path) -> config.DatabaseRuntimeConfig | None:
-    """Read [database] config from project_dir/pixeltable.toml; fall back to Config singleton.
-
-    When project_dir is passed explicitly (e.g. in tests), the project_dir's own
-    pixeltable.toml takes precedence over the CWD-based Config singleton.
-    """
-    toml_path = project_dir / 'pixeltable.toml'
-    if toml_path.is_file():
-        raw_toml = toml.load(toml_path)
-        db_raw = raw_toml.get('pixeltable', {}).get('database')
-        if db_raw is not None:
-            return config.DatabaseRuntimeConfig.model_validate(db_raw)
-    from pixeltable.serving._config import lookup_database_runtime_config
-    return lookup_database_runtime_config()
-
-
 def build_db_runtime_bundle(project_dir: Path | None = None) -> Path:
     """Package the current project into a tarball for updating a cloud-hosted database runtime.
 
@@ -136,7 +118,9 @@ def build_db_runtime_bundle(project_dir: Path | None = None) -> Path:
     if not project_dir.is_dir():
         raise FileNotFoundError(f'Project directory does not exist: {project_dir}')
 
-    runtime_cfg = _load_database_runtime_config(project_dir)
+    from pixeltable.serving._config import lookup_database_runtime_config
+
+    runtime_cfg = lookup_database_runtime_config()
     include = runtime_cfg.include if runtime_cfg else None
     exclude = runtime_cfg.exclude if runtime_cfg else None
     pxt_source = runtime_cfg.pixeltable_source if runtime_cfg else None
@@ -159,7 +143,7 @@ def build_db_runtime_bundle(project_dir: Path | None = None) -> Path:
     effective_pxt_source = pxt_source
     if effective_pxt_source is None and conda_pxt_version is not None:
         if _is_stable_pypi_version(conda_pxt_version):
-            effective_pxt_source = PixeltableSourceConfig(version=conda_pxt_version)
+            effective_pxt_source = config.PixeltableSourceConfig(version=conda_pxt_version)
         else:
             Env.get().console_logger.warning(
                 f'Detected a local dev pixeltable build ({conda_pxt_version}) that cannot be '
