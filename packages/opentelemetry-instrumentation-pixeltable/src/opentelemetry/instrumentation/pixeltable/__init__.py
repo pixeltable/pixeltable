@@ -22,7 +22,7 @@ from opentelemetry.instrumentation.instrumentor import BaseInstrumentor  # type:
 from opentelemetry.trace import StatusCode, set_span_in_context
 
 from pixeltable import __version__, telemetry
-from pixeltable.telemetry import TelemetryEnv
+from pixeltable.telemetry import SubscriberRegistry
 
 from ._sdk import _instrument_sqlalchemy, _resolve_span_level, init, instrument_fastapi  # noqa: F401
 from .package import _instruments
@@ -123,12 +123,12 @@ class PixeltableInstrumentor(BaseInstrumentor):
         if span_level is not None:
             telemetry.set_span_level(_resolve_span_level(span_level))
         self._subscriber = _OtelSubscriber(kwargs.get('tracer_provider'), kwargs.get('meter_provider'))
-        TelemetryEnv.get().subscribe(self._subscriber)
+        SubscriberRegistry.get().subscribe(self._subscriber)
         self._install_record_factory()
 
     def _uninstrument(self, **kwargs: Any) -> None:
         if self._subscriber is not None:
-            TelemetryEnv.get().unsubscribe(self._subscriber)
+            SubscriberRegistry.get().unsubscribe(self._subscriber)
             self._subscriber = None
         self._uninstall_record_factory()
 

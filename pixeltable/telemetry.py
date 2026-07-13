@@ -3,7 +3,7 @@
 Core pixeltable reports spans (timed, nested units of work) and discrete events through this module;
 subscribers (e.g. the bridge in `opentelemetry-instrumentation-pixeltable`) translate them into a
 telemetry backend. With no subscribers registered every call is a near-free no-op, but hot loops should
-still guard with `if TelemetryEnv.get().active():` before building attribute dicts (or pass `attrs` as a
+still guard with `if telemetry.active():` before building attribute dicts (or pass `attrs` as a
 callable).
 
 Spans should cover contiguous units of real computation (a UDF call, a DB insert batch, model loading) or
@@ -80,19 +80,21 @@ class SpanHandle:
         self.pending_attrs: dict[str, Any] | None = None
 
 
+# the ambient span; a ContextVar rather than a thread-local so it propagates into asyncio tasks and
+# concurrent tasks on one thread don't see each other's spans
 _current_span: ContextVar[SpanHandle | None] = ContextVar('pxt_current_span', default=None)
 
 
-class TelemetryEnv:
-    """Process-global instrumentation state: the subscriber registry and the span-level threshold.
+class SubscriberRegistry:
+    """Process-global registry of instrumentation subscribers, plus the span-level threshold.
 
-    Singleton accessed via TelemetryEnv.get(), mirroring pixeltable.env.Env. Subscriber management lives
-    here as methods; the span-emission API (span_start/span_end/emit/span/set_span_level/...) is
-    module-level, and the ambient-span ContextVar is module-level too because it must be per-context, not
-    process-wide.
+    Singleton accessed via SubscriberRegistry.get(). Subscribers are pushed in by external callers (e.g. an
+    instrumentor), possibly before Pixeltable initializes, and cannot be re-derived, so the registry lives
+    for the lifetime of the process. The span-emission API (span_start/span_end/emit/span/active/
+    set_span_level/...) is module-level.
     """
 
-    _instance: TelemetryEnv | None = None
+    _instance: SubscriberRegistry | None = None
     # one lock guards both singleton creation and the read-modify-write mutations of _subscribers /
     # _logged_error_methods; after creation get() takes the lock-free fast path, so registration never
     # contends with it (_span_level is a plain scalar store and needs no lock)
@@ -103,16 +105,18 @@ class TelemetryEnv:
     _logged_error_methods: WeakKeyDictionary[Subscriber, set[str]]
 
     @classmethod
-    def get(cls) -> TelemetryEnv:
+    def get(cls) -> SubscriberRegistry:
         if cls._instance is not None:
             return cls._instance
         with cls._lock:
             if cls._instance is None:
-                cls._instance = TelemetryEnv()
+                cls._instance = SubscriberRegistry()
         return cls._instance
 
     def __init__(self) -> None:
-        assert self._instance is None, 'TelemetryEnv is a singleton; use TelemetryEnv.get() to access the instance'
+        assert self._instance is None, (
+            'SubscriberRegistry is a singleton; use SubscriberRegistry.get() to access the instance'
+        )
         self._subscribers = ()
         self._span_level = INFO
         self._logged_error_methods = WeakKeyDictionary()
@@ -128,9 +132,6 @@ class TelemetryEnv:
         with self._lock:
             self._subscribers = tuple(s for s in self._subscribers if s is not subscriber)
 
-    def active(self) -> bool:
-        return bool(self._subscribers)
-
     def _log_subscriber_error(self, subscriber: Subscriber, method: str, exc: Exception) -> None:
         # warn once per (subscriber, method), then drop to debug to avoid log storms from per-row failures
         with self._lock:
@@ -140,9 +141,14 @@ class TelemetryEnv:
         _logger.log(level, f'instrumentation subscriber {type(subscriber).__name__}.{method}() failed: {exc!r}')
 
 
+def active() -> bool:
+    """True if any subscriber is registered; use to guard computation that is only needed for telemetry."""
+    return len(SubscriberRegistry.get()._subscribers) > 0
+
+
 def set_span_level(level: int) -> None:
     """Set the global span emission threshold; spans with level < threshold are suppressed."""
-    TelemetryEnv.get()._span_level = level
+    SubscriberRegistry.get()._span_level = level
 
 
 def current_span() -> SpanHandle | None:
@@ -175,7 +181,7 @@ def span_start(
     on the same thread/context; use capture_context()/restore_context()/exit_context() for explicit
     thread handoffs.
     """
-    env = TelemetryEnv.get()
+    env = SubscriberRegistry.get()
     subs = env._subscribers
     if not subs:
         return None
@@ -221,14 +227,14 @@ def span_end(handle: SpanHandle | None, *, exc: BaseException | None = None, att
         try:
             s.on_span_end(token, exc, attrs)
         except Exception as e:
-            TelemetryEnv.get()._log_subscriber_error(s, 'on_span_end', e)
+            SubscriberRegistry.get()._log_subscriber_error(s, 'on_span_end', e)
 
 
 def add_attrs(handle: SpanHandle | None, **attrs: Any) -> None:
     """Attach attrs ('pxt.'-prefixed, None values skipped) to be reported when the span ends.
 
     Argument computation is eager; call sites should guard with `if handle is not None:` (or
-    `TelemetryEnv.get().active()`) when the values are expensive to produce.
+    `telemetry.active()`) when the values are expensive to produce.
     """
     if not isinstance(handle, SpanHandle):
         return
@@ -239,7 +245,7 @@ def add_attrs(handle: SpanHandle | None, **attrs: Any) -> None:
 
 def emit(name: str, attrs: HookAttrs = None) -> None:
     """Report a discrete event (e.g. a counter increment) to all subscribers."""
-    subs = TelemetryEnv.get()._subscribers
+    subs = SubscriberRegistry.get()._subscribers
     if not subs:
         return
     attrs = _resolve_attrs(attrs)
@@ -247,7 +253,7 @@ def emit(name: str, attrs: HookAttrs = None) -> None:
         try:
             s.on_event(name, attrs)
         except Exception as e:
-            TelemetryEnv.get()._log_subscriber_error(s, 'on_event', e)
+            SubscriberRegistry.get()._log_subscriber_error(s, 'on_event', e)
 
 
 @contextlib.contextmanager
@@ -258,7 +264,7 @@ def span(
 
     Keyword attrs get a 'pxt.' prefix; None values are skipped.
     """
-    if not TelemetryEnv.get()._subscribers:
+    if not SubscriberRegistry.get()._subscribers:
         yield None
         return
     handle = span_start(
@@ -291,7 +297,7 @@ _CtxToken = tuple[CtxSnapshot, Token[SpanHandle | None], tuple[Any, ...]]
 
 def capture_context() -> CtxSnapshot | None:
     """Snapshot the ambient instrumentation state; call on the spawning thread."""
-    subs = TelemetryEnv.get()._subscribers
+    subs = SubscriberRegistry.get()._subscribers
     if not subs:
         return None
     sub_ctxs: list[Any] = []
@@ -299,7 +305,7 @@ def capture_context() -> CtxSnapshot | None:
         try:
             sub_ctxs.append(s.capture_context())
         except Exception as e:
-            TelemetryEnv.get()._log_subscriber_error(s, 'capture_context', e)
+            SubscriberRegistry.get()._log_subscriber_error(s, 'capture_context', e)
             sub_ctxs.append(None)
     return CtxSnapshot(subs, _current_span.get(), tuple(sub_ctxs))
 
@@ -314,7 +320,7 @@ def restore_context(snapshot: CtxSnapshot | None) -> _CtxToken | None:
         try:
             sub_tokens.append(s.restore_context(ctx))
         except Exception as e:
-            TelemetryEnv.get()._log_subscriber_error(s, 'restore_context', e)
+            SubscriberRegistry.get()._log_subscriber_error(s, 'restore_context', e)
             sub_tokens.append(None)
     return (snapshot, cv_token, tuple(sub_tokens))
 
@@ -327,7 +333,7 @@ def exit_context(token: _CtxToken | None) -> None:
         try:
             s.exit_context(t)
         except Exception as e:
-            TelemetryEnv.get()._log_subscriber_error(s, 'exit_context', e)
+            SubscriberRegistry.get()._log_subscriber_error(s, 'exit_context', e)
     try:
         _current_span.reset(cv_token)
     except Exception as e:

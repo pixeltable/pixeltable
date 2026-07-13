@@ -2,7 +2,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import telemetry
-from pixeltable.telemetry import TelemetryEnv
+from pixeltable.telemetry import SubscriberRegistry
 
 from .test_telemetry import RecordingSubscriber
 from .utils import pxt_raises
@@ -31,7 +31,7 @@ class TestInsertTracing:
 
     def test_row_and_udf_spans_nest(self, uses_db: None) -> None:
         sub = RecordingSubscriber()
-        TelemetryEnv.get().subscribe(sub)
+        SubscriberRegistry.get().subscribe(sub)
         telemetry.set_span_level(telemetry.DEBUG)
         try:
             t = self._make_table()
@@ -49,12 +49,12 @@ class TestInsertTracing:
             assert all(u['set_current'] for u in udfs)  # provider instrumentors must nest under the UDF span
             assert all(s['ended'] for s in sub.spans)
         finally:
-            TelemetryEnv.get().unsubscribe(sub)
+            SubscriberRegistry.get().unsubscribe(sub)
             telemetry.set_span_level(telemetry.INFO)
 
     def test_debug_off_suppresses_row_and_udf_spans(self, uses_db: None) -> None:
         sub = RecordingSubscriber()
-        TelemetryEnv.get().subscribe(sub)
+        SubscriberRegistry.get().subscribe(sub)
         telemetry.set_span_level(telemetry.INFO)  # default: row/udf-cell spans are DEBUG, so suppressed
         try:
             t = self._make_table()
@@ -64,11 +64,11 @@ class TestInsertTracing:
             assert [s for s in sub.spans if s['name'] == 'pixeltable.row'] == []
             assert [s for s in sub.spans if s['name'].startswith('pixeltable.udf.')] == []
         finally:
-            TelemetryEnv.get().unsubscribe(sub)
+            SubscriberRegistry.get().unsubscribe(sub)
 
     def test_row_span_cap(self, uses_db: None) -> None:
         sub = RecordingSubscriber()
-        TelemetryEnv.get().subscribe(sub)
+        SubscriberRegistry.get().subscribe(sub)
         telemetry.set_span_level(telemetry.DEBUG)
         try:
             t = self._make_table()
@@ -77,14 +77,14 @@ class TestInsertTracing:
             rows = [s for s in sub.spans if s['name'] == 'pixeltable.row']
             assert 0 < len(rows) <= 100  # capped by MAX_ROW_SPANS, not one per input row
         finally:
-            TelemetryEnv.get().unsubscribe(sub)
+            SubscriberRegistry.get().unsubscribe(sub)
             telemetry.set_span_level(telemetry.INFO)
 
     def test_failed_insert_records_exc(self, uses_db: None) -> None:
         t = pxt.create_table('tracing_test', {'c': pxt.Int}, if_exists='replace')
         t.add_computed_column(out=fail_on_three(t.c))
         sub = RecordingSubscriber()
-        TelemetryEnv.get().subscribe(sub)
+        SubscriberRegistry.get().subscribe(sub)
         try:
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='ValueError'):
                 t.insert([{'c': i} for i in range(10)])
@@ -92,14 +92,14 @@ class TestInsertTracing:
             assert op['ended']
             assert op['exc'] is not None
         finally:
-            TelemetryEnv.get().unsubscribe(sub)
+            SubscriberRegistry.get().unsubscribe(sub)
 
     def test_failed_insert_ends_row_spans(self, uses_db: None) -> None:
         """Row spans opened before an abort must still be ended so subscribers see on_span_end()."""
         t = pxt.create_table('tracing_test', {'c': pxt.Int}, if_exists='replace')
         t.add_computed_column(out=fail_on_three(t.c))
         sub = RecordingSubscriber()
-        TelemetryEnv.get().subscribe(sub)
+        SubscriberRegistry.get().subscribe(sub)
         telemetry.set_span_level(telemetry.DEBUG)
         try:
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='ValueError'):
@@ -108,7 +108,7 @@ class TestInsertTracing:
             assert len(rows) > 0
             assert all(s['ended'] for s in sub.spans)
         finally:
-            TelemetryEnv.get().unsubscribe(sub)
+            SubscriberRegistry.get().unsubscribe(sub)
             telemetry.set_span_level(telemetry.INFO)
 
     def test_bare_query_stays_dark(self, uses_db: None) -> None:
@@ -117,7 +117,7 @@ class TestInsertTracing:
         t.insert([{'c': i} for i in range(3)])
 
         sub = RecordingSubscriber()
-        TelemetryEnv.get().subscribe(sub)
+        SubscriberRegistry.get().subscribe(sub)
         telemetry.set_span_level(telemetry.DEBUG)
         try:
             # a query computes add_one on the fly but has no operation span wrapping it
@@ -125,7 +125,7 @@ class TestInsertTracing:
             assert [s for s in sub.spans if s['name'] == 'pixeltable.row'] == []
             assert [s for s in sub.spans if s['name'].startswith('pixeltable.udf.')] == []
         finally:
-            TelemetryEnv.get().unsubscribe(sub)
+            SubscriberRegistry.get().unsubscribe(sub)
             telemetry.set_span_level(telemetry.INFO)
 
     def test_non_insert_write_stays_dark(self, uses_db: None) -> None:
@@ -134,9 +134,9 @@ class TestInsertTracing:
         t.insert([{'c': i} for i in range(3)])
 
         sub = RecordingSubscriber()
-        TelemetryEnv.get().subscribe(sub)
+        SubscriberRegistry.get().subscribe(sub)
         try:
             t.update({'c': t.c + 1})
             assert [s for s in sub.spans if s['name'] == 'pixeltable.sa.insert_rows'] == []
         finally:
-            TelemetryEnv.get().unsubscribe(sub)
+            SubscriberRegistry.get().unsubscribe(sub)

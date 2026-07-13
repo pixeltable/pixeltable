@@ -5,7 +5,7 @@ from typing import Any, Iterator
 import pytest
 
 from pixeltable import telemetry
-from pixeltable.telemetry import TelemetryEnv
+from pixeltable.telemetry import SubscriberRegistry
 
 
 class RecordingSubscriber(telemetry.Subscriber):
@@ -78,9 +78,9 @@ class RaisingSubscriber(telemetry.Subscriber):
 @pytest.fixture
 def sub() -> Iterator[RecordingSubscriber]:
     s = RecordingSubscriber()
-    TelemetryEnv.get().subscribe(s)
+    SubscriberRegistry.get().subscribe(s)
     yield s
-    TelemetryEnv.get().unsubscribe(s)
+    SubscriberRegistry.get().unsubscribe(s)
     telemetry.set_span_level(telemetry.INFO)
     # a test failing between span_start(set_current=True) and span_end would leak the ambient span into
     # subsequent tests
@@ -89,7 +89,7 @@ def sub() -> Iterator[RecordingSubscriber]:
 
 class TestHooks:
     def test_inactive_is_noop(self) -> None:
-        assert not TelemetryEnv.get().active()
+        assert not telemetry.active()
         calls: list[str] = []
 
         def attrs() -> dict[str, Any]:
@@ -107,16 +107,16 @@ class TestHooks:
 
     def test_subscribe_unsubscribe(self) -> None:
         s = RecordingSubscriber()
-        TelemetryEnv.get().subscribe(s)
-        TelemetryEnv.get().subscribe(s)  # idempotent
+        SubscriberRegistry.get().subscribe(s)
+        SubscriberRegistry.get().subscribe(s)  # idempotent
         try:
-            assert TelemetryEnv.get().active()
+            assert telemetry.active()
             handle = telemetry.span_start('a', set_current=True)
             telemetry.span_end(handle)
             assert len(s.spans) == 1
         finally:
-            TelemetryEnv.get().unsubscribe(s)
-        assert not TelemetryEnv.get().active()
+            SubscriberRegistry.get().unsubscribe(s)
+        assert not telemetry.active()
         assert telemetry.span_start('b', set_current=True) is None
         assert len(s.spans) == 1
 
@@ -190,7 +190,7 @@ class TestHooks:
 
     def test_exception_isolation(self, sub: RecordingSubscriber) -> None:
         bad = RaisingSubscriber()
-        TelemetryEnv.get().subscribe(bad)
+        SubscriberRegistry.get().subscribe(bad)
         try:
             handle = telemetry.span_start('a', set_current=True)
             telemetry.span_end(handle)
@@ -198,7 +198,7 @@ class TestHooks:
             token = telemetry.restore_context(telemetry.capture_context())
             telemetry.exit_context(token)
         finally:
-            TelemetryEnv.get().unsubscribe(bad)
+            SubscriberRegistry.get().unsubscribe(bad)
         # the well-behaved subscriber saw everything despite the raising one
         assert sub.find('a')['ended']
         assert sub.events == [('e', {'k': 1})]
@@ -206,13 +206,13 @@ class TestHooks:
     def test_late_subscriber(self, sub: RecordingSubscriber) -> None:
         op = telemetry.span_start('op', set_current=True)
         late = RecordingSubscriber()
-        TelemetryEnv.get().subscribe(late)
+        SubscriberRegistry.get().subscribe(late)
         try:
             child = telemetry.span_start('child')
             telemetry.span_end(child)
             telemetry.span_end(op)
         finally:
-            TelemetryEnv.get().unsubscribe(late)
+            SubscriberRegistry.get().unsubscribe(late)
         # the late subscriber never sees an end without a start; its child span is a root
         assert [s['name'] for s in late.spans] == ['child']
         assert late.find('child')['parent_id'] is None
@@ -282,8 +282,8 @@ class TestHooks:
             try:
                 while not stop.is_set():
                     s = RecordingSubscriber()
-                    TelemetryEnv.get().subscribe(s)
-                    TelemetryEnv.get().unsubscribe(s)
+                    SubscriberRegistry.get().subscribe(s)
+                    SubscriberRegistry.get().unsubscribe(s)
             except Exception as e:
                 errors.append(e)
 
