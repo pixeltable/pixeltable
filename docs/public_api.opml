@@ -137,6 +137,7 @@
       <!-- Built-in Functions and Operators group -->
       <outline text="group|Built-in Functions and Operators">
         <outline text="module|pixeltable.functions">
+          <outline text="func|pixeltable.functions.filter" />
           <outline text="func|pixeltable.functions.map" />
           <outline text="uda|pixeltable.functions.count" />
           <outline text="uda|pixeltable.functions.max" />
@@ -208,6 +209,15 @@
           <outline text="udf|pixeltable.functions.json.is_empty" />
           <outline text="udf|pixeltable.functions.json.contains" />
           <outline text="udf|pixeltable.functions.json.get" />
+          <outline text="udf|pixeltable.functions.json.sum" />
+          <outline text="udf|pixeltable.functions.json.min" />
+          <outline text="udf|pixeltable.functions.json.max" />
+          <outline text="udf|pixeltable.functions.json.mean" />
+          <outline text="udf|pixeltable.functions.json.count" />
+          <outline text="udf|pixeltable.functions.json.keys" />
+          <outline text="udf|pixeltable.functions.json.values" />
+          <outline text="udf|pixeltable.functions.json.items" />
+          <outline text="udf|pixeltable.functions.json.flatten" />
           <outline text="uda|pixeltable.functions.json.make_list" />
         </outline>
         <outline text="module|pixeltable.functions.math">

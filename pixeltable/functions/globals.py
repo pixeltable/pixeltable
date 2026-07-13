@@ -286,6 +286,35 @@ def map(expr: exprs.Expr, fn: Callable[[exprs.Expr], Any]) -> exprs.Expr:
     return exprs.JsonMapper(expr, target_expr)
 
 
+def filter(expr: exprs.Expr, predicate: Callable[[exprs.Expr], Any]) -> exprs.Expr:
+    """
+    Selects the elements of a list for which a predicate is true.
+
+    Args:
+        expr: The list expression to filter; must be an expression of type `pxt.Json`.
+        predicate: An operation on Pixeltable expressions that produces a boolean condition for each element of
+            the JSON array. Only elements for which the condition is true are retained.
+
+    Examples:
+        Given a table `tbl` with a column `data` of type `pxt.Json` containing lists of integers, add a computed
+        column that keeps only the positive integers of each list:
+
+        >>> tbl.add_computed_column(
+        ...     positives=pxt.functions.filter(t.data, lambda x: x > 0)
+        ... )
+    """
+    filter_expr: exprs.Expr
+    try:
+        filter_expr = exprs.Expr.from_object(predicate(exprs.json_path.RELATIVE_PATH_ROOT))
+    except Exception as e:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            'Failed to evaluate filter predicate. '
+            '(The `predicate` argument to `filter()` must produce a valid Pixeltable expression.)',
+        ) from e
+    return exprs.JsonMapper(expr, None, filter_expr=filter_expr)
+
+
 __all__ = local_public_names(__name__)
 
 

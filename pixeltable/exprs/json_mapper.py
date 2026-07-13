@@ -17,30 +17,39 @@ if TYPE_CHECKING:
 
 class JsonMapper(Expr):
     """
-    JsonMapper transforms the list output of a JsonPath by applying a target expr to every element of the list.
-    The target expr would typically contain relative JsonPaths, which are bound to an ObjectRef, which in turn
-    is populated by JsonMapper.eval(). The JsonMapper effectively creates a new scope for its target expr.
+    JsonMapper transforms the list output of a JsonPath into a new list. Every source element is optionally
+    transformed by a target expr and optionally retained or dropped according to a filter expr:
+    - with a target expr and no filter expr, this is a map: every element is transformed
+    - with a filter expr and no target expr, this is a filter: only the elements for which the filter expr is
+      truthy are retained, unchanged
+    - the two can be combined, and both can be omitted (in which case the source list is reproduced as-is)
+
+    The target and filter exprs typically contain relative JsonPaths, which are bound to an ObjectRef that is
+    populated with the current source element. The JsonMapper effectively creates a new scope for them.
 
     JsonMapper is executed in two phases:
     - the first phase is handled by Expr subclass JsonMapperDispatch, which constructs one nested DataRow per source
-      list element and evaluates the target expr within that (the nested DataRows are stored as a NestedRowList in the
-      slot of JsonMapperDispatch)
-    - JsonMapper.eval() collects the slot values of the target expr into its result list
+      list element and evaluates the target and filter exprs within that (the nested DataRows are stored as a
+      NestedRowList in the slot of JsonMapperDispatch)
+    - JsonMapper.eval() collects the per-element value of every nested row that passes the filter expr into its
+      result list
     """
 
     target_expr_scope: ExprScope
     parent_mapper: JsonMapper | None
     target_expr_eval_ctx: RowBuilder.EvalCtx | None
 
-    def __init__(self, src_expr: Expr | None, target_expr: Expr | None):
+    def __init__(self, src_expr: Expr | None, target_expr: Expr | None, filter_expr: Expr | None = None):
         # TODO: type spec should be list[target_expr.col_type]
         super().__init__(ts.JsonType())
 
-        dispatch = JsonMapperDispatch(src_expr, target_expr)
+        dispatch = JsonMapperDispatch(src_expr, target_expr, filter_expr)
         self.components.append(dispatch)
         self.id = self._create_id()
 
     def __repr__(self) -> str:
+        if self._target_expr is None:
+            return f'filter({self._src_expr}, lambda R: {self._filter_expr})'
         return f'map({self._src_expr}, lambda R: {self._target_expr})'
 
     @property
@@ -48,8 +57,12 @@ class JsonMapper(Expr):
         return self.components[0].src_expr
 
     @property
-    def _target_expr(self) -> Expr:
+    def _target_expr(self) -> Expr | None:
         return self.components[0].target_expr
+
+    @property
+    def _filter_expr(self) -> Expr | None:
+        return self.components[0].filter_expr
 
     def _equals(self, _: JsonMapper) -> bool:
         return True
@@ -66,26 +79,47 @@ class JsonMapper(Expr):
             data_row[self.slot_idx] = None
             return
         assert isinstance(nested_rows, NestedRowList)
-        # TODO: get the materialized slot idx, instead of relying on the fact that the target_expr is always at the end
-        data_row[self.slot_idx] = [row.vals[-1] for row in nested_rows.rows]
+        value_slot = nested_rows.value_slot_idx
+        filter_slot = nested_rows.filter_slot_idx
+        data_row[self.slot_idx] = [
+            row.vals[value_slot] for row in nested_rows.rows if filter_slot is None or row.vals[filter_slot]
+        ]
 
     def _as_dict(self) -> dict:
         """
-        We only serialize src and target exprs, everything else is re-created at runtime.
+        We only serialize src, target and filter exprs, everything else is re-created at runtime.
+        The components are src_expr, followed by target_expr (if present), followed by filter_expr (if present).
         """
-        return {'components': [self._src_expr.as_dict(), self._target_expr.as_dict()]}
+        components = [self._src_expr.as_dict()]
+        if self._target_expr is not None:
+            components.append(self._target_expr.as_dict())
+        if self._filter_expr is not None:
+            components.append(self._filter_expr.as_dict())
+        return {
+            'has_target': self._target_expr is not None,
+            'has_filter': self._filter_expr is not None,
+            'components': components,
+        }
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> JsonMapper:
-        assert len(components) == 2
-        src_expr, target_expr = components[0], components[1]
-        return cls(src_expr, target_expr)
+        src_expr = components[0]
+        idx = 1
+        target_expr: Expr | None = None
+        if d['has_target']:
+            target_expr = components[idx]
+            idx += 1
+        filter_expr: Expr | None = None
+        if d['has_filter']:
+            filter_expr = components[idx]
+        return cls(src_expr, target_expr, filter_expr)
 
 
 class JsonMapperDispatch(Expr):
     """
     An operational Expr (ie, it doesn't represent any syntactic element) that is used by JsonMapper to materialize
-    its input DataRows. It has the same dependencies as the originating JsonMapper.
+    the nested DataRows in which the target and filter exprs are evaluated. It has the same dependencies as the
+    originating JsonMapper.
 
     - The execution (= row dispatch) is handled by an expr_eval.Evaluator (JsonMapperDispatcher).
     - It stores a NestedRowList instance in its slot.
@@ -94,8 +128,10 @@ class JsonMapperDispatch(Expr):
     target_expr_scope: ExprScope
     parent_mapper: JsonMapperDispatch | None
     target_expr_eval_ctx: RowBuilder.EvalCtx | None
+    has_target: bool
+    has_filter: bool
 
-    def __init__(self, src_expr: Expr, target_expr: Expr):
+    def __init__(self, src_expr: Expr, target_expr: Expr | None, filter_expr: Expr | None):
         super().__init__(ts.InvalidType())
 
         # we're creating a new scope, but we don't know yet whether this is nested within another JsonMapper;
@@ -104,12 +140,18 @@ class JsonMapperDispatch(Expr):
 
         from .object_ref import ObjectRef
 
-        self.components = [src_expr, target_expr]
+        self.has_target = target_expr is not None
+        self.has_filter = filter_expr is not None
+        self.components = [src_expr]
+        if target_expr is not None:
+            self.components.append(target_expr)
+        if filter_expr is not None:
+            self.components.append(filter_expr)
         self.parent_mapper = None
         self.target_expr_eval_ctx = None
 
         # Intentionally create the id now, before adding the scope anchor; this ensures that JsonMapperDispatch
-        # instances will be recognized as equal so long as they have the same src_expr and target_expr.
+        # instances will be recognized as equal so long as they have the same src, target and filter exprs.
         # TODO: Might this cause problems after certain substitutions?
         self.id = self._create_id()
 
@@ -118,7 +160,10 @@ class JsonMapperDispatch(Expr):
 
     def _bind_rel_paths(self, mapper: JsonMapperDispatch | None = None) -> None:
         self.src_expr._bind_rel_paths(mapper)
-        self.target_expr._bind_rel_paths(self)
+        if self.target_expr is not None:
+            self.target_expr._bind_rel_paths(self)
+        if self.filter_expr is not None:
+            self.filter_expr._bind_rel_paths(self)
         self.parent_mapper = mapper
         parent_scope = _GLOBAL_SCOPE if mapper is None else mapper.target_expr_scope
         self.target_expr_scope.parent = parent_scope
@@ -129,15 +174,24 @@ class JsonMapperDispatch(Expr):
         """
         if type(self) is not type(other):
             return False
-        return self.src_expr.equals(other.src_expr) and self.target_expr.equals(other.target_expr)
+        assert isinstance(other, JsonMapperDispatch)
+        if self.has_target != other.has_target or self.has_filter != other.has_filter:
+            return False
+        if not self.src_expr.equals(other.src_expr):
+            return False
+        if self.target_expr is not None and not self.target_expr.equals(other.target_expr):
+            return False
+        return self.filter_expr is None or self.filter_expr.equals(other.filter_expr)
 
     def scope(self) -> ExprScope:
-        # need to ignore target_expr
+        # need to ignore target_expr and filter_expr
         return self.src_expr.scope()
 
     def dependencies(self) -> list[Expr]:
         result = [self.src_expr]
-        result.extend(self._target_dependencies(self.target_expr))
+        scoped_exprs = [e for e in (self.target_expr, self.filter_expr) if e is not None]
+        for e in scoped_exprs:
+            result.extend(self._target_dependencies(e))
         return result
 
     def _target_dependencies(self, e: Expr) -> list[Expr]:
@@ -158,14 +212,20 @@ class JsonMapperDispatch(Expr):
         return self.components[0]
 
     @property
-    def target_expr(self) -> Expr:
-        return self.components[1]
+    def target_expr(self) -> Expr | None:
+        return self.components[1] if self.has_target else None
+
+    @property
+    def filter_expr(self) -> Expr | None:
+        if not self.has_filter:
+            return None
+        return self.components[2] if self.has_target else self.components[1]
 
     @property
     def scope_anchor(self) -> 'ObjectRef':
         from .object_ref import ObjectRef
 
-        result = self.components[2]
+        result = self.components[-1]
         assert isinstance(result, ObjectRef)
         return result
 

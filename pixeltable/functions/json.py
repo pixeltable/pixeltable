@@ -66,7 +66,7 @@ def len(self: pxt.Json) -> int:
     """
     if isinstance(self, (list, dict, str)):
         return builtins.len(self)
-    raise excs.Error(excs.ErrorCode.INVALID_ARGUMENT, f'len() is not defined for a JSON {type(self).__name__}')
+    raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'len() is not defined for a JSON {type(self).__name__}')
 
 
 @len.to_sql
@@ -147,8 +147,228 @@ def get(self: pxt.Json | None, key: str, default: pxt.Json | None = None) -> pxt
     return default
 
 
-# TODO: add a to_sql for get(). The jsonb `default` parameter binds as an untyped literal that Postgres can't
+@get.conditional_return_type
+def _(self: exprs.Expr, key: str) -> ts.ColumnType:
+    schema = self.col_type.type_schema if isinstance(self.col_type, ts.JsonType) else None
+    if schema is not None and isinstance(schema.type_spec, dict) and key in schema.type_spec:
+        return schema.type_spec[key].copy(nullable=True)
+    return ts.JsonType(nullable=True)
+
+
+# TODO: add a to_sql for get(). The jsonb default parameter binds as an untyped literal that Postgres can't
 # resolve during EXPLAIN (see contains()).
+
+
+def _require_number_array(arr: Any, fn_name: str) -> list:
+    if not isinstance(arr, list) or builtins.any(not isinstance(x, (int, float)) or isinstance(x, bool) for x in arr):
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, f'{fn_name}() is only defined for a JSON array of numbers'
+        )
+    return arr
+
+
+@pxt.udf(is_method=True)
+def sum(self: pxt.Json) -> float:
+    """
+    Return the sum of the numbers in a JSON array (0 for an empty array).
+
+    Example:
+
+        >>> t.select(t.detections.scores.sum()).collect()
+    """
+    return float(builtins.sum(_require_number_array(self, 'sum')))
+
+
+def _number_array_agg(self: sql.ColumnElement, agg_fn: Any, empty_value: int | None = None) -> sql.ColumnElement:
+    """
+    SQL for a numeric aggregate over a jsonb array; a non-array reuses jsonb_array_length's native error.
+
+    For agg_fn=min, this produces:
+
+        CASE WHEN jsonb_typeof(self) = 'array'
+             THEN (SELECT min(e::numeric) FROM jsonb_array_elements(self) AS e)
+             ELSE jsonb_array_length(self)
+        END
+
+    When empty_value is given (eg, 0 for sum), the subquery is wrapped in coalesce(..., empty_value) so that
+    an empty array yields empty_value rather than null.
+    """
+    elem = sql.func.jsonb_array_elements(self).column_valued('e')
+    agg: sql.ColumnElement = sql.select(agg_fn(elem.cast(sql.Numeric))).scalar_subquery()
+    if empty_value is not None:
+        agg = sql.func.coalesce(agg, empty_value)
+    return sql.case((sql.func.jsonb_typeof(self) == 'array', agg), else_=sql.func.jsonb_array_length(self))
+
+
+@sum.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return _number_array_agg(self, sql.func.sum, empty_value=0)
+
+
+@pxt.udf(is_method=True)
+def min(self: pxt.Json) -> float:
+    """
+    Return the smallest number in a JSON array, or `null` if the array is empty.
+
+    Example:
+
+        >>> t.select(t.detections.scores.min()).collect()
+    """
+    nums = _require_number_array(self, 'min')
+    return float(builtins.min(nums)) if builtins.len(nums) > 0 else None
+
+
+@min.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return _number_array_agg(self, sql.func.min)
+
+
+@pxt.udf(is_method=True)
+def max(self: pxt.Json) -> float:
+    """
+    Return the largest number in a JSON array, or `null` if the array is empty.
+
+    Example:
+
+        >>> t.select(t.detections.scores.max()).collect()
+    """
+    nums = _require_number_array(self, 'max')
+    return float(builtins.max(nums)) if builtins.len(nums) > 0 else None
+
+
+@max.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return _number_array_agg(self, sql.func.max)
+
+
+@pxt.udf(is_method=True)
+def mean(self: pxt.Json) -> float:
+    """
+    Return the arithmetic mean of the numbers in a JSON array, or `null` if the array is empty.
+
+    Example:
+
+        >>> t.select(t.detections.scores.mean()).collect()
+    """
+    nums = _require_number_array(self, 'mean')
+    return builtins.sum(nums) / builtins.len(nums) if builtins.len(nums) > 0 else None
+
+
+@mean.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return _number_array_agg(self, sql.func.avg)
+
+
+@pxt.udf(is_method=True)
+def count(self: pxt.Json, value: pxt.Json) -> int:
+    """
+    Return the number of times `value` occurs in a JSON array.
+
+    Example:
+
+        >>> t.select(t.detections.labels.count('person')).collect()
+    """
+    if isinstance(self, list):
+        return self.count(value)
+    raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'count() is only defined for a JSON array')
+
+
+@pxt.udf(is_method=True)
+def keys(self: pxt.Json) -> list[str]:
+    """
+    Return the keys of a JSON object. `keys()`, `values()`, and `items()` share the same ordering.
+
+    Example:
+
+        >>> t.select(t.metadata.keys()).collect()
+    """
+    if isinstance(self, dict):
+        return builtins.list(self.keys())
+    raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'keys() is only defined for a JSON object')
+
+
+@pxt.udf(is_method=True)
+def values(self: pxt.Json) -> pxt.Json:
+    """
+    Return the values of a JSON object. `keys()`, `values()`, and `items()` share the same ordering.
+
+    Example:
+
+        >>> t.select(t.metadata.values()).collect()
+    """
+    if isinstance(self, dict):
+        return builtins.list(self.values())
+    raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'values() is only defined for a JSON object')
+
+
+@values.conditional_return_type
+def _(self: exprs.Expr) -> ts.ColumnType:
+    # jsonb does not preserve key order, so the values can't be typed as an ordered tuple; use a variadic list
+    # of the common supertype of the value types instead
+    schema = self.col_type.type_schema if isinstance(self.col_type, ts.JsonType) else None
+    if schema is not None and isinstance(schema.type_spec, dict) and builtins.len(schema.type_spec) > 0:
+        supertype = ts.ColumnType.common_supertype(schema.type_spec.values())
+        if supertype is not None:
+            return ts.JsonType(ts.JsonType.TypeSchema([], variadic_type=supertype), nullable=True)
+    return ts.JsonType(nullable=True)
+
+
+@pxt.udf(is_method=True)
+def items(self: pxt.Json) -> pxt.Json:
+    """
+    Return the `[key, value]` pairs of a JSON object as a list. `keys()`, `values()`, and `items()` share the
+    same ordering.
+
+    Example:
+
+        >>> t.select(t.metadata.items()).collect()
+    """
+    if isinstance(self, dict):
+        return [[k, v] for k, v in self.items()]
+    raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'items() is only defined for a JSON object')
+
+
+@pxt.udf(is_method=True)
+def flatten(self: pxt.Json) -> pxt.Json:
+    """
+    Concatenate the elements of a JSON array one level deep; non-array elements are kept as-is.
+
+    Example:
+
+        >>> t.select(t.chunks.flatten()).collect()
+    """
+    if not isinstance(self, list):
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'flatten() is only defined for a JSON array')
+    result: list = []
+    for x in self:
+        if isinstance(x, list):
+            result.extend(x)
+        else:
+            result.append(x)
+    return result
+
+
+def _variadic_element_type(col_type: ts.ColumnType) -> ts.ColumnType | None:
+    """The element type of a variadic-list JsonType (Json[[T]]), or None if `ct` isn't one."""
+    if isinstance(col_type, ts.JsonType) and col_type.type_schema is not None:
+        schema = col_type.type_schema
+        if (
+            isinstance(schema.type_spec, list)
+            and builtins.len(schema.type_spec) == 0
+            and schema.variadic_type is not None
+        ):
+            return schema.variadic_type
+    return None
+
+
+@flatten.conditional_return_type
+def _(self: exprs.Expr) -> ts.ColumnType:
+    # Json[[[T]]] (a variadic list of variadic lists) flattens one level to Json[[T]]
+    outer_element = _variadic_element_type(self.col_type)
+    inner_element = _variadic_element_type(outer_element) if outer_element is not None else None
+    if inner_element is not None:
+        return ts.JsonType(ts.JsonType.TypeSchema([], variadic_type=inner_element), nullable=True)
+    return ts.JsonType(nullable=True)
 
 
 @pxt.uda

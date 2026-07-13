@@ -102,22 +102,36 @@ class TestJson:
         )
 
         # len: array elements, object keys, string characters; null -> null
-        res = {r['id']: r['n'] for r in t.select(t.id, t.j, n=t.j.len()).collect()}
-        assert res == {1: 3, 2: 0, 3: 2, 4: 0, 5: 5, 6: 0, 7: None}
-        # SQL pushdown in a filter (no list materialization)
+        rs = t.select(t.id, t.j, n=t.j.len()).collect()
+        assert rs.schema['n'] == 'Int'
+        assert {r['id']: r['n'] for r in rs} == {1: 3, 2: 0, 3: 2, 4: 0, 5: 5, 6: 0, 7: None}
+        # SQL pushdown in a filter exercises the array, object and string cases of the to_sql translation
         assert sorted(r['id'] for r in t.where(t.j.len() > 0).select(t.id).collect()) == [1, 3, 5]
 
         # is_empty: null and empty arrays/objects/strings are empty; numbers/booleans are not
-        res = {r['id']: r['e'] for r in t.select(t.id, t.j, e=t.j.is_empty()).collect()}
-        assert res == {1: False, 2: True, 3: False, 4: True, 5: False, 6: True, 7: True}
+        rs = t.select(t.id, t.j, e=t.j.is_empty()).collect()
+        assert rs.schema['e'] == 'Required[Bool]'
+        assert {r['id']: r['e'] for r in rs} == {1: False, 2: True, 3: False, 4: True, 5: False, 6: True, 7: True}
         assert sorted(r['id'] for r in t.where(t.j.is_empty()).select(t.id).collect()) == [2, 4, 6, 7]
 
-        # len() of a number is undefined (raises via the pushed-down scalar case)
-        ts = pxt.create_table('json_len_scalar', {'j': pxt.Json})
-        ts.insert([{'j': 5}])
+        # map() evaluates the function per element in Python (no SQL pushdown in a nested scope)
+        tm = pxt.create_table('json_len_map', {'sized': pxt.Json, 'mixed': pxt.Json})
+        tm.insert([{'sized': [[1, 2, 3], 'ab', {'a': 1}, [], {}, ''], 'mixed': [[1], [], 'x', '', 0, None]}])
+        rs = tm.select(o=pxtf.map(tm.sized, lambda x: x.len())).collect()
+        assert rs.schema['o'] == 'Required[Json]'
+        assert [r['o'] for r in rs] == [[3, 2, 1, 0, 0, 0]]
+        rs = tm.select(o=pxtf.map(tm.mixed, lambda x: x.is_empty())).collect()
+        assert rs.schema['o'] == 'Required[Json]'
+        assert [r['o'] for r in rs] == [[False, True, False, True, False, True]]
+
+        # len() of a number is undefined; it raises cleanly in Python and as a raw DB error when pushed down
+        tnum = pxt.create_table('json_len_num', {'scalar': pxt.Json, 'lst': pxt.Json})
+        tnum.insert([{'scalar': 5, 'lst': [5]}])
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='not defined for a JSON'):
+            tnum.select(o=pxtf.map(tnum.lst, lambda x: x.len())).collect()
         # TODO: the pushed-down scalar error surfaces as a raw DB error, not a clean pxt.Error; wrap it.
         with pytest.raises(Exception, match='scalar'):
-            ts.select(ts.j, n=ts.j.len()).collect()
+            tnum.select(tnum.scalar, n=tnum.scalar.len()).collect()
 
         # TODO: selecting a pushed-down json function without also selecting the source column fails, because the
         # column's slot is never materialized (cell-reconstruction bug); re-enable once fixed.
@@ -134,8 +148,9 @@ class TestJson:
                 {'id': 5, 'j': None},
             ]
         )
-        res = {r['id']: r['c'] for r in t.select(t.id, t.j, c=t.j.contains('person')).collect()}
-        assert res == {1: True, 2: False, 3: True, 4: False, 5: None}
+        rs = t.select(t.id, t.j, c=t.j.contains('person')).collect()
+        assert rs.schema['c'] == 'Bool'
+        assert {r['id']: r['c'] for r in rs} == {1: True, 2: False, 3: True, 4: False, 5: None}
         assert sorted(r['id'] for r in t.where(t.j.contains('person')).select(t.id).collect()) == [1, 3]
 
     def test_get(self, uses_db: None) -> None:
@@ -148,11 +163,160 @@ class TestJson:
                 {'id': 4, 'j': None},  # null -> default
             ]
         )
-        res = {r['id']: r['a'] for r in t.select(t.id, t.j, a=t.j.get('author', default='unknown')).collect()}
-        assert res == {1: 'alice', 2: 'unknown', 3: 'unknown', 4: 'unknown'}
+        rs = t.select(t.id, t.j, a=t.j.get('author', default='unknown')).collect()
+        assert rs.schema['a'] == 'Json'  # untyped input
+        assert {r['id']: r['a'] for r in rs} == {1: 'alice', 2: 'unknown', 3: 'unknown', 4: 'unknown'}
         # default is None when unspecified
-        res = {r['id']: r['a'] for r in t.select(t.id, t.j, a=t.j.get('author')).collect()}
-        assert res == {1: 'alice', 2: None, 3: None, 4: None}
+        rs = t.select(t.id, t.j, a=t.j.get('author')).collect()
+        assert rs.schema['a'] == 'Json'
+        assert {r['id']: r['a'] for r in rs} == {1: 'alice', 2: None, 3: None, 4: None}
+
+        # return type: a literal key resolves against a typed object schema; a missing key, a non-object schema
+        # and an untyped input all fall back to Json
+        td = pxt.create_table(
+            'json_get_typed', {'d': pxt.Json[{'scores': pxt.Json[[float]]}], 'lst': pxt.Json[[int]], 'raw': pxt.Json}
+        )
+        td.insert([{'d': {'scores': [0.1, 0.9]}, 'lst': [10, 20], 'raw': {'x': 7}}])
+        rs = td.select(
+            hit=td.d.get('scores'), miss=td.d.get('nope'), non_dict=td.lst.get('x'), untyped=td.raw.get('x')
+        ).collect()
+        assert rs.schema == {'hit': 'Json[(Float, ...)]', 'miss': 'Json', 'non_dict': 'Json', 'untyped': 'Json'}
+        assert {k: rs[0][k] for k in ('hit', 'miss', 'non_dict', 'untyped')} == {
+            'hit': [0.1, 0.9],
+            'miss': None,
+            'non_dict': None,
+            'untyped': 7,
+        }
+        # the resolved element type chains into a downstream numeric reduction
+        rs = td.select(m=td.d.get('scores').mean()).collect()
+        assert rs.schema['m'] == 'Float'
+        assert rs[0]['m'] == 0.5
+
+    def test_numeric_agg(self, uses_db: None) -> None:
+        t = pxt.create_table('json_reduce', {'id': pxt.Int, 'j': pxt.Json})
+        t.insert(
+            [
+                {'id': 1, 'j': [3, 1, 2]},
+                {'id': 2, 'j': [1.5, 2.5]},
+                {'id': 3, 'j': []},  # empty: sum 0, others null
+                {'id': 4, 'j': None},  # null -> null
+            ]
+        )
+        rs = t.select(t.id, t.j, o=t.j.sum()).collect()
+        assert rs.schema['o'] == 'Float'
+        assert {r['id']: r['o'] for r in rs} == {1: 6.0, 2: 4.0, 3: 0.0, 4: None}
+        rs = t.select(t.id, t.j, o=t.j.min()).collect()
+        assert rs.schema['o'] == 'Float'
+        assert {r['id']: r['o'] for r in rs} == {1: 1.0, 2: 1.5, 3: None, 4: None}
+        rs = t.select(t.id, t.j, o=t.j.max()).collect()
+        assert rs.schema['o'] == 'Float'
+        assert {r['id']: r['o'] for r in rs} == {1: 3.0, 2: 2.5, 3: None, 4: None}
+        rs = t.select(t.id, t.j, o=t.j.mean()).collect()
+        assert rs.schema['o'] == 'Float'
+        assert {r['id']: r['o'] for r in rs} == {1: 2.0, 2: 2.0, 3: None, 4: None}
+
+        # SQL pushdown in a filter exercises each aggregate's to_sql translation
+        assert sorted(r['id'] for r in t.where(t.j.sum() > 4).select(t.id).collect()) == [1]
+        assert sorted(r['id'] for r in t.where(t.j.min() < 1.5).select(t.id).collect()) == [1]
+        assert sorted(r['id'] for r in t.where(t.j.max() > 2.5).select(t.id).collect()) == [1]
+        assert sorted(r['id'] for r in t.where(t.j.mean() >= 2.0).select(t.id).collect()) == [1, 2]
+
+        # map() evaluates the aggregates per element in Python, including the empty-array cases
+        tm = pxt.create_table('json_reduce_map', {'rows': pxt.Json})
+        tm.insert([{'rows': [[3, 1, 2], [1.5, 2.5], []]}])
+        for agg, expected in (
+            (lambda x: x.sum(), [6.0, 4.0, 0.0]),
+            (lambda x: x.min(), [1.0, 1.5, None]),
+            (lambda x: x.max(), [3.0, 2.5, None]),
+            (lambda x: x.mean(), [2.0, 2.0, None]),
+        ):
+            rs = tm.select(o=pxtf.map(tm.rows, agg)).collect()
+            assert rs.schema['o'] == 'Required[Json]'
+            assert [r['o'] for r in rs] == [expected]
+
+        # not defined for a non-numeric array: the Python body raises a clean error, while the pushed-down form
+        # surfaces a raw DB cast error (TODO'd in json.py)
+        ts = pxt.create_table('json_reduce_err', {'rows': pxt.Json, 'j': pxt.Json})
+        ts.insert([{'rows': [['a', 'b']], 'j': ['a', 'b']}])
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='array of numbers'):
+            ts.select(o=pxtf.map(ts.rows, lambda x: x.mean())).collect()
+        with pytest.raises(Exception, match='numeric'):
+            ts.select(ts.j, o=ts.j.mean()).collect()
+
+    def test_count(self, uses_db: None) -> None:
+        t = pxt.create_table('json_count', {'id': pxt.Int, 'j': pxt.Json})
+        t.insert([{'id': 1, 'j': ['a', 'b', 'a', 'a']}, {'id': 2, 'j': []}, {'id': 3, 'j': None}])
+        rs = t.select(t.id, t.j, o=t.j.count('a')).collect()
+        assert rs.schema['o'] == 'Int'
+        assert {r['id']: r['o'] for r in rs} == {1: 3, 2: 0, 3: None}
+        # count() is only defined for an array
+        te = pxt.create_table('json_count_err', {'j': pxt.Json})
+        te.insert([{'j': {'a': 1}}])
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='JSON array'):
+            te.select(te.j, o=te.j.count('a')).collect()
+
+    def test_object_accessors(self, uses_db: None) -> None:
+        t = pxt.create_table('json_obj', {'id': pxt.Int, 'j': pxt.Json})
+        t.insert([{'id': 1, 'j': {'a': 1, 'b': 2}}, {'id': 2, 'j': {}}, {'id': 3, 'j': None}])
+        rs = t.select(t.id, t.j, o=t.j.keys()).collect()
+        assert rs.schema['o'] == 'Json[(String, ...)]'  # keys are always strings
+        assert {r['id']: r['o'] for r in rs} == {1: ['a', 'b'], 2: [], 3: None}
+        rs = t.select(t.id, t.j, o=t.j.values()).collect()
+        assert rs.schema['o'] == 'Json'  # untyped input: value types are unknown
+        assert {r['id']: r['o'] for r in rs} == {1: [1, 2], 2: [], 3: None}
+        rs = t.select(t.id, t.j, o=t.j.items()).collect()
+        assert rs.schema['o'] == 'Json'  # items() never carries key/value type information
+        assert {r['id']: r['o'] for r in rs} == {1: [['a', 1], ['b', 2]], 2: [], 3: None}
+
+        # values() over a typed object schema: the common supertype of the value types for a homogeneous object,
+        # Json when the value types have no common supertype
+        tv = pxt.create_table(
+            'json_values_typed',
+            {'homog': pxt.Json[{'a': pxt.Int, 'b': pxt.Int}], 'hetero': pxt.Json[{'a': pxt.Int, 'b': pxt.String}]},
+        )
+        tv.insert([{'homog': {'a': 1, 'b': 2}, 'hetero': {'a': 1, 'b': 'x'}}])
+        rs = tv.select(homog=tv.homog.values(), hetero=tv.hetero.values()).collect()
+        assert rs.schema == {'homog': 'Json[(Int, ...)]', 'hetero': 'Json[(Json, ...)]'}
+        assert rs[0]['homog'] == [1, 2]
+        assert rs[0]['hetero'] == [1, 'x']
+
+        # keys(), values() and items() are only defined for an object
+        te = pxt.create_table('json_obj_err', {'j': pxt.Json})
+        te.insert([{'j': [1, 2]}])
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='JSON object'):
+            te.select(te.j, o=te.j.keys()).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='JSON object'):
+            te.select(te.j, o=te.j.values()).collect()
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='JSON object'):
+            te.select(te.j, o=te.j.items()).collect()
+
+    def test_flatten(self, uses_db: None) -> None:
+        t = pxt.create_table('json_flatten', {'id': pxt.Int, 'j': pxt.Json})
+        t.insert(
+            [
+                {'id': 1, 'j': [[1, 2], [3], [4, 5]]},
+                {'id': 2, 'j': [[1], 2, [3]]},  # non-array elements pass through as-is
+                {'id': 3, 'j': None},
+            ]
+        )
+        rs = t.select(t.id, t.j, o=t.j.flatten()).collect()
+        assert rs.schema['o'] == 'Json'  # untyped input
+        assert {r['id']: r['o'] for r in rs} == {1: [1, 2, 3, 4, 5], 2: [1, 2, 3], 3: None}
+
+        # return type: Json[[[T]]] flattens one level to Json[[T]]; a single-level list or an untyped input
+        # flattens to Json
+        tt = pxt.create_table('json_flatten_typed', {'nested': pxt.Json[[[int]]], 'flat': pxt.Json[[int]]})
+        tt.insert([{'nested': [[1, 2], [3]], 'flat': [4, 5]}])
+        rs = tt.select(nested=tt.nested.flatten(), flat=tt.flat.flatten()).collect()
+        assert rs.schema == {'nested': 'Json[(Int, ...)]', 'flat': 'Json'}
+        assert rs[0]['nested'] == [1, 2, 3]
+        assert rs[0]['flat'] == [4, 5]
+
+        # flatten() is only defined for an array
+        te = pxt.create_table('json_flatten_err', {'j': pxt.Json})
+        te.insert([{'j': {'a': 1}}])
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='JSON array'):
+            te.select(te.j, o=te.j.flatten()).collect()
 
     @pytest.mark.very_expensive  # Downloads a Hugging Face model
     @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])

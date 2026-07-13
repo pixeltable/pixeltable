@@ -263,11 +263,15 @@ class NestedRowList:
     rows: list[exprs.DataRow]
     num_completed: int
     completion: asyncio.Event
+    value_slot_idx: int  # nested slot holding the value collected per element
+    filter_slot_idx: int | None  # nested slot holding the filter predicate, or None when there's no filter
 
-    def __init__(self, rows: list[exprs.DataRow]):
+    def __init__(self, rows: list[exprs.DataRow], value_slot_idx: int, filter_slot_idx: int | None):
         self.num_completed = 0
         self.rows = rows
         self.completion = asyncio.Event()
+        self.value_slot_idx = value_slot_idx
+        self.filter_slot_idx = filter_slot_idx
 
     def complete_row(self) -> None:
         self.num_completed += 1
@@ -283,28 +287,46 @@ class JsonMapperDispatcher(Evaluator):
     """
 
     e: exprs.JsonMapperDispatch
-    target_expr: exprs.Expr
+    target_expr: exprs.Expr | None
+    filter_expr: exprs.Expr | None
     scope_anchor: exprs.ObjectRef
     nested_eval_ctx: ExprEvalCtx  # ExprEvalCtx needed to evaluate the nested rows
     external_slot_map: dict[int, int]  # slot idx in parent row -> slot idx in nested row
-    has_async_calls: bool  # True if target_expr contains any async FunctionCalls
+    has_async_calls: bool  # True if any nested output expr contains async FunctionCalls
+    value_slot_idx: int  # nested slot holding the value collected per element
+    filter_slot_idx: int | None  # nested slot holding the filter predicate
 
     def __init__(self, e: exprs.JsonMapperDispatch, dispatcher: Dispatcher, exec_ctx: ExprEvalCtx):
         super().__init__(dispatcher, exec_ctx)
         self.e = e
-        self.target_expr = e.target_expr.copy()  # we need new slot idxs
+        # we need new slot idxs, so we operate on copies
+        self.target_expr = e.target_expr.copy() if e.target_expr is not None else None
+        self.filter_expr = e.filter_expr.copy() if e.filter_expr is not None else None
         self.scope_anchor = e.scope_anchor.copy()
-        nested_row_builder = exprs.RowBuilder(output_exprs=[self.target_expr], columns=[], input_exprs=[])
-        nested_row_builder.set_slot_idxs([self.target_expr, self.scope_anchor])
-        target_expr_ctx = nested_row_builder.create_eval_ctx([self.target_expr], limit_scope=True)
-        self.has_async_calls = any(isinstance(e, exprs.FunctionCall) and e.is_async for e in target_expr_ctx.exprs)
-        target_scope = self.target_expr.scope()
+
+        # per-element value:
+        # - the target expr
+        # - if there is no target: the source element itself, which is held in the scope anchor's slot
+        value_expr = self.target_expr if self.target_expr is not None else self.scope_anchor
+        # a non-output slot is garbage-collected once its dependents have been
+        # evaluated, so the value expr is included among the outputs to keep its slot populated
+        output_exprs = [value_expr]
+        if self.filter_expr is not None:
+            output_exprs.append(self.filter_expr)
+
+        nested_row_builder = exprs.RowBuilder(output_exprs=output_exprs, columns=[], input_exprs=[])
+        slot_exprs = output_exprs if value_expr is self.scope_anchor else [*output_exprs, self.scope_anchor]
+        nested_row_builder.set_slot_idxs(slot_exprs)
+        nested_ctx = nested_row_builder.create_eval_ctx(output_exprs, limit_scope=True)
+        self.has_async_calls = any(isinstance(e, exprs.FunctionCall) and e.is_async for e in nested_ctx.exprs)
+        target_scope = self.scope_anchor.scope()
+
         # we need to pre-populated nested rows with slot values that are produced in an outer scope (literals excluded)
-        parent_exprs = [
-            e for e in target_expr_ctx.exprs if e.scope() != target_scope and not isinstance(e, exprs.Literal)
-        ]
+        parent_exprs = [e for e in nested_ctx.exprs if e.scope() != target_scope and not isinstance(e, exprs.Literal)]
         self.external_slot_map = {exec_ctx.row_builder.unique_exprs[e].slot_idx: e.slot_idx for e in parent_exprs}
-        self.nested_eval_ctx = ExprEvalCtx(dispatcher, nested_row_builder, [self.target_expr], parent_exprs)
+        self.nested_eval_ctx = ExprEvalCtx(dispatcher, nested_row_builder, output_exprs, parent_exprs)
+        self.value_slot_idx = value_expr.slot_idx
+        self.filter_slot_idx = self.filter_expr.slot_idx if self.filter_expr is not None else None
 
     def reset(self) -> None:
         super().reset()
@@ -345,7 +367,7 @@ class JsonMapperDispatcher(Evaluator):
 
             # we modify DataRow.vals here directly, rather than going through __getitem__(), because we don't have
             # an official "value" yet (the nested rows are not yet materialized)
-            row.vals[self.e.slot_idx] = NestedRowList(nested_rows)
+            row.vals[self.e.slot_idx] = NestedRowList(nested_rows, self.value_slot_idx, self.filter_slot_idx)
             all_nested_rows.extend(nested_rows)
 
         self.dispatcher.dispatch(all_nested_rows, self.nested_eval_ctx)
@@ -355,8 +377,8 @@ class JsonMapperDispatcher(Evaluator):
     async def gather(self, rows: list[exprs.DataRow]) -> None:
         """Wait for nested rows to complete, then signal completion to the parent rows"""
         if self.has_async_calls:
-            # if our target expr contains async FunctionCalls, they typically get completed out-of-order, and it's
-            # more effective to dispatch them as they complete
+            # if our nested output exprs contain async FunctionCalls, they typically get completed out-of-order,
+            # and it's more effective to dispatch them as they complete
             remaining = {
                 asyncio.create_task(row.vals[self.e.slot_idx].completion.wait()): row
                 for row in rows
@@ -370,7 +392,7 @@ class JsonMapperDispatcher(Evaluator):
                 self.dispatcher.dispatch(done_rows, self.eval_ctx)
 
         else:
-            # our target expr doesn't contain async FunctionCalls, which means they will get completed in-order
+            # our nested output exprs don't contain async FunctionCalls, which means they will get completed in-order
             for row in rows:
                 if row.has_val[self.e.slot_idx]:
                     # the source_expr's value is not a list
