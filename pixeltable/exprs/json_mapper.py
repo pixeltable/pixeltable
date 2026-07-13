@@ -60,8 +60,8 @@ class JsonMapper(Expr):
 
     def __repr__(self) -> str:
         if self._target_expr is None:
-            return f'filter({self._src_expr}, lambda R: {self._filter_expr})'
-        return f'map({self._src_expr}, lambda R: {self._target_expr})'
+            return f'{self._src_expr}.filter(lambda R: {self._filter_expr})'
+        return f'{self._src_expr}.map(lambda R: {self._target_expr})'
 
     @property
     def _src_expr(self) -> Expr:

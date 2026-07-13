@@ -318,6 +318,29 @@ class TestJson:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='JSON array'):
             te.select(te.j, o=te.j.flatten()).collect()
 
+    def test_map_filter_edge_cases(self, uses_db: None) -> None:
+        t = pxt.create_table('json_map_filter', {'id': pxt.Int, 'j': pxt.Json})
+        # empty-list and null sources
+        t.insert([{'id': 1, 'j': [1, -2, 3, -4]}, {'id': 2, 'j': []}, {'id': 3, 'j': None}])
+        # an empty source list yields an empty result; a null source yields null
+        assert {r['id']: r['o'] for r in t.select(t.id, o=t.j.map(lambda x: x * 2)).collect()} == {
+            1: [2, -4, 6, -8],
+            2: [],
+            3: None,
+        }
+        assert {r['id']: r['o'] for r in t.select(t.id, o=t.j.filter(lambda x: x > 0)).collect()} == {
+            1: [1, 3],
+            2: [],
+            3: None,
+        }
+
+        # method/field name collision
+        # a field colliding with a method name stays reachable via subscript, while `.map` is the method
+        tc = pxt.create_table('json_map_filter', {'j': pxt.Json})
+        tc.insert([{'j': {'map': 5, 'nums': [1, 2, 3]}}])
+        assert tc.select(o=tc.j['map']).collect()['o'] == [5]
+        assert tc.select(o=tc.j.nums.map(lambda x: x + 1)).collect()['o'] == [[2, 3, 4]]
+
     @pytest.mark.very_expensive  # Downloads a Hugging Face model
     @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
     def test_list_iterator_appl(self, uses_db: None) -> None:

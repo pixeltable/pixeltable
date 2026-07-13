@@ -177,8 +177,11 @@ class JsonPath(Expr):
         self.file_handles.clear()
 
     def __repr__(self) -> str:
-        # else 'R': the anchor is RELATIVE_PATH_ROOT
-        anchor_str = str(self.anchor) if self.anchor is not None else 'R'
+        from .object_ref import ObjectRef
+
+        # a relative path prints its root as 'R', whether still unbound (anchor is None) or already bound to a
+        # mapper's scope anchor (an ObjectRef)
+        anchor_str = 'R' if self.anchor is None or isinstance(self.anchor, ObjectRef) else str(self.anchor)
         if len(self.path_elements) == 0:
             return anchor_str
         sep = '.' if isinstance(self.path_elements[0], str) and self.path_elements[0] != '*' else ''
@@ -262,9 +265,22 @@ class JsonPath(Expr):
         return JsonPath(self.anchor, elements, root_type=self.root_type)
 
     def __getattr__(self, name: str) -> 'Expr':
+        import functools
+        from typing import cast
+
         from pixeltable.func import FunctionRegistry
 
         assert isinstance(name, str)
+        # map()/filter() are exposed as methods on a json expr; like a registered method they take precedence over
+        # field access, and a colliding field stays reachable via subscript, e.g. path['map']. They take a
+        # callable, so unlike a udf they aren't registered type-methods: bind this expr as the source and return
+        # the resulting function. The cast reflects that the bound function is only ever called, never used as
+        # an Expr itself.
+        if self.col_type.is_json_type() and name in ('map', 'filter'):
+            from pixeltable.functions.globals import filter as filter_fn, map as map_fn
+
+            return cast('Expr', functools.partial(map_fn if name == 'map' else filter_fn, self))
+
         # a registered method takes precedence over field access (delegating to Expr.__getattr__); a colliding
         # field stays reachable via subscript, e.g. path['len']
         if (

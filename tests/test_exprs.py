@@ -778,17 +778,18 @@ class TestExprs:
     def test_json_mapper(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl
 
+        # These queries use the method form (t.j.map(...)); the computed columns below use the function form
+        # (pxtf.map(...)), and the row-by-row equality checks at the end verify the two forms are interchangeable.
+
         # top-level is dict
-        res1 = reload_tester.run_query(
-            t.select(input=t.c6.f5, output=pxtf.map(t.c6.f5['*'], lambda x: x + 1)).order_by(t.c2)
-        )
+        res1 = reload_tester.run_query(t.select(input=t.c6.f5, output=t.c6.f5.map(lambda x: x + 1)).order_by(t.c2))
         assert res1.schema['output'] == 'Json[(Float | None, ...)]'
         for row in res1:
             assert row['output'] == [x + 1 for x in row['input']]
 
         # top-level is list of dicts; subsequent json path element references the dicts
         res2 = reload_tester.run_query(
-            t.select(input=t.c7, output=pxtf.map(t.c7['*'].f5, lambda x: [x[3], x[2], x[1], x[0]])).order_by(t.c2)
+            t.select(input=t.c7, output=t.c7.f5.map(lambda x: [x[3], x[2], x[1], x[0]])).order_by(t.c2)
         )
         assert res2.schema['output'] == 'Json[(Json[(Json | None, Json | None, Json | None, Json | None)], ...)]'
         for row in res2:
@@ -796,27 +797,23 @@ class TestExprs:
 
         # target expr contains global-scope dependency
         res3 = reload_tester.run_query(
-            t.select(input=t.c6, output=pxtf.map(t.c6.f5['*'], lambda x: x * t.c6.f5[1])).order_by(t.c2)
+            t.select(input=t.c6, output=t.c6.f5['*'].map(lambda x: x * t.c6.f5[1])).order_by(t.c2)
         )
         assert res3.schema['output'] == 'Json[(Float | None, ...)]'
         for row in res3:
             assert row['output'] == [x * row['input']['f5'][1] for x in row['input']['f5']]
 
         # mapper appears inside the anchor of a JsonPath: the subscript resolves to the mapped element type
-        res4 = reload_tester.run_query(
-            t.select(input=t.c6, output=pxtf.map(t.c6.f5['*'], lambda x: x + 1)[0]).order_by(t.c2)
-        )
+        res4 = reload_tester.run_query(t.select(input=t.c6, output=t.c6.f5['*'].map(lambda x: x + 1)[0]).order_by(t.c2))
         assert res4.schema['output'] == 'Float'
         for row in res4:
             assert row['output'] == row['input']['f5'][0] + 1
 
         # test it as a computed column
-        validate_update_status(t.add_computed_column(out1=pxtf.map(t.c6.f5['*'], lambda x: x + 1)), 100)
-        validate_update_status(
-            t.add_computed_column(out2=pxtf.map(t.c7['*'].f5, lambda x: [x[3], x[2], x[1], x[0]])), 100
-        )
-        validate_update_status(t.add_computed_column(out3=pxtf.map(t.c6.f5['*'], lambda x: x * t.c6.f5[1])), 100)
-        validate_update_status(t.add_computed_column(out4=pxtf.map(t.c6.f5['*'], lambda x: x + 1)[0]), 100)
+        validate_update_status(t.add_computed_column(out1=pxtf.map(t.c6.f5, lambda x: x + 1)), 100)
+        validate_update_status(t.add_computed_column(out2=pxtf.map(t.c7.f5, lambda x: [x[3], x[2], x[1], x[0]])), 100)
+        validate_update_status(t.add_computed_column(out3=pxtf.map(t.c6.f5, lambda x: x * t.c6.f5[1])), 100)
+        validate_update_status(t.add_computed_column(out4=pxtf.map(t.c6.f5, lambda x: x + 1)[0]), 100)
         res_col = reload_tester.run_query(t.select(t.out1, t.out2, t.out3, t.out4).order_by(t.c2))
         assert res_col.schema == {
             'out1': 'Json[(Float | None, ...)]',
@@ -824,6 +821,12 @@ class TestExprs:
             'out3': 'Json[(Float | None, ...)]',
             'out4': 'Float',
         }
+        # the stored value exprs display in method form with the relative root shown as R (matching creation)
+        md = t.get_metadata()['columns']
+        assert md['out1']['computed_with'] == 'c6.f5[*].map(lambda R: R + 1)'
+        assert md['out2']['computed_with'] == 'c7[*].f5.map(lambda R: [R[3], R[2], R[1], R[0]])'
+        assert md['out3']['computed_with'] == 'c6.f5[*].map(lambda R: R * c6.f5[1])'
+        assert md['out4']['computed_with'] == 'c6.f5[*].map(lambda R: R + 1)[0]'
 
         for row1, row2, row3, row4, row_col in zip(res1, res2, res3, res4, res_col):
             assert row1['output'] == row_col['out1']
@@ -832,44 +835,43 @@ class TestExprs:
             assert row4['output'] == row_col['out4']
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Failed to evaluate map function.'):
-            pxtf.map(t.c6.f5['*'], lambda x: x and False)
+            t.c6.f5.map(lambda x: x and False)
 
         reload_tester.run_reload_test()
 
     def test_json_filter(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl
 
+        # These queries use the method form (t.j.filter(...)); the computed columns below use the function form
+        # (pxtf.filter(...)), and the row-by-row equality checks at the end verify the two forms are interchangeable.
+
         # keep the elements greater than a constant
-        res1 = reload_tester.run_query(
-            t.select(input=t.c6.f5, output=pxtf.filter(t.c6.f5, lambda x: x > 2)).order_by(t.c2)
-        )
+        res1 = reload_tester.run_query(t.select(input=t.c6.f5, output=t.c6.f5.filter(lambda x: x > 2)).order_by(t.c2))
         assert res1.schema['output'] == 'Json'  # c6.f5 is an untyped Json list, so the element type is unknown
         assert all(row['output'] == [x for x in row['input'] if x > 2] for row in res1)
 
         # predicate contains a global-scope dependency
         res2 = reload_tester.run_query(
-            t.select(input=t.c6, output=pxtf.filter(t.c6.f5, lambda x: x >= t.c6.f2)).order_by(t.c2)
+            t.select(input=t.c6, output=t.c6.f5.filter(lambda x: x >= t.c6.f2)).order_by(t.c2)
         )
         assert res2.schema['output'] == 'Json'
         assert all(row['output'] == [x for x in row['input']['f5'] if x >= row['input']['f2']] for row in res2)
 
         # source elements are dicts; the retained elements are the dicts themselves
-        res3 = reload_tester.run_query(
-            t.select(input=t.c7, output=pxtf.filter(t.c7, lambda x: x.f2 > 0)).order_by(t.c2)
-        )
+        res3 = reload_tester.run_query(t.select(input=t.c7, output=t.c7.filter(lambda x: x.f2 > 0)).order_by(t.c2))
         assert res3.schema['output'] == 'Json'
         assert all(row['output'] == [x for x in row['input'] if x['f2'] > 0] for row in res3)
 
         # a predicate that retains nothing yields an empty list
         res4 = reload_tester.run_query(
-            t.select(input=t.c6.f5, output=pxtf.filter(t.c6.f5, lambda x: x > 1000)).order_by(t.c2)
+            t.select(input=t.c6.f5, output=t.c6.f5.filter(lambda x: x > 1000)).order_by(t.c2)
         )
         assert res4.schema['output'] == 'Json'
         assert all(row['output'] == [] for row in res4)
 
         # filter appears inside the anchor of a JsonPath
         res5 = reload_tester.run_query(
-            t.select(input=t.c6.f5, output=pxtf.filter(t.c6.f5, lambda x: x > 2)[0]).order_by(t.c2)
+            t.select(input=t.c6.f5, output=t.c6.f5.filter(lambda x: x > 2)[0]).order_by(t.c2)
         )
         assert res5.schema['output'] == 'Json'
         assert all(row['output'] == next(x for x in row['input'] if x > 2) for row in res5)
@@ -879,11 +881,15 @@ class TestExprs:
         validate_update_status(t.add_computed_column(fout3=pxtf.filter(t.c7, lambda x: x.f2 > 0)), 100)
         res_col = reload_tester.run_query(t.select(t.fout1, t.fout3).order_by(t.c2))
         assert res_col.schema == {'fout1': 'Json', 'fout3': 'Json'}
+        # the stored value exprs display in method form with the relative root shown as R (matching creation)
+        md = t.get_metadata()['columns']
+        assert md['fout1']['computed_with'] == 'c6.f5.filter(lambda R: R > 2)'
+        assert md['fout3']['computed_with'] == 'c7.filter(lambda R: R.f2 > 0)'
         assert all(r1['output'] == rc['fout1'] for r1, rc in zip(res1, res_col))
         assert all(r3['output'] == rc['fout3'] for r3, rc in zip(res3, res_col))
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Failed to evaluate filter predicate.'):
-            pxtf.filter(t.c6.f5, lambda x: x and False)
+            t.c6.f5.filter(lambda x: x and False)
 
         reload_tester.run_reload_test()
 
@@ -891,9 +897,9 @@ class TestExprs:
         p = make_catalog_path
         # Workflow with multiple JsonMapper instances
         t = pxt.create_table(p('test'), {'id': pxt.Int, 'jcol': pxt.Json})
-        t.add_computed_column(outputx=pxtf.map(t.jcol.x['*'], lambda x: x + 1))
-        t.add_computed_column(outputy=pxtf.map(t.jcol.y['*'], lambda x: x + 2))
-        t.add_computed_column(outputz=pxtf.map(t.jcol.z['*'], lambda x: x + 3))
+        t.add_computed_column(outputx=pxtf.map(t.jcol.x, lambda x: x + 1))
+        t.add_computed_column(outputy=pxtf.map(t.jcol.y, lambda x: x + 2))
+        t.add_computed_column(outputz=pxtf.map(t.jcol.z, lambda x: x + 3))
         for i in range(8):
             data = {}
             if (i & 1) != 0:

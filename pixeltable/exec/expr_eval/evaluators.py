@@ -272,6 +272,10 @@ class NestedRowList:
         self.completion = asyncio.Event()
         self.value_slot_idx = value_slot_idx
         self.filter_slot_idx = filter_slot_idx
+        if len(rows) == 0:
+            # an empty source list produces no nested rows, so complete_row() is never called and we need to signal
+            # completion here
+            self.completion.set()
 
     def complete_row(self) -> None:
         self.num_completed += 1
