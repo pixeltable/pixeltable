@@ -40,8 +40,19 @@ class JsonMapper(Expr):
     target_expr_eval_ctx: RowBuilder.EvalCtx | None
 
     def __init__(self, src_expr: Expr | None, target_expr: Expr | None, filter_expr: Expr | None = None):
-        # TODO: type spec should be list[target_expr.col_type]
-        super().__init__(ts.JsonType())
+        # the result is a list whose element is the target expr (for a map), or the source list's element (for a
+        # filter or a plain reproduction); when that element type isn't known, the result is an untyped list
+        if target_expr is not None:
+            element_type: ts.ColumnType | None = target_expr.col_type
+        elif src_expr is not None and isinstance(src_expr.col_type, ts.JsonType):
+            element_type = src_expr.col_type.array_element_type()
+        else:
+            element_type = None
+        if element_type is None or (isinstance(element_type, ts.JsonType) and element_type.type_schema is None):
+            col_type: ts.ColumnType = ts.JsonType(nullable=True)
+        else:
+            col_type = ts.JsonType(ts.JsonType.TypeSchema([], variadic_type=element_type), nullable=True)
+        super().__init__(col_type)
 
         dispatch = JsonMapperDispatch(src_expr, target_expr, filter_expr)
         self.components.append(dispatch)

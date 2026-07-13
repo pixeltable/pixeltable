@@ -1087,6 +1087,19 @@ class JsonType(ColumnType):
     def copy(self, nullable: bool) -> ColumnType:
         return JsonType(type_schema=self.type_schema, nullable=nullable)
 
+    def array_element_type(self) -> ColumnType | None:
+        """The element type of a json array type."""
+        if self.type_schema is None or not isinstance(self.type_schema.type_spec, list):
+            # Not a typed json array
+            return None
+        if self.type_schema.variadic_type is not None:
+            # a variadic list
+            return self.type_schema.variadic_type
+        if len(self.type_schema.type_spec) > 0:
+            # a fixed tuple
+            return ColumnType.common_supertype(self.type_schema.type_spec)
+        return None
+
     def matches(self, other: ColumnType) -> bool:
         return isinstance(other, JsonType) and self.type_schema == other.type_schema
 

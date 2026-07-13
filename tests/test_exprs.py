@@ -782,7 +782,7 @@ class TestExprs:
         res1 = reload_tester.run_query(
             t.select(input=t.c6.f5, output=pxtf.map(t.c6.f5['*'], lambda x: x + 1)).order_by(t.c2)
         )
-        assert res1.schema['output'] == 'Required[Json]'
+        assert res1.schema['output'] == 'Json[(Float | None, ...)]'
         for row in res1:
             assert row['output'] == [x + 1 for x in row['input']]
 
@@ -790,7 +790,7 @@ class TestExprs:
         res2 = reload_tester.run_query(
             t.select(input=t.c7, output=pxtf.map(t.c7['*'].f5, lambda x: [x[3], x[2], x[1], x[0]])).order_by(t.c2)
         )
-        assert res2.schema['output'] == 'Required[Json]'
+        assert res2.schema['output'] == 'Json[(Json[(Json | None, Json | None, Json | None, Json | None)], ...)]'
         for row in res2:
             assert row['output'] == [[d['f5'][3], d['f5'][2], d['f5'][1], d['f5'][0]] for d in row['input']]
 
@@ -798,15 +798,15 @@ class TestExprs:
         res3 = reload_tester.run_query(
             t.select(input=t.c6, output=pxtf.map(t.c6.f5['*'], lambda x: x * t.c6.f5[1])).order_by(t.c2)
         )
-        assert res3.schema['output'] == 'Required[Json]'
+        assert res3.schema['output'] == 'Json[(Float | None, ...)]'
         for row in res3:
             assert row['output'] == [x * row['input']['f5'][1] for x in row['input']['f5']]
 
-        # mapper appears inside the anchor of a JsonPath: the subscript makes the result nullable
+        # mapper appears inside the anchor of a JsonPath: the subscript resolves to the mapped element type
         res4 = reload_tester.run_query(
             t.select(input=t.c6, output=pxtf.map(t.c6.f5['*'], lambda x: x + 1)[0]).order_by(t.c2)
         )
-        assert res4.schema['output'] == 'Json'
+        assert res4.schema['output'] == 'Float'
         for row in res4:
             assert row['output'] == row['input']['f5'][0] + 1
 
@@ -819,10 +819,10 @@ class TestExprs:
         validate_update_status(t.add_computed_column(out4=pxtf.map(t.c6.f5['*'], lambda x: x + 1)[0]), 100)
         res_col = reload_tester.run_query(t.select(t.out1, t.out2, t.out3, t.out4).order_by(t.c2))
         assert res_col.schema == {
-            'out1': 'Required[Json]',
-            'out2': 'Required[Json]',
-            'out3': 'Required[Json]',
-            'out4': 'Json',
+            'out1': 'Json[(Float | None, ...)]',
+            'out2': 'Json[(Json[(Json | None, Json | None, Json | None, Json | None)], ...)]',
+            'out3': 'Json[(Float | None, ...)]',
+            'out4': 'Float',
         }
 
         for row1, row2, row3, row4, row_col in zip(res1, res2, res3, res4, res_col):
@@ -843,31 +843,31 @@ class TestExprs:
         res1 = reload_tester.run_query(
             t.select(input=t.c6.f5, output=pxtf.filter(t.c6.f5, lambda x: x > 2)).order_by(t.c2)
         )
-        assert res1.schema['output'] == 'Required[Json]'
+        assert res1.schema['output'] == 'Json'  # c6.f5 is an untyped Json list, so the element type is unknown
         assert all(row['output'] == [x for x in row['input'] if x > 2] for row in res1)
 
         # predicate contains a global-scope dependency
         res2 = reload_tester.run_query(
             t.select(input=t.c6, output=pxtf.filter(t.c6.f5, lambda x: x >= t.c6.f2)).order_by(t.c2)
         )
-        assert res2.schema['output'] == 'Required[Json]'
+        assert res2.schema['output'] == 'Json'
         assert all(row['output'] == [x for x in row['input']['f5'] if x >= row['input']['f2']] for row in res2)
 
         # source elements are dicts; the retained elements are the dicts themselves
         res3 = reload_tester.run_query(
             t.select(input=t.c7, output=pxtf.filter(t.c7, lambda x: x.f2 > 0)).order_by(t.c2)
         )
-        assert res3.schema['output'] == 'Required[Json]'
+        assert res3.schema['output'] == 'Json'
         assert all(row['output'] == [x for x in row['input'] if x['f2'] > 0] for row in res3)
 
         # a predicate that retains nothing yields an empty list
         res4 = reload_tester.run_query(
             t.select(input=t.c6.f5, output=pxtf.filter(t.c6.f5, lambda x: x > 1000)).order_by(t.c2)
         )
-        assert res4.schema['output'] == 'Required[Json]'
+        assert res4.schema['output'] == 'Json'
         assert all(row['output'] == [] for row in res4)
 
-        # filter appears inside the anchor of a JsonPath: the subscript makes the result nullable
+        # filter appears inside the anchor of a JsonPath
         res5 = reload_tester.run_query(
             t.select(input=t.c6.f5, output=pxtf.filter(t.c6.f5, lambda x: x > 2)[0]).order_by(t.c2)
         )
@@ -878,7 +878,7 @@ class TestExprs:
         validate_update_status(t.add_computed_column(fout1=pxtf.filter(t.c6.f5, lambda x: x > 2)), 100)
         validate_update_status(t.add_computed_column(fout3=pxtf.filter(t.c7, lambda x: x.f2 > 0)), 100)
         res_col = reload_tester.run_query(t.select(t.fout1, t.fout3).order_by(t.c2))
-        assert res_col.schema == {'fout1': 'Required[Json]', 'fout3': 'Required[Json]'}
+        assert res_col.schema == {'fout1': 'Json', 'fout3': 'Json'}
         assert all(r1['output'] == rc['fout1'] for r1, rc in zip(res1, res_col))
         assert all(r3['output'] == rc['fout3'] for r3, rc in zip(res3, res_col))
 
@@ -904,7 +904,11 @@ class TestExprs:
                 data['z'] = [7, 8, 9]
             t.insert([{'id': i, 'jcol': data}])
         res = reload_tester.run_query(t.select(t.outputx, t.outputy, t.outputz).order_by(t.id))
-        assert res.schema == {'outputx': 'Required[Json]', 'outputy': 'Required[Json]', 'outputz': 'Required[Json]'}
+        assert res.schema == {
+            'outputx': 'Json[(Float | None, ...)]',
+            'outputy': 'Json[(Float | None, ...)]',
+            'outputz': 'Json[(Float | None, ...)]',
+        }
         for i in range(8):
             assert res[i]['outputx'] == (None if (i & 1) == 0 else [2, 3, 4])
             assert res[i]['outputy'] == (None if (i & 2) == 0 else [6, 7, 8])

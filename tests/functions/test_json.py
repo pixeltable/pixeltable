@@ -118,10 +118,10 @@ class TestJson:
         tm = pxt.create_table('json_len_map', {'sized': pxt.Json, 'mixed': pxt.Json})
         tm.insert([{'sized': [[1, 2, 3], 'ab', {'a': 1}, [], {}, ''], 'mixed': [[1], [], 'x', '', 0, None]}])
         rs = tm.select(o=pxtf.map(tm.sized, lambda x: x.len())).collect()
-        assert rs.schema['o'] == 'Required[Json]'
+        assert rs.schema['o'] == 'Json[(Int | None, ...)]'
         assert [r['o'] for r in rs] == [[3, 2, 1, 0, 0, 0]]
         rs = tm.select(o=pxtf.map(tm.mixed, lambda x: x.is_empty())).collect()
-        assert rs.schema['o'] == 'Required[Json]'
+        assert rs.schema['o'] == 'Json[(Bool, ...)]'
         assert [r['o'] for r in rs] == [[False, True, False, True, False, True]]
 
         # len() of a number is undefined; it raises cleanly in Python and as a raw DB error when pushed down
@@ -231,7 +231,7 @@ class TestJson:
             (lambda x: x.mean(), [2.0, 2.0, None]),
         ):
             rs = tm.select(o=pxtf.map(tm.rows, agg)).collect()
-            assert rs.schema['o'] == 'Required[Json]'
+            assert rs.schema['o'] == 'Json[(Float | None, ...)]'
             assert [r['o'] for r in rs] == [expected]
 
         # not defined for a non-numeric array: the Python body raises a clean error, while the pushed-down form

@@ -24,22 +24,34 @@ class JsonPath(Expr):
     anchor can be None, in which case this is a relative JsonPath and the anchor is set later via set_anchor().
     scope_idx: for relative paths, index of referenced JsonMapper
     (0: indicates the immediately preceding JsonMapper, -1: the parent of the immediately preceding mapper, ...)
+    root_type: for relative paths, the type of the element the path is rooted at (the source list element type of
+    the enclosing JsonMapper); used to resolve the path's own type. None means the element type is unknown.
     """
 
     path_elements: list[str | int | slice]
     compiled_path: jmespath.parser.ParsedResult | None
     scope_idx: int
+    root_type: ts.ColumnType | None
     file_handles: dict[Path, io.BufferedReader]  # key: file path
 
     def __init__(
-        self, anchor: Expr | None, path_elements: list[str | int | slice] | None = None, scope_idx: int = 0
+        self,
+        anchor: Expr | None,
+        path_elements: list[str | int | slice] | None = None,
+        scope_idx: int = 0,
+        root_type: ts.ColumnType | None = None,
     ) -> None:
         if path_elements is None:
             path_elements = []
 
-        super().__init__(
-            self.__resolve_type(anchor.col_type, path_elements) if anchor is not None else ts.JsonType(nullable=True)
-        )
+        if anchor is not None:
+            col_type = self.__resolve_type(anchor.col_type, path_elements)
+        elif root_type is not None:
+            col_type = self.__resolve_type(root_type, path_elements)
+        else:
+            col_type = ts.JsonType(nullable=True)
+        super().__init__(col_type)
+        self.root_type = root_type
         self.path_elements = path_elements
         self.compiled_path = jmespath.compile(self._json_path()) if len(path_elements) > 0 else None
         if anchor is not None:
@@ -182,7 +194,8 @@ class JsonPath(Expr):
         else:
             components_dict = super()._as_dict()
         path_elements = [[el.start, el.stop, el.step] if isinstance(el, slice) else el for el in self.path_elements]
-        return {'path_elements': path_elements, 'scope_idx': self.scope_idx, **components_dict}
+        root_type = self.root_type.as_dict() if self.root_type is not None else None
+        return {'path_elements': path_elements, 'scope_idx': self.scope_idx, 'root_type': root_type, **components_dict}
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> JsonPath:
@@ -191,7 +204,8 @@ class JsonPath(Expr):
         assert len(components) <= 1
         anchor = components[0] if len(components) == 1 else None
         path_elements = [slice(el[0], el[1], el[2]) if isinstance(el, list) else el for el in d['path_elements']]
-        return cls(anchor, path_elements, d['scope_idx'])
+        root_type = ts.ColumnType.from_dict(d['root_type']) if d.get('root_type') is not None else None
+        return cls(anchor, path_elements, d['scope_idx'], root_type)
 
     @property
     def anchor(self) -> Expr | None:
@@ -245,7 +259,7 @@ class JsonPath(Expr):
             # a field access on a bare json array path contains an implicit ['*']
             elements.append('*')
         elements.append(name)
-        return JsonPath(self.anchor, elements)
+        return JsonPath(self.anchor, elements, root_type=self.root_type)
 
     def __getattr__(self, name: str) -> 'Expr':
         from pixeltable.func import FunctionRegistry
@@ -264,10 +278,10 @@ class JsonPath(Expr):
         if isinstance(index, str):
             if index == '*':
                 # the '*' operator is itself a projection over an array, not a field to project
-                return JsonPath(self.anchor, [*self.path_elements, '*'])
+                return JsonPath(self.anchor, [*self.path_elements, '*'], root_type=self.root_type)
             return self._append_field(index)
         if isinstance(index, (int, slice)):
-            return JsonPath(self.anchor, [*self.path_elements, index])
+            return JsonPath(self.anchor, [*self.path_elements, index], root_type=self.root_type)
         raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid json list index: {index}')
 
     def default_column_name(self) -> str | None:

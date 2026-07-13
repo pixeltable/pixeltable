@@ -258,6 +258,12 @@ def _(val: sql.ColumnElement) -> sql.ColumnElement | None:
     return sql.sql.func.avg(val)
 
 
+def _relative_path_root(expr: exprs.Expr) -> exprs.Expr:
+    """A relative-path root typed as the element type of the list that expr produces (untyped if unknown)."""
+    element_type = expr.col_type.array_element_type() if isinstance(expr.col_type, ts.JsonType) else None
+    return exprs.json_path.JsonPath(None, root_type=element_type)
+
+
 def map(expr: exprs.Expr, fn: Callable[[exprs.Expr], Any]) -> exprs.Expr:
     """
     Applies a mapping function to each element of a list.
@@ -276,7 +282,7 @@ def map(expr: exprs.Expr, fn: Callable[[exprs.Expr], Any]) -> exprs.Expr:
     """
     target_expr: exprs.Expr
     try:
-        target_expr = exprs.Expr.from_object(fn(exprs.json_path.RELATIVE_PATH_ROOT))
+        target_expr = exprs.Expr.from_object(fn(_relative_path_root(expr)))
     except Exception as e:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -305,7 +311,7 @@ def filter(expr: exprs.Expr, predicate: Callable[[exprs.Expr], Any]) -> exprs.Ex
     """
     filter_expr: exprs.Expr
     try:
-        filter_expr = exprs.Expr.from_object(predicate(exprs.json_path.RELATIVE_PATH_ROOT))
+        filter_expr = exprs.Expr.from_object(predicate(_relative_path_root(expr)))
     except Exception as e:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
