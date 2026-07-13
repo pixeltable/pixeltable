@@ -81,13 +81,24 @@ class SimilarityExpr(Expr):
         return {self.table_version_key.tbl_id} | super().tbl_ids()
 
     @classmethod
+    def _qcol_id_from_dict(cls, expr_dict: dict[str, Any]) -> QColumnId:
+        return QColumnId(tbl_id=UUID(expr_dict['qcol_id']['tbl_id']), col_id=expr_dict['qcol_id']['col_id'])
+
+    @classmethod
     def _get_refd_column_ids(cls, expr_dict: dict[str, Any]) -> set[catalog.QColumnId]:
         # the indexed column is a reference, even though it is not stored as a component
         result = super()._get_refd_column_ids(expr_dict)
         if 'qcol_id' in expr_dict:
-            result.add(
-                catalog.QColumnId(tbl_id=UUID(expr_dict['qcol_id']['tbl_id']), col_id=expr_dict['qcol_id']['col_id'])
-            )
+            result.add(cls._qcol_id_from_dict(expr_dict))
+        return result
+
+    @classmethod
+    def get_refd_indices(cls, expr_dict: dict[str, Any]) -> set[tuple[catalog.QColumnId, str | None]]:
+        """Return the (indexed column, index name) pairs of all SimilarityExprs in expr_dict."""
+        result: set[tuple[catalog.QColumnId, str | None]] = set()
+        for d in Expr.expr_dicts(expr_dict):
+            if d['_classname'] == cls.__name__ and 'qcol_id' in d:
+                result.add((cls._qcol_id_from_dict(d), d.get('idx_name')))
         return result
 
     @property

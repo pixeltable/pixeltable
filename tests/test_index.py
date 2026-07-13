@@ -624,8 +624,17 @@ class TestIndex:
         ):
             t.drop_column(t.text)
 
-        # dropping the dependent column first makes the drop legal
+        # dropping the index itself must be rejected for the same reason: the similarity column can no longer
+        # resolve it
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match="Cannot drop index 'embed' because the following columns depend on it:\nsim_unstored",
+        ):
+            t.drop_embedding_index(idx_name='embed')
+
+        # dropping the dependent column first makes both drops legal
         t.drop_column('sim_unstored')
+        t.drop_embedding_index(idx_name='embed')
         t.drop_column('text')
         _ = reload_tester.run_query(t.select(t.id))
         reload_tester.run_reload_test()
