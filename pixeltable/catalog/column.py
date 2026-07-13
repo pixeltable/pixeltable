@@ -268,7 +268,7 @@ class Column:
             comment=comment,
             stores_cellmd=stores_cellmd,
         )
-        ObjectOps.validate_destination(column.destination, column.name)
+        ObjectOps.validate_destination(column.destination, column.name, allow_local=not Env.get().is_proxy_daemon)
         return column
 
     @classmethod
@@ -549,16 +549,6 @@ class Column:
     def is_required_for_insert(self) -> bool:
         """Returns True if column is required when inserting rows."""
         return not self.col_type.nullable and not self.is_computed
-
-    def source(self) -> None:
-        """
-        If this is a computed col and the top-level expr is a function call, print the source, if possible.
-        """
-        from pixeltable import exprs
-
-        if self.value_expr is None or not isinstance(self.value_expr, exprs.FunctionCall):
-            return
-        self.value_expr.fn.source()
 
     def set_sa_cols(self, sa_col: sql.Column, sa_cellmd_col: sql.Column | None) -> None:
         # `type() is` check is weak as it ignores some SQL type parameters (e.g. vector dimensions), but anything

@@ -258,10 +258,13 @@ def create_table(
             # Schema inference may have consumed a one-shot iterator/generator source; re-passing it would
             # insert nothing. Insert the rows the conduit already materialized instead. (A Query source is
             # re-runnable, and other source types aren't reached here, so passing source as-is is correct.)
+            # Materialized rows are already parsed, so the source_format (e.g. 'json') must not be re-applied,
+            # which would otherwise re-classify the row list as a file source.
             insert_source = data_source.raw_rows if isinstance(data_source, RowDataTableDataConduit) else source
+            insert_format = None if isinstance(data_source, RowDataTableDataConduit) else source_format
             tbl.insert(
                 insert_source,
-                source_format=source_format,
+                source_format=insert_format,
                 schema_overrides=schema_overrides,
                 on_error=on_error,
                 **(extra_args or {}),
