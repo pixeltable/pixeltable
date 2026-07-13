@@ -366,7 +366,7 @@ class InvalidGeneratingFunction(GeneratingFunction):
             excs.ErrorCode.INVALID_CONFIGURATION, f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}'
         )
 
-    def eval(self, bound_args: dict[str, Any]) -> Iterator[dict]:
+    def eval(self, bound_args: dict[str, Any]) -> PxtIterator[dict]:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION, f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}'
         )
@@ -398,7 +398,7 @@ class GeneratingFunctionCall:
     def is_valid(self) -> bool:
         return self.validation_error is None
 
-    def eval(self, bound_args: dict[str, Any]) -> Iterator[dict]:
+    def eval(self, bound_args: dict[str, Any]) -> PxtIterator[dict]:
         assert self.is_valid
 
         # Run custom iterator validation on fully bound args

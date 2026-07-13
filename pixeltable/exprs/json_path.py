@@ -247,8 +247,10 @@ class JsonPath(Expr):
         elements.append(name)
         return JsonPath(self.anchor, elements)
 
-    def __getattr__(self, name: str) -> 'JsonPath':
+    def __getattr__(self, name: str) -> 'Expr':
         assert isinstance(name, str)
+        if not self.col_type.is_json_type():
+            return super().__getattr__(name)
         return self._append_field(name)
 
     def __getitem__(self, index: object) -> 'JsonPath':

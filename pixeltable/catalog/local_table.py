@@ -238,10 +238,6 @@ class LocalTable(Table):
         cols = self._tbl_version_path.columns()
         return [c.name for c in cols]
 
-    def _get_schema(self) -> dict[str, ts.ColumnType]:
-        """Return the schema (column names and column types) of this table."""
-        return {c.name: c.col_type for c in self._tbl_version_path.columns()}
-
     def _get_base_tables(self) -> list['Table']:
         """The ancestor list of bases of this table, starting with its immediate base. Requires a transaction context"""
         bases: list[Table] = []

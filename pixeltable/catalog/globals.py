@@ -16,6 +16,7 @@ from pixeltable.types import ColumnSpec
 
 if TYPE_CHECKING:
     from pixeltable import exprs
+    from pixeltable.globals import TableDataSource
 
 # name of the position column in a component view
 _POS_COLUMN_NAME = 'pos'
@@ -102,6 +103,10 @@ class ColumnVersionMd:
     @property
     def name(self) -> str | None:
         return self.schema_col.name
+
+    @property
+    def comment(self) -> str | None:
+        return self.schema_col.comment
 
     @property
     def col_type(self) -> ts.ColumnType:
@@ -250,3 +255,13 @@ def normalize_schema(schema: Mapping[str, type | ColumnSpec | exprs.Expr]) -> di
             )
         result[name] = cast(ColumnSpec, col_spec)
     return result
+
+
+def is_hf_dataset(source: 'TableDataSource' | None) -> bool:
+    try:
+        import datasets  # type: ignore[import-untyped]
+    except ImportError:
+        return False
+    return isinstance(
+        source, (datasets.Dataset, datasets.DatasetDict, datasets.IterableDataset, datasets.IterableDatasetDict)
+    )
