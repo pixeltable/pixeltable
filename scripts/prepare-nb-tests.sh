@@ -39,7 +39,6 @@ EXPENSIVE_NOTEBOOKS=(
     data-import-huggingface
     doc-chunk-for-rag
     embedding-indexes
-    img-image-to-image
     img-promptable-segmentation
     multimodal_backend
     queries-and-expressions
