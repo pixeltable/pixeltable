@@ -710,6 +710,9 @@ class Env:
             'opentelemetry.instrumentation.fastapi', library_name='opentelemetry-instrumentation-fastapi'
         )
         self.__register_package(
+            'opentelemetry.instrumentation.pixeltable', library_name='opentelemetry-instrumentation-pixeltable'
+        )
+        self.__register_package(
             'opentelemetry.instrumentation.sqlalchemy', library_name='opentelemetry-instrumentation-sqlalchemy'
         )
         self.__register_package('opentelemetry.sdk', library_name='opentelemetry-sdk')

@@ -18,6 +18,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import config
+from pixeltable.env import Env
 from pixeltable_cli.client.main import main as cli_main
 from tests.utils import skip_test_if_not_installed
 
@@ -310,6 +311,15 @@ class TestCLI:
             assert route.method == 'get'
             assert route.one_row is True
             assert cfg.host == '127.0.0.1'
+
+            mock_run.reset_mock()
+
+            # --otel smoke test: require_package resolves the instrumentation package and init() runs
+            if Env.get().is_installed_package('opentelemetry.instrumentation.pixeltable'):
+                argv = ['pxt', 'serve', 'insert', '--table', 'd.items', '--path', '/insert', '--otel']
+                with patch('sys.argv', argv):
+                    cli_main()
+                mock_run.assert_called_once_with()
 
     def test_started_status_json(self) -> None:
         from pixeltable_cli.client.commands.serve import _started_status

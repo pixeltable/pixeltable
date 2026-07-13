@@ -244,7 +244,7 @@ def _serve(args: argparse.Namespace) -> None:
 
     if args.otel:
         Env.get().require_package(
-            'opentelemetry-instrumentation-pixeltable',
+            'opentelemetry.instrumentation.pixeltable',
             not_installed_msg="--otel requires the instrumentation package; install: `pip install 'pixeltable[otel]'`",
         )
         import opentelemetry.instrumentation.pixeltable as pxt_otel
