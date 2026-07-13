@@ -219,6 +219,30 @@ class TestHooks:
         assert late.find('child')['ended']
         assert sub.find('op')['ended']
 
+    def test_equal_subscribers_use_identity_for_parent_tokens(self) -> None:
+        class EqualSubscriber(RecordingSubscriber):
+            def __eq__(self, other: object) -> bool:
+                return isinstance(other, EqualSubscriber)
+
+            def __hash__(self) -> int:
+                return 0
+
+        first = EqualSubscriber()
+        second = EqualSubscriber()
+        SubscriberRegistry.get().subscribe(first)
+        try:
+            op = telemetry.span_start('op', set_current=True)
+            SubscriberRegistry.get().subscribe(second)
+            try:
+                child = telemetry.span_start('child')
+                telemetry.span_end(child)
+                telemetry.span_end(op)
+            finally:
+                SubscriberRegistry.get().unsubscribe(second)
+        finally:
+            SubscriberRegistry.get().unsubscribe(first)
+        assert second.find('child')['parent_id'] is None
+
     def test_span_cm(self, sub: RecordingSubscriber) -> None:
         with telemetry.span('work', set_current=True, rows=2, skipped=None):
             pass

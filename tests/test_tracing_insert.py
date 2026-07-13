@@ -1,16 +1,13 @@
 import pytest
 
 import pixeltable as pxt
+import pixeltable.functions as pxtf
 from pixeltable import telemetry
+from pixeltable.func import Batch
 from pixeltable.telemetry import SubscriberRegistry
 
 from .test_telemetry import RecordingSubscriber
 from .utils import pxt_raises
-
-
-@pxt.udf
-def add_one(x: int) -> int:
-    return x + 1
 
 
 @pxt.udf
@@ -20,13 +17,20 @@ def fail_on_three(x: int) -> int:
     return x + 1
 
 
+@pxt.udf(batch_size=2)
+def batch_add_one(vals: Batch[int]) -> Batch[int]:
+    # We need this to validate that batched udfs have proper nesting
+    with telemetry.span('provider.batch_add_one'):
+        return [val + 1 for val in vals]
+
+
 @pytest.mark.local('subscribes an in-process telemetry subscriber the daemon cannot see')
 class TestInsertTracing:
     """End-to-end span nesting for the insert() path: operation -> row -> udf cell."""
 
     def _make_table(self) -> pxt.Table:
         t = pxt.create_table('tracing_test', {'c': pxt.Int}, if_exists='replace')
-        t.add_computed_column(inc=add_one(t.c))
+        t.add_computed_column(inc=pxtf.math.abs(t.c))
         return t
 
     def test_row_and_udf_spans_nest(self, uses_db: None) -> None:
@@ -43,7 +47,7 @@ class TestInsertTracing:
             assert len(rows) == 5
             assert all(r['parent_id'] == op['id'] for r in rows)
             row_ids = {r['id'] for r in rows}
-            udfs = [s for s in sub.spans if s['name'] == 'pixeltable.udf.add_one']
+            udfs = [s for s in sub.spans if s['name'] == 'pixeltable.udf.abs']
             assert len(udfs) == 5
             assert all(u['parent_id'] in row_ids for u in udfs)
             assert all(u['set_current'] for u in udfs)  # provider instrumentors must nest under the UDF span
@@ -65,6 +69,24 @@ class TestInsertTracing:
             assert [s for s in sub.spans if s['name'].startswith('pixeltable.udf.')] == []
         finally:
             SubscriberRegistry.get().unsubscribe(sub)
+
+    def test_batched_udf_span_is_ambient(self, uses_db: None) -> None:
+        t = pxt.create_table('tracing_test', {'c': pxt.Int}, if_exists='replace')
+        t.add_computed_column(inc=batch_add_one(t.c))
+        sub = RecordingSubscriber()
+        SubscriberRegistry.get().subscribe(sub)
+        telemetry.set_span_level(telemetry.DEBUG)
+        try:
+            t.insert([{'c': i} for i in range(5)])
+            udfs = [s for s in sub.spans if s['name'] == 'pixeltable.udf.batch_add_one']
+            providers = [s for s in sub.spans if s['name'] == 'provider.batch_add_one']
+            udf_ids = {s['id'] for s in udfs}
+            assert len(udfs) == len(providers) == 3
+            assert all(s['set_current'] for s in udfs)
+            assert all(s['parent_id'] in udf_ids for s in providers)
+        finally:
+            SubscriberRegistry.get().unsubscribe(sub)
+            telemetry.set_span_level(telemetry.INFO)
 
     def test_row_span_cap(self, uses_db: None) -> None:
         sub = RecordingSubscriber()
@@ -120,8 +142,8 @@ class TestInsertTracing:
         SubscriberRegistry.get().subscribe(sub)
         telemetry.set_span_level(telemetry.DEBUG)
         try:
-            # a query computes add_one on the fly but has no operation span wrapping it
-            _ = t.select(out=add_one(t.c)).collect()
+            # a query computes abs on the fly but has no operation span wrapping it
+            _ = t.select(out=pxtf.math.abs(t.c)).collect()
             assert [s for s in sub.spans if s['name'] == 'pixeltable.row'] == []
             assert [s for s in sub.spans if s['name'].startswith('pixeltable.udf.')] == []
         finally:

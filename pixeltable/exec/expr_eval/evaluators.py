@@ -205,7 +205,10 @@ class FnCallEvaluator(Evaluator):
             # batched calls process many rows in one invocation, so they can't nest under a single row
             # span; emit one span under the ambient operation span instead
             with telemetry.span(
-                f'pixeltable.udf.{self.fn.display_name}', level=telemetry.DEBUG, batch_size=len(batched_call_args.rows)
+                f'pixeltable.udf.{self.fn.display_name}',
+                level=telemetry.DEBUG,
+                set_current=True,
+                batch_size=len(batched_call_args.rows),
             ):
                 if self.fn.is_async:
                     result_batch = await self.fn.aexec_batch(

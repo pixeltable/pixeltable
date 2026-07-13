@@ -196,9 +196,14 @@ def span_start(
     tokens: list[Any] = []
     for s in subs:
         parent_token: Any = None
-        if parent is not None and s in parent.subs:
+        parent_idx = (
+            next((i for i, parent_sub in enumerate(parent.subs) if parent_sub is s), None)
+            if parent is not None
+            else None
+        )
+        if parent_idx is not None:
             # a subscriber that registered after the parent started has no parent token (its span is a root)
-            parent_token = parent.tokens[parent.subs.index(s)]
+            parent_token = parent.tokens[parent_idx]
         try:
             tokens.append(s.on_span_start(name, parent_token, attrs, set_current))
         except Exception as e:

@@ -154,6 +154,14 @@ def test_protocol_grpc(tmp_path: Path) -> None:
     )
 
 
+def test_standard_header_parsing() -> None:
+    # PR-REVIEW-FIX-4: OTel header parsing lowercases gRPC keys and percent-decodes values.
+    assert _sdk._parse_headers('Authorization=Basic%20abc%2Cdef,X-Test=a%20b') == {
+        'authorization': 'Basic abc,def',
+        'x-test': 'a b',
+    }
+
+
 class TestBridge:
     """In-process bridge correctness with in-memory exporters (no global providers touched)."""
 

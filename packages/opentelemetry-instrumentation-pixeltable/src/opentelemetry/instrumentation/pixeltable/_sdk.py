@@ -336,12 +336,9 @@ def _create_resource(service_name: str) -> Any:
 
 def _parse_headers(headers: str) -> dict[str, str]:
     """Parse comma-separated 'key=value' pairs (the OTEL_EXPORTER_OTLP_HEADERS format)."""
-    result: dict[str, str] = {}
-    for pair in headers.split(','):
-        key, sep, value = pair.partition('=')
-        if sep:
-            result[key.strip()] = value.strip()
-    return result
+    from opentelemetry.util.re import parse_env_headers
+
+    return dict(parse_env_headers(headers))
 
 
 def _join_endpoint(endpoint: str, path: str) -> str:

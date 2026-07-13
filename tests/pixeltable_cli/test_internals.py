@@ -1492,6 +1492,16 @@ class TestConfigRouteWithGenericTypes:
         services = [e for e in resp.entries if e.section == 'pixeltable' and e.key == 'service']
         assert len(services) == 1
 
+    def test_config_route_redacts_otel_headers(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # PR-REVIEW-FIX-1: Authorization material in OTLP headers must never cross the config API boundary.
+        from pixeltable_cli.server.router import Request
+
+        monkeypatch.setenv('OTEL_EXPORTER_OTLP_HEADERS', 'Authorization=Bearer top-secret')
+        resp = server_routes.config(Request(path_params={}, query={}, body_bytes=b''))
+        headers = [e for e in resp.entries if e.section == 'otel' and e.key == 'exporter_otlp_headers']
+        assert len(headers) == 1
+        assert headers[0].value == '<redacted>'
+
 
 class TestPerPortPaths:
     """Pidfile and log paths must be parameterized by PXT_PORT so that daemons running on

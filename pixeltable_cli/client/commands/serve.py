@@ -242,6 +242,7 @@ def _serve(args: argparse.Namespace) -> None:
         _print_dry_run(cfg, args.json)
         return
 
+    app = create_service_from_config(cfg)
     if args.otel:
         Env.get().require_package(
             'opentelemetry.instrumentation.pixeltable',
@@ -250,8 +251,9 @@ def _serve(args: argparse.Namespace) -> None:
         import opentelemetry.instrumentation.pixeltable as pxt_otel
 
         pxt_otel.init()
+        pxt_otel.instrument_fastapi(app)
 
-    _run(cfg, create_service_from_config(cfg), args.json)
+    _run(cfg, app, args.json)
 
 
 def _print_dry_run(cfg: config.ServiceConfig, json_output: bool) -> None:
