@@ -266,19 +266,38 @@ def _relative_path_root(expr: exprs.Expr) -> exprs.Expr:
 
 def map(expr: exprs.Expr, fn: Callable[[exprs.Expr], Any]) -> exprs.Expr:
     """
-    Applies a mapping function to each element of a list.
+    Applies a function to each element of a JSON array, producing a new array.
+
+    `map()` is used like a UDF, for example in `select()` or `add_computed_column()`.
 
     Args:
-        expr: The list expression to map over; must be an expression of type `pxt.Json`.
-        fn: An operation on Pixeltable expressions that will be applied to each element of the JSON array.
+        expr: The array to map over; an expression of type `pxt.Json` that resolves to a JSON array. If its
+            elements have a known type (e.g. the column is declared `pxt.Json[[int]]`), that type is available to
+            `fn` and carries through to the result.
+        fn: A Python function (typically a lambda) applied to each element to produce its replacement. It receives
+            `x`, a stand-in for a single array element, and returns the value to store in its place. Operate on
+            `x` exactly as you would on a column: arithmetic, indexing (`x[0]`), field access (`x.field`), and
+            JSON methods (`x.len()`, `x.sum()`, etc.) all work.
+
+    Returns:
+        A new array holding `fn(x)` for each element `x` of `expr`. If `expr` is `null` or does not resolve to a
+        JSON array, the result is `null`.
 
     Examples:
-        Given a table `tbl` with a column `data` of type `pxt.Json` containing lists of integers, add a computed
-        column that produces new lists with each integer doubled:
+        Given a table `tbl` with a `pxt.Json` column `data` holding lists of numbers, add a column that doubles
+        each number:
 
         >>> tbl.add_computed_column(
-        ...     doubled=pxt.functions.map(t.data, lambda x: x * 2)
+        ...     doubled=pxt.functions.map(tbl.data, lambda x: x * 2)
         ... )
+
+        When `data` holds lists of objects such as `{'score': 0.9, 'label': 'cat'}`, extract each score:
+
+        >>> tbl.select(
+        ...     scores=pxt.functions.map(tbl.data, lambda x: x.score)
+        ... ).collect()
+
+    See also [`filter()`][pixeltable.functions.filter], which keeps a subset of the elements.
     """
     target_expr: exprs.Expr
     try:
@@ -294,20 +313,39 @@ def map(expr: exprs.Expr, fn: Callable[[exprs.Expr], Any]) -> exprs.Expr:
 
 def filter(expr: exprs.Expr, predicate: Callable[[exprs.Expr], Any]) -> exprs.Expr:
     """
-    Selects the elements of a list for which a predicate is true.
+    Keeps the elements of a JSON array for which a predicate holds, producing a new array.
+
+    `filter()` is used like a UDF, for example in `select()` or `add_computed_column()`.
 
     Args:
-        expr: The list expression to filter; must be an expression of type `pxt.Json`.
-        predicate: An operation on Pixeltable expressions that produces a boolean condition for each element of
-            the JSON array. Only elements for which the condition is true are retained.
+        expr: The array to filter; an expression of type `pxt.Json` that resolves to a JSON array. Its element
+            type is preserved in the result.
+        predicate: A Python function (typically a lambda) that decides which elements to keep. It receives `x`, a
+            stand-in for a single array element, and returns a boolean condition; the element is kept when it is
+            true. Operate on `x` exactly as you would on a column: comparisons, indexing (`x[0]`), field access
+            (`x.field`), and JSON methods all work. Combine multiple conditions with `&` and `|`, and negate with
+            `~` (not Python `and`/`or`/`not`). Example: `lambda x: (x > 0) & (x < 10)`.
+
+    Returns:
+        A new array containing the elements of `expr` for which `predicate` is true, unchanged. If `expr` is
+        `null` or does not resolve to a JSON array, the result is `null`.
 
     Examples:
-        Given a table `tbl` with a column `data` of type `pxt.Json` containing lists of integers, add a computed
-        column that keeps only the positive integers of each list:
+        Given a table `tbl` with a `pxt.Json` column `data` holding lists of numbers, add a column that keeps only
+        the positive numbers:
 
         >>> tbl.add_computed_column(
-        ...     positives=pxt.functions.filter(t.data, lambda x: x > 0)
+        ...     positives=pxt.functions.filter(tbl.data, lambda x: x > 0)
         ... )
+
+        When `data` holds lists of objects such as `{'score': 0.9, 'label': 'cat'}`, keep only the high-confidence
+        ones:
+
+        >>> tbl.select(
+        ...     confident=pxt.functions.filter(tbl.data, lambda x: x.score >= 0.9)
+        ... ).collect()
+
+    See also [`map()`][pixeltable.functions.map], which transforms elements.
     """
     filter_expr: exprs.Expr
     try:
