@@ -49,7 +49,7 @@ async def chat_completions(
     Creates a model response for the given chat conversation.
 
     Equivalent to the Nebius Token Factory `chat/completions` API endpoint.
-    For additional details, see: <https://docs.nebius.com/studio/inference/api-reference>
+    For additional details, see: <https://docs.tokenfactory.nebius.com/api-reference/inference/create-chat-completion>
 
     Nebius Token Factory exposes an OpenAI-compatible API, so you will need to install the
     `openai` package to use this UDF.
@@ -66,7 +66,7 @@ async def chat_completions(
         messages: A list of messages to use for chat completion, as described in the Nebius API documentation.
         model: The model to use for chat completion.
         model_kwargs: Additional keyword args for the Nebius `chat/completions` API.
-            For details on the available parameters, see: <https://docs.nebius.com/studio/inference/api-reference>
+            For details on the available parameters, see: <https://docs.tokenfactory.nebius.com/api-reference/inference/create-chat-completion>
         tools: An optional list of Pixeltable tools to use for the request.
         tool_choice: An optional tool choice configuration.
 
@@ -163,7 +163,7 @@ async def embeddings(
     Query an embedding model for a given string of text.
 
     Equivalent to the Nebius Token Factory `embeddings` API endpoint.
-    For additional details, see: <https://docs.nebius.com/studio/inference/api-reference>
+    For additional details, see: <https://docs.tokenfactory.nebius.com/api-reference/inference/create-embeddings>
 
     Request throttling:
     Applies the rate limit set in the config (section `nebius`, key `rate_limit`). If no rate
@@ -206,7 +206,9 @@ async def embeddings(
     if model_kwargs is None:
         model_kwargs = {}
 
-    result = await _nebius_client().embeddings.with_raw_response.create(input=input, model=model, **model_kwargs)
+    result = await _nebius_client().embeddings.with_raw_response.create(
+        input=input, model=model, encoding_format='float', **model_kwargs
+    )
 
     result_json = json.loads(result.text)
     if 'error' in result_json:
