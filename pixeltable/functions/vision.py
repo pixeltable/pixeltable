@@ -426,23 +426,32 @@ def bboxes_draw(
     return img_to_draw
 
 
-def _validate_bboxes(bboxes: list, error_prefix: str, validate_range: bool = True) -> bool:
-    """Check that bboxes are either all int or all float. Return True for absolute, False for relative."""
+def _validate_bboxes(
+    bboxes: list, error_prefix: str, validate_range: bool = True, absolute: bool | None = None
+) -> tuple[bool, bool]:
+    """Validate bboxes and classify their coordinates. Returns (is_absolute, is_int).
+
+    - relative: all of them are floats within [0.0, 1.0]
+    - absolute pixel coordinates can be int or float
+    - param absolute overrides that inference (for callers whose parameters determine the mode).
+    """
     if not all(len(b) == 4 for b in bboxes):
         raise pxt.RequestError(
             pxt.ErrorCode.INVALID_ARGUMENT, f'{error_prefix}: each bounding box must have exactly 4 coordinates'
         )
-    is_absolute = all(
-        isinstance(x, int) and (not validate_range or x >= 0) for x in itertools.chain.from_iterable(bboxes)
-    )
-    is_relative = all(isinstance(x, float) and (not validate_range or (0.0 <= x <= 1.0)) for box in bboxes for x in box)
-    if not (is_absolute or is_relative):
+    coords = list(itertools.chain.from_iterable(bboxes))
+    if not all(isinstance(x, (int, float)) for x in coords):
         raise pxt.RequestError(
-            pxt.ErrorCode.INVALID_ARGUMENT,
-            f'{error_prefix}: bounding box coordinates must be either all int'
-            f'{" (>= 0)" if validate_range else ""} or all float{" (in [0, 1])" if validate_range else ""}',
+            pxt.ErrorCode.INVALID_ARGUMENT, f'{error_prefix}: bounding box coordinates must be int or float'
         )
-    return is_absolute
+    is_int = all(isinstance(x, int) for x in coords)
+    if absolute is not None:
+        is_absolute = absolute
+    else:
+        is_absolute = is_int or not all(0.0 <= x <= 1.0 for x in coords)
+    if validate_range and not all(x >= 0 for x in coords):
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'{error_prefix}: bounding box coordinates must be >= 0')
+    return is_absolute, is_int
 
 
 @pxt.udf
@@ -471,7 +480,7 @@ def bboxes_convert(
         raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid src_format: {src_format!r}')
     if dst_format not in ('xyxy', 'xywh', 'cxcywh'):
         raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid dst_format: {dst_format!r}')
-    is_absolute = _validate_bboxes(bboxes, 'bboxes_convert()')
+    _, is_int = _validate_bboxes(bboxes, 'bboxes_convert()')
     if src_format == dst_format:
         return bboxes
 
@@ -494,7 +503,7 @@ def bboxes_convert(
     else:  # cxcywh -> xywh
         result = np.column_stack([c0 - c2 / 2, c1 - c3 / 2, c2, c3])
 
-    if is_absolute:
+    if is_int:
         # don't use round() here, it rounds to the nearest even number
         result = np.floor(result + 0.5).astype(int)
     return result.tolist()
@@ -617,7 +626,7 @@ def _bboxes_resize(
             pxt.ErrorCode.UNSUPPORTED_OPERATION, 'aspect_mode is only valid when aspect is specified'
         )
 
-    is_absolute = _validate_bboxes(bboxes, 'bboxes_resize()')
+    is_absolute, is_int = _validate_bboxes(bboxes, 'bboxes_resize()')
     if is_absolute and (width_f is not None or height_f is not None):
         raise pxt.RequestError(
             pxt.ErrorCode.UNSUPPORTED_OPERATION,
@@ -684,22 +693,22 @@ def _bboxes_resize(
         w, h = new_w, new_h
 
     # Convert back to original format.
-    # For absolute coordinates, round w/h first, then derive positions from rounded
+    # For integer coordinates, round w/h first, then derive positions from rounded
     # dimensions so that x2-x1==round(w) (xyxy) and x+w is consistent (xywh).
-    if is_absolute:
+    if is_int:
         # don't use round() here, it rounds to the nearest even number
         w = np.floor(w + 0.5)
         h = np.floor(h + 0.5)
 
     if format == 'xyxy':
-        if is_absolute:
+        if is_int:
             x1 = np.floor(cx - w / 2 + 0.5)
             y1 = np.floor(cy - h / 2 + 0.5)
             result = np.column_stack([x1, y1, x1 + w, y1 + h]).astype(int)
         else:
             result = np.column_stack([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2])
     elif format == 'xywh':
-        if is_absolute:
+        if is_int:
             x1 = np.floor(cx - w / 2 + 0.5)
             y1 = np.floor(cy - h / 2 + 0.5)
             result = np.column_stack([x1, y1, w, h]).astype(int)
@@ -707,7 +716,7 @@ def _bboxes_resize(
             result = np.column_stack([cx - w / 2, cy - h / 2, w, h])
     else:  # cxcywh
         result = np.column_stack([cx, cy, w, h])
-        if is_absolute:
+        if is_int:
             result = np.floor(result + 0.5).astype(int)
 
     if not valid.all():
@@ -762,7 +771,7 @@ def bboxes_scale(
     if has_y and y_factor <= 0:
         raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, 'bboxes_scale(): y_factor must be positive')
 
-    is_absolute = _validate_bboxes(bboxes, 'bboxes_scale()')
+    _, is_int = _validate_bboxes(bboxes, 'bboxes_scale()')
     arr = np.array(bboxes, dtype=np.float64)
     assert arr.ndim == 2 and arr.shape[1] == 4
     c0, c1, c2, c3 = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
@@ -802,19 +811,19 @@ def bboxes_scale(
             h *= y_factor
 
     # Convert back to original format
-    if is_absolute:
+    if is_int:
         w = np.floor(w + 0.5)
         h = np.floor(h + 0.5)
 
     if format == 'xyxy':
-        if is_absolute:
+        if is_int:
             x1 = np.floor(cx - w / 2 + 0.5)
             y1 = np.floor(cy - h / 2 + 0.5)
             result = np.column_stack([x1, y1, x1 + w, y1 + h]).astype(int)
         else:
             result = np.column_stack([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2])
     elif format == 'xywh':
-        if is_absolute:
+        if is_int:
             x1 = np.floor(cx - w / 2 + 0.5)
             y1 = np.floor(cy - h / 2 + 0.5)
             result = np.column_stack([x1, y1, w, h]).astype(int)
@@ -822,7 +831,7 @@ def bboxes_scale(
             result = np.column_stack([cx - w / 2, cy - h / 2, w, h])
     else:  # cxcywh
         result = np.column_stack([cx, cy, w, h])
-        if is_absolute:
+        if is_int:
             result = np.floor(result + 0.5).astype(int)
 
     if not valid.all():
@@ -887,7 +896,7 @@ def bboxes_pad(
         if val < 0:
             raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'bboxes_pad(): {name} padding must be >= 0')
 
-    is_absolute = _validate_bboxes(bboxes, 'bboxes_pad()')
+    is_absolute, is_int = _validate_bboxes(bboxes, 'bboxes_pad()')
     if not is_absolute:
         raise pxt.RequestError(
             pxt.ErrorCode.UNSUPPORTED_OPERATION,
@@ -926,7 +935,9 @@ def bboxes_pad(
         c2 = np.where(valid, c2 + pad_left + pad_right, c2)
         c3 = np.where(valid, c3 + pad_top + pad_bottom, c3)
 
-    result = np.floor(np.column_stack([c0, c1, c2, c3]) + 0.5).astype(int)
+    result = np.column_stack([c0, c1, c2, c3])
+    if is_int:
+        result = np.floor(result + 0.5).astype(int)
 
     if orig is not None:
         result[~valid] = orig[~valid]
@@ -947,11 +958,11 @@ def bboxes_clip_to_canvas(
     Clip a list of bounding boxes to a canvas of specified size.
 
     Args:
-        bboxes: List of bounding boxes, each either specified with absolute pixel coordinates (`int`) or relative
-            coordinates (`float`).
+        bboxes: List of bounding boxes, specified with absolute pixel coordinates if `width`/`height` are given,
+            with relative coordinates otherwise.
         format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
-        width: Canvas width in absolute pixels. Required for absolute coordinates, must not be specified for relative.
-        height: Canvas height in absolute pixels. Required for absolute coordinates, must not be specified for relative.
+        width: Canvas width in absolute pixels. Required for absolute coordinates, omit for relative.
+        height: Canvas height in absolute pixels. Required for absolute coordinates, omit for relative.
         min_visibility: Minimum fraction of the bounding box that must be visible after clipping. If the visibility
             is less than this value, returns None.
         min_area: Minimum area of the bounding box after clipping. If the area is less than this value, returns None.
@@ -963,17 +974,19 @@ def bboxes_clip_to_canvas(
     if len(bboxes) == 0:
         return []
 
-    is_absolute = _validate_bboxes(bboxes, 'bboxes_clip_to_canvas()', validate_range=False)
-
-    if is_absolute and (width is None or height is None):
+    # width/height determine the mode: present means absolute pixel coordinates, absent means relative
+    if (width is None) != (height is None):
         raise pxt.RequestError(
             pxt.ErrorCode.MISSING_REQUIRED,
             'bboxes_clip_to_canvas(): both width and height must be specified for absolute coordinates',
         )
-    if not is_absolute and (width is not None or height is not None):
+    is_absolute, is_int = _validate_bboxes(
+        bboxes, 'bboxes_clip_to_canvas()', validate_range=False, absolute=width is not None
+    )
+    if not is_absolute and is_int:
         raise pxt.RequestError(
-            pxt.ErrorCode.UNSUPPORTED_OPERATION,
-            'bboxes_clip_to_canvas(): width/height must not be specified for relative coordinates',
+            pxt.ErrorCode.MISSING_REQUIRED,
+            'bboxes_clip_to_canvas(): integer coordinates are absolute pixels and require width and height',
         )
     if not (0.0 <= min_visibility <= 1.0):
         raise pxt.RequestError(
@@ -1031,7 +1044,7 @@ def bboxes_clip_to_canvas(
     else:  # cxcywh
         result_arr = np.column_stack([(cx1 + cx2) / 2, (cy1 + cy2) / 2, cx2 - cx1, cy2 - cy1])
 
-    if is_absolute:
+    if is_int:
         result_arr = np.floor(result_arr + 0.5).astype(int)
 
     # Degenerate boxes pass through unchanged
@@ -1065,10 +1078,11 @@ def bboxes_crop_canvas(
     Adjust a list of bounding boxes to account for a canvas crop.
 
     Args:
-        bboxes: List of bounding boxes, each either specified with absolute pixel coordinates or relative coordinates.
+        bboxes: List of bounding boxes, specified with absolute pixel coordinates if `canvas_width`/`canvas_height`
+            are given, with relative coordinates otherwise.
         format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
-        canvas_width: Canvas width.
-        canvas_height: Canvas height.
+        canvas_width: Canvas width in absolute pixels. Required for absolute coordinates, omit for relative.
+        canvas_height: Canvas height in absolute pixels. Required for absolute coordinates, omit for relative.
         canvas_region: Canvas region that was cropped, either specified with absolute pixel coordinates or relative
             coordinates, in the format specified by `canvas_region_format`.
         canvas_region_format: Format of the `canvas_region` coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
@@ -1079,17 +1093,20 @@ def bboxes_crop_canvas(
     if len(bboxes) == 0:
         return []
 
-    is_absolute = _validate_bboxes(bboxes, 'bboxes_crop_canvas()', validate_range=False)
-
-    if is_absolute and (canvas_width is None or canvas_height is None):
+    # canvas_width/canvas_height determine the mode: present means absolute pixel coordinates, absent means
+    # relative
+    if (canvas_width is None) != (canvas_height is None):
         raise pxt.RequestError(
             pxt.ErrorCode.MISSING_REQUIRED,
             'bboxes_crop_canvas(): both canvas_width and canvas_height must be specified for absolute coordinates',
         )
-    if not is_absolute and (canvas_width is not None or canvas_height is not None):
+    is_absolute, is_int = _validate_bboxes(
+        bboxes, 'bboxes_crop_canvas()', validate_range=False, absolute=canvas_width is not None
+    )
+    if not is_absolute and is_int:
         raise pxt.RequestError(
-            pxt.ErrorCode.UNSUPPORTED_OPERATION,
-            'bboxes_crop_canvas(): canvas_width/canvas_height must not be specified for relative coordinates',
+            pxt.ErrorCode.MISSING_REQUIRED,
+            'bboxes_crop_canvas(): integer coordinates are absolute pixels and require canvas_width and canvas_height',
         )
 
     # Validate canvas_region
@@ -1173,7 +1190,7 @@ def bboxes_crop_canvas(
     else:  # cxcywh
         result = np.column_stack([(nx1 + nx2) / 2, (ny1 + ny2) / 2, nx2 - nx1, ny2 - ny1])
 
-    if is_absolute:
+    if is_int:
         result = np.floor(result + 0.5).astype(int)
 
     # Degenerate boxes pass through unchanged
@@ -1219,7 +1236,7 @@ def bboxes_resize_canvas(
     if len(bboxes) == 0:
         return []
 
-    is_absolute = _validate_bboxes(bboxes, 'bboxes_resize_canvas()', validate_range=False)
+    is_absolute, is_int = _validate_bboxes(bboxes, 'bboxes_resize_canvas()', validate_range=False)
     if not is_absolute:
         raise pxt.RequestError(
             pxt.ErrorCode.UNSUPPORTED_OPERATION, 'bboxes_resize_canvas(): requires absolute bounding boxes'
@@ -1310,8 +1327,8 @@ def bboxes_resize_canvas(
     arr[:, 2] *= scale_x
     arr[:, 3] *= scale_y
 
-    # Round absolute coordinates
-    result = np.floor(arr + 0.5).astype(int)
+    # integer coordinates stay integer
+    result = np.floor(arr + 0.5).astype(int) if is_int else arr
 
     # Restore degenerate boxes
     if orig is not None:
