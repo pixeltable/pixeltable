@@ -8,6 +8,7 @@ pytestmark = pytest.mark.local('UDF/integration test')
 
 
 class TestYolox:
+    @pytest.mark.xdist_group('yolox')
     def test_yolox(self, uses_db: None) -> None:
         skip_test_if_not_installed('yolox')
         from pixeltable.functions.yolox import yolox
