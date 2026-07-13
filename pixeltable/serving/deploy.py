@@ -12,6 +12,7 @@ import toml
 from pathspec import PathSpec
 
 from pixeltable import config, metadata
+from pixeltable.config import PixeltableSourceConfig
 from pixeltable.env import Env
 
 _logger = logging.getLogger(__name__)
@@ -43,10 +44,18 @@ def _collect_project_files(project_dir: Path, include: list[str] | None, exclude
     return sorted(files)
 
 
-def _export_conda_env() -> bytes | None:
+def _is_stable_pypi_version(version: str) -> bool:
+    """Return True if version is a stable PyPI-installable release (no local label or dev segment)."""
+    return '+' not in version and '.dev' not in version
+
+
+def _export_conda_env() -> tuple[bytes, str | None] | None:
     """Export the active conda environment as YAML, without platform-specific build strings.
 
-    Returns the environment.yml content as bytes, or None if not running in a conda environment.
+    Returns (cleaned_yaml, detected_pixeltable_version) or None if not in a conda environment.
+    detected_pixeltable_version is the version string found in the pip section (e.g. "0.6.7" or
+    "0.0.1.dev1600+76a4f45"). It is always stripped from the YAML — local dev versions cannot be
+    pip-installed from PyPI; stable versions are re-added to runtime_config.json by the caller.
     """
     conda_exe = os.environ.get('CONDA_EXE')
     if conda_exe is None or 'CONDA_DEFAULT_ENV' not in os.environ:
@@ -59,11 +68,19 @@ def _export_conda_env() -> bytes | None:
         Env.get().console_logger.warning(f'Failed to export conda environment: {exc}')
         return None
 
-    # Strip pixeltable* entries from the pip section — dev-installed versions aren't on PyPI.
-    # The runtime Dockerfile installs pixeltable[serve] explicitly after env creation.
+    # Strip all pixeltable* entries from the pip section and capture the pixeltable version.
+    # pixeltable dev builds (version contains '+' or '.dev') cannot be pip-installed from PyPI.
     env_text = result.stdout.decode('utf-8')
-    filtered = [line for line in env_text.splitlines(keepends=True) if not re.match(r'^\s+-\s+pixeltable', line)]
-    return ''.join(filtered).encode('utf-8')
+    detected_version: str | None = None
+    filtered = []
+    for line in env_text.splitlines(keepends=True):
+        if re.match(r'^\s+-\s+pixeltable==', line):
+            detected_version = line.strip().split('==', 1)[1].strip()
+        elif re.match(r'^\s+-\s+pixeltable', line):
+            pass  # strip pixeltable-pgserver, pixeltable-cloud, etc.
+        else:
+            filtered.append(line)
+    return ''.join(filtered).encode('utf-8'), detected_version
 
 
 def _find_lockfile(project_dir: Path | None = None) -> Path | None:
@@ -131,7 +148,26 @@ def build_db_runtime_bundle(project_dir: Path | None = None) -> Path:
             'The runtime may not have the necessary dependencies.'
         )
 
-    conda_export = _export_conda_env()
+    conda_result = _export_conda_env()
+    conda_export: bytes | None = None
+    conda_pxt_version: str | None = None
+    if conda_result is not None:
+        conda_export, conda_pxt_version = conda_result
+
+    # Determine the effective pixeltable source for runtime_config.json.
+    # Priority: explicit pixeltable.toml config > stable conda version > warn (dev build).
+    effective_pxt_source = pxt_source
+    if effective_pxt_source is None and conda_pxt_version is not None:
+        if _is_stable_pypi_version(conda_pxt_version):
+            effective_pxt_source = PixeltableSourceConfig(version=conda_pxt_version)
+        else:
+            Env.get().console_logger.warning(
+                f'Detected a local dev pixeltable build ({conda_pxt_version}) that cannot be '
+                'installed from PyPI. Add a [pixeltable.database.pixeltable_source] section to '
+                'pixeltable.toml with a git ref pointing to your branch so the runtime image '
+                'uses the correct pixeltable version.'
+            )
+
     files = _collect_project_files(project_dir, include, exclude)
 
     fd, name = tempfile.mkstemp(suffix='.tar.bz2', prefix='pxt_runtime_')
@@ -143,8 +179,8 @@ def build_db_runtime_bundle(project_dir: Path | None = None) -> Path:
         __add_tarfile(tf, 'metadata.json', json.dumps(manifest).encode('utf-8'))
         if conda_export is not None:
             __add_tarfile(tf, 'environment.yml', conda_export)
-        if pxt_source is not None:
-            rt_config = {'pixeltable_source': pxt_source.model_dump(exclude_none=True)}
+        if effective_pxt_source is not None:
+            rt_config = {'pixeltable_source': effective_pxt_source.model_dump(exclude_none=True)}
             __add_tarfile(tf, 'runtime_config.json', json.dumps(rt_config).encode('utf-8'))
         for f in sorted(files):
             relpath = f.relative_to(project_dir)

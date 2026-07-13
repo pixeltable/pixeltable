@@ -141,9 +141,10 @@ class ServiceConfig(pydantic.BaseModel):
 class PixeltableSourceConfig(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(extra='forbid')
 
-    git: str
+    git: str | None = None
     branch: str | None = None
     rev: str | None = None  # commit SHA or tag
+    version: str | None = None  # stable PyPI version, e.g. "0.6.7"
 
 
 class DatabaseRuntimeConfig(pydantic.BaseModel):
