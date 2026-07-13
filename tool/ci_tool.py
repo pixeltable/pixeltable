@@ -93,8 +93,16 @@ def generate_matrix(args: argparse.Namespace) -> None:
     else:
         if force_all or trigger == 'schedule':
             # Tier 3 only: Standard + expensive + very_expensive tests on upgraded platform.
+            # Coverage is collected only on this config: it runs the widest test set, and the scheduled tier can
+            # afford the tracing overhead. pytest-cov (rather than `coverage run`) so that xdist workers are measured.
             configs.append(
-                MatrixConfig('standard++', 'py', 'ubuntu-large', '3.10', pytest_options=VERY_EXPENSIVE_PYTEST)
+                MatrixConfig(
+                    'standard++',
+                    'py',
+                    'ubuntu-large',
+                    '3.10',
+                    pytest_options=f'{VERY_EXPENSIVE_PYTEST} --cov=pixeltable --cov-report=term-missing',
+                )
             )
             configs.append(MatrixConfig('notebooks++', 'ipynb', 'ubuntu-large', '3.10'))
 
