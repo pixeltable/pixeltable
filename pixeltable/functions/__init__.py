@@ -15,6 +15,7 @@ from . import (
     audio,
     bedrock,
     bfl,
+    databricks,
     date,
     deepseek,
     document,

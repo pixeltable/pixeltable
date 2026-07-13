@@ -549,6 +549,13 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'service_tier': 'Processing tier for requests (priority, default, flex, or reserved)',
     },
     'bfl': {'api_key': 'Black Forest Labs (BFL) API key', 'rate_limit': 'Rate limit for BFL API requests'},
+    'databricks': {
+        'host': 'Databricks workspace URL (e.g. https://<workspace>.cloud.databricks.com)',
+        'token': 'Databricks personal access token or OAuth token',
+        'default_chat_model': 'Default foundation model or serving endpoint for chat_completions',
+        'default_embedding_model': 'Default embedding model or endpoint for embeddings',
+        'rate_limit': 'Rate limit for Databricks API requests (requests per minute)',
+    },
     'deepseek': {'api_key': 'Deepseek API key', 'rate_limit': 'Rate limit for Deepseek API requests'},
     'fal': {'api_key': 'fal.ai API key', 'rate_limit': 'Rate limit for fal.ai API requests'},
     'fireworks': {'api_key': 'Fireworks API key', 'rate_limit': 'Rate limit for Fireworks API requests'},

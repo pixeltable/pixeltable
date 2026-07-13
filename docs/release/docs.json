@@ -64,6 +64,7 @@
                   "howto/providers/working-with-anthropic",
                   "howto/providers/working-with-bedrock",
                   "howto/providers/working-with-bfl",
+                  "howto/providers/working-with-databricks",
                   "howto/providers/working-with-deepseek",
                   "howto/providers/working-with-fal",
                   "howto/providers/working-with-fabric",
