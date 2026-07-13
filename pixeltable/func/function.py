@@ -508,10 +508,6 @@ class Function(ABC):
     def __hash__(self) -> int:
         return hash(self.self_path)
 
-    def source(self) -> None:
-        """Print source code"""
-        print('source not available')
-
     def as_dict(self) -> dict[str, Any]:
         """
         Return a serialized reference to the instance that can be passed to json.dumps() and converted back

@@ -1,6 +1,6 @@
 import types
 
-from pixeltable.func import Function
+from pixeltable.func import Function, GeneratingFunction
 
 # Utilities related to the organization of the Pixeltable codebase.
 
@@ -18,8 +18,8 @@ def local_public_names(mod_name: str, exclude: list[str] | None = None) -> list[
     mod = importlib.import_module(mod_name)
     names = []
     for obj in mod.__dict__.values():
-        if isinstance(obj, Function):
-            # Pixeltable function
+        if isinstance(obj, (Function, GeneratingFunction)):
+            # Pixeltable function or iterator
             if not obj.name.startswith('_'):
                 names.append(obj.name)
         elif isinstance(obj, types.FunctionType):

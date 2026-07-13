@@ -170,6 +170,7 @@
         </outline>
         <outline text="module|pixeltable.functions.image">
           <outline text="iter|pixeltable.functions.image.tile_iterator" />
+          <outline text="uda|pixeltable.functions.image.stitch_tiles" />
           <outline text="udf|pixeltable.functions.image.b64_encode" />
           <outline text="udf|pixeltable.functions.image.alpha_composite" />
           <outline text="udf|pixeltable.functions.image.blend" />
