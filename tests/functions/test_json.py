@@ -336,7 +336,7 @@ class TestJson:
 
         # method/field name collision
         # a field colliding with a method name stays reachable via subscript, while `.map` is the method
-        tc = pxt.create_table('json_map_filter', {'j': pxt.Json})
+        tc = pxt.create_table('json_map_filter_collide', {'j': pxt.Json})
         tc.insert([{'j': {'map': 5, 'nums': [1, 2, 3]}}])
         assert tc.select(o=tc.j['map']).collect()['o'] == [5]
         assert tc.select(o=tc.j.nums.map(lambda x: x + 1)).collect()['o'] == [[2, 3, 4]]

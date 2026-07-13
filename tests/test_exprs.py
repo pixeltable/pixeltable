@@ -789,7 +789,7 @@ class TestExprs:
 
         # top-level is list of dicts; subsequent json path element references the dicts
         res2 = reload_tester.run_query(
-            t.select(input=t.c7, output=t.c7.f5.map(lambda x: [x[3], x[2], x[1], x[0]])).order_by(t.c2)
+            t.select(input=t.c7, output=t.c7['*'].f5.map(lambda x: [x[3], x[2], x[1], x[0]])).order_by(t.c2)
         )
         assert res2.schema['output'] == 'Json[(Json[(Json | None, Json | None, Json | None, Json | None)], ...)]'
         for row in res2:
@@ -811,7 +811,7 @@ class TestExprs:
 
         # test it as a computed column
         validate_update_status(t.add_computed_column(out1=pxtf.map(t.c6.f5, lambda x: x + 1)), 100)
-        validate_update_status(t.add_computed_column(out2=pxtf.map(t.c7.f5, lambda x: [x[3], x[2], x[1], x[0]])), 100)
+        validate_update_status(t.add_computed_column(out2=pxtf.map(t.c7['*'].f5, lambda x: [x[3], x[2], x[1], x[0]])), 100)
         validate_update_status(t.add_computed_column(out3=pxtf.map(t.c6.f5, lambda x: x * t.c6.f5[1])), 100)
         validate_update_status(t.add_computed_column(out4=pxtf.map(t.c6.f5, lambda x: x + 1)[0]), 100)
         res_col = reload_tester.run_query(t.select(t.out1, t.out2, t.out3, t.out4).order_by(t.c2))
@@ -823,10 +823,10 @@ class TestExprs:
         }
         # the stored value exprs display in method form with the relative root shown as R (matching creation)
         md = t.get_metadata()['columns']
-        assert md['out1']['computed_with'] == 'c6.f5[*].map(lambda R: R + 1)'
+        assert md['out1']['computed_with'] == 'c6.f5.map(lambda R: R + 1)'
         assert md['out2']['computed_with'] == 'c7[*].f5.map(lambda R: [R[3], R[2], R[1], R[0]])'
-        assert md['out3']['computed_with'] == 'c6.f5[*].map(lambda R: R * c6.f5[1])'
-        assert md['out4']['computed_with'] == 'c6.f5[*].map(lambda R: R + 1)[0]'
+        assert md['out3']['computed_with'] == 'c6.f5.map(lambda R: R * c6.f5[1])'
+        assert md['out4']['computed_with'] == 'c6.f5.map(lambda R: R + 1)[0]'
 
         for row1, row2, row3, row4, row_col in zip(res1, res2, res3, res4, res_col):
             assert row1['output'] == row_col['out1']
