@@ -7,7 +7,7 @@ import urllib.parse
 from collections import deque
 from concurrent import futures
 from pathlib import Path
-from typing import Any, AsyncIterator, Iterator
+from typing import AsyncIterator, Iterator
 from uuid import UUID
 
 from pixeltable import exceptions as excs, exprs, telemetry
@@ -231,7 +231,7 @@ class CachePrefetchNode(ExecNode):
             _logger.debug(f'submitted {url} for idx {url_pos[url]}')
             self.in_flight_requests[f] = url
 
-    def __fetch_url(self, url: str, hooks_ctx: Any) -> tuple[Path | None, Exception | None]:
+    def __fetch_url(self, url: str, hooks_ctx: telemetry.CtxSnapshot | None) -> tuple[Path | None, Exception | None]:
         """Runs on a worker thread of the ThreadPoolExecutor."""
         hooks_token = telemetry.restore_context(hooks_ctx)
         try:

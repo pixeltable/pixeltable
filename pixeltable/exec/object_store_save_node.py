@@ -6,7 +6,7 @@ import logging
 from collections import defaultdict, deque
 from concurrent import futures
 from pathlib import Path
-from typing import Any, AsyncIterator, Iterator, NamedTuple
+from typing import AsyncIterator, Iterator, NamedTuple
 
 from pixeltable import exprs, telemetry
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectPath, ObjectStoreBase, StorageTarget
@@ -311,7 +311,9 @@ class ObjectStoreSaveNode(ExecNode):
             )
             _logger.debug(f'submitted {work_item}')
 
-    def __persist_media_file(self, work_item: WorkItem, hooks_ctx: Any) -> tuple[str | None, Exception | None]:
+    def __persist_media_file(
+        self, work_item: WorkItem, hooks_ctx: telemetry.CtxSnapshot | None
+    ) -> tuple[str | None, Exception | None]:
         """Move data from the TempStore to another location.
 
         Runs on a worker thread of the ThreadPoolExecutor. Performs no catalog access:

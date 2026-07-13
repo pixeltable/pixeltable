@@ -100,8 +100,11 @@ class FnCallEvaluator(Evaluator):
         if self.call_args_queue is not None:
             self.call_args_queue = asyncio.Queue[FnCallArgs]()
 
-    def _cell_span(self, row: exprs.DataRow) -> Any:
-        """Span for one row's UDF call, nested under the row's span; no-op when the row has no span."""
+    def _cell_span(self, row: exprs.DataRow) -> contextlib.AbstractContextManager[telemetry.SpanHandle | None]:
+        """Context manager, with telemetry.span() semantics, covering one row's UDF call.
+
+        The span nests under the row's span; when the row has no span, returns a no-op nullcontext.
+        """
         if row.span is None:
             return contextlib.nullcontext()
         # DEBUG so cell spans emit/suppress in lockstep with the row span they nest under.

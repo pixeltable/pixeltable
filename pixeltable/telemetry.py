@@ -69,6 +69,8 @@ class Subscriber:
 class SpanHandle:
     """Opaque handle for an emitted span; created by span_start() and consumed by span_end()."""
 
+    # one handle is allocated per emitted span, which at DEBUG level means per row and per UDF cell;
+    # slots drops the per-instance __dict__, cutting allocation cost and memory on that hot path
     __slots__ = ('cv_token', 'pending_attrs', 'subs', 'tokens')
 
     def __init__(self, subs: tuple[Subscriber, ...], tokens: tuple[Any, ...]) -> None:
@@ -276,16 +278,18 @@ def span(
 
 
 @dataclasses.dataclass(slots=True)
-class _CtxSnapshot:
+class CtxSnapshot:
+    """Ambient instrumentation state captured by capture_context() for handoff to a worker thread."""
+
     subs: tuple[Subscriber, ...]
     span: SpanHandle | None
     sub_ctxs: tuple[Any, ...]
 
 
-_CtxToken = tuple[_CtxSnapshot, Token[SpanHandle | None], tuple[Any, ...]]
+_CtxToken = tuple[CtxSnapshot, Token[SpanHandle | None], tuple[Any, ...]]
 
 
-def capture_context() -> _CtxSnapshot | None:
+def capture_context() -> CtxSnapshot | None:
     """Snapshot the ambient instrumentation state; call on the spawning thread."""
     subs = TelemetryEnv.get()._subscribers
     if not subs:
@@ -297,10 +301,10 @@ def capture_context() -> _CtxSnapshot | None:
         except Exception as e:
             TelemetryEnv.get()._log_subscriber_error(s, 'capture_context', e)
             sub_ctxs.append(None)
-    return _CtxSnapshot(subs, _current_span.get(), tuple(sub_ctxs))
+    return CtxSnapshot(subs, _current_span.get(), tuple(sub_ctxs))
 
 
-def restore_context(snapshot: _CtxSnapshot | None) -> _CtxToken | None:
+def restore_context(snapshot: CtxSnapshot | None) -> _CtxToken | None:
     """Restore a capture_context() snapshot; call on the worker thread. The result is passed to exit_context()."""
     if snapshot is None:
         return None
