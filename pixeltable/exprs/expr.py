@@ -456,17 +456,21 @@ class Expr(abc.ABC):
 
     @classmethod
     def get_refd_column_ids(cls, expr_dict: dict[str, Any]) -> set[catalog.QColumnId]:
-        """Return Columns referenced by expr_dict."""
-        result: set[catalog.QColumnId] = set()
+        """Return Columns referenced by expr_dict, including its components."""
         assert '_classname' in expr_dict
-        from .column_ref import ColumnRef
-
-        if expr_dict['_classname'] == 'ColumnRef':
-            result.add(ColumnRef.get_column_id(expr_dict))
-        if 'components' in expr_dict:
-            for component_dict in expr_dict['components']:
-                result.update(cls.get_refd_column_ids(component_dict))
+        # dispatch on the serialized classname (like from_dict()), so that subclass overrides of
+        # _get_refd_column_ids() are picked up (eg, SimilarityExpr's indexed column)
+        exprs_module = importlib.import_module(cls.__module__.rsplit('.', 1)[0])
+        expr_class: type[Expr] = getattr(exprs_module, expr_dict['_classname'])
+        result = expr_class._get_refd_column_ids(expr_dict)
+        for component_dict in expr_dict.get('components', []):
+            result.update(cls.get_refd_column_ids(component_dict))
         return result
+
+    @classmethod
+    def _get_refd_column_ids(cls, expr_dict: dict[str, Any]) -> set[catalog.QColumnId]:
+        """Return Columns referenced by this expr node itself, excluding its components."""
+        return set()
 
     def as_literal(self) -> Expr | None:
         """

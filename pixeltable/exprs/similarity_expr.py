@@ -81,8 +81,9 @@ class SimilarityExpr(Expr):
         return {self.table_version_key.tbl_id} | super().tbl_ids()
 
     @classmethod
-    def get_refd_column_ids(cls, expr_dict: dict[str, Any]) -> set[catalog.QColumnId]:
-        result = super().get_refd_column_ids(expr_dict)
+    def _get_refd_column_ids(cls, expr_dict: dict[str, Any]) -> set[catalog.QColumnId]:
+        # the indexed column is a reference, even though it is not stored as a component
+        result = super()._get_refd_column_ids(expr_dict)
         if 'qcol_id' in expr_dict:
             result.add(
                 catalog.QColumnId(tbl_id=UUID(expr_dict['qcol_id']['tbl_id']), col_id=expr_dict['qcol_id']['col_id'])

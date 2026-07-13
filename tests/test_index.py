@@ -606,6 +606,30 @@ class TestIndex:
         img_t.drop_column('ebd_copy')
         img_t.drop_embedding_index(column=img_t.category)
 
+    def test_drop_indexed_column_with_dependent_similarity(
+        self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function, reload_tester: ReloadTester
+    ) -> None:
+        t = pxt.create_table(make_catalog_path('sim_drop_test'), {'id': pxt.Int, 'text': pxt.String})
+        t.add_embedding_index('text', string_embed=local_embed, idx_name='embed')
+        validate_update_status(
+            t.add_computed_column(sim_unstored=t.text.similarity(string='sunlight', idx='embed'), stored=False)
+        )
+
+        # the similarity column depends on the indexed column, even though the indexed column is not a component
+        # of the similarity expr; dropping the indexed column must be rejected, otherwise the similarity column
+        # can no longer be loaded (PXT-1168)
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match="Cannot drop column 'text' because the following columns depend on it:\nsim_unstored",
+        ):
+            t.drop_column(t.text)
+
+        # dropping the dependent column first makes the drop legal
+        t.drop_column('sim_unstored')
+        t.drop_column('text')
+        _ = reload_tester.run_query(t.select(t.id))
+        reload_tester.run_reload_test()
+
     def test_embedding_basic(
         self,
         img_tbl: pxt.Table,
