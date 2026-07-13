@@ -517,11 +517,11 @@
 
       <!-- Observability group -->
       <outline text="group|Observability">
-        <outline text="module|pixeltable.hooks">
-          <outline text="func|pixeltable.hooks.span_start" />
-          <outline text="func|pixeltable.hooks.span_end" />
-          <outline text="func|pixeltable.hooks.span" />
-          <outline text="func|pixeltable.hooks.emit" />
+        <outline text="module|pixeltable.telemetry">
+          <outline text="func|pixeltable.telemetry.span_start" />
+          <outline text="func|pixeltable.telemetry.span_end" />
+          <outline text="func|pixeltable.telemetry.span" />
+          <outline text="func|pixeltable.telemetry.emit" />
         </outline>
         <outline text="module|opentelemetry.instrumentation.pixeltable">
           <outline text="func|opentelemetry.instrumentation.pixeltable.init" />
