@@ -128,7 +128,7 @@ jobs:
         env:
           PXTTEST_CI_OS: ${{ matrix.os }}
         run: |
-          coverage run -m --source=pixeltable pytest -v -m 'not very_expensive' tests
+          coverage run --source=pixeltable -m pytest -v -m 'not very_expensive' tests
           coverage report -m
       - name: Print utilization info
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
