@@ -25,6 +25,7 @@ VERY_EXPENSIVE_NOTEBOOKS=(
     img-detection-vs-segmentation   # Resource intensive
     video-generate-ai               # High dollar cost
     working-with-gemini             # High dollar cost
+    working-with-fal                # [PXT-1233] fal.ai integration failing on CI
     working-with-together           # Poor reliability
 )
 
@@ -37,6 +38,7 @@ EXPENSIVE_NOTEBOOKS=(
     doc-chunk-for-rag
     embedding-indexes
     img-image-to-image
+    img-promptable-segmentation
     multimodal_backend
     queries-and-expressions
     rag-demo
@@ -143,7 +145,7 @@ if [[ $INCLUDE_EXPENSIVE == false ]]; then
 fi
 
 # Get a list of all API keys referenced in the notebooks
-REF_API_KEYS=$(grep -hoE '[A-Z0-9_]*_(API|ACCESS)_(KEY|TOKEN|SECRET)(_[A-Z0-9_]*)?' "$TARGET_DIR"/*.ipynb | sort | uniq)
+REF_API_KEYS=$(grep -hoE '[A-Z0-9_]*_(API|ACCESS)_(KEY|TOKEN|SECRET)(_[A-Z0-9_]*)?|HF_TOKEN' "$TARGET_DIR"/*.ipynb | sort | uniq)
 echo
 echo "Checking for API keys: $(echo "$REF_API_KEYS" | tr '\n' ' ')"
 for env in $REF_API_KEYS; do

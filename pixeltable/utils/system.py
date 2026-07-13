@@ -1,7 +1,23 @@
+import builtins
 import logging
 import os
+import sys
+
+import __main__
 
 _logger = logging.getLogger(__name__)
+
+
+def is_interactive_env() -> bool:
+    """Return True if running in an interactive environment."""
+    if getattr(builtins, '__IPYTHON__', False):
+        return True
+    # Python interactive shell
+    if hasattr(sys, 'ps1'):
+        return True
+    # an embedded interpreter has no __main__ source file; require the interactive flag too, so `python -c`
+    # and piped stdin (which also lack a source file) are not mistaken for an interactive session
+    return not hasattr(__main__, '__file__') and bool(sys.flags.interactive)
 
 
 def set_file_descriptor_limit(preferred_limit: int) -> None:

@@ -8,7 +8,7 @@ from ..utils import rerun, skip_test_if_no_client, skip_test_if_not_installed, v
 pytestmark = pytest.mark.local('UDF/integration test')
 
 
-@pytest.mark.expensive
+@pytest.mark.very_expensive
 @pytest.mark.remote_api
 @rerun(reruns=3, reruns_delay=8)
 class TestFal:

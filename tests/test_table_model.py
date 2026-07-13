@@ -48,7 +48,7 @@ class TestTableModel:
                 comment='This is a column with special properties',
             )
             computed_with_special_props = Column(value=(value / 3), stored=False)
-            computed_with_special_props_2 = Column(value=img.rotate(90), destination='.')
+            computed_with_special_props_2 = Column(value=img.rotate(90))
 
             clip_idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
 
@@ -82,7 +82,7 @@ class TestTableModel:
             }
         )
         tbl2.add_computed_column(computed_with_special_props=(tbl2.value / 3), stored=False)
-        tbl2.add_computed_column(computed_with_special_props_2=tbl2.img.rotate(90), destination='.')
+        tbl2.add_computed_column(computed_with_special_props_2=tbl2.img.rotate(90))
         tbl2.add_embedding_index(tbl2.img, idx_name='clip_idx', embedding=dummy_embedding.using(n=768))
         metadata2 = tbl2.get_metadata()
 
@@ -256,7 +256,7 @@ class TestTableModel:
                         'comment': None,
                         'custom_metadata': None,
                         'is_iterator_col': False,
-                        'destination': '.',
+                        'destination': None,
                     },
                 },
                 'indices': {

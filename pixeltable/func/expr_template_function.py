@@ -69,6 +69,18 @@ class ExprTemplateFunction(Function):
         assert not self.is_polymorphic
         return self.templates[0]
 
+    @property
+    def is_storable(self) -> bool:
+        # with a fully-qualified path this serializes by reference; otherwise the template expressions are inlined
+        # by value, so it is storable only if every function embedded in them is itself storable
+        if self.self_path is not None:
+            return True
+        return all(
+            fn_call.fn.is_storable
+            for template in self.templates
+            for fn_call in template.expr.subexprs(exprs.FunctionCall)
+        )
+
     def instantiate(self, args: Sequence[Any], kwargs: dict[str, Any]) -> exprs.Expr:
         assert not self.is_polymorphic
         template = self.template
