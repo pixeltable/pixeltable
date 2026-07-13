@@ -11,7 +11,10 @@ from pathlib import Path
 from typing import NamedTuple
 from uuid import UUID
 
+from tenacity import RetryCallState, retry, retry_if_exception, stop_after_attempt, wait_exponential_jitter
+
 from pixeltable import env, exceptions as excs
+from pixeltable.utils.http import is_retriable_error
 
 
 @dataclasses.dataclass(frozen=True)
@@ -619,6 +622,15 @@ class ObjectOps:
         return cls.list_objects(source_uri, True, n_max)
 
 
+def _wait_retry_after(retry_state: RetryCallState) -> float:
+    """Honors the server-requested Retry-After delay (capped at 60s), falling back to exponential backoff."""
+    exc = retry_state.outcome.exception() if retry_state.outcome is not None else None
+    retry_after = is_retriable_error(exc)[1] if isinstance(exc, Exception) else None
+    if retry_after is not None:
+        return min(retry_after, 60.0)
+    return wait_exponential_jitter(initial=1.0, max=16.0)(retry_state)
+
+
 class HTTPStore(ObjectStoreBase):
     base_url: str
 
@@ -627,6 +639,12 @@ class HTTPStore(ObjectStoreBase):
         if not self.base_url.endswith('/'):
             self.base_url += '/'
 
+    @retry(
+        retry=retry_if_exception(lambda exc: isinstance(exc, Exception) and is_retriable_error(exc)[0]),
+        wait=_wait_retry_after,
+        stop=stop_after_attempt(4),
+        reraise=True,
+    )
     def copy_object_to_local_file(self, src_path: str, dest_path: Path) -> None:
         url = self.base_url + src_path
         req = urllib.request.Request(url, headers={'User-Agent': 'Pixeltable/1.0 (https://pixeltable.com)'})
