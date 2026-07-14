@@ -58,14 +58,7 @@ def _cloud_env() -> dict[str, str]:
 
 
 def _pxt(*args: str, cwd: Path | None = None, check: bool = True, timeout: int = 900) -> str:
-    r = subprocess.run(
-        ['pxt', *args],
-        capture_output=True,
-        text=True,
-        env=_cloud_env(),
-        cwd=cwd,
-        timeout=timeout,
-    )
+    r = subprocess.run(['pxt', *args], capture_output=True, text=True, env=_cloud_env(), cwd=cwd, timeout=timeout)
     out = r.stdout + r.stderr
     if check and r.returncode != 0:
         raise AssertionError(f'pxt {" ".join(args)} failed (rc={r.returncode}):\n{out}')
@@ -79,11 +72,7 @@ def _pxt_json(*args: str, cwd: Path | None = None) -> str:
 def _sdk(code: str) -> str:
     """Run a Python snippet in a subprocess with cloud env."""
     r = subprocess.run(
-        [sys.executable, '-c', textwrap.dedent(code)],
-        capture_output=True,
-        text=True,
-        env=_cloud_env(),
-        timeout=120,
+        [sys.executable, '-c', textwrap.dedent(code)], capture_output=True, text=True, env=_cloud_env(), timeout=120
     )
     return r.stdout + r.stderr
 
@@ -107,9 +96,7 @@ def _get(url: str, params: dict | None = None, *, retries: int = 10, delay: floa
     resp = None
     for attempt in range(retries):
         try:
-            resp = requests.get(
-                url, params=params, headers={'X-api-key': _API_KEY}, timeout=15
-            )
+            resp = requests.get(url, params=params, headers={'X-api-key': _API_KEY}, timeout=15)
             if resp.status_code == 200:
                 return resp
         except requests.RequestException:
@@ -120,14 +107,7 @@ def _get(url: str, params: dict | None = None, *, retries: int = 10, delay: floa
     return resp
 
 
-def _wait_for_state(
-    resource_type: str,
-    uri: str,
-    desired: str,
-    *,
-    timeout: int = 180,
-    poll_interval: int = 5,
-) -> str:
+def _wait_for_state(resource_type: str, uri: str, desired: str, *, timeout: int = 180, poll_interval: int = 5) -> str:
     """Poll `pxt <resource_type> status <uri> --json` until <desired> appears in output.
 
     Fails immediately if any worker pod is in CrashLoopBackOff and not recovering.
@@ -153,9 +133,7 @@ def _wait_for_state(
         except (json.JSONDecodeError, AttributeError):
             pass
         time.sleep(poll_interval)
-    raise AssertionError(
-        f'{resource_type} {uri} did not reach {desired} within {timeout}s.\nLast status:\n{out}'
-    )
+    raise AssertionError(f'{resource_type} {uri} did not reach {desired} within {timeout}s.\nLast status:\n{out}')
 
 
 # ── resources fixture ─────────────────────────────────────────────────────────
@@ -168,8 +146,8 @@ class Resources(NamedTuple):
     db_uri: str
     svc_uri: str
     svc_base: str
-    table_uri: str   # pxt://org:db/e2e_items
-    toml_dir: Path   # temp dir holding pixeltable.toml for service config
+    table_uri: str  # pxt://org:db/e2e_items
+    toml_dir: Path  # temp dir holding pixeltable.toml for service config
 
 
 def _write_initial_toml(toml_dir: Path, svc_name: str) -> None:
@@ -204,10 +182,7 @@ def _write_full_toml(toml_dir: Path, svc_name: str) -> None:
 
 
 @pytest.fixture(scope='module')
-def resources(
-    tmp_path_factory: pytest.TempPathFactory,
-    request: pytest.FixtureRequest,
-) -> Iterator[Resources]:
+def resources(tmp_path_factory: pytest.TempPathFactory, request: pytest.FixtureRequest) -> Iterator[Resources]:
     if not _API_KEY:
         pytest.skip('PIXELTABLE_API_KEY not set')
 
@@ -234,10 +209,7 @@ def resources(
         yield r
     finally:
         if _SKIP_CLEANUP or request.session.testsfailed > 0:
-            print(
-                f'\n[cleanup skipped — resources left for inspection: {db_uri}]',
-                flush=True,
-            )
+            print(f'\n[cleanup skipped — resources left for inspection: {db_uri}]', flush=True)
         else:
             _pxt('service', 'delete', svc_uri, '--json', check=False)
             _pxt('db', 'delete', db_uri, '--json', check=False)
@@ -382,9 +354,13 @@ class TestCloudE2E:
     def test_7_service_create(self, resources: Resources) -> None:
         _write_initial_toml(resources.toml_dir, resources.svc_name)
         out = _pxt_json(
-            'service', 'create', resources.svc_name,
-            '--base-uri', resources.db_uri,
-            '--workers', '1',
+            'service',
+            'create',
+            resources.svc_name,
+            '--base-uri',
+            resources.db_uri,
+            '--workers',
+            '1',
             cwd=resources.toml_dir,
         )
         assert resources.svc_name in out
@@ -455,8 +431,7 @@ class TestCloudE2E:
     def test_12_update_runtime(self, resources: Resources) -> None:
         if _SKIP_UPDATE_RUNTIME:
             pytest.skip('PXT_E2E_SKIP_UPDATE_RUNTIME=1')
-        out = _pxt('db', 'update-runtime', resources.db_uri, '--json',
-                   cwd=_SAMPLE_APP, timeout=1200)
+        out = _pxt('db', 'update-runtime', resources.db_uri, '--json', cwd=_SAMPLE_APP, timeout=1200)
         data = json.loads(out)
         assert data.get('state') == 'AVAILABLE', f'update-runtime did not return AVAILABLE:\n{out}'
         assert data.get('last_build_state') == 'ACTIVE', (
@@ -471,9 +446,13 @@ class TestCloudE2E:
             pytest.skip('query route requires update-runtime image with udfs.py')
         _write_full_toml(resources.toml_dir, resources.svc_name)
         _pxt_json(
-            'service', 'update', resources.svc_uri,
-            '--workers', '2',
-            '--config', str(resources.toml_dir / 'pixeltable.toml'),
+            'service',
+            'update',
+            resources.svc_uri,
+            '--workers',
+            '2',
+            '--config',
+            str(resources.toml_dir / 'pixeltable.toml'),
             cwd=resources.toml_dir,
         )
         out = _wait_for_state('service', resources.svc_uri, 'AVAILABLE', timeout=180)

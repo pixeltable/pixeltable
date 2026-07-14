@@ -150,7 +150,9 @@ class Runtime:
             return CatalogProxy(catalog_uri, ProxyHttpClient(f'http://127.0.0.1:{info["port"]}'))
 
         # Remote database: connect via TLS to the proxy endpoint.
-        from pixeltable.service.proxy_cloud_client import ProxyCloudClient  # local: breaks circular import via proxy_dispatch
+        from pixeltable.service.proxy_cloud_client import (
+            ProxyCloudClient,
+        )  # local: breaks circular import via proxy_dispatch
 
         api_key = Env.get().pxt_api_key
         if api_key is None:

@@ -210,5 +210,3 @@ def poll_svc(org_slug: str, db_slug: str, svc_name: str, pending_states: frozens
             if svc.get('state') not in pending_states:
                 break
     return svc
-
-
