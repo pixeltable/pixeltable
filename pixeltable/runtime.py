@@ -166,7 +166,18 @@ class Runtime:
         port_override = 9000
         if cloud_domain and ':' in cloud_domain:
             cloud_domain, _, port_str = cloud_domain.rpartition(':')
-            port_override = int(port_str)
+            try:
+                port_override = int(port_str)
+            except ValueError as err:
+                raise excs.Error(
+                    excs.ErrorCode.GENERIC_USER_ERROR,
+                    f'Invalid PIXELTABLE_CLOUD_HOST value: port {port_str!r} is not a valid integer.',
+                ) from err
+            if not cloud_domain:
+                raise excs.Error(
+                    excs.ErrorCode.GENERIC_USER_ERROR,
+                    f'Invalid PIXELTABLE_CLOUD_HOST value: missing host before ":{port_str}".',
+                )
         host = f'{catalog_uri.org}-{catalog_uri.db}.{cloud_domain}' if cloud_domain else None
         no_verify = os.environ.get('PIXELTABLE_CLOUD_NO_VERIFY', '') in ('1', 'true', 'yes')
         return CatalogProxy(

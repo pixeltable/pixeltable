@@ -15,7 +15,6 @@ Optional env:
     PXT_E2E_SVC_DOMAIN        (default: svc.<CLOUD_HOST>)
     PXT_E2E_ORG_SLUG          (default: pixeltable)
     PXT_E2E_SKIP_CLEANUP      (set to 1 to leave resources for inspection)
-    PXT_E2E_SKIP_UPDATE_RUNTIME (set to 1 to skip the ~10 min CodeBuild step)
 """
 
 from __future__ import annotations
@@ -43,7 +42,6 @@ _CLOUD_HOST = os.environ.get('PIXELTABLE_CLOUD_HOST', 'dev.pxt.run')
 _SVC_DOMAIN = os.environ.get('PXT_E2E_SVC_DOMAIN', f'svc.{_CLOUD_HOST}')
 _ORG_SLUG = os.environ.get('PXT_E2E_ORG_SLUG', 'pixeltable')
 _SKIP_CLEANUP = os.environ.get('PXT_E2E_SKIP_CLEANUP', '0') == '1'
-_SKIP_UPDATE_RUNTIME = os.environ.get('PXT_E2E_SKIP_UPDATE_RUNTIME', '0') == '1'
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -436,8 +434,6 @@ class TestCloudE2E:
     # ── 12. db update-runtime (~10 min CodeBuild) ─────────────────────────────
 
     def test_12_update_runtime(self, resources: Resources) -> None:
-        if _SKIP_UPDATE_RUNTIME:
-            pytest.skip('PXT_E2E_SKIP_UPDATE_RUNTIME=1')
         out = _pxt('db', 'update-runtime', resources.db_uri, '--json', cwd=_SAMPLE_APP, timeout=1200)
         # stdout + stderr are combined by _pxt; find the JSON line (starts with '{')
         json_line = next((line for line in out.splitlines() if line.startswith('{')), None)
@@ -454,8 +450,6 @@ class TestCloudE2E:
     # ── 13. service update: add query route ───────────────────────────────────
 
     def test_13_service_update_add_query_route(self, resources: Resources) -> None:
-        if _SKIP_UPDATE_RUNTIME:
-            pytest.skip('query route requires update-runtime image with udfs.py')
         _write_full_toml(resources.toml_dir, resources.svc_name)
         _pxt_json(
             'service',
@@ -471,8 +465,6 @@ class TestCloudE2E:
         assert 'AVAILABLE' in out
 
     def test_13b_probe_query_route(self, resources: Resources) -> None:
-        if _SKIP_UPDATE_RUNTIME:
-            pytest.skip('query route requires update-runtime image with udfs.py')
         # Rolling update race: after service update the old pod (without /find) may still
         # serve while the new pod is pulling the update-runtime image. Give it up to 3 min.
         resp = _get(f'{resources.svc_base}/find', params={'item_id': 1}, retries=24, delay=8.0)

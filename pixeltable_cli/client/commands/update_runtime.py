@@ -42,12 +42,12 @@ def run(argv: list[str]) -> None:
             bundle_s3_key = url_resp['bundle_s3_key']
 
             with bundle_path.open('rb') as fh:
-                bundle_data = fh.read()
-            req = urllib.request.Request(presigned_url, data=bundle_data, method='PUT')
-            req.add_header('Content-Type', 'application/octet-stream')
-            with urllib.request.urlopen(req, timeout=300) as r:
-                if r.status >= 400:
-                    raise RuntimeError(f'Bundle upload failed: HTTP {r.status}')
+                req = urllib.request.Request(presigned_url, data=fh, method='PUT')
+                req.add_header('Content-Type', 'application/octet-stream')
+                req.add_header('Content-Length', str(bundle_path.stat().st_size))
+                with urllib.request.urlopen(req, timeout=300) as r:
+                    if r.status >= 400:
+                        raise RuntimeError(f'Bundle upload failed: HTTP {r.status}')
             if not args.json_output:
                 print('done')
         finally:

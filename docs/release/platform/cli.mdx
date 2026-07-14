@@ -760,7 +760,7 @@ Triggers a rolling restart; polls until `AVAILABLE`.
 pxt db update-runtime pxt://myorg:mydb
 ```
 
-Reads `[database]` from `pixeltable.toml` in the current directory, packages the project bundle, uploads it, and triggers a CodeBuild image rebuild. Polls until the build completes or fails. Running services are restarted on the new image automatically.
+Reads `[pixeltable.database]` from `pixeltable.toml` in the current directory, packages the project bundle, uploads it, and triggers a CodeBuild image rebuild. Polls until the build completes or fails. Running services are restarted on the new image automatically.
 
 #### `pxt db delete`
 

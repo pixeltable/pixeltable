@@ -147,7 +147,7 @@ def build_db_runtime_bundle(project_dir: Path | None = None) -> Path:
         metadata.json        (always present)
         environment.yml      (optional — conda env export, included for reference, not used to build)
         requirements.txt     (optional — generated from uv.lock via uv export; used to build image)
-        runtime_config.json  (optional — present when [database.pixeltable_source] is configured)
+        runtime_config.json  (optional — present when [pixeltable.database.pixeltable_source] is configured)
         project/             (all project source files: UDFs, lockfiles, pyproject.toml, etc.)
 
     Dependency resolution on the server (priority order):

@@ -12,7 +12,6 @@ from typing import Any
 import requests
 
 from pixeltable import exceptions as excs
-from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.share.protocol.api import (
     CreateDatabaseRequest,
@@ -46,7 +45,7 @@ def _api_headers() -> dict[str, str]:
             excs.ErrorCode.MISSING_CREDENTIALS,
             'A Pixeltable API key is required. '
             'Set it with `os.environ["PIXELTABLE_API_KEY"] = "your-key"`, '
-            f'or add `api_key = "your-key"` to the `[pixeltable]` section in {Config.get().config_file}.',
+            'or add `api_key = "your-key"` to the `[pixeltable]` section in your Pixeltable config file.',
         )
     return {'Content-Type': 'application/json', 'X-api-key': api_key}
 
