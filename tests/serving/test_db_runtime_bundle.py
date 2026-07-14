@@ -136,12 +136,11 @@ class TestDbRuntimeBundle:
         with patch('pixeltable.serving.deploy._detect_pxt_version', return_value='9.9.9'):
             bundle_path = build_db_runtime_bundle(tmp_path)
 
-        with tarfile.open(bundle_path, 'r:bz2') as tar:
-            with tar.extractfile(tar.getmember('runtime_config.json')) as f:
-                cfg = json.loads(f.read())
-                assert cfg['pixeltable_source']['git'] == 'https://github.com/pixeltable/pixeltable'
-                assert cfg['pixeltable_source']['branch'] == 'main'
-                assert 'version' not in cfg['pixeltable_source']
+        with tarfile.open(bundle_path, 'r:bz2') as tar, tar.extractfile(tar.getmember('runtime_config.json')) as f:
+            cfg = json.loads(f.read())
+            assert cfg['pixeltable_source']['git'] == 'https://github.com/pixeltable/pixeltable'
+            assert cfg['pixeltable_source']['branch'] == 'main'
+            assert 'version' not in cfg['pixeltable_source']
 
     def test_bundle_no_runtime_config_for_dev_version(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A local dev version does not produce runtime_config.json — not installable from PyPI."""
