@@ -5,7 +5,6 @@ import dataclasses
 import itertools
 import logging
 import time
-import uuid
 import warnings
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal
 from uuid import UUID
@@ -230,6 +229,7 @@ class TableVersion:
     @classmethod
     def create_initial_md(
         cls,
+        tbl_id: UUID,
         name: str,
         cols: list[Column],
         comment: str | None,
@@ -238,16 +238,13 @@ class TableVersion:
         create_default_idxs: bool,
         view_md: schema.ViewMd | None,
         is_versioned: bool,
-        tbl_id: uuid.UUID | None = None,
+        additional_idxs: list[tuple[Column, str | None, index.IndexBase]],
     ) -> TableVersionMd:
         from .table_version_handle import TableVersionHandle
 
         user = Env.get().user
         timestamp = time.time()
 
-        if tbl_id is None:
-            # tbl_id not specified; create a new one.
-            tbl_id = uuid.uuid4()
         tbl_id_str = str(tbl_id)
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
         column_ids = itertools.count()
@@ -266,39 +263,43 @@ class TableVersion:
             column_md[col.id] = col_md
             schema_col_md[col.id] = col_schema_md
 
+        # Merge default indexes and additional indexes into a manifest of indexes to create.
         index_md: dict[int, schema.IndexMd] = {}
+        idxs_to_create: list[tuple[Column, str | None, index.IndexBase]] = []
         if create_default_idxs and (view_md is None or not view_md.is_snapshot):
-            index_cols: list[Column] = []
-            for col in (c for c in cols if cls._is_btree_indexable(c)):
-                idx = index.BtreeIndex()
-                val_col, undo_col = Column.create_index_columns(
-                    tbl_handle, col, idx, next(column_ids), next(column_ids), 0
-                )
-                index_cols.extend([val_col, undo_col])
+            idxs_to_create.extend((col, None, index.BtreeIndex()) for col in cols if cls._is_btree_indexable(col))
+        idxs_to_create.extend(additional_idxs)
 
-                idx_id = next(index_ids)
-                idx_cls = type(idx)
-                md = schema.IndexMd(
-                    id=idx_id,
-                    name=f'idx{idx_id}',
-                    indexed_col_id=col.id,
-                    indexed_col_tbl_id=tbl_id_str,
-                    index_val_col_id=val_col.id,
-                    index_val_undo_col_id=undo_col.id,
-                    schema_version_add=0,
-                    schema_version_drop=None,
-                    class_fqn=idx_cls.__module__ + '.' + idx_cls.__name__,
-                    init_args=idx.as_dict(),
-                )
-                index_md[idx_id] = md
+        index_cols: list[Column] = []
+        for idx_col, idx_name, idx in idxs_to_create:
+            val_col, undo_col = Column.create_index_columns(
+                tbl_handle, idx_col, idx, next(column_ids), next(column_ids), 0
+            )
+            index_cols.extend([val_col, undo_col])
 
-            for col in index_cols:
-                col_md, col_schema_md = col.to_md(pos=None)
-                column_md[col.id] = col_md
-                schema_col_md[col.id] = col_schema_md
+            idx_id = next(index_ids)
+            idx_cls = type(idx)
+            md = schema.IndexMd(
+                id=idx_id,
+                name=idx_name if idx_name is not None else f'idx{idx_id}',
+                indexed_col_id=idx_col.id,
+                indexed_col_tbl_id=str(idx_col.tbl_handle.id),
+                index_val_col_id=val_col.id,
+                index_val_undo_col_id=undo_col.id,
+                schema_version_add=0,
+                schema_version_drop=None,
+                class_fqn=idx_cls.__module__ + '.' + idx_cls.__name__,
+                init_args=idx.as_dict(),
+            )
+            index_md[idx_id] = md
 
-            assert all(column_md[id].id == id for id in column_md)
-            assert all(index_md[id].id == id for id in index_md)
+        for col in index_cols:
+            col_md, col_schema_md = col.to_md(pos=None)
+            column_md[col.id] = col_md
+            schema_col_md[col.id] = col_schema_md
+
+        assert all(column_md[id].id == id for id in column_md)
+        assert all(index_md[id].id == id for id in index_md)
 
         tbl_md = schema.TableMd(
             tbl_id=tbl_id_str,

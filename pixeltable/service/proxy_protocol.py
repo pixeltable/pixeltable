@@ -25,6 +25,7 @@ from pydantic import BaseModel, PrivateAttr
 from pixeltable import exprs, func, type_system as ts
 from pixeltable.catalog.dir import Dir
 from pixeltable.catalog.globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation, TableVersionMd
+from pixeltable.catalog.model import EmbeddingIndex
 from pixeltable.catalog.path import Path
 from pixeltable.catalog.table_path import TablePath, TablePathKey, TableVersionPath
 from pixeltable.catalog.update_status import RowCountStats, UpdateStatus
@@ -128,6 +129,13 @@ def _serialize(obj: Any, binary_parts: list[bytes]) -> Any:
         return {_TAG: 'Function', 'v': obj.as_dict()}
     if isinstance(obj, func.GeneratingFunctionCall):
         return {_TAG: 'GeneratingFunctionCall', 'v': obj.as_dict()}
+    if isinstance(obj, EmbeddingIndex):
+        # A declarative model's embedding-index spec (a dataclass of an Expr column ref + embedding Functions +
+        # scalars); serialize field-by-field so the nested Exprs/Functions round-trip via their own handlers.
+        return {
+            _TAG: 'EmbeddingIndex',
+            'v': {f.name: _serialize(getattr(obj, f.name), []) for f in dataclasses.fields(obj)},
+        }
     if isinstance(obj, DirEntry):
         # only the fields any get_dir_contents() consumer reads: dir presence, table id/md, error count
         return {
@@ -252,6 +260,8 @@ def _deserialize(obj: Any, binary_parts: list[bytes], uploaded_names: dict[str, 
             return func.Function.from_dict(v)
         if tag == 'GeneratingFunctionCall':
             return func.GeneratingFunctionCall.from_dict(v)
+        if tag == 'EmbeddingIndex':
+            return EmbeddingIndex(**{name: _deserialize(val, []) for name, val in v.items()})
         if tag == 'DirEntry':
             table = v['table']
             return DirEntry(
