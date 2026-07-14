@@ -6407,7 +6407,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=1.25" },
     { name = "pandas", specifier = ">=2.0" },
     { name = "pathspec", specifier = ">=0.10.2" },
-    { name = "pgvector", specifier = ">=0.4.0" },
+    { name = "pgvector", specifier = ">=0.4.0,<0.5" },
     { name = "pillow", specifier = ">=9.3.0" },
     { name = "pillow-heif", specifier = ">=0.15.0" },
     { name = "pixeltable-pgserver", specifier = "==0.5.0" },
