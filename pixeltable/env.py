@@ -465,7 +465,7 @@ class Env:
                 'currently installed. Please upgrade Pixeltable to the latest version: pip install -U pixeltable',
             )
 
-        self.console_logger.info(f'Upgrading Pixeltable database.')
+        self.console_logger.info('Upgrading Pixeltable database.')
         pixeltable_pgserver.upgrade_db(pgdata_dir)
 
     @retry(

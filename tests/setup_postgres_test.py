@@ -1,11 +1,11 @@
 import os
 import sys
 
+import pixeltable as pxt
+
 # Guarantee the local `tests` package wins over any `tests/` a rogue wheel
 # dumped into site-packages, regardless of cwd / -m / .pth ordering.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import pixeltable as pxt
 from tests.utils import local_embedding
 
 if __name__ == '__main__':
