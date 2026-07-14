@@ -223,10 +223,10 @@ jobs:
         if: ${{ matrix.test-category == 'py' }}
         env:
           PXTTEST_CI_OS: ${{ matrix.os }}
-          # Collect coverage for every unit-test configuration in scheduled runs. pytest-cov ensures xdist workers
-          # are measured; other triggers avoid the tracing overhead.
+          # Collect coverage for every unit-test configuration in scheduled runs and full-tier dispatches. pytest-cov
+          # ensures xdist workers are measured; other triggers avoid the tracing overhead.
           PYTEST_COVERAGE_OPTS: >-
-            ${{ github.event_name == 'schedule' && '--cov=pixeltable --cov-report=term-missing' || '' }}
+            ${{ (github.event_name == 'schedule' || inputs.run_on_all_platforms) && '--cov=pixeltable --cov-report=term-missing' || '' }}
         # Run the tests with the 'expensive' marker only once, on ubuntu-24.04 with Python 3.10. The other tests
         # (including tests with the 'remote_api' marker that are not also marked 'expensive') will run on all matrix
         # configurations.
