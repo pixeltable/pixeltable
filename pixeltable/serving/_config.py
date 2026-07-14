@@ -90,7 +90,7 @@ def create_service_from_config(cfg: config.ServiceConfig, base_path: str = '') -
     from pixeltable.serving import FastAPIRouter
 
     def _resolve(relative: str) -> str:
-        return f'{base_path}/{relative}' if base_path else relative
+        return f'{base_path.rstrip("/")}/{relative.lstrip("/")}' if base_path else relative
 
     app = fastapi.FastAPI(title=cfg.name)
     router = FastAPIRouter()

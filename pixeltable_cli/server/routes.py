@@ -598,7 +598,6 @@ def _redact_db_password(url: str | None) -> str | None:
 
 
 # Cloud control-plane proxy routes
-# Each handler parses HTTP input and delegates to cloud_client; no protocol model assembly here.
 
 
 @router.get('/api/cloud/orgs')
