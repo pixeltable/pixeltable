@@ -1236,10 +1236,7 @@ class TestVision:
         masks[0, 0:2, 0:3] = True  # instance 1 covers top-left quadrant
         masks[1, 2:4, 3:6] = True  # instance 2 covers bottom-right quadrant
 
-        t = pxt.create_table(
-            'test_tbl',
-            {'img': pxt.Image, 'masks': pxt.Array[(None, None, None), pxt.Bool]},  # type: ignore[misc]
-        )
+        t = pxt.create_table('test_tbl', {'img': pxt.Image, 'masks': pxt.Array[(None, None, None), pxt.Bool]})
         img = PIL.Image.new('RGB', (width, height), color=(128, 128, 128))
         t.insert(img=img, masks=masks)
 
@@ -1275,11 +1272,7 @@ class TestVision:
 
         t = pxt.create_table(
             'test_tbl',
-            {
-                'img': pxt.Image,
-                'masks': pxt.Array[(None, None, None), pxt.Bool],  # type: ignore[misc]
-                'ids': pxt.Array[(None,), pxt.Int],  # type: ignore[misc]
-            },
+            {'img': pxt.Image, 'masks': pxt.Array[(None, None, None), pxt.Bool], 'ids': pxt.Array[(None,), pxt.Int]},
         )
         img = PIL.Image.new('RGB', (width, height), color=(128, 128, 128))
         t.insert(img=img, masks=frame_a, ids=np.array([5, 9]))

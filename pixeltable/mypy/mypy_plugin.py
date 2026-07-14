@@ -81,6 +81,7 @@ _PXTITERATOR_FULLNAME = f'{pxt.PxtIterator.__module__}.{pxt.PxtIterator.__name__
 _FN_CALL_FULLNAME = f'{exprs.Expr.__module__}.{exprs.Expr.__name__}'
 _PXT_TYPE_FULLNAME = f'{_PxtType.__module__}.{_PxtType.__name__}'
 _REQUIRED_FULLNAME = f'{pxt.Required.__module__}.{pxt.Required.__name__}'
+_TABLE_MODEL_META_FULLNAME = f'{TableModelMeta.__module__}.{TableModelMeta.__name__}'
 
 
 def make_pxt_type_subscriptable(ctx: ClassDefContext) -> None:
@@ -132,8 +133,6 @@ def adjust_required_type(ctx: AnalyzeTypeContext) -> Type:
         return ctx.api.analyze_type(ctx.type.args[0])
     return AnyType(TypeOfAny.special_form)
 
-_TABLE_MODEL_METACLASS_FULLNAME = f'{TableModelMeta.__module__}.{TableModelMeta.__name__}'
-
 
 def create_model_base_class(ctx: DynamicClassDefContext) -> None:
     """
@@ -144,7 +143,7 @@ def create_model_base_class(ctx: DynamicClassDefContext) -> None:
     metaclass keyword arguments (`name=`, `base=`, ...) and the forwarded table methods on subclasses.
     """
     api = ctx.api
-    metaclass = api.named_type_or_none(_TABLE_MODEL_METACLASS_FULLNAME)
+    metaclass = api.named_type_or_none(_TABLE_MODEL_META_FULLNAME)
     if metaclass is None:
         # `TableModelMeta` isn't ready yet; try again on a later pass.
         api.defer()
