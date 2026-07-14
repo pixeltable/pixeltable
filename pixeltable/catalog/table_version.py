@@ -1059,8 +1059,10 @@ class TableVersion:
         for view in self.mutable_views:
             from pixeltable.plan import Planner
 
-            # set_current so the view's plan/store spans nest here instead of under the operation span
-            with telemetry.span('pixeltable.view_load', set_current=True, view=view.get().name):
+            # Make this span current only when it is nested under an operation span.
+            with telemetry.span(
+                'pixeltable.view_load', set_current=telemetry.current_span() is not None, view=view.get().name
+            ):
                 view_plan, _ = Planner.create_view_load_plan(view.get().path, propagates_insert=True)
                 status = view.get()._insert(view_plan, timestamp, print_stats=print_stats)
             result += status.to_cascade()

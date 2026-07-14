@@ -108,10 +108,13 @@ class FnCallEvaluator(Evaluator):
         if row.span is None:
             return contextlib.nullcontext()
         # DEBUG so cell spans emit/suppress in lockstep with the row span they nest under.
-        # set_current so provider instrumentors parent their spans here; each task copies the context at
-        # creation, so the ambient span is task-specific and concurrent UDF calls don't see each other's
+        # Set this span current only when an operation span is active. Each task copies the context at
+        # creation, so the ambient span is task-specific and concurrent UDF calls don't see each other's.
         return telemetry.span(
-            f'pixeltable.udf.{self.fn.display_name}', level=telemetry.DEBUG, parent=row.span, set_current=True
+            f'pixeltable.udf.{self.fn.display_name}',
+            level=telemetry.DEBUG,
+            parent=row.span,
+            set_current=telemetry.current_span() is not None,
         )
 
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
@@ -202,12 +205,12 @@ class FnCallEvaluator(Evaluator):
     async def eval_batch(self, batched_call_args: FnCallArgs) -> None:
         result_batch: list[Any]
         try:
-            # batched calls process many rows in one invocation, so they can't nest under a single row
-            # span; emit one span under the ambient operation span instead
+            # Batched calls process many rows in one invocation, so they can't nest under a single row
+            # span. Make the batch span current only when an operation span is active.
             with telemetry.span(
                 f'pixeltable.udf.{self.fn.display_name}',
                 level=telemetry.DEBUG,
-                set_current=True,
+                set_current=telemetry.current_span() is not None,
                 batch_size=len(batched_call_args.rows),
             ):
                 if self.fn.is_async:
