@@ -144,6 +144,7 @@ class TestHttpUtils:
         tmp_file = tmp_path / 'media.jpg'
         monkeypatch.setattr(TempStore, 'create_path', lambda extension: tmp_file)
         monkeypatch.setattr(ObjectOps, 'copy_object_to_local_file', lambda _url, path: path.touch())
+        monkeypatch.setattr(logging.getLogger('pixeltable'), 'propagate', True)
 
         with caplog.at_level(logging.DEBUG, logger='pixeltable.utils.http'):
             assert fetch_url(secret_url) == tmp_file
