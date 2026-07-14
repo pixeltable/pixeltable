@@ -1815,8 +1815,8 @@ class TestExprs:
             # JsonPath
             (t.c_json.f2.f5[2:4][3], 'c_json.f2.f5[2:4][3]'),
             # JsonPath with relative root (with and without a succeeding path)
-            (pxtf.map(t.c_json.f2.f5['*'], lambda x: x), 'map(c_json.f2.f5[*], lambda R: R)'),
-            (pxtf.map(t.c_json.f2.f5['*'], lambda x: x.abcd), 'map(c_json.f2.f5[*], lambda R: R.abcd)'),
+            (t.c_json.f2.f5['*'].map(lambda x: x), 'c_json.f2.f5[*].map(lambda R: R)'),
+            (t.c_json.f2.f5['*'].map(lambda x: x.abcd), 'c_json.f2.f5[*].map(lambda R: R.abcd)'),
             # MethodRef
             (t.c_image.resize((100, 100)), 'c_image.resize([100, 100])'),
             # TypeCast
