@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import sys
 
+from ..cloud import parse_service_uri
+from ..http import post
 from ..parser import Parser
 
 
@@ -11,9 +13,6 @@ def run(argv: list[str]) -> None:
     parser.add_argument('service_uri', help='Service URI: pxt://org:db/services/<name>')
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
-
-    from ..cloud import parse_service_uri
-    from ..http import post
 
     try:
         org_slug, db_slug, svc_name = parse_service_uri(args.service_uri, prog='pxt service delete')

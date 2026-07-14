@@ -412,7 +412,7 @@ class Env:
             else:
                 _logger.info(f'found database at: {self.db_url}')
         else:
-            # External DB (CockroachDB or PlanetScale): pre-provisioned by the control plane.
+            # External DB: pre-provisioned; no local setup needed.
             _logger.info(f'Using external database at: {self.db_url}')
 
         # Create the SQLAlchemy engine. This will also set the default time zone.
@@ -449,14 +449,12 @@ class Env:
                     _logger.error(error)
                     raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, error)
             elif dialect == 'postgresql':
-                # Ensure psycopg v3 driver is used (only psycopg3 is installed in the
-                # cloud image; the default postgresql:// scheme resolves to psycopg2).
+                # Ensure psycopg v3 driver is used; the default postgresql:// scheme may resolve to psycopg2.
                 if db_url.drivername == 'postgresql':
                     db_url = db_url.set(drivername='postgresql+psycopg')
                     self._db_url = db_url.render_as_string(hide_password=False)
                 self._dbms = PostgresqlDbms(db_url)
-                # External PostgreSQL (e.g. PlanetScale): database is pre-provisioned by the
-                # control plane. We connect directly — no system-DB existence check needed.
+                # External PostgreSQL: database is pre-provisioned. Connect directly — no existence check needed.
             else:
                 raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Unsupported DBMS {dialect}')
             _logger.info(f'Using database at: {self.db_url}')

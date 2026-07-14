@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import logging
+import os
 import threading
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Coroutine, Iterator, Literal, TypeVar
@@ -148,10 +149,8 @@ class Runtime:
                 )
             return CatalogProxy(catalog_uri, ProxyHttpClient(f'http://127.0.0.1:{info["port"]}'))
 
-        # Cloud-hosted database: connect via TLS tunnel to the proxy sidecar.
-        import os
-
-        from pixeltable.service.proxy_cloud_client import ProxyCloudClient
+        # Remote database: connect via TLS to the proxy endpoint.
+        from pixeltable.service.proxy_cloud_client import ProxyCloudClient  # local: breaks circular import via proxy_dispatch
 
         api_key = Env.get().pxt_api_key
         if api_key is None:
@@ -160,8 +159,7 @@ class Runtime:
                 f'A Pixeltable API key is required to connect to hosted database {catalog_uri!r}. '
                 'Set PIXELTABLE_API_KEY or add api_key to your config.',
             )
-        # PIXELTABLE_CLOUD_HOST is an optional domain suffix override for the proxy endpoint.
-        # The full host is composed as {org}-{db}.{domain}.  Omit to use the production default.
+        # Optional domain suffix override for the proxy endpoint (PIXELTABLE_CLOUD_HOST).
         cloud_domain = os.environ.get('PIXELTABLE_CLOUD_HOST') or None
         port_override = 9000
         if cloud_domain and ':' in cloud_domain:

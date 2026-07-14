@@ -12,6 +12,7 @@ from pathspec import PathSpec
 
 from pixeltable import config, metadata
 from pixeltable.env import Env
+from pixeltable.serving._config import lookup_database_runtime_config
 
 _logger = logging.getLogger(__name__)
 
@@ -48,12 +49,17 @@ def _is_stable_pypi_version(version: str) -> bool:
 
 
 def _export_conda_env() -> tuple[bytes, str | None] | None:
-    """Export the active conda environment as YAML, without platform-specific build strings.
+    """Export the active conda environment as YAML using only explicitly installed packages.
 
     Returns (cleaned_yaml, detected_pixeltable_version) or None if not in a conda environment.
     detected_pixeltable_version is the version string found in the pip section (e.g. "0.6.7" or
     "0.0.1.dev1600+76a4f45"). It is always stripped from the YAML — local dev versions cannot be
     pip-installed from PyPI; stable versions are re-added to runtime_config.json by the caller.
+
+    Uses --from-history so the export only contains packages that were explicitly installed,
+    not the full transitive closure. This avoids platform-specific packages (macOS/ARM-only libs
+    like libintl-devel or libopenvino-arm-cpu-plugin) that cause micromamba to fail when
+    recreating the environment on linux/amd64 in CodeBuild.
     """
     conda_exe = os.environ.get('CONDA_EXE')
     if conda_exe is None or 'CONDA_DEFAULT_ENV' not in os.environ:
@@ -61,8 +67,15 @@ def _export_conda_env() -> tuple[bytes, str | None] | None:
 
     Env.get().console_logger.info(f'Found a conda environment: {os.environ["CONDA_DEFAULT_ENV"]}')
     try:
-        result = subprocess.run((conda_exe, 'env', 'export', '--no-builds'), capture_output=True, check=True)
-    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        result = subprocess.run((conda_exe, 'env', 'export', '--from-history'), capture_output=True, check=True)
+    except subprocess.CalledProcessError:
+        # --from-history may not be available in older conda; fall back to --no-builds
+        try:
+            result = subprocess.run((conda_exe, 'env', 'export', '--no-builds'), capture_output=True, check=True)
+        except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+            Env.get().console_logger.warning(f'Failed to export conda environment: {exc}')
+            return None
+    except FileNotFoundError as exc:
         Env.get().console_logger.warning(f'Failed to export conda environment: {exc}')
         return None
 
@@ -117,8 +130,6 @@ def build_db_runtime_bundle(project_dir: Path | None = None) -> Path:
 
     if not project_dir.is_dir():
         raise FileNotFoundError(f'Project directory does not exist: {project_dir}')
-
-    from pixeltable.serving._config import lookup_database_runtime_config
 
     runtime_cfg = lookup_database_runtime_config()
     include = runtime_cfg.include if runtime_cfg else None

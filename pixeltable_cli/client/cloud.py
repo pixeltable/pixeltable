@@ -212,22 +212,3 @@ def poll_svc(org_slug: str, db_slug: str, svc_name: str, pending_states: frozens
     return svc
 
 
-def poll_db_runtime(org_slug: str, db_slug: str) -> dict[str, Any]:
-    """Poll until DB leaves UPDATING state (runtime build)."""
-    db: dict[str, Any] = {}
-    deadline = time.monotonic() + _RUNTIME_POLL_TIMEOUT
-    print('Waiting for runtime build', end='', flush=True)
-    while time.monotonic() < deadline:
-        time.sleep(_RUNTIME_POLL_INTERVAL)
-        try:
-            resp = get(f'/api/cloud/orgs/{org_slug}/dbs/{db_slug}')
-            db = resp.get('database', resp) if isinstance(resp, dict) else {}
-        except SystemExit:
-            break
-        except Exception:
-            pass
-        print('.', end='', flush=True)
-        if db.get('state') != 'UPDATING':
-            break
-    print()
-    return db

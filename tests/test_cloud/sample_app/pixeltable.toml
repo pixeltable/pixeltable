@@ -1,0 +1,3 @@
+[pixeltable.database.pixeltable_source]
+git    = "https://github.com/amithadke/pixeltable"
+branch = "cloud_hosted_tables"

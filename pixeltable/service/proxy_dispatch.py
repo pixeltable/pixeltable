@@ -33,7 +33,7 @@ def handle(request_json: str) -> str:
     """Entry point for an incoming proxy request; always returns a ProxyResponse as JSON."""
     request = ProxyRequest.model_validate_json(request_json)
     path_label = request.path_key.get('tbl_key', request.path_key) if request.path_key else ''
-    _logger.info('>> %s.%s %s', request.class_name, request.method, path_label)
+    _logger.debug('%s.%s %s', request.class_name, request.method, path_label)
     t0 = time.monotonic()
     try:
         if request.protocol_version != PROTOCOL_VERSION:
@@ -59,7 +59,7 @@ def handle(request_json: str) -> str:
             result = table_handler(request, tbl)
             with cat.begin_xact(for_write=False):
                 md = cat.read_md_for_export(tbl)
-            _logger.info('<< %s.%s %s (%.2fs)', request.class_name, request.method, path_label, time.monotonic() - t0)
+            _logger.debug('%s.%s %s (%.2fs)', request.class_name, request.method, path_label, time.monotonic() - t0)
             return ProxyResponse(
                 result=proxy_protocol.serialize(result), current_md=proxy_protocol.serialize(md)
             ).model_dump_json()
@@ -68,14 +68,14 @@ def handle(request_json: str) -> str:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, f'Unsupported proxy method: {request.class_name}.{request.method}'
             )
-        _logger.info('<< %s.%s (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
+        _logger.debug('%s.%s (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
         return ProxyResponse(result=proxy_protocol.serialize(handler(request))).model_dump_json()
     except excs.Error as e:
         if e.detail is not None:
             # the client only gets the message; keep the diagnostic detail (e.g. an evaluation stack trace)
             # for whoever reads the server logs
             _logger.info('Error detail handling %s.%s:\n%s', request.class_name, request.method, e.detail)
-        _logger.info('!! %s.%s error (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
+        _logger.info('%s.%s error (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
         return ProxyResponse(error=e.to_dict()).model_dump_json()
     except Exception:
         # An unexpected server-side failure. Log the full traceback for debugging, but return only a short

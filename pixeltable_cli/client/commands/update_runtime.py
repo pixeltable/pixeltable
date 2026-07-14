@@ -6,10 +6,12 @@ import time
 import urllib.request
 from pathlib import Path
 
-from ..parser import Parser
+from pixeltable import config as pxt_config
+from pixeltable.serving.deploy import build_db_runtime_bundle
 
-_RUNTIME_POLL_INTERVAL = 10
-_RUNTIME_POLL_TIMEOUT = 900
+from ..cloud import _RUNTIME_POLL_INTERVAL, _RUNTIME_POLL_TIMEOUT, parse_db_uri
+from ..http import get, post
+from ..parser import Parser
 
 
 def run(argv: list[str]) -> None:
@@ -18,12 +20,6 @@ def run(argv: list[str]) -> None:
     parser.add_argument('--config', default=None, metavar='FILE', help='Path to an additional config file (TOML)')
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
-
-    from pixeltable import config as pxt_config
-    from pixeltable.serving.deploy import build_db_runtime_bundle
-
-    from ..cloud import parse_db_uri
-    from ..http import get, post
 
     try:
         org_slug, db_slug = parse_db_uri(args.db_uri, prog='pxt db update-runtime')
@@ -77,16 +73,23 @@ def run(argv: list[str]) -> None:
                 print('.', end='', flush=True)
             if db.get('state') != 'UPDATING':
                 break
+        build_failed = db.get('last_build_state') == 'FAILED'
+        build_error = db.get('last_build_error') or ''
         if not args.json_output:
             print()
             final_state = db.get('state', '')
-            if final_state:
+            if build_failed:
+                print(f'Runtime build failed: {build_error}', file=sys.stderr)
+            elif final_state:
                 print(f'Runtime build {final_state.lower()}.')
             else:
                 print('Timed out waiting for runtime build.')
 
         if args.json_output:
             print(json.dumps(db))
+
+        if build_failed:
+            sys.exit(1)
     except SystemExit:
         raise
     except Exception as e:

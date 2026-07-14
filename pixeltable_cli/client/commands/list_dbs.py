@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import sys
 
+from ..cloud import parse_org_uri, print_db
+from ..http import get
 from ..parser import Parser
 
 
@@ -11,9 +13,6 @@ def run(argv: list[str]) -> None:
     parser.add_argument('org_uri', help='Org URI: pxt://org')
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
-
-    from ..cloud import parse_org_uri, print_db
-    from ..http import get
 
     try:
         org_slug = parse_org_uri(args.org_uri, prog='pxt db list')

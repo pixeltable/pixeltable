@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import sys
 
+from ..cloud import parse_db_uri, poll_db, print_db
+from ..http import post
 from ..parser import Parser
 
 
@@ -17,9 +19,6 @@ def run(argv: list[str]) -> None:
     parser.add_argument('--disk', type=int, default=None, dest='disk_gb', help='Disk per worker in GB')
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
-
-    from ..cloud import parse_db_uri, poll_db, print_db
-    from ..http import post
 
     try:
         org_slug, db_slug = parse_db_uri(args.db_uri, prog='pxt db update')

@@ -70,7 +70,7 @@ def lookup_service_config(name: str) -> config.ServiceConfig:
 
 
 def lookup_database_runtime_config() -> config.DatabaseRuntimeConfig | None:
-    """Return the [pixeltable.database] runtime config from pixeltable.toml, or None if absent."""
+    """Return the database runtime config from Pixeltable configuration, or None if absent."""
     raw = config.Config.get().get_value('database', dict)
     if raw is None:
         return None
@@ -78,7 +78,7 @@ def lookup_database_runtime_config() -> config.DatabaseRuntimeConfig | None:
         return config.DatabaseRuntimeConfig.model_validate(raw)
     except Exception as e:
         raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid [pixeltable.database] section in pixeltable.toml: {e}'
+            excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid [pixeltable.database] configuration: {e}'
         ) from e
 
 

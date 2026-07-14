@@ -3,6 +3,11 @@ from __future__ import annotations
 import json
 import sys
 
+from pixeltable import config as pxt_config
+from pixeltable.serving._config import lookup_service_config
+
+from ..cloud import parse_base_uri, poll_svc, print_service
+from ..http import post
 from ..parser import Parser
 
 
@@ -25,12 +30,6 @@ def run(argv: list[str]) -> None:
     parser.add_argument('--config', default=None, metavar='FILE', help='Path to an additional config file (TOML)')
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
-
-    from pixeltable import config as pxt_config
-    from pixeltable.serving._config import lookup_service_config
-
-    from ..cloud import parse_base_uri, poll_svc, print_service
-    from ..http import post
 
     try:
         org_slug, db_slug, base_path = parse_base_uri(args.base_uri, prog='pxt service create')
