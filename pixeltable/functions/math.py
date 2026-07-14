@@ -143,7 +143,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 
 
 @pxt.udf(is_method=True)
-def ln(self: float) -> float:
+def log(self: float) -> float:
     """
     Return the natural logarithm of the given number.
 
@@ -152,7 +152,7 @@ def ln(self: float) -> float:
     return math.log(self)
 
 
-@ln.to_sql
+@log.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
     return sql.func.ln(self)
 

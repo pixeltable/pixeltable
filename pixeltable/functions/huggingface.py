@@ -1211,21 +1211,18 @@ def text_classification(text: Batch[str], *, model_id: str, top_k: int = 5) -> B
     probs = torch.softmax(logits, dim=-1)
     top_k_probs, top_k_indices = torch.topk(probs, top_k, dim=-1)
 
-    results = []
+    results: list[list[TextClassificationResponse]] = []
     for i in range(len(text)):
         # Return as list of individual classification items for HuggingFace compatibility
-        classification_items = []
+        classification_items: list[TextClassificationResponse] = []
         for k in range(top_k_probs.shape[1]):
+            label = int(top_k_indices[i, k].item())
             classification_items.append(
-                {
-                    'label': top_k_indices[i, k].item(),
-                    'label_text': model.config.id2label[top_k_indices[i, k].item()],
-                    'score': top_k_probs[i, k].item(),
-                }
+                {'label': label, 'label_text': model.config.id2label[label], 'score': top_k_probs[i, k].item()}
             )
         results.append(classification_items)
 
-    return results  # type: ignore[return-value]
+    return results
 
 
 @pxt.udf(batch_size=4)

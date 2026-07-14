@@ -10,6 +10,8 @@ from typing import Any, Literal
 
 import aiohttp
 import numpy as np
+# we're importing TypedDict and NotRequired from typing_extensions, not typing: on Python 3.10 the stdlib TypedDict
+# does not register typing_extensions.NotRequired into __optional_keys__
 from typing_extensions import NotRequired, TypedDict
 
 import pixeltable as pxt
@@ -185,8 +187,6 @@ def _(model: str, dimensions: int | None) -> ts.ArrayType:
     return ts.ArrayType((dim,), dtype=np.dtype(np.float32), nullable=False)
 
 
-# TypedDict and NotRequired both come from typing_extensions: on Python 3.10 the stdlib TypedDict does not
-# register typing_extensions.NotRequired into __optional_keys__
 class JinaRerankResult(TypedDict):
     index: int
     relevance_score: float

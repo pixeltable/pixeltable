@@ -320,7 +320,7 @@ class document_splitter(pxt.PxtIterator):
             section = next(self._sections)
             if section.text is None and section.image is None:
                 continue
-            result: dict[str, Any] = {}
+            result: DocumentChunk = {}
             for element in self._elements:
                 if element == Element.TEXT:
                     result['text'] = section.text
@@ -329,17 +329,17 @@ class document_splitter(pxt.PxtIterator):
 
             for md_field in self._metadata_fields:
                 if md_field == ChunkMetadata.TITLE:
-                    result[md_field.name.lower()] = self._doc_title
+                    result['title'] = self._doc_title
                 elif md_field == ChunkMetadata.HEADING:
-                    result[md_field.name.lower()] = section.metadata.heading
+                    result['heading'] = section.metadata.heading
                 elif md_field == ChunkMetadata.SOURCELINE:
-                    result[md_field.name.lower()] = section.metadata.sourceline
+                    result['sourceline'] = section.metadata.sourceline
                 elif md_field == ChunkMetadata.PAGE:
-                    result[md_field.name.lower()] = section.metadata.page
+                    result['page'] = section.metadata.page
                 elif md_field == ChunkMetadata.BOUNDING_BOX:
-                    result[md_field.name.lower()] = section.metadata.bounding_box
+                    result['bounding_box'] = section.metadata.bounding_box
 
-            return cast(DocumentChunk, result)
+            return result
 
     def _html_sections(self) -> Iterator[DocumentSection]:
         """Create DocumentSections reflecting the html-specific separators"""

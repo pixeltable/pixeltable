@@ -95,7 +95,7 @@ class TestMath:
         test_params: list[tuple[pxt.Function, Callable]] = [
             (pxtf.math.sqrt, math.sqrt),
             (pxtf.math.exp, math.exp),
-            (pxtf.math.ln, math.log),
+            (pxtf.math.log, math.log),
             (pxtf.math.log10, math.log10),
         ]
         for pxt_fn, py_fn in test_params:
