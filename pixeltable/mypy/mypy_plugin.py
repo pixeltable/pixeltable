@@ -1,12 +1,21 @@
 from typing import Callable, ClassVar
 
 from mypy import nodes
-from mypy.plugin import AnalyzeTypeContext, ClassDefContext, FunctionContext, MethodSigContext, Plugin
+from mypy.nodes import GDEF, SymbolTableNode
+from mypy.plugin import (
+    AnalyzeTypeContext,
+    ClassDefContext,
+    DynamicClassDefContext,
+    FunctionContext,
+    MethodSigContext,
+    Plugin,
+)
 from mypy.plugins.common import add_attribute_to_class, add_method_to_class
 from mypy.types import AnyType, FunctionLike, Instance, NoneType, Type, TypeOfAny
 
 import pixeltable as pxt
 from pixeltable import exprs
+from pixeltable.catalog.model import TableModelMeta
 from pixeltable.type_system import _PxtType
 
 
@@ -18,6 +27,7 @@ class PxtPlugin(Plugin):
     __ADD_COMPUTED_COLUMN_FULLNAME = (
         f'{pxt.Table.__module__}.{pxt.Table.__name__}.{pxt.Table.add_computed_column.__name__}'
     )
+    __MODEL_BASE_FULLNAME = f'{pxt.model_base.__module__}.{pxt.model_base.__name__}'
     __TYPE_MAP: ClassVar[dict] = {
         pxt.Json: 'typing.Any',
         pxt.Array: 'numpy.ndarray',
@@ -47,6 +57,11 @@ class PxtPlugin(Plugin):
     def get_method_signature_hook(self, fullname: str) -> Callable[[MethodSigContext], FunctionLike] | None:
         if fullname in (self.__ADD_COLUMN_FULLNAME, self.__ADD_COMPUTED_COLUMN_FULLNAME):
             return adjust_kwargs
+        return None
+
+    def get_dynamic_class_hook(self, fullname: str) -> Callable[[DynamicClassDefContext], None] | None:
+        if fullname == self.__MODEL_BASE_FULLNAME:
+            return create_model_base_class
         return None
 
     def get_class_decorator_hook_2(self, fullname: str) -> Callable[[ClassDefContext], bool] | None:
@@ -116,6 +131,28 @@ def adjust_required_type(ctx: AnalyzeTypeContext) -> Type:
     if ctx.type.args:
         return ctx.api.analyze_type(ctx.type.args[0])
     return AnyType(TypeOfAny.special_form)
+
+_TABLE_MODEL_METACLASS_FULLNAME = f'{TableModelMeta.__module__}.{TableModelMeta.__name__}'
+
+
+def create_model_base_class(ctx: DynamicClassDefContext) -> None:
+    """
+    Mypy cannot use the result of a function call as a base class, so `TableModel = pxt.model_base()` followed by
+    `class MyModel(TableModel, ...)` produces "Variable is not valid as a type" / "Invalid base class" errors. Here we
+    intercept the `model_base()` call and synthesize a real class for the assignment target, carrying
+    `TableModelMeta` as its metaclass. That makes the name usable as a base class and lets mypy type-check the
+    metaclass keyword arguments (`name=`, `base=`, ...) and the forwarded table methods on subclasses.
+    """
+    api = ctx.api
+    metaclass = api.named_type_or_none(_TABLE_MODEL_METACLASS_FULLNAME)
+    if metaclass is None:
+        # `TableModelMeta` isn't ready yet; try again on a later pass.
+        api.defer()
+        return
+    info = api.basic_new_typeinfo(ctx.name, api.named_type('builtins.object'), ctx.call.line)
+    info.declared_metaclass = metaclass
+    info.metaclass_type = metaclass
+    api.add_symbol_table_node(ctx.name, SymbolTableNode(GDEF, info))
 
 
 def adjust_uda_type(ctx: FunctionContext) -> Type:

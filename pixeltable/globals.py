@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Union
@@ -14,6 +15,7 @@ from pixeltable import Query, catalog, exceptions as excs, exprs, func, type_sys
 from pixeltable.catalog import DirEntry, TablePath
 from pixeltable.catalog.insertable_table import OnErrorParameter
 from pixeltable.config import Config
+from pixeltable.env import Env
 from pixeltable.io.table_data_conduit import QueryTableDataConduit, RowDataTableDataConduit, TableDataConduit
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec, DirContents, DirectoryNode, TableKind, TableNode, TreeNode
@@ -34,6 +36,8 @@ if TYPE_CHECKING:
         datasets.Dataset,
         datasets.DatasetDict,  # Huggingface datasets
     ]
+
+_logger = logging.getLogger(__name__)
 
 
 def init(config_overrides: dict[str, Any] | None = None, additional_config_files: list[str] | None = None) -> None:
@@ -242,6 +246,12 @@ def create_table(
         )
     )
 
+    if was_created:
+        _logger.info(f'Created table {tbl._name()!r}; id={tbl._id}')
+        Env.get().console_logger.info(f'Created table {tbl._name()!r}.')
+    else:
+        Env.get().console_logger.info(f'Table {tbl._name()!r} already exists.')
+
     # TODO: combine data loading with table creation into a single transaction
     if was_created and data_source is not None:
         fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
@@ -258,10 +268,13 @@ def create_table(
             # Schema inference may have consumed a one-shot iterator/generator source; re-passing it would
             # insert nothing. Insert the rows the conduit already materialized instead. (A Query source is
             # re-runnable, and other source types aren't reached here, so passing source as-is is correct.)
+            # Materialized rows are already parsed, so the source_format (e.g. 'json') must not be re-applied,
+            # which would otherwise re-classify the row list as a file source.
             insert_source = data_source.raw_rows if isinstance(data_source, RowDataTableDataConduit) else source
+            insert_format = None if isinstance(data_source, RowDataTableDataConduit) else source_format
             tbl.insert(
                 insert_source,
-                source_format=source_format,
+                source_format=insert_format,
                 schema_overrides=schema_overrides,
                 on_error=on_error,
                 **(extra_args or {}),
@@ -413,7 +426,7 @@ def create_view(
     # mapping and report the same errors
     additional_columns = catalog.normalize_schema(additional_columns)
 
-    return (
+    view, was_created = (
         get_runtime()
         .get_catalog(path_obj)
         .create_view(
@@ -432,6 +445,15 @@ def create_view(
             if_exists=if_exists_,
         )
     )
+
+    if was_created:
+        _logger.info(f'Created {view._display_str()}, id={view._id}')
+        Env.get().console_logger.info(f'Created {view._display_str()}.')
+    else:
+        d = view._display_str()
+        Env.get().console_logger.info(f'{d[0].upper()}{d[1:]} already exists.')
+
+    return view
 
 
 def create_snapshot(

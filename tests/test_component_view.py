@@ -10,7 +10,14 @@ import pixeltable.functions as pxtf
 from pixeltable.functions.video import frame_iterator, legacy_frame_iterator
 from tests.test_iterator import simple_iterator
 
-from .utils import assert_resultset_eq, get_test_video_files, pxt_raises, reload_catalog, validate_update_status
+from .utils import (
+    CatalogMode,
+    assert_resultset_eq,
+    get_test_video_files,
+    pxt_raises,
+    reload_catalog,
+    validate_update_status,
+)
 
 
 class ConstantImgFrame(TypedDict):
@@ -115,7 +122,7 @@ class TestComponentView:
         assert res['live'] == [90, 91, 92]
         assert res['pinned'] == [50, 51, 52]
 
-    def test_basic(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_basic(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         # create video table
         p = make_catalog_path
         schema = {'video': pxt.Video, 'angle': pxt.Int, 'other_angle': pxt.Int}
@@ -149,16 +156,20 @@ class TestComponentView:
         res = view_t.select(view_t.pos, view_t.frame_idx).collect().to_pandas()
         assert np.all(res['pos'] == res['frame_idx'])
 
-        video_url = video_t.select(video_t.video.fileurl).collect()[0, 0]
-        result = (
-            view_t.where(view_t.video == video_url)
-            .select(view_t.frame_idx)
-            .order_by(view_t.frame_idx)
-            .collect()
-            .to_pandas()
-        )
-        assert len(result) > 0
-        assert np.all(result['frame_idx'] == pd.Series(range(len(result))))
+        # matching a media column against its own .fileurl in a filter only works when the value the query
+        # returns is the same one stored server-side; over the proxy .fileurl yields a fetchable daemon URL, not
+        # the daemon's stored file:// path, so this round-trip is exercised in local mode only
+        if catalog_mode == 'local':
+            video_url = video_t.select(video_t.video.fileurl).collect()[0, 0]
+            result = (
+                view_t.where(view_t.video == video_url)
+                .select(view_t.frame_idx)
+                .order_by(view_t.frame_idx)
+                .collect()
+                .to_pandas()
+            )
+            assert len(result) > 0
+            assert np.all(result['frame_idx'] == pd.Series(range(len(result))))
 
     def test_add_column(self, make_catalog_path: Callable[[str], str]) -> None:
         # create video table
@@ -340,7 +351,7 @@ class TestComponentView:
         pxt.drop_table(view_path)
         pxt.drop_table(base_path)
 
-    def test_chained_views(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_chained_views(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         """Component view followed by a standard view"""
         # create video table
         p = make_catalog_path
@@ -430,26 +441,32 @@ class TestComponentView:
         # update int1: propagates to int3, img1, int5, img3, int7
         # TODO: how to test that img4 doesn't get recomputed as part of the computation of int7?
         # need to collect more runtime stats (eg, called functions)
-        import urllib
+        # the where clause matches the video column against a source-file URL, which only identifies the stored
+        # row when the value isn't reshipped server-side; over the proxy the daemon stores its own copy, so the
+        # update-propagation scenario runs in local mode only
+        if catalog_mode == 'local':
+            import urllib
 
-        video_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(video_filepaths[0]))
-        status = video_t.update({'int1': video_t.int1 + 1}, where=video_t.video == video_url)
-        assert status.num_rows == 1 + v1.where(v1.video == video_url).count() + v2.where(v2.video == video_url).count()
-        assert sorted(str.split('.')[1] for str in status.updated_cols) == [
-            'img1',
-            'img3',
-            'int1',
-            'int3',
-            'int5',
-            'int7',
-        ]
-        check_view()
+            video_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(video_filepaths[0]))
+            status = video_t.update({'int1': video_t.int1 + 1}, where=video_t.video == video_url)
+            assert (
+                status.num_rows == 1 + v1.where(v1.video == video_url).count() + v2.where(v2.video == video_url).count()
+            )
+            assert sorted(str.split('.')[1] for str in status.updated_cols) == [
+                'img1',
+                'img3',
+                'int1',
+                'int3',
+                'int5',
+                'int7',
+            ]
+            check_view()
 
-        # update int2: propagates to img4, int6, int7
-        status = video_t.update({'int2': video_t.int2 + 1}, where=video_t.video == video_url)
-        assert status.num_rows == 1 + v2.where(v2.video == video_url).count()
-        assert sorted(str.split('.')[1] for str in status.updated_cols) == ['img4', 'int2', 'int6', 'int7']
-        check_view()
+            # update int2: propagates to img4, int6, int7
+            status = video_t.update({'int2': video_t.int2 + 1}, where=video_t.video == video_url)
+            assert status.num_rows == 1 + v2.where(v2.video == video_url).count()
+            assert sorted(str.split('.')[1] for str in status.updated_cols) == ['img4', 'int2', 'int6', 'int7']
+            check_view()
 
     def test_create_view_error(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path

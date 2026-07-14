@@ -169,7 +169,8 @@ class JsonPath(Expr):
         anchor_str = str(self.anchor) if self.anchor is not None else 'R'
         if len(self.path_elements) == 0:
             return anchor_str
-        return f'{anchor_str}{"." if isinstance(self.path_elements[0], str) else ""}{self._json_path()}'
+        sep = '.' if isinstance(self.path_elements[0], str) and self.path_elements[0] != '*' else ''
+        return f'{anchor_str}{sep}{self._json_path()}'
 
     def _as_dict(self) -> dict:
         assert len(self.components) <= 1
@@ -223,12 +224,42 @@ class JsonPath(Expr):
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'R() requires a negative index')
         return JsonPath(None, [], args[0])
 
-    def __getattr__(self, name: str) -> 'JsonPath':
+    def _resolves_to_json_array(self) -> bool:
+        # True if this path resolves to a typed json array (a list or tuple)
+        return (
+            isinstance(self.col_type, ts.JsonType)
+            and self.col_type.type_schema is not None
+            and isinstance(self.col_type.type_schema.type_spec, list)
+        )
+
+    def _ends_with_slice(self) -> bool:
+        # True if the last path element is a slice operator or '*'
+        if len(self.path_elements) == 0:
+            return False
+        last = self.path_elements[-1]
+        return isinstance(last, slice) or last == '*'
+
+    def _append_field(self, name: str) -> 'JsonPath':
+        elements = [*self.path_elements]
+        if self._resolves_to_json_array() and not self._ends_with_slice():
+            # a field access on a bare json array path contains an implicit ['*']
+            elements.append('*')
+        elements.append(name)
+        return JsonPath(self.anchor, elements)
+
+    def __getattr__(self, name: str) -> 'Expr':
         assert isinstance(name, str)
-        return JsonPath(self.anchor, [*self.path_elements, name])
+        if not self.col_type.is_json_type():
+            return super().__getattr__(name)
+        return self._append_field(name)
 
     def __getitem__(self, index: object) -> 'JsonPath':
-        if isinstance(index, (int, slice, str)):
+        if isinstance(index, str):
+            if index == '*':
+                # the '*' operator is itself a projection over an array, not a field to project
+                return JsonPath(self.anchor, [*self.path_elements, '*'])
+            return self._append_field(index)
+        if isinstance(index, (int, slice)):
             return JsonPath(self.anchor, [*self.path_elements, index])
         raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid json list index: {index}')
 

@@ -1,5 +1,4 @@
 import datetime
-import json
 import logging
 import os
 import pathlib
@@ -17,8 +16,6 @@ import toml
 import pixeltable as pxt
 from pixeltable import functions as pxtf, metadata, type_system as ts
 from pixeltable.env import LOG_FMT_STR, Env
-from pixeltable.func import Batch
-from pixeltable.io.external_store import Project
 from pixeltable.iterators.base import ComponentIterator
 from tool.udfs_for_db_dump import test_array_udf, test_binary_udf, test_date_udf, test_timestamp_udf, test_uuid_udf
 
@@ -278,34 +275,6 @@ class Dumper:
         assert e.count() == 0
         self.__add_expr_columns(e, 'empty_view', include_expensive_functions=True)
 
-        # Add external stores
-        from pixeltable.io.external_store import MockProject
-
-        v._link_external_store(
-            MockProject.create(
-                v,
-                'project',
-                {'int_field': ts.IntType()},
-                {'str_field': ts.StringType()},
-                {'view_test_udf': 'int_field', 'c1': 'str_field'},
-            )
-        )
-        # We're just trying to test metadata here, so it's ok to link a false Label Studio project.
-        # We include a computed image column in order to ensure the creation of a stored proxy.
-        from pixeltable.io.label_studio import LabelStudioProject
-
-        col_mapping = Project.validate_columns(
-            v,
-            {'str_field': ts.StringType(), 'img_field': ts.ImageType()},
-            {},
-            {'view_function_call': 'str_field', 'base_table_image_rot': 'img_field'},
-        )
-        project = LabelStudioProject('ls_project_0', 4171780, media_import_method='file', col_mapping=col_mapping)
-        v._link_external_store(project)
-        # Sanity check that the stored proxy column did get created
-        assert len(project.stored_proxies) == 1
-        assert t.base_table_image_rot.col.handle in project.stored_proxies
-
         # Various iterators
         pxt.create_view('string_splitter', t, iterator=pxtf.string.string_splitter(t.c1, 'sentence'))
         pxt.create_view('tile_iterator', t, iterator=pxtf.image.tile_iterator(t.c8, (64, 64), overlap=(16, 16)))
@@ -376,8 +345,6 @@ class Dumper:
 
         # function_call
         add_computed_column('function_call', pxtf.string.format('{0} {key}', t.c1, key=t.c1))  # library function
-        add_computed_column('test_udf', test_udf_stored(t.c2))  # stored udf
-        add_computed_column('test_udf_batched', test_udf_stored_batched(t.c1, upper=False))  # batched stored udf
         if include_expensive_functions:
             # batched library function
             add_computed_column('batched', pxtf.huggingface.clip(t.c1, model_id='openai/clip-vit-base-patch32'))
@@ -422,11 +389,6 @@ class Dumper:
 
         # type_cast
         add_computed_column('astype', t.c2.astype(ts.FloatType()))
-
-        # .apply
-        add_computed_column('c2_to_string', t.c2.apply(str))
-        add_computed_column('c6_to_string', t.c6.apply(json.dumps))
-        add_computed_column('c6_back_to_json', t[f'{col_prefix}_c6_to_string'].apply(json.loads))
 
         t.add_embedding_index(
             f'{col_prefix}_function_call',
@@ -474,16 +436,6 @@ class Dumper:
             test_timestamp_udf(t.c5, datetime.datetime(2026, 2, 10, 21, 15, tzinfo=ZoneInfo('UTC'))),
         )
         add_computed_column('expr_with_bin_literals', test_binary_udf(t.c16, b'\xca\xfe'))
-
-
-@pxt.udf(_force_stored=True)
-def test_udf_stored(n: int) -> int:
-    return n + 1
-
-
-@pxt.udf(batch_size=4, _force_stored=True)
-def test_udf_stored_batched(strings: Batch[str], *, upper: bool = True) -> Batch[str]:
-    return [string.upper() if upper else string.lower() for string in strings]
 
 
 def main() -> None:

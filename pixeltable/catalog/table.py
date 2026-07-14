@@ -44,6 +44,10 @@ class Table(SchemaObject):
     def _tbl_path(self) -> 'TablePath':
         """The metadata path backing this handle."""
 
+    def _get_schema(self) -> dict[str, 'ts.ColumnType']:
+        """Return the schema (column names and types) of this table, including columns inherited from bases."""
+        return {md.name: md.col_type for md in self._tbl_path.column_md() if md.name is not None}
+
     @abc.abstractmethod
     def get_metadata(self) -> 'TableMetadata':
         """
@@ -440,6 +444,9 @@ class Table(SchemaObject):
         embedding: Function | None = None,
         string_embed: Function | None = None,
         image_embed: Function | None = None,
+        audio_embed: Function | None = None,
+        video_embed: Function | None = None,
+        document_embed: Function | None = None,
         metric: Literal['cosine', 'ip', 'l2'] = 'cosine',
         precision: Literal['fp16', 'fp32'] = 'fp16',
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
@@ -449,14 +456,19 @@ class Table(SchemaObject):
         rows are inserted into the table.
 
         To add an embedding index, specify the column to be indexed and, if the column is not an `Array` column, an
-        embedding UDF. `String`, `Image`, `Video`, `Audio` and `Array` columns are currently supported.
+        embedding UDF. `String`, `Image`, `Audio`, `Video`, `Document`, and `Array` columns are currently supported.
+
+        Multimodal embeddings can be specified in one of two ways: via a single `embedding` argument with a
+        multi-signature UDF (one signature per modality), or via separate modality-specific arguments (`string_embed`,
+        `image_embed`, etc.). If both are provided, the modality-specific arguments will supersede the corresponding
+        signatures of the `embedding` UDF.
 
         For `Array` columns, which are assumed to contain precomputed embeddings, an embedding function is optional;
         if provided, it will be used to convert query values into embeddings for similarity search.
 
         Args:
-            column: The name of, or reference to, the column to be indexed; must be a `String`, `Image` or
-                `Array` column.
+            column: The name of, or reference to, the column to be indexed; must be a `String`, `Image`, `Audio`,
+                `Video`, `Document`, or `Array` column.
             idx_name: An optional name for the index. If not specified, a name such as `'idx0'` will be generated
                 automatically. If specified, the name must be unique for this table and a valid pixeltable column name.
                 When `idx_name` is omitted, duplicates are detected by the index definition (the embedding
@@ -464,13 +476,13 @@ class Table(SchemaObject):
                 definition is governed by `if_exists`.
             embedding: The UDF to use for the embedding. Must be a UDF that accepts a single argument of type `String`
                 or `Image` (as appropriate for the column being indexed) and returns a fixed-size 1-dimensional
-                array of floats.
+                array of floats. If omitted, then at least one of the modality-specific `*_embed` arguments must be
+                supplied.
             string_embed: An optional UDF to use for the string embedding component of this index.
-                Can be used in conjunction with `image_embed` to construct multimodal embeddings manually, by
-                specifying different embedding functions for different data types.
             image_embed: An optional UDF to use for the image embedding component of this index.
-                Can be used in conjunction with `string_embed` to construct multimodal embeddings manually, by
-                specifying different embedding functions for different data types.
+            audio_embed: An optional UDF to use for the audio embedding component of this index.
+            video_embed: An optional UDF to use for the video embedding component of this index.
+            document_embed: An optional UDF to use for the document embedding component of this index.
             metric: Distance metric to use for the index; one of `'cosine'`, `'ip'`, or `'l2'`.
                 The default is `'cosine'`.
             precision: level of precision for the embeddings; one of `'fp16'` or `'fp32'`.
@@ -1047,39 +1059,6 @@ class Table(SchemaObject):
 
         .. warning::
             This operation is irreversible.
-        """
-
-    @abc.abstractmethod
-    def external_stores(self) -> list[str]: ...
-
-    @abc.abstractmethod
-    def unlink_external_stores(
-        self, stores: str | list[str] | None = None, *, delete_external_data: bool = False, ignore_errors: bool = False
-    ) -> None:
-        """
-        Unlinks this table's external stores.
-
-        Args:
-            stores: If specified, will unlink only the specified named store or list of stores. If not specified,
-                will unlink all of this table's external stores.
-            ignore_errors (bool): If `True`, no exception will be thrown if a specified store is not linked
-                to this table.
-            delete_external_data (bool): If `True`, then the external data store will also be deleted. WARNING: This
-                is a destructive operation that will delete data outside Pixeltable, and cannot be undone.
-        """
-
-    @abc.abstractmethod
-    def sync(
-        self, stores: str | list[str] | None = None, *, export_data: bool = True, import_data: bool = True
-    ) -> UpdateStatus:
-        """
-        Synchronizes this table with its linked external stores.
-
-        Args:
-            stores: If specified, will synchronize only the specified named store or list of stores. If not specified,
-                will synchronize all of this table's external stores.
-            export_data: If `True`, data from this table will be exported to the external stores during synchronization.
-            import_data: If `True`, data from the external stores will be imported to this table during synchronization.
         """
 
     @abc.abstractmethod

@@ -5,7 +5,7 @@ import pytest
 
 import pixeltable as pxt
 
-from .utils import SAMPLE_IMAGE_URL, ReloadTester, create_test_tbl, pxt_raises
+from .utils import SAMPLE_IMAGE_URL, ReloadTester, create_test_tbl, pxt_raises, rerun
 
 
 def _local_path(name: str) -> str:
@@ -343,6 +343,7 @@ class TestSample:
         n = len(t.select().sample(fraction=0.01, seed=0).collect())
         assert v.count() == n
 
+    @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
     def test_sample_iterator(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         print('\n\nCREATE TABLE WITH ONE IMAGE COLUMN\n')

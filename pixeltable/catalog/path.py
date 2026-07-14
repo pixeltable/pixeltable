@@ -49,7 +49,7 @@ class Path:
             raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Version must be non-negative: {self.version}')
         # the root is the empty tuple; every component of a non-root path must be a valid identifier
         if not all(is_valid_identifier(c, allow_hyphens=True) for c in self.components):
-            raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path: {".".join(self.components)}')
+            raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path: {"/".join(self.components)}')
 
     @classmethod
     def parse(cls, path: str, *, allow_empty_path: bool = False, allow_versioned_path: bool = False) -> Path:

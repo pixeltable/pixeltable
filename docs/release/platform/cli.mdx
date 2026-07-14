@@ -119,7 +119,7 @@ pxt describe my_dir/my_table --json
 
 ### `pxt columns` / `pxt computed`
 
-List columns across one or all tables. `pxt computed` is shorthand for `pxt columns --computed`.
+List columns for one or more tables. `pxt computed` is shorthand for `pxt columns --computed`. The path argument may be a single table or a directory; a directory path lists columns for every table beneath it, recursively. A directory path may be a local path or a hosted uri (`pxt://org:db/...`). With no path, every table in the in-process catalog is listed.
 
 | Flag | Description |
 |---|---|
@@ -128,13 +128,15 @@ List columns across one or all tables. `pxt computed` is shorthand for `pxt colu
 ```bash
 pxt columns                       # every column in the catalog
 pxt columns my_dir/my_table       # one table
+pxt columns my_dir                # every table under a directory, recursively
+pxt columns pxt://org:db          # every table in a hosted database
 pxt columns --computed            # computed columns across every table
 pxt computed                      # same as above
 ```
 
 ### `pxt idxs`
 
-List indexes. Shows both B-tree and embedding indexes by default; the `--embedding` flag restricts to embedding indexes.
+List indexes. Shows both B-tree and embedding indexes by default; the `--embedding` flag restricts to embedding indexes. Like `pxt columns`, the path may be a single table or a directory (walked recursively), a hosted database root (`pxt://org:db`), or omitted for the whole in-process catalog.
 
 | Flag | Description |
 |---|---|
@@ -143,6 +145,8 @@ List indexes. Shows both B-tree and embedding indexes by default; the `--embeddi
 ```bash
 pxt idxs                          # every index
 pxt idxs my_dir/my_table          # indexes on one table
+pxt idxs my_dir                   # every table under a directory, recursively
+pxt idxs pxt://org:db             # every table in a hosted database
 pxt idxs --embedding              # only embedding indexes
 ```
 
@@ -376,11 +380,9 @@ pxt serve my-service --config service.toml
 ```
 
 ```text Output
-Starting Pixeltable service: my-service
-  Bound to 0.0.0.0:8000
-  Listening on http://localhost:8000
-  API docs at http://localhost:8000/docs
+Pixeltable is running on http://localhost:8000
   Routes: 2
+  API docs at http://localhost:8000/docs
 ```
 
 #### Single-endpoint mode
@@ -414,7 +416,7 @@ Every `pxt serve` subcommand accepts these flags:
 When `--json` is set, a successful start emits:
 
 ```json
-{"status": "starting", "host": "0.0.0.0", "port": 8000, "url": "http://localhost:8000", "docs_url": "http://localhost:8000/docs", "routes": 2}
+{"status": "started", "host": "0.0.0.0", "port": 8000, "url": "http://localhost:8000", "docs_url": "http://localhost:8000/docs", "routes": 2}
 ```
 
 Errors (including port conflicts) emit to stderr:

@@ -36,19 +36,19 @@ help:
 	@echo ''
 	@echo 'Targets:'
 	@echo '  install       Install the development environment'
-	@echo '  test          Run pytest, stresstest, and check'
-	@echo '  fulltest      Run fullpytest, nbtest, stresstest, and check'
+	@echo '  test          Run pytest and check'
+	@echo '  fulltest      Run fullpytest, nbtest, and check'
 	@echo '  slimtest      Run a slimpytest and check'
 	@echo '  check         Run typecheck, lint, formatcheck, and nbcheck'
 	@echo '  format        Run `ruff format` (updates .py files in place)'
 	@echo '  release       Create a pypi release and post to github'
 	@echo '  docs          Build mintlify documentation'
-	@echo '  docs-dev      Deploy versioned docs to dev with errors visible (auto-updates doctools)'
-	@echo '  docs-stage    Deploy versioned documentation to staging (auto-updates doctools)'
-	@echo '  docs-prod     Deploy documentation from staging to production (auto-updates doctools)'
+	@echo '  docs-serve    Serve documentation locally with live reload'
+	@echo '  docs-deploy   Deploy documentation (requires TARGET=dev|stage|prod)'
+	@echo '  linkscheck    Check for broken links in the built documentation'
+	@echo '  clean         Remove generated files and temp files'
 	@echo ''
 	@echo 'Individual test targets:'
-	@echo '  clean         Remove generated files and temp files'
 	@echo '  pytest        Run `pytest`'
 	@echo '  fullpytest    Run `pytest`, including expensive tests'
 	@echo '  slimpytest    Run `pytest` with a minimal set of tests'
@@ -128,8 +128,11 @@ install-deps:
 	@python -m ipykernel install --user --name=pixeltable
 	@touch .make-install/others
 
+pixeltable/catalog/model.pyi: pixeltable/catalog/model.py pixeltable/catalog/table.py tool/generate_type_stubs.py
+	@python tool/generate_type_stubs.py
+
 .PHONY: install
-install: setup-install .make-install/env .make-install/dashboard install-deps .make-install/others
+install: setup-install .make-install/env .make-install/dashboard install-deps .make-install/others pixeltable/catalog/model.pyi
 
 .PHONY: test
 test: pytest check
@@ -160,7 +163,8 @@ fullpytest: install
 .PHONY: slimpytest
 slimpytest: install
 	@echo 'Running `pytest` on a slim configuration ...'
-	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) tests/test_{catalog,dirs,env,exprs,function,index,snapshot,table,unversioned_table,view}.py
+	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) \
+	    tests/test_{catalog,dirs,env,exprs,function,index,snapshot,table,table_model,unversioned_table,view}.py
 
 .PHONY: nbtest
 nbtest: install
@@ -176,6 +180,8 @@ stresstest: install
 typecheck: install
 	@echo 'Running `mypy` ...'
 	@mypy pixeltable pixeltable_cli tests tool
+	# Separate direct check of model.py (which is shadowed by the generated model.pyi in the main run)
+	@mypy pixeltable/catalog/model.py
 
 .PHONY: lint
 lint: install

@@ -245,6 +245,9 @@ class TableProxy(Table):
         embedding: Function | None = None,
         string_embed: Function | None = None,
         image_embed: Function | None = None,
+        audio_embed: Function | None = None,
+        video_embed: Function | None = None,
+        document_embed: Function | None = None,
         metric: Literal['cosine', 'ip', 'l2'] = 'cosine',
         precision: Literal['fp16', 'fp32'] = 'fp16',
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
@@ -338,16 +341,6 @@ class TableProxy(Table):
     def revert(self) -> None:
         self._check_mutable('revert')
         self._dispatch('revert', {})
-
-    def external_stores(self) -> list[str]: ...
-
-    def unlink_external_stores(
-        self, stores: str | list[str] | None = None, *, delete_external_data: bool = False, ignore_errors: bool = False
-    ) -> None: ...
-
-    def sync(
-        self, stores: str | list[str] | None = None, *, export_data: bool = True, import_data: bool = True
-    ) -> UpdateStatus: ...
 
     def get_versions(self, n: int | None = None) -> list[VersionMetadata]:
         return self._dispatch('get_versions', self._dispatch_args(locals()))

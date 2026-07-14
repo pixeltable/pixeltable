@@ -4,6 +4,7 @@ import {
   Braces, List, Binary, Fingerprint,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 type TypeMeta = {
   icon: LucideIcon
@@ -35,6 +36,13 @@ export function getColumnTypeMeta(type: string): TypeMeta {
   for (const [re, meta] of TYPE_MAP) {
     if (re.test(clean)) return meta
   }
+  // Match core type inside Required[...] / Optional[...] wrappers
+  const wrapped = clean.match(/^(?:Required|Optional)\[(.+)\]$/i)
+  if (wrapped) {
+    for (const [re, meta] of TYPE_MAP) {
+      if (re.test(wrapped[1].trim())) return meta
+    }
+  }
   return FALLBACK
 }
 
@@ -43,12 +51,27 @@ export function ColumnTypeIcon({ type, className = 'h-3.5 w-3.5' }: { type: stri
   return <Icon className={`${className} ${color} shrink-0`} />
 }
 
-export function ColumnTypeBadge({ type }: { type: string }) {
+export function ColumnTypeBadge({ type, clamp, onExpand }: {
+  type: string
+  clamp?: boolean
+  onExpand?: () => void
+}) {
   const { icon: Icon, color, bg } = getColumnTypeMeta(type)
+  const interactive = Boolean(onExpand)
   return (
-    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono ${bg} ${color}`}>
-      <Icon className="h-3 w-3 shrink-0" />
-      {type}
+    <span
+      className={cn(
+        `inline-flex items-start gap-1 w-fit max-w-full min-w-0 overflow-hidden px-1.5 py-0.5 rounded text-[11px] font-mono ${bg} ${color}`,
+        interactive && 'cursor-pointer hover:brightness-110 transition-[filter]',
+      )}
+      title={interactive ? 'Click to expand' : undefined}
+      onClick={onExpand}
+      role={interactive ? 'button' : undefined}
+    >
+      <Icon className="h-3 w-3 shrink-0 mt-0.5" />
+      <span className={cn('min-w-0 overflow-hidden break-all', clamp ? 'line-clamp-2' : 'truncate')}>
+        {type}
+      </span>
     </span>
   )
 }

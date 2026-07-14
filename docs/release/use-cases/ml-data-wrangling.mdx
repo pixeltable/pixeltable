@@ -16,7 +16,7 @@ description: 'Process video, audio, documents, and images into training-ready da
   <Tab title="1. Acquire Data">
     <Steps>
       <Step title="Ingest" icon="download">
-        Load from any source: [`import_csv()`](/sdk/latest/io#func-import_csv), [`import_parquet()`](/sdk/latest/io#func-import_parquet), [HuggingFace](/howto/cookbooks/data/data-import-huggingface), [S3/GCS/Azure](/integrations/cloud-storage), RDBMS via Python DB API
+        Load from any source: [`import_csv()`](/sdk/latest/io#func-import_csv), [`import_parquet()`](/sdk/latest/io#func-import_parquet), [`import_sql()`](/howto/cookbooks/data/data-export-sql), [HuggingFace](/howto/cookbooks/data/data-import-huggingface), [S3/GCS/Azure](/integrations/cloud-storage)
 
         <CardGroup cols={2}>
           <Card title="Import from S3" icon="aws" href="/howto/cookbooks/data/data-import-s3">
@@ -69,12 +69,9 @@ description: 'Process video, audio, documents, and images into training-ready da
       <Step title="Annotate" icon="user">
         **Human-in-the-loop:** Refine labels with human annotators
 
-        [Label Studio](/howto/using-label-studio-with-pixeltable) sync, [FiftyOne](/howto/working-with-fiftyone) export, [`add_embedding_index()`](/platform/embedding-indexes) for curation search
+        [FiftyOne](/howto/working-with-fiftyone) export, [`add_embedding_index()`](/platform/embedding-indexes) for curation search
 
-        <CardGroup cols={2}>
-          <Card title="Label Studio Integration" icon="tags" href="/howto/using-label-studio-with-pixeltable">
-            Sync annotations bidirectionally
-          </Card>
+        <CardGroup cols={1}>
           <Card title="FiftyOne Export" icon="eye" href="/howto/working-with-fiftyone">
             Visualize and curate datasets
           </Card>

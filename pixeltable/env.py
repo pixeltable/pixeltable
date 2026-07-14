@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import builtins
 import datetime
 import glob
 import http.server
@@ -13,7 +12,6 @@ import math
 import os
 import shutil
 import subprocess
-import sys
 import threading
 import types
 import typing
@@ -166,6 +164,10 @@ class Env:
         return self._http_address
 
     @property
+    def is_proxy_daemon(self) -> bool:
+        return os.environ.get('PIXELTABLE_PROXY_DAEMON') == '1'
+
+    @property
     def user(self) -> str | None:
         return Config.get().get_string_value('user')
 
@@ -224,18 +226,6 @@ class Env:
     def is_local(self) -> bool:
         assert self._db_url is not None  # is_local should be called only after db initialization
         return self._db_server is not None
-
-    def is_interactive(self) -> bool:
-        """Return True if running in an interactive environment."""
-        if getattr(builtins, '__IPYTHON__', False):
-            return True
-        # Python interactive shell
-        if hasattr(sys, 'ps1'):
-            return True
-        # for script execution, __main__ has __file__
-        import __main__
-
-        return not hasattr(__main__, '__file__')
 
     def is_notebook(self) -> bool:
         """Return True if running in a Jupyter notebook."""
@@ -699,7 +689,6 @@ class Env:
         self.__register_package('groq')
         self.__register_package('huggingface_hub', library_name='huggingface-hub')
         self.__register_package('imagehash')
-        self.__register_package('label_studio_sdk', library_name='label-studio-sdk')
         self.__register_package('lance', library_name='pylance')
         self.__register_package('lancedb')
         self.__register_package('librosa')
@@ -928,7 +917,7 @@ def register_client(name: str, *, credential_param: str | None) -> Callable:
     otherwise it throws an exception.
 
     Args:
-        name: The name of the API client (e.g., 'openai' or 'label_studio').
+        name: The name of the API client (e.g., 'openai' or 'anthropic').
         credential_param: The factory parameter whose value must be treated as a secret, or
             None for factories whose parameters carry no credentials (e.g. object-store clients
             that read their auth from the surrounding AWS_*/GCS_* environment).

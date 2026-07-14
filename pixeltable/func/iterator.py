@@ -366,7 +366,7 @@ class InvalidGeneratingFunction(GeneratingFunction):
             excs.ErrorCode.INVALID_CONFIGURATION, f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}'
         )
 
-    def eval(self, bound_args: dict[str, Any]) -> Iterator[dict]:
+    def eval(self, bound_args: dict[str, Any]) -> PxtIterator[dict]:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION, f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}'
         )
@@ -398,7 +398,7 @@ class GeneratingFunctionCall:
     def is_valid(self) -> bool:
         return self.validation_error is None
 
-    def eval(self, bound_args: dict[str, Any]) -> Iterator[dict]:
+    def eval(self, bound_args: dict[str, Any]) -> PxtIterator[dict]:
         assert self.is_valid
 
         # Run custom iterator validation on fully bound args
@@ -509,6 +509,15 @@ class GeneratingFunctionCall:
                     ).strip()
 
         return cls(it, args, kwargs, bound_args, outputs, validation_error)
+
+    def display_str(self) -> str:
+        # Build the iterator expression string: "iterator_name(arg1, arg2=expr2, ...)"
+        arg_strs: list[str] = []
+        for arg_expr in self.args:
+            arg_strs.append(arg_expr.display_str(inline=True))
+        for arg_name, arg_expr in self.kwargs.items():
+            arg_strs.append(f'{arg_name}={arg_expr.display_str(inline=True)}')
+        return f'{self.it.name}({", ".join(arg_strs)})'
 
 
 @overload

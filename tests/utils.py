@@ -312,28 +312,42 @@ def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0) -> pxt.Table:
     return tbl
 
 
+def assert_schema_eq(actual: pxt.Table, expected: pxt.Table) -> None:
+    """Assert two tables have the same column schema (names and types), via the public get_metadata()."""
+
+    def col_types(tbl: pxt.Table) -> dict[str, str]:
+        return {name: col['type_'] for name, col in tbl.get_metadata()['columns'].items()}
+
+    a, e = col_types(actual), col_types(expected)
+    assert a == e, f'schema mismatch:\n  actual:   {a}\n  expected: {e}'
+
+
+# Schema (column name -> type) used by create_all_datatypes_tbl(); exposed so tests can build schema_overrides
+# from public Pixeltable types without reaching into a column's internal ColumnType.
+ALL_DATATYPES_SCHEMA: dict[str, Any] = {
+    'row_id': pxt.Required[pxt.Int],
+    'c_array': pxt.Array[(10,), pxt.Float],  # type: ignore[misc]
+    'c_audio': pxt.Audio,
+    'c_bool': pxt.Bool,
+    'c_date': pxt.Date,
+    'c_float': pxt.Float,
+    'c_image': pxt.Image,
+    'c_int': pxt.Int,
+    'c_json': pxt.Json,
+    'c_string': pxt.String,
+    'c_timestamp': pxt.Timestamp,
+    'c_uuid': pxt.UUID,
+    'c_binary': pxt.Binary,
+    'c_video': pxt.Video,
+    'c_document': pxt.Document,
+}
+
+
 def create_all_datatypes_tbl(
     name: str = 'all_datatype_tbl', non_serializable_json: bool = False, arrow_compatible_json: bool = False
 ) -> pxt.Table:
     """Creates a table with all supported datatypes."""
-    schema = {
-        'row_id': pxt.Required[pxt.Int],
-        'c_array': pxt.Array[(10,), pxt.Float],
-        'c_audio': pxt.Audio,
-        'c_bool': pxt.Bool,
-        'c_date': pxt.Date,
-        'c_float': pxt.Float,
-        'c_image': pxt.Image,
-        'c_int': pxt.Int,
-        'c_json': pxt.Json,
-        'c_string': pxt.String,
-        'c_timestamp': pxt.Timestamp,
-        'c_uuid': pxt.UUID,
-        'c_binary': pxt.Binary,
-        'c_video': pxt.Video,
-        'c_document': pxt.Document,
-    }
-    tbl = pxt.create_table(name, schema)
+    tbl = pxt.create_table(name, ALL_DATATYPES_SCHEMA)
     example_rows = create_table_data(
         tbl, num_rows=11, non_serializable_json=non_serializable_json, arrow_compatible_json=arrow_compatible_json
     )
@@ -641,6 +655,10 @@ def __image_comparer(x: PIL.Image.Image, y: PIL.Image.Image) -> bool:
 
 
 def __json_comparer(x: Any, y: Any) -> bool:
+    # compare any two images by perceptual hash regardless of PIL subclass: the same stored image comes back as
+    # a different subclass depending on how it was materialized (a standalone column vs embedded in JSON)
+    if isinstance(x, PIL.Image.Image) and isinstance(y, PIL.Image.Image):
+        return __image_comparer(x, y)
     if type(x) is not type(y):
         return False
     if isinstance(x, dict):
@@ -651,8 +669,6 @@ def __json_comparer(x: Any, y: Any) -> bool:
         return __float_comparer(x, y)
     if isinstance(x, np.ndarray):
         return __array_comparer(x, y)
-    if isinstance(x, PIL.Image.Image):
-        return __image_comparer(x, y)
     return x == y
 
 
@@ -665,6 +681,11 @@ __COMPARERS: dict[ts.ColumnType.Type, Callable[[Any, Any], bool]] = {
     ts.ColumnType.Type.AUDIO: __file_comparer,
     ts.ColumnType.Type.DOCUMENT: __file_comparer,
 }
+
+
+def assert_dicts_eq(actual: dict[str, Any], expected: dict[str, Any]) -> None:
+    """Assert two dicts are equal, comparing arrays elementwise and floats with `np.isclose`."""
+    assert __json_comparer(actual, expected), f'{actual!r} != {expected!r}'
 
 
 def __mismatch_err_string(col_name: str, s1: list[Any], s2: list[Any], mismatches: list[int]) -> str:
@@ -689,7 +710,7 @@ def assert_table_metadata_eq(expected: dict[str, Any], actual: pxt.TableMetadata
 
     trimmed_actual = {k: v for k, v in actual.items() if k not in {'version_created', 'id'}}
     tc = TestCase()
-    tc.maxDiff = 10_000
+    tc.maxDiff = 25_000
     tc.assertDictEqual(expected, trimmed_actual)
 
 
@@ -705,7 +726,7 @@ def assert_version_metadata_eq(expected: dict[str, Any], actual: pxt.VersionMeta
 
     trimmed_actual = {k: v for k, v in actual.items() if k != 'created_at'}
     tc = TestCase()
-    tc.maxDiff = 10_000
+    tc.maxDiff = 25_000
     tc.assertDictEqual(expected, trimmed_actual)
 
 
@@ -777,26 +798,6 @@ def validate_update_status(status: pxt.UpdateStatus, expected_rows: int | None =
     assert status.num_excs == 0
     if expected_rows is not None:
         assert status.num_rows == expected_rows, status
-
-
-def validate_sync_status(
-    status: pxt.UpdateStatus,
-    expected_external_rows_created: int | None = None,
-    expected_external_rows_updated: int | None = None,
-    expected_external_rows_deleted: int | None = None,
-    expected_pxt_rows_updated: int | None = None,
-    expected_num_excs: int | None = 0,
-) -> None:
-    if expected_external_rows_created is not None:
-        assert status.external_rows_created == expected_external_rows_created, status
-    if expected_external_rows_updated is not None:
-        assert status.external_rows_updated == expected_external_rows_updated, status
-    if expected_external_rows_deleted is not None:
-        assert status.external_rows_deleted == expected_external_rows_deleted, status
-    if expected_pxt_rows_updated is not None:
-        assert status.pxt_rows_updated == expected_pxt_rows_updated, status
-    if expected_num_excs is not None:
-        assert status.num_excs == expected_num_excs, status
 
 
 def iceberg_catalog(warehouse_path: str | Path, name: str = 'pixeltable') -> 'SqlCatalog':
@@ -876,7 +877,7 @@ def reload_catalog(reload: bool = True) -> None:
 
 
 @contextmanager
-def capture_console_output() -> Iterator[StringIO]:
+def capture_console_output(match: str | None = None) -> Iterator[StringIO]:
     pxt_logger = logging.getLogger('pixeltable')
     try:
         sio = StringIO()
@@ -885,6 +886,11 @@ def capture_console_output() -> Iterator[StringIO]:
         handler.addFilter(ConsoleMessageFilter())
         pxt_logger.addHandler(handler)
         yield sio
+        if match is not None:
+            contents = sio.getvalue()
+            assert re.search(match, contents) is not None, (
+                f'Console output did not match.\nRegex: {match!r}\nActual: {contents}'
+            )
     finally:
         pxt_logger.removeHandler(handler)
         sio.flush()
@@ -1096,6 +1102,29 @@ def validate_repr(t: Any, expected: str) -> None:
     t._repr_html_()  # TODO: Is there a good way to test this output?
 
 
+@pxt.udf
+def dummy_embedding(text: str, n: int) -> pxt.Array[(None,), np.float32]:
+    if 'zero' in text:
+        arr = np.zeros((n,), dtype=np.float32)
+        arr[n // 2 :] = 1
+        return arr
+    if 'one' in text:
+        arr = np.zeros((n,), dtype=np.float32)
+        arr[: n // 2] = 1
+        return arr
+    return np.random.rand(n).astype(np.float32)
+
+
+@dummy_embedding.overload
+def _(img: PIL.Image.Image, n: int) -> pxt.Array[(None,), np.float32]:
+    return np.random.rand(n).astype(np.float32)
+
+
+@dummy_embedding.conditional_return_type
+def _(n: int) -> ts.ArrayType:
+    return ts.ArrayType((n,), dtype=np.dtype('float32'), nullable=False)
+
+
 # A deterministic, download-free embedding used in place of HuggingFace models (clip, sentence_transformer) in tests
 # that exercise embedding-index machinery rather than real-model semantics. It is multimodal -- text is mapped via
 # character n-gram hashing and images via grayscale downsampling, both into the same fixed-dimensional space -- so it
@@ -1138,3 +1167,32 @@ def _(image: PIL.Image.Image, *, dim: int = LOCAL_EMBED_DIM) -> pxt.Array[(None,
 @local_embedding.conditional_return_type
 def _(dim: int) -> ts.ArrayType:
     return ts.ArrayType((dim,), dtype=np.dtype('float32'), nullable=False)
+
+
+def schema_from_tbl_md(metadata: pxt.TableMetadata) -> dict[str, str]:
+    # Return a dict of schema information about that table that is invariant of table path and version history.
+    return {
+        'kind': metadata['kind'],
+        'comment': metadata['comment'],
+        'custom_metadata': metadata['custom_metadata'],
+        'media_validation': metadata['media_validation'],
+        'primary_key': metadata['primary_key'],
+        'iterator_call': metadata['iterator_call'],
+        'columns': {
+            name: {
+                'type_': info['type_'],
+                'is_stored': info['is_stored'],
+                'is_primary_key': info['is_primary_key'],
+                'media_validation': info['media_validation'],
+                'is_computed': info['is_computed'],
+                'computed_with': info['computed_with'],
+                'is_builtin': info['is_builtin'],
+                'comment': info['comment'],
+                'custom_metadata': info['custom_metadata'],
+                'is_iterator_col': info['is_iterator_col'],
+                'destination': info['destination'],
+            }
+            for name, info in metadata['columns'].items()
+        },
+        'indices': metadata['indices'],
+    }

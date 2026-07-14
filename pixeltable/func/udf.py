@@ -5,6 +5,7 @@ import sys
 from typing import TYPE_CHECKING, Any, Callable, Sequence, overload
 
 from pixeltable import catalog, exceptions as excs, type_system as ts
+from pixeltable.utils.system import is_interactive_env
 
 from .callable_function import CallableFunction
 from .expr_template_function import ExprTemplate, ExprTemplateFunction
@@ -129,6 +130,13 @@ def make_function(
         function_path = None
     elif decorated_fn.__module__ != '__main__' and decorated_fn.__name__.isidentifier():
         function_path = f'{decorated_fn.__module__}.{decorated_fn.__qualname__}'
+
+    elif from_decorator and is_interactive_env() and decorated_fn.__name__.isidentifier():
+        # Give a udf inlined in a notebook cell a __main__.<name> path to enable computed columns with inlined udfs;
+        # resolves only within the session and degrades to InvalidFunction elsewhere
+        # TODO: remove and rework the offending notebooks
+        function_path = f'{decorated_fn.__module__}.{decorated_fn.__qualname__}'
+
     else:
         # Check that we came here through a decorator, and that we're not in an interactive environment
         # or notebook. The `from_decorator` check is necessary because of the apply() function.
@@ -241,7 +249,11 @@ def make_function(
     if function_path is not None:
         # do the validation at the very end, so it's easier to write tests for other failure scenarios
         validate_symbol_path(function_path)
-        FunctionRegistry.get().register_function(function_path, result)
+        # a __main__ path (a udf inlined in a notebook cell) is not importable across sessions and would collide
+        # in the registry if the cell is re-run, so it carries a path for serialization but is not registered
+        # TODO: remove this when removing support for inlined udfs in notebooks
+        if decorated_fn.__module__ != '__main__':
+            FunctionRegistry.get().register_function(function_path, result)
 
     return result
 
@@ -357,8 +369,7 @@ def from_table(tbl: catalog.Table, return_value: 'exprs.Expr' | None, descriptio
             assert name not in result_dict, f'Column name is not unique: {name}'
             if col.is_computed:
                 # Computed column. Apply any existing substitutions and add the new expression to the subst dict.
-                new_expr = col.value_expr.copy()
-                new_expr.substitute(subst)
+                new_expr = col.value_expr.copy().substitute(subst)
                 subst[t[name]] = new_expr  # Substitute new_expr for ColumnRefs to this column
                 result_dict[name] = new_expr
             else:

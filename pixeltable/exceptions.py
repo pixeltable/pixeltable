@@ -65,6 +65,9 @@ class ErrorCode(enum.Enum):
     UNSUPPORTED_OPERATION = 3010, 400, False
     INVALID_STATE = 3011, 400, False
     INVALID_CONFIGURATION = 3013, 422, False
+    NOT_BOUND = 3014, 400, False
+    ALREADY_BOUND = 3015, 400, False
+    SCHEMA_MISMATCH = 3016, 422, False
 
     # AuthorizationError (4xxx)
     INSUFFICIENT_PRIVILEGES = 4000, 403, False
@@ -163,6 +166,7 @@ class Error(Exception):
         override this to restore it. Bypasses __init__ (which may require args not on the wire)."""
         err = cls.__new__(cls)
         Error.__init__(err, error_code, d.get('message', ''), retry_after=d.get('retry_after'))
+        err.detail = d.get('detail')
         return err
 
 

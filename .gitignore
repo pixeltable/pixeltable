@@ -20,6 +20,9 @@ __pycache__
 /target/
 /tests/target/
 
+# Generated type stubs
+pixeltable/catalog/model.pyi
+
 # Node.js
 node_modules/
 package-lock.json
