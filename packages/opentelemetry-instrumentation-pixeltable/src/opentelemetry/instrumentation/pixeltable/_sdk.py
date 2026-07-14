@@ -73,7 +73,7 @@ def init(
             (adds per-row and per-UDF spans), or `trace`.
         metrics: force metric export on/off (by default metrics are exported only when an OTLP endpoint
             is configured).
-        logs: force log export on/off (same default as `metrics`).
+        logs: force log export on/off (default off; must be explicitly enabled).
         tracer_provider: an existing TracerProvider to instrument against.
         meter_provider: an existing MeterProvider to instrument against.
 
@@ -212,7 +212,7 @@ def _setup(
         # else: no endpoint configured and no app-owned provider -> stay inert; the bridge instruments
         # against the global no-op tracer and nothing is exported
 
-    # metrics/logs flow only when an OTLP endpoint is configured, or on an explicit otel.metrics/otel.logs = true
+    # Metrics flow when an OTLP endpoint is configured unless explicitly disabled.
     export_metrics = metrics is True or (metrics is not False and cfg_endpoint is not None)
     owns_mp = False
     mp = meter_provider
@@ -227,7 +227,8 @@ def _setup(
             )
             owns_mp = True
 
-    export_logs = logs is True or (logs is not False and cfg_endpoint is not None)
+    # An endpoint alone must not export application logs; logs require explicit opt-in.
+    export_logs = logs is True
     logger_provider: Any = None
     log_handler: logging.Handler | None = None
     if export_logs:

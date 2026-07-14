@@ -65,6 +65,32 @@ def test_builds_tracer_provider(tmp_path: Path) -> None:
     )
 
 
+def check_logs_require_explicit_opt_in() -> None:
+    pxt_otel.init()
+    assert _sdk._state.logger_provider is None
+
+
+def test_logs_require_explicit_opt_in(tmp_path: Path) -> None:
+    _run_isolated(
+        check_logs_require_explicit_opt_in,
+        {'OTEL_EXPORTER_OTLP_ENDPOINT': 'http://127.0.0.1:9', 'OTEL_EXPORTER_OTLP_TIMEOUT': '1'},
+        tmp_path,
+    )
+
+
+def check_logs_can_be_enabled_explicitly() -> None:
+    pxt_otel.init(logs=True)
+    assert _sdk._state.logger_provider is not None
+
+
+def test_logs_can_be_enabled_explicitly(tmp_path: Path) -> None:
+    _run_isolated(
+        check_logs_can_be_enabled_explicitly,
+        {'OTEL_EXPORTER_OTLP_ENDPOINT': 'http://127.0.0.1:9', 'OTEL_EXPORTER_OTLP_TIMEOUT': '1'},
+        tmp_path,
+    )
+
+
 def check_inert_without_endpoint() -> None:
     for k in [k for k in os.environ if k.startswith('OTEL_')]:
         del os.environ[k]
@@ -155,7 +181,6 @@ def test_protocol_grpc(tmp_path: Path) -> None:
 
 
 def test_standard_header_parsing() -> None:
-    # PR-REVIEW-FIX-4: OTel header parsing lowercases gRPC keys and percent-decodes values.
     assert _sdk._parse_headers('Authorization=Basic%20abc%2Cdef,X-Test=a%20b') == {
         'authorization': 'Basic abc,def',
         'x-test': 'a b',

@@ -589,7 +589,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'exporter_otlp_headers': "OTLP headers as comma-separated 'key=value' pairs",
         'span_level': "Span verbosity: 'info' (default), 'debug', or 'trace'",
         'metrics': 'Export metrics via OTLP (default: only when an OTLP endpoint is configured)',
-        'logs': 'Export pixeltable logs via OTLP (default: only when an OTLP endpoint is configured)',
+        'logs': 'Export pixeltable logs via OTLP (default: false)',
     },
     'replicate': {'api_token': 'Replicate API token'},
     'runwayml': {'api_secret': 'RunwayML API secret'},

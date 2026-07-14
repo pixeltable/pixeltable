@@ -1493,7 +1493,6 @@ class TestConfigRouteWithGenericTypes:
         assert len(services) == 1
 
     def test_config_route_redacts_otel_headers(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # PR-REVIEW-FIX-1: Authorization material in OTLP headers must never cross the config API boundary.
         from pixeltable_cli.server.router import Request
 
         monkeypatch.setenv('OTEL_EXPORTER_OTLP_HEADERS', 'Authorization=Bearer top-secret')
