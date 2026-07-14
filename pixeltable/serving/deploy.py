@@ -48,50 +48,75 @@ def _is_stable_pypi_version(version: str) -> bool:
     return '+' not in version and '.dev' not in version
 
 
-def _export_conda_env() -> tuple[bytes, str | None] | None:
-    """Export the active conda environment as YAML using only explicitly installed packages.
+def _detect_pxt_version() -> str | None:
+    """Return the installed pixeltable version string, or None if not installed."""
+    try:
+        import importlib.metadata
 
-    Returns (cleaned_yaml, detected_pixeltable_version) or None if not in a conda environment.
-    detected_pixeltable_version is the version string found in the pip section (e.g. "0.6.7" or
-    "0.0.1.dev1600+76a4f45"). It is always stripped from the YAML — local dev versions cannot be
-    pip-installed from PyPI; stable versions are re-added to runtime_config.json by the caller.
+        return importlib.metadata.version('pixeltable')
+    except Exception:
+        return None
 
-    Uses --from-history so the export only contains packages that were explicitly installed,
-    not the full transitive closure. This avoids platform-specific packages (macOS/ARM-only libs
-    like libintl-devel or libopenvino-arm-cpu-plugin) that cause micromamba to fail when
-    recreating the environment on linux/amd64 in CodeBuild.
+
+def _export_conda_env() -> bytes | None:
+    """Export the active conda environment as YAML, stripping pixeltable* packages.
+
+    Pixeltable is installed separately via runtime_config.json, so it must be excluded here.
+    The exported environment.yml is included in the bundle for reference but the server-side
+    Dockerfile builder no longer uses it — uv export (requirements.txt) takes priority.
     """
     conda_exe = os.environ.get('CONDA_EXE')
     if conda_exe is None or 'CONDA_DEFAULT_ENV' not in os.environ:
         return None
-
     Env.get().console_logger.info(f'Found a conda environment: {os.environ["CONDA_DEFAULT_ENV"]}')
     try:
-        result = subprocess.run((conda_exe, 'env', 'export', '--from-history'), capture_output=True, check=True)
-    except subprocess.CalledProcessError:
-        # --from-history may not be available in older conda; fall back to --no-builds
-        try:
-            result = subprocess.run((conda_exe, 'env', 'export', '--no-builds'), capture_output=True, check=True)
-        except (FileNotFoundError, subprocess.CalledProcessError) as exc:
-            Env.get().console_logger.warning(f'Failed to export conda environment: {exc}')
-            return None
-    except FileNotFoundError as exc:
+        result = subprocess.run((conda_exe, 'env', 'export', '--no-builds'), capture_output=True, check=True)
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
         Env.get().console_logger.warning(f'Failed to export conda environment: {exc}')
         return None
-
-    # Strip all pixeltable* entries from the pip section and capture the pixeltable version.
-    # pixeltable dev builds (version contains '+' or '.dev') cannot be pip-installed from PyPI.
     env_text = result.stdout.decode('utf-8')
-    detected_version: str | None = None
-    filtered = []
-    for line in env_text.splitlines(keepends=True):
-        if re.match(r'^\s+-\s+pixeltable==', line):
-            detected_version = line.strip().split('==', 1)[1].strip()
-        elif re.match(r'^\s+-\s+pixeltable', line):
-            pass  # strip pixeltable-pgserver, pixeltable-cloud, etc.
-        else:
-            filtered.append(line)
-    return ''.join(filtered).encode('utf-8'), detected_version
+    filtered = [line for line in env_text.splitlines(keepends=True) if not re.match(r'^\s+-\s+pixeltable', line)]
+    return ''.join(filtered).encode('utf-8')
+
+
+def _export_uv_requirements(project_dir: Path) -> bytes | None:
+    """Generate a cross-platform requirements.txt from uv.lock.
+
+    Runs `uv export --frozen --no-dev --no-emit-project --no-hashes` targeting the project's
+    uv.lock. The --no-hashes flag produces plain package==version lines with no wheel URLs or
+    checksums, so pip on CodeBuild (linux/amd64) resolves the correct platform wheels from PyPI
+    regardless of what platform the client is running on.
+
+    pixeltable is excluded via --no-emit-package because it is installed separately from
+    runtime_config.json (with the [serve] extra and potentially a git ref).
+    Returns None if uv.lock is absent or uv export fails.
+    """
+    if not (project_dir / 'uv.lock').exists():
+        return None
+    try:
+        result = subprocess.run(
+            [
+                'uv',
+                'export',
+                '--frozen',
+                '--no-dev',
+                '--no-emit-project',
+                '--no-hashes',
+                '--no-emit-package',
+                'pixeltable',
+            ],
+            capture_output=True,
+            check=True,
+            cwd=project_dir,
+        )
+        Env.get().console_logger.info('Generated cross-platform requirements.txt from uv.lock')
+        return result.stdout
+    except FileNotFoundError:
+        Env.get().console_logger.warning('uv not found; skipping uv export (install uv to include lockfile deps)')
+        return None
+    except subprocess.CalledProcessError as exc:
+        Env.get().console_logger.warning(f'uv export failed: {exc.stderr.decode(errors="replace").strip()}')
+        return None
 
 
 def _find_lockfile(project_dir: Path | None = None) -> Path | None:
@@ -115,14 +140,19 @@ def __add_tarfile(tf: tarfile.TarFile, name: str, content: bytes) -> None:
 def build_db_runtime_bundle(project_dir: Path | None = None) -> Path:
     """Package the current project into a tarball for updating a cloud-hosted database runtime.
 
-    Bundles project source files, dependency lockfiles, and optionally a conda environment
-    or a pixeltable source override. Service configuration is not included — services are
-    managed independently via the CLI.
+    Bundles project source files, dependency lockfiles, and an optional pixeltable source
+    override. Service configuration is not included — services are managed independently.
 
     Bundle layout:
-        environment.yml      (optional — present when running inside a conda environment)
+        metadata.json        (always present)
+        environment.yml      (optional — conda env export, included for reference, not used to build)
+        requirements.txt     (optional — generated from uv.lock via uv export; used to build image)
         runtime_config.json  (optional — present when [database.pixeltable_source] is configured)
         project/             (all project source files: UDFs, lockfiles, pyproject.toml, etc.)
+
+    Dependency resolution on the server (priority order):
+        requirements.txt (root) → project/uv.lock → project/poetry.lock → project/requirements.txt → none
+    environment.yml is intentionally ignored by the server-side Dockerfile builder.
     """
     if project_dir is None:
         project_dir = Path.cwd()
@@ -143,25 +173,24 @@ def build_db_runtime_bundle(project_dir: Path | None = None) -> Path:
             'The runtime may not have the necessary dependencies.'
         )
 
-    conda_result = _export_conda_env()
-    conda_export: bytes | None = None
-    conda_pxt_version: str | None = None
-    if conda_result is not None:
-        conda_export, conda_pxt_version = conda_result
+    conda_export = _export_conda_env()
+    uv_requirements = _export_uv_requirements(project_dir)
 
     # Determine the effective pixeltable source for runtime_config.json.
-    # Priority: explicit pixeltable.toml config > stable conda version > warn (dev build).
+    # Priority: explicit pixeltable.toml config > stable installed version > warn (dev build).
     effective_pxt_source = pxt_source
-    if effective_pxt_source is None and conda_pxt_version is not None:
-        if _is_stable_pypi_version(conda_pxt_version):
-            effective_pxt_source = config.PixeltableSourceConfig(version=conda_pxt_version)
-        else:
-            Env.get().console_logger.warning(
-                f'Detected a local dev pixeltable build ({conda_pxt_version}) that cannot be '
-                'installed from PyPI. Add a [pixeltable.database.pixeltable_source] section to '
-                'pixeltable.toml with a git ref pointing to your branch so the runtime image '
-                'uses the correct pixeltable version.'
-            )
+    if effective_pxt_source is None:
+        installed_version = _detect_pxt_version()
+        if installed_version is not None:
+            if _is_stable_pypi_version(installed_version):
+                effective_pxt_source = config.PixeltableSourceConfig(version=installed_version)
+            else:
+                Env.get().console_logger.warning(
+                    f'Detected a local dev pixeltable build ({installed_version}) that cannot be '
+                    'installed from PyPI. Add a [pixeltable.database.pixeltable_source] section to '
+                    'pixeltable.toml with a git ref pointing to your branch so the runtime image '
+                    'uses the correct pixeltable version.'
+                )
 
     files = _collect_project_files(project_dir, include, exclude)
 
@@ -170,10 +199,11 @@ def build_db_runtime_bundle(project_dir: Path | None = None) -> Path:
     bundle_path = Path(name)
 
     with tarfile.open(bundle_path, 'w:bz2') as tf:
-        manifest = {'pxt_md_version': metadata.VERSION}
-        __add_tarfile(tf, 'metadata.json', json.dumps(manifest).encode('utf-8'))
+        __add_tarfile(tf, 'metadata.json', json.dumps({'pxt_md_version': metadata.VERSION}).encode('utf-8'))
         if conda_export is not None:
             __add_tarfile(tf, 'environment.yml', conda_export)
+        if uv_requirements is not None:
+            __add_tarfile(tf, 'requirements.txt', uv_requirements)
         if effective_pxt_source is not None:
             rt_config = {'pixeltable_source': effective_pxt_source.model_dump(exclude_none=True)}
             __add_tarfile(tf, 'runtime_config.json', json.dumps(rt_config).encode('utf-8'))

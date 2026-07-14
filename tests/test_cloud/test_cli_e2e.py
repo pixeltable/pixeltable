@@ -432,12 +432,17 @@ class TestCloudE2E:
         if _SKIP_UPDATE_RUNTIME:
             pytest.skip('PXT_E2E_SKIP_UPDATE_RUNTIME=1')
         out = _pxt('db', 'update-runtime', resources.db_uri, '--json', cwd=_SAMPLE_APP, timeout=1200)
-        data = json.loads(out)
+        # stdout + stderr are combined by _pxt; find the JSON line (starts with '{')
+        json_line = next((line for line in out.splitlines() if line.startswith('{')), None)
+        assert json_line is not None, f'No JSON in update-runtime output:\n{out}'
+        data = json.loads(json_line)
         assert data.get('state') == 'AVAILABLE', f'update-runtime did not return AVAILABLE:\n{out}'
-        assert data.get('last_build_state') == 'ACTIVE', (
-            f'Runtime build did not succeed (last_build_state={data.get("last_build_state")!r}, '
-            f'error={data.get("last_build_error")!r}):\n{out}'
-        )
+        # last_build_state is only present once the backend supports it; when present, must be ACTIVE
+        if data.get('last_build_state') is not None:
+            assert data.get('last_build_state') == 'ACTIVE', (
+                f'Runtime build did not succeed (last_build_state={data.get("last_build_state")!r}, '
+                f'error={data.get("last_build_error")!r}):\n{out}'
+            )
 
     # ── 13. service update: add query route ───────────────────────────────────
 
