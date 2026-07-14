@@ -10,8 +10,6 @@ from ..utils import dummy_embedding, get_test_video_files
 
 pytestmark = pytest.mark.local('pxt CLI metadata/data bridge')
 
-pytestmark = pytest.mark.local('pxt CLI metadata/data bridge')
-
 
 @pxt.udf
 def my_udf(x: int) -> int:

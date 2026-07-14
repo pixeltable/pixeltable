@@ -365,8 +365,8 @@ def _serve() -> None:
     _ = get_runtime().catalog
 
     config = Config.get()
-    daemon_host = config.get_string_value('DAEMON_HOST')
-    daemon_port = config.get_int_value('DAEMON_PORT')
+    daemon_host = config.get_string_value('daemon_host')
+    daemon_port = config.get_int_value('daemon_port')
 
     log_level = (config.get_string_value('LOG_LEVEL') or 'info').lower()
     if daemon_host is not None or daemon_port is not None:

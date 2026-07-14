@@ -327,10 +327,7 @@ def make_catalog_path(
         # If db_uri has a sub-path (e.g. pxt://org:db/tests), create it first.
         uri_path = db_uri[len('pxt://') :].split('/', 1)
         if len(uri_path) > 1 and uri_path[1]:
-            try:
-                pxt.create_dir(db_uri)
-            except Exception:
-                pass  # already exists
+            pxt.create_dir(db_uri, if_exists='ignore')
         # Each test run gets its own namespace so tests don't collide.
         run_id = _uuid.uuid4().hex[:8]
         prefix = f'{db_uri}/test_{run_id}'
@@ -346,10 +343,7 @@ def make_catalog_path(
     yield p
 
     if catalog_mode == 'cloud':
-        try:
-            pxt.drop_dir(prefix, force=True)
-        except Exception:
-            pass
+        pxt.drop_dir(prefix, force=True, if_not_exists='ignore')
 
     _validate_catalog_state()
 

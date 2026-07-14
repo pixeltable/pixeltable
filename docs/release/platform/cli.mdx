@@ -82,7 +82,7 @@ pxt db list pxt://myorg
 pxt db update-runtime pxt://myorg:mydb
 
 # cloud — services
-pxt service create pxt://myorg:mydb/tables/my_schema/my_table --name my-service
+pxt service create my-service --base-uri pxt://myorg:mydb
 pxt service list pxt://myorg:mydb
 pxt service status pxt://myorg:mydb/services/my-service
 ```
@@ -368,14 +368,14 @@ Define your routes in a TOML file and start everything with one command:
 name = "my-service"
 port = 8000
 
-[[service.routes]]
+[[pixeltable.service.routes]]
 type = "insert"
 table = "my_dir/my_table"
 path = "/generate"
 inputs = ["prompt"]
 outputs = ["prompt", "result"]
 
-[[service.routes]]
+[[pixeltable.service.routes]]
 type = "query"
 path = "/search"
 query = "myapp.queries.search_docs"
@@ -608,14 +608,12 @@ All cloud commands accept `--json` for machine-readable output.
 
 Cloud operations that affect a database's runtime image or service routes read configuration from `pixeltable.toml` in the current directory.
 
-#### `[database]` — runtime bundle config
+#### `[pixeltable.database]` — runtime bundle config
 
 Read by `pxt db update-runtime`. Defines which local files to bundle and, optionally, a custom Pixeltable source branch.
 
 ```toml
-[database]
-uri = "pxt://myorg:mydb"
-
+[pixeltable.database]
 # Include/exclude patterns for project files bundled into the runtime image.
 # Glob patterns relative to the project root.
 include = ["app/**", "models/**"]
@@ -623,23 +621,23 @@ exclude = ["__pycache__", "*.pyc", ".git", ".env", "*.egg-info", ".venv"]
 
 # Optional: build Pixeltable itself from source instead of the published PyPI release.
 # Use this to deploy changes from a feature branch before they are released.
-[database.pixeltable_source]
+[pixeltable.database.pixeltable_source]
 git    = "https://github.com/pixeltable/pixeltable.git"
 branch = "my-feature-branch"
 # rev  = "abc1234"  # pin to a specific commit or tag instead of branch HEAD
 ```
 
-#### `[[service]]` — service route config
+#### `[[pixeltable.service]]` — service route config
 
-Read by `pxt service create` and `pxt service update`. Each `[[service]]` block defines one named service; `name` must match the `--name` argument passed to `pxt service create`.
+Read by `pxt service create` and `pxt service update`. Each `[[pixeltable.service]]` block defines one named service; `name` must match the service name argument passed to `pxt service create`.
 
 ```toml
-[[service]]
+[[pixeltable.service]]
 name    = "my-service"
 modules = ["app"]        # Python modules imported at service startup
 
 # INSERT / COMPUTE — append a row, trigger computed columns, return outputs
-[[service.routes]]
+[[pixeltable.service.routes]]
 type    = "insert"       # "compute" is an alias for "insert"
 path    = "/ingest"
 table   = "my_schema/documents"
@@ -647,7 +645,7 @@ inputs  = ["text", "title"]
 outputs = ["text", "summary", "embedding"]
 
 # FILE UPLOAD — accept multipart/form-data, return a file or JSON
-[[service.routes]]
+[[pixeltable.service.routes]]
 type              = "compute"
 path              = "/image"
 table             = "my_schema/images"
@@ -656,7 +654,7 @@ outputs           = ["description"]
 background        = true           # returns job_url immediately; poll for result
 
 # QUERY — call a @pxt.query function
-[[service.routes]]
+[[pixeltable.service.routes]]
 type   = "query"
 path   = "/search"
 query  = "app:search_docs"         # module:attr path to a @pxt.query function
@@ -664,7 +662,7 @@ inputs = ["query_text", "limit"]
 method = "post"                    # "get" or "post" (default: "post")
 
 # UPDATE — mutate existing rows by primary key
-[[service.routes]]
+[[pixeltable.service.routes]]
 type    = "update"
 path    = "/update"
 table   = "my_schema/documents"
@@ -672,7 +670,7 @@ inputs  = ["id", "text"]
 outputs = ["text", "summary"]
 
 # DELETE — remove rows matching specified columns
-[[service.routes]]
+[[pixeltable.service.routes]]
 type          = "delete"
 path          = "/delete"
 table         = "my_schema/documents"
@@ -781,20 +779,20 @@ States: `DEPLOYING` → `AVAILABLE` ⇄ `STOPPED` → `UPDATING` → `FAILED`.
 #### `pxt service create`
 
 ```bash
-pxt service create pxt://myorg:mydb/tables/my_schema/my_table --name my-service
-pxt service create pxt://myorg:mydb/tables/my_schema/my_table --name my-service --workers 2
+pxt service create my-service --base-uri pxt://myorg:mydb
+pxt service create my-service --base-uri pxt://myorg:mydb --workers 2
 ```
 
 | Argument / flag | Description |
 |---|---|
-| `table_uri` | `pxt://org:db/tables/<path>` |
-| `--name NAME` | Service name; must match a `[[service]]` block in `pixeltable.toml` |
+| `name` | Service name; must match a `[[pixeltable.service]]` block in `pixeltable.toml` |
+| `--base-uri URI` | `pxt://org:db[/<dir>]` — database and optional base path prefix for routes |
 | `--workers N` | Number of workers (default: 1) |
 | `--cpu N` | CPU cores per worker (default: 0.5) |
 | `--memory N` | Memory per worker in MB (default: 512) |
 | `--disk N` | Disk per worker in GB (default: 10) |
 
-Reads route config from the `[[service]]` block matching `--name` in `pixeltable.toml`. Polls until `AVAILABLE`.
+Reads route config from the `[[pixeltable.service]]` block matching `name` in `pixeltable.toml`. Polls until `AVAILABLE`.
 
 #### `pxt service list`
 
@@ -814,12 +812,7 @@ Prints state, endpoint, worker count, and timestamps.
 
 ```bash
 pxt service start pxt://myorg:mydb/services/my-service
-pxt service start pxt://myorg:mydb/services/my-service --workers 3
 ```
-
-| Flag | Description |
-|---|---|
-| `--workers N` | Override worker count |
 
 #### `pxt service stop`
 

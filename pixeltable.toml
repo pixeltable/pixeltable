@@ -1,0 +1,88 @@
+# Service 1 — synchronous (blocks until computed columns are ready)
+[[pixeltable.service]]
+name = "my-service"
+
+[[pixeltable.service.routes]]
+type    = "insert"
+path    = "/items/insert"
+table   = "e2e_items"
+inputs  = ["id", "name"]
+outputs = ["id", "name", "name_upper"]
+
+[[pixeltable.service.routes]]
+type    = "compute"
+path    = "/items/compute"
+table   = "e2e_items"
+inputs  = ["id", "name"]
+outputs = ["name_upper"]
+
+[[pixeltable.service.routes]]
+type    = "update"
+path    = "/items/update"
+table   = "e2e_items"
+inputs  = ["name"]
+outputs = ["id", "name", "name_upper"]
+
+[[pixeltable.service.routes]]
+type          = "delete"
+path          = "/items/delete"
+table         = "e2e_items"
+match_columns = ["id"]
+
+[[pixeltable.service.routes]]
+type   = "query"
+path   = "/items/find"
+query  = "udfs:find_by_id"
+inputs = ["item_id"]
+one_row = true
+method  = "get"
+
+
+# Service 2 — background (returns immediately, computed columns resolve async)
+[[pixeltable.service]]
+name = "my-service-bg"
+
+[[pixeltable.service.routes]]
+type       = "insert"
+path       = "/items/insert"
+table      = "e2e_items"
+inputs     = ["id", "name"]
+outputs    = ["id", "name", "name_upper"]
+background = true
+
+[[pixeltable.service.routes]]
+type       = "compute"
+path       = "/items/compute"
+table      = "e2e_items"
+inputs     = ["id", "name"]
+outputs    = ["name_upper"]
+background = true
+
+[[pixeltable.service.routes]]
+type       = "update"
+path       = "/items/update"
+table      = "e2e_items"
+inputs     = ["name"]
+outputs    = ["id", "name", "name_upper"]
+background = true
+
+[[pixeltable.service.routes]]
+type          = "delete"
+path          = "/items/delete"
+table         = "e2e_items"
+match_columns = ["id"]
+background    = true
+
+[[pixeltable.service.routes]]
+type       = "query"
+path       = "/items/find"
+query      = "udfs:find_by_id"
+inputs     = ["item_id"]
+one_row    = true
+method     = "get"
+background = true
+
+# Controls what gets bundled by `pxt db update-runtime`.
+# include limits the bundle to just udfs.py so the whole repo isn't zipped up.
+[pixeltable.database]
+include = ["udfs.py"]
