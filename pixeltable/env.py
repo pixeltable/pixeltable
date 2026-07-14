@@ -465,19 +465,18 @@ class Env:
         if pgdata_version is None:
             return  # db not created yet
 
-        postgres_version = pixeltable_pgserver.installed_pg_version()
-        if pgdata_version == postgres_version:
+        target_version = pixeltable_pgserver.TARGET_POSTGRES_VERSION
+        if pgdata_version == target_version:
             return  # db is up to date
-        if pgdata_version > postgres_version:
+        if pgdata_version > target_version:
             raise excs.RequestError(
                 excs.ErrorCode.DB_VERSION_MISMATCH,
                 'The Pixeltable database was created with a more recent version of Pixeltable than the one '
-                'currently installed. Please upgrade Pixeltable to the latest version: pip install -U pixeltable'
+                'currently installed. Please upgrade Pixeltable to the latest version: pip install -U pixeltable',
             )
 
         self.console_logger.info(f'Upgrading Pixeltable database.')
         pixeltable_pgserver.upgrade_db(pgdata_dir)
-
 
     @retry(
         stop=stop_after_attempt(3),  # Stop after 3 attempts
