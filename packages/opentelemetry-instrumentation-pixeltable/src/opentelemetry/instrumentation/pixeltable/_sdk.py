@@ -339,7 +339,7 @@ def _parse_headers(headers: str) -> dict[str, str]:
     """Parse comma-separated 'key=value' pairs (the OTEL_EXPORTER_OTLP_HEADERS format)."""
     from opentelemetry.util.re import parse_env_headers
 
-    return dict(parse_env_headers(headers))
+    return dict(parse_env_headers(headers, liberal=True))
 
 
 def _join_endpoint(endpoint: str, path: str) -> str:
