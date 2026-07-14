@@ -47,7 +47,10 @@ def redact_url(url: str) -> str:
 
 
 def is_retriable_error(exc: Exception) -> tuple[bool, float | None]:
-    """Attempts to guess if the exception indicates a retriable error. If that is the case, returns True and the retry delay in seconds."""
+    """
+    Attempts to guess if the exception indicates a retriable error.
+    If that is the case, returns True and the retry delay in seconds.
+    """
 
     # Check for HTTP status TOO_MANY_REQUESTS in various exception classes.
     # We look for attributes that contain status codes, instead of checking the type of the exception,
