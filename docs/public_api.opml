@@ -415,6 +415,10 @@
           <outline text="udf|pixeltable.functions.mistralai.fim_completions" />
           <outline text="udf|pixeltable.functions.mistralai.embeddings" />
         </outline>
+        <outline text="module|pixeltable.functions.nebius">
+          <outline text="udf|pixeltable.functions.nebius.chat_completions" />
+          <outline text="udf|pixeltable.functions.nebius.embeddings" />
+        </outline>
         <outline text="module|pixeltable.functions.ollama">
           <outline text="udf|pixeltable.functions.ollama.generate" />
           <outline text="udf|pixeltable.functions.ollama.chat" />
