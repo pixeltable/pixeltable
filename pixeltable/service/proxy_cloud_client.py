@@ -25,6 +25,17 @@ _CONNECT_TIMEOUT = 30.0
 _RPC_TIMEOUT = 1800.0
 
 
+class _TunnelHTTPConnection(http.client.HTTPConnection):
+    """HTTPConnection backed by an already-established socket."""
+
+    def __init__(self, host: str, sock: ssl.SSLSocket, timeout: float) -> None:
+        super().__init__(host, timeout=timeout)
+        self.sock = sock
+
+    def connect(self) -> None:
+        pass  # socket already set in __init__
+
+
 class ProxyCloudClient(proxy_client.ProxyClient):
     """HTTP-over-TLS-tunnel transport for a cloud-hosted database."""
 
@@ -60,50 +71,43 @@ class ProxyCloudClient(proxy_client.ProxyClient):
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
         raw_sock = socket.create_connection((self._host, self._port), timeout=_CONNECT_TIMEOUT)
-        raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        raw_sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-        # TCP_KEEPIDLE is Linux; macOS uses TCP_KEEPALIVE for the same purpose
-        keepidle = getattr(socket, 'TCP_KEEPIDLE', None) or getattr(socket, 'TCP_KEEPALIVE', None)
-        if keepidle is not None:
-            raw_sock.setsockopt(socket.IPPROTO_TCP, keepidle, 60)
-        if hasattr(socket, 'TCP_KEEPINTVL'):
-            raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 30)
-        if hasattr(socket, 'TCP_KEEPCNT'):
-            raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 5)
-        ssl_sock = ctx.wrap_socket(raw_sock, server_hostname=self._host)
+        ssl_sock: ssl.SSLSocket | None = None
+        try:
+            raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            raw_sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+            # TCP_KEEPIDLE is Linux; macOS uses TCP_KEEPALIVE for the same purpose
+            keepidle = getattr(socket, 'TCP_KEEPIDLE', None) or getattr(socket, 'TCP_KEEPALIVE', None)
+            if keepidle is not None:
+                raw_sock.setsockopt(socket.IPPROTO_TCP, keepidle, 60)
+            if hasattr(socket, 'TCP_KEEPINTVL'):
+                raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 30)
+            if hasattr(socket, 'TCP_KEEPCNT'):
+                raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 5)
+            ssl_sock = ctx.wrap_socket(raw_sock, server_hostname=self._host)
 
-        frame = f'PXT/1.0 CONNECT {self._org}/{self._db}\r\nAuthorization: Bearer {self._api_key}\r\n\r\n'
-        ssl_sock.sendall(frame.encode())
+            frame = f'PXT/1.0 CONNECT {self._org}/{self._db}\r\nAuthorization: Bearer {self._api_key}\r\n\r\n'
+            ssl_sock.sendall(frame.encode())
 
-        buf = b''
-        while b'\r\n\r\n' not in buf:
-            chunk = ssl_sock.recv(4096)
-            if not chunk:
-                ssl_sock.close()
-                raise ConnectionError('Connection closed during PXT/1.0 handshake')
-            buf += chunk
+            buf = b''
+            while b'\r\n\r\n' not in buf:
+                chunk = ssl_sock.recv(4096)
+                if not chunk:
+                    raise ConnectionError('Connection closed during PXT/1.0 handshake')
+                buf += chunk
 
-        first_line = buf.split(b'\r\n')[0].decode()
-        if not first_line.startswith('PXT/1.0 200'):
-            ssl_sock.close()
-            raise PermissionError(f'PXT/1.0 handshake rejected: {first_line}')
+            first_line = buf.split(b'\r\n')[0].decode()
+            if not first_line.startswith('PXT/1.0 200'):
+                raise PermissionError(f'PXT/1.0 handshake rejected: {first_line}')
 
-        # Switch from the connect-phase timeout to the RPC timeout now that the
-        # handshake is done. ssl_sock inherited _CONNECT_TIMEOUT from raw_sock;
-        # without this the socket would time out on any RPC that takes > 30s.
-        ssl_sock.settimeout(_RPC_TIMEOUT)
-        self._ssl_sock = ssl_sock
-        # Wrap the already-connected socket in an HTTPConnection so we can use the
-        # standard HTTP framing without reimplementing it.
-        outer_sock = ssl_sock
-
-        class _TunnelHTTP(http.client.HTTPConnection):
-            def connect(self) -> None:
-                self.sock = outer_sock
-
-        conn = _TunnelHTTP(self._host, timeout=_RPC_TIMEOUT)
-        conn.connect()
-        self._http_conn = conn
+            # Switch from the connect-phase timeout to the RPC timeout now that the
+            # handshake is done. ssl_sock inherited _CONNECT_TIMEOUT from raw_sock;
+            # without this the socket would time out on any RPC that takes > 30s.
+            ssl_sock.settimeout(_RPC_TIMEOUT)
+            self._ssl_sock = ssl_sock
+            self._http_conn = _TunnelHTTPConnection(self._host, ssl_sock, timeout=_RPC_TIMEOUT)
+        except Exception:
+            (ssl_sock or raw_sock).close()
+            raise
 
     def _disconnect(self) -> None:
         if self._http_conn is not None:
