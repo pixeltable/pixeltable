@@ -811,7 +811,9 @@ class TestExprs:
 
         # test it as a computed column
         validate_update_status(t.add_computed_column(out1=pxtf.map(t.c6.f5, lambda x: x + 1)), 100)
-        validate_update_status(t.add_computed_column(out2=pxtf.map(t.c7['*'].f5, lambda x: [x[3], x[2], x[1], x[0]])), 100)
+        validate_update_status(
+            t.add_computed_column(out2=pxtf.map(t.c7['*'].f5, lambda x: [x[3], x[2], x[1], x[0]])), 100
+        )
         validate_update_status(t.add_computed_column(out3=pxtf.map(t.c6.f5, lambda x: x * t.c6.f5[1])), 100)
         validate_update_status(t.add_computed_column(out4=pxtf.map(t.c6.f5, lambda x: x + 1)[0]), 100)
         res_col = reload_tester.run_query(t.select(t.out1, t.out2, t.out3, t.out4).order_by(t.c2))
@@ -890,6 +892,61 @@ class TestExprs:
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Failed to evaluate filter predicate.'):
             t.c6.f5.filter(lambda x: x and False)
+
+        reload_tester.run_reload_test()
+
+    def test_json_sort(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
+        t = test_tbl
+
+        # These queries use the method form (t.j.sort(...)); the computed columns below use the function form
+        # (pxtf.sort(...)), and the row-by-row equality checks at the end verify the two forms are interchangeable.
+
+        # keyless sort of a scalar list, ascending and descending
+        res1 = reload_tester.run_query(t.select(input=t.c6.f5, output=t.c6.f5.sort()).order_by(t.c2))
+        assert res1.schema['output'] == 'Json'  # c6.f5 is an untyped Json list, so the element type is unknown
+        assert all(row['output'] == sorted(row['input']) for row in res1)
+
+        res2 = reload_tester.run_query(t.select(input=t.c6.f5, output=t.c6.f5.sort(asc=False)).order_by(t.c2))
+        assert res2.schema['output'] == 'Json'
+        assert all(row['output'] == sorted(row['input'], reverse=True) for row in res2)
+
+        # keyed sort: order by a per-element key expr
+        res3 = reload_tester.run_query(t.select(input=t.c6.f5, output=t.c6.f5.sort(key=lambda x: -x)).order_by(t.c2))
+        assert res3.schema['output'] == 'Json'
+        assert all(row['output'] == sorted(row['input'], key=lambda x: -x) for row in res3)
+
+        # key contains a global-scope dependency
+        res4 = reload_tester.run_query(
+            t.select(input=t.c6, output=t.c6.f5.sort(key=lambda x: x * t.c6.f2, asc=False)).order_by(t.c2)
+        )
+        assert res4.schema['output'] == 'Json'
+        assert all(
+            row['output'] == sorted(row['input']['f5'], key=lambda x: x * row['input']['f2'], reverse=True)
+            for row in res4
+        )
+
+        # source elements are dicts; the reordered elements are the dicts themselves
+        res5 = reload_tester.run_query(t.select(input=t.c7, output=t.c7.sort(key=lambda x: x.f2)).order_by(t.c2))
+        assert res5.schema['output'] == 'Json'
+        assert all(row['output'] == sorted(row['input'], key=lambda d: d['f2']) for row in res5)
+
+        # test it as a computed column
+        validate_update_status(t.add_computed_column(sout1=pxtf.sort(t.c6.f5)), 100)
+        validate_update_status(t.add_computed_column(sout2=pxtf.sort(t.c6.f5, asc=False)), 100)
+        validate_update_status(t.add_computed_column(sout3=pxtf.sort(t.c6.f5, key=lambda x: -x)), 100)
+        res_col = reload_tester.run_query(t.select(t.sout1, t.sout2, t.sout3).order_by(t.c2))
+        assert res_col.schema == {'sout1': 'Json', 'sout2': 'Json', 'sout3': 'Json'}
+        # both the keyless and keyed forms display as a method call, with the relative root shown as R
+        md = t.get_metadata()['columns']
+        assert md['sout1']['computed_with'] == 'c6.f5.sort()'
+        assert md['sout2']['computed_with'] == 'c6.f5.sort(asc=False)'
+        assert md['sout3']['computed_with'] == 'c6.f5.sort(lambda R: R * -1)'
+        assert all(r1['output'] == rc['sout1'] for r1, rc in zip(res1, res_col))
+        assert all(r2['output'] == rc['sout2'] for r2, rc in zip(res2, res_col))
+        assert all(r3['output'] == rc['sout3'] for r3, rc in zip(res3, res_col))
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Failed to evaluate sort key.'):
+            t.c6.f5.sort(key=lambda x: x and False)
 
         reload_tester.run_reload_test()
 

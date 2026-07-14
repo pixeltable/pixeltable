@@ -266,20 +266,22 @@ class JsonPath(Expr):
 
     def __getattr__(self, name: str) -> 'Expr':
         import functools
-        from typing import cast
+        from typing import Callable, cast
 
         from pixeltable.func import FunctionRegistry
 
         assert isinstance(name, str)
-        # map()/filter() are exposed as methods on a json expr; like a registered method they take precedence over
-        # field access, and a colliding field stays reachable via subscript, e.g. path['map']. They take a
-        # callable, so unlike a udf they aren't registered type-methods: bind this expr as the source and return
-        # the resulting function. The cast reflects that the bound function is only ever called, never used as
-        # an Expr itself.
-        if self.col_type.is_json_type() and name in ('map', 'filter'):
-            from pixeltable.functions.globals import filter as filter_fn, map as map_fn
+        # map()/filter()/sort():
+        # - exposed as methods on a json expr
+        # - like a registered method they take precedence over field access, and a colliding field stays reachable
+        #   via subscript, e.g. path['map']. They take a callable, so unlike a udf they aren't registered
+        #   type-methods: bind this expr as the source and return the resulting function. The cast reflects that
+        #   the bound function is only ever called, never used as an Expr itself.
+        if self.col_type.is_json_type() and name in ('map', 'filter', 'sort'):
+            from pixeltable.functions.globals import filter as filter_fn, map as map_fn, sort as sort_fn
 
-            return cast('Expr', functools.partial(map_fn if name == 'map' else filter_fn, self))
+            fn = cast(Callable[..., Expr], {'map': map_fn, 'filter': filter_fn, 'sort': sort_fn}[name])
+            return cast('Expr', functools.partial(fn, self))
 
         # a registered method takes precedence over field access (delegating to Expr.__getattr__); a colliding
         # field stays reachable via subscript, e.g. path['len']

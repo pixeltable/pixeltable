@@ -348,6 +348,28 @@ def flatten(self: pxt.Json) -> pxt.Json:
     return result
 
 
+@pxt.udf(display_name='sort')
+def _sort(list_: pxt.Json | None, asc: bool = True) -> pxt.Json:
+    """Return a new JSON array with the elements sorted by their natural ordering."""
+    if not isinstance(list_, list):
+        return None
+    try:
+        return sorted(list_, reverse=not asc)
+    except TypeError as e:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            'sort(): the array elements are not orderable; pass a key, e.g. .sort(lambda R: R.field)',
+        ) from e
+
+
+@_sort.conditional_return_type
+def _(list_: exprs.Expr) -> ts.ColumnType:
+    # sorting reproduces the source elements in a new order, so the element type carries through unchanged
+    if isinstance(list_.col_type, ts.JsonType):
+        return list_.col_type.copy(nullable=True)
+    return ts.JsonType(nullable=True)
+
+
 def _variadic_element_type(col_type: ts.ColumnType) -> ts.ColumnType | None:
     """The element type of a variadic-list JsonType (Json[[T]]), or None if `ct` isn't one."""
     if isinstance(col_type, ts.JsonType) and col_type.type_schema is not None:

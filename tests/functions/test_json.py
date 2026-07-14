@@ -341,6 +341,42 @@ class TestJson:
         assert tc.select(o=tc.j['map']).collect()['o'] == [5]
         assert tc.select(o=tc.j.nums.map(lambda x: x + 1)).collect()['o'] == [[2, 3, 4]]
 
+    def test_sort(self, uses_db: None) -> None:
+        t = pxt.create_table('json_sort', {'id': pxt.Int, 'nums': pxt.Json[[int]], 'objs': pxt.Json})
+        t.insert(
+            [
+                {
+                    'id': 1,
+                    'nums': [3, 1, 2],
+                    'objs': [{'s': 0.5, 'l': 'b'}, {'s': 0.9, 'l': 'a'}, {'s': 0.1, 'l': 'c'}],
+                },
+                {'id': 2, 'nums': [], 'objs': []},  # empty list sorts to empty
+                {'id': 3, 'nums': None, 'objs': None},  # null source sorts to null
+            ]
+        )
+
+        # keyless sort preserves the element type of a typed list
+        res = t.select(t.id, a=t.nums.sort(), d=t.nums.sort(asc=False)).order_by(t.id).collect()
+        assert res.schema['a'] == 'Json[(Int, ...)]'
+        assert res['a'] == [[1, 2, 3], [], None]
+        assert res['d'] == [[3, 2, 1], [], None]
+        # the function form is interchangeable with the method form
+        assert t.select(a=pxtf.sort(t.nums)).order_by(t.id).collect()['a'] == res['a']
+
+        # keyed sort orders dicts by a per-element key and reproduces the dicts themselves
+        res2 = t.select(t.id, by_score=t.objs.sort(key=lambda x: x.s, asc=False)).order_by(t.id).collect()
+        assert [[o['l'] for o in v] if v is not None else v for v in res2['by_score']] == [['a', 'b', 'c'], [], None]
+
+        # a keyless sort of non-orderable elements raises
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'sort\(\): the array elements are not orderable'):
+            t.select(o=t.objs.sort()).collect()
+
+        # a keyed sort with non-orderable keys raises (a null mixed with numbers)
+        tn = pxt.create_table('json_sort_null_key', {'j': pxt.Json})
+        tn.insert([{'j': [{'v': 1}, {'v': None}, {'v': 3}]}])
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'sort\(\): the sort keys are not orderable'):
+            tn.select(o=tn.j.sort(key=lambda x: x.v)).collect()
+
     @pytest.mark.very_expensive  # Downloads a Hugging Face model
     @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
     def test_list_iterator_appl(self, uses_db: None) -> None:

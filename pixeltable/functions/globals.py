@@ -359,6 +359,62 @@ def filter(expr: exprs.Expr, predicate: Callable[[exprs.Expr], Any]) -> exprs.Ex
     return exprs.JsonMapper(expr, None, filter_expr=filter_expr)
 
 
+def sort(expr: exprs.Expr, *, key: Callable[[exprs.Expr], Any] | None = None, asc: bool = True) -> exprs.Expr:
+    """
+    Sorts the elements of a JSON array, producing a new array.
+
+    `sort()` is used like a UDF, for example in `select()` or `add_computed_column()`.
+
+    Args:
+        expr: The array to sort; an expression of type `pxt.Json` that resolves to a JSON array. Its element type
+            is preserved in the result.
+        key: An optional Python function (typically a lambda) that produces the value each element is ordered by.
+            It receives `x`, a stand-in for a single array element, and returns the sort key. Operate on `x`
+            exactly as you would on a column: arithmetic, indexing (`x[0]`), field access (`x.field`), and JSON
+            methods all work. When `key` is omitted, the elements are ordered by their own natural ordering.
+        asc: Whether to sort in ascending (the default) or descending order.
+
+    Returns:
+        A new array with the elements of `expr` in sorted order. If `expr` is `null` or does not resolve to a JSON
+        array, the result is `null`. Sorting a list of scalars without a `key`, or by non-orderable keys, raises if
+        the values are not mutually comparable (matching Python's `sorted()`).
+
+    Examples:
+        Given a table `tbl` with a `pxt.Json` column `data` holding lists of numbers, add a column that sorts each
+        list in descending order:
+
+        >>> tbl.add_computed_column(ranked=pxt.functions.sort(tbl.data, asc=False))
+
+        When `data` holds lists of objects such as `{'score': 0.9, 'label': 'cat'}`, sort each list by score:
+
+        >>> tbl.select(
+        ...     by_score=pxt.functions.sort(
+        ...         tbl.data, key=lambda x: x.score, asc=False
+        ...     )
+        ... ).collect()
+
+    See also [`map()`][pixeltable.functions.map] and [`filter()`][pixeltable.functions.filter].
+    """
+    if key is None:
+        # no per-element expression to evaluate: sort the materialized list directly, without building the nested
+        # rows a JsonMapper would. Imported here rather than at module scope to avoid a circular import with json.
+        from pixeltable.functions import json
+
+        result = json._sort(expr) if asc else json._sort(expr, asc=False)
+        # render as a method call (x.sort(...)) rather than as a plain call to the private _sort UDF
+        result.is_method_call = True
+        return result
+    key_expr: exprs.Expr
+    try:
+        key_expr = exprs.Expr.from_object(key(_relative_path_root(expr)))
+    except Exception as e:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            'Failed to evaluate sort key. (The `key` argument to `sort()` must produce a valid Pixeltable expression.)',
+        ) from e
+    return exprs.JsonMapper(expr, None, key_expr=key_expr, asc=asc)
+
+
 __all__ = local_public_names(__name__)
 
 
