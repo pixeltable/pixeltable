@@ -223,6 +223,10 @@ jobs:
         if: ${{ matrix.test-category == 'py' }}
         env:
           PXTTEST_CI_OS: ${{ matrix.os }}
+          # Collect coverage for every unit-test configuration in scheduled runs. pytest-cov ensures xdist workers
+          # are measured; other triggers avoid the tracing overhead.
+          PYTEST_COVERAGE_OPTS: >-
+            ${{ github.event_name == 'schedule' && '--cov=pixeltable --cov-report=term-missing' || '' }}
         # Run the tests with the 'expensive' marker only once, on ubuntu-24.04 with Python 3.10. The other tests
         # (including tests with the 'remote_api' marker that are not also marked 'expensive') will run on all matrix
         # configurations.
@@ -230,7 +234,7 @@ jobs:
           echo 'Running tests with options: ${{ matrix.pytest-options }}'
           echo 'Extra pre-test command    : ${{ matrix.pre-test-cmd }}'
           ${{ matrix.pre-test-cmd }}
-          pytest -v --strict-markers -n auto --dist loadgroup ${{ matrix.pytest-options }}
+          pytest -v --strict-markers -n auto --dist loadgroup ${{ matrix.pytest-options }} $PYTEST_COVERAGE_OPTS
       - name: Run the notebook tests
         if: ${{ matrix.test-category == 'ipynb' }}
         run: |
