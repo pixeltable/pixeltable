@@ -113,7 +113,7 @@ class TestImage:
                 assert result['tile_box'] == list(box)
                 assert result['tile'].size == (100, 100)
                 tile = image.crop(box)
-                assert list(result['tile'].getdata()) == list(tile.getdata())
+                assert result['tile'].tobytes() == tile.tobytes()
 
     @pytest.mark.parametrize('overlap', [(0, 0), (10, 10)])
     @pytest.mark.parametrize('mode', ['RGB', 'L', 'RGBA'])
