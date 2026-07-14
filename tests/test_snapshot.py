@@ -16,6 +16,11 @@ from .utils import (
 )
 
 
+@pxt.udf
+def double(x: float) -> float:
+    return x * 2.0
+
+
 class TestSnapshot:
     def run_basic_test(
         self,
@@ -96,8 +101,8 @@ class TestSnapshot:
                     schema = (
                         {
                             'v1': tbl.c3 * 2.0,
-                            # include a lambda to make sure that is handled correctly
-                            'v2': tbl.c3.apply(lambda x: x * 2.0, col_type=pxt.Float),
+                            # include a udf call to make sure that is handled correctly
+                            'v2': double(tbl.c3),
                         }
                         if has_cols
                         else {}

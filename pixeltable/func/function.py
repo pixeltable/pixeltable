@@ -106,6 +106,11 @@ class Function(ABC):
         return self.self_path is not None and self.self_path.startswith('pixeltable.')
 
     @property
+    def is_storable(self) -> bool:
+        """True if the serialized form of this function (as_dict()) can be stored in the db."""
+        return True
+
+    @property
     def signature(self) -> Signature:
         assert not self.is_polymorphic
         return self.signatures[0]
@@ -503,10 +508,6 @@ class Function(ABC):
     def __hash__(self) -> int:
         return hash(self.self_path)
 
-    def source(self) -> None:
-        """Print source code"""
-        print('source not available')
-
     def as_dict(self) -> dict[str, Any]:
         """
         Return a serialized reference to the instance that can be passed to json.dumps() and converted back
@@ -575,6 +576,11 @@ class InvalidFunction(Function):
         super().__init__([], self_path)
         self.fn_dict = fn_dict
         self.error_msg = error_msg
+
+    @property
+    def is_storable(self) -> bool:
+        # we should never be storing invalid functions
+        return False
 
     def _as_dict(self) -> dict:
         """

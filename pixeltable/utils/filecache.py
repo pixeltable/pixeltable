@@ -136,36 +136,46 @@ class FileCache:
         For testing purposes: allow resetting capacity and stats.
         """
         if tbl_id is None:
-            # We need to store the entries to remove in a list, because we can't remove items from a dict
-            # while iterating
-            entries_to_remove = list(self.cache.values())
-            _logger.debug(f'clearing {self.num_files()} entries from file cache')
+            # Remove every file on disk, not just the entries this instance tracks (another FileCache
+            # instance or process may have written files we never adopted), then reset the state to match.
+            _logger.debug('clearing all entries from file cache')
+            tracked_names = {entry.path.name for entry in self.cache.values()}
+            failures: list[str] = []
+            for path in glob.glob(str(Env.get().file_cache_dir / '*')):
+                try:
+                    os.remove(path)
+                except OSError as exc:
+                    name = os.path.basename(path)
+                    origin = 'tracked' if name in tracked_names else 'untracked'
+                    failures.append(f'{name} ({origin}): {exc}')
+            self.cache.clear()
+            self.total_size = 0
             self.num_requests, self.num_hits, self.num_evictions = 0, 0, 0
             self.keys_retrieved.clear()
             self.keys_evicted_after_retrieval.clear()
             self.new_redownload_witnessed = False
-        else:
-            entries_to_remove = [e for e in self.cache.values() if e.tbl_id == tbl_id]
-            _logger.debug(f'clearing {self.num_files(tbl_id)} entries from file cache for table {tbl_id}')
+            if len(failures) > 0:
+                detail = '\n  '.join(failures)
+                raise RuntimeError(
+                    f'FileCache.clear(): could not remove {len(failures)} file(s) from '
+                    f'{Env.get().file_cache_dir}:\n  {detail}'
+                )
+            return
+
+        entries_to_remove = [e for e in self.cache.values() if e.tbl_id == tbl_id]
+        _logger.debug(f'clearing {self.num_files(tbl_id)} entries from file cache for table {tbl_id}')
         for entry in entries_to_remove:
             os.remove(entry.path)
             del self.cache[entry.key]
             self.total_size -= entry.size
 
     def validate(self) -> None:
-        """
-        Validation:
-        - all files in the cache directory are in self.cache
-        - all files in self.cache are in the cache directory
-        """
-        # validate directory contents
-        dir_contents = set(Env.get().file_cache_dir.glob('*'))
-        for entry in self.cache.values():
-            assert entry.path in dir_contents, f'{entry.path} not found in {dir_contents}'
-            dir_contents.remove(entry.path)
-        assert len(dir_contents) == 0, f'Found {len(dir_contents)} unexpected files in file cache: {dir_contents}'
+        """Check that every entry in self.cache still exists on disk.
 
-        # validate cache contents
+        The reverse (every file in file_cache_dir is tracked in self.cache) is not checked: file_cache_dir
+        can be shared by several pixeltable processes, so self.cache holds only this process's entries and a
+        file on disk that this process never added is not an inconsistency.
+        """
         for entry in self.cache.values():
             assert entry.path.exists(), f'{entry.path} does not exist'
 
