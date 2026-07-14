@@ -4,7 +4,7 @@ name: tests
 #   - Python 3.10 on ubuntu-24.04, macos-15, and windows-2025 runners.
 #   - A minimal installation of Pixeltable (--no-dev) with Python 3.10 on ubuntu-24.04.
 #   - Linting, type-checking, docstring validation, etc.
-#   - Random ops (for 30 minutes).
+#   - Random ops.
 #
 # In merge queue, all of the above configurations are run, and additionally:
 #   - Python 3.14 on ubuntu-24.04, macos-15, and windows-2025 runners.
@@ -247,7 +247,7 @@ jobs:
           fi
       - name: Run stress tests
         if: ${{ matrix.test-category == 'random-ops' }}
-        run: ./scripts/stress-tests.sh 12 360
+        run: ./scripts/stress-tests.sh 12 900
       - name: Type check
         if: ${{ matrix.test-category == 'lint' }}
         run: |
