@@ -236,7 +236,9 @@ jobs:
         # The opentelemetry-instrumentation-pixeltable package is a separate distribution; the core suite does not
         # collect its tests (testpaths in pyproject.toml). It is tested here against a minimal install + otel extra.
         if: ${{ matrix.test-category == 'otel' }}
-        run: pytest -v --strict-markers packages/opentelemetry-instrumentation-pixeltable/tests
+        run: |
+          pytest -v --strict-markers packages/opentelemetry-instrumentation-pixeltable/tests
+          pytest -v --strict-markers -m otel tests
       - name: Run the notebook tests
         if: ${{ matrix.test-category == 'ipynb' }}
         run: |

@@ -343,7 +343,8 @@ def _parse_headers(headers: str) -> dict[str, str]:
 
 
 def _join_endpoint(endpoint: str, path: str) -> str:
-    """Append a signal path to a base OTLP/HTTP endpoint unless it already carries one."""
-    if endpoint.rstrip('/').endswith(('/v1/traces', '/v1/metrics', '/v1/logs')):
+    """Append a signal path to a base OTLP/HTTP endpoint unless it already ends with it."""
+    base = endpoint.rstrip('/')
+    if base.endswith(f'/{path}'):
         return endpoint
-    return f'{endpoint.rstrip("/")}/{path}'
+    return f'{base}/{path}'
