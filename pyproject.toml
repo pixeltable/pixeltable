@@ -272,13 +272,14 @@ warn_return_any = true
 warn_unused_ignores = true
 
 [tool.pytest.ini_options]
-addopts = '-v -m "not remote_api and not expensive and not very_expensive and not benchmark" --strict-markers'
+addopts = '-v -m "not remote_api and not expensive and not very_expensive and not benchmark and not cloud_e2e" --strict-markers'
 markers = [
     "expensive: marks tests as expensive to run",
     "very_expensive: marks tests as very expensive to run",
     "remote_api: marks tests as calling a remote API (such as OpenAI)",
     "benchmark: marks tests as benchmark tests (excluded from regular test runs)",
     "local: test runs only against the in-process catalog, not the proxy (arg: reason)",
+    "cloud_e2e: marks tests as cloud end-to-end tests requiring PXT_E2E_ENABLED=1 and a live dev cluster",
 ]
 filterwarnings = [
     # Treat *our* warnings as errors (we shouldn't see them fall through in tests)

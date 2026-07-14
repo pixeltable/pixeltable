@@ -23,7 +23,6 @@ from . import proxy_protocol
 from .proxy_protocol import PROTOCOL_VERSION, ProxyRequest, ProxyResponse
 
 _logger = logging.getLogger(__name__)
-_logger.setLevel(logging.INFO)
 
 if TYPE_CHECKING:
     from pixeltable.catalog import LocalTable

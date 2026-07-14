@@ -81,7 +81,7 @@ def list_dbs(org_slug: str) -> dict[str, Any]:
 
 
 def create_db(org_slug: str, db_slug: str, location: str = 'aws', region: str = 'us-east-1') -> dict[str, Any]:
-    return api_call(CreateDatabaseRequest(org_slug=org_slug, db_slug=db_slug, location=location))
+    return api_call(CreateDatabaseRequest(org_slug=org_slug, db_slug=db_slug, location=location, region=region))
 
 
 def get_db(org_slug: str, db_slug: str) -> dict[str, Any]:

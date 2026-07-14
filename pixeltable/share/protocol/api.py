@@ -54,6 +54,7 @@ class CreateDatabaseRequest(BaseModel):
     db_slug: str
     db_name: Optional[str] = None
     location: Optional[str] = None
+    region: Optional[str] = None
     cpu: float = 0.5
     memory_mb: int = 512
     disk_gb: int = 10
