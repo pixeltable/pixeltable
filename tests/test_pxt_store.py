@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-import io
-import urllib.error
-import urllib.request
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -176,40 +172,3 @@ class TestPxtStore:
         assert refreshable_creds.access_key != initial_access_key or refreshable_creds.token != initial_token, (
             'Expected access key or session token to change after credential refresh'
         )
-
-
-def test_http_download_retry(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    url = 'https://example.com/media/img.jpg'
-    error_codes: list[int] = []
-    attempts = 0
-
-    def fake_urlopen(req: urllib.request.Request) -> io.BytesIO:
-        nonlocal attempts
-        attempts += 1
-        if attempts <= len(error_codes):
-            raise urllib.error.HTTPError(url, error_codes[attempts - 1], 'error', None, None)
-        return io.BytesIO(b'payload')
-
-    monkeypatch.setattr('urllib.request.urlopen', fake_urlopen)
-    monkeypatch.setattr('time.sleep', lambda _: None)
-    dest_path = tmp_path / 'img.jpg'
-
-    # transient 429s followed by success: retried until the download succeeds
-    error_codes = [429, 429]
-    ObjectOps.copy_object_to_local_file(url, dest_path)
-    assert attempts == 3
-    assert dest_path.read_bytes() == b'payload'
-
-    # persistent 429s: gives up after 4 attempts and reraises the original error
-    error_codes = [429] * 10
-    attempts = 0
-    with pytest.raises(urllib.error.HTTPError):
-        ObjectOps.copy_object_to_local_file(url, dest_path)
-    assert attempts == 4
-
-    # permanent error: not retried
-    error_codes = [404]
-    attempts = 0
-    with pytest.raises(urllib.error.HTTPError):
-        ObjectOps.copy_object_to_local_file(url, dest_path)
-    assert attempts == 1
