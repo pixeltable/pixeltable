@@ -377,6 +377,54 @@ class TestJson:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'sort\(\): the sort keys are not orderable'):
             tn.select(o=tn.j.sort(key=lambda x: x.v)).collect()
 
+    def test_concat(self, uses_db: None) -> None:
+        t = pxt.create_table(
+            'json_concat',
+            {
+                'la': pxt.Json[[int]],
+                'lb': pxt.Json[[int]],
+                'ta': pxt.Json[int, str],
+                'tb': pxt.Json[bool,],
+                'u': pxt.Json,
+            },
+        )
+        t.insert([{'la': [1, 2], 'lb': [3], 'ta': [1, 's'], 'tb': [True], 'u': None}])
+
+        # two variadic lists yield a variadic list of the common element type; two fixed tuples concatenate their
+        # schemas; an untyped operand yields an untyped result
+        res = t.select(cv=t.la.concat(t.lb), ct=t.ta.concat(t.tb), cu=t.la.concat(t.u)).collect()
+        assert res.schema['cv'] == 'Json[(Int, ...)]'
+        assert res.schema['ct'] == 'Json[(Int, String, Bool)]'
+        assert res.schema['cu'] == 'Json'
+        assert res['cv'] == [[1, 2, 3]]
+        assert res['ct'] == [[1, 's', True]]
+        assert res['cu'] == [None]  # u is null, so the result is null
+
+        # a null operand yields null; a non-null, non-array operand raises
+        tn = pxt.create_table('json_concat_err', {'a': pxt.Json, 'b': pxt.Json})
+        tn.insert([{'a': None, 'b': [1]}, {'a': [1], 'b': {'x': 1}}])
+        assert tn.where(tn.a == None).select(o=tn.a.concat(tn.b)).collect()['o'] == [None]
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'concat\(\) is only defined for two JSON arrays'):
+            tn.where(tn.a != None).select(o=tn.a.concat(tn.b)).collect()
+
+    def test_merge(self, uses_db: None) -> None:
+        t = pxt.create_table(
+            'json_merge', {'da': pxt.Json[{'a': pxt.Int}], 'db': pxt.Json[{'a': pxt.String, 'b': pxt.String}]}
+        )
+        t.insert([{'da': {'a': 1}, 'db': {'a': 'z', 'b': 'y'}}])
+
+        # object schemas combine, with the right operand winning on the shared key 'a'
+        res = t.select(m=t.da.merge(t.db)).collect()
+        assert res.schema['m'] == "Json[{'a': String, 'b': String}]"
+        assert res['m'] == [{'a': 'z', 'b': 'y'}]
+
+        # a null operand yields null; a non-null, non-object operand raises
+        tn = pxt.create_table('json_merge_err', {'a': pxt.Json, 'b': pxt.Json})
+        tn.insert([{'a': None, 'b': {'x': 1}}, {'a': [1], 'b': {'x': 1}}])
+        assert tn.where(tn.a == None).select(o=tn.a.merge(tn.b)).collect()['o'] == [None]
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'merge\(\) is only defined for two JSON objects'):
+            tn.where(tn.a != None).select(o=tn.a.merge(tn.b)).collect()
+
     @pytest.mark.very_expensive  # Downloads a Hugging Face model
     @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
     def test_list_iterator_appl(self, uses_db: None) -> None:

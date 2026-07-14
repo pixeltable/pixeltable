@@ -348,6 +348,85 @@ def flatten(self: pxt.Json) -> pxt.Json:
     return result
 
 
+@pxt.udf(is_method=True)
+def concat(self: pxt.Json | None, other: pxt.Json | None) -> pxt.Json:
+    """
+    Concatenate two JSON arrays into a new array.
+
+    Returns `null` if either operand is `null`. Raises if either operand is a non-null, non-array value.
+
+    Example:
+
+        >>> t.select(t.tags.concat(t.more_tags)).collect()
+    """
+    if self is None or other is None:
+        return None
+    if isinstance(self, list) and isinstance(other, list):
+        return self + other
+    raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'concat() is only defined for two JSON arrays')
+
+
+@concat.conditional_return_type
+def _(self: exprs.Expr, other: exprs.Expr) -> ts.ColumnType:
+    a = self.col_type.type_schema if isinstance(self.col_type, ts.JsonType) else None
+    b = other.col_type.type_schema if isinstance(other.col_type, ts.JsonType) else None
+    if a is None or b is None or not isinstance(a.type_spec, list) or not isinstance(b.type_spec, list):
+        return ts.JsonType(nullable=True)
+    if a.variadic_type is None and b.variadic_type is None:
+        # two fixed-length tuples: the result is their concatenation
+        return ts.JsonType(ts.JsonType.TypeSchema([*a.type_spec, *b.type_spec]), nullable=True)
+    # at least one operand is variadic: the result is a variadic list of the common element supertype
+    elements = [*a.type_spec, *b.type_spec]
+    if a.variadic_type is not None:
+        elements.append(a.variadic_type)
+    if b.variadic_type is not None:
+        elements.append(b.variadic_type)
+    supertype = ts.ColumnType.common_supertype(elements)
+    if supertype is None:
+        return ts.JsonType(nullable=True)
+    return ts.JsonType(ts.JsonType.TypeSchema([], variadic_type=supertype), nullable=True)
+
+
+# TODO: add a to_sql for concat() via jsonb ||; a jsonb literal operand binds untyped (see contains()).
+
+
+@pxt.udf(is_method=True)
+def merge(self: pxt.Json | None, other: pxt.Json | None) -> pxt.Json:
+    """
+    Merge two JSON objects into a new object; on a key conflict the value from `other` wins.
+
+    Returns `null` if either operand is `null`. Raises if either operand is a non-null, non-object value.
+
+    Example:
+
+        >>> t.select(t.defaults.merge(t.overrides)).collect()
+    """
+    if self is None or other is None:
+        return None
+    if isinstance(self, dict) and isinstance(other, dict):
+        return {**self, **other}
+    raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'merge() is only defined for two JSON objects')
+
+
+@merge.conditional_return_type
+def _(self: exprs.Expr, other: exprs.Expr) -> ts.ColumnType:
+    a = self.col_type.type_schema if isinstance(self.col_type, ts.JsonType) else None
+    b = other.col_type.type_schema if isinstance(other.col_type, ts.JsonType) else None
+    if a is None or b is None or not isinstance(a.type_spec, dict) or not isinstance(b.type_spec, dict):
+        return ts.JsonType(nullable=True)
+    type_spec = {**a.type_spec, **b.type_spec}
+    # a key is optional in the result when it is optional in the operand that supplies its value (other wins)
+    optional_keys = {
+        k
+        for k in type_spec
+        if (k in b.type_spec and k in b.optional_keys) or (k not in b.type_spec and k in a.optional_keys)
+    }
+    return ts.JsonType(ts.JsonType.TypeSchema(type_spec, optional_keys=frozenset(optional_keys)), nullable=True)
+
+
+# TODO: add a to_sql for merge() via jsonb ||; a jsonb literal operand binds untyped (see contains()).
+
+
 @pxt.udf(display_name='sort')
 def _sort(list_: pxt.Json | None, asc: bool = True) -> pxt.Json:
     """Return a new JSON array with the elements sorted by their natural ordering."""
