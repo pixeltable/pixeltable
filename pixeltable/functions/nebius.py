@@ -56,7 +56,7 @@ async def chat_completions(
 
     Request throttling:
     Applies the rate limit set in the config (section `nebius`, key `rate_limit`). If no rate
-    limit is configured, uses a default of 600 RPM.
+    limit is configured, a default rate limit is applied.
 
     __Requirements:__
 
@@ -167,7 +167,7 @@ async def embeddings(
 
     Request throttling:
     Applies the rate limit set in the config (section `nebius`, key `rate_limit`). If no rate
-    limit is configured, uses a default of 600 RPM.
+    limit is configured, a default rate limit is applied.
 
     __Requirements:__
 
