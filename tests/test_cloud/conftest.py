@@ -35,7 +35,7 @@ def _log_on_failure(request: pytest.FixtureRequest) -> Any:
         (['pxt', 'service', 'status', resources.svc_uri, '--json'], 'service status'),
     ]:
         print(f'\n── {label} ──')
-        r = subprocess.run(cmd, capture_output=True, text=True, env=_cloud_env(), timeout=30)
+        r = subprocess.run(cmd, capture_output=True, text=True, env=_cloud_env(), timeout=30, check=False)
         output = (r.stdout + r.stderr).strip()
         print(output if output else '(no output)')
     print(f'{"─" * 60}\n')

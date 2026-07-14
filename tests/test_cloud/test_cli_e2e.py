@@ -58,7 +58,9 @@ def _cloud_env() -> dict[str, str]:
 
 
 def _pxt(*args: str, cwd: Path | None = None, check: bool = True, timeout: int = 900) -> str:
-    r = subprocess.run(['pxt', *args], capture_output=True, text=True, env=_cloud_env(), cwd=cwd, timeout=timeout)
+    r = subprocess.run(
+        ['pxt', *args], capture_output=True, text=True, env=_cloud_env(), cwd=cwd, timeout=timeout, check=False
+    )
     out = r.stdout + r.stderr
     if check and r.returncode != 0:
         raise AssertionError(f'pxt {" ".join(args)} failed (rc={r.returncode}):\n{out}')
@@ -72,7 +74,12 @@ def _pxt_json(*args: str, cwd: Path | None = None) -> str:
 def _sdk(code: str) -> str:
     """Run a Python snippet in a subprocess with cloud env."""
     r = subprocess.run(
-        [sys.executable, '-c', textwrap.dedent(code)], capture_output=True, text=True, env=_cloud_env(), timeout=120
+        [sys.executable, '-c', textwrap.dedent(code)],
+        capture_output=True,
+        text=True,
+        env=_cloud_env(),
+        timeout=120,
+        check=False,
     )
     return r.stdout + r.stderr
 
@@ -173,7 +180,7 @@ def _write_initial_toml(toml_dir: Path, svc_name: str) -> None:
 def _write_full_toml(toml_dir: Path, svc_name: str) -> None:
     """5-route TOML with the query route added (used for service update)."""
     _write_initial_toml(toml_dir, svc_name)
-    with open(toml_dir / 'pixeltable.toml', 'a') as f:
+    with open(toml_dir / 'pixeltable.toml', 'a', encoding='utf-8') as f:
         f.write(
             '\n[[pixeltable.service.routes]]\n'
             'path    = "/find"\ntype    = "query"\nquery   = "udfs:find_by_id"\n'
@@ -222,7 +229,7 @@ class TestCloudE2E:
     # ── 0. daemon restart ────────────────────────────────────────────────────
 
     def test_0_daemon_restart(self) -> None:
-        subprocess.run(['pxt', 'daemon', 'restart'], capture_output=True, env=_cloud_env())
+        subprocess.run(['pxt', 'daemon', 'restart'], capture_output=True, env=_cloud_env(), check=False)
 
     # ── 1. help smoke tests ───────────────────────────────────────────────────
 
