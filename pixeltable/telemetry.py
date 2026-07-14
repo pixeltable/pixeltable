@@ -19,7 +19,7 @@ import dataclasses
 import logging
 import threading
 from contextvars import ContextVar, Token
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Hashable, Iterator
 from weakref import WeakKeyDictionary
 
 _logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ INFO = 20
 HookAttrs = dict[str, Any] | Callable[[], dict[str, Any]] | None
 
 
-class Subscriber:
+class Subscriber(Hashable):
     """Base class for instrumentation subscribers; all methods are optional no-ops.
 
     Methods are invoked synchronously at the call site; implementations must be fast and should not raise
@@ -40,6 +40,8 @@ class Subscriber:
     Attribute dicts may contain keys starting with `_`; these carry raw Python objects (e.g. a UDF result)
     for subscribers to consume and must not be exported as telemetry attributes.
     """
+
+    __hash__ = object.__hash__
 
     def on_span_start(self, name: str, parent_token: Any, attrs: dict[str, Any] | None, set_current: bool) -> Any:
         """Start a span and return a token that is passed back to on_span_end().
