@@ -1,0 +1,7 @@
+[project]
+name = "sample-app"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "pixeltable[serve] @ git+https://github.com/amithadke/pixeltable@cloud_hosted_tables",
+]

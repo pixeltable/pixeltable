@@ -1,3 +1,0 @@
-[pixeltable.database.pixeltable_source]
-git    = "https://github.com/pixeltable/pixeltable"
-branch = "main"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import tarfile
 import textwrap
 from pathlib import Path
@@ -18,13 +19,10 @@ from ..utils import pxt_raises
 
 pytestmark = pytest.mark.local('runtime bundle packaging')
 
-_FAKE_CONDA_YAML = b'name: test\ndependencies:\n  - python=3.11\n  - pip:\n    - fastapi==0.120.0\n'
-_FAKE_REQUIREMENTS = b'fastapi==0.120.0\nhttpx==0.27.0\n'
-
 
 class TestDbRuntimeBundle:
     def test_bundle_layout(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Build a runtime bundle and verify its structure and file contents."""
+        """Bundle always contains metadata.json and project/; nothing else at root."""
         monkeypatch.chdir(tmp_path)
         Config.init({}, reinit=True)
 
@@ -32,43 +30,25 @@ class TestDbRuntimeBundle:
         (tmp_path / 'subdir').mkdir()
         (tmp_path / 'subdir' / 'helper.py').write_text('# helper\n')
 
-        with (
-            patch('pixeltable.serving.deploy._export_conda_env', return_value=_FAKE_CONDA_YAML),
-            patch('pixeltable.serving.deploy._export_uv_requirements', return_value=_FAKE_REQUIREMENTS),
-            patch('pixeltable.serving.deploy._detect_pxt_version', return_value='0.7.0'),
-        ):
-            bundle_path = build_db_runtime_bundle(tmp_path)
+        bundle_path = build_db_runtime_bundle(tmp_path)
 
         with tarfile.open(bundle_path, 'r:bz2') as tar:
             members = tar.getnames()
 
             # Required top-level files
             assert 'metadata.json' in members
-            assert 'environment.yml' in members
-            assert 'requirements.txt' in members
-            assert 'runtime_config.json' in members
-
-            # Project files under project/
             assert 'project/udfs.py' in members
             assert 'project/subdir/helper.py' in members
 
-            # metadata.json
+            # Nothing else at root
+            root_files = [m for m in members if '/' not in m]
+            assert root_files == ['metadata.json']
+
+            # metadata.json has pxt_md_version and python_version
             with tar.extractfile(tar.getmember('metadata.json')) as f:
-                content = json.loads(f.read())
-                assert content['pxt_md_version'] == metadata.VERSION
-
-            # requirements.txt content preserved exactly
-            with tar.extractfile(tar.getmember('requirements.txt')) as f:
-                assert f.read() == _FAKE_REQUIREMENTS
-
-            # environment.yml content preserved exactly
-            with tar.extractfile(tar.getmember('environment.yml')) as f:
-                assert f.read() == _FAKE_CONDA_YAML
-
-            # runtime_config.json written for stable version
-            with tar.extractfile(tar.getmember('runtime_config.json')) as f:
-                cfg = json.loads(f.read())
-                assert cfg['pixeltable_source']['version'] == '0.7.0'
+                meta = json.loads(f.read())
+                assert meta['pxt_md_version'] == metadata.VERSION
+                assert meta['python_version'] == f'{sys.version_info.major}.{sys.version_info.minor}'
 
             # project file content preserved
             with tar.extractfile(tar.getmember('project/udfs.py')) as f:
@@ -76,12 +56,11 @@ class TestDbRuntimeBundle:
 
     def test_bundle_include_exclude(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """include= limits which project files are bundled; exclude= removes matched files."""
-        (tmp_path / 'a_include.py').write_text('# included by include pattern')
-        (tmp_path / 'a_exclude.py').write_text('# excluded by exclude pattern')
-        (tmp_path / 'b_exclude.txt').write_text('# excluded because not in include')
+        (tmp_path / 'a_include.py').write_text('# included')
+        (tmp_path / 'a_exclude.py').write_text('# excluded')
+        (tmp_path / 'b_exclude.txt').write_text('# excluded (not in include)')
 
-        config_path = tmp_path / 'pixeltable.toml'
-        config_path.write_text(
+        (tmp_path / 'pixeltable.toml').write_text(
             textwrap.dedent("""\
                 [pixeltable.database]
                 include = ["*.py", "*.toml"]
@@ -96,13 +75,9 @@ class TestDbRuntimeBundle:
         with tarfile.open(bundle_path, 'r:bz2') as tar:
             members = tar.getnames()
             assert 'project/a_include.py' in members
-            assert 'project/pixeltable.toml' in members  # *.toml pattern
-            assert 'project/a_exclude.py' not in members  # explicitly excluded
-            assert 'project/b_exclude.txt' not in members  # not in include pattern
-
-            # file content preserved
-            with tar.extractfile(tar.getmember('project/a_include.py')) as f:
-                assert f.read().decode() == '# included by include pattern'
+            assert 'project/pixeltable.toml' in members
+            assert 'project/a_exclude.py' not in members
+            assert 'project/b_exclude.txt' not in members
 
     def test_bundle_gitignore_respected(self, tmp_path: Path) -> None:
         """Files matching .gitignore patterns are excluded from project/."""
@@ -120,60 +95,52 @@ class TestDbRuntimeBundle:
             assert not any('__pycache__' in m for m in members)
             assert 'project/.env' not in members
 
-    def test_bundle_pixeltable_source_from_toml(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Explicit [pixeltable.database.pixeltable_source] config takes precedence over detected version."""
+    def test_bundle_uv_lock_included(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """uv.lock in the project dir is included under project/ for server-side uv sync."""
+        monkeypatch.chdir(tmp_path)
+        Config.init({}, reinit=True)
+
+        (tmp_path / 'uv.lock').write_text('version = 1\n')
+        (tmp_path / 'pyproject.toml').write_text('[project]\nname = "app"\n')
+
+        bundle_path = build_db_runtime_bundle(tmp_path)
+
+        with tarfile.open(bundle_path, 'r:bz2') as tar:
+            assert 'project/uv.lock' in tar.getnames()
+            assert 'project/pyproject.toml' in tar.getnames()
+            # no root-level requirements.txt or runtime_config.json
+            assert 'requirements.txt' not in tar.getnames()
+            assert 'runtime_config.json' not in tar.getnames()
+
+    def test_bundle_system_dependencies_in_metadata(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """system_dependencies from pixeltable.toml are validated and written to metadata.json."""
         (tmp_path / 'pixeltable.toml').write_text(
             textwrap.dedent("""\
-                [pixeltable.database.pixeltable_source]
-                git    = "https://github.com/pixeltable/pixeltable"
-                branch = "main"
+                [pixeltable.database]
+                system_dependencies = ["ffmpeg", "libpq"]
             """)
         )
         monkeypatch.chdir(tmp_path)
         Config.init({}, reinit=True)
 
-        # Even if a stable version is detected, the TOML source wins
-        with patch('pixeltable.serving.deploy._detect_pxt_version', return_value='9.9.9'):
+        with patch('pixeltable.serving.deploy._validate_system_dependencies') as mock_validate:
             bundle_path = build_db_runtime_bundle(tmp_path)
+            mock_validate.assert_called_once_with(['ffmpeg', 'libpq'])
 
-        with tarfile.open(bundle_path, 'r:bz2') as tar, tar.extractfile(tar.getmember('runtime_config.json')) as f:
-            cfg = json.loads(f.read())
-            assert cfg['pixeltable_source']['git'] == 'https://github.com/pixeltable/pixeltable'
-            assert cfg['pixeltable_source']['branch'] == 'main'
-            assert 'version' not in cfg['pixeltable_source']
+        with tarfile.open(bundle_path, 'r:bz2') as tar, tar.extractfile(tar.getmember('metadata.json')) as f:
+            meta = json.loads(f.read())
+            assert meta['system_dependencies'] == ['ffmpeg', 'libpq']
 
-    def test_bundle_no_runtime_config_for_dev_version(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A local dev version does not produce runtime_config.json — not installable from PyPI."""
+    def test_bundle_no_system_dependencies(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """No system_dependencies → metadata.json has no system_dependencies key."""
         monkeypatch.chdir(tmp_path)
         Config.init({}, reinit=True)
 
-        with patch('pixeltable.serving.deploy._detect_pxt_version', return_value='0.0.1.dev1600+abc1234'):
-            bundle_path = build_db_runtime_bundle(tmp_path)
+        bundle_path = build_db_runtime_bundle(tmp_path)
 
-        with tarfile.open(bundle_path, 'r:bz2') as tar:
-            assert 'runtime_config.json' not in tar.getnames()
-
-    def test_bundle_no_conda_no_uv(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """With no conda env and no uv.lock, only metadata.json and project/ files are present."""
-        monkeypatch.chdir(tmp_path)
-        Config.init({}, reinit=True)
-
-        (tmp_path / 'app.py').write_text('# app')
-
-        with (
-            patch('pixeltable.serving.deploy._export_conda_env', return_value=None),
-            patch('pixeltable.serving.deploy._export_uv_requirements', return_value=None),
-            patch('pixeltable.serving.deploy._detect_pxt_version', return_value=None),
-        ):
-            bundle_path = build_db_runtime_bundle(tmp_path)
-
-        with tarfile.open(bundle_path, 'r:bz2') as tar:
-            members = tar.getnames()
-            assert 'metadata.json' in members
-            assert 'project/app.py' in members
-            assert 'environment.yml' not in members
-            assert 'requirements.txt' not in members
-            assert 'runtime_config.json' not in members
+        with tarfile.open(bundle_path, 'r:bz2') as tar, tar.extractfile(tar.getmember('metadata.json')) as f:
+            meta = json.loads(f.read())
+            assert 'system_dependencies' not in meta
 
     def test_bundle_is_valid_bz2_tar(self, tmp_path: Path) -> None:
         """The output file is a valid bz2 tarball."""
@@ -183,11 +150,9 @@ class TestDbRuntimeBundle:
 
     def test_bundle_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Error paths in build_db_runtime_bundle()."""
-        # Nonexistent project directory
         with pytest.raises(FileNotFoundError, match='does not exist'):
             build_db_runtime_bundle(Path('/nonexistent/path/xyz'))
 
-        # Invalid [pixeltable.database] configuration (include must be a list, not a string)
         (tmp_path / 'pixeltable.toml').write_text(
             textwrap.dedent("""\
                 [pixeltable.database]

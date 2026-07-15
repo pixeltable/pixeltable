@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 import urllib.request
 from pathlib import Path
 
-from pixeltable import config as pxt_config
 from pixeltable.serving.deploy import build_db_runtime_bundle
 
 from ..cloud import _RUNTIME_POLL_INTERVAL, _RUNTIME_POLL_TIMEOUT, parse_db_uri
@@ -17,19 +17,35 @@ from ..parser import Parser
 def run(argv: list[str]) -> None:
     parser = Parser(prog='pxt db update-runtime', description='Rebuild the Python runtime for a cloud-hosted database.')
     parser.add_argument('db_uri', help='Database URI: pxt://org:db')
-    parser.add_argument('--config', default=None, metavar='FILE', help='Path to an additional config file (TOML)')
+    parser.add_argument(
+        '--project-dir',
+        default=None,
+        metavar='DIR',
+        help='Project directory containing pyproject.toml and uv.lock (default: current directory)',
+    )
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
 
     try:
         org_slug, db_slug = parse_db_uri(args.db_uri, prog='pxt db update-runtime')
 
-        if args.config is not None:
-            pxt_config.Config.init({}, additional_config_files=[args.config])
+        if args.project_dir is not None:
+            os.chdir(args.project_dir)
+
+        project_dir = Path.cwd().resolve()
+
+        required = ('pyproject.toml', 'uv.lock', 'pixeltable.toml')
+        if not any((project_dir / f).exists() for f in required):
+            print(
+                f'pxt: error: no pyproject.toml, uv.lock, or pixeltable.toml found in {project_dir}.\n'
+                'Run from your project directory or pass --project-dir.',
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
         if not args.json_output:
             print('Building runtime bundle...', end=' ', flush=True)
-        bundle_path = build_db_runtime_bundle(Path.cwd().resolve())
+        bundle_path = build_db_runtime_bundle(project_dir)
         if not args.json_output:
             size_mb = bundle_path.stat().st_size / (1024 * 1024)
             print(f'done ({size_mb:.1f} MB)')

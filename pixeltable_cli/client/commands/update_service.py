@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import sys
 
-from pixeltable import config as pxt_config
+from pixeltable import config as pxt_config, exceptions as excs
 from pixeltable.serving._config import lookup_service_config
 
 from ..cloud import parse_service_uri, poll_svc, print_service
@@ -14,7 +14,7 @@ from ..parser import Parser
 def run(argv: list[str]) -> None:
     parser = Parser(
         prog='pxt service update',
-        description='Update a service. Reads route config from [[service]] in the Pixeltable config.',
+        description='Update a service. Reads route config from [[pixeltable.service]] in the Pixeltable config.',
     )
     parser.add_argument('service_uri', help='Service URI: pxt://org:db/services/<name>')
     parser.add_argument('--workers', type=int, default=None, help='New minimum worker count')
@@ -28,10 +28,12 @@ def run(argv: list[str]) -> None:
     try:
         org_slug, db_slug, svc_name = parse_service_uri(args.service_uri, prog='pxt service update')
 
-        service_config = None
-        if args.config is not None:
-            pxt_config.Config.init({}, additional_config_files=[args.config])
+        additional_files = [args.config] if args.config is not None else []
+        pxt_config.Config.init({}, additional_config_files=additional_files)
+        try:
             service_config = lookup_service_config(svc_name).model_dump_json()
+        except excs.NotFoundError:
+            service_config = None
 
         resp = post(
             f'/api/cloud/orgs/{org_slug}/dbs/{db_slug}/services/{svc_name}/update',
