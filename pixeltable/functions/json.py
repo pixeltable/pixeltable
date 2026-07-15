@@ -206,7 +206,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 
 
 @pxt.udf(is_method=True)
-def min(self: pxt.Json) -> float:
+def min(self: pxt.Json) -> float | None:
     """
     Return the smallest number in a JSON array, or `null` if the array is empty.
 
@@ -224,7 +224,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 
 
 @pxt.udf(is_method=True)
-def max(self: pxt.Json) -> float:
+def max(self: pxt.Json) -> float | None:
     """
     Return the largest number in a JSON array, or `null` if the array is empty.
 
@@ -242,7 +242,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 
 
 @pxt.udf(is_method=True)
-def mean(self: pxt.Json) -> float:
+def mean(self: pxt.Json) -> float | None:
     """
     Return the arithmetic mean of the numbers in a JSON array, or `null` if the array is empty.
 

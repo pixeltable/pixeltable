@@ -215,6 +215,17 @@ class TestJson:
         assert rs.schema['o'] == 'Float'
         assert {r['id']: r['o'] for r in rs} == {1: 2.0, 2: 2.0, 3: None, 4: None}
 
+        # even for a non-nullable input, min/max/mean are nullable (an empty array yields null); sum is not
+        tv = pxt.create_table('json_reduce_typed', {'v': pxt.Required[pxt.Json]})
+        tv.insert([{'v': [1.0, 2.0]}])
+        res = tv.select(tv.v, s=tv.v.sum(), mn=tv.v.min(), mx=tv.v.max(), me=tv.v.mean()).collect()
+        assert {k: res.schema[k] for k in ('s', 'mn', 'mx', 'me')} == {
+            's': 'Required[Float]',
+            'mn': 'Float',
+            'mx': 'Float',
+            'me': 'Float',
+        }
+
         # SQL pushdown in a filter exercises each aggregate's to_sql translation
         assert sorted(r['id'] for r in t.where(t.j.sum() > 4).select(t.id).collect()) == [1]
         assert sorted(r['id'] for r in t.where(t.j.min() < 1.5).select(t.id).collect()) == [1]

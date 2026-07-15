@@ -358,11 +358,12 @@ class JsonPath(Expr):
         while idx < n:
             el = self.path_elements[idx]
             if el == '*' or isinstance(el, slice):
-                # a wildcard or slice opens a projection: apply the rest of the path to each element, dropping nulls
+                # a wildcard or slice opens a projection: apply the rest of the path to each element, keeping one
+                # positionally-aligned result per element (null where the rest of the path doesn't resolve)
                 if not isinstance(value, list):
                     return None
                 items = value[el] if isinstance(el, slice) else value
-                return [r for r in (self._eval_path(v, idx + 1) for v in items) if r is not None]
+                return [self._eval_path(v, idx + 1) for v in items]
             if isinstance(el, int):
                 # return list element if in bounds, else None
                 value = value[el] if isinstance(value, list) and -len(value) <= el < len(value) else None

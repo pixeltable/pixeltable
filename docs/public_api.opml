@@ -139,6 +139,7 @@
         <outline text="module|pixeltable.functions">
           <outline text="func|pixeltable.functions.filter" />
           <outline text="func|pixeltable.functions.map" />
+          <outline text="func|pixeltable.functions.sort" />
           <outline text="uda|pixeltable.functions.count" />
           <outline text="uda|pixeltable.functions.max" />
           <outline text="uda|pixeltable.functions.mean" />
@@ -218,6 +219,8 @@
           <outline text="udf|pixeltable.functions.json.values" />
           <outline text="udf|pixeltable.functions.json.items" />
           <outline text="udf|pixeltable.functions.json.flatten" />
+          <outline text="udf|pixeltable.functions.json.concat" />
+          <outline text="udf|pixeltable.functions.json.merge" />
           <outline text="uda|pixeltable.functions.json.make_list" />
         </outline>
         <outline text="module|pixeltable.functions.math">

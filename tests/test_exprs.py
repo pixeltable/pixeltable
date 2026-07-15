@@ -731,6 +731,54 @@ class TestExprs:
             res['item_of_vartype_list'][i] == [res['c2'][i], res['c1'][i], res['c3'][i]] for i in range(len(res))
         )
 
+    def test_json_path_projection(self, make_catalog_path: Callable[[str], str]) -> None:
+        # a projection ('*' or a slice) yields one positionally-aligned result per source element: a missing field,
+        # a null element, or a non-list element under a further projection becomes null, never dropped. So parallel
+        # projections stay the same length and line up by index, and nesting preserves structure at every level.
+        t = pxt.create_table(make_catalog_path('proj'), {'id': pxt.Int, 'dets': pxt.Json, 'matrix': pxt.Json})
+        t.insert(
+            [
+                # missing field in the middle; a null element; nested lists with a null, an empty, and a non-list
+                {
+                    'id': 0,
+                    'dets': [{'l': 'a', 's': 0.9}, {'l': 'b'}, {'l': 'c', 's': 0.7}],
+                    'matrix': [[1, None], 5, []],
+                },
+                # everything present, no nulls
+                {'id': 1, 'dets': [{'l': 'd', 's': 0.1}], 'matrix': [[6, 7]]},
+                # the field is missing from every element; empty source lists
+                {'id': 2, 'dets': [{'l': 'e'}, {'l': 'f'}], 'matrix': []},
+                # a null source resolves to null, not an empty list
+                {'id': 3, 'dets': None, 'matrix': None},
+            ]
+        )
+        res = (
+            t.order_by(t.id)
+            .select(
+                labels=t.dets['*'].l,
+                scores=t.dets['*'].s,  # wildcard projection over a sometimes-missing field
+                sliced=t.dets[:].s,  # a slice opens a projection too
+                nested=t.matrix['*']['*'],  # nested projection
+            )
+            .collect()
+        )
+        assert list(res['labels']) == [['a', 'b', 'c'], ['d'], ['e', 'f'], None]
+        assert list(res['scores']) == [[0.9, None, 0.7], [0.1], [None, None], None]
+        assert list(res['sliced']) == [[0.9, None, 0.7], [0.1], [None, None], None]
+        # the inner null and empty are kept; the non-list element (5) becomes null at its position
+        assert list(res['nested']) == [[[1, None], None, []], [[6, 7]], [], None]
+        # parallel projections are the same length in every row, so they align by index
+        assert all(row_l is None or len(row_l) == len(row_s) for row_l, row_s in zip(res['labels'], res['scores']))
+
+        # on a typed source, a projection resolves to a nullable element type: a projection may not resolve for
+        # every element, which is exactly what the aligned nulls above realize at runtime. (A strict schema won't
+        # accept a missing field or null element, so the null values themselves are exercised on the untyped col.)
+        tt = pxt.create_table(make_catalog_path('proj_typed'), {'dets': pxt.Json[[{'l': pxt.String, 's': pxt.Float}]]})
+        tt.insert([{'dets': [{'l': 'a', 's': 0.9}, {'l': 'b', 's': 0.1}]}])
+        typed = tt.select(labels=tt.dets['*'].l, scores=tt.dets['*'].s).collect()
+        assert typed.schema == {'labels': 'Json[(String | None, ...)]', 'scores': 'Json[(Float | None, ...)]'}
+        assert list(typed['scores']) == [[0.9, 0.1]]
+
     def test_json_path_types(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         spec = {

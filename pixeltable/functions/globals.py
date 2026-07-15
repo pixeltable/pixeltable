@@ -308,7 +308,7 @@ def map(expr: exprs.Expr, fn: Callable[[exprs.Expr], Any]) -> exprs.Expr:
             'Failed to evaluate map function. '
             '(The `fn` argument to `map()` must produce a valid Pixeltable expression.)',
         ) from e
-    return exprs.JsonMapper(expr, target_expr)
+    return exprs.JsonMapper(expr, target_expr, exprs.JsonMapper.Operator.MAP)
 
 
 def filter(expr: exprs.Expr, predicate: Callable[[exprs.Expr], Any]) -> exprs.Expr:
@@ -356,7 +356,7 @@ def filter(expr: exprs.Expr, predicate: Callable[[exprs.Expr], Any]) -> exprs.Ex
             'Failed to evaluate filter predicate. '
             '(The `predicate` argument to `filter()` must produce a valid Pixeltable expression.)',
         ) from e
-    return exprs.JsonMapper(expr, None, filter_expr=filter_expr)
+    return exprs.JsonMapper(expr, filter_expr, exprs.JsonMapper.Operator.FILTER)
 
 
 def sort(expr: exprs.Expr, *, key: Callable[[exprs.Expr], Any] | None = None, asc: bool = True) -> exprs.Expr:
@@ -412,7 +412,7 @@ def sort(expr: exprs.Expr, *, key: Callable[[exprs.Expr], Any] | None = None, as
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             'Failed to evaluate sort key. (The `key` argument to `sort()` must produce a valid Pixeltable expression.)',
         ) from e
-    return exprs.JsonMapper(expr, None, key_expr=key_expr, asc=asc)
+    return exprs.JsonMapper(expr, key_expr, exprs.JsonMapper.Operator.SORT, asc=asc)
 
 
 __all__ = local_public_names(__name__)

@@ -291,19 +291,15 @@ class NestedRowList:
     rows: list[exprs.DataRow]
     num_completed: int
     completion: asyncio.Event
-    value_slot_idx: int  # nested slot holding the value collected per element
-    filter_slot_idx: int | None  # nested slot holding the filter predicate, or None when there's no filter
-    key_slot_idx: int | None  # nested slot holding the sort key, or None when there's no key
+    target_slot_idx: int  # nested slot holding the target expr, evaluated per element
+    element_slot_idx: int  # nested slot holding the source element (the scope anchor)
 
-    def __init__(
-        self, rows: list[exprs.DataRow], value_slot_idx: int, filter_slot_idx: int | None, key_slot_idx: int | None
-    ):
+    def __init__(self, rows: list[exprs.DataRow], target_slot_idx: int, element_slot_idx: int):
         self.num_completed = 0
         self.rows = rows
         self.completion = asyncio.Event()
-        self.value_slot_idx = value_slot_idx
-        self.filter_slot_idx = filter_slot_idx
-        self.key_slot_idx = key_slot_idx
+        self.target_slot_idx = target_slot_idx
+        self.element_slot_idx = element_slot_idx
         if len(rows) == 0:
             # an empty source list produces no nested rows, so complete_row() is never called and we need to signal
             # completion here
@@ -323,40 +319,32 @@ class JsonMapperDispatcher(Evaluator):
     """
 
     e: exprs.JsonMapperDispatch
-    target_expr: exprs.Expr | None
-    filter_expr: exprs.Expr | None
-    key_expr: exprs.Expr | None
+    target_expr: exprs.Expr
     scope_anchor: exprs.ObjectRef
     nested_eval_ctx: ExprEvalCtx  # ExprEvalCtx needed to evaluate the nested rows
     external_slot_map: dict[int, int]  # slot idx in parent row -> slot idx in nested row
     has_async_calls: bool  # True if any nested output expr contains async FunctionCalls
-    value_slot_idx: int  # nested slot holding the value collected per element
-    filter_slot_idx: int | None  # nested slot holding the filter predicate
-    key_slot_idx: int | None  # nested slot holding the sort key
+    target_slot_idx: int  # nested slot holding the target expr, evaluated per element
+    element_slot_idx: int  # nested slot holding the source element (the scope anchor)
 
     def __init__(self, e: exprs.JsonMapperDispatch, dispatcher: Dispatcher, exec_ctx: ExprEvalCtx):
         super().__init__(dispatcher, exec_ctx)
         self.e = e
         # we need new slot idxs, so we operate on copies
-        self.target_expr = e.target_expr.copy() if e.target_expr is not None else None
-        self.filter_expr = e.filter_expr.copy() if e.filter_expr is not None else None
-        self.key_expr = e.key_expr.copy() if e.key_expr is not None else None
+        self.target_expr = e.target_expr.copy()
         self.scope_anchor = e.scope_anchor.copy()
 
-        # per-element value:
-        # - the target expr
-        # - if there is no target: the source element itself, which is held in the scope anchor's slot
-        value_expr = self.target_expr if self.target_expr is not None else self.scope_anchor
-        # a non-output slot is garbage-collected once its dependents have been
-        # evaluated, so the value expr is included among the outputs to keep its slot populated
-        output_exprs = [value_expr]
-        if self.filter_expr is not None:
-            output_exprs.append(self.filter_expr)
-        if self.key_expr is not None:
-            output_exprs.append(self.key_expr)
-
+        # the anchor always needs a slot so the target's relative paths resolve
+        slot_exprs = [self.target_expr, self.scope_anchor]
+        # a map's result is the target value; filter/sort reproduce the source element, so they keep the anchor
+        # among the outputs (a non-output slot is garbage-collected once its dependents have run). a map omits it,
+        # so a target that ignores the element (an outer scope) doesn't clash with the nested anchor in the
+        # single-scope create_eval_ctx below
+        if e.op == exprs.JsonMapper.Operator.MAP:
+            output_exprs = [self.target_expr]
+        else:
+            output_exprs = slot_exprs
         nested_row_builder = exprs.RowBuilder(output_exprs=output_exprs, columns=[], input_exprs=[])
-        slot_exprs = output_exprs if value_expr is self.scope_anchor else [*output_exprs, self.scope_anchor]
         nested_row_builder.set_slot_idxs(slot_exprs)
         nested_ctx = nested_row_builder.create_eval_ctx(output_exprs, limit_scope=True)
         self.has_async_calls = any(isinstance(e, exprs.FunctionCall) and e.is_async for e in nested_ctx.exprs)
@@ -366,9 +354,8 @@ class JsonMapperDispatcher(Evaluator):
         parent_exprs = [e for e in nested_ctx.exprs if e.scope() != target_scope and not isinstance(e, exprs.Literal)]
         self.external_slot_map = {exec_ctx.row_builder.unique_exprs[e].slot_idx: e.slot_idx for e in parent_exprs}
         self.nested_eval_ctx = ExprEvalCtx(dispatcher, nested_row_builder, output_exprs, parent_exprs)
-        self.value_slot_idx = value_expr.slot_idx
-        self.filter_slot_idx = self.filter_expr.slot_idx if self.filter_expr is not None else None
-        self.key_slot_idx = self.key_expr.slot_idx if self.key_expr is not None else None
+        self.target_slot_idx = self.target_expr.slot_idx
+        self.element_slot_idx = self.scope_anchor.slot_idx
 
     def reset(self) -> None:
         super().reset()
@@ -409,9 +396,7 @@ class JsonMapperDispatcher(Evaluator):
 
             # we modify DataRow.vals here directly, rather than going through __getitem__(), because we don't have
             # an official "value" yet (the nested rows are not yet materialized)
-            row.vals[self.e.slot_idx] = NestedRowList(
-                nested_rows, self.value_slot_idx, self.filter_slot_idx, self.key_slot_idx
-            )
+            row.vals[self.e.slot_idx] = NestedRowList(nested_rows, self.target_slot_idx, self.element_slot_idx)
             all_nested_rows.extend(nested_rows)
 
         self.dispatcher.dispatch(all_nested_rows, self.nested_eval_ctx)
