@@ -160,13 +160,13 @@ async def create(
         references: optional list of reference images to guide the model
         aspect_ratio: desired image aspect ratio, e.g. '3:2', '16:9', '1:1', etc.
         postprocessing: optional list of postprocessing operations to apply to the generated image
-            e.g. ``[{'process': 'effect', 'effect_name': 'low_light'}]``.
+            e.g. `[{'process': 'effect', 'effect_name': 'low_light'}]`.
         version: specific model version to use. Latest if not specified.
         model_kwargs: additional keyword arguments to pass to the Reve API.
 
     Returns:
-        A dictionary containing the generated image (``'image'`` key) and layout metadata
-        (``'layout'`` key) returned by the Reve API.
+        A dictionary containing the generated image (`'image'` key) and layout metadata
+        (`'layout'` key) returned by the Reve API.
 
     Examples:
         Add a computed column with generated images from text prompts:
