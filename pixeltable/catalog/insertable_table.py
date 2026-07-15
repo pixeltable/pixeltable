@@ -175,6 +175,7 @@ class InsertableTable(LocalTable):
                 return_rows=return_rows,
             )
 
+    @telemetry.spanned('pixeltable.compute', set_current=True)
     def compute(
         self,
         source: Sequence[dict[str, Any]] | Sequence[pydantic.BaseModel],

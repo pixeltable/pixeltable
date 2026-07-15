@@ -133,8 +133,7 @@ class TestInsertTracing:
             SubscriberRegistry.get().unsubscribe(sub)
             telemetry.set_span_level(telemetry.INFO)
 
-    def test_bare_query_stays_dark(self, uses_db: None) -> None:
-        """Shared machinery (row/udf spans) must not emit without a top-level operation span."""
+    def test_collect_and_yield_rows_spans(self, uses_db: None) -> None:
         t = self._make_table()
         t.insert([{'c': i} for i in range(3)])
 
@@ -142,10 +141,72 @@ class TestInsertTracing:
         SubscriberRegistry.get().subscribe(sub)
         telemetry.set_span_level(telemetry.DEBUG)
         try:
-            # a query computes abs on the fly but has no operation span wrapping it
-            _ = t.select(out=pxtf.math.abs(t.c)).collect()
-            assert [s for s in sub.spans if s['name'] == 'pixeltable.row'] == []
-            assert [s for s in sub.spans if s['name'].startswith('pixeltable.udf.')] == []
+            _ = t.select(out=fail_on_three(t.c)).collect()
+
+            collect = sub.find('pixeltable.collect')
+            yield_rows = sub.find('pixeltable.result_cursor.yield_rows')
+            assert collect['set_current'] is True and collect['parent_id'] is None
+            assert yield_rows['set_current'] is True and yield_rows['parent_id'] == collect['id']
+            rows = [s for s in sub.spans if s['name'] == 'pixeltable.row']
+            assert len(rows) == 3
+            assert all(row['parent_id'] == yield_rows['id'] for row in rows)
+            row_ids = {row['id'] for row in rows}
+            udfs = [s for s in sub.spans if s['name'] == 'pixeltable.udf.fail_on_three']
+            assert len(udfs) == 3
+            assert all(udf['parent_id'] in row_ids for udf in udfs)
+            assert all(s['ended'] for s in sub.spans)
+        finally:
+            SubscriberRegistry.get().unsubscribe(sub)
+            telemetry.set_span_level(telemetry.INFO)
+
+    @pytest.mark.parametrize(('method', 'span_name'), [('head', 'pixeltable.head'), ('tail', 'pixeltable.tail')])
+    def test_head_and_tail_spans(self, uses_db: None, method: str, span_name: str) -> None:
+        t = self._make_table()
+        t.insert([{'c': i} for i in range(3)])
+
+        sub = RecordingSubscriber()
+        SubscriberRegistry.get().subscribe(sub)
+        try:
+            result = getattr(t, method)(2)
+            assert len(result) == 2
+            op = sub.find(span_name)
+            yield_rows = sub.find('pixeltable.result_cursor.yield_rows')
+            assert op['set_current'] is True and op['parent_id'] is None
+            assert yield_rows['set_current'] is True and yield_rows['parent_id'] == op['id']
+            assert all(s['ended'] for s in sub.spans)
+        finally:
+            SubscriberRegistry.get().unsubscribe(sub)
+
+    def test_result_cursor_yield_rows_span(self, uses_db: None) -> None:
+        t = self._make_table()
+        t.insert([{'c': i} for i in range(3)])
+
+        sub = RecordingSubscriber()
+        SubscriberRegistry.get().subscribe(sub)
+        try:
+            rows = list(t.select(t.c).cursor())
+            assert len(rows) == 3
+            yield_rows = sub.find('pixeltable.result_cursor.yield_rows')
+            assert yield_rows['set_current'] is True and yield_rows['parent_id'] is None
+            assert yield_rows['ended']
+        finally:
+            SubscriberRegistry.get().unsubscribe(sub)
+
+    def test_compute_span(self, uses_db: None) -> None:
+        t = self._make_table()
+
+        sub = RecordingSubscriber()
+        SubscriberRegistry.get().subscribe(sub)
+        telemetry.set_span_level(telemetry.DEBUG)
+        try:
+            result = t.compute([{'c': i} for i in range(3)])
+            assert len(result) == 3
+            op = sub.find('pixeltable.compute')
+            assert op['set_current'] is True and op['parent_id'] is None
+            rows = [s for s in sub.spans if s['name'] == 'pixeltable.row']
+            assert len(rows) == 3
+            assert all(row['parent_id'] == op['id'] for row in rows)
+            assert all(s['ended'] for s in sub.spans)
         finally:
             SubscriberRegistry.get().unsubscribe(sub)
             telemetry.set_span_level(telemetry.INFO)

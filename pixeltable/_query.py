@@ -33,7 +33,7 @@ import pydantic
 import sqlalchemy.exc as sql_exc
 from typing_extensions import Self
 
-from pixeltable import catalog, exceptions as excs, exec, exprs, type_system as ts
+from pixeltable import catalog, exceptions as excs, exec, exprs, telemetry, type_system as ts
 from pixeltable.catalog import is_valid_identifier
 from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.env import Env
@@ -362,8 +362,9 @@ class ResultCursor(Iterable[Row]):
             self.open()
         assert self._row_iterator is not None
         try:
-            for data in self._row_iterator:
-                yield Row(data, self._columns, self._schema)
+            with telemetry.span('pixeltable.result_cursor.yield_rows', set_current=True):
+                for data in self._row_iterator:
+                    yield Row(data, self._columns, self._schema)
         finally:
             self.close()
 
@@ -803,6 +804,7 @@ class Query:
         assert n is not None
         return self.limit(n).collect()
 
+    @telemetry.spanned('pixeltable.head', set_current=True)
     def head(self, n: int = 10) -> ResultSet:
         """Return the first n rows of the Query, in insertion order of the underlying Table.
 
@@ -836,6 +838,7 @@ class Query:
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         return self.order_by(*order_by_clause, asc=True).limit(n)._collect(media_as_urls=media_as_urls)
 
+    @telemetry.spanned('pixeltable.tail', set_current=True)
     def tail(self, n: int = 10) -> ResultSet:
         """Return the last n rows of the Query, in insertion order of the underlying Table.
 
@@ -958,6 +961,7 @@ class Query:
                 get_runtime().catalog.convert_sql_exc(e, tbl_id=single_tbl)
                 raise  # just re-raise if not converted to a Pixeltable error
 
+    @telemetry.spanned('pixeltable.collect', set_current=True)
     def collect(self) -> ResultSet:
         return self._collect()
 

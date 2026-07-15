@@ -292,10 +292,6 @@ typeCheckingMode = "off"
 extraPaths = ["packages/opentelemetry-instrumentation-pixeltable/src"]
 
 [tool.pytest.ini_options]
-# Restrict default (pathless) collection to the core test suite. CI invokes `pytest <markers>` with no path,
-# which would otherwise sweep in the separately-distributed packages/*/tests (e.g. the OpenTelemetry
-# instrumentation), whose dependencies are absent in the --no-dev minimal config. Those packages run via their
-# own CI config (see tool/ci_tool.py). Explicit path args on the command line override testpaths as usual.
 testpaths = ["tests"]
 addopts = '-v -m "not remote_api and not expensive and not very_expensive and not benchmark and not otel" --strict-markers'
 markers = [
