@@ -1815,25 +1815,6 @@ class DocumentType(ColumnType):
 T = typing.TypeVar('T')
 
 
-class Required(typing.Generic[T]):
-    """
-    Marker class to indicate that a column is non-nullable in a schema definition. This has no meaning as a type hint,
-    and is intended only for schema declarations.
-    """
-
-    pass
-
-
-String = typing.Annotated[str, StringType(nullable=False)]
-Int = typing.Annotated[int, IntType(nullable=False)]
-Float = typing.Annotated[float, FloatType(nullable=False)]
-Bool = typing.Annotated[bool, BoolType(nullable=False)]
-Timestamp = typing.Annotated[datetime.datetime, TimestampType(nullable=False)]
-Date = typing.Annotated[datetime.date, DateType(nullable=False)]
-UUID = typing.Annotated[uuid.UUID, UUIDType(nullable=False)]
-Binary = typing.Annotated[bytes, BinaryType(nullable=False)]
-
-
 class _PxtType:
     """
     Base class for the Pixeltable type-hint family. Subclasses of this class are meant to be used as type hints, both
@@ -1853,6 +1834,30 @@ class _PxtType:
     @classmethod
     def as_col_type(cls, nullable: bool) -> ColumnType:
         raise NotImplementedError()
+
+
+class Required(_PxtType, typing.Generic[T]):
+    """
+    Marker class to indicate that a column is non-nullable in a schema definition. This has no meaning as a type hint,
+    and is intended only for schema declarations.
+    """
+
+    @classmethod
+    def as_col_type(cls, nullable: bool) -> ColumnType:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_TYPE,
+            'Bare `Required` is not a valid type; use `Required[T]` for some valid type `T`.',
+        )
+
+
+String = typing.Annotated[str, StringType(nullable=False)]
+Int = typing.Annotated[int, IntType(nullable=False)]
+Float = typing.Annotated[float, FloatType(nullable=False)]
+Bool = typing.Annotated[bool, BoolType(nullable=False)]
+Timestamp = typing.Annotated[datetime.datetime, TimestampType(nullable=False)]
+Date = typing.Annotated[datetime.date, DateType(nullable=False)]
+UUID = typing.Annotated[uuid.UUID, UUIDType(nullable=False)]
+Binary = typing.Annotated[bytes, BinaryType(nullable=False)]
 
 
 class Json(_PxtType):
