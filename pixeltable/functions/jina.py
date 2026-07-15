@@ -10,6 +10,7 @@ from typing import Any, Literal
 
 import aiohttp
 import numpy as np
+
 # we're importing TypedDict and NotRequired from typing_extensions, not typing: on Python 3.10 the stdlib TypedDict
 # does not register typing_extensions.NotRequired into __optional_keys__
 from typing_extensions import NotRequired, TypedDict

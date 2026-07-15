@@ -1,4 +1,5 @@
 import builtins
+import functools
 import math
 from typing import Callable
 
@@ -12,8 +13,8 @@ pytestmark = pytest.mark.local('UDF/integration test')
 
 
 class TestMath:
-    TEST_FLOATS = (0.0, 1.6, -19.27469, 1.32e57, math.inf, -math.inf, math.nan)
-    TEST_INTS = (0, 1, -19, 4171780)
+    TEST_FLOATS = (0.0, 0.25, 1.0, 1.6, -19.27469, 100.0, 1.32e57, math.inf, -math.inf, math.nan)
+    TEST_INTS = (0, 1, 3, -19, 100, 4171780)
 
     @pytest.mark.parametrize('method_type', [pxt.Float, pxt.Int], ids=['Float', 'Int'])
     def test_methods(self, method_type: type, uses_db: None) -> None:
@@ -23,59 +24,70 @@ class TestMath:
         r = t.order_by(t.x).collect()
         assert np.array_equal(r['x'], np.array(values), equal_nan=True), r
 
-        test_params: list[tuple[pxt.Function, Callable, list, dict]]
+        # the bool field indicates functions that are only defined for positive inputs (sqrt/exp/log/log10)
+        test_params: list[tuple[pxt.Function, Callable, bool, list, dict]]
 
         if method_type == pxt.Float:
             test_params = [
-                (pxtf.math.abs, builtins.abs, [], {}),
-                (pxtf.math.ceil, lambda x: float(math.ceil(x)) if math.isfinite(x) else x, [], {}),
-                (pxtf.math.floor, lambda x: float(math.floor(x)) if math.isfinite(x) else x, [], {}),
-                (pxtf.math.round, builtins.round, [0], {}),
-                (pxtf.math.round, builtins.round, [2], {}),
-                (pxtf.math.round, builtins.round, [4], {}),
+                (pxtf.math.abs, builtins.abs, False, [], {}),
+                (pxtf.math.ceil, lambda x: float(math.ceil(x)) if math.isfinite(x) else x, False, [], {}),
+                (pxtf.math.floor, lambda x: float(math.floor(x)) if math.isfinite(x) else x, False, [], {}),
+                (pxtf.math.round, builtins.round, False, [0], {}),
+                (pxtf.math.round, builtins.round, False, [2], {}),
+                (pxtf.math.round, builtins.round, False, [4], {}),
                 # round(x) without an explicit digits argument: behaves like round(x, 0)
-                (pxtf.math.round, lambda x: builtins.round(x, 0), [], {}),
+                (pxtf.math.round, lambda x: builtins.round(x, 0), False, [], {}),
+                (pxtf.math.sqrt, math.sqrt, True, [], {}),
+                (pxtf.math.exp, math.exp, True, [], {}),
+                (pxtf.math.log, math.log, True, [], {}),
+                (pxtf.math.log10, math.log10, True, [], {}),
             ]
         else:
             test_params = [
-                (pxtf.math.pow, builtins.pow, [2], {}),
-                (pxtf.math.bitwise_and, lambda x, y: x & y, [2], {}),
-                (pxtf.math.bitwise_or, lambda x, y: x | y, [2], {}),
-                (pxtf.math.bitwise_xor, lambda x, y: x ^ y, [2], {}),
+                (pxtf.math.pow, builtins.pow, False, [2], {}),
+                (pxtf.math.bitwise_and, lambda x, y: x & y, False, [2], {}),
+                (pxtf.math.bitwise_or, lambda x, y: x | y, False, [2], {}),
+                (pxtf.math.bitwise_xor, lambda x, y: x ^ y, False, [2], {}),
+                (pxtf.math.sqrt, math.sqrt, True, [], {}),
+                (pxtf.math.exp, math.exp, True, [], {}),
+                (pxtf.math.log, math.log, True, [], {}),
+                (pxtf.math.log10, math.log10, True, [], {}),
             ]
 
-        for pxt_fn, py_fn, args, kwargs in test_params:
+        for pxt_fn, py_fn, requires_positive, args, kwargs in test_params:
             print(f'Testing {pxt_fn.name} ...')
-            actualdb = t.select(out=pxt_fn(t.x, *args, **kwargs)).order_by(t.x).collect()['out']
-            expected = [py_fn(x, *args, **kwargs) for x in values]
-            if (
-                env.Env.get().is_using_cockroachdb
-                and method_type == pxt.Float
-                and pxt_fn == pxtf.math.round
-                and (len(args) == 1)
-            ):
-                # cockroachdb does not support values of +-Infinity for NUMERIC / DECIMAL types
-                # This means that our implementation of round(x, d) returns NaN if x is +-inf
-                expecteddb = [math.nan if (math.isinf(x)) else y for x, y in zip(values, expected)]
+            matches: Callable[[list, list], bool]
+            base: pxt.Table | pxt.Query
+            if requires_positive:
+                # strictly positive and bounded: some functions overflow on large inputs
+                base = t.where((t.x > 0) & (t.x <= 100))
+                fn_values = [x for x in values if 0 < x <= 100]
+                # exp/log/log10 results aren't guaranteed bit-identical between SQL and Python
+                matches = np.allclose
             else:
-                expecteddb = expected
-            print(f'  values:   {values}')
+                base = t
+                fn_values = values
+                matches = functools.partial(np.array_equal, equal_nan=True)
+            actualdb = base.select(out=pxt_fn(t.x, *args, **kwargs)).order_by(t.x).collect()['out']
+            expected = [py_fn(x, *args, **kwargs) for x in fn_values]
+            expecteddb = expected
+            print(f'  values:   {fn_values}')
             print(f'  actualdb:   {actualdb}')
             print(f'  expected: {expected}')
             print(f'  expecteddb: {expecteddb}')
-            assert np.array_equal(actualdb, expecteddb, equal_nan=True), f'{actualdb} != {expecteddb}'
+            assert matches(actualdb, expecteddb), f'{actualdb} != {expecteddb}'
             # Run the same query, forcing the calculations to be done in Python (not SQL)
             # by interposing a non-SQLizable identity function
             actual_py = (
-                t.select(out=pxt_fn(t.x.apply(lambda x: x, col_type=method_type), *args, **kwargs))
+                base.select(out=pxt_fn(t.x.apply(lambda x: x, col_type=method_type), *args, **kwargs))
                 .order_by(t.x)
                 .collect()['out']
             )
             print(f'  actualpy: {actual_py}')
-            assert np.array_equal(actual_py, expected, equal_nan=True), f'{actual_py} != {expected}'
+            assert matches(actual_py, expected), f'{actual_py} != {expected}'
 
         # Check that they can all be called with method syntax too
-        for pxt_fn, _, _, _ in test_params:
+        for pxt_fn, _, _, _, _ in test_params:
             mref = getattr(t.x, pxt_fn.name)
             if isinstance(mref, exprs.MethodRef):
                 # method
@@ -85,31 +97,6 @@ class TestMath:
                 assert mref.fn.name == pxt_fn.name, pxt_fn
             else:
                 raise AssertionError()
-
-    def test_log_fns(self, uses_db: None) -> None:
-        # tested separately from test_methods: these are only defined for positive (finite) inputs
-        t = pxt.create_table('test_tbl', {'x': pxt.Float})
-        values = [0.25, 1.0, 2.5, 100.0]
-        t.insert({'x': x} for x in values)
-
-        test_params: list[tuple[pxt.Function, Callable]] = [
-            (pxtf.math.sqrt, math.sqrt),
-            (pxtf.math.exp, math.exp),
-            (pxtf.math.log, math.log),
-            (pxtf.math.log10, math.log10),
-        ]
-        for pxt_fn, py_fn in test_params:
-            expected = [py_fn(x) for x in values]
-            actual = t.select(out=pxt_fn(t.x)).order_by(t.x).collect()['out']
-            assert np.allclose(actual, expected), pxt_fn
-            # Run the same query, forcing the calculations to be done in Python (not SQL)
-            # by interposing a non-SQLizable identity function
-            actual_py = t.select(out=pxt_fn(t.x.apply(lambda x: x, col_type=pxt.Float))).order_by(t.x).collect()['out']
-            assert np.allclose(actual_py, expected), pxt_fn
-            # method syntax
-            mref = getattr(t.x, pxt_fn.name)
-            assert isinstance(mref, exprs.MethodRef)
-            assert mref.method_name == pxt_fn.name, pxt_fn
 
     def test_pow(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'i': pxt.Int, 'f': pxt.Float})
