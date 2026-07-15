@@ -459,3 +459,7 @@ class TestTypes:
         for subscript, message in invalid_type_args:
             with pytest.raises((excs.RequestError, ValueError), match=message):
                 Json[subscript]
+
+    def test_type_errors(self, init_env: None) -> None:
+        with pytest.raises(excs.RequestError, match='Bare `Required` is not a valid type'):
+            ColumnType.from_python_type(Required)

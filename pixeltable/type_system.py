@@ -1842,7 +1842,12 @@ class Required(_PxtType, typing.Generic[T]):
     and is intended only for schema declarations.
     """
 
-    pass
+    @classmethod
+    def as_col_type(cls, nullable: bool) -> ColumnType:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_TYPE,
+            'Bare `Required` is not a valid type; use `Required[T]` for some valid type `T`.',
+        )
 
 
 String = typing.Annotated[str, StringType(nullable=False)]
