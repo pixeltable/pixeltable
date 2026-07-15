@@ -22,7 +22,7 @@ class TableVersionHandle:
 
     key: TableVersionKey
 
-    def __init__(self, key: TableVersionKey, *, tbl_version: TableVersion | None = None):
+    def __init__(self, key: TableVersionKey):
         self.key = key
 
     def __deepcopy__(self, memo: dict[int, object] | None = None) -> TableVersionHandle:
