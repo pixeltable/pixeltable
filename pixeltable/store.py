@@ -9,7 +9,7 @@ from uuid import UUID
 import psycopg
 import sqlalchemy as sql
 
-from pixeltable import catalog, exceptions as excs
+from pixeltable import catalog, exceptions as excs, telemetry
 from pixeltable.catalog.update_status import RowCountStats
 from pixeltable.env import Env
 from pixeltable.exec import ExecNode
@@ -548,26 +548,29 @@ class StoreBase:
                 batch_table_rows: list[list[Any]] = []
 
                 # compute batch of rows and convert them into table rows
-                for row in row_batch:
-                    # if abort_on_exc == True, we need to check for media validation exceptions
-                    if abort_on_exc and row.has_exc():
-                        exc = row.get_first_exc()
-                        raise exc
+                with telemetry.span('pixeltable.store.build_rows', level=telemetry.DEBUG, rows=len(row_batch)):
+                    for row in row_batch:
+                        # if abort_on_exc == True, we need to check for media validation exceptions
+                        if abort_on_exc and row.has_exc():
+                            exc = row.get_first_exc()
+                            raise exc
 
-                    pk: tuple[int | UUID, ...]
-                    if versioned:
-                        rowid = (next(rowids),) if rowids is not None else row.pk[:-1]
-                        pk = (*rowid, v_min)
-                    else:
-                        # UUID7 appears to be a more performant choice for Postgresql, however for CockroachDB UUID4 is
-                        # recommended.
-                        assert not Env.get().is_using_cockroachdb, 'TODO: implement for unversioned tables [PXT-1101]'
-                        pk = (uuid7(),)
-                    assert len(pk) == len(self._pk_cols)
-                    table_row, num_row_exc = row_builder.create_store_table_row(row, cols_with_excs, pk)
-                    num_excs += num_row_exc
+                        pk: tuple[int | UUID, ...]
+                        if versioned:
+                            rowid = (next(rowids),) if rowids is not None else row.pk[:-1]
+                            pk = (*rowid, v_min)
+                        else:
+                            # UUID7 appears to be a more performant choice for Postgresql, however for CockroachDB
+                            # UUID4 is recommended.
+                            assert not Env.get().is_using_cockroachdb, (
+                                'TODO: implement for unversioned tables [PXT-1101]'
+                            )
+                            pk = (uuid7(),)
+                        assert len(pk) == len(self._pk_cols)
+                        table_row, num_row_exc = row_builder.create_store_table_row(row, cols_with_excs, pk)
+                        num_excs += num_row_exc
 
-                    batch_table_rows.append(table_row)
+                        batch_table_rows.append(table_row)
 
                 table_rows.extend(batch_table_rows)
 
@@ -596,7 +599,8 @@ class StoreBase:
         assert len(table_rows) > 0
         conn = get_runtime().conn
         try:
-            conn.execute(sql.insert(sa_tbl), [dict(zip(store_col_names, table_row)) for table_row in table_rows])
+            with telemetry.span('pixeltable.sa.insert_rows'):
+                conn.execute(sql.insert(sa_tbl), [dict(zip(store_col_names, table_row)) for table_row in table_rows])
         except sql.exc.IntegrityError as e:
             if (
                 isinstance(e.orig, psycopg.errors.UniqueViolation)

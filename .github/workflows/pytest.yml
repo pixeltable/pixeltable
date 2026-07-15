@@ -95,8 +95,11 @@ env:
   HF_TOKEN: ${{ secrets.HF_TOKEN }}
   JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
   MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+  NEBIUS_API_KEY: ${{ secrets.NEBIUS_API_KEY }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.OTEL_EXPORTER_OTLP_ENDPOINT }}
+  OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.OTEL_EXPORTER_OTLP_HEADERS }}
   R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
   R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
   REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
@@ -232,6 +235,13 @@ jobs:
           ${{ matrix.pre-test-cmd }}
           coverage run -m --source=pixeltable pytest -v --strict-markers ${{ matrix.pytest-options }}
           coverage report -m
+      - name: Run the OpenTelemetry instrumentation tests
+        # The opentelemetry-instrumentation-pixeltable package is a separate distribution; the core suite does not
+        # collect its tests (testpaths in pyproject.toml). It is tested here against a minimal install + otel extra.
+        if: ${{ matrix.test-category == 'otel' }}
+        run: |
+          pytest -v --strict-markers packages/opentelemetry-instrumentation-pixeltable/tests
+          pytest -v --strict-markers -m otel tests
       - name: Run the notebook tests
         if: ${{ matrix.test-category == 'ipynb' }}
         run: |
@@ -251,6 +261,10 @@ jobs:
           python tool/generate_type_stubs.py
           mypy pixeltable tests tool
           mypy pixeltable/catalog/model.py
+          # The instrumentation package is a src-layout PEP 420 namespace package and needs explicit base/namespace flags.
+          MYPYPATH=packages/opentelemetry-instrumentation-pixeltable/src mypy --explicit-package-bases --namespace-packages \
+            packages/opentelemetry-instrumentation-pixeltable/src/opentelemetry/instrumentation/pixeltable \
+            packages/opentelemetry-instrumentation-pixeltable/tests
       - name: Validate docstrings
         if: ${{ matrix.test-category == 'lint' }}
         run: |
@@ -261,7 +275,7 @@ jobs:
           cd target/docs && mint broken-links
       - name: Lint
         if: ${{ matrix.test-category == 'lint' }}
-        run: ruff check pixeltable tests tool
+        run: ruff check pixeltable tests tool packages/**/src packages/**/tests
       - name: Formatter check
         if: ${{ matrix.test-category == 'lint' }}
         run: |
