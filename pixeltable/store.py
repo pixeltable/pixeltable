@@ -343,6 +343,7 @@ class StoreBase:
     def create_index(self, idx_id: int) -> None:
         """Create index if not exists"""
         idx_info = self.tbl_version.get().idxs[idx_id]
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.StoreAttrs(index=idx_info.name))
         stmt = idx_info.idx.sa_create_stmt(self.tbl_version.get()._store_idx_name(idx_id), idx_info.val_col.sa_col)
         self._exec_if_not_exists(str(stmt), wait_for_table=True)
 
@@ -401,6 +402,7 @@ class StoreBase:
     def add_column(self, col: catalog.Column, if_not_exists: bool) -> None:
         """Add column(s) to the store-resident table based on a catalog column"""
         assert col.is_stored
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.StoreAttrs(column=col.name))
         conn = get_runtime().conn
         col_type_str = col.sa_col_type.compile(dialect=conn.dialect)
         if_not_exists_clause = 'IF NOT EXISTS' if if_not_exists else ''
@@ -441,6 +443,7 @@ class StoreBase:
             excs.Error if on_error='abort' and there was an exception during row evaluation
         """
         assert col.get_tbl().id == self.tbl_version.id
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.StoreAttrs(column=col.name))
         num_excs = 0
         num_rows = 0
         # create temp table to store output of exec_plan, with the same primary key as the store table
@@ -472,7 +475,11 @@ class StoreBase:
                     num_rows += len(row_batch)
                     batch_table_rows: list[list[Any]] = []
 
-                    with telemetry.span('pixeltable.store.build_rows', level=telemetry.DEBUG):
+                    with telemetry.span(
+                        'pixeltable.store.build_rows',
+                        level=telemetry.DEBUG,
+                        **telemetry_schemas.StoreAttrs(rows=len(row_batch)),
+                    ):
                         for row in row_batch:
                             if abort_on_exc and row.has_exc():
                                 exc = row.get_first_exc()
@@ -515,6 +522,7 @@ class StoreBase:
 
             run_cleanup(remove_tmp_tbl, raise_error=False)
 
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.StoreAttrs(rows=num_rows))
         return num_excs
 
     def insert_rows(
@@ -554,7 +562,11 @@ class StoreBase:
                 batch_table_rows: list[list[Any]] = []
 
                 # compute batch of rows and convert them into table rows
-                with telemetry.span('pixeltable.store.build_rows', level=telemetry.DEBUG, rows=len(row_batch)):
+                with telemetry.span(
+                    'pixeltable.store.build_rows',
+                    level=telemetry.DEBUG,
+                    **telemetry_schemas.StoreAttrs(rows=len(row_batch)),
+                ):
                     for row in row_batch:
                         # if abort_on_exc == True, we need to check for media validation exceptions
                         if abort_on_exc and row.has_exc():
@@ -608,7 +620,7 @@ class StoreBase:
         assert len(table_rows) > 0
         conn = get_runtime().conn
         try:
-            with telemetry.span('pixeltable.sa.insert_rows'):
+            with telemetry.span('pixeltable.sa.insert_rows', **telemetry_schemas.StoreAttrs(rows=len(table_rows))):
                 conn.execute(sql.insert(sa_tbl), [dict(zip(store_col_names, table_row)) for table_row in table_rows])
         except sql.exc.IntegrityError as e:
             if (
@@ -714,6 +726,7 @@ class StoreBase:
         conn = get_runtime().conn
         log_explain(_logger, stmt, conn)
         status = conn.execute(stmt)
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.StoreAttrs(rows=status.rowcount))
         return status.rowcount
 
     def dump_rows(self, version: int, filter_view: StoreBase, filter_view_version: int) -> Iterator[dict[str, Any]]:

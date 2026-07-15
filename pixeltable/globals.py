@@ -11,7 +11,7 @@ import pandas as pd
 import pydantic
 from pandas.io.formats.style import Styler
 
-from pixeltable import Query, catalog, exceptions as excs, exprs, func, telemetry, type_system as ts
+from pixeltable import Query, catalog, exceptions as excs, exprs, func, telemetry, telemetry_schemas, type_system as ts
 from pixeltable.catalog import DirEntry, TablePath
 from pixeltable.catalog.insertable_table import OnErrorParameter
 from pixeltable.config import Config
@@ -187,7 +187,9 @@ def create_table(
     media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
     primary_key: list[str] | None = normalize_primary_key_parameter(primary_key)
 
-    with telemetry.span('pixeltable.create_table', set_current=True):
+    with telemetry.span(
+        'pixeltable.create_table', set_current=True, **telemetry_schemas.OpAttrs(path=str(path_obj))
+    ) as op_span:
         data_source: TableDataConduit | None = None
         if source is not None:
             data_source = TableDataConduit.create(source, source_format=source_format, extra_fields=extra_args)
@@ -249,6 +251,7 @@ def create_table(
             )
         )
 
+        telemetry.add_attrs(op_span, **telemetry_schemas.OpAttrs(table_id=str(tbl._id)))
         if was_created:
             _logger.info(f'Created table {tbl._name()!r}; id={tbl._id}')
             Env.get().console_logger.info(f'Created table {tbl._name()!r}.')
@@ -430,7 +433,7 @@ def create_view(
     additional_columns = catalog.normalize_schema(additional_columns)
 
     span_name = 'pixeltable.create_snapshot' if is_snapshot else 'pixeltable.create_view'
-    with telemetry.span(span_name, set_current=True):
+    with telemetry.span(span_name, set_current=True, **telemetry_schemas.OpAttrs(path=str(path_obj))) as op_span:
         view, was_created = (
             get_runtime()
             .get_catalog(path_obj)
@@ -451,6 +454,7 @@ def create_view(
             )
         )
 
+        telemetry.add_attrs(op_span, **telemetry_schemas.OpAttrs(table_id=str(view._id)))
         if was_created:
             _logger.info(f'Created {view._display_str()}, id={view._id}')
             Env.get().console_logger.info(f'Created {view._display_str()}.')
@@ -689,7 +693,7 @@ def drop_table(
         path_obj = catalog.Path.parse(table)
 
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-    with telemetry.span('pixeltable.drop_table', set_current=True):
+    with telemetry.span('pixeltable.drop_table', set_current=True, **telemetry_schemas.OpAttrs(path=str(path_obj))):
         get_runtime().get_catalog(path_obj).drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
 
 
@@ -906,7 +910,7 @@ def create_dir(
     """
     path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
-    with telemetry.span('pixeltable.create_dir', set_current=True):
+    with telemetry.span('pixeltable.create_dir', set_current=True, **telemetry_schemas.OpAttrs(path=str(path_obj))):
         return get_runtime().get_catalog(path_obj).create_dir(path_obj, if_exists=if_exists_, parents=parents)
 
 
@@ -949,7 +953,7 @@ def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ig
     """
     path_obj = catalog.Path.parse(path)  # validate format
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-    with telemetry.span('pixeltable.drop_dir', set_current=True):
+    with telemetry.span('pixeltable.drop_dir', set_current=True, **telemetry_schemas.OpAttrs(path=str(path_obj))):
         get_runtime().get_catalog(path_obj).drop_dir(path_obj, if_not_exists=if_not_exists_, force=force)
 
 

@@ -16,7 +16,7 @@ import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
 import pixeltable.index as index
 import pixeltable.type_system as ts
-from pixeltable import telemetry
+from pixeltable import telemetry, telemetry_schemas
 from pixeltable.env import Env
 from pixeltable.exprs.inline_expr import InlineDict
 from pixeltable.func.iterator import GeneratingFunctionCall
@@ -49,6 +49,16 @@ if TYPE_CHECKING:
     from .table_path import TableVersionPath
 
 _logger = logging.getLogger(__name__)
+
+
+def _plan_node_names(plan: 'exec.ExecNode') -> list[str]:
+    """Node class names in plan-chain order (consumer first), for PlanAttrs.nodes."""
+    names: list[str] = []
+    node: exec.ExecNode | None = plan
+    while node is not None:
+        names.append(type(node).__name__)
+        node = node.input
+    return names
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -346,8 +356,15 @@ class TableVersion:
         # Assemble a set of column destinations and delete objects from all of them
         # None is a valid column destination which refers to the default object location
         destinations = {col.destination for col in self.cols_by_id.values() if col.is_stored}
-        for dest in destinations:
-            ObjectOps.delete(dest, self.id, tbl_version=tbl_version)
+        counts = [ObjectOps.delete(dest, self.id, tbl_version=tbl_version) for dest in destinations]
+        reported_counts = [c for c in counts if c is not None]
+        telemetry.add_attrs(
+            telemetry.func_span(),
+            **telemetry_schemas.MediaDeleteAttrs(
+                destinations=[str(d) for d in destinations if d is not None],
+                num_files=sum(reported_counts) if reported_counts else None,
+            ),
+        )
 
     def drop_ops(self) -> tuple[list[TableOp], bool]:
         """Returns a tuple of drop table ops, and a boolean that indicates whether a new table and schema
@@ -827,8 +844,9 @@ class TableVersion:
                 continue
 
             # populate the column
-            with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG):
+            with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG) as plan_span:
                 plan = Planner.create_add_column_plan(self.path, col)
+                telemetry.add_attrs(plan_span, **telemetry_schemas.PlanAttrs(nodes=_plan_node_names(plan)))
             excs_per_col = 0
             with get_runtime().report_progress():
                 try:
@@ -981,11 +999,12 @@ class TableVersion:
         assert self.is_insertable
         # Exactly one of source / query must be specified
         assert (source is None) != (query is None)
-        with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG):
+        with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG) as plan_span:
             if query is not None:
                 plan = Planner.create_query_insert_plan(self, query, ignore_errors=not fail_on_exception)
             else:
                 plan = Planner.create_insert_plan(self, source, ignore_errors=not fail_on_exception)
+            telemetry.add_attrs(plan_span, **telemetry_schemas.PlanAttrs(nodes=_plan_node_names(plan)))
 
         rowid_gen: Iterator[int] | None = None
         # For versioned tables, generate rowids from the table's sequence.
@@ -1114,8 +1133,9 @@ class TableVersion:
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'Filter not expressible in SQL: {analysis_info.filter}'
                 )
 
-        with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG):
+        with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG) as plan_span:
             plan, updated_cols, recomputed_cols = Planner.create_update_plan(self.path, update_spec, [], cascade)
+            telemetry.add_attrs(plan_span, **telemetry_schemas.PlanAttrs(nodes=_plan_node_names(plan)))
 
         result = self.propagate_update(
             plan,
@@ -1150,10 +1170,11 @@ class TableVersion:
         assert len(rowids) == 0 or len(rowids) == len(batch)
         assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
 
-        with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG):
+        with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG) as plan_span:
             plan, row_update_node, delete_where_clause, updated_cols, recomputed_cols = (
                 Planner.create_batch_update_plan(self.path, batch, rowids, cascade=cascade)
             )
+            telemetry.add_attrs(plan_span, **telemetry_schemas.PlanAttrs(nodes=_plan_node_names(plan)))
         result = self.propagate_update(
             plan,
             delete_where_clause,
@@ -1278,10 +1299,11 @@ class TableVersion:
                 != None
             )
             where_clause = CompoundPredicate.make_conjunction([where_clause, errortype_pred])
-        with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG):
+        with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG) as plan_span:
             plan, updated_cols, recomputed_cols = Planner.create_update_plan(
                 self.path, update_targets={}, recompute_targets=target_columns, cascade=cascade
             )
+            telemetry.add_attrs(plan_span, **telemetry_schemas.PlanAttrs(nodes=_plan_node_names(plan)))
 
         result = self.propagate_update(
             plan,
@@ -1421,6 +1443,9 @@ class TableVersion:
         Doesn't attempt to revert the in-memory metadata, but instead invalidates this TableVersion instance
         and relies on Catalog to reload it
         """
+        telemetry.add_attrs(
+            telemetry.func_span(), **telemetry_schemas.CatalogAttrs(table_id=str(self.id), version=self.version)
+        )
         conn = get_runtime().conn
         # make sure we don't have a snapshot referencing this version
         # (unclear how to express this with sqlalchemy)

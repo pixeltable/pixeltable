@@ -8,7 +8,7 @@ from uuid import UUID
 import pydantic
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs, telemetry, type_system as ts
+from pixeltable import exceptions as excs, telemetry, telemetry_schemas, type_system as ts
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.filecache import FileCache
@@ -160,7 +160,9 @@ class InsertableTable(LocalTable):
             source = [kwargs]
             kwargs = None
 
-        with telemetry.span('pixeltable.insert', set_current=True):
+        with telemetry.span(
+            'pixeltable.insert', set_current=True, **telemetry_schemas.OpAttrs(table_id=str(self._id))
+        ) as op_span:
             with telemetry.span('pixeltable.data_source.prepare'):
                 data_source = TableDataConduit.create(
                     source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
@@ -168,12 +170,14 @@ class InsertableTable(LocalTable):
                 data_source.add_table_info(self)
                 data_source.prepare_for_insert_into_table()
 
-            return self._insert_table_data_source(
+            status = self._insert_table_data_source(
                 data_source=data_source,
                 fail_on_exception=fail_on_exception,
                 print_stats=print_stats,
                 return_rows=return_rows,
             )
+            telemetry.add_attrs(op_span, **telemetry_schemas.op_status_attrs(status))
+            return status
 
     @telemetry.spanned('pixeltable.compute', set_current=True)
     def compute(
@@ -185,6 +189,7 @@ class InsertableTable(LocalTable):
     ) -> list[dict[str, Any]]:
         from pixeltable.io.table_data_conduit import PydanticTableDataConduit, RowDataTableDataConduit, TableDataConduit
 
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
         # str/bytes are technically Sequences; reject them explicitly so we don't fall through to
         # TableDataConduit.create() which would treat a string as a path/URL and trigger file I/O.
         if isinstance(source, (str, bytes)) or not isinstance(source, Sequence) or len(source) == 0:
@@ -303,12 +308,18 @@ class InsertableTable(LocalTable):
         """
         self._validate_where(where)
         with (
-            telemetry.span('pixeltable.delete', set_current=True),
+            telemetry.span(
+                'pixeltable.delete', set_current=True, **telemetry_schemas.OpAttrs(table_id=str(self._id))
+            ) as op_span,
             get_runtime().catalog.begin_xact(
                 for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
             ),
         ):
-            return self._tbl_version.get().delete(where=where)
+            tv = self._tbl_version.get()
+            status = tv.delete(where=where)
+            telemetry.add_attrs(op_span, **telemetry_schemas.OpAttrs(table=tv.name, version=tv.version))
+            telemetry.add_attrs(op_span, **telemetry_schemas.op_status_attrs(status))
+            return status
 
     def _get_base_table(self) -> 'Table' | None:
         return None

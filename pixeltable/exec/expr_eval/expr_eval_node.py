@@ -48,6 +48,7 @@ class ExprEvalNode(ExecNode):
     span_handle: (
         telemetry.SpanHandle | None
     )  # Dispatcher protocol; None parents evaluator work spans to the ambient span
+    col_names: dict[int, str]  # Dispatcher protocol; slot idx -> name of the table column it materializes
     eval_ctx: ExprEvalCtx  # for input/output rows
 
     # execution state
@@ -114,6 +115,12 @@ class ExprEvalNode(ExecNode):
         self._span_rows = []
         self.schedulers = {}
         self.span_handle = None
+        self.col_names = {}
+        for col, slot_idx in self.row_builder.table_columns.items():
+            # a slot can map to multiple columns (a computed column plus its unnamed index value column);
+            # keep the named one
+            if slot_idx is not None and col.name is not None:
+                self.col_names.setdefault(slot_idx, col.name)
         # evaluators are owned by eval_ctx and reused across iterations; clear per-execution state
         # (closed flag, batched-call queue, etc.) so they accept work again
         for evaluator in self.eval_ctx.slot_evaluators.values():

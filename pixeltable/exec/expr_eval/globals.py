@@ -96,6 +96,7 @@ class Dispatcher(Protocol):
 
     # instrumentation state, set per execution
     span_handle: telemetry.SpanHandle | None  # span of the owning node; parent for evaluator work spans
+    col_names: dict[int, str]  # slot idx -> name of the table column it materializes; unnamed slots absent
 
     def dispatch(self, rows: list[exprs.DataRow], exec_ctx: Any) -> None:
         """Dispatches row slots to the appropriate schedulers; does not block"""

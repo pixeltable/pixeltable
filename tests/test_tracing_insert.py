@@ -43,6 +43,9 @@ class TestInsertTracing:
 
             op = sub.find('pixeltable.insert')
             assert op['set_current'] is True and op['parent_id'] is None
+            assert op['attrs']['pxt.table_id'] == str(t._id)
+            assert op['end_attrs']['pxt.num_rows'] == 5
+            assert op['end_attrs']['pxt.num_excs'] == 0
             rows = [s for s in sub.spans if s['name'] == 'pixeltable.row']
             assert len(rows) == 5
             assert all(r['parent_id'] == op['id'] for r in rows)
@@ -51,6 +54,14 @@ class TestInsertTracing:
             assert len(udfs) == 5
             assert all(u['parent_id'] in row_ids for u in udfs)
             assert all(u['set_current'] for u in udfs)  # provider instrumentors must nest under the UDF span
+            assert all(u['attrs']['pxt.column'] == 'inc' for u in udfs)
+            xacts = [
+                s for s in sub.spans if s['name'] == 'pixeltable.catalog.begin_xact' and s['parent_id'] == op['id']
+            ]
+            assert any(
+                s['end_attrs']['pxt.for_write'] and str(t._id) in s['end_attrs']['pxt.write_table_ids'] for s in xacts
+            )
+            assert all(s['end_attrs']['pxt.attempt'] == 0 for s in xacts)
             assert all(s['ended'] for s in sub.spans)
         finally:
             SubscriberRegistry.get().unsubscribe(sub)
@@ -84,6 +95,8 @@ class TestInsertTracing:
             assert len(udfs) == len(providers) == 3
             assert all(s['set_current'] for s in udfs)
             assert all(s['parent_id'] in udf_ids for s in providers)
+            assert all(s['attrs']['pxt.column'] == 'inc' for s in udfs)
+            assert sorted(s['attrs']['pxt.batch_size'] for s in udfs) == [1, 2, 2]  # 5 rows in batches of <= 2
         finally:
             SubscriberRegistry.get().unsubscribe(sub)
             telemetry.set_span_level(telemetry.INFO)
@@ -222,8 +235,13 @@ class TestInsertTracing:
             t.update({'c': t.c + 1})
             op = sub.find('pixeltable.update')
             assert op['set_current'] is True and op['parent_id'] is None
+            assert op['attrs']['pxt.table_id'] == str(t._id)
+            assert op['end_attrs']['pxt.table'] == 'tracing_test'
+            assert op['end_attrs']['pxt.version'] == 3  # v0 create, v1 add_computed_column, v2 insert, v3 update
+            assert op['end_attrs']['pxt.num_rows'] == 3
             sa_spans = [s for s in sub.spans if s['name'] == 'pixeltable.sa.insert_rows']
             assert len(sa_spans) > 0
             assert all(s['parent_id'] == op['id'] for s in sa_spans)
+            assert sum(s['attrs']['pxt.rows'] for s in sa_spans) == 3
         finally:
             SubscriberRegistry.get().unsubscribe(sub)

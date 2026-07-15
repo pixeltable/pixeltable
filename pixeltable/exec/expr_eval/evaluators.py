@@ -116,6 +116,7 @@ class FnCallEvaluator(Evaluator):
             level=telemetry.DEBUG,
             parent=row.span,
             set_current=telemetry.current_span() is not None,
+            **telemetry_schemas.UdfCallAttrs(column=self.dispatcher.col_names.get(self.fn_call.slot_idx)),
         )
 
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
@@ -213,7 +214,9 @@ class FnCallEvaluator(Evaluator):
                 f'pixeltable.udf.{self.fn.display_name}',
                 level=telemetry.DEBUG,
                 set_current=telemetry.current_span() is not None,
-                batch_size=len(batched_call_args.rows),
+                **telemetry_schemas.UdfCallAttrs(
+                    column=self.dispatcher.col_names.get(self.fn_call.slot_idx), batch_size=len(batched_call_args.rows)
+                ),
             ):
                 if self.fn.is_async:
                     result_batch = await self.fn.aexec_batch(

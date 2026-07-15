@@ -207,6 +207,12 @@ class RateLimitsScheduler(Scheduler):
                 level=telemetry.DEBUG,
                 parent=self.dispatcher.span_handle,
                 set_current=True,
+                **telemetry_schemas.UdfCallAttrs(
+                    column=self.dispatcher.col_names.get(request.fn_call.slot_idx),
+                    batch_size=len(request.rows) if request.is_batched else None,
+                    resource_pool=self.resource_pool,
+                    retries=num_retries,
+                ),
             ):
                 if request.is_batched:
                     batch_result = await pxt_fn.aexec_batch(*request.batch_args, **request.batch_kwargs)
@@ -388,6 +394,12 @@ class RequestRateScheduler(Scheduler):
                 level=telemetry.DEBUG,
                 parent=self.dispatcher.span_handle,
                 set_current=True,
+                **telemetry_schemas.UdfCallAttrs(
+                    column=self.dispatcher.col_names.get(request.fn_call.slot_idx),
+                    batch_size=len(request.rows) if request.is_batched else None,
+                    resource_pool=self.resource_pool,
+                    retries=num_retries,
+                ),
             ):
                 if request.is_batched:
                     batch_result = await pxt_fn.aexec_batch(*request.batch_args, **request.batch_kwargs)

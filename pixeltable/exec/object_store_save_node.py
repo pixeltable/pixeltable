@@ -56,6 +56,7 @@ class ObjectStoreSaveNode(ExecNode):
         # to perform the file write.
         store: ObjectStoreBase
         dest: FileDestination
+        file_size: int  # in bytes, determined before the file gets moved
         destination_count: int = 1  # number of unique destinations for this file
 
     retain_input_order: bool  # if True, return rows in the exact order they were received
@@ -251,7 +252,8 @@ class ObjectStoreSaveNode(ExecNode):
                 # Do not copy local file URLs to the LocalStore
                 continue
 
-            work_designator = ObjectStoreSaveNode.WorkDesignator(str(src_path), destination, src_path.stat().st_size)
+            file_size = src_path.stat().st_size
+            work_designator = ObjectStoreSaveNode.WorkDesignator(str(src_path), destination, file_size)
             locations = self.in_flight_work.get(work_designator)
             if locations is not None:
                 # we've already seen this
@@ -264,7 +266,7 @@ class ObjectStoreSaveNode(ExecNode):
             store = ObjectOps.get_store(destination, False, col.name)
             dest = store.resolve_destination(col.tbl_handle.id, col.id, col.get_tbl().version, ext=src_path.suffix)
             work_item = ObjectStoreSaveNode.WorkItem(
-                src_path=src_path, destination=destination, info=info, store=store, dest=dest
+                src_path=src_path, destination=destination, info=info, store=store, dest=dest, file_size=file_size
             )
             row_to_do.append(work_item)
             self.in_flight_work[work_designator] = [(row, info)]
@@ -304,11 +306,9 @@ class ObjectStoreSaveNode(ExecNode):
         # carry the ambient instrumentation span onto the worker threads so save spans nest correctly
         hooks_ctx = telemetry.capture_context()
         for work_item in work_to_do:
-            # determine size before file gets moved
-            file_size = work_item.src_path.stat().st_size
             f = executor.submit(self.__persist_media_file, work_item, hooks_ctx)
             self.in_flight_requests[f] = ObjectStoreSaveNode.WorkDesignator(
-                str(work_item.src_path), work_item.destination, file_size
+                str(work_item.src_path), work_item.destination, work_item.file_size
             )
             _logger.debug(f'submitted {work_item}')
 
@@ -322,7 +322,11 @@ class ObjectStoreSaveNode(ExecNode):
         """
         hooks_token = telemetry.restore_context(hooks_ctx)
         try:
-            with telemetry.span('pixeltable.media.save', level=telemetry.DEBUG, destination=work_item.destination):
+            with telemetry.span(
+                'pixeltable.media.save',
+                level=telemetry.DEBUG,
+                **telemetry_schemas.MediaSaveAttrs(destination=work_item.destination, bytes=work_item.file_size),
+            ):
                 new_file_url = ObjectOps.put_file_resolved(
                     work_item.store, work_item.src_path, work_item.dest, work_item.destination_count == 1
                 )

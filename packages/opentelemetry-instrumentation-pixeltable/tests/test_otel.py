@@ -217,8 +217,15 @@ class TestBridge:
         instrumentor.uninstrument()
 
     def test_span_capture(self, span_exporter: Any) -> None:
-        telemetry.span_end(telemetry.span_start('pixeltable.insert', set_current=True))
-        assert [s.name for s in span_exporter.get_finished_spans()] == ['pixeltable.insert']
+        handle = telemetry.span_start('pixeltable.insert', set_current=True, attrs={'pxt.table_id': 't1'})
+        telemetry.add_attrs(handle, num_rows=5, updated_cols=['a', 'b'])
+        telemetry.span_end(handle)
+        (span,) = span_exporter.get_finished_spans()
+        assert span.name == 'pixeltable.insert'
+        # start attrs and add_attrs() end attrs both land on the exported span
+        assert span.attributes['pxt.table_id'] == 't1'
+        assert span.attributes['pxt.num_rows'] == 5
+        assert tuple(span.attributes['pxt.updated_cols']) == ('a', 'b')
 
     def test_span_nesting(self, span_exporter: Any) -> None:
         parent = telemetry.span_start('pixeltable.op', set_current=True)

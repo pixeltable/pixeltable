@@ -236,9 +236,13 @@ class CachePrefetchNode(ExecNode):
         hooks_token = telemetry.restore_context(hooks_ctx)
         safe_url = redact_url(url)
         try:
-            with telemetry.span('pixeltable.media.fetch', level=telemetry.DEBUG, url=safe_url):
+            with telemetry.span(
+                'pixeltable.media.fetch', level=telemetry.DEBUG, **telemetry_schemas.MediaFetchAttrs(url=safe_url)
+            ) as fetch_span:
                 try:
-                    return fetch_url(url), None
+                    tmp_path = fetch_url(url)
+                    telemetry.add_attrs(fetch_span, **telemetry_schemas.MediaFetchAttrs(bytes=tmp_path.stat().st_size))
+                    return tmp_path, None
                 except Exception as e:
                     # The original exception can repeat the signed URL; export only its type and the redacted URL.
                     raise excs.ExternalServiceError(

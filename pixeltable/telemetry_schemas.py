@@ -12,27 +12,43 @@ and recorded from exactly one owning call site each.
 
 from __future__ import annotations
 
-from typing import TypedDict as Attrs
+from typing import TYPE_CHECKING, TypedDict as Attrs
 
 from pixeltable import telemetry
 
+if TYPE_CHECKING:
+    from pixeltable.catalog.update_status import UpdateStatus
+
 
 class OpAttrs(Attrs, total=False):
-    """Span attributes shared by all operation spans (`pixeltable.insert`, `pixeltable.update`, ...).
+    """Span attributes shared by all operation spans (`pixeltable.insert`, `pixeltable.create_dir`, ...).
 
-    `table`/`table_id` identify the operation's target at span start; the remaining fields are attached
-    at span end (`version` is the post-operation version; the counts come from the operation's
-    `UpdateStatus`, on the operations that produce one).
+    `table_id` (and `path` on the path-addressed entry points: `create_table`, `create_view`,
+    `drop_table`, `create_dir`, `drop_dir`) identifies the operation's target at span start; the
+    remaining fields are attached at span end (`table` is the table name, `version` the post-operation
+    version; the counts come from the operation's `UpdateStatus`, on the operations that produce one).
     """
 
     table: str
     table_id: str
+    path: str
     version: int
     num_rows: int
     num_computed_values: int
     num_excs: int
     updated_cols: list[str]
     cols_with_excs: list[str]
+
+
+def op_status_attrs(status: UpdateStatus) -> OpAttrs:
+    """The OpAttrs end attributes carried by an operation's UpdateStatus."""
+    return OpAttrs(
+        num_rows=status.num_rows,
+        num_computed_values=status.num_computed_values,
+        num_excs=status.num_excs,
+        updated_cols=status.updated_cols,
+        cols_with_excs=status.cols_with_excs,
+    )
 
 
 class XactAttrs(Attrs):
@@ -48,56 +64,46 @@ class XactAttrs(Attrs):
     write_table_ids: list[str] | None
 
 
-class CatalogAttrs(Attrs):
+class CatalogAttrs(Attrs, total=False):
     """Span attributes for the `pixeltable.catalog.*` metadata spans and the `pixeltable.op.*` table ops.
 
     Each span sets the subset identifying its target: metadata reads/writes carry `table_id` (plus
     `version` where one applies); path resolution carries `path`.
     """
 
-    table_id: str | None
+    table_id: str
     version: int | None
-    path: str | None
+    path: str
 
 
 class PlanAttrs(Attrs):
     """Span attributes for `pixeltable.plan.create`, attached at span end once the plan exists.
 
-    `nodes` is the node class names in plan-chain order (consumer first, its input next, ...), matching
-    the nesting of the `pixeltable.exec.<NodeClass>` spans the plan produces when executed.
+    `nodes` is the node class names in plan-chain order (consumer first, its input next, ...).
     """
 
     nodes: list[str]
 
 
-class ExecNodeAttrs(Attrs):
-    """Span attributes for the `pixeltable.exec.<NodeClass>` pipeline spans.
-
-    `node` (the class name) is set at span start; the row/batch counts are attached at span end.
-    `ExprEvalNode` additionally flattens per-slot UDF stats onto its span (`pxt.udf.<column>.count`,
-    ...); those keys are dynamic and therefore live outside this schema.
-    """
-
-    node: str
-    rows: int
-    batches: int
-
-
-class UdfCallAttrs(Attrs):
+class UdfCallAttrs(Attrs, total=False):
     """Span attributes for the per-call `pixeltable.udf.<name>` spans (DEBUG/TRACE).
 
-    `batch_size` is None for non-batched calls; `resource_pool` and `retries` are None outside the
-    scheduler (resource-pool) execution paths.
+    Each site sets the subset that applies: `column` when the call materializes a named table column,
+    `batch_size` for batched calls, `resource_pool` and `retries` on the scheduler (resource-pool)
+    execution paths.
     """
 
-    column: str
+    column: str | None
     batch_size: int | None
-    resource_pool: str | None
-    retries: int | None
+    resource_pool: str
+    retries: int
 
 
-class MediaFetchAttrs(Attrs):
-    """Span attributes for `pixeltable.media.fetch` (one span per downloaded file)."""
+class MediaFetchAttrs(Attrs, total=False):
+    """Span attributes for `pixeltable.media.fetch` (one span per downloaded file).
+
+    `url` is set at span start; `bytes` is attached at span end on successful fetches only.
+    """
 
     # redacted at the call site (userinfo/query/fragment stripped): presigned URLs carry credentials
     url: str
@@ -105,9 +111,12 @@ class MediaFetchAttrs(Attrs):
 
 
 class MediaSaveAttrs(Attrs):
-    """Span attributes for `pixeltable.media.save` (one span per persisted file)."""
+    """Span attributes for `pixeltable.media.save` (one span per persisted file).
 
-    destination: str
+    `destination` is the column's configured store URI; None for the default object location.
+    """
+
+    destination: str | None
     bytes: int
 
 
@@ -122,7 +131,7 @@ class MediaDeleteAttrs(Attrs):
     num_files: int | None
 
 
-class StoreAttrs(Attrs):
+class StoreAttrs(Attrs, total=False):
     """Span attributes for the `pixeltable.store.*` and `pixeltable.sa.*` spans.
 
     Each span sets the subset that applies: the row-oriented spans (`build_rows`, `insert_rows`,
@@ -130,22 +139,22 @@ class StoreAttrs(Attrs):
     `create_index` carries `index`.
     """
 
-    rows: int | None
-    column: str | None
-    index: str | None
+    rows: int
+    column: str
+    index: str
 
 
-class ModelLoadAttrs(Attrs):
+class ModelLoadAttrs(Attrs, total=False):
     """Span attributes for `pixeltable.model.load` and `pixeltable.processor.load` (cache-miss loads).
 
-    The size fields are metadata-only sums over a torch module's parameters; None for non-torch models
-    and processors.
+    `model_id`/`device` are set at span start; the size fields are attached at span end and are
+    metadata-only sums over a torch module's parameters (absent for non-torch models and processors).
     """
 
     model_id: str
     device: str | None
-    param_count: int | None
-    size_bytes: int | None
+    param_count: int
+    size_bytes: int
 
 
 rows_written = telemetry.counter('pixeltable.rows.written', '{row}')
