@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 import pixeltable as pxt
-from pixeltable import env, exprs, functions as pxtf
+from pixeltable import exprs, functions as pxtf
 
 pytestmark = pytest.mark.local('UDF/integration test')
 

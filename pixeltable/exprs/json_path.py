@@ -4,7 +4,6 @@ import io
 from pathlib import Path
 from typing import Any
 
-import jmespath
 import sqlalchemy as sql
 
 from pixeltable import catalog, exceptions as excs, type_system as ts
@@ -29,7 +28,6 @@ class JsonPath(Expr):
     """
 
     path_elements: list[str | int | slice]
-    compiled_path: jmespath.parser.ParsedResult | None
     scope_idx: int
     root_type: ts.ColumnType | None
     file_handles: dict[Path, io.BufferedReader]  # key: file path
@@ -53,7 +51,6 @@ class JsonPath(Expr):
         super().__init__(col_type)
         self.root_type = root_type
         self.path_elements = path_elements
-        self.compiled_path = jmespath.compile(self._json_path()) if len(path_elements) > 0 else None
         if anchor is not None:
             self.components = [anchor]
         self.scope_idx = scope_idx
@@ -334,7 +331,7 @@ class JsonPath(Expr):
         """
         Postgres appears to have a bug: jsonb_path_query('{a: [{b: 0}, {b: 1}]}', '$.a.b') returns
         *two* rows (each containing col val 0), not a single row with [0, 0].
-        We need to use a workaround: retrieve the entire dict, then use jmespath to extract the path correctly.
+        We need to use a workaround: retrieve the entire dict, then extract the path in Python (see _eval_path()).
         """
         # path_str = '$.' + '.'.join(self.path_elements)
         # assert isinstance(self._anchor(), ColumnRef)
@@ -355,11 +352,31 @@ class JsonPath(Expr):
                 result.append(f'[{print_slice(element)}]')
         return ''.join(result)
 
+    def _eval_path(self, value: Any, idx: int = 0) -> Any:
+        """Evaluate path_elements[idx:] against value."""
+        n = len(self.path_elements)
+        while idx < n:
+            el = self.path_elements[idx]
+            if el == '*' or isinstance(el, slice):
+                # a wildcard or slice opens a projection: apply the rest of the path to each element, dropping nulls
+                if not isinstance(value, list):
+                    return None
+                items = value[el] if isinstance(el, slice) else value
+                return [r for r in (self._eval_path(v, idx + 1) for v in items) if r is not None]
+            if isinstance(el, int):
+                # return list element if in bounds, else None
+                value = value[el] if isinstance(value, list) and -len(value) <= el < len(value) else None
+            else:
+                # return dict value if key exists, else None
+                value = value.get(el) if isinstance(value, dict) else None
+            idx += 1
+        return value
+
     def eval(self, row: DataRow, row_builder: RowBuilder) -> None:
         assert self.anchor is not None, self
         val = row[self.anchor.slot_idx]
-        if self.compiled_path is not None:
-            val = self.compiled_path.search(val)
+        if len(self.path_elements) > 0:
+            val = self._eval_path(val)
         row[self.slot_idx] = val
         if val is None or self.anchor is None or not isinstance(self.anchor, ColumnRef):
             return
