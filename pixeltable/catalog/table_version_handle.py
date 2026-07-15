@@ -17,7 +17,7 @@ class TableVersionHandle:
     """
     Indirection mechanism for TableVersion instances, which get resolved against the catalog at runtime.
 
-    Thread-safe: all mutable state is stored behind _local
+    Thread-safe: no mutable state.
     """
 
     key: TableVersionKey
