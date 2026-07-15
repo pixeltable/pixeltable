@@ -8,7 +8,7 @@ from uuid import UUID
 import pydantic
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs, hooks, type_system as ts
+from pixeltable import exceptions as excs, telemetry, type_system as ts
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.filecache import FileCache
@@ -23,7 +23,7 @@ from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, TableOp, TableOpsBuild
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
-    from pixeltable import exprs
+    from pixeltable import exprs, index
     from pixeltable.globals import TableDataSource
     from pixeltable.io.data_sources import SqlDataSource
     from pixeltable.io.table_data_conduit import TableDataConduit
@@ -66,6 +66,7 @@ class InsertableTable(LocalTable):
     @classmethod
     def _create(
         cls,
+        tbl_id: UUID,
         name: str,
         columns: list[Column],
         primary_key: list[str],
@@ -74,7 +75,7 @@ class InsertableTable(LocalTable):
         media_validation: MediaValidation,
         create_default_idxs: bool,
         is_versioned: bool,
-        tbl_id: UUID | None = None,
+        additional_idxs: list[tuple[Column, str | None, index.IndexBase]],
     ) -> tuple[TableVersionMd, list[TableOp]]:
         cls._verify_schema(columns)
         column_names = [col.name for col in columns]
@@ -93,6 +94,7 @@ class InsertableTable(LocalTable):
             col.is_pk = True
 
         md = TableVersion.create_initial_md(
+            tbl_id,
             name,
             columns,
             comment,
@@ -101,7 +103,7 @@ class InsertableTable(LocalTable):
             create_default_idxs=create_default_idxs,
             view_md=None,
             is_versioned=is_versioned,
-            tbl_id=tbl_id,
+            additional_idxs=additional_idxs,
         )
 
         ops = (
@@ -158,8 +160,8 @@ class InsertableTable(LocalTable):
             source = [kwargs]
             kwargs = None
 
-        with hooks.span('pixeltable.insert', set_current=True):
-            with hooks.span('pixeltable.data_source.prepare'):
+        with telemetry.span('pixeltable.insert', set_current=True):
+            with telemetry.span('pixeltable.data_source.prepare'):
                 data_source = TableDataConduit.create(
                     source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
                 )
@@ -260,6 +262,7 @@ class InsertableTable(LocalTable):
         on_error: Literal['abort', 'ignore'] = 'abort',
         print_stats: bool = False,
         return_rows: bool = False,
+        send_connect_url: bool = False,
     ) -> pxt.UpdateStatus:
         """Stream a SqlDataSource into this table through a single insert plan.
 
@@ -299,7 +302,7 @@ class InsertableTable(LocalTable):
         """
         self._validate_where(where)
         with (
-            hooks.span('pixeltable.delete', set_current=True),
+            telemetry.span('pixeltable.delete', set_current=True),
             get_runtime().catalog.begin_xact(
                 for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
             ),

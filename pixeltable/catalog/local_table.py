@@ -12,7 +12,7 @@ import pandas as pd
 from typing_extensions import overload
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs, exprs, hooks, index, type_system as ts
+from pixeltable import exceptions as excs, exprs, index, telemetry, type_system as ts
 from pixeltable.catalog.table_metadata import (
     ColumnMetadata,
     EmbeddingIndexParams,
@@ -238,10 +238,6 @@ class LocalTable(Table):
         cols = self._tbl_version_path.columns()
         return [c.name for c in cols]
 
-    def _get_schema(self) -> dict[str, ts.ColumnType]:
-        """Return the schema (column names and column types) of this table."""
-        return {c.name: c.col_type for c in self._tbl_version_path.columns()}
-
     def _get_base_tables(self) -> list['Table']:
         """The ancestor list of bases of this table, starting with its immediate base. Requires a transaction context"""
         bases: list[Table] = []
@@ -454,7 +450,7 @@ class LocalTable(Table):
                 self._verify_column(new_col)
             return new_cols
 
-        with hooks.span('pixeltable.add_columns', set_current=True):
+        with telemetry.span('pixeltable.add_columns', set_current=True):
             new_cols = do_add_columns()
             if new_cols is None:
                 return UpdateStatus()
@@ -481,7 +477,7 @@ class LocalTable(Table):
             )
         return self.add_columns(kwargs, if_exists=if_exists)
 
-    @hooks.spanned('pixeltable.add_computed_column', set_current=True)
+    @telemetry.spanned('pixeltable.add_computed_column', set_current=True)
     def add_computed_column(
         self,
         *,
@@ -556,7 +552,7 @@ class LocalTable(Table):
         for col in schema:
             cls._verify_column(col)
 
-    @hooks.spanned('pixeltable.drop_column', set_current=True)
+    @telemetry.spanned('pixeltable.drop_column', set_current=True)
     def drop_column(self, column: str | ColumnRef, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
         from pixeltable.catalog import retry_loop
 
@@ -639,7 +635,7 @@ class LocalTable(Table):
 
         do_drop_column()
 
-    @hooks.spanned('pixeltable.rename_column', set_current=True)
+    @telemetry.spanned('pixeltable.rename_column', set_current=True)
     def rename_column(self, old_name: str, new_name: str) -> None:
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=False
@@ -668,7 +664,7 @@ class LocalTable(Table):
         )
 
         with (
-            hooks.span('pixeltable.add_embedding_index', set_current=True),
+            telemetry.span('pixeltable.add_embedding_index', set_current=True),
             get_runtime().catalog.begin_xact(
                 for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
             ),
@@ -760,7 +756,7 @@ class LocalTable(Table):
             )
 
         with (
-            hooks.span('pixeltable.drop_embedding_index', set_current=True),
+            telemetry.span('pixeltable.drop_embedding_index', set_current=True),
             get_runtime().catalog.begin_xact(
                 for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
             ),
@@ -918,7 +914,7 @@ class LocalTable(Table):
         self._validate_update_value_spec(value_spec)
         self._validate_where(where)
         with (
-            hooks.span('pixeltable.update', set_current=True),
+            telemetry.span('pixeltable.update', set_current=True),
             get_runtime().catalog.begin_xact(
                 for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
             ),
@@ -928,7 +924,7 @@ class LocalTable(Table):
             FileCache.get().emit_eviction_warnings()
             return result
 
-    @hooks.spanned('pixeltable.batch_update', set_current=True)
+    @telemetry.spanned('pixeltable.batch_update', set_current=True)
     def batch_update(
         self,
         rows: Iterable[dict[str, Any]],
@@ -994,7 +990,7 @@ class LocalTable(Table):
         cat = get_runtime().catalog
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
         with (
-            hooks.span('pixeltable.recompute_columns', set_current=True),
+            telemetry.span('pixeltable.recompute_columns', set_current=True),
             cat.begin_xact(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True),
         ):
             self._check_mutable('recompute columns of')
@@ -1047,7 +1043,7 @@ class LocalTable(Table):
     def delete(self, where: 'exprs.Expr' | None = None) -> UpdateStatus:
         raise NotImplementedError
 
-    @hooks.spanned('pixeltable.revert', set_current=True)
+    @telemetry.spanned('pixeltable.revert', set_current=True)
     def revert(self) -> None:
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True

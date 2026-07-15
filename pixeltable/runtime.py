@@ -13,7 +13,7 @@ import sqlalchemy as sql
 from rich.progress import Progress
 from sqlalchemy import orm
 
-from pixeltable import exceptions as excs, hooks
+from pixeltable import exceptions as excs, telemetry
 from pixeltable.env import Env
 from pixeltable.utils import fault_injection
 
@@ -139,7 +139,7 @@ class Runtime:
             )
 
         from pixeltable.service import proxy_daemon
-        from pixeltable.service.proxy_client import ProxyHttpClient
+        from pixeltable.service.proxy_client import ProxyClient
 
         assert catalog_uri.db is not None
         info = proxy_daemon.read_port_lock(catalog_uri.db)
@@ -149,7 +149,7 @@ class Runtime:
                 excs.ErrorCode.SERVICE_NOT_FOUND,
                 f'No local proxy is running for {db!r}. Start it with: pxt localproxy start {db}',
             )
-        return CatalogProxy(catalog_uri, ProxyHttpClient(f'http://127.0.0.1:{info["port"]}'))
+        return CatalogProxy(catalog_uri, ProxyClient(f'http://127.0.0.1:{info["port"]}'))
 
     @property
     def event_loop(self) -> asyncio.AbstractEventLoop:
@@ -187,16 +187,16 @@ class Runtime:
         if self._run_coro_executor is None:
             self._run_coro_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
-        hooks_ctx = hooks.capture_context()
+        hooks_ctx = telemetry.capture_context()
 
         def run(coro: Coroutine[Any, Any, _T]) -> _T:
             # this runs in the _run_coro_executor's thread, with its own Runtime instance
-            hooks_token = hooks.restore_context(hooks_ctx)
+            hooks_token = telemetry.restore_context(hooks_ctx)
             try:
                 return get_runtime().event_loop.run_until_complete(coro)
             finally:
                 # the executor thread is persistent; exiting avoids unbounded context-stack growth
-                hooks.exit_context(hooks_token)
+                telemetry.exit_context(hooks_token)
 
         return self._run_coro_executor.submit(run, coro).result()
 

@@ -3,12 +3,11 @@ from __future__ import annotations
 import base64
 import inspect
 from typing import TYPE_CHECKING, Any, Callable, Sequence
-from uuid import UUID
 
 import cloudpickle  # type: ignore[import-untyped]
 
 import pixeltable.exceptions as excs
-from pixeltable import hook_schemas
+from pixeltable import telemetry_schemas
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.misc import extract_token_usage
 
@@ -23,7 +22,7 @@ class CallableFunction(Function):
     """Pixeltable Function backed by a Python Callable.
 
     CallableFunctions come in two flavors:
-    - references to lambdas and functions defined in notebooks, which are pickled and serialized to the store
+    - references to lambdas and functions defined in notebooks, which are pickled and cannot be serialized to the store
     - functions that are defined in modules are serialized via the default mechanism
     """
 
@@ -102,8 +101,8 @@ class CallableFunction(Function):
     def _record_token_usage(self, result: Any) -> None:
         usage = extract_token_usage(result)
         if usage is not None:
-            hook_schemas.udf_input_tokens.add(usage[0], udf=self.display_name)
-            hook_schemas.udf_output_tokens.add(usage[1], udf=self.display_name)
+            telemetry_schemas.udf_input_tokens.add(usage[0], udf=self.display_name)
+            telemetry_schemas.udf_output_tokens.add(usage[1], udf=self.display_name)
 
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         assert not self.is_polymorphic
@@ -171,6 +170,12 @@ class CallableFunction(Function):
     def name(self) -> str:
         return self.self_name
 
+    @property
+    def is_storable(self) -> bool:
+        # a CallableFunction without a fully-qualified path has no serialized form other than a pickled body, which
+        # we don't want to store in the db; one with a path is serialized by reference and can be stored
+        return self.self_path is not None
+
     def overload(self, fn: Callable) -> CallableFunction:
         if self.self_path is None:
             raise excs.RequestError(
@@ -217,10 +222,12 @@ class CallableFunction(Function):
                 )
                 return InvalidFunction(d['name'], d, error_msg)
         if 'id' in d:
-            # legacy: body stored in the functions table (see schema.Function for the deprecation TODO)
-            from .function_registry import FunctionRegistry
-
-            return FunctionRegistry.get().get_stored_function(UUID(hex=d['id']))
+            # a legacy reference into the now-removed 'functions' table; the pickled body cannot be resolved from
+            # this dict alone, so it loads as an InvalidFunction rather than a usable function
+            name = d.get('name', str(d['id']))
+            return InvalidFunction(
+                name, d, f'the UDF {name!r} was stored in the legacy functions table, which is no longer supported'
+            )
         return super()._from_dict(d)
 
     def to_store(self) -> tuple[dict, bytes]:

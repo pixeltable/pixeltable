@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 from uuid import UUID
 
-from pixeltable import hooks
+from pixeltable import telemetry
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
@@ -17,7 +17,7 @@ class Dir(SchemaObject):
         super().__init__(id)
 
     @classmethod
-    @hooks.spanned('pixeltable.catalog.create_dir', level=hooks.DEBUG)
+    @telemetry.spanned('pixeltable.catalog.create_dir', level=telemetry.DEBUG)
     def _create(cls, parent_id: UUID, name: str) -> Dir:
         session = get_runtime().session
         user = Env.get().user

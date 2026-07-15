@@ -170,6 +170,7 @@
         </outline>
         <outline text="module|pixeltable.functions.image">
           <outline text="iter|pixeltable.functions.image.tile_iterator" />
+          <outline text="uda|pixeltable.functions.image.stitch_tiles" />
           <outline text="udf|pixeltable.functions.image.b64_encode" />
           <outline text="udf|pixeltable.functions.image.alpha_composite" />
           <outline text="udf|pixeltable.functions.image.blend" />
@@ -517,11 +518,11 @@
 
       <!-- Observability group -->
       <outline text="group|Observability">
-        <outline text="module|pixeltable.hooks">
-          <outline text="func|pixeltable.hooks.span_start" />
-          <outline text="func|pixeltable.hooks.span_end" />
-          <outline text="func|pixeltable.hooks.span" />
-          <outline text="func|pixeltable.hooks.emit" />
+        <outline text="module|pixeltable.telemetry">
+          <outline text="func|pixeltable.telemetry.span_start" />
+          <outline text="func|pixeltable.telemetry.span_end" />
+          <outline text="func|pixeltable.telemetry.span" />
+          <outline text="func|pixeltable.telemetry.emit" />
         </outline>
         <outline text="module|opentelemetry.instrumentation.pixeltable">
           <outline text="func|opentelemetry.instrumentation.pixeltable.init" />
@@ -532,7 +533,6 @@
         </outline>
         <outline text="group|Application Instrumentation">
             <outline text="func|opentelemetry.instrumentation.pixeltable.instrument_fastapi" />
-            <outline text="func|opentelemetry.instrumentation.pixeltable.instrument_sqlalchemy" />
         </outline>
       </outline>
 

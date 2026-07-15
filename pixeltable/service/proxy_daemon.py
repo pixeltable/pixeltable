@@ -35,6 +35,7 @@ from pixeltable.metadata.schema import base_metadata
 from pixeltable.runtime import get_runtime, reset_runtime
 
 from . import proxy_dispatch
+from .proxy_protocol import decode_body, encode_body
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -315,17 +316,22 @@ def _build_app() -> 'FastAPI':
     fastapi is imported here rather than at module level because it is an optional dependency, needed
     only when the daemon is actually served.
     """
-    from fastapi import FastAPI, Request, Response
+    from fastapi import FastAPI, HTTPException, Request, Response
     from fastapi.concurrency import run_in_threadpool
+    from fastapi.responses import FileResponse
 
     app = FastAPI()
 
     @app.post('/rpc')
     async def rpc(request: Request) -> Response:
-        body = (await request.body()).decode()
+        request_json, request_parts = decode_body(await request.body())
         # dispatch is synchronous and touches the database; keep it off the event loop
-        response_json = await run_in_threadpool(proxy_dispatch.handle, body)
-        return Response(content=response_json, media_type='application/json')
+        response_json, response_parts = await run_in_threadpool(
+            proxy_dispatch.handle, request_json.decode(), request_parts
+        )
+        return Response(
+            content=encode_body(response_json.encode(), response_parts), media_type='application/octet-stream'
+        )
 
     @app.post('/reset')
     async def reset_endpoint() -> Response:
@@ -337,11 +343,24 @@ def _build_app() -> 'FastAPI':
     def health() -> dict[str, str]:
         return {'status': 'ok'}
 
+    @app.get('/media/{ref:path}')
+    def serve_media(ref: str) -> FileResponse:
+        # serve a persisted media file by its media-dir-relative ref
+        media_dir = Env.get().media_dir.resolve()
+        resolved = (media_dir / ref).resolve()
+        if resolved != media_dir and media_dir not in resolved.parents:
+            raise HTTPException(status_code=404, detail='not found')
+        if not resolved.is_file():
+            raise HTTPException(status_code=404, detail='not found')
+        return FileResponse(resolved)
+
     return app
 
 
 def _serve() -> None:
     """Daemon entrypoint. Env (PIXELTABLE_HOME/PGDATA/DB) is set by the launching start()."""
+    # mark this process as a hosted-catalog server (no client-accessible local store) before the catalog inits
+    os.environ['PIXELTABLE_PROXY_DAEMON'] = '1'
     try:
         import uvicorn
     except ModuleNotFoundError as e:

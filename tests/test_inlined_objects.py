@@ -14,6 +14,9 @@ from .utils import (
     CatalogMode,
     ReloadTester,
     assert_columns_eq,
+    get_audio_files,
+    get_documents,
+    get_video_files,
     inf_array_iterator,
     inf_image_iterator,
     skip_test_if_not_installed,
@@ -347,3 +350,53 @@ class TestInlinedObjects:
         check_sample(q_stratified_fraction, 10, rel_error=0.1)
 
         reload_tester.run_reload_test()
+
+    @pytest.mark.local('TODO: convert; file-path media in JSON not yet shipped over proxy')
+    def test_json_media(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+
+        schema = {
+            'id': pxt.Int,
+            'media': pxt.Json[{'clip': pxt.Video, 'sound': pxt.Audio, 'doc': pxt.Document, 'label': str}],  # type: ignore[misc]
+        }
+        t = pxt.create_table(p('test'), schema)
+
+        videos = get_video_files()
+        audios = get_audio_files()
+        document = get_documents()[0]
+        rows = [
+            {'id': i, 'media': {'clip': videos[0], 'sound': audios[0], 'doc': document, 'label': f'row{i}'}}
+            for i in range(2)
+        ]
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+
+        res = (
+            t.order_by(t.id)
+            .select(
+                vmeta=t.media.clip.get_metadata(),
+                vdur=t.media.clip.get_duration(),
+                ameta=t.media.sound.get_metadata(),
+                doc=t.media.doc,
+                label=t.media.label,
+            )
+            .collect()
+        )
+        assert all(row['vmeta'] is not None for row in res)
+        assert all(row['ameta'] is not None for row in res)
+        assert all(row['vdur'] > 0 for row in res)
+        assert all(row['doc'] is not None for row in res)
+        assert [row['label'] for row in res] == [f'row{i}' for i in range(len(rows))]
+
+        with pytest.raises(AttributeError):
+            _ = t.media.clip.bogus_method
+
+        t.add_computed_column(dur=t.media.clip.get_duration())
+        durs = t.select(t.dur).collect()
+        assert all(row['dur'] is not None for row in durs)
+        assert all(row['dur'] > 0 for row in durs)
+
+        new_media = {'clip': videos[-1], 'sound': audios[-1], 'doc': document, 'label': 'updated'}
+        validate_update_status(t.update({'media': new_media}), expected_rows=len(rows))
+        upd = t.select(vdur=t.media.clip.get_duration(), label=t.media.label).collect()
+        assert all(row['vdur'] is not None for row in upd)
+        assert all(row['label'] == 'updated' for row in upd)

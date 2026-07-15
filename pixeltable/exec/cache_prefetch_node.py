@@ -3,16 +3,15 @@ from __future__ import annotations
 import dataclasses
 import itertools
 import logging
-import urllib.parse
 from collections import deque
 from concurrent import futures
 from pathlib import Path
-from typing import Any, AsyncIterator, Iterator
+from typing import AsyncIterator, Iterator
 from uuid import UUID
 
-from pixeltable import exceptions as excs, exprs, hook_schemas, hooks
+from pixeltable import exceptions as excs, exprs, telemetry, telemetry_schemas
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.http import fetch_url
+from pixeltable.utils.http import fetch_url, redact_url
 from pixeltable.utils.progress_reporter import ProgressReporter
 
 from .data_row_batch import DataRowBatch
@@ -163,7 +162,7 @@ class CachePrefetchNode(ExecNode):
                 assert url in self.in_flight_urls
                 _, info = self.in_flight_urls[url][0]
                 local_path = file_cache.add(info.col.get_tbl().id, info.col.id, url, tmp_path)
-                _logger.debug(f'cached {url} as {local_path}')
+                _logger.debug(f'cached {redact_url(url)} as {local_path}')
 
             # add the local path/exception to the slots that reference the url
             for row, info in self.in_flight_urls.pop(url):
@@ -178,7 +177,7 @@ class CachePrefetchNode(ExecNode):
                     del self.in_flight_rows[id(row)]
                     self.__add_ready_row(row, state.idx)
 
-        hook_schemas.media_fetched_bytes.add(num_bytes)
+        telemetry_schemas.media_fetched_bytes.add(num_bytes)
         if self.ctx.show_progress:
             self.progress_reporter.update(num_objects, num_bytes)
 
@@ -226,30 +225,27 @@ class CachePrefetchNode(ExecNode):
 
         _logger.debug(f'submitting {len(cache_misses)} urls')
         # carry the ambient instrumentation span onto the worker threads so fetch spans nest correctly
-        hooks_ctx = hooks.capture_context()
+        hooks_ctx = telemetry.capture_context()
         for url in cache_misses:
             f = executor.submit(self.__fetch_url, url, hooks_ctx)
-            _logger.debug(f'submitted {url} for idx {url_pos[url]}')
+            _logger.debug(f'submitted {redact_url(url)} for idx {url_pos[url]}')
             self.in_flight_requests[f] = url
 
-    def __fetch_url(self, url: str, hooks_ctx: Any) -> tuple[Path | None, Exception | None]:
+    def __fetch_url(self, url: str, hooks_ctx: telemetry.CtxSnapshot | None) -> tuple[Path | None, Exception | None]:
         """Runs on a worker thread of the ThreadPoolExecutor."""
-        hooks_token = hooks.restore_context(hooks_ctx)
+        hooks_token = telemetry.restore_context(hooks_ctx)
+        safe_url = redact_url(url)
         try:
-            # The raw URL can carry credentials that must not be exported to the telemetry backend:
-            # for example https://user:pass@server/img.jpg?X-Amz-Signature=abc#frag
-            # splits into SplitResult(scheme='https', netloc='user:pass@server', path='/img.jpg',
-            # query='X-Amz-Signature=abc', fragment='frag'); secrets can appear in the netloc's userinfo
-            # ('user:pass@'), the query, and the fragment, so we replace them with nothing.
-            parsed = urllib.parse.urlsplit(url)
-            netloc = parsed.netloc.rpartition('@')[2]  # host[:port] after the last '@', ie without userinfo
-            safe_url = urllib.parse.urlunsplit((parsed.scheme, netloc, parsed.path, '', ''))
-            with hooks.span('pixeltable.media.fetch', level=hooks.DEBUG, url=safe_url):
-                return fetch_url(url), None
+            with telemetry.span('pixeltable.media.fetch', level=telemetry.DEBUG, url=safe_url):
+                try:
+                    return fetch_url(url), None
+                except Exception as e:
+                    # The original exception can repeat the signed URL; export only its type and the redacted URL.
+                    raise excs.ExternalServiceError(
+                        excs.ErrorCode.PROVIDER_ERROR, f'Failed to download {safe_url}: {type(e).__name__}'
+                    ) from None
         except Exception as e:
-            # we want to add the file url to the exception message
-            exc = excs.ExternalServiceError(excs.ErrorCode.PROVIDER_ERROR, f'Failed to download {url}: {e}')
-            _logger.debug(f'Failed to download {url}: {e}', exc_info=e)
-            return None, exc
+            _logger.debug(f'Failed to download {safe_url}: {type(e).__name__}')
+            return None, e
         finally:
-            hooks.exit_context(hooks_token)
+            telemetry.exit_context(hooks_token)

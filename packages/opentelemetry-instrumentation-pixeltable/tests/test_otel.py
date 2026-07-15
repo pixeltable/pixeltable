@@ -11,7 +11,6 @@ import opentelemetry.instrumentation.pixeltable as pxt_otel
 import pytest
 from opentelemetry import trace
 from opentelemetry.instrumentation.pixeltable import PixeltableInstrumentor, _sdk
-from opentelemetry.instrumentation.pixeltable._sdk import _use_grpc
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 from opentelemetry.sdk.trace import TracerProvider
@@ -20,7 +19,8 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from opentelemetry.trace import ProxyTracerProvider
 
 import pixeltable as pxt
-from pixeltable import hooks
+from pixeltable import telemetry
+from pixeltable.telemetry import SubscriberRegistry
 
 
 @pxt.udf
@@ -81,6 +81,32 @@ def test_builds_tracer_provider(tmp_path: Path) -> None:
     )
 
 
+def check_logs_require_explicit_opt_in() -> None:
+    pxt_otel.init()
+    assert _sdk._state.logger_provider is None
+
+
+def test_logs_require_explicit_opt_in(tmp_path: Path) -> None:
+    _run_isolated(
+        check_logs_require_explicit_opt_in,
+        {'OTEL_EXPORTER_OTLP_ENDPOINT': 'http://127.0.0.1:9', 'OTEL_EXPORTER_OTLP_TIMEOUT': '1'},
+        tmp_path,
+    )
+
+
+def check_logs_can_be_enabled_explicitly() -> None:
+    pxt_otel.init(logs=True)
+    assert _sdk._state.logger_provider is not None
+
+
+def test_logs_can_be_enabled_explicitly(tmp_path: Path) -> None:
+    _run_isolated(
+        check_logs_can_be_enabled_explicitly,
+        {'OTEL_EXPORTER_OTLP_ENDPOINT': 'http://127.0.0.1:9', 'OTEL_EXPORTER_OTLP_TIMEOUT': '1'},
+        tmp_path,
+    )
+
+
 def check_inert_without_endpoint() -> None:
     for k in [k for k in os.environ if k.startswith('OTEL_')]:
         del os.environ[k]
@@ -123,14 +149,14 @@ def test_double_init_raises(tmp_path: Path) -> None:
 
 def check_span_level_kwarg_overrides_config() -> None:
     pxt_otel.init(span_level='debug')
-    assert hooks._span_level == hooks.DEBUG
+    assert SubscriberRegistry.get()._span_level == telemetry.DEBUG
 
 
 def test_span_level_kwarg_overrides_config(tmp_path: Path) -> None:
     # the init() argument wins over the config-derived value
     _run_isolated(
         check_span_level_kwarg_overrides_config,
-        {'PIXELTABLE_OTEL_SPAN_LEVEL': 'trace', 'OTEL_EXPORTER_OTLP_TIMEOUT': '1'},
+        {'OTEL_SPAN_LEVEL': 'trace', 'OTEL_EXPORTER_OTLP_TIMEOUT': '1'},
         tmp_path,
     )
 
@@ -144,7 +170,7 @@ def check_invalid_span_level_leaves_init_retryable() -> None:
     assert not _sdk._state.initialized
     pxt_otel.init(span_level='debug')
     assert _sdk._state.initialized
-    assert hooks._span_level == hooks.DEBUG
+    assert SubscriberRegistry.get()._span_level == telemetry.DEBUG
 
 
 def test_invalid_span_level_leaves_init_retryable(tmp_path: Path) -> None:
@@ -170,21 +196,11 @@ def test_protocol_grpc(tmp_path: Path) -> None:
     )
 
 
-class TestProtocolSelection:
-    """Unit tests for the OTLP transport selection (pure function, no providers touched)."""
-
-    def test_default_is_http(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv('OTEL_EXPORTER_OTLP_PROTOCOL', raising=False)
-        assert _use_grpc(None) is False
-        assert _use_grpc('http/protobuf') is False
-
-    def test_grpc_selected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv('OTEL_EXPORTER_OTLP_PROTOCOL', raising=False)
-        assert _use_grpc('grpc') is True
-
-    def test_env_overrides_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv('OTEL_EXPORTER_OTLP_PROTOCOL', 'grpc')
-        assert _use_grpc('http/protobuf') is True
+def test_standard_header_parsing() -> None:
+    assert _sdk._parse_headers('Authorization=Basic%20abc%2Cdef,X-Test=a%20b') == {
+        'authorization': 'Basic abc,def',
+        'x-test': 'a b',
+    }
 
 
 class TestBridge:
@@ -201,14 +217,14 @@ class TestBridge:
         instrumentor.uninstrument()
 
     def test_span_capture(self, span_exporter: Any) -> None:
-        hooks.span_end(hooks.span_start('pixeltable.insert', set_current=True))
+        telemetry.span_end(telemetry.span_start('pixeltable.insert', set_current=True))
         assert [s.name for s in span_exporter.get_finished_spans()] == ['pixeltable.insert']
 
     def test_span_nesting(self, span_exporter: Any) -> None:
-        parent = hooks.span_start('pixeltable.op', set_current=True)
-        child = hooks.span_start('pixeltable.udf.foo', set_current=True)
-        hooks.span_end(child)
-        hooks.span_end(parent)
+        parent = telemetry.span_start('pixeltable.op', set_current=True)
+        child = telemetry.span_start('pixeltable.udf.foo', set_current=True)
+        telemetry.span_end(child)
+        telemetry.span_end(parent)
         spans = {s.name: s for s in span_exporter.get_finished_spans()}
         assert spans['pixeltable.udf.foo'].parent is not None
         assert spans['pixeltable.udf.foo'].parent.span_id == spans['pixeltable.op'].context.span_id
@@ -231,7 +247,7 @@ class TestBridge:
         return matches[0]
 
     def test_counter_export(self, metric_reader: Any) -> None:
-        c = hooks.counter('pixeltable.test.rows', unit='{row}')
+        c = telemetry.counter('pixeltable.test.rows', unit='{row}')
         c.add(3, table='dir.tbl')
         c.add(5, table='dir.tbl')
         metric = self._metric(metric_reader, 'pixeltable.test.rows')
@@ -241,7 +257,7 @@ class TestBridge:
         assert dict(point.attributes) == {'pxt.table': 'dir.tbl'}
 
     def test_histogram_export(self, metric_reader: Any) -> None:
-        h = hooks.histogram('pixeltable.test.latency', unit='s')
+        h = telemetry.histogram('pixeltable.test.latency', unit='s')
         h.record(0.5, udf='f')
         h.record(1.5, udf='f')
         metric = self._metric(metric_reader, 'pixeltable.test.latency')
@@ -307,13 +323,13 @@ class TestBridge:
         prev_factory = logging.getLogRecordFactory()
         instrumentor.instrument(tracer_provider=tracer_provider)
         try:
-            hooks.span_end(hooks.span_start('pixeltable.op', set_current=True))
+            telemetry.span_end(telemetry.span_start('pixeltable.op', set_current=True))
             assert len(span_exporter.get_finished_spans()) == 1
         finally:
             instrumentor.uninstrument()
-        assert not hooks.active()
+        assert not telemetry.active()
         assert logging.getLogRecordFactory() is prev_factory
-        hooks.span_end(hooks.span_start('pixeltable.op', set_current=True))
+        telemetry.span_end(telemetry.span_start('pixeltable.op', set_current=True))
         assert len(span_exporter.get_finished_spans()) == 1  # nothing new after uninstrument
 
     def test_instrument_span_level(self) -> None:
@@ -323,13 +339,13 @@ class TestBridge:
         instrumentor = PixeltableInstrumentor()
         instrumentor.instrument(tracer_provider=tracer_provider, span_level='debug')
         try:
-            parent = hooks.span_start('pixeltable.op', set_current=True)
-            hooks.span_end(hooks.span_start('pixeltable.row', level=hooks.DEBUG))
-            hooks.span_end(parent)
+            parent = telemetry.span_start('pixeltable.op', set_current=True)
+            telemetry.span_end(telemetry.span_start('pixeltable.row', level=telemetry.DEBUG))
+            telemetry.span_end(parent)
             assert {s.name for s in span_exporter.get_finished_spans()} == {'pixeltable.op', 'pixeltable.row'}
         finally:
             instrumentor.uninstrument()
-            hooks.set_span_level(hooks.INFO)
+            telemetry.set_span_level(telemetry.INFO)
 
     def test_instrument_invalid_span_level(self) -> None:
         instrumentor = PixeltableInstrumentor()
@@ -337,7 +353,7 @@ class TestBridge:
             instrumentor.instrument(span_level='verbose')
         assert exc_info.value.error_code is pxt.exceptions.ErrorCode.INVALID_CONFIGURATION
         assert not instrumentor.is_instrumented_by_opentelemetry
-        assert not hooks.active()
+        assert not telemetry.active()
 
     def test_log_correlation(self, span_exporter: Any) -> None:
         records: list[logging.LogRecord] = []
@@ -355,13 +371,13 @@ class TestBridge:
         old_level = pxt_logger.level
         pxt_logger.setLevel(logging.INFO)
         try:
-            span_handle = hooks.span_start('pixeltable.insert', set_current=True)
+            span_handle = telemetry.span_start('pixeltable.insert', set_current=True)
             try:
                 child_logger.info('correlated message')
                 ctx = trace.get_current_span().get_span_context()
                 assert ctx.is_valid
             finally:
-                hooks.span_end(span_handle)
+                telemetry.span_end(span_handle)
             record = next(r for r in records if r.getMessage() == 'correlated message')
             assert record.otelTraceID == trace.format_trace_id(ctx.trace_id)  # type: ignore[attr-defined]
             assert record.otelSpanID == trace.format_span_id(ctx.span_id)  # type: ignore[attr-defined]

@@ -15,7 +15,7 @@ import sqlalchemy as sql
 
 import pixeltable.utils.image as image_utils
 from pixeltable import catalog, env
-from pixeltable.hooks import SpanHandle
+from pixeltable.telemetry import SpanHandle
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.misc import non_none_dict_factory
 
@@ -142,7 +142,7 @@ class DataRow:
     parent_row: DataRow | None
     parent_slot_idx: int | None
 
-    # per-row instrumentation span (hooks.SpanHandle); None when instrumentation is inactive or gated off
+    # per-row instrumentation span (telemetry.SpanHandle); None when instrumentation is inactive or gated off
     span: SpanHandle | None
 
     # state for table output (insert()/update()); key: column id

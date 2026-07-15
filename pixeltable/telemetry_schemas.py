@@ -1,4 +1,4 @@
-"""Span-attribute schemas for the telemetry reported through `pixeltable.hooks`.
+"""Span-attribute schemas for the telemetry reported through `pixeltable.telemetry`.
 
 Each span family gets a TypedDict here describing its attributes; call sites construct these dicts, so
 key names and value types are mypy-checked at the point of production, and the file doubles as the
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import TypedDict as Attrs
 
-from pixeltable import hooks
+from pixeltable import telemetry
 
 
 class OpAttrs(Attrs, total=False):
@@ -148,14 +148,14 @@ class ModelLoadAttrs(Attrs):
     size_bytes: int | None
 
 
-rows_written = hooks.counter('pixeltable.rows.written', '{row}')
-cells_computed = hooks.counter('pixeltable.cells.computed', '{cell}')
-cells_errors = hooks.counter('pixeltable.cells.errors', '{error}')
-udf_calls = hooks.counter('pixeltable.udf.calls', '{call}')
-udf_errors = hooks.counter('pixeltable.udf.errors', '{error}')
-udf_retries = hooks.counter('pixeltable.udf.retries', '{retry}')
-udf_latency = hooks.histogram('pixeltable.udf.latency', 's')
-udf_input_tokens = hooks.counter('pixeltable.udf.input_tokens', '{token}')
-udf_output_tokens = hooks.counter('pixeltable.udf.output_tokens', '{token}')
-media_fetched_bytes = hooks.counter('pixeltable.media.fetched_bytes', 'By')
-media_saved_bytes = hooks.counter('pixeltable.media.saved_bytes', 'By')
+rows_written = telemetry.counter('pixeltable.rows.written', '{row}')
+cells_computed = telemetry.counter('pixeltable.cells.computed', '{cell}')
+cells_errors = telemetry.counter('pixeltable.cells.errors', '{error}')
+udf_calls = telemetry.counter('pixeltable.udf.calls', '{call}')
+udf_errors = telemetry.counter('pixeltable.udf.errors', '{error}')
+udf_retries = telemetry.counter('pixeltable.udf.retries', '{retry}')
+udf_latency = telemetry.histogram('pixeltable.udf.latency', 's')
+udf_input_tokens = telemetry.counter('pixeltable.udf.input_tokens', '{token}')
+udf_output_tokens = telemetry.counter('pixeltable.udf.output_tokens', '{token}')
+media_fetched_bytes = telemetry.counter('pixeltable.media.fetched_bytes', 'By')
+media_saved_bytes = telemetry.counter('pixeltable.media.saved_bytes', 'By')

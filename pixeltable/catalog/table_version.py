@@ -5,7 +5,6 @@ import dataclasses
 import itertools
 import logging
 import time
-import uuid
 import warnings
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal
 from uuid import UUID
@@ -17,7 +16,7 @@ import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
 import pixeltable.index as index
 import pixeltable.type_system as ts
-from pixeltable import hooks
+from pixeltable import telemetry
 from pixeltable.env import Env
 from pixeltable.exprs.inline_expr import InlineDict
 from pixeltable.func.iterator import GeneratingFunctionCall
@@ -231,6 +230,7 @@ class TableVersion:
     @classmethod
     def create_initial_md(
         cls,
+        tbl_id: UUID,
         name: str,
         cols: list[Column],
         comment: str | None,
@@ -239,16 +239,13 @@ class TableVersion:
         create_default_idxs: bool,
         view_md: schema.ViewMd | None,
         is_versioned: bool,
-        tbl_id: uuid.UUID | None = None,
+        additional_idxs: list[tuple[Column, str | None, index.IndexBase]],
     ) -> TableVersionMd:
         from .table_version_handle import TableVersionHandle
 
         user = Env.get().user
         timestamp = time.time()
 
-        if tbl_id is None:
-            # tbl_id not specified; create a new one.
-            tbl_id = uuid.uuid4()
         tbl_id_str = str(tbl_id)
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
         column_ids = itertools.count()
@@ -267,39 +264,43 @@ class TableVersion:
             column_md[col.id] = col_md
             schema_col_md[col.id] = col_schema_md
 
+        # Merge default indexes and additional indexes into a manifest of indexes to create.
         index_md: dict[int, schema.IndexMd] = {}
+        idxs_to_create: list[tuple[Column, str | None, index.IndexBase]] = []
         if create_default_idxs and (view_md is None or not view_md.is_snapshot):
-            index_cols: list[Column] = []
-            for col in (c for c in cols if cls._is_btree_indexable(c)):
-                idx = index.BtreeIndex()
-                val_col, undo_col = Column.create_index_columns(
-                    tbl_handle, col, idx, next(column_ids), next(column_ids), 0
-                )
-                index_cols.extend([val_col, undo_col])
+            idxs_to_create.extend((col, None, index.BtreeIndex()) for col in cols if cls._is_btree_indexable(col))
+        idxs_to_create.extend(additional_idxs)
 
-                idx_id = next(index_ids)
-                idx_cls = type(idx)
-                md = schema.IndexMd(
-                    id=idx_id,
-                    name=f'idx{idx_id}',
-                    indexed_col_id=col.id,
-                    indexed_col_tbl_id=tbl_id_str,
-                    index_val_col_id=val_col.id,
-                    index_val_undo_col_id=undo_col.id,
-                    schema_version_add=0,
-                    schema_version_drop=None,
-                    class_fqn=idx_cls.__module__ + '.' + idx_cls.__name__,
-                    init_args=idx.as_dict(),
-                )
-                index_md[idx_id] = md
+        index_cols: list[Column] = []
+        for idx_col, idx_name, idx in idxs_to_create:
+            val_col, undo_col = Column.create_index_columns(
+                tbl_handle, idx_col, idx, next(column_ids), next(column_ids), 0
+            )
+            index_cols.extend([val_col, undo_col])
 
-            for col in index_cols:
-                col_md, col_schema_md = col.to_md(pos=None)
-                column_md[col.id] = col_md
-                schema_col_md[col.id] = col_schema_md
+            idx_id = next(index_ids)
+            idx_cls = type(idx)
+            md = schema.IndexMd(
+                id=idx_id,
+                name=idx_name if idx_name is not None else f'idx{idx_id}',
+                indexed_col_id=idx_col.id,
+                indexed_col_tbl_id=str(idx_col.tbl_handle.id),
+                index_val_col_id=val_col.id,
+                index_val_undo_col_id=undo_col.id,
+                schema_version_add=0,
+                schema_version_drop=None,
+                class_fqn=idx_cls.__module__ + '.' + idx_cls.__name__,
+                init_args=idx.as_dict(),
+            )
+            index_md[idx_id] = md
 
-            assert all(column_md[id].id == id for id in column_md)
-            assert all(index_md[id].id == id for id in index_md)
+        for col in index_cols:
+            col_md, col_schema_md = col.to_md(pos=None)
+            column_md[col.id] = col_md
+            schema_col_md[col.id] = col_schema_md
+
+        assert all(column_md[id].id == id for id in column_md)
+        assert all(index_md[id].id == id for id in index_md)
 
         tbl_md = schema.TableMd(
             tbl_id=tbl_id_str,
@@ -340,7 +341,7 @@ class TableVersion:
         )
         return TableVersionMd(tbl_md, table_version_md, schema_version_md)
 
-    @hooks.spanned('pixeltable.media.delete', level=hooks.DEBUG)
+    @telemetry.spanned('pixeltable.media.delete', level=telemetry.DEBUG)
     def delete_media(self, tbl_version: int | None = None) -> None:
         # Assemble a set of column destinations and delete objects from all of them
         # None is a valid column destination which refers to the default object location
@@ -739,6 +740,8 @@ class TableVersion:
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'Cannot add primary key column {col.name!r} after table creation',
                 )
+            if col.is_computed:
+                col.check_value_expr()
             col.tbl_handle = self.handle
             col.id = self.next_col_id()
 
@@ -824,7 +827,7 @@ class TableVersion:
                 continue
 
             # populate the column
-            with hooks.span('pixeltable.plan.create', level=hooks.DEBUG):
+            with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG):
                 plan = Planner.create_add_column_plan(self.path, col)
             excs_per_col = 0
             with get_runtime().report_progress():
@@ -978,7 +981,7 @@ class TableVersion:
         assert self.is_insertable
         # Exactly one of source / query must be specified
         assert (source is None) != (query is None)
-        with hooks.span('pixeltable.plan.create', level=hooks.DEBUG):
+        with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG):
             if query is not None:
                 plan = Planner.create_query_insert_plan(self, query, ignore_errors=not fail_on_exception)
             else:
@@ -1059,8 +1062,10 @@ class TableVersion:
         for view in self.mutable_views:
             from pixeltable.plan import Planner
 
-            # set_current so the view's plan/store spans nest here instead of under the operation span
-            with hooks.span('pixeltable.view_load', set_current=True, view=view.get().name):
+            # Make this span current only when it is nested under an operation span.
+            with telemetry.span(
+                'pixeltable.view_load', set_current=telemetry.current_span() is not None, view=view.get().name
+            ):
                 view_plan, _ = Planner.create_view_load_plan(view.get().path, propagates_insert=True)
                 status = view.get()._insert(view_plan, timestamp, print_stats=print_stats)
             result += status.to_cascade()
@@ -1109,7 +1114,7 @@ class TableVersion:
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'Filter not expressible in SQL: {analysis_info.filter}'
                 )
 
-        with hooks.span('pixeltable.plan.create', level=hooks.DEBUG):
+        with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG):
             plan, updated_cols, recomputed_cols = Planner.create_update_plan(self.path, update_spec, [], cascade)
 
         result = self.propagate_update(
@@ -1145,7 +1150,7 @@ class TableVersion:
         assert len(rowids) == 0 or len(rowids) == len(batch)
         assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
 
-        with hooks.span('pixeltable.plan.create', level=hooks.DEBUG):
+        with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG):
             plan, row_update_node, delete_where_clause, updated_cols, recomputed_cols = (
                 Planner.create_batch_update_plan(self.path, batch, rowids, cascade=cascade)
             )
@@ -1273,7 +1278,7 @@ class TableVersion:
                 != None
             )
             where_clause = CompoundPredicate.make_conjunction([where_clause, errortype_pred])
-        with hooks.span('pixeltable.plan.create', level=hooks.DEBUG):
+        with telemetry.span('pixeltable.plan.create', level=telemetry.DEBUG):
             plan, updated_cols, recomputed_cols = Planner.create_update_plan(
                 self.path, update_targets={}, recompute_targets=target_columns, cascade=cascade
             )
@@ -1408,7 +1413,7 @@ class TableVersion:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot revert version 0')
         self._revert()
 
-    @hooks.spanned('pixeltable.catalog.revert_version')
+    @telemetry.spanned('pixeltable.catalog.revert_version')
     def _revert(self) -> None:
         """
         Reverts the stored metadata for this table version and propagates to views.

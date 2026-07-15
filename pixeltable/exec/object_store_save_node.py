@@ -6,9 +6,9 @@ import logging
 from collections import defaultdict, deque
 from concurrent import futures
 from pathlib import Path
-from typing import Any, AsyncIterator, Iterator, NamedTuple
+from typing import AsyncIterator, Iterator, NamedTuple
 
-from pixeltable import exprs, hook_schemas, hooks
+from pixeltable import exprs, telemetry, telemetry_schemas
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectPath, ObjectStoreBase, StorageTarget
 from pixeltable.utils.progress_reporter import ProgressReporter
 
@@ -207,7 +207,7 @@ class ObjectStoreSaveNode(ExecNode):
                     del self.in_flight_rows[id(row)]
                     self.__add_ready_row(row, state.idx)
 
-        hook_schemas.media_saved_bytes.add(num_bytes)
+        telemetry_schemas.media_saved_bytes.add(num_bytes)
         if self.ctx.show_progress:
             self.progress_reporter.update(num_objects, num_bytes)
 
@@ -302,7 +302,7 @@ class ObjectStoreSaveNode(ExecNode):
                 work_to_do.extend(row_to_do)
 
         # carry the ambient instrumentation span onto the worker threads so save spans nest correctly
-        hooks_ctx = hooks.capture_context()
+        hooks_ctx = telemetry.capture_context()
         for work_item in work_to_do:
             # determine size before file gets moved
             file_size = work_item.src_path.stat().st_size
@@ -312,15 +312,17 @@ class ObjectStoreSaveNode(ExecNode):
             )
             _logger.debug(f'submitted {work_item}')
 
-    def __persist_media_file(self, work_item: WorkItem, hooks_ctx: Any) -> tuple[str | None, Exception | None]:
+    def __persist_media_file(
+        self, work_item: WorkItem, hooks_ctx: telemetry.CtxSnapshot | None
+    ) -> tuple[str | None, Exception | None]:
         """Move data from the TempStore to another location.
 
         Runs on a worker thread of the ThreadPoolExecutor. Performs no catalog access:
         the destination was resolved on the caller thread when the WorkItem was built.
         """
-        hooks_token = hooks.restore_context(hooks_ctx)
+        hooks_token = telemetry.restore_context(hooks_ctx)
         try:
-            with hooks.span('pixeltable.media.save', level=hooks.DEBUG, destination=work_item.destination):
+            with telemetry.span('pixeltable.media.save', level=telemetry.DEBUG, destination=work_item.destination):
                 new_file_url = ObjectOps.put_file_resolved(
                     work_item.store, work_item.src_path, work_item.dest, work_item.destination_count == 1
                 )
@@ -329,4 +331,4 @@ class ObjectStoreSaveNode(ExecNode):
             _logger.debug(f'Failed to move/copy {work_item.src_path}: {e}', exc_info=e)
             return None, e
         finally:
-            hooks.exit_context(hooks_token)
+            telemetry.exit_context(hooks_token)

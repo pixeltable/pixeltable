@@ -9,7 +9,7 @@ from typing import AsyncIterator, Iterable
 import numpy as np
 
 import pixeltable.exceptions as excs
-from pixeltable import exprs, hook_schemas, hooks
+from pixeltable import exprs, telemetry, telemetry_schemas
 from pixeltable.utils.progress_reporter import ProgressReporter
 
 from ..data_row_batch import DataRowBatch
@@ -45,7 +45,9 @@ class ExprEvalNode(ExecNode):
     maintain_input_order: bool  # True if we're returning rows in the order we received them from our input
     outputs: np.ndarray  # bool per slot; True if this slot is part of our output
     schedulers: dict[str, Scheduler]  # key: resource pool name
-    span_handle: hooks.SpanHandle | None  # Dispatcher protocol; None parents evaluator work spans to the ambient span
+    span_handle: (
+        telemetry.SpanHandle | None
+    )  # Dispatcher protocol; None parents evaluator work spans to the ambient span
     eval_ctx: ExprEvalCtx  # for input/output rows
 
     # execution state
@@ -199,12 +201,14 @@ class ExprEvalNode(ExecNode):
 
         self.eval_ctx.init_rows(rows)
         self.set_var_slots(rows)
-        if hooks.active():
+        if telemetry.active():
             # per-row spans nest their UDF cell spans; suppressed (None) unless DEBUG is enabled under an
             # operation span, so a bare query with no operation span stays dark
             for row in rows:
                 if row.parent_row is None and len(self._span_rows) < self.MAX_ROW_SPANS:
-                    row.span = hooks.span_start('pixeltable.row', level=hooks.DEBUG)
+                    row.span = telemetry.span_start(
+                        'pixeltable.row', level=telemetry.DEBUG, parent=telemetry.current_span()
+                    )
                     if row.span is not None:
                         self._span_rows.append(row)
         self.dispatch(rows, self.eval_ctx)
@@ -346,7 +350,7 @@ class ExprEvalNode(ExecNode):
 
             for row in self._span_rows:
                 if row.span is not None:
-                    hooks.span_end(row.span, exc=self.error)
+                    telemetry.span_end(row.span, exc=self.error)
                     row.span = None
             self._span_rows = []
 
@@ -363,9 +367,9 @@ class ExprEvalNode(ExecNode):
         # count only the root-errored cells; propagation to dependents happens below
         evaluator = exec_ctx.slot_evaluators.get(slot_with_exc)
         if isinstance(evaluator, FnCallEvaluator):
-            hook_schemas.udf_errors.add(len(rows), udf=evaluator.fn.display_name)
+            telemetry_schemas.udf_errors.add(len(rows), udf=evaluator.fn.display_name)
         tbl = self.row_builder.tbl
-        hook_schemas.cells_errors.add(
+        telemetry_schemas.cells_errors.add(
             len(rows), table=tbl.name if tbl is not None else None, table_id=str(tbl.id) if tbl is not None else None
         )
 
@@ -411,7 +415,7 @@ class ExprEvalNode(ExecNode):
         # Compute progress (output slot materialization)
         is_top_ctx = self.eval_ctx is exec_ctx
         report_progress = self.progress_reporter is not None and is_top_ctx
-        count_cells = is_top_ctx and hooks.active()
+        count_cells = is_top_ctx and telemetry.active()
         if report_progress or count_cells:
             # Count currently non-materialized output slots (before updating missing_slots)
             missing_outputs_before: np.int64 = (missing_slots & self.outputs).sum()
@@ -428,7 +432,7 @@ class ExprEvalNode(ExecNode):
                     self.progress_reporter.update(num_computed_outputs)
                 if count_cells:
                     tbl = self.row_builder.tbl
-                    hook_schemas.cells_computed.add(
+                    telemetry_schemas.cells_computed.add(
                         num_computed_outputs,
                         table=tbl.name if tbl is not None else None,
                         table_id=str(tbl.id) if tbl is not None else None,
@@ -505,7 +509,7 @@ class ExprEvalNode(ExecNode):
                     row.parent_row.vals[row.parent_slot_idx].complete_row()
             else:
                 for i in completed_idxs:
-                    hooks.span_end(rows[i].span)
+                    telemetry.span_end(rows[i].span)
                     rows[i].span = None
                     self.completed_rows.put_nowait(rows[i])
                 self.completed_event.set()

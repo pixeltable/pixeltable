@@ -205,7 +205,7 @@ class Column:
         return val_col, undo_col
 
     @classmethod
-    def create(cls, name: str, spec: type | ColumnSpec | exprs.Expr) -> Column:
+    def create(cls, name: str, spec: ts.ColumnType | type | ColumnSpec | exprs.Expr) -> Column:
         col_type: ts.ColumnType | None = None
         value_expr: exprs.Expr | None = None
         primary_key: bool = False
@@ -268,7 +268,7 @@ class Column:
             comment=comment,
             stores_cellmd=stores_cellmd,
         )
-        ObjectOps.validate_destination(column.destination, column.name)
+        ObjectOps.validate_destination(column.destination, column.name, allow_local=not Env.get().is_proxy_daemon)
         return column
 
     @classmethod
@@ -330,25 +330,6 @@ class Column:
                     excs.ErrorCode.INVALID_ARGUMENT,
                     f'Column {name!r}: `custom_metadata` must be JSON-serializable; got Error: {err}',
                 ) from err
-
-    @classmethod
-    def create_stored_proxy_column(cls, col: Column) -> Column:
-        """Creates a proxy column for the specified column."""
-        from pixeltable import exprs
-
-        assert col.col_type.is_media_type() and not (col.is_stored and col.is_computed)
-        proxy_col = cls(
-            name=None,
-            # Force images in the proxy column to be materialized inside the media store, in a normalized format.
-            # TODO(aaron-siegel): This is a temporary solution and it will be replaced by a proper `destination`
-            #   parameter for computed columns. Among other things, this solution does not work for video or audio.
-            #   Once `destination` is implemented, it can be replaced with a simple `ColumnRef`.
-            computed_with=exprs.ColumnRef(col.column_version_md()).apply(lambda x: x, col_type=col.col_type),
-            sa_col_type=col.col_type.to_sa_type(),
-            stored=True,
-            stores_cellmd=True,
-        )
-        return proxy_col
 
     @classmethod
     def validate_name(cls, name: str) -> None:
@@ -498,6 +479,7 @@ class Column:
 
     def check_value_expr(self) -> None:
         assert self._value_expr is not None
+        self._value_expr.validate_storable(f'Computed column {self.name!r}')
         if not self.stored and self.is_computed and self.has_window_fn_call():
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -567,16 +549,6 @@ class Column:
     def is_required_for_insert(self) -> bool:
         """Returns True if column is required when inserting rows."""
         return not self.col_type.nullable and not self.is_computed
-
-    def source(self) -> None:
-        """
-        If this is a computed col and the top-level expr is a function call, print the source, if possible.
-        """
-        from pixeltable import exprs
-
-        if self.value_expr is None or not isinstance(self.value_expr, exprs.FunctionCall):
-            return
-        self.value_expr.fn.source()
 
     def set_sa_cols(self, sa_col: sql.Column, sa_cellmd_col: sql.Column | None) -> None:
         # `type() is` check is weak as it ignores some SQL type parameters (e.g. vector dimensions), but anything

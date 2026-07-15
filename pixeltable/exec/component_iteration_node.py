@@ -1,6 +1,6 @@
 from typing import AsyncIterator, Iterator
 
-from pixeltable import catalog, exceptions as excs, exprs, hooks
+from pixeltable import catalog, exceptions as excs, exprs, telemetry
 from pixeltable.func.iterator import GeneratingFunctionCall
 
 from .data_row_batch import DataRowBatch
@@ -48,7 +48,7 @@ class ComponentIterationNode(ExecNode):
     def _instrumented_iter(self, iterator: Iterator[dict]) -> Iterator[dict]:
         """Wraps each iterator step (eg, one decoded frame) in a per-step span at TRACE."""
         while True:
-            with hooks.span(f'pixeltable.iter.{self._iter_name}', level=hooks.TRACE):
+            with telemetry.span(f'pixeltable.iter.{self._iter_name}', level=telemetry.TRACE):
                 try:
                     item = next(iterator)
                 except StopIteration:
@@ -56,7 +56,7 @@ class ComponentIterationNode(ExecNode):
             yield item
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
-        hooks_active = hooks.active()
+        telemetry_active = telemetry.active()
         output_batch = DataRowBatch(self.row_builder)
         async for input_batch in self.input:
             for input_row in input_batch:
@@ -68,17 +68,19 @@ class ComponentIterationNode(ExecNode):
                 # output rows for this input row).
                 if self.__non_nullable_args_specified(iterator_args):
                     iterator = self.view.get().iterator_call.eval(iterator_args)
-                    if hooks_active:
-                        iterator = self._instrumented_iter(iterator)
-                    for pos, component_dict in enumerate(iterator):
-                        output_row = self.row_builder.make_row()
-                        input_row.copy(output_row)
-                        # we're expanding the input and need to add the iterator position to the pk
-                        self.__populate_output_row(output_row, pos, component_dict)
-                        output_batch.add_row(output_row)
-                        if len(output_batch) == self.__OUTPUT_BATCH_SIZE:
-                            yield output_batch
-                            output_batch = DataRowBatch(self.row_builder)
+                    try:
+                        steps = self._instrumented_iter(iterator) if telemetry_active else iterator
+                        for pos, component_dict in enumerate(steps):
+                            output_row = self.row_builder.make_row()
+                            input_row.copy(output_row)
+                            # we're expanding the input and need to add the iterator position to the pk
+                            self.__populate_output_row(output_row, pos, component_dict)
+                            output_batch.add_row(output_row)
+                            if len(output_batch) == self.__OUTPUT_BATCH_SIZE:
+                                yield output_batch
+                                output_batch = DataRowBatch(self.row_builder)
+                    finally:
+                        iterator.close()
 
         if len(output_batch) > 0:
             yield output_batch

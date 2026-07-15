@@ -8,7 +8,7 @@ from typing import Any, Iterable, Protocol
 
 import numpy as np
 
-from pixeltable import exprs, func, hooks
+from pixeltable import exprs, func, telemetry
 
 
 @dataclass
@@ -95,7 +95,7 @@ class Dispatcher(Protocol):
     schedulers: dict[str, Scheduler]  # key: resource pool id
 
     # instrumentation state, set per execution
-    span_handle: hooks.SpanHandle | None  # span of the owning node; parent for evaluator work spans
+    span_handle: telemetry.SpanHandle | None  # span of the owning node; parent for evaluator work spans
 
     def dispatch(self, rows: list[exprs.DataRow], exec_ctx: Any) -> None:
         """Dispatches row slots to the appropriate schedulers; does not block"""

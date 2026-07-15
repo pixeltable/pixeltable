@@ -82,10 +82,11 @@ serve = ["fastapi[standard]>=0.120.0"]
 # separate distribution, opt-in via opentelemetry.instrumentation.pixeltable. The SDK and exporters live
 # here rather than in that package so it stays api-only, per contrib convention.
 otel = [
-    "opentelemetry-instrumentation-pixeltable",
+    "opentelemetry-instrumentation-pixeltable==0.1.0",
     "opentelemetry-sdk>=1.39.0",
     "opentelemetry-exporter-otlp-proto-http>=1.39.0",
     "opentelemetry-exporter-otlp-proto-grpc>=1.39.0",
+    "opentelemetry-instrumentation-fastapi>=0.60b0",
 ]
 
 [project.urls]
@@ -176,7 +177,7 @@ dev = [
     "sentencepiece>=0.2.0",
     "tiktoken>=0.10",
     "sentence-transformers>=5 ; python_version < '3.14'",
-    "transformers>=5",
+    "transformers>=5.6.0",
     "timm>=1.0.11,<2",
     "datasets>=4.8.5",
     "openpyxl>=3.1.5",
@@ -296,13 +297,14 @@ extraPaths = ["packages/opentelemetry-instrumentation-pixeltable/src"]
 # instrumentation), whose dependencies are absent in the --no-dev minimal config. Those packages run via their
 # own CI config (see tool/ci_tool.py). Explicit path args on the command line override testpaths as usual.
 testpaths = ["tests"]
-addopts = '-v -m "not remote_api and not expensive and not very_expensive and not benchmark" --strict-markers'
+addopts = '-v -m "not remote_api and not expensive and not very_expensive and not benchmark and not otel" --strict-markers'
 markers = [
     "expensive: marks tests as expensive to run",
     "very_expensive: marks tests as very expensive to run",
     "remote_api: marks tests as calling a remote API (such as OpenAI)",
     "benchmark: marks tests as benchmark tests (excluded from regular test runs)",
     "local: test runs only against the in-process catalog, not the proxy (arg: reason)",
+    "otel: marks tests as requiring the otel extra (run on the otel CI leg)",
 ]
 filterwarnings = [
     # Treat *our* warnings as errors (we shouldn't see them fall through in tests)

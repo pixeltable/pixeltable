@@ -9,7 +9,7 @@ import sys
 import time
 from typing import Any, Callable, Iterator, cast
 
-from pixeltable import exceptions as excs, exprs, func, hook_schemas, hooks
+from pixeltable import exceptions as excs, exprs, func, telemetry, telemetry_schemas
 
 from .globals import Dispatcher, Evaluator, ExprEvalCtx, FnCallArgs
 
@@ -101,15 +101,21 @@ class FnCallEvaluator(Evaluator):
         if self.call_args_queue is not None:
             self.call_args_queue = asyncio.Queue[FnCallArgs]()
 
-    def _cell_span(self, row: exprs.DataRow) -> Any:
-        """Span for one row's UDF call, nested under the row's span; no-op when the row has no span."""
+    def _cell_span(self, row: exprs.DataRow) -> contextlib.AbstractContextManager[telemetry.SpanHandle | None]:
+        """Context manager, with telemetry.span() semantics, covering one row's UDF call.
+
+        The span nests under the row's span; when the row has no span, returns a no-op nullcontext.
+        """
         if row.span is None:
             return contextlib.nullcontext()
         # DEBUG so cell spans emit/suppress in lockstep with the row span they nest under.
-        # set_current so provider instrumentors parent their spans here; each task copies the context at
-        # creation, so the ambient span is task-specific and concurrent UDF calls don't see each other's
-        return hooks.span(
-            f'pixeltable.udf.{self.fn.display_name}', level=hooks.DEBUG, parent=row.span, set_current=True
+        # Set this span current only when an operation span is active. Each task copies the context at
+        # creation, so the ambient span is task-specific and concurrent UDF calls don't see each other's.
+        return telemetry.span(
+            f'pixeltable.udf.{self.fn.display_name}',
+            level=telemetry.DEBUG,
+            parent=row.span,
+            set_current=telemetry.current_span() is not None,
         )
 
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
@@ -201,10 +207,13 @@ class FnCallEvaluator(Evaluator):
         result_batch: list[Any]
         start = time.perf_counter()
         try:
-            # batched calls process many rows in one invocation, so they can't nest under a single row
-            # span; emit one span under the ambient operation span instead
-            with hooks.span(
-                f'pixeltable.udf.{self.fn.display_name}', level=hooks.DEBUG, batch_size=len(batched_call_args.rows)
+            # Batched calls process many rows in one invocation, so they can't nest under a single row
+            # span. Make the batch span current only when an operation span is active.
+            with telemetry.span(
+                f'pixeltable.udf.{self.fn.display_name}',
+                level=telemetry.DEBUG,
+                set_current=telemetry.current_span() is not None,
+                batch_size=len(batched_call_args.rows),
             ):
                 if self.fn.is_async:
                     result_batch = await self.fn.aexec_batch(
@@ -222,8 +231,8 @@ class FnCallEvaluator(Evaluator):
             self.dispatcher.dispatch_exc(batched_call_args.rows, self.fn_call.slot_idx, exc_tb, self.eval_ctx)
             return
 
-        hook_schemas.udf_calls.add(1, udf=self.fn.display_name)
-        hook_schemas.udf_latency.record(time.perf_counter() - start, udf=self.fn.display_name)
+        telemetry_schemas.udf_calls.add(1, udf=self.fn.display_name)
+        telemetry_schemas.udf_latency.record(time.perf_counter() - start, udf=self.fn.display_name)
         for i, row in enumerate(batched_call_args.rows):
             row[self.fn_call.slot_idx] = result_batch[i]
         self.dispatcher.dispatch(batched_call_args.rows, self.eval_ctx)
@@ -239,8 +248,8 @@ class FnCallEvaluator(Evaluator):
             start = time.perf_counter()
             with self._cell_span(call_args.row):
                 call_args.row[self.fn_call.slot_idx] = await self.fn.aexec(*call_args.args, **call_args.kwargs)
-            hook_schemas.udf_calls.add(1, udf=self.fn.display_name)
-            hook_schemas.udf_latency.record(time.perf_counter() - start, udf=self.fn.display_name)
+            telemetry_schemas.udf_calls.add(1, udf=self.fn.display_name)
+            telemetry_schemas.udf_latency.record(time.perf_counter() - start, udf=self.fn.display_name)
             end_ts = datetime.datetime.now()
             _logger.debug(f'Evaluated slot {self.fn_call.slot_idx} in {end_ts - start_ts}')
             self.dispatcher.dispatch([call_args.row], self.eval_ctx)
@@ -263,8 +272,8 @@ class FnCallEvaluator(Evaluator):
                 with self._cell_span(item.row):
                     item.row[self.fn_call.slot_idx] = self.scalar_py_fn(*item.args, **item.kwargs)
                 fn_name = self.fn.display_name
-                hook_schemas.udf_calls.add(1, udf=fn_name)
-                hook_schemas.udf_latency.record(time.perf_counter() - start, udf=fn_name)
+                telemetry_schemas.udf_calls.add(1, udf=fn_name)
+                telemetry_schemas.udf_latency.record(time.perf_counter() - start, udf=fn_name)
             except Exception as exc:
                 _, _, exc_tb = sys.exc_info()
                 item.row.set_exc(self.fn_call.slot_idx, exc)

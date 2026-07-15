@@ -9,7 +9,7 @@ from uuid import UUID
 import psycopg
 import sqlalchemy as sql
 
-from pixeltable import catalog, exceptions as excs, hook_schemas, hooks
+from pixeltable import catalog, exceptions as excs, telemetry, telemetry_schemas
 from pixeltable.catalog.update_status import RowCountStats
 from pixeltable.env import Env
 from pixeltable.exec import ExecNode
@@ -168,7 +168,7 @@ class StoreBase:
             self._pk_cols = rowid_cols
             return rowid_cols
 
-    @hooks.spanned('pixeltable.store.create_sa_tbl', level=hooks.DEBUG)
+    @telemetry.spanned('pixeltable.store.create_sa_tbl', level=telemetry.DEBUG)
     def create_sa_tbl(self, tbl_version: catalog.TableVersion | None = None) -> None:
         """Create self.sa_tbl from self.tbl_version."""
         if tbl_version is None:
@@ -250,7 +250,7 @@ class StoreBase:
     def _storage_name(self) -> str:
         """Return the name of the data store table"""
 
-    @hooks.spanned('pixeltable.store.count', level=hooks.DEBUG)
+    @telemetry.spanned('pixeltable.store.count', level=telemetry.DEBUG)
     def count(self) -> int:
         """Return the number of rows visible in self.tbl_version"""
         stmt = sql.select(sql.func.count('*')).select_from(self.sa_tbl)
@@ -339,7 +339,7 @@ class StoreBase:
         for id in self.tbl_version.get().idxs:
             self.create_index(id)
 
-    @hooks.spanned('pixeltable.store.create_index', level=hooks.DEBUG)
+    @telemetry.spanned('pixeltable.store.create_index', level=telemetry.DEBUG)
     def create_index(self, idx_id: int) -> None:
         """Create index if not exists"""
         idx_info = self.tbl_version.get().idxs[idx_id]
@@ -397,7 +397,7 @@ class StoreBase:
             f'{sa_col.name} {col_type_str} {"NOT " if not sa_col.nullable else ""} NULL'
         )
 
-    @hooks.spanned('pixeltable.store.add_column', level=hooks.DEBUG)
+    @telemetry.spanned('pixeltable.store.add_column', level=telemetry.DEBUG)
     def add_column(self, col: catalog.Column, if_not_exists: bool) -> None:
         """Add column(s) to the store-resident table based on a catalog column"""
         assert col.is_stored
@@ -430,7 +430,7 @@ class StoreBase:
         log_stmt(_logger, stmt)
         get_runtime().conn.execute(stmt)
 
-    @hooks.spanned('pixeltable.store.write_column')
+    @telemetry.spanned('pixeltable.store.write_column')
     def write_column(self, col: catalog.Column, exec_plan: ExecNode, abort_on_exc: bool) -> int:
         """Populate store column of a computed column with values produced by an execution plan
 
@@ -472,7 +472,7 @@ class StoreBase:
                     num_rows += len(row_batch)
                     batch_table_rows: list[list[Any]] = []
 
-                    with hooks.span('pixeltable.store.build_rows', level=hooks.DEBUG):
+                    with telemetry.span('pixeltable.store.build_rows', level=telemetry.DEBUG):
                         for row in row_batch:
                             if abort_on_exc and row.has_exc():
                                 exc = row.get_first_exc()
@@ -554,7 +554,7 @@ class StoreBase:
                 batch_table_rows: list[list[Any]] = []
 
                 # compute batch of rows and convert them into table rows
-                with hooks.span('pixeltable.store.build_rows', level=hooks.DEBUG, rows=len(row_batch)):
+                with telemetry.span('pixeltable.store.build_rows', level=telemetry.DEBUG, rows=len(row_batch)):
                     for row in row_batch:
                         # if abort_on_exc == True, we need to check for media validation exceptions
                         if abort_on_exc and row.has_exc():
@@ -597,7 +597,7 @@ class StoreBase:
                 if return_rows:
                     inserted_rows.extend(row_builder.create_output_rows(table_rows=table_rows, has_pk=True))
 
-            hook_schemas.rows_written.add(
+            telemetry_schemas.rows_written.add(
                 num_rows, table=self.tbl_version.get().name, table_id=str(self.tbl_version.id)
             )
             row_counts = RowCountStats(ins_rows=num_rows, num_excs=num_excs, computed_values=0)
@@ -608,7 +608,7 @@ class StoreBase:
         assert len(table_rows) > 0
         conn = get_runtime().conn
         try:
-            with hooks.span('pixeltable.sa.insert_rows'):
+            with telemetry.span('pixeltable.sa.insert_rows'):
                 conn.execute(sql.insert(sa_tbl), [dict(zip(store_col_names, table_row)) for table_row in table_rows])
         except sql.exc.IntegrityError as e:
             if (
@@ -668,7 +668,7 @@ class StoreBase:
         log_explain(_logger, stmt, conn)
         return conn.execute(stmt).rowcount
 
-    @hooks.spanned('pixeltable.store.soft_delete_rows')
+    @telemetry.spanned('pixeltable.store.soft_delete_rows')
     def soft_delete_rows(
         self,
         current_version: int,

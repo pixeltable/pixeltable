@@ -2,7 +2,7 @@ import abc
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from pixeltable import exceptions as excs, hooks
+from pixeltable import exceptions as excs, telemetry
 from pixeltable.runtime import get_runtime
 
 if TYPE_CHECKING:
@@ -36,7 +36,7 @@ class SchemaObject(abc.ABC):
                 return None
             return get_runtime().catalog.get_dir(dir_id)
 
-    @hooks.spanned('pixeltable.catalog.resolve_path', level=hooks.DEBUG)
+    @telemetry.spanned('pixeltable.catalog.resolve_path', level=telemetry.DEBUG)
     def _path(self) -> 'catalog.Path':
         """Returns the path to this schema object. Raises TABLE_NOT_FOUND if dropped.
 
