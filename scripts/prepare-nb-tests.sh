@@ -27,6 +27,7 @@ VERY_EXPENSIVE_NOTEBOOKS=(
     working-with-gemini             # High dollar cost
     working-with-fal                # [PXT-1233] fal.ai integration failing on CI
     working-with-together           # Poor reliability
+    working-with-replicate          # Unreliable
 )
 
 # Notebooks that are skipped unless --include-expensive is passed: all notebooks that use HF models.

@@ -18,7 +18,7 @@ def cleanup_llama_cpp() -> Iterator[None]:
     llama_cpp.cleanup()
 
 
-@pytest.mark.expensive  # downloads from HF
+@pytest.mark.very_expensive
 @rerun(reruns=3, reruns_delay=15)  # Since it involves a HF model download
 class TestLlamaCpp:
     def test_create_chat_completions(self, uses_db: None) -> None:
