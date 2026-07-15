@@ -281,6 +281,12 @@ class TestBridge:
         assert point.count == 2
         assert point.sum == 2.0
         assert dict(point.attributes) == {'pxt.udf': 'f'}
+        # a declared bucket-boundary advisory reaches the SDK aggregation
+        hb = telemetry.histogram('pixeltable.test.latency_bounded', unit='s', boundaries=(0.1, 1.0, 10.0))
+        hb.record(0.5, udf='f')
+        metric = self._metric(metric_reader, 'pixeltable.test.latency_bounded')
+        (point,) = metric.data.data_points
+        assert list(point.explicit_bounds) == [0.1, 1.0, 10.0]
 
     def test_metrics_end_to_end(self, metric_reader: Any) -> None:
         pxt.create_dir('otel_metrics_smoke', if_exists='replace_force')
@@ -332,7 +338,8 @@ class TestBridge:
             pxt.drop_dir('otel_metrics_smoke', force=True)
 
     def test_cell_error_event(self, span_exporter: Any) -> None:
-        # cell.error events attach to the per-row spans, which only exist at DEBUG
+        # at DEBUG, cell.error events attach to the per-row spans; at INFO (no row spans) they fall
+        # back to the ambient operation span
         telemetry.set_span_level(telemetry.DEBUG)
         pxt.create_dir('otel_event_smoke', if_exists='replace_force')
         try:
@@ -348,6 +355,15 @@ class TestBridge:
             assert event.attributes['pxt.error'] == 'ValueError'
             insert_span = next(s for s in spans if s.name == 'pixeltable.insert')
             assert insert_span.events == ()
+
+            telemetry.set_span_level(telemetry.INFO)
+            status = t.insert([{'b': 'fail'}], on_error='ignore')
+            assert status.num_excs > 0
+            spans = span_exporter.get_finished_spans()
+            info_insert = [s for s in spans if s.name == 'pixeltable.insert'][-1]
+            (event,) = info_insert.events
+            assert event.name == 'pixeltable.cell.error'
+            assert event.attributes['pxt.column'] == 'checked'
         finally:
             pxt.drop_dir('otel_event_smoke', force=True)
             telemetry.set_span_level(telemetry.INFO)

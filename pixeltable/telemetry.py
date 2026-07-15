@@ -314,14 +314,16 @@ class Histogram:
     """A distribution of per-observation values; declare once at module level with histogram().
 
     Record individual observations only (a call's latency, a file's size); recording pre-aggregated
-    sums produces meaningless percentiles.
+    sums produces meaningless percentiles. `boundaries` advises the backend's bucket layout for
+    backends whose defaults don't fit the recorded value range.
     """
 
-    __slots__ = ('name', 'unit')
+    __slots__ = ('boundaries', 'name', 'unit')
 
-    def __init__(self, name: str, unit: str) -> None:
+    def __init__(self, name: str, unit: str, boundaries: tuple[float, ...] | None = None) -> None:
         self.name = name
         self.unit = unit
+        self.boundaries = boundaries
 
     def record(self, value: int | float, **attrs: Any) -> None:
         """Record one observation; keyword attrs get a 'pxt.' prefix, None values are skipped.
@@ -345,9 +347,9 @@ def counter(name: str, unit: str = '') -> Counter:
     return Counter(name, unit)
 
 
-def histogram(name: str, unit: str = '') -> Histogram:
+def histogram(name: str, unit: str = '', boundaries: tuple[float, ...] | None = None) -> Histogram:
     """Declare a histogram instrument; module-level, once per metric name."""
-    return Histogram(name, unit)
+    return Histogram(name, unit, boundaries)
 
 
 @contextlib.contextmanager

@@ -104,7 +104,10 @@ class _OtelSubscriber(telemetry.Subscriber):
         inst = self._histograms.get(histogram)
         if inst is None:
             inst = self._histograms.setdefault(
-                histogram, self._meter.create_histogram(histogram.name, unit=histogram.unit)
+                histogram,
+                self._meter.create_histogram(
+                    histogram.name, unit=histogram.unit, explicit_bucket_boundaries_advisory=histogram.boundaries
+                ),
             )
         inst.record(value, attributes=_clean_attrs(attrs))
 

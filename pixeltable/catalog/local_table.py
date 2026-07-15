@@ -416,6 +416,7 @@ class LocalTable(Table):
                     assert new_col_name not in self._tbl_version.get().cols_by_name
         return cols_to_ignore
 
+    @telemetry.spanned('pixeltable.add_columns', set_current=True)
     def add_columns(
         self,
         schema: Mapping[str, type | ColumnSpec],
@@ -450,18 +451,16 @@ class LocalTable(Table):
                 self._verify_column(new_col)
             return new_cols
 
-        with telemetry.span(
-            'pixeltable.add_columns', set_current=True, **telemetry_schemas.OpAttrs(table_id=str(self._id))
-        ):
-            new_cols = do_add_columns()
-            if new_cols is None:
-                return UpdateStatus()
-
-            assert self._tbl_version is not None
-            get_runtime().catalog.add_columns(self._tbl_version_path, new_cols)
-            FileCache.get().emit_eviction_warnings()
-            # TODO: return the row count here?
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
+        new_cols = do_add_columns()
+        if new_cols is None:
             return UpdateStatus()
+
+        assert self._tbl_version is not None
+        get_runtime().catalog.add_columns(self._tbl_version_path, new_cols)
+        FileCache.get().emit_eviction_warnings()
+        # TODO: return the row count here?
+        return UpdateStatus()
 
     def add_column(
         self,
@@ -650,6 +649,7 @@ class LocalTable(Table):
             self._check_mutable('rename columns of')
             self._tbl_version.get().rename_column(old_name, new_name)
 
+    @telemetry.spanned('pixeltable.add_embedding_index', set_current=True)
     def add_embedding_index(
         self,
         column: str | ColumnRef,
@@ -670,13 +670,9 @@ class LocalTable(Table):
             'TODO: implement for unversioned tables [PXT-1101]'
         )
 
-        with (
-            telemetry.span(
-                'pixeltable.add_embedding_index', set_current=True, **telemetry_schemas.OpAttrs(table_id=str(self._id))
-            ),
-            get_runtime().catalog.begin_xact(
-                for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-            ),
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
+        with get_runtime().catalog.begin_xact(
+            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
             self._check_mutable('add an index to')
             col = self._resolve_column_parameter(column)
@@ -752,6 +748,7 @@ class LocalTable(Table):
             if isinstance(info.idx, index.EmbeddingIndex) and info.idx.as_dict() == target
         ]
 
+    @telemetry.spanned('pixeltable.drop_embedding_index', set_current=True)
     def drop_embedding_index(
         self,
         *,
@@ -764,13 +761,9 @@ class LocalTable(Table):
                 excs.ErrorCode.MISSING_REQUIRED, "Exactly one of 'column' or 'idx_name' must be provided"
             )
 
-        with (
-            telemetry.span(
-                'pixeltable.drop_embedding_index', set_current=True, **telemetry_schemas.OpAttrs(table_id=str(self._id))
-            ),
-            get_runtime().catalog.begin_xact(
-                for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-            ),
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
+        with get_runtime().catalog.begin_xact(
+            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
             col: Column = None
             if idx_name is None:
@@ -915,6 +908,7 @@ class LocalTable(Table):
     ) -> UpdateStatus:
         raise NotImplementedError
 
+    @telemetry.spanned('pixeltable.update', set_current=True)
     def update(
         self,
         value_spec: dict[str, Any],
@@ -924,19 +918,15 @@ class LocalTable(Table):
     ) -> UpdateStatus:
         self._validate_update_value_spec(value_spec)
         self._validate_where(where)
-        with (
-            telemetry.span(
-                'pixeltable.update', set_current=True, **telemetry_schemas.OpAttrs(table_id=str(self._id))
-            ) as op_span,
-            get_runtime().catalog.begin_xact(
-                for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-            ),
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
+        with get_runtime().catalog.begin_xact(
+            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
             self._check_mutable('update')
             tv = self._tbl_version.get()
             result = tv.update(value_spec, where, cascade, return_rows=return_rows)
-            telemetry.add_attrs(op_span, **telemetry_schemas.OpAttrs(table=tv.name, version=tv.version))
-            telemetry.add_attrs(op_span, **telemetry_schemas.op_status_attrs(result))
+            telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table=tv.name, version=tv.version))
+            telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_status_attrs(result))
             FileCache.get().emit_eviction_warnings()
             return result
 
@@ -1000,6 +990,7 @@ class LocalTable(Table):
             FileCache.get().emit_eviction_warnings()
             return result
 
+    @telemetry.spanned('pixeltable.recompute_columns', set_current=True)
     def recompute_columns(
         self,
         *columns: str | ColumnRef,
@@ -1008,13 +999,9 @@ class LocalTable(Table):
         cascade: bool = True,
     ) -> UpdateStatus:
         cat = get_runtime().catalog
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
-        with (
-            telemetry.span(
-                'pixeltable.recompute_columns', set_current=True, **telemetry_schemas.OpAttrs(table_id=str(self._id))
-            ) as op_span,
-            cat.begin_xact(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True),
-        ):
+        with cat.begin_xact(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True):
             self._check_mutable('recompute columns of')
             if len(columns) == 0:
                 raise excs.RequestError(
@@ -1058,8 +1045,8 @@ class LocalTable(Table):
 
             tv = self._tbl_version.get()
             result = tv.recompute_columns(col_names, where=where, errors_only=errors_only, cascade=cascade)
-            telemetry.add_attrs(op_span, **telemetry_schemas.OpAttrs(table=tv.name, version=tv.version))
-            telemetry.add_attrs(op_span, **telemetry_schemas.op_status_attrs(result))
+            telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table=tv.name, version=tv.version))
+            telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_status_attrs(result))
             FileCache.get().emit_eviction_warnings()
             return result
 

@@ -393,7 +393,8 @@ class ExprEvalNode(ExecNode):
             assert row.has_exc(slot_with_exc)
             exc = row.get_exc(slot_with_exc)
             telemetry.emit(
-                row.span,
+                # rows only carry spans at DEBUG; at INFO the event attaches to the ambient operation span
+                row.span if row.span is not None else telemetry.current_span(),
                 'pixeltable.cell.error',
                 **telemetry_schemas.CellErrorAttrs(column=self.col_names.get(slot_with_exc), error=type(exc).__name__),
             )

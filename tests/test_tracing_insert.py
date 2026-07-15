@@ -43,7 +43,7 @@ class TestInsertTracing:
 
             op = sub.find('pixeltable.insert')
             assert op['set_current'] is True and op['parent_id'] is None
-            assert op['attrs']['pxt.table_id'] == str(t._id)
+            assert op['end_attrs']['pxt.table_id'] == str(t._id)
             assert op['end_attrs']['pxt.num_rows'] == 5
             assert op['end_attrs']['pxt.num_excs'] == 0
             rows = [s for s in sub.spans if s['name'] == 'pixeltable.row']
@@ -159,7 +159,11 @@ class TestInsertTracing:
             collect = sub.find('pixeltable.collect')
             yield_rows = sub.find('pixeltable.result_cursor.yield_rows')
             assert collect['set_current'] is True and collect['parent_id'] is None
+            assert collect['end_attrs']['pxt.tables'] == ['tracing_test']
+            assert collect['end_attrs']['pxt.rows'] == 3
             assert yield_rows['set_current'] is True and yield_rows['parent_id'] == collect['id']
+            assert yield_rows['attrs']['pxt.tables'] == ['tracing_test']
+            assert yield_rows['end_attrs']['pxt.rows'] == 3
             rows = [s for s in sub.spans if s['name'] == 'pixeltable.row']
             assert len(rows) == 3
             assert all(row['parent_id'] == yield_rows['id'] for row in rows)
@@ -185,6 +189,8 @@ class TestInsertTracing:
             op = sub.find(span_name)
             yield_rows = sub.find('pixeltable.result_cursor.yield_rows')
             assert op['set_current'] is True and op['parent_id'] is None
+            assert op['end_attrs']['pxt.tables'] == ['tracing_test']
+            assert op['end_attrs']['pxt.rows'] == 2
             assert yield_rows['set_current'] is True and yield_rows['parent_id'] == op['id']
             assert all(s['ended'] for s in sub.spans)
         finally:
@@ -202,6 +208,29 @@ class TestInsertTracing:
             yield_rows = sub.find('pixeltable.result_cursor.yield_rows')
             assert yield_rows['set_current'] is True and yield_rows['parent_id'] is None
             assert yield_rows['ended']
+        finally:
+            SubscriberRegistry.get().unsubscribe(sub)
+
+    def test_count_and_move_spans(self, uses_db: None) -> None:
+        t = self._make_table()
+        t.insert([{'c': i} for i in range(3)])
+
+        sub = RecordingSubscriber()
+        SubscriberRegistry.get().subscribe(sub)
+        try:
+            # count(): root op span carrying the counted rows
+            assert t.where(t.c > 0).count() == 2
+            op = sub.find('pixeltable.count')
+            assert op['set_current'] is True and op['parent_id'] is None
+            assert op['end_attrs']['pxt.tables'] == ['tracing_test']
+            assert op['end_attrs']['pxt.rows'] == 2
+            # move(): root op span carrying source and destination paths
+            pxt.move('tracing_test', 'tracing_test2')
+            op = sub.find('pixeltable.move')
+            assert op['set_current'] is True and op['parent_id'] is None
+            assert op['end_attrs']['pxt.path'] == 'tracing_test'
+            assert op['end_attrs']['pxt.new_path'] == 'tracing_test2'
+            assert all(s['ended'] for s in sub.spans)
         finally:
             SubscriberRegistry.get().unsubscribe(sub)
 
@@ -235,7 +264,7 @@ class TestInsertTracing:
             t.update({'c': t.c + 1})
             op = sub.find('pixeltable.update')
             assert op['set_current'] is True and op['parent_id'] is None
-            assert op['attrs']['pxt.table_id'] == str(t._id)
+            assert op['end_attrs']['pxt.table_id'] == str(t._id)
             assert op['end_attrs']['pxt.table'] == 'tracing_test'
             assert op['end_attrs']['pxt.version'] == 3  # v0 create, v1 add_computed_column, v2 insert, v3 update
             assert op['end_attrs']['pxt.num_rows'] == 3

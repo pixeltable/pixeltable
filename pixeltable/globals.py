@@ -53,6 +53,7 @@ def init(config_overrides: dict[str, Any] | None = None, additional_config_files
     _ = get_runtime().catalog
 
 
+@telemetry.spanned('pixeltable.create_table', set_current=True)
 def create_table(
     path: str,
     schema: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None,
@@ -187,106 +188,102 @@ def create_table(
     media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
     primary_key: list[str] | None = normalize_primary_key_parameter(primary_key)
 
-    with telemetry.span(
-        'pixeltable.create_table', set_current=True, **telemetry_schemas.OpAttrs(path=str(path_obj))
-    ) as op_span:
-        data_source: TableDataConduit | None = None
-        if source is not None:
-            data_source = TableDataConduit.create(source, source_format=source_format, extra_fields=extra_args)
-            src_schema_overrides: dict[str, ts.ColumnType] = {}
-            if schema_overrides is not None:
-                for col_name, py_type in schema_overrides.items():
-                    try:
-                        src_schema_overrides[col_name] = ts.ColumnType.normalize_type(
-                            py_type, nullable_default=True, allow_builtin_types=False
-                        )
-                    except excs.Error as e:
-                        raise excs.RequestError(
-                            excs.ErrorCode.INVALID_TYPE, f'Invalid type for schema_overrides[{col_name!r}]: {e.message}'
-                        ) from e
-            data_source.src_schema_overrides = src_schema_overrides
-            data_source.src_pk = primary_key
-            data_source.infer_schema()
-            schema = data_source.pxt_schema  # type: ignore[assignment]
-            primary_key = data_source.pxt_pk
-            is_direct_query = data_source.is_direct_query()
-        else:
-            is_direct_query = False
+    telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(path=str(path_obj)))
+    data_source: TableDataConduit | None = None
+    if source is not None:
+        data_source = TableDataConduit.create(source, source_format=source_format, extra_fields=extra_args)
+        src_schema_overrides: dict[str, ts.ColumnType] = {}
+        if schema_overrides is not None:
+            for col_name, py_type in schema_overrides.items():
+                try:
+                    src_schema_overrides[col_name] = ts.ColumnType.normalize_type(
+                        py_type, nullable_default=True, allow_builtin_types=False
+                    )
+                except excs.Error as e:
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_TYPE, f'Invalid type for schema_overrides[{col_name!r}]: {e.message}'
+                    ) from e
+        data_source.src_schema_overrides = src_schema_overrides
+        data_source.src_pk = primary_key
+        data_source.infer_schema()
+        schema = data_source.pxt_schema  # type: ignore[assignment]
+        primary_key = data_source.pxt_pk
+        is_direct_query = data_source.is_direct_query()
+    else:
+        is_direct_query = False
 
-        if len(schema) == 0 or not isinstance(schema, dict):
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                'Unable to create a proper schema from supplied `source`. Please use appropriate `schema_overrides`.',
-            )
-
-        if comment is not None and not isinstance(comment, str):
-            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`comment` must be a string or None')
-        elif comment == '':
-            comment = None
-
-        try:
-            json.dumps(custom_metadata)
-        except (TypeError, ValueError) as err:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT, '`custom_metadata` must be JSON-serializable'
-            ) from err
-
-        # canonicalize/validate the schema once here, so both local and delegated catalogs receive the same
-        # mapping and report the same errors
-        schema = catalog.normalize_schema(schema)
-
-        tbl, was_created = (
-            get_runtime()
-            .get_catalog(path_obj)
-            .create_table(
-                path_obj,
-                schema,
-                if_exists=if_exists_,
-                primary_key=primary_key,
-                comment=comment,
-                custom_metadata=custom_metadata,
-                media_validation=media_validation_,
-                create_default_idxs=create_default_idxs,
-                is_versioned=_is_versioned,
-            )
+    if len(schema) == 0 or not isinstance(schema, dict):
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            'Unable to create a proper schema from supplied `source`. Please use appropriate `schema_overrides`.',
         )
 
-        telemetry.add_attrs(op_span, **telemetry_schemas.OpAttrs(table_id=str(tbl._id)))
-        if was_created:
-            _logger.info(f'Created table {tbl._name()!r}; id={tbl._id}')
-            Env.get().console_logger.info(f'Created table {tbl._name()!r}.')
+    if comment is not None and not isinstance(comment, str):
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`comment` must be a string or None')
+    elif comment == '':
+        comment = None
+
+    try:
+        json.dumps(custom_metadata)
+    except (TypeError, ValueError) as err:
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`custom_metadata` must be JSON-serializable') from err
+
+    # canonicalize/validate the schema once here, so both local and delegated catalogs receive the same
+    # mapping and report the same errors
+    schema = catalog.normalize_schema(schema)
+
+    tbl, was_created = (
+        get_runtime()
+        .get_catalog(path_obj)
+        .create_table(
+            path_obj,
+            schema,
+            if_exists=if_exists_,
+            primary_key=primary_key,
+            comment=comment,
+            custom_metadata=custom_metadata,
+            media_validation=media_validation_,
+            create_default_idxs=create_default_idxs,
+            is_versioned=_is_versioned,
+        )
+    )
+
+    telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(tbl._id)))
+    if was_created:
+        _logger.info(f'Created table {tbl._name()!r}; id={tbl._id}')
+        Env.get().console_logger.info(f'Created table {tbl._name()!r}.')
+    else:
+        Env.get().console_logger.info(f'Table {tbl._name()!r} already exists.')
+
+    # TODO: combine data loading with table creation into a single transaction
+    if was_created and data_source is not None:
+        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
+        if isinstance(tbl, catalog.InsertableTable):
+            if isinstance(data_source, QueryTableDataConduit):
+                query = data_source.pxt_query
+                with get_runtime().catalog.begin_xact(
+                    for_write=True, write_tvps=[tbl._tbl_version_path], lock_mutable_tree=True
+                ):
+                    tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
+            elif not is_direct_query:
+                tbl._insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
         else:
-            Env.get().console_logger.info(f'Table {tbl._name()!r} already exists.')
+            # Schema inference may have consumed a one-shot iterator/generator source; re-passing it would
+            # insert nothing. Insert the rows the conduit already materialized instead. (A Query source is
+            # re-runnable, and other source types aren't reached here, so passing source as-is is correct.)
+            # Materialized rows are already parsed, so the source_format (e.g. 'json') must not be re-applied,
+            # which would otherwise re-classify the row list as a file source.
+            insert_source = data_source.raw_rows if isinstance(data_source, RowDataTableDataConduit) else source
+            insert_format = None if isinstance(data_source, RowDataTableDataConduit) else source_format
+            tbl.insert(
+                insert_source,
+                source_format=insert_format,
+                schema_overrides=schema_overrides,
+                on_error=on_error,
+                **(extra_args or {}),
+            )
 
-        # TODO: combine data loading with table creation into a single transaction
-        if was_created and data_source is not None:
-            fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
-            if isinstance(tbl, catalog.InsertableTable):
-                if isinstance(data_source, QueryTableDataConduit):
-                    query = data_source.pxt_query
-                    with get_runtime().catalog.begin_xact(
-                        for_write=True, write_tvps=[tbl._tbl_version_path], lock_mutable_tree=True
-                    ):
-                        tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
-                elif not is_direct_query:
-                    tbl._insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
-            else:
-                # Schema inference may have consumed a one-shot iterator/generator source; re-passing it would
-                # insert nothing. Insert the rows the conduit already materialized instead. (A Query source is
-                # re-runnable, and other source types aren't reached here, so passing source as-is is correct.)
-                # Materialized rows are already parsed, so the source_format (e.g. 'json') must not be re-applied,
-                # which would otherwise re-classify the row list as a file source.
-                insert_source = data_source.raw_rows if isinstance(data_source, RowDataTableDataConduit) else source
-                insert_format = None if isinstance(data_source, RowDataTableDataConduit) else source_format
-                tbl.insert(
-                    insert_source,
-                    source_format=insert_format,
-                    schema_overrides=schema_overrides,
-                    on_error=on_error,
-                    **(extra_args or {}),
-                )
-
-        return tbl
+    return tbl
 
 
 def create_view(
@@ -591,6 +588,7 @@ def get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') ->
     return tbl
 
 
+@telemetry.spanned('pixeltable.move', set_current=True)
 def move(
     path: str,
     new_path: str,
@@ -635,6 +633,9 @@ def move(
             excs.ErrorCode.UNSUPPORTED_OPERATION, 'move(): source and destination cannot be identical'
         )
     path_obj, new_path_obj = catalog.Path.parse(path), catalog.Path.parse(new_path)
+    telemetry.add_attrs(
+        telemetry.func_span(), **telemetry_schemas.OpAttrs(path=str(path_obj), new_path=str(new_path_obj))
+    )
     if path_obj.catalog_uri != new_path_obj.catalog_uri:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -647,6 +648,7 @@ def move(
     get_runtime().get_catalog(path_obj).move(path_obj, new_path_obj, if_exists_, if_not_exists_)
 
 
+@telemetry.spanned('pixeltable.drop_table', set_current=True)
 def drop_table(
     table: str | catalog.Table, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error'
 ) -> None:
@@ -693,8 +695,8 @@ def drop_table(
         path_obj = catalog.Path.parse(table)
 
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-    with telemetry.span('pixeltable.drop_table', set_current=True, **telemetry_schemas.OpAttrs(path=str(path_obj))):
-        get_runtime().get_catalog(path_obj).drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
+    telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(path=str(path_obj)))
+    get_runtime().get_catalog(path_obj).drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
 
 
 def get_dir_contents(dir_path: str = '', recursive: bool = True) -> 'DirContents':
@@ -861,6 +863,7 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
     return [str(p) for p in _extract_paths(contents, parent=path_obj, entry_type=catalog.Table)]
 
 
+@telemetry.spanned('pixeltable.create_dir', set_current=True)
 def create_dir(
     path: str, *, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error', parents: bool = False
 ) -> catalog.Dir | None:
@@ -910,10 +913,11 @@ def create_dir(
     """
     path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
-    with telemetry.span('pixeltable.create_dir', set_current=True, **telemetry_schemas.OpAttrs(path=str(path_obj))):
-        return get_runtime().get_catalog(path_obj).create_dir(path_obj, if_exists=if_exists_, parents=parents)
+    telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(path=str(path_obj)))
+    return get_runtime().get_catalog(path_obj).create_dir(path_obj, if_exists=if_exists_, parents=parents)
 
 
+@telemetry.spanned('pixeltable.drop_dir', set_current=True)
 def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
     """Remove a directory.
 
@@ -953,8 +957,8 @@ def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ig
     """
     path_obj = catalog.Path.parse(path)  # validate format
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-    with telemetry.span('pixeltable.drop_dir', set_current=True, **telemetry_schemas.OpAttrs(path=str(path_obj))):
-        get_runtime().get_catalog(path_obj).drop_dir(path_obj, if_not_exists=if_not_exists_, force=force)
+    telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(path=str(path_obj)))
+    get_runtime().get_catalog(path_obj).drop_dir(path_obj, if_not_exists=if_not_exists_, force=force)
 
 
 def ls(path: str = '') -> pd.DataFrame:

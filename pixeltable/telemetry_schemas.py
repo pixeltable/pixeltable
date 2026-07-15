@@ -24,14 +24,16 @@ class OpAttrs(Attrs, total=False):
     """Span attributes shared by all operation spans (`pixeltable.insert`, `pixeltable.create_dir`, ...).
 
     `table_id` (and `path` on the path-addressed entry points: `create_table`, `create_view`,
-    `drop_table`, `create_dir`, `drop_dir`) identifies the operation's target at span start; the
-    remaining fields are attached at span end (`table` is the table name, `version` the post-operation
-    version; the counts come from the operation's `UpdateStatus`, on the operations that produce one).
+    `drop_table`, `create_dir`, `drop_dir`, `move`) identifies the operation's target at span start;
+    `new_path` is the destination of a `move`. The remaining fields are attached at span end (`table` is
+    the table name, `version` the post-operation version; the counts come from the operation's
+    `UpdateStatus`, on the operations that produce one).
     """
 
     table: str
     table_id: str
     path: str
+    new_path: str
     version: int
     num_rows: int
     num_computed_values: int
@@ -49,6 +51,18 @@ def op_status_attrs(status: UpdateStatus) -> OpAttrs:
         updated_cols=status.updated_cols,
         cols_with_excs=status.cols_with_excs,
     )
+
+
+class QueryAttrs(Attrs, total=False):
+    """Span attributes for the query execution spans (`pixeltable.collect`/`head`/`tail`/`count` and
+    `pixeltable.result_cursor.yield_rows`).
+
+    `tables` is the query's target table names (more than one for joins); `rows` is attached at span
+    end: the number of rows produced (for `count()`, the counted rows).
+    """
+
+    tables: list[str]
+    rows: int
 
 
 class XactAttrs(Attrs):
@@ -175,7 +189,13 @@ cells_errors = telemetry.counter('pixeltable.cells.errors', '{error}')
 udf_calls = telemetry.counter('pixeltable.udf.calls', '{call}')
 udf_errors = telemetry.counter('pixeltable.udf.errors', '{error}')
 udf_retries = telemetry.counter('pixeltable.udf.retries', '{retry}')
-udf_latency = telemetry.histogram('pixeltable.udf.latency', 's')
+# bucket layout advisory: the OTEL SDK's default histogram buckets are millisecond-scaled (5, 10, 25, ...),
+# so second-valued latencies would all land in the first bucket; these are the GenAI-semconv duration buckets
+udf_latency = telemetry.histogram(
+    'pixeltable.udf.latency',
+    's',
+    boundaries=(0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1.28, 2.56, 5.12, 10.24, 20.48, 40.96, 81.92),
+)
 udf_input_tokens = telemetry.counter('pixeltable.udf.input_tokens', '{token}')
 udf_output_tokens = telemetry.counter('pixeltable.udf.output_tokens', '{token}')
 media_fetched_bytes = telemetry.counter('pixeltable.media.fetched_bytes', 'By')

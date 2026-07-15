@@ -180,6 +180,7 @@ class ObjectStoreSaveNode(ExecNode):
 
         num_objects = 0
         num_bytes = 0
+        bytes_per_tbl: dict[tuple[str, str], int] = {}  # (table name, table id) -> bytes saved
 
         for f in done:
             work_designator = self.in_flight_requests.pop(f)
@@ -188,12 +189,16 @@ class ObjectStoreSaveNode(ExecNode):
                 raise exc
             assert new_file_url is not None
 
+            work_items = self.in_flight_work.pop(work_designator)
             if exc is None:
                 num_objects += 1
                 num_bytes += work_designator.file_size
+                tbl = work_items[0][1].col.get_tbl()
+                key = (tbl.name, str(tbl.id))
+                bytes_per_tbl[key] = bytes_per_tbl.get(key, 0) + work_designator.file_size
 
             # add the local path/exception to the slots that reference the url
-            for row, info in self.in_flight_work.pop(work_designator):
+            for row, info in work_items:
                 if exc is not None:
                     self.row_builder.set_exc(row, info.slot_idx, exc)
                 else:
@@ -208,7 +213,8 @@ class ObjectStoreSaveNode(ExecNode):
                     del self.in_flight_rows[id(row)]
                     self.__add_ready_row(row, state.idx)
 
-        telemetry_schemas.media_saved_bytes.add(num_bytes)
+        for (table, table_id), n in bytes_per_tbl.items():
+            telemetry_schemas.media_saved_bytes.add(n, table=table, table_id=table_id)
         if self.ctx.show_progress:
             self.progress_reporter.update(num_objects, num_bytes)
 

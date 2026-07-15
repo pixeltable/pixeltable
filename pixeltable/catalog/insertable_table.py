@@ -139,6 +139,7 @@ class InsertableTable(LocalTable):
         **kwargs: Any,
     ) -> UpdateStatus: ...
 
+    @telemetry.spanned('pixeltable.insert', set_current=True)
     def insert(
         self,
         source: TableDataSource | None = None,
@@ -160,24 +161,22 @@ class InsertableTable(LocalTable):
             source = [kwargs]
             kwargs = None
 
-        with telemetry.span(
-            'pixeltable.insert', set_current=True, **telemetry_schemas.OpAttrs(table_id=str(self._id))
-        ) as op_span:
-            with telemetry.span('pixeltable.data_source.prepare'):
-                data_source = TableDataConduit.create(
-                    source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
-                )
-                data_source.add_table_info(self)
-                data_source.prepare_for_insert_into_table()
-
-            status = self._insert_table_data_source(
-                data_source=data_source,
-                fail_on_exception=fail_on_exception,
-                print_stats=print_stats,
-                return_rows=return_rows,
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
+        with telemetry.span('pixeltable.data_source.prepare'):
+            data_source = TableDataConduit.create(
+                source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
             )
-            telemetry.add_attrs(op_span, **telemetry_schemas.op_status_attrs(status))
-            return status
+            data_source.add_table_info(self)
+            data_source.prepare_for_insert_into_table()
+
+        status = self._insert_table_data_source(
+            data_source=data_source,
+            fail_on_exception=fail_on_exception,
+            print_stats=print_stats,
+            return_rows=return_rows,
+        )
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_status_attrs(status))
+        return status
 
     @telemetry.spanned('pixeltable.compute', set_current=True)
     def compute(
@@ -291,6 +290,7 @@ class InsertableTable(LocalTable):
         FileCache.get().emit_eviction_warnings()
         return status
 
+    @telemetry.spanned('pixeltable.delete', set_current=True)
     def delete(self, where: 'exprs.Expr' | None = None) -> UpdateStatus:
         """Delete rows in this table.
 
@@ -307,18 +307,14 @@ class InsertableTable(LocalTable):
             >>> tbl.delete(tbl.a > 5)
         """
         self._validate_where(where)
-        with (
-            telemetry.span(
-                'pixeltable.delete', set_current=True, **telemetry_schemas.OpAttrs(table_id=str(self._id))
-            ) as op_span,
-            get_runtime().catalog.begin_xact(
-                for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-            ),
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
+        with get_runtime().catalog.begin_xact(
+            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
             tv = self._tbl_version.get()
             status = tv.delete(where=where)
-            telemetry.add_attrs(op_span, **telemetry_schemas.OpAttrs(table=tv.name, version=tv.version))
-            telemetry.add_attrs(op_span, **telemetry_schemas.op_status_attrs(status))
+            telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table=tv.name, version=tv.version))
+            telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_status_attrs(status))
             return status
 
     def _get_base_table(self) -> 'Table' | None:
