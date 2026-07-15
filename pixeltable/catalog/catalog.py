@@ -898,11 +898,11 @@ class Catalog(CatalogBase):
                         op_attrs = telemetry_schemas.CatalogAttrs(table_id=str(tbl_id))
                         if is_rollback:
                             with telemetry.span(
-                                f'pixeltable.op.{type(op).__name__}.undo', set_current=True, **op_attrs
+                                f'pixeltable.op.{type(op).__name__}.undo', set_current=True if telemetry.current_span() != None else False, **op_attrs
                             ):
                                 op.undo(tv)
                         else:
-                            with telemetry.span(f'pixeltable.op.{type(op).__name__}', set_current=True, **op_attrs):
+                            with telemetry.span(f'pixeltable.op.{type(op).__name__}', set_current=True if telemetry.current_span() != None else False, **op_attrs):
                                 op.exec(tv)
 
                         _logger.debug(f'Finalize pending ops({tbl_id}): op {op!s} done, updating status')
@@ -914,10 +914,10 @@ class Catalog(CatalogBase):
                 fault_injection.process_fault(FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT)
                 op_attrs = telemetry_schemas.CatalogAttrs(table_id=str(tbl_id))
                 if is_rollback:
-                    with telemetry.span(f'pixeltable.op.{type(op).__name__}.undo', set_current=True, **op_attrs):
+                    with telemetry.span(f'pixeltable.op.{type(op).__name__}.undo', set_current=True if telemetry.current_span() !=  None else False, **op_attrs):
                         op.undo(tv)
                 else:
-                    with telemetry.span(f'pixeltable.op.{type(op).__name__}', set_current=True, **op_attrs):
+                    with telemetry.span(f'pixeltable.op.{type(op).__name__}', set_current=True if telemetry.current_span() != None else False, **op_attrs):
                         op.exec(tv)
                 # no need to invalidate tv here: all operations that modify metadata (cached in tv) are executed
                 # inside a transaction and therefore wouldn't end up here

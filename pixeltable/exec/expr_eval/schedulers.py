@@ -205,8 +205,7 @@ class RateLimitsScheduler(Scheduler):
             with telemetry.span(
                 f'pixeltable.udf.{request.fn_call.fn.display_name}',
                 level=telemetry.DEBUG,
-                parent=self.dispatcher.span_handle,
-                set_current=True,
+                set_current=True if telemetry.current_span() != None else False,
                 **telemetry_schemas.UdfCallAttrs(
                     column=self.dispatcher.col_names.get(request.fn_call.slot_idx),
                     batch_size=len(request.rows) if request.is_batched else None,
@@ -392,8 +391,7 @@ class RequestRateScheduler(Scheduler):
             with telemetry.span(
                 f'pixeltable.udf.{request.fn_call.fn.display_name}',
                 level=telemetry.DEBUG,
-                parent=self.dispatcher.span_handle,
-                set_current=True,
+                set_current=True if telemetry.current_span() != None else False,
                 **telemetry_schemas.UdfCallAttrs(
                     column=self.dispatcher.col_names.get(request.fn_call.slot_idx),
                     batch_size=len(request.rows) if request.is_batched else None,

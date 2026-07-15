@@ -45,9 +45,6 @@ class ExprEvalNode(ExecNode):
     maintain_input_order: bool  # True if we're returning rows in the order we received them from our input
     outputs: np.ndarray  # bool per slot; True if this slot is part of our output
     schedulers: dict[str, Scheduler]  # key: resource pool name
-    span_handle: (
-        telemetry.SpanHandle | None
-    )  # Dispatcher protocol; None parents evaluator work spans to the ambient span
     col_names: dict[int, str]  # Dispatcher protocol; slot idx -> name of the table column it materializes
     eval_ctx: ExprEvalCtx  # for input/output rows
 
@@ -114,7 +111,6 @@ class ExprEvalNode(ExecNode):
         self.num_output_rows = 0
         self._span_rows = []
         self.schedulers = {}
-        self.span_handle = None
         self.col_names = {}
         for col, slot_idx in self.row_builder.table_columns.items():
             # a slot can map to multiple columns (a computed column plus its unnamed index value column);
