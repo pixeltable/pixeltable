@@ -52,6 +52,13 @@ class TableVersionHandle:
         return self.effective_version is not None
 
     def get(self) -> TableVersion:
+        """
+        Resolve this handle to the TableVersion instance from the catalog.
+
+        Inside a transaction, always defers to the catalog, which returns the version consistent with the
+        transaction's view. Outside a transaction, a snapshot version can be served from the catalog's cache without
+        starting a transaction; a live version (effective_version is None) is always fetched from the database.
+        """
         cat = get_runtime().catalog
         if get_runtime().in_xact:
             return cat.get_tbl_version(self.key)
