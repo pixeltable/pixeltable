@@ -93,6 +93,8 @@ def build_db_runtime_bundle(project_dir: Path | None = None) -> Path:
     meta: dict = {'pxt_md_version': metadata.VERSION, 'python_version': python_version}
     if system_dependencies:
         meta['system_dependencies'] = system_dependencies
+    if runtime_cfg and runtime_cfg.pixeltable_source:
+        meta['pixeltable_source'] = runtime_cfg.pixeltable_source.model_dump(exclude_none=True)
 
     with tarfile.open(bundle_path, 'w:bz2') as tf:
         __add_tarfile(tf, 'metadata.json', json.dumps(meta).encode('utf-8'))

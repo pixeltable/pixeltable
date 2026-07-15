@@ -138,12 +138,33 @@ class ServiceConfig(pydantic.BaseModel):
         return v
 
 
+class PixeltableSource(pydantic.BaseModel):
+    """Git source for pixeltable to install in the container runtime image.
+
+    Specify exactly one of branch, rev (commit SHA), or tag alongside the git URL.
+    Used by pip/poetry/none bundle types; uv bundles use pyproject.toml [tool.uv.sources] instead.
+
+    Example in pixeltable.toml:
+        [pixeltable.database.pixeltable_source]
+        git = "https://github.com/myorg/pixeltable.git"
+        branch = "my-feature-branch"
+    """
+
+    model_config = pydantic.ConfigDict(extra='forbid')
+
+    git: str
+    branch: str | None = None
+    rev: str | None = None
+    tag: str | None = None
+
+
 class DatabaseRuntimeConfig(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(extra='forbid')
 
     include: list[str] | None = None
     exclude: list[str] | None = None
     system_dependencies: list[str] | None = None
+    pixeltable_source: PixeltableSource | None = None
 
 
 class ConfigKey(NamedTuple):
