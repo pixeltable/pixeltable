@@ -467,6 +467,40 @@ class TestExprs:
             t.select(t.c6 + t.c2.apply(math.floor, col_type=pxt.Int)).collect()
         assert '+ requires numeric types, but left operand has type `dict`' in str(exc_info.value)
 
+    def test_pow(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        res = (
+            t.where(t.c2 == 2)
+            .select(
+                pos=t.c2**3,  # int ** non-negative int literal stays int
+                neg=t.c2**-2,  # a negative literal exponent is non-integral, matching Python's 2 ** -2 == 0.25
+                dyn=t.c2**t.c2,  # a dynamic exponent can't be proven non-negative, so it widens to float
+                dyn_neg=t.c2 ** (t.c2 * -1),  # a dynamically-negative exponent is a float, not an error
+                float_base=t.c3**2,
+                json=t.c6.f2**3,  # a json operand's runtime type is unknown, so the result is a float
+            )
+            .collect()
+        )
+        assert res.schema == {
+            'pos': 'Required[Int]',
+            'neg': 'Required[Float]',
+            'dyn': 'Required[Float]',
+            'dyn_neg': 'Required[Float]',
+            'float_base': 'Required[Float]',
+            'json': 'Float',  # a json path is nullable, so the result is nullable
+        }
+        r = res[0]
+        assert r['pos'] == 8 and isinstance(r['pos'], int)
+        assert r['neg'] == 2**-2  # 0.25
+        assert r['dyn'] == 4.0
+        assert r['dyn_neg'] == 2**-2  # 0.25, no error
+        assert r['float_base'] == 4.0
+        assert r['json'] == 8.0
+
+        # we also get an int result when executing in Python
+        forced = t.where(t.c2 == 2).select(p=t.c2.apply(math.floor, col_type=pxt.Int) ** 3).collect()
+        assert forced[0]['p'] == 8 and isinstance(forced[0]['p'], int)
+
     def test_comparison(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         # Test that comparison operations give the right answers. As with arithmetic operations, we do this two ways:

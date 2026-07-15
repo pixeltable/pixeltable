@@ -22,13 +22,21 @@ class ArithmeticExpr(Expr):
     operator: ArithmeticOperator
 
     def __init__(self, operator: ArithmeticOperator, op1: Expr, op2: Expr):
-        if (
-            op1.col_type.is_json_type()
-            or op2.col_type.is_json_type()
-            or operator in (ArithmeticOperator.DIV, ArithmeticOperator.POW)
-        ):
-            # we assume it's a float
+        if op1.col_type.is_json_type() or op2.col_type.is_json_type() or operator == ArithmeticOperator.DIV:
+            # a json operand has an unknown runtime type, and true division always produces a float
             super().__init__(ts.FloatType(nullable=(op1.col_type.nullable or op2.col_type.nullable)))
+        elif operator == ArithmeticOperator.POW:
+            # int ** int is an int only when the exponent is a statically non-negative int
+            if (
+                op1.col_type.is_int_type()
+                and op2.col_type.is_int_type()
+                and isinstance(op2, Literal)
+                and op2.val is not None
+                and op2.val >= 0
+            ):
+                super().__init__(ts.IntType(nullable=(op1.col_type.nullable or op2.col_type.nullable)))
+            else:
+                super().__init__(ts.FloatType(nullable=(op1.col_type.nullable or op2.col_type.nullable)))
         else:
             super().__init__(op1.col_type.supertype(op2.col_type))
         self.operator = operator
@@ -86,6 +94,7 @@ class ArithmeticExpr(Expr):
                 return left - right
             if self.operator == ArithmeticOperator.MUL:
                 return left * right
+
         if self.operator == ArithmeticOperator.DIV:
             assert self.col_type.is_float_type()
             # Avoid division by zero errors by converting any zero divisor to NULL.
@@ -94,6 +103,7 @@ class ArithmeticExpr(Expr):
             zero = sql.cast(0, self._op2.col_type.to_sa_type())
             nullif = sql.cast(sql.func.nullif(right, zero), self.col_type.to_sa_type())
             return sql.cast(left, self.col_type.to_sa_type()) / nullif
+
         if self.operator == ArithmeticOperator.MOD:
             if self.col_type.is_int_type():
                 # Avoid division by zero errors by converting any zero divisor to NULL.
@@ -103,6 +113,7 @@ class ArithmeticExpr(Expr):
             if self.col_type.is_float_type():
                 # Postgres does not support modulus for floats
                 return None
+
         if self.operator == ArithmeticOperator.FLOORDIV:
             # Postgres has a DIV operator, but it behaves differently from Python's // operator
             # (Postgres rounds toward 0, Python rounds toward negative infinity)
@@ -113,8 +124,13 @@ class ArithmeticExpr(Expr):
             zero = sql.cast(0, self._op2.col_type.to_sa_type())
             nullif = sql.cast(sql.func.nullif(right, zero), self.col_type.to_sa_type())
             return sql.func.floor(sql.cast(left, self.col_type.to_sa_type()) / nullif)
+
         if self.operator == ArithmeticOperator.POW:
-            assert self.col_type.is_float_type()
+            if not self.col_type.is_float_type():
+                # an int result is evaluated in Python: Postgres pow() returns double precision, so casting back to
+                # supertype an integer would lose precision for large values (Python's arbitrary-precision ** is exact)
+                # TODO: is there a workaround?
+                return None
             return sql.func.pow(sql.cast(left, self.col_type.to_sa_type()), right)
         raise AssertionError()
 
@@ -162,8 +178,7 @@ class ArithmeticExpr(Expr):
         elif self.operator == ArithmeticOperator.FLOORDIV:
             return op1_val // op2_val
         elif self.operator == ArithmeticOperator.POW:
-            # the result type is Float, so a float is returned even for int operands
-            return float(op1_val**op2_val)
+            return op1_val**op2_val if self.col_type.is_int_type() else float(op1_val**op2_val)
 
     def as_literal(self) -> Literal | None:
         op1_lit = self._op1.as_literal()
