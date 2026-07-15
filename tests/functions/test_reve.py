@@ -17,8 +17,6 @@ _logger = logging.getLogger('pixeltable_test')
 @rerun(reruns=3, reruns_delay=8)
 class TestReve:
     @pytest.mark.parametrize('default_params', [True, False], ids=['default_params', 'nondefault_params'])
-    # @pytest.mark.parametrize('default_params', [True], ids=['default_params'])
-    # @pytest.mark.parametrize('default_params', [False], ids=['nondefault_params'])
     def test_create(self, default_params: bool, uses_db: None) -> None:
         skip_test_if_no_client('reve')
 
