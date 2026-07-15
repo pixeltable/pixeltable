@@ -236,6 +236,15 @@ class TestBridge:
         assert spans['pixeltable.udf.foo'].parent is not None
         assert spans['pixeltable.udf.foo'].parent.span_id == spans['pixeltable.op'].context.span_id
 
+    def test_span_event(self, span_exporter: Any) -> None:
+        handle = telemetry.span_start('pixeltable.insert', set_current=True)
+        telemetry.emit(handle, 'pixeltable.cell.error', column='c', count=2, skipped=None)
+        telemetry.span_end(handle)
+        (span,) = span_exporter.get_finished_spans()
+        (event,) = span.events
+        assert event.name == 'pixeltable.cell.error'
+        assert dict(event.attributes) == {'pxt.column': 'c', 'pxt.count': 2}
+
     @pytest.fixture
     def metric_reader(self) -> Iterator[Any]:
         reader = InMemoryMetricReader()
@@ -321,6 +330,27 @@ class TestBridge:
             assert point('pixeltable.udf.output_tokens', udf='mock_llm').value == 3 * 8
         finally:
             pxt.drop_dir('otel_metrics_smoke', force=True)
+
+    def test_cell_error_event(self, span_exporter: Any) -> None:
+        # cell.error events attach to the per-row spans, which only exist at DEBUG
+        telemetry.set_span_level(telemetry.DEBUG)
+        pxt.create_dir('otel_event_smoke', if_exists='replace_force')
+        try:
+            t = pxt.create_table('otel_event_smoke.tbl', {'b': pxt.String})
+            t.add_computed_column(checked=fail_on_marker(t.b))
+            status = t.insert([{'b': 'fail'}, {'b': 'ok'}], on_error='ignore')
+            assert status.num_excs > 0
+            spans = span_exporter.get_finished_spans()
+            events = [e for s in spans if s.name == 'pixeltable.row' for e in s.events]
+            (event,) = events  # one failing row -> one event, on its row span
+            assert event.name == 'pixeltable.cell.error'
+            assert event.attributes['pxt.column'] == 'checked'
+            assert event.attributes['pxt.error'] == 'ValueError'
+            insert_span = next(s for s in spans if s.name == 'pixeltable.insert')
+            assert insert_span.events == ()
+        finally:
+            pxt.drop_dir('otel_event_smoke', force=True)
+            telemetry.set_span_level(telemetry.INFO)
 
     def test_uninstrument_stops_emission(self) -> None:
         span_exporter = InMemorySpanExporter()

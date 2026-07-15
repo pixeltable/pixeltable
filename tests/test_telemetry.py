@@ -13,7 +13,7 @@ class RecordingSubscriber(telemetry.Subscriber):
 
     def __init__(self) -> None:
         self.spans: list[dict[str, Any]] = []
-        self.events: list[tuple[str, dict[str, Any] | None]] = []
+        self.events: list[tuple[Any, str, dict[str, Any]]] = []
         self.counter_adds: list[tuple[telemetry.Counter, int | float, dict[str, Any]]] = []
         self.histogram_records: list[tuple[telemetry.Histogram, int | float, dict[str, Any]]] = []
         self.ctx_restores: list[Any] = []
@@ -38,8 +38,8 @@ class RecordingSubscriber(telemetry.Subscriber):
         token['exc'] = exc
         token['end_attrs'] = attrs
 
-    def on_event(self, name: str, attrs: dict[str, Any] | None) -> None:
-        self.events.append((name, attrs))
+    def on_event(self, token: Any, name: str, attrs: dict[str, Any]) -> None:
+        self.events.append((token, name, attrs))
 
     def on_counter_add(self, counter: telemetry.Counter, value: int | float, attrs: dict[str, Any]) -> None:
         self.counter_adds.append((counter, value, attrs))
@@ -70,7 +70,7 @@ class RaisingSubscriber(telemetry.Subscriber):
     def on_span_end(self, token: Any, exc: BaseException | None, attrs: dict[str, Any] | None) -> None:
         raise RuntimeError('on_span_end')
 
-    def on_event(self, name: str, attrs: dict[str, Any] | None) -> None:
+    def on_event(self, token: Any, name: str, attrs: dict[str, Any]) -> None:
         raise RuntimeError('on_event')
 
     def on_counter_add(self, counter: telemetry.Counter, value: int | float, attrs: dict[str, Any]) -> None:
@@ -113,7 +113,7 @@ class TestHooks:
         handle = telemetry.span_start('a', attrs=attrs)
         assert handle is None
         telemetry.span_end(handle)
-        telemetry.emit('e', attrs=attrs)
+        telemetry.emit(handle, 'e', x=1)
         assert telemetry.capture_context() is None
         telemetry.restore_context(None)
         telemetry.exit_context(None)
@@ -231,15 +231,15 @@ class TestHooks:
         SubscriberRegistry.get().subscribe(bad)
         try:
             handle = telemetry.span_start('a', set_current=True)
+            telemetry.emit(handle, 'e', k=1)
             telemetry.span_end(handle)
-            telemetry.emit('e', attrs={'k': 1})
             token = telemetry.restore_context(telemetry.capture_context())
             telemetry.exit_context(token)
         finally:
             SubscriberRegistry.get().unsubscribe(bad)
         # the well-behaved subscriber saw everything despite the raising one
         assert sub.find('a')['ended']
-        assert sub.events == [('e', {'k': 1})]
+        assert sub.events == [(sub.find('a'), 'e', {'pxt.k': 1})]
 
     def test_late_subscriber(self, sub: RecordingSubscriber) -> None:
         op = telemetry.span_start('op', set_current=True)
@@ -301,6 +301,16 @@ class TestHooks:
         telemetry.add_attrs(suppressed, rows=1)
         telemetry.span_end(suppressed)
         assert [s['name'] for s in sub.spans] == ['op']
+
+    def test_emit(self, sub: RecordingSubscriber) -> None:
+        handle = telemetry.span_start('op', set_current=True)
+        telemetry.emit(handle, 'e', k=1, skipped=None)
+        telemetry.span_end(handle)
+        assert sub.events == [(sub.find('op'), 'e', {'pxt.k': 1})]  # 'pxt.' prefix added, None skipped
+        telemetry.emit(None, 'e', k=1)  # no-op for inactive/suppressed handles
+        suppressed = telemetry.span_start('s', level=telemetry.DEBUG)
+        telemetry.emit(suppressed, 'e', k=1)
+        assert len(sub.events) == 1
 
     def test_spanned(self, sub: RecordingSubscriber) -> None:
         @telemetry.spanned('work', set_current=True)
@@ -375,8 +385,6 @@ class TestHooks:
         telemetry.span_end(handle, attrs=bad)
         record = sub.find('a')
         assert record['attrs'] is None and record['ended']
-        telemetry.emit('e', attrs=bad)
-        assert sub.events == [('e', None)]
 
     def test_thread_handoff(self, sub: RecordingSubscriber) -> None:
         op = telemetry.span_start('op', set_current=True)

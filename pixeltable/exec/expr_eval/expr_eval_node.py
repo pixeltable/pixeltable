@@ -392,6 +392,11 @@ class ExprEvalNode(ExecNode):
         for row in rows:
             assert row.has_exc(slot_with_exc)
             exc = row.get_exc(slot_with_exc)
+            telemetry.emit(
+                row.span,
+                'pixeltable.cell.error',
+                **telemetry_schemas.CellErrorAttrs(column=self.col_names.get(slot_with_exc), error=type(exc).__name__),
+            )
             # propagate exception
             for slot_idx in np.nonzero(exec_ctx.row_builder.transitive_dependents[slot_with_exc])[0].tolist():
                 row.set_exc(slot_idx, exc)

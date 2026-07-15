@@ -88,6 +88,10 @@ class _OtelSubscriber(telemetry.Subscriber):
         if token.ctx_token is not None:
             otel_context.detach(token.ctx_token)
 
+    def on_event(self, token: Any, name: str, attrs: dict[str, Any]) -> None:
+        assert isinstance(token, _SpanToken)
+        token.span.add_event(name, attributes=_clean_attrs(attrs))
+
     def on_counter_add(self, counter: telemetry.Counter, value: int | float, attrs: dict[str, Any]) -> None:
         inst = self._counters.get(counter)
         if inst is None:

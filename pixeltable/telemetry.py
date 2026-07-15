@@ -1,9 +1,10 @@
 """Dependency-free instrumentation hooks.
 
-Core pixeltable reports spans (timed, nested units of work), discrete events, and metrics through this
-module; subscribers (e.g. the bridge in `opentelemetry-instrumentation-pixeltable`) translate them into a
-telemetry backend. Metric instruments are declared once at module level (`_rows = telemetry.counter(...)`)
-and recorded into where the measurement happens (`_rows.add(n, table=path)`). With no subscribers
+Core pixeltable reports spans (timed, nested units of work), discrete events attached to spans, and
+metrics through this module; subscribers (e.g. the bridge in `opentelemetry-instrumentation-pixeltable`)
+translate them into a telemetry backend. Metric instruments are declared once at module level
+(`_rows = telemetry.counter(...)`) and recorded into where the measurement happens
+(`_rows.add(n, table=path)`). With no subscribers
 registered every call is a near-free no-op, but hot loops should still guard with `if telemetry.active():`
 before building attribute dicts (or pass `attrs` as a callable).
 
@@ -58,7 +59,8 @@ class Subscriber(Hashable):
     def on_span_end(self, token: Any, exc: BaseException | None, attrs: dict[str, Any] | None) -> None:
         pass
 
-    def on_event(self, name: str, attrs: dict[str, Any] | None) -> None:
+    def on_event(self, token: Any, name: str, attrs: dict[str, Any]) -> None:
+        """Attach a discrete event to the span identified by token (this subscriber's on_span_start() return)."""
         pass
 
     def on_counter_add(self, counter: Counter, value: int | float, attrs: dict[str, Any]) -> None:
@@ -263,15 +265,17 @@ def add_attrs(handle: SpanHandle | None, **attrs: Any) -> None:
     handle.pending_attrs.update({f'pxt.{k}': v for k, v in attrs.items() if v is not None})
 
 
-def emit(name: str, attrs: HookAttrs = None) -> None:
-    """Report a discrete event (e.g. a counter increment) to all subscribers."""
-    subs = SubscriberRegistry.get()._subscribers
-    if not subs:
+def emit(handle: SpanHandle | None, name: str, **attrs: Any) -> None:
+    """Attach a discrete event to the given span; a no-op for None handles.
+
+    Keyword attrs get a 'pxt.' prefix; None values are skipped.
+    """
+    if not isinstance(handle, SpanHandle):
         return
-    attrs = _resolve_attrs(attrs)
-    for s in subs:
+    prefixed = {f'pxt.{k}': v for k, v in attrs.items() if v is not None}
+    for s, token in zip(handle.subs, handle.tokens, strict=True):
         try:
-            s.on_event(name, attrs)
+            s.on_event(token, name, prefixed)
         except Exception as e:
             SubscriberRegistry.get()._log_subscriber_error(s, 'on_event', e)
 

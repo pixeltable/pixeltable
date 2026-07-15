@@ -131,6 +131,18 @@ class MediaDeleteAttrs(Attrs):
     num_files: int | None
 
 
+class CellErrorAttrs(Attrs, total=False):
+    """Event attributes for the `pixeltable.cell.error` span event (one event per errored cell, attached
+    to the row's `pixeltable.row` span when the error is recorded instead of aborting).
+
+    `column` is set when the errored slot materializes a named table column; `error` is the exception
+    class name.
+    """
+
+    column: str | None
+    error: str
+
+
 class StoreAttrs(Attrs, total=False):
     """Span attributes for the `pixeltable.store.*` and `pixeltable.sa.*` spans.
 
