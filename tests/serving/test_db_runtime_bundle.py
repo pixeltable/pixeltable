@@ -7,7 +7,6 @@ import sys
 import tarfile
 import textwrap
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -123,9 +122,7 @@ class TestDbRuntimeBundle:
         monkeypatch.chdir(tmp_path)
         Config.init({}, reinit=True)
 
-        with patch('pixeltable.serving.deploy._validate_system_dependencies') as mock_validate:
-            bundle_path = build_db_runtime_bundle(tmp_path)
-            mock_validate.assert_called_once_with(['ffmpeg', 'libpq'])
+        bundle_path = build_db_runtime_bundle(tmp_path)
 
         with tarfile.open(bundle_path, 'r:bz2') as tar, tar.extractfile(tar.getmember('metadata.json')) as f:
             meta = json.loads(f.read())

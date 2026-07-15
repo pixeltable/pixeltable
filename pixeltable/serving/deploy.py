@@ -2,6 +2,7 @@ import io
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import tarfile
@@ -39,6 +40,29 @@ def _collect_project_files(project_dir: Path, include: list[str] | None, exclude
     if exclude is not None:
         files -= _resolve_patterns(project_dir, exclude)
     return sorted(files)
+
+
+def _export_conda_env() -> bytes | None:
+    """Export the active conda environment as a cross-platform YAML (no build strings).
+
+    Returns None if conda is not active or the export fails.
+    Strips pixeltable* pip entries — the server installs pixeltable separately.
+    """
+    conda_prefix = os.environ.get('CONDA_PREFIX')
+    if not conda_prefix:
+        return None
+    try:
+        result = subprocess.run(
+            ['conda', 'env', 'export', '--no-builds', '--prefix', conda_prefix], capture_output=True, check=True
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+    filtered = [
+        line
+        for line in result.stdout.decode('utf-8').splitlines(keepends=True)
+        if not re.match(r'^\s+-\s+pixeltable', line)
+    ]
+    return ''.join(filtered).encode('utf-8')
 
 
 def __add_tarfile(tf: tarfile.TarFile, name: str, content: bytes) -> None:
@@ -84,7 +108,13 @@ def build_db_runtime_bundle(project_dir: Path | None = None) -> Path:
 
     python_version = f'{sys.version_info.major}.{sys.version_info.minor}'
 
-    files = _collect_project_files(project_dir, include, exclude)
+    files_set = set(_collect_project_files(project_dir, include, exclude))
+    # Lock files are always bundled regardless of .gitignore — they control reproducible installs.
+    for lock_name in ('uv.lock', 'poetry.lock'):
+        lock_path = project_dir / lock_name
+        if lock_path.is_file():
+            files_set.add(lock_path)
+    files = sorted(files_set)
 
     fd, name = tempfile.mkstemp(suffix='.tar.bz2', prefix='pxt_runtime_')
     os.close(fd)
@@ -96,8 +126,12 @@ def build_db_runtime_bundle(project_dir: Path | None = None) -> Path:
     if runtime_cfg and runtime_cfg.pixeltable_source:
         meta['pixeltable_source'] = runtime_cfg.pixeltable_source.model_dump(exclude_none=True)
 
+    conda_env_yaml = _export_conda_env()
+
     with tarfile.open(bundle_path, 'w:bz2') as tf:
         __add_tarfile(tf, 'metadata.json', json.dumps(meta).encode('utf-8'))
+        if conda_env_yaml is not None:
+            __add_tarfile(tf, 'conda-environment.yaml', conda_env_yaml)
         for f in sorted(files):
             relpath = f.relative_to(project_dir)
             tf.add(f, arcname=f'project/{relpath}')

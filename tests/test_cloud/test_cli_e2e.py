@@ -21,8 +21,10 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import textwrap
 import time
 import uuid
@@ -144,6 +146,9 @@ def _wait_for_state(resource_type: str, uri: str, desired: str, *, timeout: int 
 # ── resources fixture ─────────────────────────────────────────────────────────
 
 
+_SVC_NAME = 'e2e-svc'  # must match [[pixeltable.service]] name in sample_app/pixeltable.toml
+
+
 class Resources(NamedTuple):
     org_slug: str
     db_slug: str
@@ -152,63 +157,28 @@ class Resources(NamedTuple):
     svc_uri: str
     svc_base: str
     table_uri: str  # pxt://org:db/e2e_items
-    toml_dir: Path  # temp dir holding pixeltable.toml for service config
-
-
-def _write_initial_toml(toml_dir: Path, svc_name: str) -> None:
-    """4-route TOML (no query route yet — added by service update later)."""
-    (toml_dir / 'pixeltable.toml').write_text(
-        f'[[pixeltable.service]]\n'
-        f'name = "{svc_name}"\n\n'
-        '[[pixeltable.service.routes]]\n'
-        'path    = "/insert"\ntype    = "insert"\ntable   = "e2e_items"\n'
-        'inputs  = ["id", "name"]\noutputs = ["id", "name", "name_upper"]\n\n'
-        '[[pixeltable.service.routes]]\n'
-        'path    = "/compute"\ntype    = "compute"\ntable   = "e2e_items"\n'
-        'inputs  = ["id", "name"]\noutputs = ["name_upper"]\n\n'
-        '[[pixeltable.service.routes]]\n'
-        'path    = "/update"\ntype    = "update"\ntable   = "e2e_items"\n'
-        'inputs  = ["name"]\noutputs = ["id", "name", "name_upper"]\n\n'
-        '[[pixeltable.service.routes]]\n'
-        'path          = "/delete"\ntype          = "delete"\ntable         = "e2e_items"\n'
-        'match_columns = ["id"]\n'
-    )
-
-
-def _write_full_toml(toml_dir: Path, svc_name: str) -> None:
-    """5-route TOML with the query route added (used for service update)."""
-    _write_initial_toml(toml_dir, svc_name)
-    with open(toml_dir / 'pixeltable.toml', 'a', encoding='utf-8') as f:
-        f.write(
-            '\n[[pixeltable.service.routes]]\n'
-            'path    = "/find"\ntype    = "query"\nquery   = "udfs:find_by_id"\n'
-            'inputs  = ["item_id"]\none_row = true\nmethod  = "get"\n'
-        )
 
 
 @pytest.fixture(scope='module')
-def resources(tmp_path_factory: pytest.TempPathFactory, request: pytest.FixtureRequest) -> Iterator[Resources]:
+def resources(request: pytest.FixtureRequest) -> Iterator[Resources]:
     if not _API_KEY:
         pytest.skip('PIXELTABLE_API_KEY not set')
 
     run_id = uuid.uuid4().hex[:8]
     db_slug = f'clitest-e2e-{run_id}'
-    svc_name = f'svc-e2e-{run_id}'
     db_uri = f'pxt://{_ORG_SLUG}:{db_slug}'
-    svc_uri = f'{db_uri}/services/{svc_name}'
-    svc_base = f'https://{_ORG_SLUG}-{db_slug}.{_SVC_DOMAIN}/{svc_name}'
+    svc_uri = f'{db_uri}/services/{_SVC_NAME}'
+    svc_base = f'https://{_ORG_SLUG}-{db_slug}.{_SVC_DOMAIN}/{_SVC_NAME}'
     table_uri = f'{db_uri}/e2e_items'
-    toml_dir = tmp_path_factory.mktemp('cloud_e2e_toml')
 
     r = Resources(
         org_slug=_ORG_SLUG,
         db_slug=db_slug,
-        svc_name=svc_name,
+        svc_name=_SVC_NAME,
         db_uri=db_uri,
         svc_uri=svc_uri,
         svc_base=svc_base,
         table_uri=table_uri,
-        toml_dir=toml_dir,
     )
     try:
         yield r
@@ -224,14 +194,10 @@ def resources(tmp_path_factory: pytest.TempPathFactory, request: pytest.FixtureR
 
 
 class TestCloudE2E:
-    # ── 0. daemon restart ────────────────────────────────────────────────────
-
-    def test_0_daemon_restart(self) -> None:
+    def test_daemon_restart(self) -> None:
         subprocess.run(['pxt', 'daemon', 'restart'], capture_output=True, env=_cloud_env(), check=False)
 
-    # ── 1. help smoke tests ───────────────────────────────────────────────────
-
-    def test_1a_db_help(self) -> None:
+    def test_help_db(self) -> None:
         out = _pxt('db', '--help', check=False)
         assert 'create' in out
         assert 'list' in out
@@ -239,12 +205,12 @@ class TestCloudE2E:
         assert 'update-runtime' in out
         assert 'status' in out
 
-    def test_1b_db_update_help(self) -> None:
+    def test_help_db_update(self) -> None:
         out = _pxt('db', 'update', '--help', check=False)
         assert '--workers' in out
         assert '--cpu' in out
 
-    def test_1c_service_help(self) -> None:
+    def test_help_service(self) -> None:
         out = _pxt('service', '--help', check=False)
         assert 'create' in out
         assert 'update' in out
@@ -252,53 +218,43 @@ class TestCloudE2E:
         assert 'start' in out
         assert 'status' in out
 
-    def test_1d_service_update_help(self) -> None:
+    def test_help_service_update(self) -> None:
         out = _pxt('service', 'update', '--help', check=False)
         assert '--workers' in out
 
-    def test_1e_org_help(self) -> None:
+    def test_help_org(self) -> None:
         out = _pxt('org', '--help', check=False)
         assert 'list' in out
         assert 'status' in out
 
-    # ── 2. org list / status ──────────────────────────────────────────────────
-
-    def test_2a_org_list(self, resources: Resources) -> None:
+    def test_org_list(self, resources: Resources) -> None:
         out = _pxt_json('org', 'list')
         assert '[' in out or '{' in out
 
-    def test_2b_org_status(self, resources: Resources) -> None:
+    def test_org_status(self, resources: Resources) -> None:
         out = _pxt_json('org', 'status', f'pxt://{resources.org_slug}')
         assert resources.org_slug in out
 
-    # ── 3. db create ─────────────────────────────────────────────────────────
-
-    def test_3_db_create(self, resources: Resources) -> None:
+    def test_db_create(self, resources: Resources) -> None:
         _pxt('db', 'create', resources.db_uri)
         out = _pxt_json('db', 'status', resources.db_uri)
         assert 'AVAILABLE' in out
         assert resources.db_slug in out
 
-    # ── 4. db list / status ───────────────────────────────────────────────────
-
-    def test_4a_db_list(self, resources: Resources) -> None:
+    def test_db_list(self, resources: Resources) -> None:
         out = _pxt_json('db', 'list', f'pxt://{resources.org_slug}')
         assert resources.db_slug in out
 
-    def test_4b_db_status(self, resources: Resources) -> None:
+    def test_db_status(self, resources: Resources) -> None:
         out = _pxt_json('db', 'status', resources.db_uri)
         assert resources.db_slug in out
 
-    # ── 5. db update ──────────────────────────────────────────────────────────
-
-    def test_5_db_update(self, resources: Resources) -> None:
+    def test_db_update(self, resources: Resources) -> None:
         _pxt('db', 'update', resources.db_uri, '--workers', '2')
         out = _pxt_json('db', 'status', resources.db_uri)
         assert resources.db_slug in out
 
-    # ── 6. SDK: create table + insert rows ───────────────────────────────────
-
-    def test_6_sdk_create_table(self, resources: Resources) -> None:
+    def test_sdk_create_table(self, resources: Resources) -> None:
         code = f"""
             import pixeltable as pxt
             pxt.init()
@@ -321,7 +277,7 @@ class TestCloudE2E:
                 time.sleep(20)
         assert 'rows: 5' in out, f'SDK table create failed:\n{out}'
 
-    def test_6b_sdk_list_tables(self, resources: Resources) -> None:
+    def test_sdk_list_tables(self, resources: Resources) -> None:
         code = f"""
             import pixeltable as pxt
             pxt.init()
@@ -331,7 +287,7 @@ class TestCloudE2E:
         out = _sdk(code)
         assert 'e2e_items' in out, f'list_tables did not show e2e_items:\n{out}'
 
-    def test_6c_sdk_get_table_count(self, resources: Resources) -> None:
+    def test_sdk_table_count(self, resources: Resources) -> None:
         code = f"""
             import pixeltable as pxt
             pxt.init()
@@ -341,7 +297,7 @@ class TestCloudE2E:
         out = _sdk(code)
         assert 'count: 5' in out, f'table count wrong:\n{out}'
 
-    def test_6d_sdk_read_rows(self, resources: Resources) -> None:
+    def test_sdk_read_rows(self, resources: Resources) -> None:
         code = f"""
             import pixeltable as pxt
             pxt.init()
@@ -354,44 +310,30 @@ class TestCloudE2E:
         for i in range(5):
             assert f'{i} item_{i}' in out, f'row {i} missing:\n{out}'
 
-    # ── 7. service create ─────────────────────────────────────────────────────
-
-    def test_7_service_create(self, resources: Resources) -> None:
-        _write_initial_toml(resources.toml_dir, resources.svc_name)
+    def test_service_create(self, resources: Resources) -> None:
         out = _pxt_json(
-            'service',
-            'create',
-            resources.svc_name,
-            '--base-uri',
-            resources.db_uri,
-            '--workers',
-            '1',
-            cwd=resources.toml_dir,
+            'service', 'create', resources.svc_name, '--base-uri', resources.db_uri, '--workers', '1', cwd=_SAMPLE_APP
         )
         assert resources.svc_name in out
 
-    # ── 8. service list / status ──────────────────────────────────────────────
-
-    def test_8a_service_list(self, resources: Resources) -> None:
+    def test_service_list(self, resources: Resources) -> None:
         out = _pxt_json('service', 'list', resources.db_uri)
         assert resources.svc_name in out
 
-    def test_8b_service_status(self, resources: Resources) -> None:
+    def test_service_status(self, resources: Resources) -> None:
         out = _pxt_json('service', 'status', resources.svc_uri)
         assert resources.svc_name in out
 
-    def test_8c_service_available(self, resources: Resources) -> None:
+    def test_service_available(self, resources: Resources) -> None:
         out = _pxt_json('service', 'status', resources.svc_uri)
         assert 'AVAILABLE' in out
 
-    # ── 9-10. probe /insert ───────────────────────────────────────────────────
-
-    def test_9_probe_insert(self, resources: Resources) -> None:
+    def test_route_insert(self, resources: Resources) -> None:
         resp = _post(f'{resources.svc_base}/insert', {'id': 9000, 'name': 'lifecycle_probe'})
         assert resp.status_code == 200
         assert 'name_upper' in resp.text
 
-    def test_10_sdk_cross_check_insert(self, resources: Resources) -> None:
+    def test_sdk_verify_insert(self, resources: Resources) -> None:
         code = f"""
             import pixeltable as pxt
             pxt.init()
@@ -402,24 +344,22 @@ class TestCloudE2E:
         out = _sdk(code)
         assert 'rows: 1' in out, f'SDK did not see id=9000 inserted via service:\n{out}'
 
-    # ── 11. probe /compute /update /delete ────────────────────────────────────
-
-    def test_11a_probe_compute(self, resources: Resources) -> None:
+    def test_route_compute(self, resources: Resources) -> None:
         resp = _post(f'{resources.svc_base}/compute', {'id': 9001, 'name': 'compute_probe'})
         assert resp.status_code == 200
         assert 'COMPUTE_PROBE' in resp.text
 
-    def test_11b_probe_update(self, resources: Resources) -> None:
+    def test_route_update(self, resources: Resources) -> None:
         resp = _post(f'{resources.svc_base}/update', {'id': 9000, 'name': 'updated_probe'})
         assert resp.status_code == 200
         assert 'UPDATED_PROBE' in resp.text
 
-    def test_11c_probe_delete(self, resources: Resources) -> None:
+    def test_route_delete(self, resources: Resources) -> None:
         resp = _post(f'{resources.svc_base}/delete', {'id': 9000})
         assert resp.status_code == 200
         assert 'num_rows' in resp.text
 
-    def test_11d_sdk_verify_compute_delete(self, resources: Resources) -> None:
+    def test_sdk_verify_compute_delete(self, resources: Resources) -> None:
         code = f"""
             import pixeltable as pxt
             pxt.init()
@@ -431,78 +371,74 @@ class TestCloudE2E:
         assert '9001: 1' in out, f'id=9001 not persisted:\n{out}'
         assert '9000: 0' in out, f'id=9000 not deleted:\n{out}'
 
-    # ── 12. db update-runtime (~10 min CodeBuild) ─────────────────────────────
-
-    def test_12_update_runtime(self, resources: Resources) -> None:
+    def test_db_update_runtime(self, resources: Resources) -> None:
         out = _pxt('db', 'update-runtime', resources.db_uri, '--json', cwd=_SAMPLE_APP, timeout=1200)
         # stdout + stderr are combined by _pxt; find the JSON line (starts with '{')
         json_line = next((line for line in out.splitlines() if line.startswith('{')), None)
         assert json_line is not None, f'No JSON in update-runtime output:\n{out}'
         data = json.loads(json_line)
         assert data.get('state') == 'AVAILABLE', f'update-runtime did not return AVAILABLE:\n{out}'
-        # last_build_state is only present once the backend supports it; when present, must be ACTIVE
-        if data.get('last_build_state') is not None:
-            assert data.get('last_build_state') == 'ACTIVE', (
-                f'Runtime build did not succeed (last_build_state={data.get("last_build_state")!r}, '
-                f'error={data.get("last_build_error")!r}):\n{out}'
-            )
-
-    # ── 13. service update: add query route ───────────────────────────────────
-
-    def test_13_service_update_add_query_route(self, resources: Resources) -> None:
-        _write_full_toml(resources.toml_dir, resources.svc_name)
-        _pxt_json(
-            'service',
-            'update',
-            resources.svc_uri,
-            '--workers',
-            '2',
-            '--config',
-            str(resources.toml_dir / 'pixeltable.toml'),
-            cwd=resources.toml_dir,
+        # update-runtime output may not include last_build_state; always verify via db status
+        status_out = _pxt_json('db', 'status', resources.db_uri)
+        status = json.loads(status_out)
+        assert status.get('last_build_state') == 'ACTIVE', (
+            f'Runtime build did not succeed (last_build_state={status.get("last_build_state")!r}, '
+            f'error={status.get("last_build_error")!r})'
         )
+
+    def test_service_update_add_query_route(self, resources: Resources) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_toml = Path(tmp) / 'pixeltable.toml'
+            shutil.copy(_SAMPLE_APP / 'pixeltable.toml', tmp_toml)
+            with open(tmp_toml, 'a', encoding='utf-8') as f:
+                f.write(
+                    '\n[[pixeltable.service.routes]]\n'
+                    'type    = "query"\n'
+                    'path    = "/find"\n'
+                    'query   = "udfs:find_by_id"\n'
+                    'inputs  = ["item_id"]\n'
+                    'one_row = true\n'
+                    'method  = "get"\n'
+                )
+            _pxt_json(
+                'service', 'update', resources.svc_uri, '--workers', '2', '--config', str(tmp_toml), cwd=_SAMPLE_APP
+            )
         out = _wait_for_state('service', resources.svc_uri, 'AVAILABLE', timeout=180)
         assert 'AVAILABLE' in out
 
-    def test_13b_probe_query_route(self, resources: Resources) -> None:
+    def test_route_query(self, resources: Resources) -> None:
         # Rolling update race: after service update the old pod (without /find) may still
         # serve while the new pod is pulling the update-runtime image. Give it up to 3 min.
         resp = _get(f'{resources.svc_base}/find', params={'item_id': 1}, retries=24, delay=8.0)
         assert resp.status_code == 200, f'/find returned {resp.status_code}: {resp.text[:300]}'
         assert 'item_1' in resp.text
 
-    # ── 14-16. stop service + DB, verify ─────────────────────────────────────
-
-    def test_14_service_stop(self, resources: Resources) -> None:
+    def test_service_stop(self, resources: Resources) -> None:
         out = _pxt_json('service', 'stop', resources.svc_uri)
         assert 'STOPPED' in out
 
-    def test_15_db_stop(self, resources: Resources) -> None:
+    def test_db_stop(self, resources: Resources) -> None:
         out = _pxt_json('db', 'stop', resources.db_uri)
         assert 'STOPPED' in out
 
-    def test_16a_service_status_stopped(self, resources: Resources) -> None:
+    def test_service_status_stopped(self, resources: Resources) -> None:
         out = _pxt_json('service', 'status', resources.svc_uri)
         assert 'STOPPED' in out
 
-    def test_16b_db_status_stopped(self, resources: Resources) -> None:
+    def test_db_status_stopped(self, resources: Resources) -> None:
         out = _pxt_json('db', 'status', resources.db_uri)
         assert 'STOPPED' in out
 
-    # ── 17-18. start DB + service ─────────────────────────────────────────────
-
-    def test_17_db_start(self, resources: Resources) -> None:
+    def test_db_start(self, resources: Resources) -> None:
         out = _pxt_json('db', 'start', resources.db_uri)
         assert 'AVAILABLE' in out
 
-    def test_18_service_start(self, resources: Resources) -> None:
+    def test_service_start(self, resources: Resources) -> None:
         _pxt_json('service', 'start', resources.svc_uri)
         out = _wait_for_state('service', resources.svc_uri, 'AVAILABLE', timeout=120)
         assert 'AVAILABLE' in out
 
-    # ── 19. persistence after stop/start ─────────────────────────────────────
-
-    def test_19_sdk_persistence(self, resources: Resources) -> None:
+    def test_sdk_persistence_after_restart(self, resources: Resources) -> None:
         code = f"""
             import pixeltable as pxt
             pxt.init()
@@ -518,14 +454,12 @@ class TestCloudE2E:
         assert '9001_ok: True' in out, f'id=9001 missing after restart:\n{out}'
         assert '9000_gone: True' in out, f'id=9000 reappeared after restart:\n{out}'
 
-    # ── 20. probe /insert post-restart ────────────────────────────────────────
-
-    def test_20_probe_insert_post_restart(self, resources: Resources) -> None:
+    def test_route_insert_after_restart(self, resources: Resources) -> None:
         resp = _post(f'{resources.svc_base}/insert', {'id': 9002, 'name': 'post_restart'})
         assert resp.status_code == 200
         assert 'name_upper' in resp.text
 
-    def test_20b_sdk_verify_post_restart_insert(self, resources: Resources) -> None:
+    def test_sdk_verify_insert_after_restart(self, resources: Resources) -> None:
         code = f"""
             import pixeltable as pxt
             pxt.init()
@@ -535,10 +469,8 @@ class TestCloudE2E:
         out = _sdk(code)
         assert '9002: 1' in out, f'id=9002 not found after restart:\n{out}'
 
-    # ── 21-22. delete service + DB ────────────────────────────────────────────
-
-    def test_21_service_delete(self, resources: Resources) -> None:
+    def test_service_delete(self, resources: Resources) -> None:
         _pxt('service', 'delete', resources.svc_uri, '--json')
 
-    def test_22_db_delete(self, resources: Resources) -> None:
+    def test_db_delete(self, resources: Resources) -> None:
         _pxt('db', 'delete', resources.db_uri, '--json')

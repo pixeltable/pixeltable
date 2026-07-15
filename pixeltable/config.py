@@ -141,7 +141,8 @@ class ServiceConfig(pydantic.BaseModel):
 class PixeltableSource(pydantic.BaseModel):
     """Git source for pixeltable to install in the container runtime image.
 
-    Specify exactly one of branch, rev (commit SHA), or tag alongside the git URL.
+    Provide git alongside at most one of branch, rev (commit SHA), or tag.
+    If multiple are set, the server resolves them in priority order: rev > tag > branch.
     Used by pip/poetry/none bundle types; uv bundles use pyproject.toml [tool.uv.sources] instead.
 
     Example in pixeltable.toml:

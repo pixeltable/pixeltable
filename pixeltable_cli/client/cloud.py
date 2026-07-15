@@ -24,8 +24,8 @@ _RUNTIME_POLL_TIMEOUT = 900
 
 def parse_db_uri(uri: str, prog: str = 'pxt') -> tuple[str, str]:
     """Parse pxt://org:db and return (org_slug, db_slug). Exits on error."""
-    org, db, _ = _split_pxt_uri(uri)
-    if not org or not db:
+    org, db, path = _split_pxt_uri(uri)
+    if not org or not db or path is not None:
         print(f'{prog}: error: URI must be pxt://org:db, got {uri!r}', file=sys.stderr)
         sys.exit(2)
     return org, db
@@ -33,8 +33,8 @@ def parse_db_uri(uri: str, prog: str = 'pxt') -> tuple[str, str]:
 
 def parse_org_uri(uri: str, prog: str = 'pxt') -> str:
     """Parse pxt://org and return org_slug. Exits on error."""
-    org, _, _ = _split_pxt_uri(uri)
-    if not org:
+    org, db, _ = _split_pxt_uri(uri)
+    if not org or db is not None:
         print(f'{prog}: error: URI must be pxt://org, got {uri!r}', file=sys.stderr)
         sys.exit(2)
     return org
