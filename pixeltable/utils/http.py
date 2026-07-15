@@ -35,9 +35,22 @@ _RETRIABLE_HTTP_STATUSES: dict[str, int] = {
 }
 
 
+def redact_url(url: str) -> str:
+    """Remove credentials, query parameters, and fragments from a URL before it is logged or exported."""
+    try:
+        parsed = urllib.parse.urlsplit(url)
+    except ValueError:
+        # A malformed URL is unsafe to reproduce because we cannot reliably identify its credential-bearing parts.
+        return '<redacted-url>'
+    netloc = parsed.netloc.rpartition('@')[2]
+    return urllib.parse.urlunsplit((parsed.scheme, netloc, parsed.path, '', ''))
+
+
 def is_retriable_error(exc: Exception) -> tuple[bool, float | None]:
-    """Attempts to guess if the exception indicates a retriable eror. If that is the case, returns True
-    and the retry delay in seconds."""
+    """
+    Attempts to guess if the exception indicates a retriable error.
+    If that is the case, returns True and the retry delay in seconds.
+    """
 
     # Check for HTTP status TOO_MANY_REQUESTS in various exception classes.
     # We look for attributes that contain status codes, instead of checking the type of the exception,
@@ -150,7 +163,8 @@ def fetch_url(url: str, allow_local_file: bool = False) -> Path:
     from .local_store import TempStore
     from .object_stores import ObjectOps
 
-    _logger.debug(f'fetching url={url} thread_name={threading.current_thread().name}')
+    safe_url = redact_url(url)
+    _logger.debug(f'fetching url={safe_url} thread_name={threading.current_thread().name}')
     parsed = urllib.parse.urlparse(url)
 
     if len(parsed.scheme) <= 1:
@@ -170,9 +184,9 @@ def fetch_url(url: str, allow_local_file: bool = False) -> Path:
     # preserve the file extension, if there is one
     tmp_path = TempStore.create_path(extension=(path.suffix if path else ''))
 
-    _logger.debug(f'Downloading {url} to {tmp_path}')
+    _logger.debug(f'Downloading {safe_url} to {tmp_path}')
     ObjectOps.copy_object_to_local_file(url, tmp_path)
-    _logger.debug(f'Downloaded {url} to {tmp_path}')
+    _logger.debug(f'Downloaded {safe_url} to {tmp_path}')
 
     return tmp_path
 

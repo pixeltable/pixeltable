@@ -78,6 +78,16 @@ dependencies = [
 # `pxt serve` hosts a user-defined FastAPI app and shells out to uvicorn; the daemon
 # behind `pxt ls`/`pxt describe`/etc. is stdlib-only and does not need this extra.
 serve = ["fastapi[standard]>=0.120.0"]
+# OpenTelemetry instrumentation. Core pixeltable carries no OTEL dependency; the instrumentation is a
+# separate distribution, opt-in via opentelemetry.instrumentation.pixeltable. The SDK and exporters live
+# here rather than in that package so it stays api-only, per contrib convention.
+otel = [
+    "opentelemetry-instrumentation-pixeltable==0.1.0",
+    "opentelemetry-sdk>=1.39.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.39.0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.39.0",
+    "opentelemetry-instrumentation-fastapi>=0.60b0",
+]
 
 [project.urls]
 homepage = "https://pixeltable.com/"
@@ -103,6 +113,12 @@ override-dependencies = [
     # "huggingface-hub>=1",  # Required due to 'whisperx'
 ]
 
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+opentelemetry-instrumentation-pixeltable = { workspace = true }
+
 [tool.uv-dynamic-versioning]
 vcs = "git"
 style = "pep440"
@@ -112,9 +128,10 @@ bump = true
 dev = [
     "mypy>=1.19",
     "boto3-stubs==1.36.23",
-    "opentelemetry-api>=1.39.0",
+    "opentelemetry-instrumentation-pixeltable",
     "opentelemetry-sdk>=1.39.0",
     "opentelemetry-exporter-otlp-proto-http>=1.39.0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.39.0",
     "pandas-stubs>=2.0",
     "pyarrow-stubs>=19",
     "types-beautifulsoup4>=4.2",
@@ -186,7 +203,6 @@ dev = [
     "twelvelabs>=1.2.0",
     "voyageai>=0.3.7 ; python_version < '3.14'",
     "scenedetect>=0.6.0.1 ; python_version < '3.14' or sys_platform != 'win32'",
-    "opentelemetry-exporter-otlp>=1.38.0",
     "runwayml>=4.12.0",
     "ipywidgets>=8.0.0",
     "mdformat>=1.0.0",
@@ -271,14 +287,24 @@ strict_optional = false
 warn_return_any = true
 warn_unused_ignores = true
 
+[tool.pyright]
+typeCheckingMode = "off"
+extraPaths = ["packages/opentelemetry-instrumentation-pixeltable/src"]
+
 [tool.pytest.ini_options]
-addopts = '-v -m "not remote_api and not expensive and not very_expensive and not benchmark" --strict-markers'
+# Restrict default (pathless) collection to the core test suite. CI invokes `pytest <markers>` with no path,
+# which would otherwise sweep in the separately-distributed packages/*/tests (e.g. the OpenTelemetry
+# instrumentation), whose dependencies are absent in the --no-dev minimal config. Those packages run via their
+# own CI config (see tool/ci_tool.py). Explicit path args on the command line override testpaths as usual.
+testpaths = ["tests"]
+addopts = '-v -m "not remote_api and not expensive and not very_expensive and not benchmark and not otel" --strict-markers'
 markers = [
     "expensive: marks tests as expensive to run",
     "very_expensive: marks tests as very expensive to run",
     "remote_api: marks tests as calling a remote API (such as OpenAI)",
     "benchmark: marks tests as benchmark tests (excluded from regular test runs)",
     "local: test runs only against the in-process catalog, not the proxy (arg: reason)",
+    "otel: marks tests as requiring the otel extra (run on the otel CI leg)",
 ]
 filterwarnings = [
     # Treat *our* warnings as errors (we shouldn't see them fall through in tests)

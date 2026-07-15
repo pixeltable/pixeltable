@@ -90,6 +90,31 @@ app.include_router(router)
 uvicorn.run(app, host='0.0.0.0', port=8000)
 ```
 
+### Compute without persisting
+
+[`Table.compute()`](/sdk/latest/table#method-compute) materializes computed columns for
+input rows and returns the results **without writing to the table**. Use it for previews,
+dry-runs, or request/response APIs that should not store every call.
+
+```python
+# Same schema rules as insert(); nothing is persisted
+rows = t.compute([{'prompt': 'hello'}])
+print(rows[0]['result'])
+```
+
+Expose the same behavior over HTTP with `add_compute_route` (or `@router.compute_route`):
+
+```python
+router.add_compute_route(
+    t, path='/preview', inputs=['prompt'], outputs=['prompt', 'result']
+)
+# POST /preview {"prompt": "..."} → computed fields; table unchanged
+```
+
+This is identical to `add_insert_route`, except no row is inserted. For declarative
+TOML/`pxt serve` configs, `type = "compute"` is currently treated as an insert alias;
+use the Python `FastAPIRouter` API when you need true non-persisting compute.
+
 <Warning>
 `@pxt.query` eagerly evaluates the function body at decoration time. Create tables
 **before** defining queries that reference them. Use `if_exists='ignore'` to keep
@@ -127,12 +152,12 @@ endpoint).
 
 ## Decorator-style routes
 
-`add_insert_route()` / `add_update_route()` build a response model automatically
-from the column schema. When you need a *different* response shape -- e.g. a
-richer API envelope, derived fields, or a stripped-down payload -- use the
-`@router.insert_route` / `@router.update_route` decorators. The decorated
-function receives the requested output columns as keyword arguments and returns
-a `pydantic.BaseModel` subclass that defines the HTTP response body.
+`add_insert_route()` / `add_compute_route()` / `add_update_route()` build a response
+model automatically from the column schema. When you need a *different* response
+shape -- e.g. a richer API envelope, derived fields, or a stripped-down payload --
+use the `@router.insert_route` / `@router.compute_route` / `@router.update_route`
+decorators. The decorated function receives the requested output columns as keyword
+arguments and returns a `pydantic.BaseModel` subclass that defines the HTTP response body.
 
 ```python
 import pydantic
@@ -300,7 +325,7 @@ the route kind and which additional fields are valid.
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `type` | `"insert"` / `"update"` / `"delete"` / `"query"` | yes | -- | Route kind |
+| `type` | `"insert"` / `"compute"` / `"update"` / `"delete"` / `"query"` | yes | -- | Route kind. In `pxt serve` TOML, `"compute"` is currently an alias for `"insert"`; use Python `add_compute_route` for non-persisting compute. |
 | `path` | string | yes | -- | URL path (e.g., `"/generate"`) |
 | `background` | bool | no | `false` | Run the operation in a background thread and return a job handle |
 
