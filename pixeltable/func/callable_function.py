@@ -156,7 +156,9 @@ class CallableFunction(Function):
     def display_name(self) -> str:
         if self._display_name is not None:
             return self._display_name
-        return self.self_name
+        if self.self_name is not None:
+            return self.self_name
+        return super().display_name
 
     @property
     def name(self) -> str:

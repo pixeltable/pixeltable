@@ -23,10 +23,21 @@ import numpy as np
 import PIL.Image
 import pydantic
 import sqlalchemy as sql
+import typing_extensions
 from typing_extensions import NotRequired, _AnnotatedAlias, is_typeddict
 
 import pixeltable.exceptions as excs
 from pixeltable.utils import parse_local_file_path
+
+# The TypedDict field markers Required/NotRequired affect a key's presence (recorded in __optional_keys__), not
+# the field's value type. They may be imported from typing_extensions or, on Python 3.11+, from typing; treat all
+# of those as equivalent.
+_TYPED_DICT_FIELD_MARKERS = {
+    NotRequired,
+    typing_extensions.Required,
+    getattr(typing, 'NotRequired', None),
+    getattr(typing, 'Required', None),
+} - {None}
 
 
 class ColumnType:
@@ -354,9 +365,9 @@ class ColumnType:
             return cls.from_python_type(
                 type_args[0], nullable_default=False, allow_builtin_types=allow_builtin_types
             ).copy(nullable=False)
-        elif origin is NotRequired:
-            # NotRequired[T] marks an optional TypedDict field; the optionality is recorded in the TypedDict's
-            # __optional_keys__, so the field type is simply T
+        elif origin in _TYPED_DICT_FIELD_MARKERS:
+            # Required[T]/NotRequired[T] mark a TypedDict field's key presence (recorded in __optional_keys__), so
+            # the field's value type is simply T
             assert len(type_args) == 1
             return cls.from_python_type(type_args[0], allow_builtin_types=allow_builtin_types)
         elif origin is typing.Annotated:

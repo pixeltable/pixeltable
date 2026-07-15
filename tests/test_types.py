@@ -9,6 +9,7 @@ import numpy as np
 import PIL.Image
 import pydantic
 import pytest
+import typing_extensions
 
 from pixeltable import exceptions as excs
 from pixeltable.type_system import (
@@ -66,6 +67,14 @@ class TypedDict3(TypedDict):
     d: Tuple[int, str]  # Python 3.8-style Tuple
     e: list[int]
     f: List[int]  # Python 3.8-style List
+
+
+# typing_extensions.TypedDict honors the Required/NotRequired markers when computing __optional_keys__ on all
+# supported Python versions (typing.TypedDict only does so on 3.11+)
+class TypedDict4(typing_extensions.TypedDict, total=False):
+    a: typing_extensions.Required[int]  # explicit Required field marker (value type is Int; key is required)
+    b: typing_extensions.NotRequired[str]  # explicit NotRequired field marker
+    c: float  # optional by total=False
 
 
 class Model1(pydantic.BaseModel):
@@ -219,6 +228,17 @@ class TestTypes:
                 ),
                 "Json[{'a': String, 'b': Json[(Int, ...)] | None, 'c': Json[(String, ...)], 'd': Int | None}, "
                 "optional_keys=['d']]",
+            ),
+            # Required/NotRequired field markers resolve to the inner type; only the required field stays out of
+            # optional_keys
+            (
+                Json[TypedDict4],
+                JsonType(
+                    JsonType.TypeSchema(
+                        {'a': IntType(), 'b': StringType(), 'c': FloatType()}, optional_keys=frozenset(('b', 'c'))
+                    )
+                ),
+                "Json[{'a': Int, 'b': String, 'c': Float}, optional_keys=['b', 'c']]",
             ),
             # Json "convenience structures"
             (Json[[int]], JsonType(JsonType.TypeSchema([], variadic_type=IntType())), 'Json[(Int, ...)]'),
