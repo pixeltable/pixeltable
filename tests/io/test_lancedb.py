@@ -35,7 +35,7 @@ class TestLanceDb:
             'c_timestamp': pxt.Timestamp,
             'c_date': pxt.Date,
             'c_json': pxt.Json,
-            'c_array': pxt.Array[(10,), pxt.Float],  # type: ignore[misc]
+            'c_array': pxt.Array[(10,), pxt.Float],
             'c_image': pxt.Image,
         }
         t = pxt.create_table(p('test_export'), schema)

@@ -531,7 +531,7 @@ class TestAudio:
             audio_data = audio_data.flatten()
 
         # Use encode_audio to encode it to an audio file
-        t = pxt.create_table('test_encode_array_to_audio', {'audio_array': pxt.Array[pxt.Float]})  # type: ignore[misc]
+        t = pxt.create_table('test_encode_array_to_audio', {'audio_array': pxt.Array[pxt.Float]})
         output_sample_rate = sample_rate // 2 if downsample else sample_rate
         t.add_computed_column(
             audio_file=encode_audio(
@@ -584,7 +584,7 @@ class TestAudio:
 
         update_status = t.add_computed_column(
             audio_file=encode_audio(
-                t.audio.array.astype(pxt.Array[pxt.Float]),  # type: ignore[misc]
+                t.audio.array.astype(pxt.Array[pxt.Float]),
                 input_sample_rate=t.audio.sampling_rate.astype(pxt.Int),
                 format='flac',
             )
@@ -668,13 +668,13 @@ class TestAudio:
     @pytest.mark.local('pure UDF test')
     def test_encode_audio_errors(self, uses_db: None) -> None:
         # invalid format
-        t = pxt.create_table('test_encode', {'audio_array': pxt.Array[pxt.Float]})  # type: ignore[misc]
+        t = pxt.create_table('test_encode', {'audio_array': pxt.Array[pxt.Float]})
         t.insert(audio_array=np.zeros(100, dtype=np.float32))
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Only the following formats are supported'):
             t.select(encode_audio(t.audio_array, input_sample_rate=44100, format='invalid')).collect()
 
         # invalid array shape: (3, N) is neither mono nor stereo
-        t2 = pxt.create_table('test_encode2', {'audio_array': pxt.Array[pxt.Float]})  # type: ignore[misc]
+        t2 = pxt.create_table('test_encode2', {'audio_array': pxt.Array[pxt.Float]})
         t2.insert(audio_array=np.zeros((3, 100), dtype=np.float32))
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Supported input array shapes are'):
             t2.select(encode_audio(t2.audio_array, input_sample_rate=44100, format='wav')).collect()

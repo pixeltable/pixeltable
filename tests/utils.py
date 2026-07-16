@@ -326,7 +326,7 @@ def assert_schema_eq(actual: pxt.Table, expected: pxt.Table) -> None:
 # from public Pixeltable types without reaching into a column's internal ColumnType.
 ALL_DATATYPES_SCHEMA: dict[str, Any] = {
     'row_id': pxt.Required[pxt.Int],
-    'c_array': pxt.Array[(10,), pxt.Float],  # type: ignore[misc]
+    'c_array': pxt.Array[(10,), pxt.Float],
     'c_audio': pxt.Audio,
     'c_bool': pxt.Bool,
     'c_date': pxt.Date,

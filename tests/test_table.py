@@ -1586,16 +1586,16 @@ class TestTable:
             'req_binary_col': pxt.Required[pxt.Binary],
             'json_col': pxt.Json,
             'req_json_col': pxt.Required[pxt.Json],
-            'array_col': pxt.Array[(5, None, 3), pxt.Int],  # type: ignore[misc]
-            'req_array_col': pxt.Required[pxt.Array[(5, None, 3), pxt.Int]],  # type: ignore[dict-item, misc]
-            'gen_array_col': pxt.Array[pxt.Float],  # type: ignore[misc]
+            'array_col': pxt.Array[(5, None, 3), pxt.Int],
+            'req_array_col': pxt.Required[pxt.Array[(5, None, 3), pxt.Int]],
+            'gen_array_col': pxt.Array[pxt.Float],
             'req_gen_array_col': pxt.Required[pxt.Array[pxt.Float]],
             'full_gen_array_col': pxt.Array,
             'req_full_gen_array_col': pxt.Required[pxt.Array],
             'img_col': pxt.Image,
             'req_img_col': pxt.Required[pxt.Image],
-            'spec_img_col': pxt.Image[(300, 300), 'RGB'],  # type: ignore[misc]
-            'req_spec_img_col': pxt.Required[pxt.Image[(300, 300), 'RGB']],  # type: ignore[dict-item, misc]
+            'spec_img_col': pxt.Image[(300, 300), 'RGB'],
+            'req_spec_img_col': pxt.Required[pxt.Image[(300, 300), 'RGB']],
             'video_col': pxt.Video,
             'req_video_col': pxt.Required[pxt.Video],
             'audio_col': pxt.Audio,
@@ -1975,9 +1975,9 @@ class TestTable:
             {
                 'json_col_1': MySchema,
                 'json_col_2': MySchemaOpt,
-                'json_col_3': pxt.Json[tuple[pxt.Int, pxt.String]],  # type: ignore[misc]
-                'json_col_4': pxt.Json[tuple[pxt.Int, ...]],  # type: ignore[misc]
-                'json_col_5': pxt.Json[(pxt.Int, pxt.String, ...)],  # type: ignore[misc]  # noqa: RUF031
+                'json_col_3': pxt.Json[tuple[pxt.Int, pxt.String]],
+                'json_col_4': pxt.Json[tuple[pxt.Int, ...]],
+                'json_col_5': pxt.Json[(pxt.Int, pxt.String, ...)],  # noqa: RUF031
             },
         )
         t.insert(json_col_1={'a': 'coconuts', 'b': 1, 'c': 3.0, 'd': True})
@@ -2274,7 +2274,7 @@ class TestTable:
             'c2': pxt.Int,
             'c3': pxt.Float,
             'c4': pxt.Bool,
-            'c5': pxt.Array[(2, 3), pxt.Int],  # type: ignore[misc]
+            'c5': pxt.Array[(2, 3), pxt.Int],
             'c6': pxt.Json,
             'c7': pxt.Image,
             'c8': pxt.Video,
@@ -2291,7 +2291,7 @@ class TestTable:
             'c2': pxt.Required[pxt.Int],
             'c3': pxt.Required[pxt.Float],
             'c4': pxt.Required[pxt.Bool],
-            'c5': pxt.Required[pxt.Array[(2, 3), pxt.Int]],  # type: ignore[misc, dict-item]
+            'c5': pxt.Required[pxt.Array[(2, 3), pxt.Int]],
             'c6': pxt.Required[pxt.Json],
             'c7': pxt.Required[pxt.Image],
             'c8': pxt.Required[pxt.Video],
@@ -2365,13 +2365,13 @@ class TestTable:
 
         # wrong array shape
         pxt.drop_table(tbl_name, if_not_exists='ignore')
-        t = pxt.create_table(tbl_name, {'c5': pxt.Array[(2, 3), np.float32]})  # type: ignore[misc]
+        t = pxt.create_table(tbl_name, {'c5': pxt.Array[(2, 3), np.float32]})
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'expected numpy.ndarray\(\(2, 3\)'):
             t.insert(c5=np.ndarray((3, 2), dtype=np.float32))
 
         # bad array literal
         pxt.drop_table(tbl_name, if_not_exists='ignore')
-        t = pxt.create_table(tbl_name, {'c5': pxt.Array[pxt.Int]})  # type: ignore[misc]
+        t = pxt.create_table(tbl_name, {'c5': pxt.Array[pxt.Int]})
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'expected numpy.ndarray of dtype int64'):
             t.insert(c5=np.ndarray((3, 2), dtype=np.float32))
 
