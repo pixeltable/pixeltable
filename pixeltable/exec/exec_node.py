@@ -164,6 +164,8 @@ class ExecNode(abc.ABC):
                 result_queue.put(e)
             finally:
                 telemetry.exit_context(hooks_token)
+                loop.run_until_complete(thread_runtime.close_clients())
+                loop.run_until_complete(loop.shutdown_asyncgens())
                 loop.close()
 
         thread = threading.Thread(target=run, daemon=True)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import inspect
 import logging
 import threading
 from contextlib import contextmanager
@@ -181,6 +182,19 @@ class Runtime:
         client = Env.get().create_client(name)
         self._clients[name] = client
         return client
+
+    async def close_clients(self) -> None:
+        for client in self._clients.values():
+            close = getattr(client, 'close', None)
+            if close is None:
+                continue
+            try:
+                result = close()
+                if inspect.isawaitable(result):
+                    await result
+            except Exception as e:
+                _logger.debug(f'Error closing client: {e}')
+        self._clients.clear()
 
     def run_coro(self, coro: Coroutine[Any, Any, _T]) -> _T:
         """Run a coroutine synchronously in a separate thread with its own persistent event loop."""
