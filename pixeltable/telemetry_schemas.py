@@ -6,8 +6,9 @@ written inventory of what every span carries. Keys are unprefixed; the hub adds 
 export. The hub boundary itself (`span(**attrs)`, `add_attrs(**attrs)`) stays untyped: these schemas are
 a construction-time contract, not a runtime enforcement.
 
-Metric instruments are declared at the bottom of this module (the single inventory of pixeltable metrics)
-and recorded from exactly one owning call site each.
+Metric instruments are declared at the bottom of this module (the single inventory of pixeltable metrics),
+each recorded only from its owning call sites (most have exactly one; the udf instruments record at the
+five mutually exclusive execution sites).
 """
 
 from __future__ import annotations
