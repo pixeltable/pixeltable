@@ -15,6 +15,7 @@ import json
 import logging
 import re
 import sys
+import threading
 import urllib.parse
 import urllib.request
 import uuid
@@ -31,8 +32,47 @@ from pixeltable.env import Env
 
 _logger = logging.getLogger(__name__)
 
+# A loaded schema file's directory is placed on the process-global sys.path so it can import sibling modules.
+# _sys_path_lock guards the (un)registration; _sys_path_added refcounts each directory we add, so concurrent loads
+# of the same directory share one entry that is removed only once the last of them finishes.
+_sys_path_lock = threading.Lock()
+_sys_path_added: dict[str, int] = {}
+
 if TYPE_CHECKING:
     from pixeltable import exprs
+
+
+def _add_to_sys_path(entry: str) -> bool:
+    """Register a directory on sys.path; return True if the caller must later release it.
+
+    Refcounts directories we add so concurrent loads share one entry; a directory already present externally is
+    left untouched (and not released).
+    """
+    with _sys_path_lock:
+        if entry in _sys_path_added:
+            _sys_path_added[entry] += 1
+            return True
+        if entry in sys.path:
+            return False
+        sys.path.append(entry)
+        _sys_path_added[entry] = 1
+        return True
+
+
+def _remove_from_sys_path(entry: str) -> None:
+    """Release a directory registered via _add_to_sys_path(); remove it once the last holder releases it."""
+    with _sys_path_lock:
+        n = _sys_path_added.get(entry)
+        if n is None:
+            return
+        if n > 1:
+            _sys_path_added[entry] = n - 1
+        else:
+            del _sys_path_added[entry]
+            try:
+                sys.path.remove(entry)
+            except ValueError:
+                pass
 
 
 def _build_select(
@@ -541,28 +581,27 @@ def schema_update(schema_path: str, target: str) -> tuple[list[str], list[str]]:
     if not path.is_file():
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'schema file not found: {schema_path}')
 
-    # load under a unique key so a user schema file can't shadow an existing module (eg, one named json.py), and
-    # remove it afterward so nothing leaks per request
+    # load under a unique key so a user schema file can't shadow an existing module (eg, one named json.py); the
+    # key is unique per load, so this needs no synchronization
     module_name = f'pxt_schema_{uuid.uuid4().hex}'
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'cannot load schema file: {schema_path}')
     module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    # put the schema file's own directory on sys.path so it can import sibling modules next to it
+
+    # put the schema file's own directory on sys.path so it can import sibling modules next to it; only the
+    # sys.path (un)registration is synchronized, so concurrent loads still run exec_module() in parallel
     sys_path_entry = str(path.parent)
-    sys.path.insert(0, sys_path_entry)
+    needs_remove = _add_to_sys_path(sys_path_entry)
+    sys.modules[module_name] = module
     try:
         spec.loader.exec_module(module)
     except Exception as e:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'error loading {schema_path}: {e}') from e
     finally:
         sys.modules.pop(module_name, None)
-        # remove the entry we prepended (the first occurrence, in case the directory was already present)
-        try:
-            sys.path.remove(sys_path_entry)
-        except ValueError:
-            pass
+        if needs_remove:
+            _remove_from_sys_path(sys_path_entry)
 
     # a model base carries __registered_models__ as its own class attribute, whereas the models defined
     # on it merely inherit it
