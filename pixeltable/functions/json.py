@@ -9,11 +9,13 @@ Example:
 >>> t.select(pxtf.json.make_list(t.json_col)).collect()
 """
 
+import builtins
 import itertools
 import json
 from typing import Any, Iterator, Literal
 
 import sqlalchemy as sql
+from sqlalchemy.dialects.postgresql import array as pg_array
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, exprs, type_system as ts
@@ -39,6 +41,46 @@ def dumps(obj: pxt.Json) -> str:
 @dumps.to_sql
 def _(obj: sql.ColumnElement) -> sql.ColumnElement:
     return obj.cast(sql.Text)
+
+
+def _jsonb_object_length(obj: sql.ColumnElement) -> sql.ColumnElement:
+    """SQL expression for the number of keys in a jsonb object."""
+    return sql.select(sql.func.count()).select_from(sql.func.jsonb_object_keys(obj)).scalar_subquery()
+
+
+def _jsonb_as_text(obj: sql.ColumnElement) -> sql.ColumnElement:
+    """SQL expression for a jsonb string's underlying text (the empty path '{}' selects the whole value)."""
+    return obj.op('#>>')(pg_array([], type_=sql.Text))
+
+
+@pxt.udf(is_method=True)
+def len(self: pxt.Json) -> int:
+    """
+    Return the number of elements in a JSON array, keys in a JSON object, or characters in a JSON string.
+
+    Not defined for numbers or booleans. A `null` value (or missing path) yields `null`.
+
+    Example:
+
+        >>> t.select(t.detections.bboxes.len()).collect()
+    """
+    if isinstance(self, (list, dict, str)):
+        return builtins.len(self)
+    raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'len() is not defined for a JSON {type(self).__name__}')
+
+
+@len.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    type_of = sql.func.jsonb_typeof(self)
+    return sql.case(
+        (self.is_(None), sql.null()),
+        (type_of == 'null', sql.null()),
+        (type_of == 'array', sql.func.jsonb_array_length(self)),
+        (type_of == 'object', _jsonb_object_length(self)),
+        (type_of == 'string', sql.func.length(_jsonb_as_text(self))),
+        # a number or boolean is not sized: reuse jsonb_array_length's native scalar error
+        else_=sql.func.jsonb_array_length(self),
+    )
 
 
 @pxt.uda

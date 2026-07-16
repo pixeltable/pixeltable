@@ -168,3 +168,30 @@ class TestJson:
                 match=r'list_iterator\(\): Expected a type for `my_int` matching `list`',
             ):
                 pxtf.json.list_iterator(my_int=expr)
+
+    def test_len(self, uses_db: None) -> None:
+        t = pxt.create_table('json_len', {'id': pxt.Int, 'j': pxt.Json})
+        t.insert(
+            [
+                {'id': 1, 'j': [1, 2, 3]},
+                {'id': 2, 'j': []},
+                {'id': 3, 'j': {'a': 1, 'b': 2}},
+                {'id': 4, 'j': {}},
+                {'id': 5, 'j': 'hello'},
+                {'id': 6, 'j': ''},
+                {'id': 7, 'j': None},
+            ]
+        )
+
+        # array elements, object keys, string characters; null -> null
+        rs = t.select(t.id, t.j, n=pxtf.json.len(t.j)).collect()
+        assert rs.schema['n'] == 'Int'
+        assert {r['id']: r['n'] for r in rs} == {1: 3, 2: 0, 3: 2, 4: 0, 5: 5, 6: 0, 7: None}
+        # SQL pushdown in a filter exercises the array, object and string cases of the to_sql translation
+        assert sorted(r['id'] for r in t.where(pxtf.json.len(t.j) > 0).select(t.id).collect()) == [1, 3, 5]
+
+        # len() of a number is undefined; when pushed down it surfaces as a raw DB error
+        tnum = pxt.create_table('json_len_num', {'scalar': pxt.Json})
+        tnum.insert([{'scalar': 5}])
+        with pytest.raises(Exception, match='scalar'):
+            tnum.select(tnum.scalar, n=pxtf.json.len(tnum.scalar)).collect()
