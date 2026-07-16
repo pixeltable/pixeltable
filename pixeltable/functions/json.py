@@ -133,7 +133,7 @@ def list_iterator(
         **kwargs: One or more lists to iterate over. The kwarg names will be used as column names in the output.
             Cannot be specified together with `elements`.
     """
-    assert (elements is None) != (len(kwargs) == 0)
+    assert (elements is None) != (builtins.len(kwargs) == 0)
 
     if elements is not None:
         yield from elements
@@ -161,7 +161,7 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, 'list_iterator(): `mode` argument cannot be used with `elements`'
             )
-        if len(bound_args) > 1:
+        if builtins.len(bound_args) > 1:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 'list_iterator(): Cannot specify both `elements` and keyword arguments',
