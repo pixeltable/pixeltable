@@ -1,4 +1,5 @@
 # ruff: noqa: RUF029
+import builtins
 import re
 import subprocess
 import typing
@@ -10,6 +11,7 @@ from typing import Any, Callable
 import numpy as np
 import pytest
 
+import __main__
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
@@ -41,6 +43,27 @@ def _expr_property_double(x: int) -> int:
     return x * 2
 
 
+# Module-level udfs with non-JSON-serializable default arguments, used by TestFunction.test_constants.
+# The timestamp default is timezone-aware so that building its Literal at import time does not require an
+# initialized Env (a naive datetime would need Env.get().default_time_zone).
+_epoch = datetime.fromtimestamp(0, tz=timezone.utc)
+
+
+@pxt.udf
+def udf_with_timestamp_constants(ts1: datetime, ts2: datetime = _epoch) -> float:
+    return (ts1 - ts2).seconds
+
+
+_ones_arr = np.ones(6, dtype=np.float32)
+
+
+@pxt.udf
+def udf_with_array_constants(
+    a: pxt.Array[pxt.Float, (6,)], b: pxt.Array[pxt.Float, (6,)] = _ones_arr
+) -> pxt.Array[pxt.Float, (6,)]:
+    return a + b
+
+
 T = typing.TypeVar('T')
 
 
@@ -70,7 +93,6 @@ class TestFunction:
         d = self.func.as_dict()
         assert 'signatures' in d and 'signature' not in d
         assert isinstance(d['signatures'], list) and len(d['signatures']) == 1
-        FunctionRegistry.get().clear_cache()
         deserialized = Function.from_dict(d)
         assert isinstance(deserialized, func.CallableFunction)
         # TODO: add Function.exec() and then use that
@@ -94,6 +116,8 @@ class TestFunction:
         print(_)
 
     def test_stored_udf(self, make_catalog_path: Callable[[str], str]) -> None:
+        # a udf without a fully-qualified path (forced here via _force_stored) can't be persisted into a
+        # computed column, but still works as a query expression
         p = make_catalog_path
         t = pxt.create_table(p('test'), {'c1': pxt.Int, 'c2': pxt.Float})
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
@@ -105,14 +129,93 @@ class TestFunction:
         def f1(a: int, b: float) -> float:
             return a + b
 
-        t.add_computed_column(f1=f1(t.c1, t.c2))
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r"Computed column 'f1' uses `f1\(\)`, which was created with `\.apply\(\)` or defined as a local",
+        ):
+            t.add_computed_column(f1=f1(t.c1, t.c2))
 
-        FunctionRegistry.get().clear_cache()
-        reload_catalog()
-        t = pxt.get_table(p('test'))
-        status = t.insert(rows)
-        assert status.num_rows == len(rows)
-        assert status.num_excs == 0
+        data = t.select(c1=t.c1, c2=t.c2, r=f1(t.c1, t.c2)).collect()
+        assert all(row['r'] == row['c1'] + row['c2'] for row in data)
+
+    def test_using_storable(self, make_catalog_path: Callable[[str], str]) -> None:
+        # .using() on a module UDF yields a storable template (its inlined expression references the function by
+        # path), so it can back a computed column; .using() on a local UDF inlines a pickled function and cannot
+        p = make_catalog_path
+        t = pxt.create_table(p('test'), {'c1': pxt.Int, 'c2': pxt.Float})
+        t.insert([{'c1': i, 'c2': i + 0.5} for i in range(10)])
+
+        from_module = self.f1.using(c=2.0, d=3.0)
+        assert from_module.is_storable
+        t.add_computed_column(from_module=from_module(t.c1, t.c2))
+        assert all(row['from_module'] == row['c1'] + row['c2'] + 5.0 for row in t.collect())
+
+        @pxt.udf(_force_stored=True)
+        def local_udf(a: int, b: float, c: float = 0.0) -> float:
+            return a + b + c
+
+        from_local = local_udf.using(c=2.0)
+        assert not from_local.is_storable
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'which was created with `\.apply\(\)` or defined as a local'
+        ):
+            t.add_computed_column(from_local=from_local(t.c1, t.c2))
+
+    def test_query_storable(self, make_catalog_path: Callable[[str], str]) -> None:
+        # a @pxt.query is serialized by value, so it is storable only if its clauses embed no pickled function: one
+        # built from storable exprs can back a computed column, one that filters with a local UDF cannot
+        p = make_catalog_path
+        t = pxt.create_table(p('test'), {'c1': pxt.Int, 'c2': pxt.Float})
+        t.insert([{'c1': i, 'c2': i + 0.5} for i in range(10)])
+
+        @pxt.query
+        def storable_q(threshold: int) -> pxt.Query:
+            return t.where(t.c1 >= threshold).select(t.c1)
+
+        assert storable_q.is_storable
+        t.add_computed_column(ok=storable_q(t.c1))
+
+        @pxt.udf(_force_stored=True)
+        def local_pred(x: int) -> bool:
+            return x > 2
+
+        @pxt.query
+        def pickled_q(threshold: int) -> pxt.Query:
+            return t.where(local_pred(t.c1)).select(t.c1)
+
+        assert not pickled_q.is_storable
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'which was created with `\.apply\(\)` or defined as a local'
+        ):
+            t.add_computed_column(bad=pickled_q(t.c1))
+
+    @pytest.mark.local('inline __main__ UDF resolves only in the defining process')
+    def test_inline_notebook_udf(
+        self, make_catalog_path: Callable[[str], str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # a udf defined at the top level of module __main__, as in a notebook cell or a script
+        def word_count(s: str) -> int:
+            return len(s.split())
+
+        word_count.__module__ = '__main__'
+        word_count.__qualname__ = 'word_count'
+
+        # outside an interactive session such a definition is treated as a script global and rejected
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='global namespace of a Python script'):
+            pxt.udf(word_count)
+
+        # in an interactive session (eg a notebook) it is assigned a __main__ path and can back a computed column
+        monkeypatch.setattr(builtins, '__IPYTHON__', True, raising=False)
+        wc = pxt.udf(word_count)
+        monkeypatch.setattr(__main__, 'word_count', wc, raising=False)
+        assert wc.self_path == '__main__.word_count'
+        assert wc.is_storable
+
+        p = make_catalog_path
+        t = pxt.create_table(p('articles'), {'content': pxt.String})
+        t.add_computed_column(word_count=wc(t.content))
+        t.insert([{'content': 'a b c'}, {'content': 'one two three four'}])
+        assert sorted(row['word_count'] for row in t.collect()) == [3, 4]
 
     @staticmethod
     @pxt.udf
@@ -364,18 +467,14 @@ class TestFunction:
         def lt_x(x: int) -> pxt.Query:
             return t.where(t.c2 < x).select(t.c2, t.c1).order_by(t.c1)
 
-        assert_type_eq(
-            lt_x.signature.return_type,
-            pxt.Json[[{'c2': pxt.Float | None, 'c1': pxt.Int | None}]],  # type: ignore[misc]
-        )
+        assert_type_eq(lt_x.signature.return_type, pxt.Json[[{'c2': pxt.Float | None, 'c1': pxt.Int | None}]])
 
         @pxt.query
         def lt_x_with_default(x: int, mult: int = 2) -> pxt.Query:
             return t.where(t.c2 < x * mult).select(t.c2, t.c1).order_by(t.c1)
 
         assert_type_eq(
-            lt_x_with_default.signature.return_type,
-            pxt.Json[[{'c2': pxt.Float | None, 'c1': pxt.Int | None}]],  # type: ignore[misc]
+            lt_x_with_default.signature.return_type, pxt.Json[[{'c2': pxt.Float | None, 'c1': pxt.Int | None}]]
         )
 
         @pxt.query
@@ -383,8 +482,7 @@ class TestFunction:
             return t.where(t.c2 < x).select(t.c2, t.c1).order_by(t.c1)
 
         assert_type_eq(
-            lt_x_with_unused_default.signature.return_type,
-            pxt.Json[[{'c2': pxt.Float | None, 'c1': pxt.Int | None}]],  # type: ignore[misc]
+            lt_x_with_unused_default.signature.return_type, pxt.Json[[{'c2': pxt.Float | None, 'c1': pxt.Int | None}]]
         )
 
         res1 = reload_tester.run_query(t.select(out=lt_x(t.c1)).order_by(t.c1))
@@ -510,10 +608,7 @@ class TestFunction:
             """simply returns 2 passages from the table"""
             return chunks.select(chunks.text).limit(2)
 
-        assert_type_eq(
-            retrieval.signature.return_type,
-            pxt.Json[[{'text': pxt.String | None}]],  # type: ignore[misc]
-        )
+        assert_type_eq(retrieval.signature.return_type, pxt.Json[[{'text': pxt.String | None}]])
 
         res = queries.select(queries.i, out=retrieval(queries.query_text, queries.i)).collect()
         # Default (return_scalar=False): each row is a dict, not a bare string.
@@ -536,7 +631,7 @@ class TestFunction:
         def retrieval_scalar(s: str, n: int) -> pxt.Query:
             return chunks.select(chunks.text).limit(2)
 
-        assert_type_eq(retrieval_scalar.signature.return_type, pxt.Json[[pxt.String | None]])  # type: ignore[misc]
+        assert_type_eq(retrieval_scalar.signature.return_type, pxt.Json[[pxt.String | None]])
         res = queries.select(queries.i, out=retrieval_scalar(queries.query_text, queries.i)).collect()
         assert all(len(out) == 2 and all(isinstance(x, str) for x in out) for out in res['out'])
 
@@ -550,10 +645,7 @@ class TestFunction:
         def retrieve() -> pxt.Query:
             return v.select(v.text).limit(20)
 
-        assert_type_eq(
-            retrieve.signature.return_type,
-            pxt.Json[[{'text': pxt.String | None}]],  # type: ignore[misc]
-        )
+        assert_type_eq(retrieve.signature.return_type, pxt.Json[[{'text': pxt.String | None}]])
 
         retrieval = pxt.create_table(p('test/retrieval'), {'n': pxt.Int})
         retrieval.add_computed_column(result=retrieve())
@@ -666,10 +758,7 @@ class TestFunction:
         def lt_x(x: int) -> pxt.Query:
             return t.where(t.c2 < x).select(t.c2, t.c1).order_by(t.c1)
 
-        assert_type_eq(
-            lt_x.signature.return_type,
-            pxt.Json[[{'c2': pxt.Float | None, 'c1': pxt.Int | None}]],  # type: ignore[misc]
-        )
+        assert_type_eq(lt_x.signature.return_type, pxt.Json[[{'c2': pxt.Float | None, 'c1': pxt.Int | None}]])
 
         u = pxt.create_table(p('test2'), {'c': pxt.Json})
         u.add_computed_column(out=pxtf.map(u.c['*'], lambda x: lt_x(x)))
@@ -688,10 +777,7 @@ class TestFunction:
         def c(x: int, y: int) -> pxt.Query:
             return t.order_by(t.a).where(t.a > x).select(c=t.a + y).limit(10)
 
-        assert_type_eq(
-            c.signature.return_type,
-            pxt.Json[[{'c': pxt.Int | None}]],  # type: ignore[misc]
-        )
+        assert_type_eq(c.signature.return_type, pxt.Json[[{'c': pxt.Int | None}]])
 
     def test_query_udf_after_drop(self, make_catalog_path: Callable[[str], str]) -> None:
         """Stored computed columns whose value_expr contains a @pxt.query UDF must remain loadable
@@ -1241,25 +1327,11 @@ class TestFunction:
         """
         p = make_catalog_path
 
-        epoch = datetime.fromtimestamp(0)
-
-        @pxt.udf(_force_stored=True)
-        def udf_with_timestamp_constants(ts1: datetime, ts2: datetime = epoch) -> float:
-            return (ts1 - ts2).seconds
-
         t = pxt.create_table(p('test1'), {'ts1': pxt.Timestamp})
         t.add_computed_column(seconds_since_epoch=udf_with_timestamp_constants(t.ts1))
         t.add_computed_column(seconds_since_2000=udf_with_timestamp_constants(t.ts1, ts2=datetime(2000, 1, 1)))
 
-        ones_arr = np.ones(6, dtype=np.float32)
-
-        @pxt.udf(_force_stored=True)
-        def udf_with_array_constants(
-            a: pxt.Array[pxt.Float, (6,)], b: pxt.Array[pxt.Float, (6,)] = ones_arr
-        ) -> pxt.Array[pxt.Float, (6,)]:
-            return a + b
-
-        t = pxt.create_table(p('test2'), {'a': pxt.Array[pxt.Float, (6,)]})  # type: ignore[misc]
+        t = pxt.create_table(p('test2'), {'a': pxt.Array[pxt.Float, (6,)]})
         t.add_computed_column(add_one=udf_with_array_constants(t.a))
         t.add_computed_column(add_zeros=udf_with_array_constants(t.a, b=np.zeros(6, dtype=np.float32)))
 

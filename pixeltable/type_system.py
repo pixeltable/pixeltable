@@ -1692,7 +1692,8 @@ class ImageType(ColumnType):
     def validate_media(self, val: Any) -> None:
         assert isinstance(val, str)
         try:
-            _ = PIL.Image.open(val)
+            with PIL.Image.open(val):
+                pass
         except PIL.UnidentifiedImageError:
             raise excs.RequestError(excs.ErrorCode.INVALID_DATA_FORMAT, f'Not a valid image: {val}') from None
 
@@ -1806,31 +1807,12 @@ class DocumentType(ColumnType):
 
     def validate_media(self, val: Any) -> None:
         assert isinstance(val, str)
-        from pixeltable.utils.documents import get_document_handle
+        from pixeltable.utils.documents import DocumentHandle
 
-        _ = get_document_handle(val)
+        DocumentHandle.validate(val)
 
 
 T = typing.TypeVar('T')
-
-
-class Required(typing.Generic[T]):
-    """
-    Marker class to indicate that a column is non-nullable in a schema definition. This has no meaning as a type hint,
-    and is intended only for schema declarations.
-    """
-
-    pass
-
-
-String = typing.Annotated[str, StringType(nullable=False)]
-Int = typing.Annotated[int, IntType(nullable=False)]
-Float = typing.Annotated[float, FloatType(nullable=False)]
-Bool = typing.Annotated[bool, BoolType(nullable=False)]
-Timestamp = typing.Annotated[datetime.datetime, TimestampType(nullable=False)]
-Date = typing.Annotated[datetime.date, DateType(nullable=False)]
-UUID = typing.Annotated[uuid.UUID, UUIDType(nullable=False)]
-Binary = typing.Annotated[bytes, BinaryType(nullable=False)]
 
 
 class _PxtType:
@@ -1852,6 +1834,30 @@ class _PxtType:
     @classmethod
     def as_col_type(cls, nullable: bool) -> ColumnType:
         raise NotImplementedError()
+
+
+class Required(_PxtType, typing.Generic[T]):
+    """
+    Marker class to indicate that a column is non-nullable in a schema definition. This has no meaning as a type hint,
+    and is intended only for schema declarations.
+    """
+
+    @classmethod
+    def as_col_type(cls, nullable: bool) -> ColumnType:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_TYPE,
+            'Bare `Required` is not a valid type; use `Required[T]` for some valid type `T`.',
+        )
+
+
+String = typing.Annotated[str, StringType(nullable=False)]
+Int = typing.Annotated[int, IntType(nullable=False)]
+Float = typing.Annotated[float, FloatType(nullable=False)]
+Bool = typing.Annotated[bool, BoolType(nullable=False)]
+Timestamp = typing.Annotated[datetime.datetime, TimestampType(nullable=False)]
+Date = typing.Annotated[datetime.date, DateType(nullable=False)]
+UUID = typing.Annotated[uuid.UUID, UUIDType(nullable=False)]
+Binary = typing.Annotated[bytes, BinaryType(nullable=False)]
 
 
 class Json(_PxtType):

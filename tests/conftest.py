@@ -44,7 +44,7 @@ from .utils import (
 _logger = logging.getLogger('pixeltable_test')
 
 
-DO_RERUN: bool
+DO_RERUN: bool = True
 
 
 def pytest_addoption(parser: argparsing.Parser) -> None:

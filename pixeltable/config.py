@@ -577,6 +577,10 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
     'groq': {'api_key': 'Groq API key', 'rate_limit': 'Rate limit for Groq API requests'},
     'jina': {'api_key': 'Jina AI API key', 'rate_limit': 'Rate limit for Jina AI API requests'},
     'mistral': {'api_key': 'Mistral API key', 'rate_limit': 'Rate limit for Mistral API requests'},
+    'nebius': {
+        'api_key': 'Nebius Token Factory API key',
+        'rate_limit': 'Rate limit for Nebius Token Factory API requests',
+    },
     'openai': {
         'api_key': 'OpenAI API key',
         'base_url': 'OpenAI API base URL',
@@ -593,6 +597,15 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'site_url': 'Optional URL for your application (for OpenRouter analytics)',
         'app_name': 'Optional name for your application (for OpenRouter analytics)',
         'rate_limit': 'Rate limit for OpenRouter API requests',
+    },
+    'otel': {
+        'exporter_otlp_endpoint': 'OTLP collector endpoint (eg http://localhost:4318)',
+        'exporter_otlp_protocol': "OTLP transport: 'http/protobuf' (default) or 'grpc'",
+        'service_name': 'service.name resource attribute (default: pixeltable)',
+        'exporter_otlp_headers': "OTLP headers as comma-separated 'key=value' pairs",
+        'span_level': "Span verbosity: 'info' (default), 'debug', or 'trace'",
+        'metrics': 'Export metrics via OTLP (default: only when an OTLP endpoint is configured)',
+        'logs': 'Export pixeltable logs via OTLP (default: false)',
     },
     'replicate': {'api_token': 'Replicate API token'},
     'runwayml': {'api_secret': 'RunwayML API secret'},

@@ -123,20 +123,23 @@ class ProxyCloudClient(proxy_client.ProxyClient):
                 pass
             self._ssl_sock = None
 
-    def _send(self, request_json: str) -> str:
+    def _post(self, body: bytes) -> bytes:
+        """Transport only: POST the already-encoded body over the TLS tunnel and return the raw response bytes.
+
+        The wire protocol (encode_body/decode_body) is handled by the base ProxyClient._send; this override
+        exists solely to swap the transport to the reconnecting TLS tunnel.
+        """
         for attempt in range(2):
             try:
                 if self._ssl_sock is None:
                     self._connect()
                 assert self._http_conn is not None
-                self._http_conn.request(
-                    'POST', '/rpc', body=request_json.encode(), headers={'Content-Type': 'application/json'}
-                )
+                self._http_conn.request('POST', '/rpc', body=body, headers={'Content-Type': 'application/octet-stream'})
                 response = self._http_conn.getresponse()
-                body = response.read().decode()
+                content = response.read()
                 if response.status != 200:
-                    raise ConnectionError(f'proxy RPC error {response.status}: {body}')
-                return body
+                    raise ConnectionError(f'proxy RPC error {response.status}: {content.decode(errors="replace")}')
+                return content
             except (ConnectionError, OSError, http.client.HTTPException, ssl.SSLError) as e:
                 _logger.debug('proxy tunnel error (attempt %d): %s', attempt + 1, e)
                 self._disconnect()

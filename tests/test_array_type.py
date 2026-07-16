@@ -49,10 +49,7 @@ class TestArrayType:
         do_reload_catalog: bool,
         make_catalog_path: Callable[[str], str],
     ) -> None:
-        schema = {
-            'array_col_req': pxt.Required[pxt.Array[col_dtype]],
-            'array_col_opt': pxt.Array[col_dtype],  # type: ignore[misc]
-        }
+        schema = {'array_col_req': pxt.Required[pxt.Array[col_dtype]], 'array_col_opt': pxt.Array[col_dtype]}
         pxt.create_table(make_catalog_path('test_numpy_dtypes'), schema, if_exists='replace')
         reload_catalog(do_reload_catalog)
         t = pxt.get_table(make_catalog_path('test_numpy_dtypes'))
@@ -126,10 +123,10 @@ class TestArrayType:
     ) -> None:
         p = make_catalog_path
         schema = {
-            'arr_1': pxt.Array[(1,), np.uint8],  # type: ignore[misc]
-            'arr_2': pxt.Array[(2, 2), pxt.Float],  # type: ignore[misc]
-            'arr_3': pxt.Array[(None,), pxt.String],  # type: ignore[misc]
-            'arr_4': pxt.Array[(3, None, 2), np.int32],  # type: ignore[misc]
+            'arr_1': pxt.Array[(1,), np.uint8],
+            'arr_2': pxt.Array[(2, 2), pxt.Float],
+            'arr_3': pxt.Array[(None,), pxt.String],
+            'arr_4': pxt.Array[(3, None, 2), np.int32],
             'arr_5': pxt.Array,
         }
         pxt.create_table(p('test_numpy_dtypes'), schema)
@@ -167,7 +164,7 @@ class TestArrayType:
         validate_update_status(t.insert(arr_5=np.zeros((0,), dtype=np.uint16)), 1)
 
         with pytest.raises(TypeError, match=r'Array type parameter must include a dtype.'):
-            pxt.Array[1,]  # type: ignore[misc]
+            pxt.Array[1,]
 
     def test_supertype(self) -> None:
         assert ArrayType(None, None).supertype(ArrayType(None, None)) == ArrayType(None, None)
@@ -288,9 +285,9 @@ class TestArrayType:
         ]
         for type_, exc_regex in test_cases:
             with pxt_raises(excs.ErrorCode.INVALID_TYPE, match=exc_regex):
-                pxt.Array[type_]  # type: ignore[misc]
+                pxt.Array[type_]
             with pxt_raises(excs.ErrorCode.INVALID_TYPE, match=exc_regex):
-                pxt.Array[(1,), type_]  # type: ignore[misc]
+                pxt.Array[(1,), type_]
 
     def test_array_literal(self) -> None:
         test_cases: list[Iterable] = [

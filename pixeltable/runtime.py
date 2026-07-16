@@ -138,7 +138,7 @@ class Runtime:
 
         if catalog_uri.org == 'local':
             from pixeltable.service import proxy_daemon
-            from pixeltable.service.proxy_client import ProxyHttpClient
+            from pixeltable.service.proxy_client import ProxyClient
 
             info = proxy_daemon.read_port_lock(catalog_uri.db)
             if info is None:
@@ -147,7 +147,7 @@ class Runtime:
                     excs.ErrorCode.SERVICE_NOT_FOUND,
                     f'No local proxy is running for {db!r}. Start it with: pxt localproxy start {db}',
                 )
-            return CatalogProxy(catalog_uri, ProxyHttpClient(f'http://127.0.0.1:{info["port"]}'))
+            return CatalogProxy(catalog_uri, ProxyClient(f'http://127.0.0.1:{info["port"]}'))
 
         # Remote database: connect via TLS to the proxy endpoint.
         from pixeltable.service.proxy_cloud_client import (

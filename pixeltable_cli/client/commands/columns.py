@@ -8,13 +8,21 @@ EPILOG = """\
 Examples:
   pxt columns                          # every column across every table
   pxt columns my_dir/my_table          # columns of one table
+  pxt columns my_dir                   # every table under a directory, recursively
+  pxt columns pxt://org:db             # every table in a hosted database
+  pxt columns pxt://org:db/my_dir      # every table under a directory, recursively
   pxt columns --computed               # only computed columns, all tables
   pxt columns my_dir/my_table --computed --json"""
 
 
 def run(argv: list[str]) -> None:
     ap = Parser(prog='pxt columns', epilog=EPILOG)
-    ap.add_argument('path', nargs='?', default=None, help='if omitted: every table in the catalog')
+    ap.add_argument(
+        'path',
+        nargs='?',
+        default=None,
+        help='a table, or a directory to list recursively; if omitted, every table in the local catalog',
+    )
     ap.add_argument('--computed', action='store_true', dest='computed_only')
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)

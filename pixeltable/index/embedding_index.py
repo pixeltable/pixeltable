@@ -122,6 +122,16 @@ class EmbeddingIndex(IndexBase):
                 'it must take a single string, image, audio, video, or document parameter',
             )
 
+        # an embedding index is persisted, so its function must be storable
+        for embed_type, resolved_fn in self.embeddings.items():
+            if not resolved_fn.is_storable:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'The {embed_type.name.lower()} embedding `{resolved_fn.display_name}()` was created with '
+                    f'`.apply()` or defined as a local function.\n'
+                    'To use it in an embedding index, define it as a module-level `@pxt.udf` and use that instead.',
+                )
+
         # Validate array column shape
         array_column_shape: tuple[int, ...] | None = None
         if column is not None and isinstance(column.col_type, ts.ArrayType):

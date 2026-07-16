@@ -12,7 +12,7 @@ from pathlib import Path
 import toml
 from pathspec import PathSpec
 
-from pixeltable import config, metadata
+from pixeltable import config, exceptions as excs, metadata
 from pixeltable.env import Env
 from pixeltable.serving._config import lookup_database_runtime_config
 
@@ -72,7 +72,12 @@ def _load_database_runtime_config(project_dir: Path) -> config.DatabaseRuntimeCo
     if toml_path.is_file():
         db_raw = toml.load(toml_path).get('pixeltable', {}).get('database')
         if db_raw is not None:
-            return config.DatabaseRuntimeConfig.model_validate(db_raw)
+            try:
+                return config.DatabaseRuntimeConfig.model_validate(db_raw)
+            except Exception as e:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid [pixeltable.database] configuration: {e}'
+                ) from e
     return lookup_database_runtime_config()
 
 
