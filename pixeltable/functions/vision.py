@@ -957,7 +957,8 @@ def bboxes_clip_to_canvas(
 
     Args:
         bboxes: List of bounding boxes, specified with absolute pixel coordinates if `width`/`height` are given,
-            with relative coordinates otherwise.
+            with relative coordinates otherwise. All-integer boxes are always treated as absolute and require
+            `width`/`height`.
         format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
         width: Canvas width in absolute pixels. Required for absolute coordinates, omit for relative.
         height: Canvas height in absolute pixels. Required for absolute coordinates, omit for relative.
@@ -984,7 +985,7 @@ def bboxes_clip_to_canvas(
     if not is_absolute and is_int:
         raise pxt.RequestError(
             pxt.ErrorCode.MISSING_REQUIRED,
-            'bboxes_clip_to_canvas(): integer coordinates are absolute pixels and require width and height',
+            'bboxes_clip_to_canvas(): all-integer coordinates are absolute pixels and require width and height',
         )
     if not (0.0 <= min_visibility <= 1.0):
         raise pxt.RequestError(
@@ -1077,7 +1078,8 @@ def bboxes_crop_canvas(
 
     Args:
         bboxes: List of bounding boxes, specified with absolute pixel coordinates if `canvas_width`/`canvas_height`
-            are given, with relative coordinates otherwise.
+            are given, with relative coordinates otherwise. All-integer boxes are always treated as absolute and
+            require `canvas_width`/`canvas_height`.
         format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
         canvas_width: Canvas width in absolute pixels. Required for absolute coordinates, omit for relative.
         canvas_height: Canvas height in absolute pixels. Required for absolute coordinates, omit for relative.
@@ -1104,7 +1106,7 @@ def bboxes_crop_canvas(
     if not is_absolute and is_int:
         raise pxt.RequestError(
             pxt.ErrorCode.MISSING_REQUIRED,
-            'bboxes_crop_canvas(): integer coordinates are absolute pixels and require canvas_width and canvas_height',
+            'bboxes_crop_canvas(): all-integer coordinates are absolute pixels and require canvas_width and canvas_height',
         )
 
     # Validate canvas_region

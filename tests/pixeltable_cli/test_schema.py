@@ -101,3 +101,15 @@ class TestSchema:
         r = cli('schema', 'update', str(broken), p('app'), check=False)
         assert r.returncode == 1
         assert 'error loading' in r.stderr
+
+    def test_update_relative_path(
+        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+    ) -> None:
+        p = make_catalog_path
+        (tmp_path / 'app_schema.py').write_text(SCHEMA_SRC)
+        target = p('rel_app')
+
+        # a relative schema path is resolved against the client's cwd, so run the command from that directory
+        r = cli('schema', 'update', 'app_schema.py', target, cwd=tmp_path)
+        assert r.stdout.count('created') == 2
+        assert pxt.get_table(f'{target}/docs') is not None
