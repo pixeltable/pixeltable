@@ -87,7 +87,6 @@
   <text x="820" y="100" class="text-item">• SQL-like</text>
   <text x="820" y="118" class="text-item">• Similarity</text>
   <text x="820" y="136" class="text-item">• Export (ML)</text>
-  <text x="820" y="154" class="text-item">• Share/Publish</text>
-  <text x="820" y="172" class="text-item">• Tools/MCP</text>
-  <text x="820" y="190" class="text-item">• FastAPI</text>
+  <text x="820" y="154" class="text-item">• Tools/MCP</text>
+  <text x="820" y="172" class="text-item">• FastAPI</text>
 </svg>

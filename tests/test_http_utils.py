@@ -1,8 +1,11 @@
 # type: ignore
 
+import logging
 import types
 
-from pixeltable.utils.http import is_retriable_error, parse_duration_str
+from pixeltable.utils.http import fetch_url, is_retriable_error, parse_duration_str, redact_url
+from pixeltable.utils.local_store import TempStore
+from pixeltable.utils.object_stores import ObjectOps
 
 
 class DummyError(Exception):
@@ -126,3 +129,25 @@ class TestHttpUtils:
         assert parse_duration_str('1d') == 86400
         assert parse_duration_str('1d2h3m4s') == 93784
         assert parse_duration_str('47.874s') == 47.874
+
+    def test_redact_url(self) -> None:
+        secret_url = (
+            'https://user:password@example.com:8443/media/image.jpg?X-Amz-Credential=access-key'
+            '&X-Amz-Signature=signature#fragment'
+        )
+        assert redact_url(secret_url) == 'https://example.com:8443/media/image.jpg'
+        assert redact_url('https://example.com/media/image.jpg') == 'https://example.com/media/image.jpg'
+        assert redact_url('https://user:password@[invalid/media?signature') == '<redacted-url>'
+
+    def test_fetch_url_logs_redacted_url(self, caplog, monkeypatch, tmp_path) -> None:
+        secret_url = 'https://user:password@example.com/media.jpg?X-Amz-Signature=signature#fragment'
+        tmp_file = tmp_path / 'media.jpg'
+        monkeypatch.setattr(TempStore, 'create_path', lambda extension: tmp_file)
+        monkeypatch.setattr(ObjectOps, 'copy_object_to_local_file', lambda _url, path: path.touch())
+        monkeypatch.setattr(logging.getLogger('pixeltable'), 'propagate', True)
+
+        with caplog.at_level(logging.DEBUG, logger='pixeltable.utils.http'):
+            assert fetch_url(secret_url) == tmp_file
+
+        assert 'https://example.com/media.jpg' in caplog.text
+        assert all(secret not in caplog.text for secret in ('user', 'password', 'X-Amz-Signature', 'signature'))

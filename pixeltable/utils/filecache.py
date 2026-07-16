@@ -19,6 +19,7 @@ import pixeltable.exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.utils.file_lock import FileLock
+from pixeltable.utils.http import redact_url
 
 _logger = logging.getLogger(__name__)
 
@@ -286,7 +287,7 @@ class FileCache:
             key = self._url_hash(url)
             entry = self.cache.get(key, None)
             if entry is None:
-                _logger.debug(f'file cache miss for {url}')
+                _logger.debug(f'file cache miss for {redact_url(url)}')
                 return None
 
             path = entry.path
@@ -300,13 +301,13 @@ class FileCache:
                 # reconcile the index and report a miss
                 del self.cache[key]
                 self.total_size -= entry.size
-                _logger.debug(f'file cache miss for {url}')
+                _logger.debug(f'file cache miss for {redact_url(url)}')
                 return None
 
             self.cache.move_to_end(key, last=True)
             self.num_hits += 1
             self.keys_retrieved.add(key)
-            _logger.debug(f'file cache hit for {url}')
+            _logger.debug(f'file cache hit for {redact_url(url)}')
             return path
 
     def add(self, tbl_id: UUID, col_id: int, url: str, path: Path) -> Path:
@@ -362,7 +363,7 @@ class FileCache:
                 os.utime(str(new_path))
             self.cache[key] = entry
             self.total_size += entry.size
-            _logger.debug(f'FileCache: cached url {url} with file name {new_path}')
+            _logger.debug(f'FileCache: cached url {redact_url(url)} with file name {new_path}')
             return new_path
 
     def ensure_capacity(self, size: int) -> None:

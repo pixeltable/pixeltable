@@ -7,7 +7,9 @@ first `pip install transformers` (or in some cases, `sentence-transformers`, as 
 UDFs).
 """
 
+import itertools
 import threading
+from collections.abc import Iterator
 from typing import Any, Callable, Literal, TypedDict, TypeVar
 
 import av
@@ -377,6 +379,497 @@ def detr_for_segmentation(image: Batch[PIL.Image.Image], *, model_id: str, thres
     return output_list
 
 
+class SamForSegmentationResponse(TypedDict):
+    """
+    Instance segmentation results, as returned by
+    [`sam3_for_segmentation()`][pixeltable.functions.huggingface.sam3_for_segmentation] or
+    [`sam_automatic_mask_generation()`][pixeltable.functions.huggingface.sam_automatic_mask_generation].
+    """
+
+    scores: pxt.Array[(None,), pxt.Float]
+    """Confidence score per detected instance, shape `(num_instances,)`."""
+    boxes: pxt.Array[(None, 4), pxt.Float]
+    """Bounding box `[x1, y1, x2, y2]` per detected instance in absolute coordinates, shape `(num_instances, 4)`."""
+    masks: pxt.Array[(None, None, None), pxt.Bool]
+    """Binary mask per detected instance, shape `(num_instances, H, W)`."""
+
+
+@pxt.udf
+def sam3_for_segmentation(
+    image: PIL.Image.Image,
+    *,
+    model_id: str = 'facebook/sam3',
+    text: str | None = None,
+    input_boxes: list[list[float]] | None = None,
+    input_boxes_labels: list[int] | None = None,
+    threshold: float = 0.5,
+    mask_threshold: float = 0.5,
+    revision: str | None = None,
+) -> SamForSegmentationResponse:
+    """
+    Computes SAM 3 (Segment Anything Model 3) Promptable Concept Segmentation for the specified image.
+    `model_id` should be a reference to a pretrained
+    [SAM 3 Model](https://huggingface.co/docs/transformers/model_doc/sam3) such as `facebook/sam3`.
+
+    SAM 3 performs Promptable Concept Segmentation (PCS): given a concept prompt (a short text noun phrase,
+    a set of bounding boxes, or both), it detects and segments every object instance in the image that
+    matches the concept.
+
+    __Requirements:__
+
+    - `pip install torch transformers`
+    - `facebook/sam3` is a gated repository. Request access on its
+        [model page](https://huggingface.co/facebook/sam3), then authenticate with
+        `huggingface-cli login` (or set the `HF_TOKEN` environment variable) before calling this UDF.
+
+    Args:
+        image: The image to segment.
+        model_id: The pretrained SAM 3 model to use.
+        text: Optional concept prompt as a short noun phrase (e.g., `'yellow school bus'`).
+        input_boxes: Optional list of bounding boxes in `[x1, y1, x2, y2]` pixel coordinates that
+            constrain the concept (e.g., `[[100, 150, 500, 450]]`).
+        input_boxes_labels: Optional list of integer labels for each box: `1` for positive
+            (include this region), `0` for negative (exclude this region). If `input_boxes` is
+            provided and this is `None`, all boxes default to positive.
+        threshold: Confidence threshold for filtering detections.
+        mask_threshold: Threshold applied to mask logits to produce binary masks.
+        revision: The specific model revision to use (e.g., a branch, tag, or git identifier). If not
+            specified, uses the default revision for the model.
+
+    Returns:
+        A `SamForSegmentationResponse` containing:
+
+        - `scores`: confidence score per detected instance, shape `(num_instances,)`.
+        - `boxes`: bounding box `[x1, y1, x2, y2]` per detected instance in absolute pixel coordinates, shape
+            `(num_instances, 4)`.
+        - `masks`: binary mask per detected instance, shape `(num_instances, H, W)`.
+
+    Examples:
+        Add a computed column that segments every "cat" in an existing Pixeltable column `image` of the
+        table `tbl`:
+
+        >>> tbl.add_computed_column(seg=sam3_for_segmentation(tbl.image, text='cat'))
+
+        Use a bounding-box prompt to segment a specific object:
+
+        >>> tbl.add_computed_column(
+        ...     seg=sam3_for_segmentation(
+        ...         tbl.image, input_boxes=[[100, 150, 500, 450]]
+        ...     )
+        ... )
+
+        Combine a text prompt with a negative box to exclude a region:
+
+        >>> tbl.add_computed_column(
+        ...     seg=sam3_for_segmentation(
+        ...         tbl.image,
+        ...         text='handle',
+        ...         input_boxes=[[40, 183, 318, 204]],
+        ...         input_boxes_labels=[0],
+        ...     )
+        ... )
+    """
+    env.Env.get().require_package('torch')
+    env.Env.get().require_package('transformers')
+    device = resolve_torch_device('auto')
+    import torch
+    from transformers import Sam3Model, Sam3Processor
+
+    if text is None and input_boxes is None:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            'At least one of `text` or `input_boxes` must be provided to sam3_for_segmentation',
+        )
+
+    if input_boxes_labels is not None:
+        if input_boxes is None:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, '`input_boxes_labels` was provided without `input_boxes`'
+            )
+        if len(input_boxes_labels) != len(input_boxes):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'`input_boxes_labels` (length {len(input_boxes_labels)}) must have the same length as '
+                f'`input_boxes` (length {len(input_boxes)})',
+            )
+
+    model = _lookup_model(
+        model_id,
+        Sam3Model.from_pretrained,
+        device=device,
+        revision=revision,
+        cache_key=(model_id, Sam3Model.from_pretrained, device, ('revision', revision)),
+    )
+    processor = _lookup_processor(model_id, Sam3Processor.from_pretrained, revision=revision)
+    normalized_image = normalize_image_mode(image)
+
+    processor_kwargs: dict[str, Any] = {'images': normalized_image, 'return_tensors': 'pt'}
+    if text is not None:
+        processor_kwargs['text'] = text
+    if input_boxes is not None:
+        processor_kwargs['input_boxes'] = [input_boxes]
+        labels = input_boxes_labels if input_boxes_labels is not None else [1] * len(input_boxes)
+        processor_kwargs['input_boxes_labels'] = [labels]
+
+    with torch.no_grad():
+        inputs = processor(**processor_kwargs).to(device)
+        outputs = model(**inputs)
+        results = processor.post_process_instance_segmentation(
+            outputs, threshold=threshold, mask_threshold=mask_threshold, target_sizes=inputs['original_sizes'].tolist()
+        )
+
+    result = results[0]
+    masks_np = result['masks'].cpu().numpy()
+    if masks_np.dtype != np.bool_:
+        masks_np = masks_np.astype(bool)
+
+    return SamForSegmentationResponse(
+        scores=result['scores'].cpu().numpy(), boxes=result['boxes'].cpu().numpy(), masks=masks_np
+    )
+
+
+@pxt.udf
+def sam_automatic_mask_generation(
+    image: PIL.Image.Image,
+    *,
+    model_id: str = 'facebook/sam3',
+    points_per_batch: int = 64,
+    points_per_crop: int = 32,
+    pred_iou_thresh: float = 0.70,
+    stability_score_thresh: float = 0.95,
+    crops_n_layers: int = 0,
+    revision: str | None = None,
+) -> SamForSegmentationResponse:
+    """
+    Segments every object in an image with SAM (Segment Anything Model), with no prompt. `model_id` should
+    be a reference to a pretrained
+    [SAM Model](https://huggingface.co/docs/transformers/model_doc/sam3) such as `facebook/sam3` or
+    `facebook/sam2-hiera-large`. This UDF is not tied to a specific SAM version; it works with any SAM model
+    that supports automatic mask generation.
+
+    Works by sampling a grid of points across the image and returns a binary mask for every distinct object it
+    finds (the "segment everything" mode of SAM 1 and SAM 2). Masks are filtered by predicted quality and
+    de-duplicated. The masks are class-agnostic: no labels or persistent object ids are produced, since the model
+    is not told what to look for.
+
+    __Requirements:__
+
+    - `pip install torch transformers`
+    - `facebook/sam3` is a gated repository. Request access on its
+        [model page](https://huggingface.co/facebook/sam3), then authenticate with
+        `huggingface-cli login` (or set the `HF_TOKEN` environment variable) before calling this UDF.
+
+    Args:
+        image: The image to segment.
+        model_id: The pretrained SAM model to use.
+        points_per_batch: Number of grid points run through the model at once. Higher values are faster but
+            use more memory.
+        points_per_crop: Number of grid points sampled along each side of the image. Higher values find more
+            (and smaller) objects at the cost of speed.
+        pred_iou_thresh: Quality threshold on the model's predicted mask IoU; masks scoring below it are
+            discarded.
+        stability_score_thresh: Quality threshold on mask stability under mask-logit threshold changes; masks
+            scoring below it are discarded.
+        crops_n_layers: Number of additional image-crop layers to run. Values above `0` improve recall on
+            small objects at the cost of speed.
+        revision: The specific model revision to use (e.g., a branch, tag, or git identifier). If not
+            specified, uses the default revision for the model.
+
+    Returns:
+        A `SamForSegmentationResponse` containing:
+
+        - `scores`: predicted quality score per mask, shape `(num_masks,)`.
+        - `boxes`: bounding box `[x1, y1, x2, y2]` per mask in absolute pixel coordinates, shape
+            `(num_masks, 4)`.
+        - `masks`: binary mask per detected object, shape `(num_masks, H, W)`.
+
+    Examples:
+        Add a computed column that segments every object in an existing Pixeltable column `image` of the
+        table `tbl`:
+
+        >>> tbl.add_computed_column(seg=sam_automatic_mask_generation(tbl.image))
+    """
+    env.Env.get().require_package('torch')
+    env.Env.get().require_package('transformers')
+    device = resolve_torch_device('auto')
+    from transformers import pipeline
+
+    generator = _lookup_model(
+        model_id,
+        lambda mid: pipeline('mask-generation', model=mid, device=device, revision=revision),
+        cache_key=(model_id, 'mask-generation', device, ('revision', revision)),
+    )
+    output = generator(
+        image,
+        points_per_batch=points_per_batch,
+        points_per_crop=points_per_crop,
+        pred_iou_thresh=pred_iou_thresh,
+        stability_score_thresh=stability_score_thresh,
+        crops_n_layers=crops_n_layers,
+        output_bboxes_mask=True,
+    )
+
+    masks = output['masks']
+    if len(masks) == 0:
+        return SamForSegmentationResponse(
+            scores=np.zeros((0,), dtype=np.float32),
+            boxes=np.zeros((0, 4), dtype=np.float32),
+            masks=np.zeros((0, image.height, image.width), dtype=bool),
+        )
+    masks_np = np.stack([mask.cpu().numpy() for mask in masks])
+    if masks_np.dtype != np.bool_:
+        masks_np = masks_np.astype(bool)
+    return SamForSegmentationResponse(
+        scores=output['scores'].cpu().numpy().reshape(-1),
+        boxes=output['bounding_boxes'].cpu().numpy().astype(np.float32),
+        masks=masks_np,
+    )
+
+
+class Sam3VideoSegmentationFrame(TypedDict):
+    """
+    Per-frame tracked segmentation results, as returned by
+    [`sam3_for_video_segmentation()`][pixeltable.functions.huggingface.sam3_for_video_segmentation].
+    """
+
+    frame: pxt.Image
+    """The video frame. Not stored; re-extracted from the source video on demand."""
+    frame_attrs: pxt.Json
+    """Frame metadata from `frame_iterator` (e.g. `index`, `time`), used to re-extract `frame` on demand."""
+    object_ids: pxt.Array[(None,), pxt.Int]
+    """Persistent id of each tracked object in the frame, shape `(num_objects,)`. Stable across frames."""
+    labels: pxt.Array[(None,), pxt.String]
+    """The concept prompt that detected each object, shape `(num_objects,)`, aligned with `object_ids`."""
+    scores: pxt.Array[(None,), pxt.Float]
+    """The detection score of each object, shape `(num_objects,)`, aligned with `object_ids`."""
+    boxes: pxt.Array[(None, 4), pxt.Float]
+    """Bounding box `[x1, y1, x2, y2]` per object in absolute pixel coordinates, shape `(num_objects, 4)`."""
+    masks: pxt.Array[(None, None, None), pxt.Bool]
+    """Binary mask per object, shape `(num_objects, H, W)`, aligned with `object_ids`."""
+
+
+@pxt.iterator(unstored_cols=['frame'])
+class sam3_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
+    """
+    Tracks objects across the frames of a video using SAM 3 (Segment Anything Model 3) Promptable Concept
+    Segmentation: given a concept prompt, it detects every object instance that matches the prompt and follows
+    each instance across frames, assigning a stable `object_id` that is preserved as the object moves, is
+    occluded, and reappears.
+
+    Unlike a plain frame iterator, this iterator carries the tracker's memory across frames, so it both extracts
+    frames and produces their tracked segmentation in a single pass.
+
+    __Requirements:__
+
+    - `pip install torch transformers`
+    - `facebook/sam3` is a gated repository. Request access on its
+        [model page](https://huggingface.co/facebook/sam3), then authenticate with
+        `huggingface-cli login` (or set the `HF_TOKEN` environment variable) before using this iterator.
+
+    __Outputs:__
+
+    One row per frame, with the following columns:
+
+    - `frame` (`pxt.Image`): The video frame. Not stored; re-extracted from the source video on demand (like
+        `frame_iterator`), so the source video must remain available.
+    - `frame_attrs` (`pxt.Json`): Frame metadata from `frame_iterator` (e.g. `index`, `time`), used to re-extract
+        `frame` on demand.
+    - `object_ids` (`pxt.Array`): The persistent id of each tracked object present in the frame, shape
+        `(num_objects,)`. The same id refers to the same object across frames.
+    - `labels` (`pxt.Array`): The concept prompt that detected each object, shape `(num_objects,)`, aligned with
+        `object_ids`. With a single prompt this is that prompt repeated; with multiple prompts it identifies which
+        concept matched each object.
+    - `scores` (`pxt.Array`): The detection score of each object, shape `(num_objects,)`, aligned with
+        `object_ids`.
+    - `boxes` (`pxt.Array`): The bounding box `[x1, y1, x2, y2]` of each object in absolute pixel coordinates,
+        shape `(num_objects, 4)`, aligned with `object_ids`.
+    - `masks` (`pxt.Array`): A binary mask per object, shape `(num_objects, H, W)`, aligned with `object_ids`.
+
+    Args:
+        video: The video to segment and track.
+        text: A list of one or more concept prompts, each a short noun phrase (e.g., `['person', 'car']`). Every
+            matching object instance is detected and tracked; the `labels` output identifies which prompt matched
+            each object.
+        model_id: The pretrained SAM 3 model to use.
+        fps: The frames per second to sample from the video. If not specified, uses the video's native fps.
+        max_frame_num_to_track: The maximum number of frames to track, counting from the first frame. If not
+            specified, all frames are tracked. When set, the view contains only the tracked frames (fewer rows
+            than the video has frames).
+        image_size: The square input resolution (in pixels) the model runs at. Lowering it (e.g.
+            `560`) is substantially faster but reduces accuracy, since SAM 3 is tuned for 1008px.
+        revision: The specific model revision to use (e.g., a branch, tag, or git identifier). If not specified,
+            uses the default revision for the model.
+
+    Examples:
+        Create a view that tracks every "person" across the frames of each video in `videos.video`, overlay the
+        tracked masks (consistent colors per object via `object_ids`), and reconstruct an annotated video:
+
+        >>> v = pxt.create_view(
+        ...     'tracked',
+        ...     videos,
+        ...     iterator=sam3_for_video_segmentation(videos.video, text=['person']),
+        ... )
+        >>> from pixeltable.functions.vision import overlay_segmentation
+        >>> from pixeltable.functions.video import make_video
+        >>> v.add_computed_column(
+        ...     overlay=overlay_segmentation(v.frame, v.masks, ids=v.object_ids)
+        ... )
+        >>> v.select(out=make_video(v.pos, v.overlay)).group_by(videos).collect()
+    """
+
+    text: list[str]
+    model_id: str
+    max_frame_num_to_track: int | None
+    image_size: int
+    revision: str | None
+
+    # The wrapped `frame_iterator` is the sole source of frames: it feeds the tracker, supplies the `frame` and
+    # `frame_attrs` outputs, and (via `seek()`) re-extracts `frame` on demand for the unstored column.
+    frames: pxt.PxtIterator[Any]
+
+    # The active source of output rows: the tracking pass during population, or a frame-only pass after a
+    # `seek()`. Built lazily so that re-extracting `frame` via `seek()` never loads the model.
+    rows: Iterator[Sam3VideoSegmentationFrame] | None
+
+    def __init__(
+        self,
+        video: pxt.Video,
+        *,
+        text: list[str],
+        model_id: str = 'facebook/sam3',
+        fps: float | None = None,
+        max_frame_num_to_track: int | None = None,
+        image_size: int = 1008,
+        revision: str | None = None,
+    ) -> None:
+        env.Env.get().require_package('torch')
+        env.Env.get().require_package('transformers')
+        from pixeltable.functions.video import frame_iterator
+
+        self.frames = frame_iterator.decorated_callable(video=video, fps=fps)  # type: ignore[attr-defined]
+        self.text = text
+        self.model_id = model_id
+        self.max_frame_num_to_track = max_frame_num_to_track
+        self.image_size = image_size
+        self.revision = revision
+        self.rows = None
+
+    def _track(self) -> Iterator[Sam3VideoSegmentationFrame]:
+        device = resolve_torch_device('auto')
+        from transformers import Sam3VideoModel, Sam3VideoProcessor
+
+        # `image_size` runs the model and processor at a custom resolution; lower is faster but less accurate. It
+        # propagates through `from_pretrained` to the nested detector/tracker configs, just like `revision`.
+        model = _lookup_model(
+            self.model_id,
+            Sam3VideoModel.from_pretrained,
+            device=device,
+            revision=self.revision,
+            image_size=self.image_size,
+            cache_key=(
+                self.model_id,
+                Sam3VideoModel.from_pretrained,
+                device,
+                ('revision', self.revision),
+                ('image_size', self.image_size),
+            ),
+        )
+        processor = _lookup_processor(
+            self.model_id, Sam3VideoProcessor.from_pretrained, revision=self.revision, size=self.image_size
+        )
+
+        # The tracker needs its clip up front, so drain the wrapped `frame_iterator`; `frame_idx` then indexes
+        # directly into `extracted`. Propagation starts at frame 0, so with a `max_frame_num_to_track` limit only
+        # frames `0..max_frame_num_to_track` are ever tracked; draining just those avoids decoding and storing the
+        # rest of the video. (Correct only because we propagate forward from frame 0.)
+        extracted = (
+            list(itertools.islice(self.frames, self.max_frame_num_to_track + 1))
+            if self.max_frame_num_to_track is not None
+            else list(self.frames)
+        )
+        session = processor.init_video_session(
+            video=[item['frame'] for item in extracted],
+            inference_device=device,
+            processing_device='cpu',
+            video_storage_device='cpu',
+        )
+        processor.add_text_prompt(inference_session=session, text=self.text)
+
+        # `propagate_in_video_iterator` is decorated with `@torch.inference_mode()`, so the per-frame forward pass
+        # already runs without grad tracking.
+        for model_outputs in model.propagate_in_video_iterator(
+            inference_session=session, max_frame_num_to_track=self.max_frame_num_to_track
+        ):
+            result = processor.postprocess_outputs(session, model_outputs)
+            masks_np = result['masks'].cpu().numpy()
+            if masks_np.dtype != np.bool_:
+                masks_np = masks_np.astype(bool)
+            object_ids_np = result['object_ids'].cpu().numpy()
+            # Reverse `prompt_to_obj_ids` to map each object_id to its prompt, so the text labels align with the
+            # tracked objects.
+            prompt_by_obj = {
+                obj_id: prompt for prompt, obj_ids in result['prompt_to_obj_ids'].items() for obj_id in obj_ids
+            }
+            labels_np = np.array([prompt_by_obj[int(obj_id)] for obj_id in object_ids_np], dtype=np.str_)
+            item = extracted[model_outputs.frame_idx]
+            yield Sam3VideoSegmentationFrame(
+                frame=item['frame'],
+                frame_attrs=item['frame_attrs'],
+                object_ids=object_ids_np,
+                labels=labels_np,
+                scores=result['scores'].cpu().numpy(),
+                boxes=result['boxes'].cpu().numpy(),
+                masks=masks_np,
+            )
+
+    def __next__(self) -> Sam3VideoSegmentationFrame:
+        if self.rows is None:
+            self.rows = self._track()
+        return next(self.rows)
+
+    def seek(self, pos: int, **stored_outputs: Any) -> None:
+        # Re-extraction of the unstored `frame`: reposition the wrapped `frame_iterator` to `pos` and serve
+        # frames from it. The tracking outputs come from storage, so `frame` is the only column produced here.
+        self.frames.seek(pos, frame_attrs=stored_outputs['frame_attrs'])
+        self.rows = self._frames_only()
+
+    def _frames_only(self) -> Iterator[Sam3VideoSegmentationFrame]:
+        for item in self.frames:
+            yield Sam3VideoSegmentationFrame(
+                frame=item['frame'],
+                frame_attrs=item['frame_attrs'],
+                object_ids=np.empty(0, dtype=np.int64),
+                labels=np.empty(0, dtype=np.str_),
+                scores=np.empty(0, dtype=np.float32),
+                boxes=np.empty((0, 4), dtype=np.float32),
+                masks=np.empty((0, 0, 0), dtype=bool),
+            )
+
+    def close(self) -> None:
+        self.frames.close()
+
+    @classmethod
+    def validate(cls, bound_args: dict[str, Any]) -> None:
+        text = bound_args.get('text')
+        if not isinstance(text, list) or len(text) == 0 or not all(isinstance(p, str) and len(p) > 0 for p in text):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, '`text` must be a non-empty list of non-empty concept prompts'
+            )
+
+        max_frame_num_to_track = bound_args.get('max_frame_num_to_track')
+        if max_frame_num_to_track is not None and (
+            not isinstance(max_frame_num_to_track, int) or max_frame_num_to_track < 0
+        ):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                '`max_frame_num_to_track` must be a non-negative integer (frame index) or None',
+            )
+
+        image_size = bound_args.get('image_size', 1008)
+        if not isinstance(image_size, int) or image_size <= 0:
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`image_size` must be a positive integer')
+
+
 @pxt.udf(batch_size=4)
 def vit_for_image_classification(
     image: Batch[PIL.Image.Image], *, model_id: str, top_k: int = 5
@@ -509,7 +1002,7 @@ def speech2text_for_conditional_generation(audio: pxt.Audio, *, model_id: str, l
     model = _lookup_model(model_id, Speech2TextForConditionalGeneration.from_pretrained, device=device)
     processor = _lookup_processor(model_id, Speech2TextProcessor.from_pretrained)
     assert isinstance(processor, Speech2TextProcessor)
-    tokenizer = processor.tokenizer  # type: ignore[attr-defined]
+    tokenizer = processor.tokenizer
     assert isinstance(tokenizer, Speech2TextTokenizer)
 
     if language is not None and language not in tokenizer.lang_code_to_id:

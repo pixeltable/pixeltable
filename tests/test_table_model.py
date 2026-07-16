@@ -48,7 +48,7 @@ class TestTableModel:
                 comment='This is a column with special properties',
             )
             computed_with_special_props = Column(value=(value / 3), stored=False)
-            computed_with_special_props_2 = Column(value=img.rotate(90), destination='.')
+            computed_with_special_props_2 = Column(value=img.rotate(90))
 
             clip_idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
 
@@ -82,7 +82,7 @@ class TestTableModel:
             }
         )
         tbl2.add_computed_column(computed_with_special_props=(tbl2.value / 3), stored=False)
-        tbl2.add_computed_column(computed_with_special_props_2=tbl2.img.rotate(90), destination='.')
+        tbl2.add_computed_column(computed_with_special_props_2=tbl2.img.rotate(90))
         tbl2.add_embedding_index(tbl2.img, idx_name='clip_idx', embedding=dummy_embedding.using(n=768))
         metadata2 = tbl2.get_metadata()
 
@@ -256,7 +256,7 @@ class TestTableModel:
                         'comment': None,
                         'custom_metadata': None,
                         'is_iterator_col': False,
-                        'destination': '.',
+                        'destination': None,
                     },
                 },
                 'indices': {
@@ -286,8 +286,8 @@ class TestTableModel:
                 'is_versioned': True,
                 'is_view': False,
                 'is_snapshot': False,
-                'version': 2,
-                'schema_version': 1,
+                'version': 1,
+                'schema_version': 0,
                 'comment': None,
                 'custom_metadata': None,
                 'media_validation': 'on_write',
@@ -330,7 +330,7 @@ class TestTableModel:
             string_radd = 'prefix ' + name
             string_mul = name * 3
             string_rmul = 3 * name
-            type_cast = arr.astype(pxt.Array[(2, 3), np.float32])  # type: ignore[misc]
+            type_cast = arr.astype(pxt.Array[(2, 3), np.float32])
 
         expected_path = p('all_exprs_table')
         TableModel.create_all(p(''))
@@ -362,7 +362,7 @@ class TestTableModel:
         tbl2.add_computed_column(string_radd=('prefix ' + tbl2.name))
         tbl2.add_computed_column(string_mul=tbl2.name * 3)
         tbl2.add_computed_column(string_rmul=3 * tbl2.name)
-        tbl2.add_computed_column(type_cast=tbl2.arr.astype(pxt.Array[(2, 3), np.float32]))  # type: ignore[misc]
+        tbl2.add_computed_column(type_cast=tbl2.arr.astype(pxt.Array[(2, 3), np.float32]))
 
         assert schema_from_tbl_md(tbl.get_metadata()) == schema_from_tbl_md(tbl2.get_metadata())
 
@@ -475,11 +475,7 @@ class TestTableModel:
         )
         view_from_query2.add_computed_column(view_col_2=view_from_query2.view_col_1.rotate(90))
         view_from_query2.add_computed_column(view_col_3=view_from_query2.img.rotate(90))
-        # The model's `view_col_4 = plusone + 5` references the named select column `plusone`, which the model
-        # substitutes with its underlying expression (`value + 1`); the stored expr is therefore `(value + 1) + 5`,
-        # not a reference to the materialized `plusone` column.
-        # TODO: Fix this; the model should be referencing the new column, not the expanded expression.
-        view_from_query2.add_computed_column(view_col_4=(view_from_query2.value + 1) + 5)
+        view_from_query2.add_computed_column(view_col_4=view_from_query2.plusone + 5)
         view_from_query2.add_embedding_index('view_col_2', idx_name='view_idx', embedding=dummy_embedding.using(n=768))
         view_from_query2.add_embedding_index(
             'img', idx_name='view_idx_on_base_tbl_col', embedding=dummy_embedding.using(n=768)
