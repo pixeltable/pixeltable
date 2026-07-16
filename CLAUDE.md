@@ -288,6 +288,12 @@ Spans are written synchronously, so the file is complete even if the process cra
 - `pxt serve ... --span-dump /tmp/spans.jsonl`
 - Set `OTEL_SPAN_LEVEL=debug` (or `trace`) for per-row and per-UDF spans; the default `info` emits
   operation-level spans only.
+- To also capture every SQL statement (with `db.statement`), call
+  `pxt_otel._instrument_sqlalchemy(engine=pixeltable.env.Env.get().engine)` after `init()`; requires
+  `pip install opentelemetry-instrumentation-sqlalchemy`.
+- To nest Pixeltable spans under HTTP request spans in a FastAPI app, call
+  `pxt_otel.instrument_fastapi(app)` after `init()`; requires
+  `pip install opentelemetry-instrumentation-fastapi`.
 
 Durations are `end_time - start_time`; reconstruct trace trees by joining `parent_id` to
 `context.span_id`. Quick look at the slowest operations:
