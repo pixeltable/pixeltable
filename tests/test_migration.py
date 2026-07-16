@@ -2,7 +2,11 @@ import glob
 import logging
 import os
 import platform
+import shutil
 import subprocess
+import sys
+import tempfile
+import textwrap
 import uuid
 import warnings
 from datetime import datetime
@@ -463,3 +467,52 @@ class TestMigration:
             assert result.fetchone() is not None, f'Expected pk index {good_idx_name} to exist for pk_test_good'
             result = conn.execute(sql.text('SELECT 1 FROM pg_indexes WHERE indexname = :idx'), {'idx': bad_idx_name})
             assert result.fetchone() is None, f'Expected pk index {bad_idx_name} to NOT exist for pk_test_bad'
+
+    def test_postgres_upgrade_16_to_18(self) -> None:
+        tmp_home_dir = tempfile.mkdtemp(prefix='pxt-home-')
+
+        try:
+            # Set up a temporary environment with a scratch PIXELTABLE_HOME and default PIXELTABLE_PGDATA, so that we
+            # can create and work with a fresh Pixeltable instance.
+            test_env = {**os.environ, 'PIXELTABLE_HOME': tmp_home_dir}
+            test_env.pop('PIXELTABLE_PGDATA', None)
+
+            # Spawn a subprocess to create a fresh Pixeltable instance with scratch home and pgdata dirs,
+            # forcing it to use Postgres 16.
+            pg_16_env = {**test_env, 'PGSERVER_POSTGRES_VERSION': '16'}
+            subprocess.run((sys.executable, 'tests/setup_postgres_test.py'), env=pg_16_env, text=True, check=True)
+
+            # Query the Postgres 16 database and save the verbatim output.
+            query_cmd = textwrap.dedent("""
+                import pixeltable as pxt
+                t = pxt.get_table('tbl')
+                res = t.order_by(t.id).select(t.id, t.string, t.string.embedding()).collect()
+                for row in res:
+                    print(row)
+            """)
+            print('Running query on postgres 16.')
+            pg_16_query_proc = subprocess.run((sys.executable, '-c', query_cmd), env=pg_16_env, text=True, check=True)
+            pg_16_output = pg_16_query_proc.stdout
+
+            # Verify that we have, in fact, been querying a v16 database, by direct inspection of PG_VERSION.
+            with open(f'{tmp_home_dir}/pgdata/PG_VERSION', encoding='utf-8') as f:
+                assert f.read().strip() == '16'
+
+            # Now repeat the query without the PGSERVER_POSTGRES_VERSION override; this should upgrade the db to
+            # version 18 in the background, and then return identical output to the original query.
+            print('Running query on postgres 18.')
+            pg_18_query_proc = subprocess.run((sys.executable, '-c', query_cmd), env=test_env, text=True, check=True)
+            pg_18_output = pg_18_query_proc.stdout
+
+            # Verify that we now have a v18 database.
+            with open(f'{tmp_home_dir}/pgdata/PG_VERSION', encoding='utf-8') as f:
+                assert f.read().strip() == '18'
+
+            assert pg_16_output == pg_18_output
+
+        finally:
+            # Stop the new Postgres server.
+            pixeltable_pgserver.get_server(f'{tmp_home_dir}/pgdata').stop()
+
+            # Clean up the temporary home directory and its contents.
+            shutil.rmtree(tmp_home_dir, ignore_errors=True)

@@ -439,12 +439,34 @@ class Env:
         else:
             self._db_name = config.get_string_value('db') or 'pixeltable'
             self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
+            self._ensure_db_updated(self._pgdata_dir)
             self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=None)
             self._db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')
             self._dbms = PostgresqlDbms(sql.make_url(self._db_url))
         assert self._dbms is not None
         assert self._db_url is not None
         assert self._db_name is not None
+
+    def _ensure_db_updated(self, pgdata_dir: Path) -> None:
+        """
+        Check the version of the PostgreSQL server.
+        """
+        pgdata_version = pixeltable_pgserver.pgdata_version(pgdata_dir)
+        if pgdata_version is None:
+            return  # db not created yet
+
+        target_version = pixeltable_pgserver.TARGET_POSTGRES_VERSION
+        if pgdata_version == target_version:
+            return  # db is up to date
+        if pgdata_version > target_version:
+            raise excs.RequestError(
+                excs.ErrorCode.DB_VERSION_MISMATCH,
+                'The Pixeltable database was created with a more recent version of Pixeltable than the one '
+                'currently installed. Please upgrade Pixeltable to the latest version: pip install -U pixeltable',
+            )
+
+        self.console_logger.info('Upgrading Pixeltable database.')
+        pixeltable_pgserver.upgrade_db(pgdata_dir)
 
     @retry(
         stop=stop_after_attempt(3),  # Stop after 3 attempts

@@ -121,7 +121,7 @@ class Dumper:
         dump_file = self.output_dir / f'pixeltable-v{md_version:03d}-test.dump.gz'
         _logger.info(f'Creating database dump at: {dump_file}')
         pg_package_dir = os.path.dirname(pixeltable_pgserver.__file__)
-        pg_dump_binary = f'{pg_package_dir}/pginstall/bin/pg_dump'
+        pg_dump_binary = f'{pg_package_dir}/pginstall18/bin/pg_dump'
         _logger.info(f'Using pg_dump binary at: {pg_dump_binary}')
         # We need the raw DB URL, without a driver qualifier.  (The driver qualifier is needed by
         # SQLAlchemy, but command-line Postgres won't know how to interpret it.)
