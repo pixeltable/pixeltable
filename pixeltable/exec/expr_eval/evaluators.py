@@ -387,7 +387,7 @@ class JsonMapperDispatcher(Evaluator):
             ]
             for nested_row, anchor_val in zip(nested_rows, src):
                 # It's possible that self.scope_anchor.slot_idx is None; this corresponds to the case where the
-                # mapper expression doesn't actually contain references to RELATIVE_PATH_ROOT.
+                # mapper expression doesn't actually contain references to the relative root.
                 if self.scope_anchor.slot_idx is not None:
                     nested_row[self.scope_anchor.slot_idx] = anchor_val
                 for slot_idx_, nested_slot_idx in self.external_slot_map.items():

@@ -1061,6 +1061,40 @@ class TestExprs:
 
         reload_tester.run_reload_test()
 
+    def test_nested_chained_mappers(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('test'), {'j': pxt.Json, 'jj': pxt.Json})
+        t.insert([{'j': [1, -2, 3], 'jj': [[1, 2], [3]]}])
+
+        # nested mapper: an inner map inside the outer map's function, applied to each inner list
+        res = reload_tester.run_query(t.select(o=t.jj.map(lambda outer: outer.map(lambda inner: inner + 1))))
+        assert res[0]['o'] == [[2, 3], [4]]
+
+        # chained mappers: the output of one map is the input of the next
+        res = reload_tester.run_query(t.select(o=t.j.map(lambda x: x + 1).map(lambda x: x * 10)))
+        assert res[0]['o'] == [20, -10, 40]
+
+        # map composed with filter, in both orders
+        res = reload_tester.run_query(t.select(o=t.j.map(lambda x: x + 1).filter(lambda x: x > 2)))
+        assert res[0]['o'] == [4]
+        res = reload_tester.run_query(t.select(o=t.j.filter(lambda x: x > 0).map(lambda x: x * 10)))
+        assert res[0]['o'] == [10, 30]
+
+        # map composed with sort
+        res = reload_tester.run_query(t.select(o=t.j.map(lambda x: x * 2).sort()))
+        assert res[0]['o'] == [-4, 2, 6]
+
+        # the nested and chained compositions as stored computed columns (function form), exercising reload
+        validate_update_status(t.add_computed_column(nested=pxtf.map(t.jj, lambda o: pxtf.map(o, lambda i: i + 1))), 1)
+        validate_update_status(
+            t.add_computed_column(chained=pxtf.map(pxtf.map(t.j, lambda x: x + 1), lambda x: x * 10)), 1
+        )
+        res = reload_tester.run_query(t.select(t.nested, t.chained))
+        assert res[0]['nested'] == [[2, 3], [4]]
+        assert res[0]['chained'] == [20, -10, 40]
+
+        reload_tester.run_reload_test()
+
     def test_dicts(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         # top-level is dict

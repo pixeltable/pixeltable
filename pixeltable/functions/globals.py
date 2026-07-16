@@ -261,7 +261,7 @@ def _(val: sql.ColumnElement) -> sql.ColumnElement | None:
 def _relative_path_root(expr: exprs.Expr) -> exprs.Expr:
     """A relative-path root typed as the element type of the list that expr produces (untyped if unknown)."""
     element_type = expr.col_type.array_element_type() if isinstance(expr.col_type, ts.JsonType) else None
-    return exprs.json_path.JsonPath(None, root_type=element_type)
+    return exprs.json_path.JsonPath.create_relative_path_root(element_type)
 
 
 def map(expr: exprs.Expr, fn: Callable[[exprs.Expr], Any]) -> exprs.Expr:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import random
 from pathlib import Path
 from typing import Any
 
@@ -21,22 +22,19 @@ from .sql_element_cache import SqlElementCache
 class JsonPath(Expr):
     """
     anchor can be None, in which case this is a relative JsonPath and the anchor is set later via set_anchor().
-    scope_idx: for relative paths, index of referenced JsonMapper
-    (0: indicates the immediately preceding JsonMapper, -1: the parent of the immediately preceding mapper, ...)
     root_type: for relative paths, the type of the element the path is rooted at (the source list element type of
     the enclosing JsonMapper); used to resolve the path's own type. None means the element type is unknown.
     """
 
     path_elements: list[str | int | slice]
-    scope_idx: int
     root_type: ts.ColumnType | None
+    _relative_path_root_id: int | None  # explicitly assigned id of a relative path root; None otherwise
     file_handles: dict[Path, io.BufferedReader]  # key: file path
 
     def __init__(
         self,
         anchor: Expr | None,
         path_elements: list[str | int | slice] | None = None,
-        scope_idx: int = 0,
         root_type: ts.ColumnType | None = None,
     ) -> None:
         if path_elements is None:
@@ -53,11 +51,20 @@ class JsonPath(Expr):
         self.path_elements = path_elements
         if anchor is not None:
             self.components = [anchor]
-        self.scope_idx = scope_idx
-        # NOTE: the _create_id() result will change if set_anchor() gets called;
-        # this is not a problem, because _create_id() shouldn't be called after init()
+
+        # relative path root: it has no anchor and no path elements (we can see a non-None anchor with no path elements
+        # for intermediate JsonPaths)
+        assert anchor is not None or len(path_elements) == 0
+        # we assign a random id to relative path roots: each one is a separate mapper scope, but they have no
+        # distinguishing attributes (other than identity)
+        self._relative_path_root_id = random.getrandbits(63) if anchor is None else None
+
         self.id = self._create_id()
         self.file_handles = {}
+
+    @classmethod
+    def create_relative_path_root(cls, root_type: ts.ColumnType | None = None) -> 'JsonPath':
+        return cls(None, root_type=root_type)
 
     @classmethod
     def __errstr(cls, el: str | int | slice) -> str:
@@ -195,17 +202,19 @@ class JsonPath(Expr):
             components_dict = super()._as_dict()
         path_elements = [[el.start, el.stop, el.step] if isinstance(el, slice) else el for el in self.path_elements]
         root_type = self.root_type.as_dict() if self.root_type is not None else None
-        return {'path_elements': path_elements, 'scope_idx': self.scope_idx, 'root_type': root_type, **components_dict}
+        return {'path_elements': path_elements, 'root_type': root_type, **components_dict}
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> JsonPath:
         assert 'path_elements' in d
-        assert 'scope_idx' in d
         assert len(components) <= 1
         anchor = components[0] if len(components) == 1 else None
         path_elements = [slice(el[0], el[1], el[2]) if isinstance(el, list) else el for el in d['path_elements']]
         root_type = ts.ColumnType.from_dict(d['root_type']) if d.get('root_type') is not None else None
-        return cls(anchor, path_elements, d['scope_idx'], root_type)
+        if anchor is None and len(path_elements) > 0:
+            # a relative path serialized before roots became explicit anchors: re-anchor it on a fresh root
+            anchor = cls.create_relative_path_root(root_type)
+        return cls(anchor, path_elements, root_type)
 
     @property
     def anchor(self) -> Expr | None:
@@ -215,28 +224,15 @@ class JsonPath(Expr):
         assert len(self.components) == 0
         self.components = [anchor]
 
-    def is_relative_path(self) -> bool:
-        return self.anchor is None
-
     def _has_relative_path(self) -> bool:
-        return self.is_relative_path() or super()._has_relative_path()
+        # an as-yet-unbound (= relative) root has no anchor; every other JsonPath has one
+        return self.anchor is None or super()._has_relative_path()
 
     def _bind_rel_paths(self, mapper: 'JsonMapperDispatch' | None = None) -> None:
-        if self.is_relative_path():
-            # TODO: take scope_idx into account
+        if self.anchor is None:
             self.set_anchor(mapper.scope_anchor)
         else:
             self.anchor._bind_rel_paths(mapper)
-
-    def __call__(self, *args: object, **kwargs: object) -> 'JsonPath':
-        """
-        Construct a relative path that references an ancestor of the immediately enclosing JsonMapper.
-        """
-        if not self.is_relative_path():
-            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, '() for an absolute path is invalid')
-        if len(args) != 1 or not isinstance(args[0], int) or args[0] >= 0:
-            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'R() requires a negative index')
-        return JsonPath(None, [], args[0])
 
     def _resolves_to_json_array(self) -> bool:
         # True if this path resolves to a typed json array (a list or tuple)
@@ -253,13 +249,20 @@ class JsonPath(Expr):
         last = self.path_elements[-1]
         return isinstance(last, slice) or last == '*'
 
-    def _append_field(self, name: str) -> 'JsonPath':
+    def _append(self, element: str | int | slice) -> 'JsonPath':
+        # a relative root anchors the paths derived from it; any other path passes on its own anchor
+        base = self if self.anchor is None else self.anchor
         elements = [*self.path_elements]
-        if self._resolves_to_json_array() and not self._ends_with_slice():
-            # a field access on a bare json array path contains an implicit ['*']
+        if (
+            isinstance(element, str)
+            and element != '*'
+            and self._resolves_to_json_array()
+            and not self._ends_with_slice()
+        ):
+            # a field access on a bare json array path contains an implicit ['*']; '*' is itself that projection
             elements.append('*')
-        elements.append(name)
-        return JsonPath(self.anchor, elements, root_type=self.root_type)
+        elements.append(element)
+        return JsonPath(base, elements, root_type=self.root_type)
 
     def __getattr__(self, name: str) -> 'Expr':
         import functools
@@ -286,17 +289,12 @@ class JsonPath(Expr):
             self.col_type.is_json_type()
             and FunctionRegistry.get().lookup_type_method(self.col_type.type_enum, name) is None
         ):
-            return self._append_field(name)
+            return self._append(name)
         return super().__getattr__(name)
 
     def __getitem__(self, index: object) -> 'JsonPath':
-        if isinstance(index, str):
-            if index == '*':
-                # the '*' operator is itself a projection over an array, not a field to project
-                return JsonPath(self.anchor, [*self.path_elements, '*'], root_type=self.root_type)
-            return self._append_field(index)
-        if isinstance(index, (int, slice)):
-            return JsonPath(self.anchor, [*self.path_elements, index], root_type=self.root_type)
+        if isinstance(index, (str, int, slice)):
+            return self._append(index)
         raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid json list index: {index}')
 
     def default_column_name(self) -> str | None:
@@ -326,6 +324,11 @@ class JsonPath(Expr):
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('path_elements', self.path_elements)]
+
+    def _create_id(self) -> int:
+        if self._relative_path_root_id is not None:
+            return self._relative_path_root_id
+        return super()._create_id()
 
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         """
@@ -398,6 +401,3 @@ class JsonPath(Expr):
             return
 
         row.vals[self.slot_idx] = reconstruct_json(val, cell_md.file_urls, self.file_handles)
-
-
-RELATIVE_PATH_ROOT = JsonPath(None)

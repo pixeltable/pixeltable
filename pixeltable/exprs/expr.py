@@ -102,9 +102,9 @@ class Expr(abc.ABC):
 
     def bind_rel_paths(self) -> None:
         """
-        Binds relative JsonPaths to mapper.
-        This needs to be done in a separate phase after __init__(), because RelativeJsonPath()(-1) cannot be resolved
-        by the immediately containing JsonMapper during initialization.
+        Binds relative (= un-anchored) JsonPaths to their enclosing mapper.
+        This is a separate phase after __init__(), because a relative root's mapper is only established once the
+        surrounding map expression has been fully constructed.
         """
         self._bind_rel_paths()
         has_rel_path = self._has_relative_path()
