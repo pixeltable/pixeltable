@@ -9,9 +9,10 @@ import tarfile
 import tempfile
 from pathlib import Path
 
+import toml
 from pathspec import PathSpec
 
-from pixeltable import metadata
+from pixeltable import config, metadata
 from pixeltable.env import Env
 from pixeltable.serving._config import lookup_database_runtime_config
 
@@ -65,6 +66,16 @@ def _export_conda_env() -> bytes | None:
     return ''.join(filtered).encode('utf-8')
 
 
+def _load_database_runtime_config(project_dir: Path) -> config.DatabaseRuntimeConfig | None:
+    """Read [pixeltable.database] config from project_dir/pixeltable.toml; fall back to Config singleton."""
+    toml_path = project_dir / 'pixeltable.toml'
+    if toml_path.is_file():
+        db_raw = toml.load(toml_path).get('pixeltable', {}).get('database')
+        if db_raw is not None:
+            return config.DatabaseRuntimeConfig.model_validate(db_raw)
+    return lookup_database_runtime_config()
+
+
 def __add_tarfile(tf: tarfile.TarFile, name: str, content: bytes) -> None:
     info = tarfile.TarInfo(name=name)
     info.size = len(content)
@@ -89,19 +100,7 @@ def build_db_runtime_bundle(project_dir: Path | None = None) -> Path:
     if not project_dir.is_dir():
         raise FileNotFoundError(f'Project directory does not exist: {project_dir}')
 
-    if (project_dir / 'pyproject.toml').exists():
-        if not (project_dir / 'uv.lock').exists():
-            _logger.info('uv.lock not found — running uv lock')
-            subprocess.run(['uv', 'lock'], cwd=project_dir, check=True)
-        else:
-            result = subprocess.run(['uv', 'lock', '--check'], cwd=project_dir, capture_output=True, check=False)
-            if result.returncode != 0:
-                Env.get().console_logger.warning(
-                    'uv.lock is out of sync with pyproject.toml. '
-                    'Run `uv lock` in your project directory to update it before deploying.'
-                )
-
-    runtime_cfg = lookup_database_runtime_config()
+    runtime_cfg = _load_database_runtime_config(project_dir)
     include = runtime_cfg.include if runtime_cfg else None
     exclude = runtime_cfg.exclude if runtime_cfg else None
     system_dependencies: list[str] = (runtime_cfg.system_dependencies or []) if runtime_cfg else []

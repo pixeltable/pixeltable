@@ -172,9 +172,9 @@ class PxtUri(BaseModel):
 
     @property
     def service(self) -> str | None:
-        """Service name if path is services/<name>, else None."""
+        """Service name if path starts with services/<name>, else None."""
         if self.path and self.path.startswith('services/'):
-            name = self.path[len('services/') :]
+            name = self.path[len('services/') :].split('/')[0]
             return name if name else None
         return None
 
