@@ -982,7 +982,7 @@ def rerun(**kwargs: Any) -> Callable:
 
 # Error patterns that indicate a transient network/service problem rather than a genuine test failure. Tests that hit
 # external services (remote APIs, model/dataset downloads, cloud object stores) should be retried when they fail with
-# one of these. Matched as substrings against the failure message by pytest-rerunfailures' `only_rerun`.
+# one of these. Matched as substrings against the failure message.
 NETWORK_ERROR_PATTERNS = [
     '429',
     'Too Many Requests',
