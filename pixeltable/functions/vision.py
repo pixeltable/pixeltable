@@ -440,7 +440,8 @@ def _validate_bboxes(
             pxt.ErrorCode.INVALID_ARGUMENT, f'{error_prefix}: each bounding box must have exactly 4 coordinates'
         )
     coords = list(itertools.chain.from_iterable(bboxes))
-    if not all(isinstance(x, (int, float)) for x in coords):
+    # bool is a subclass of int; reject it so JSON true/false isn't accepted as a numeric coordinate
+    if not all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in coords):
         raise pxt.RequestError(
             pxt.ErrorCode.INVALID_ARGUMENT, f'{error_prefix}: bounding box coordinates must be int or float'
         )

@@ -507,7 +507,7 @@ class TableModelMeta(type):
                 )
             # scoped to this model_base() so a long-lived process can re-load a schema without colliding with a
             # previous load; duplicate names within one schema are still caught
-            base_models = bases[0].__dict__['__registered_models__']
+            base_models = bases[0].__registered_models__  # type: ignore[attr-defined]
             if tbl_name in base_models:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,

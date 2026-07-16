@@ -17,6 +17,7 @@ import re
 import sys
 import urllib.parse
 import urllib.request
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -539,15 +540,20 @@ def schema_update(schema_path: str, target: str) -> tuple[list[str], list[str]]:
     if not path.is_file():
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'schema file not found: {schema_path}')
 
-    module_name = path.stem
+    # load under a unique key so a user schema file can't shadow an existing module (eg, one named json.py), and
+    # remove it afterward so nothing leaks per request
+    module_name = f'pxt_schema_{uuid.uuid4().hex}'
     spec = importlib.util.spec_from_file_location(module_name, path)
-    assert spec is not None and spec.loader is not None
+    if spec is None or spec.loader is None:
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'cannot load schema file: {schema_path}')
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module
     try:
         spec.loader.exec_module(module)
     except Exception as e:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'error loading {schema_path}: {e}') from e
+    finally:
+        sys.modules.pop(module_name, None)
 
     # a model base carries __registered_models__ as its own class attribute, whereas the models defined
     # on it merely inherit it
