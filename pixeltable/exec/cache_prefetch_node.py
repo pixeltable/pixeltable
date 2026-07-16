@@ -31,7 +31,9 @@ class CachePrefetchNode(ExecNode):
     QUEUE_DEPTH_HIGH_WATER = 50  # target number of in-flight requests
     QUEUE_DEPTH_LOW_WATER = 20  # target number of in-flight requests
     BATCH_SIZE = 16
-    MAX_WORKERS = 15
+    # matches QUEUE_DEPTH_HIGH_WATER: a smaller pool would silently queue "in-flight" requests behind
+    # idle worker slots instead of running them
+    MAX_WORKERS = QUEUE_DEPTH_HIGH_WATER
 
     retain_input_order: bool  # if True, return rows in the exact order they were received
     file_col_info: list[exprs.ColumnSlotIdx]

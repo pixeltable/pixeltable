@@ -167,7 +167,7 @@ def point(self: PIL.Image.Image, lut: list[int], mode: str | None = None) -> PIL
 
 
 # Image.resize()
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def resize(self: PIL.Image.Image, size: tuple[int, int]) -> PIL.Image.Image:
     """
     Return a resized copy of the image. The size parameter is a tuple containing the width and height of the new image.

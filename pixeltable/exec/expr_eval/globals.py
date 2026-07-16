@@ -10,6 +10,11 @@ import numpy as np
 
 from pixeltable import exprs, func
 
+# resource_pool id for CPU-bound, synchronous UDFs dispatched onto the shared ThreadPoolScheduler
+# executor (see schedulers.py); unlike 'rate-limits:'/'request-rate:' pools, there's a single one of
+# these, since CPU work isn't partitioned per provider the way API rate limits are
+CPU_BOUND_POOL = 'cpu-bound'
+
 
 @dataclass
 class FnCallArgs:

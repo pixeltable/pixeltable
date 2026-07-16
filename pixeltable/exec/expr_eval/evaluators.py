@@ -10,7 +10,7 @@ from typing import Any, Callable, Iterator, cast
 
 from pixeltable import exceptions as excs, exprs, func, telemetry
 
-from .globals import Dispatcher, Evaluator, ExprEvalCtx, FnCallArgs
+from .globals import CPU_BOUND_POOL, Dispatcher, Evaluator, ExprEvalCtx, FnCallArgs
 
 _logger = logging.getLogger(__name__)
 
@@ -75,10 +75,19 @@ class FnCallEvaluator(Evaluator):
         super().__init__(dispatcher, exec_ctx)
         self.fn_call = fn_call
         self.fn = cast(func.CallableFunction, fn_call.fn)
-        if fn_call.resource_pool is not None and not self.fn.is_async:
+        if fn_call.resource_pool is not None and fn_call.resource_pool != CPU_BOUND_POOL and not self.fn.is_async:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
                 f'{self.fn.display_name}: resource_pool requires an async function',
+            )
+        if (
+            fn_call.resource_pool == CPU_BOUND_POOL
+            and isinstance(self.fn, func.CallableFunction)
+            and self.fn.is_batched
+        ):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{self.fn.display_name}: resource_pool={CPU_BOUND_POOL!r} is not supported for batched functions',
             )
         if isinstance(self.fn, func.CallableFunction) and self.fn.is_batched:
             self.call_args_queue = asyncio.Queue[FnCallArgs]()
@@ -178,6 +187,12 @@ class FnCallEvaluator(Evaluator):
                 for item in rows_call_args:
                     task = asyncio.create_task(self.eval_async(item))
                     self.dispatcher.register_task(task)
+
+        elif self.fn_call.resource_pool is not None:
+            # sync, CPU-bound: hand off to the shared ThreadPoolScheduler, one call per row
+            scheduler = self.dispatcher.schedulers[self.fn_call.resource_pool]
+            for item in rows_call_args:
+                scheduler.submit(item, self.eval_ctx)
 
         else:
             # create a single task for all rows

@@ -1,25 +1,27 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import datetime
 import inspect
 import logging
 import math
+import os
 import sys
 import time
-from typing import Collection
+from typing import Any, Collection, cast
 
-from pixeltable import env, exceptions as excs, func
+from pixeltable import env, exceptions as excs, func, telemetry
 from pixeltable.config import Config
 from pixeltable.utils import fault_injection
 from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.http import exponential_backoff, is_retriable_error
 
-from .globals import Dispatcher, ExprEvalCtx, FnCallArgs, Scheduler
+from .globals import CPU_BOUND_POOL, Dispatcher, ExprEvalCtx, FnCallArgs, Scheduler
 
 _logger = logging.getLogger(__name__)
 
-__all__ = ['RateLimitsScheduler', 'RequestRateScheduler']
+__all__ = ['RateLimitsScheduler', 'RequestRateScheduler', 'ThreadPoolScheduler']
 
 
 class RateLimitsScheduler(Scheduler):
@@ -432,5 +434,83 @@ class RequestRateScheduler(Scheduler):
             return exponential_backoff(num_retries, max_delay=self.MAX_RETRY_DELAY)
 
 
+class ThreadPoolScheduler(Scheduler):
+    """
+    Scheduler for synchronous, CPU-bound FunctionCalls (resource_pool=globals.CPU_BOUND_POOL).
+
+    Runs each call on a shared, process-wide ThreadPoolExecutor instead of the single asyncio
+    event-loop thread, so calls that release the GIL for the bulk of their work (eg PIL image
+    resizing) run across multiple cores instead of serializing behind the loop. Sized to cpu_count():
+    unlike the I/O-bound pools in CachePrefetchNode/ObjectStoreSaveNode, which target concurrent
+    in-flight *requests* (network-latency-bound, so oversubscribing cores is fine), CPU-bound work
+    only benefits from as many threads as there are cores to run them on.
+
+    The executor lives in Env's resource-pool cache (the same lazily-created-once mechanism used for
+    RateLimitsInfo), so it's created once per process and reused across every insert/query, rather
+    than paying OS thread create/destroy cost on every operation.
+    """
+
+    executor: concurrent.futures.ThreadPoolExecutor
+
+    def __init__(self, resource_pool: str, dispatcher: Dispatcher):
+        super().__init__(resource_pool, dispatcher)
+        loop_task = asyncio.create_task(self._main_loop())
+        self.dispatcher.register_task(loop_task)
+        self.executor = env.Env.get().get_resource_pool_info(
+            CPU_BOUND_POOL, lambda: concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count())
+        )
+
+    @classmethod
+    def matches(cls, resource_pool: str) -> bool:
+        return resource_pool == CPU_BOUND_POOL
+
+    async def _main_loop(self) -> None:
+        while True:
+            item = await self.queue.get()
+            task = asyncio.create_task(self._exec(item.request, item.exec_ctx))
+            self.dispatcher.register_task(task)
+
+    async def _exec(self, request: FnCallArgs, exec_ctx: ExprEvalCtx) -> None:
+        assert not request.is_batched  # CPU_BOUND_POOL is rejected for batched functions in FnCallEvaluator
+        if self.dispatcher.exc_event.is_set():
+            return
+        loop = asyncio.get_running_loop()
+        hooks_ctx = telemetry.capture_context()
+        try:
+            result = await loop.run_in_executor(self.executor, self._run_on_thread, request, hooks_ctx)
+            request.row[request.fn_call.slot_idx] = result
+            self.dispatcher.dispatch(request.rows, exec_ctx)
+        except Exception as exc:
+            _, _, exc_tb = sys.exc_info()
+            request.row.set_exc(request.fn_call.slot_idx, exc)
+            self.dispatcher.dispatch_exc(request.rows, request.fn_call.slot_idx, exc_tb, exec_ctx)
+
+    @staticmethod
+    def _run_on_thread(request: FnCallArgs, hooks_ctx: telemetry.CtxSnapshot | None) -> Any:
+        """Runs the UDF call on a worker thread of the shared executor."""
+        hooks_token = telemetry.restore_context(hooks_ctx)
+        try:
+            pxt_fn = cast(func.CallableFunction, request.fn_call.fn)
+            # row.span is None past ExprEvalNode.MAX_ROW_SPANS; span_start() treats a None parent as
+            # "no explicit parent" and falls back to the ambient (operation) span rather than
+            # suppressing, so this cell span must be skipped explicitly to respect that cap, same as
+            # FnCallEvaluator._cell_span() does for the in-loop path
+            if request.row.span is None:
+                return pxt_fn.py_fn(*request.args, **request.kwargs)
+            with telemetry.span(
+                f'pixeltable.udf.{pxt_fn.display_name}',
+                level=telemetry.DEBUG,
+                parent=request.row.span,
+                set_current=telemetry.current_span() is not None,
+            ):
+                return pxt_fn.py_fn(*request.args, **request.kwargs)
+        finally:
+            telemetry.exit_context(hooks_token)
+
+
 # all concrete Scheduler subclasses that implement matches()
-SCHEDULERS = [RateLimitsScheduler, RequestRateScheduler]
+SCHEDULERS: list[type[RateLimitsScheduler | RequestRateScheduler | ThreadPoolScheduler]] = [
+    RateLimitsScheduler,
+    RequestRateScheduler,
+    ThreadPoolScheduler,
+]
