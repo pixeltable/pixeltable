@@ -899,14 +899,14 @@ class Catalog(CatalogBase):
                         if is_rollback:
                             with telemetry.span(
                                 f'pixeltable.op.{type(op).__name__}.undo',
-                                set_current=telemetry.current_span() != None,
+                                set_current=telemetry.current_span() is not None,
                                 **op_attrs,
                             ):
                                 op.undo(tv)
                         else:
                             with telemetry.span(
                                 f'pixeltable.op.{type(op).__name__}',
-                                set_current=telemetry.current_span() != None,
+                                set_current=telemetry.current_span() is not None,
                                 **op_attrs,
                             ):
                                 op.exec(tv)
@@ -922,13 +922,15 @@ class Catalog(CatalogBase):
                 if is_rollback:
                     with telemetry.span(
                         f'pixeltable.op.{type(op).__name__}.undo',
-                        set_current=telemetry.current_span() != None,
+                        set_current=telemetry.current_span() is not None,
                         **op_attrs,
                     ):
                         op.undo(tv)
                 else:
                     with telemetry.span(
-                        f'pixeltable.op.{type(op).__name__}', set_current=telemetry.current_span() != None, **op_attrs
+                        f'pixeltable.op.{type(op).__name__}',
+                        set_current=telemetry.current_span() is not None,
+                        **op_attrs,
                     ):
                         op.exec(tv)
                 # no need to invalidate tv here: all operations that modify metadata (cached in tv) are executed

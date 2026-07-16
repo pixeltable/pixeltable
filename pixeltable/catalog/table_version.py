@@ -361,7 +361,7 @@ class TableVersion:
         telemetry.add_attrs(
             telemetry.func_span(),
             **telemetry_schemas.MediaDeleteAttrs(
-                destinations=[str(d) for d in destinations if d is not None],
+                destinations=[str(d) if d is not None else str(Env.get().media_dir) for d in destinations],
                 num_files=sum(reported_counts) if reported_counts else None,
             ),
         )
