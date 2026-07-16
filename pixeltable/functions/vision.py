@@ -1109,7 +1109,8 @@ def bboxes_crop_canvas(
     if not is_absolute and is_int:
         raise pxt.RequestError(
             pxt.ErrorCode.MISSING_REQUIRED,
-            'bboxes_crop_canvas(): all-integer coordinates are absolute pixels and require canvas_width and canvas_height',
+            'bboxes_crop_canvas(): all-integer coordinates are absolute pixels and require canvas_width and '
+            'canvas_height',
         )
 
     # Validate canvas_region
