@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import multiprocessing
 import os
@@ -190,6 +191,49 @@ def test_protocol_grpc(tmp_path: Path) -> None:
         {
             'OTEL_EXPORTER_OTLP_PROTOCOL': 'grpc',
             'OTEL_EXPORTER_OTLP_ENDPOINT': 'http://127.0.0.1:4317',
+            'OTEL_EXPORTER_OTLP_TIMEOUT': '1',
+        },
+        tmp_path,
+    )
+
+
+def check_span_dump_without_endpoint() -> None:
+    for k in [k for k in os.environ if k.startswith('OTEL_') and k != 'OTEL_SPAN_DUMP']:
+        del os.environ[k]
+    pxt_otel.init()
+    assert isinstance(trace.get_tracer_provider(), TracerProvider)
+    assert _sdk._state.owns_tracer_provider
+    parent = telemetry.span_start('pixeltable.op', set_current=True)
+    telemetry.span_end(telemetry.span_start('pixeltable.udf.foo', set_current=True))
+    telemetry.span_end(parent)
+    spans = {}
+    for line in Path(os.environ['OTEL_SPAN_DUMP']).read_text(encoding='utf-8').splitlines():
+        span = json.loads(line)
+        spans[span['name']] = span
+    assert set(spans) == {'pixeltable.op', 'pixeltable.udf.foo'}
+    assert spans['pixeltable.udf.foo']['parent_id'] == spans['pixeltable.op']['context']['span_id']
+
+
+def test_span_dump_without_endpoint(tmp_path: Path) -> None:
+    # a span dump alone activates export (no longer inert): spans land in the file as JSON lines,
+    # written synchronously on span end
+    _run_isolated(check_span_dump_without_endpoint, {'OTEL_SPAN_DUMP': str(tmp_path / 'spans.jsonl')}, tmp_path)
+
+
+def check_span_dump_composes_with_otlp() -> None:
+    pxt_otel.init()
+    tp = trace.get_tracer_provider()
+    processors = tp._active_span_processor._span_processors  # type: ignore[attr-defined]
+    assert {type(p).__name__ for p in processors} == {'BatchSpanProcessor', 'SimpleSpanProcessor'}
+
+
+def test_span_dump_composes_with_otlp(tmp_path: Path) -> None:
+    # endpoint + span dump: both processors attach to the same provider
+    _run_isolated(
+        check_span_dump_composes_with_otlp,
+        {
+            'OTEL_SPAN_DUMP': str(tmp_path / 'spans.jsonl'),
+            'OTEL_EXPORTER_OTLP_ENDPOINT': 'http://127.0.0.1:9',
             'OTEL_EXPORTER_OTLP_TIMEOUT': '1',
         },
         tmp_path,

@@ -47,6 +47,7 @@ def init(
     service_name: str | None = None,
     headers: str | None = None,
     span_level: Literal['info', 'debug', 'trace'] | None = None,
+    span_dump: str | None = None,
     metrics: bool | None = None,
     logs: bool | None = None,
     tracer_provider: Any = None,
@@ -61,8 +62,9 @@ def init(
 
     Args:
         endpoint: OTLP collector endpoint (eg `http://localhost:4318`); resolves from
-            `otel.exporter_otlp_endpoint` / `OTEL_EXPORTER_OTLP_ENDPOINT`. With no endpoint configured
-            and no application-owned provider, instrumentation stays inert and exports nothing.
+            `otel.exporter_otlp_endpoint` / `OTEL_EXPORTER_OTLP_ENDPOINT`. With no endpoint configured,
+            no `span_dump`, and no application-owned provider, instrumentation stays inert and exports
+            nothing.
         protocol: OTLP transport, `http/protobuf` (default) or `grpc`; resolves from
             `otel.exporter_otlp_protocol` / `OTEL_EXPORTER_OTLP_PROTOCOL`.
         service_name: `service.name` resource attribute (default `pixeltable`); resolves from
@@ -71,6 +73,9 @@ def init(
             `otel.exporter_otlp_headers` / `OTEL_EXPORTER_OTLP_HEADERS`.
         span_level: span emission threshold: `info` (default; operation-level spans only), `debug`
             (adds per-row and per-UDF spans), or `trace`.
+        span_dump: path of a file to append every finished span to, one JSON object per line; resolves
+            from `otel.span_dump` / `OTEL_SPAN_DUMP`. Spans are written synchronously, so the file is
+            complete even if the process dies. Works with or without an OTLP endpoint.
         metrics: force metric export on/off (by default metrics are exported only when an OTLP endpoint
             is configured).
         logs: force log export on/off (default off; must be explicitly enabled).
@@ -95,6 +100,7 @@ def init(
             service_name=service_name,
             headers=headers,
             span_level=span_level,
+            span_dump=span_dump,
             metrics=metrics,
             logs=logs,
             tracer_provider=tracer_provider,
@@ -157,6 +163,7 @@ def _setup(
     service_name: str | None,
     headers: str | None,
     span_level: str | None,
+    span_dump: str | None,
     metrics: bool | None,
     logs: bool | None,
     tracer_provider: Any,
@@ -167,7 +174,7 @@ def _setup(
     from opentelemetry.sdk.metrics import MeterProvider
     from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
     from opentelemetry.sdk.trace import TracerProvider
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor
 
     from . import PixeltableInstrumentor
 
@@ -188,6 +195,7 @@ def _setup(
         else (config.get_string_value('service_name', section='otel') or _DEFAULT_SERVICE_NAME)
     )
     cfg_headers = headers if headers is not None else config.get_string_value('exporter_otlp_headers', section='otel')
+    cfg_span_dump = span_dump if span_dump is not None else config.get_string_value('span_dump', section='otel')
     if metrics is None:
         metrics = config.get_bool_value('metrics', section='otel')
     if logs is None:
@@ -209,8 +217,28 @@ def _setup(
             tp = TracerProvider(resource=_create_resource(cfg_service))
             tp.add_span_processor(BatchSpanProcessor(exporter))
             owns_tp = True
-        # else: no endpoint configured and no app-owned provider -> stay inert; the bridge instruments
-        # against the global no-op tracer and nothing is exported
+        elif cfg_span_dump is not None:
+            tp = TracerProvider(resource=_create_resource(cfg_service))
+            owns_tp = True
+        # else: no endpoint or span dump configured and no app-owned provider -> stay inert; the bridge
+        # instruments against the global no-op tracer and nothing is exported
+
+    if cfg_span_dump is not None:
+        if not hasattr(tp, 'add_span_processor'):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'span_dump requires a TracerProvider that accepts span processors; got {type(tp).__name__}',
+            )
+        # append + SimpleSpanProcessor: each span is written on end, so the file survives a crashed
+        # process and repeated runs (distinguishable by trace id) never destroy earlier dumps
+        tp.add_span_processor(
+            SimpleSpanProcessor(
+                ConsoleSpanExporter(
+                    out=open(cfg_span_dump, 'a', encoding='utf-8'),  # noqa: SIM115
+                    formatter=lambda span: span.to_json(indent=None) + '\n',
+                )
+            )
+        )
 
     # Metrics flow when an OTLP endpoint is configured unless explicitly disabled.
     export_metrics = metrics is True or (metrics is not False and cfg_endpoint is not None)

@@ -52,6 +52,13 @@ def _add_service_args(p: argparse.ArgumentParser) -> None:
         action='store_true',
         help="Enable OpenTelemetry instrumentation (requires `pip install 'pixeltable[otel]'`)",
     )
+    p.add_argument(
+        '--span-dump',
+        type=str,
+        default=None,
+        dest='span_dump',
+        help='Append spans as JSON lines to this file (implies --otel)',
+    )
 
 
 def _add_output_args(p: argparse.ArgumentParser) -> None:
@@ -243,14 +250,14 @@ def _serve(args: argparse.Namespace) -> None:
         return
 
     app = create_service_from_config(cfg)
-    if args.otel:
+    if args.otel or args.span_dump is not None:
         Env.get().require_package(
             'opentelemetry.instrumentation.pixeltable',
             not_installed_msg="--otel requires the instrumentation package; install: `pip install 'pixeltable[otel]'`",
         )
         import opentelemetry.instrumentation.pixeltable as pxt_otel
 
-        pxt_otel.init()
+        pxt_otel.init(span_dump=args.span_dump)
         pxt_otel.instrument_fastapi(app)
 
     _run(cfg, app, args.json)
