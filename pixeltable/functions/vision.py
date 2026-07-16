@@ -466,8 +466,9 @@ def bboxes_convert(
     Convert a list of bounding boxes from src_format to dst_format.
 
     Args:
-        bboxes: List of bounding boxes, each either specified with absolute pixel coordinates or relative
-            coordinates in [0, 1].
+        bboxes: List of bounding boxes, each with absolute pixel coordinates or relative coordinates in [0, 1].
+            Coordinates may be int or float; relative vs absolute is inferred (relative only when every coordinate
+            is within [0, 1]), so absolute float coordinates such as 10.5 are supported.
         src_format: Source format, one of 'xyxy', 'xywh', 'cxcywh'.
         dst_format: Destination format, one of 'xyxy', 'xywh', 'cxcywh'.
 
@@ -532,8 +533,9 @@ def bboxes_resize(
     Only one of `width`, `height`, or `aspect` can be specified.
 
     Args:
-        bboxes: List of bounding boxes, each either specified with absolute pixel coordinates or relative
-            coordinates in [0, 1].
+        bboxes: List of bounding boxes, each with absolute pixel coordinates or relative coordinates in [0, 1].
+            Coordinates may be int or float; relative vs absolute is inferred (relative only when every coordinate
+            is within [0, 1]), so absolute float coordinates such as 10.5 are supported.
         format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
         width: Target width. Pass an `int` for absolute pixels or a `float` for relative coordinates.
         height: Target height. Pass an `int` for absolute pixels or a `float` for relative coordinates.
@@ -739,8 +741,9 @@ def bboxes_scale(
     Re-scale a list of bounding boxes (center-anchored).
 
     Args:
-        bboxes: List of bounding boxes, each either specified with absolute pixel coordinates or relative
-            coordinates in [0, 1].
+        bboxes: List of bounding boxes, each with absolute pixel coordinates or relative coordinates in [0, 1].
+            Coordinates may be int or float; relative vs absolute is inferred (relative only when every coordinate
+            is within [0, 1]), so absolute float coordinates such as 10.5 are supported.
         format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
         factor: Scale factor to apply to both box dimensions.
         x_factor: Scale factor to apply to the box width.
