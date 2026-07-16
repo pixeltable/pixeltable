@@ -3,10 +3,14 @@
 Core pixeltable reports spans (timed, nested units of work), discrete events attached to spans, and
 metrics through this module; subscribers (e.g. the bridge in `opentelemetry-instrumentation-pixeltable`)
 translate them into a telemetry backend. Metric instruments are declared once at module level
-(`_rows = telemetry.counter(...)`) and recorded into where the measurement happens
-(`_rows.add(n, table=path)`). With no subscribers
-registered every call is a near-free no-op, but hot loops should still guard with `if telemetry.active():`
-before building attribute dicts (or pass `attrs` as a callable).
+(`_rows = telemetry.counter(...)`) and recorded where the measurement happens
+(`_rows.add(n, table=path)`). With no subscribers registered every call is a near-free no-op, but hot
+loops should still guard with `if telemetry.active():` before building attribute dicts (or pass `attrs`
+as a callable).
+
+In production, run with log export disabled (the bridge's default; `logs=False`) or route exports
+through a collector configured to redact secrets: log records can carry credentials (API keys in
+error messages, signed URLs, connection strings) that would otherwise leak to the telemetry backend.
 
 Spans should cover contiguous units of real computation (a UDF call, a DB insert batch, model loading) or
 serve as structural containers (operation and exec-node spans). A CPU work span must not contain a
