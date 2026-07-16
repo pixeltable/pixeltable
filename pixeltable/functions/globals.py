@@ -359,7 +359,7 @@ def filter(expr: exprs.Expr, predicate: Callable[[exprs.Expr], Any]) -> exprs.Ex
     return exprs.JsonMapper(expr, filter_expr, exprs.JsonMapper.Operator.FILTER)
 
 
-def sort(expr: exprs.Expr, *, key: Callable[[exprs.Expr], Any] | None = None, asc: bool = True) -> exprs.Expr:
+def sort(expr: exprs.Expr, key: Callable[[exprs.Expr], Any] | None = None, *, asc: bool = True) -> exprs.Expr:
     """
     Sorts the elements of a JSON array, producing a new array.
 

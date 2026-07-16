@@ -997,6 +997,10 @@ class TestExprs:
         assert res3.schema['output'] == 'Json'
         assert all(row['output'] == sorted(row['input'], key=lambda x: -x) for row in res3)
 
+        # key may be passed positionally (matching map()/filter() and the sort() repr), equivalent to key=
+        res3p = reload_tester.run_query(t.select(input=t.c6.f5, output=t.c6.f5.sort(lambda x: -x)).order_by(t.c2))
+        assert all(row['output'] == sorted(row['input'], key=lambda x: -x) for row in res3p)
+
         # key contains a global-scope dependency
         res4 = reload_tester.run_query(
             t.select(input=t.c6, output=t.c6.f5.sort(key=lambda x: x * t.c6.f2, asc=False)).order_by(t.c2)
