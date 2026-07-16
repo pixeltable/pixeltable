@@ -15,10 +15,11 @@ from pathlib import Path
 from typing import NamedTuple
 from uuid import UUID
 
+from fasteners import InterProcessReaderWriterLock  # type: ignore[import-untyped]
+
 import pixeltable.exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.utils.file_lock import FileLock
 from pixeltable.utils.http import redact_url
 
 _logger = logging.getLogger(__name__)
@@ -88,7 +89,7 @@ class FileCache:
     # a renewal cannot land between ensure_capacity's mtime read and its os.remove. Held only for those brief
     # operations, never across a read (the lease covers the read). Its file is ignored by the dir scan (the
     # stem has no '_'-separated id/col/key parts).
-    _evict_lock: FileLock
+    _evict_lock: InterProcessReaderWriterLock
 
     # best-effort capacity tracking
     total_size: int
@@ -134,15 +135,13 @@ class FileCache:
 
     @classmethod
     def init(cls) -> None:
-        if cls.__instance is not None:
-            cls.__instance._evict_lock.close()
         cls.__instance = cls()
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
 
         # the lock file is ignored by the dir scan (doesn't match the scan regex).
-        self._evict_lock = FileLock(Env.get().file_cache_dir / '.filecache.lock')
+        self._evict_lock = InterProcessReaderWriterLock(str(Env.get().file_cache_dir / '.filecache.lock'))
 
         self.total_size = 0
         self.capacity_bytes = int(Env.get()._file_cache_size_g * (1 << 30))
@@ -292,7 +291,7 @@ class FileCache:
 
             path = entry.path
             try:
-                with self._evict_lock.shared():
+                with self._evict_lock.read_lock():
                     # renewing the lease must be atomic w.r.t. eviction's check-and-remove; os.utime also
                     # validates existence in one syscall, raising FileNotFoundError if already evicted
                     os.utime(str(path))
@@ -319,7 +318,7 @@ class FileCache:
             existing = self.cache.get(key, None)
             if existing is not None:
                 try:
-                    with self._evict_lock.shared():
+                    with self._evict_lock.read_lock():
                         # already cached (this process added it, or another thread/process won a concurrent
                         # download); renew the lease atomically w.r.t. eviction. os.utime raises FileNotFoundError
                         # if the file was removed since we created the self.cache entry.
@@ -354,7 +353,7 @@ class FileCache:
                 path.suffix,
             )
             new_path = entry.path
-            with self._evict_lock.shared():
+            with self._evict_lock.read_lock():
                 # place the file and renew its lease atomically: os.replace() (atomic, and overwrites a copy another
                 # process may have written for the same url) preserves the download's possibly-stale mtime, so without
                 # the lock an evictor could remove new_path before the lease is set. os.utime() renews the lease and,
@@ -382,7 +381,7 @@ class FileCache:
                 if self.total_size + size <= self.capacity_bytes:
                     return
                 entry = self.cache[key]
-                with self._evict_lock.exclusive():
+                with self._evict_lock.write_lock():
                     # hold the lock across the mtime check and the removal, so a concurrent lease renewal cannot
                     # slip in between them and get its just-renewed file deleted
                     try:
