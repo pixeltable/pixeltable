@@ -364,7 +364,7 @@ Define your routes in a TOML file and start everything with one command:
 
 ```toml
 # service.toml
-[[service]]
+[[pixeltable.service]]
 name = "my-service"
 port = 8000
 
@@ -833,7 +833,7 @@ pxt service update pxt://myorg:mydb/services/my-service --workers 2
 | `--memory N` | Memory per worker in MB |
 | `--disk N` | Disk per worker in GB |
 
-Re-reads `[[service]]` from `pixeltable.toml` for route config changes. Triggers a rolling restart if routes changed; polls until `AVAILABLE`.
+Re-reads `[[pixeltable.service]]` from `pixeltable.toml` for route config changes. Triggers a rolling restart if routes changed; polls until `AVAILABLE`.
 
 #### `pxt service delete`
 

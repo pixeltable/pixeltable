@@ -279,7 +279,7 @@ markers = [
     "remote_api: marks tests as calling a remote API (such as OpenAI)",
     "benchmark: marks tests as benchmark tests (excluded from regular test runs)",
     "local: test runs only against the in-process catalog, not the proxy (arg: reason)",
-    "cloud_e2e: marks tests as cloud end-to-end tests requiring PXT_E2E_ENABLED=1 and a live dev cluster",
+    "cloud_e2e: marks tests as cloud end-to-end tests requiring PIXELTABLE_API_KEY",
 ]
 filterwarnings = [
     # Treat *our* warnings as errors (we shouldn't see them fall through in tests)

@@ -131,7 +131,7 @@ def build_db_runtime_bundle(project_dir: Path | None = None) -> Path:
     with tarfile.open(bundle_path, 'w:bz2') as tf:
         __add_tarfile(tf, 'metadata.json', json.dumps(meta).encode('utf-8'))
         if conda_env_yaml is not None:
-            __add_tarfile(tf, 'conda-environment.yaml', conda_env_yaml)
+            __add_tarfile(tf, 'project/conda-environment.yaml', conda_env_yaml)
         for f in sorted(files):
             relpath = f.relative_to(project_dir)
             tf.add(f, arcname=f'project/{relpath}')
