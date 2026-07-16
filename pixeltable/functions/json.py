@@ -9,13 +9,11 @@ Example:
 >>> t.select(pxtf.json.make_list(t.json_col)).collect()
 """
 
-import builtins
 import itertools
 import json
 from typing import Any, Iterator, Literal
 
 import sqlalchemy as sql
-from sqlalchemy.dialects.postgresql import array as pg_array
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, exprs, type_system as ts
@@ -41,46 +39,6 @@ def dumps(obj: pxt.Json) -> str:
 @dumps.to_sql
 def _(obj: sql.ColumnElement) -> sql.ColumnElement:
     return obj.cast(sql.Text)
-
-
-def _jsonb_object_length(obj: sql.ColumnElement) -> sql.ColumnElement:
-    """SQL expression for the number of keys in a jsonb object."""
-    return sql.select(sql.func.count()).select_from(sql.func.jsonb_object_keys(obj)).scalar_subquery()
-
-
-def _jsonb_as_text(obj: sql.ColumnElement) -> sql.ColumnElement:
-    """SQL expression for a jsonb string's underlying text (the empty path '{}' selects the whole value)."""
-    return obj.op('#>>')(pg_array([], type_=sql.Text))
-
-
-@pxt.udf(is_method=True)
-def len(self: pxt.Json) -> int:
-    """
-    Return the number of elements in a JSON array, keys in a JSON object, or characters in a JSON string.
-
-    Not defined for numbers or booleans. A `null` value (or missing path) yields `null`.
-
-    Example:
-
-        >>> t.select(t.detections.bboxes.len()).collect()
-    """
-    if isinstance(self, (list, dict, str)):
-        return builtins.len(self)
-    raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'len() is not defined for a JSON {type(self).__name__}')
-
-
-@len.to_sql
-def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    type_of = sql.func.jsonb_typeof(self)
-    return sql.case(
-        (self.is_(None), sql.null()),
-        (type_of == 'null', sql.null()),
-        (type_of == 'array', sql.func.jsonb_array_length(self)),
-        (type_of == 'object', _jsonb_object_length(self)),
-        (type_of == 'string', sql.func.length(_jsonb_as_text(self))),
-        # a number or boolean is not sized: reuse jsonb_array_length's native scalar error
-        else_=sql.func.jsonb_array_length(self),
-    )
 
 
 @pxt.uda
@@ -133,7 +91,7 @@ def list_iterator(
         **kwargs: One or more lists to iterate over. The kwarg names will be used as column names in the output.
             Cannot be specified together with `elements`.
     """
-    assert (elements is None) != (builtins.len(kwargs) == 0)
+    assert (elements is None) != (len(kwargs) == 0)
 
     if elements is not None:
         yield from elements
@@ -161,7 +119,7 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, 'list_iterator(): `mode` argument cannot be used with `elements`'
             )
-        if builtins.len(bound_args) > 1:
+        if len(bound_args) > 1:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 'list_iterator(): Cannot specify both `elements` and keyword arguments',
@@ -173,7 +131,7 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
             not isinstance(el_col_type, ts.JsonType)
             or el_col_type.type_schema is None
             or not isinstance(el_col_type.type_schema.type_spec, list)
-            or builtins.len(el_col_type.type_schema.type_spec) != 0
+            or len(el_col_type.type_schema.type_spec) != 0
         ):
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -195,7 +153,7 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
     else:  # bound_args.get('element') is None
         mode = bound_args.get('mode')
         kwargs = bound_args.get('kwargs', {})  # type: ignore[var-annotated]
-        if builtins.len(kwargs) == 0:
+        if len(kwargs) == 0:
             raise excs.RequestError(excs.ErrorCode.MISSING_REQUIRED, 'list_iterator(): No inputs provided')
 
         output_schema: dict[str, ts.ColumnType] = {}
