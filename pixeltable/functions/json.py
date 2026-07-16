@@ -173,7 +173,7 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
             not isinstance(el_col_type, ts.JsonType)
             or el_col_type.type_schema is None
             or not isinstance(el_col_type.type_schema.type_spec, list)
-            or len(el_col_type.type_schema.type_spec) != 0
+            or builtins.len(el_col_type.type_schema.type_spec) != 0
         ):
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -195,7 +195,7 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
     else:  # bound_args.get('element') is None
         mode = bound_args.get('mode')
         kwargs = bound_args.get('kwargs', {})  # type: ignore[var-annotated]
-        if len(kwargs) == 0:
+        if builtins.len(kwargs) == 0:
             raise excs.RequestError(excs.ErrorCode.MISSING_REQUIRED, 'list_iterator(): No inputs provided')
 
         output_schema: dict[str, ts.ColumnType] = {}
