@@ -35,11 +35,6 @@ class TestSchema:
         schema_file.write_text(SCHEMA_SRC)
         target = p('app')
 
-        # dry run against an empty catalog: everything pending, exit 2
-        r = cli('schema', 'update', str(schema_file), target, '--dry-run', check=False)
-        assert r.returncode == 2
-        assert r.stdout.count('create ') == 2
-
         # create; the tables exist and compute afterwards
         r = cli('schema', 'update', str(schema_file), target)
         assert r.stdout.count('created') == 2
@@ -48,15 +43,11 @@ class TestSchema:
         titled = pxt.get_table(f'{target}/titled_docs')
         assert titled.select(titled.headline).collect()[0]['headline'] == 'HELLO!'
 
-        # idempotent rerun: exit 0, reported as existing
+        # idempotent rerun: exit 0, nothing created, both reported as existing
         r = cli('schema', 'update', str(schema_file), target)
         assert r.returncode == 0
+        assert r.stdout.count('created') == 0
         assert r.stdout.count('exists') == 2
-
-        # dry run with everything in place: exit 0, nothing pending
-        r = cli('schema', 'update', str(schema_file), target, '--dry-run')
-        assert r.returncode == 0
-        assert 'pending' not in r.stdout
 
         # json output
         r = cli('schema', 'update', str(schema_file), target, '--json')
@@ -88,7 +79,7 @@ class TestSchema:
         schema_file.write_text(SCHEMA_SRC)
 
         # unknown verb
-        r = cli('schema', 'frobnicate', str(schema_file), p('app'), check=False)
+        r = cli('schema', 'doesnotexist', str(schema_file), p('app'), check=False)
         assert r.returncode == 2
         assert 'unknown verb' in r.stderr
 

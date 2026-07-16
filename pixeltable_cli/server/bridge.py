@@ -9,15 +9,20 @@ from __future__ import annotations
 
 import csv
 import datetime
+import importlib.util
 import io
 import json
 import logging
 import re
+import sys
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
+from pixeltable import exceptions as excs
+from pixeltable.catalog.model import TableModelMeta
 from pixeltable.catalog.table_metadata import TableMetadata
 from pixeltable.config import Config
 from pixeltable.env import Env
@@ -523,3 +528,42 @@ def get_status() -> dict[str, Any]:
         'total_errors': total_errors,
         'config': config_info,
     }
+
+
+def schema_update(schema_path: str, target: str) -> tuple[list[str], list[str]]:
+    """Create the tables defined by a class-based schema file under target (idempotent).
+
+    Returns (created, existing): absolute paths of the tables created now and those that already exist.
+    """
+    path = Path(schema_path)
+    if not path.is_file():
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'schema file not found: {schema_path}')
+
+    module_name = path.stem
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception as e:
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'error loading {schema_path}: {e}') from e
+
+    # a model base carries __registered_models__ as its own class attribute, whereas the models defined
+    # on it merely inherit it
+    bases = [
+        v for v in vars(module).values() if isinstance(v, TableModelMeta) and '__registered_models__' in v.__dict__
+    ]
+    if len(bases) == 0:
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'no model_base() found in {schema_path}')
+
+    if target != '':
+        pxt.create_dir(target, parents=True, if_exists='ignore')
+
+    created: list[str] = []
+    existed: list[str] = []
+    for base in bases:
+        base_created, base_existed = base.create_all(target)
+        created.extend(base_created)
+        existed.extend(base_existed)
+    return created, existed
