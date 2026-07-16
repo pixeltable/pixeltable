@@ -6,13 +6,13 @@ from PIL import Image
 
 import pixeltable as pxt
 
-from ..utils import get_image_files, pxt_raises, rerun, skip_test_if_not_installed
+from ..utils import get_image_files, pxt_raises, rerun_on_network_error, skip_test_if_not_installed
 
 pytestmark = pytest.mark.local('TODO: convert; import/export (fiftyone)')
 
 
 @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
-@rerun(reruns=3, reruns_delay=8)
+@rerun_on_network_error()
 class TestFiftyone:
     @pytest.mark.xdist_group('fiftyone')
     def test_export_images(self, uses_db: None) -> None:

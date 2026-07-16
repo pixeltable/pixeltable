@@ -22,7 +22,7 @@ from .utils import (
     get_audio_files,
     get_video_files,
     pxt_raises,
-    rerun,
+    rerun_on_network_error,
     skip_test_if_not_installed,
     validate_update_status,
 )
@@ -565,7 +565,7 @@ class TestAudio:
 
     @pytest.mark.local('pure UDF test')
     @pytest.mark.very_expensive  # Downloads a Hugging Face dataset
-    @rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading datasets
+    @rerun_on_network_error()
     def test_encode_dataset_audio(self, uses_db: None) -> None:
         """
         The point of this test case is to validate encode_audio UDF on a real-world dataset.

@@ -5,7 +5,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable.functions import reve
 
-from ..utils import rerun, skip_test_if_no_client, validate_update_status
+from ..utils import rerun_on_network_error, skip_test_if_no_client, validate_update_status
 
 pytestmark = pytest.mark.local('UDF/integration test')
 
@@ -15,7 +15,7 @@ _logger = logging.getLogger('pixeltable_test')
 @pytest.mark.remote_api
 @pytest.mark.skip(reason='[PXT-1116] Out of credits')
 @pytest.mark.very_expensive
-@rerun(reruns=3, reruns_delay=8)
+@rerun_on_network_error()
 class TestReve:
     @pytest.mark.parametrize('default_params', [True, False], ids=['default_params', 'nondefault_params'])
     def test_create_edit_remix(self, default_params: bool, uses_db: None) -> None:

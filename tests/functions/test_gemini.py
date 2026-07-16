@@ -18,7 +18,7 @@ from ..utils import (
     get_test_video_files,
     get_video_files,
     pxt_raises,
-    rerun,
+    rerun_on_network_error,
     skip_test_if_no_client,
     skip_test_if_not_installed,
     validate_update_status,
@@ -32,7 +32,7 @@ _logger = logging.getLogger('pixeltable_test')
 
 @pytest.mark.remote_api
 @pytest.mark.very_expensive
-@rerun(reruns=3, reruns_delay=8)
+@rerun_on_network_error()
 class TestGemini:
     @pytest.mark.parametrize('model', ['gemini-2.5-flash-lite', 'gemini-3.1-pro-preview'])
     def test_generate_content(self, model: str, uses_db: None) -> None:
@@ -198,7 +198,7 @@ class TestGemini:
         assert results['output2'][0].size == (1280, 896)
 
     @pytest.mark.very_expensive
-    @rerun(reruns=3, reruns_delay=30)  # longer delay between reruns
+    @rerun_on_network_error(reruns_delay=30)
     def test_generate_videos(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
@@ -240,7 +240,7 @@ class TestGemini:
             assert audio_stream['duration_seconds'] == duration, metadata
 
     @pytest.mark.very_expensive
-    @rerun(reruns=3, reruns_delay=30)
+    @rerun_on_network_error(reruns_delay=30)
     def test_generate_videos_reference_images(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')

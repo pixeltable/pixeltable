@@ -3,13 +3,13 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 
-from ..utils import rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+from ..utils import rerun_on_network_error, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 
 pytestmark = pytest.mark.local('UDF/integration test')
 
 
 @pytest.mark.remote_api
-@rerun(reruns=3, reruns_delay=8)
+@rerun_on_network_error()
 class TestMistral:
     def test_chat_completions(self, uses_db: None) -> None:
         skip_test_if_not_installed('mistralai')

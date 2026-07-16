@@ -10,7 +10,7 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import CatalogMode, pxt_raises, rerun, skip_test_if_no_config, skip_test_if_not_installed
+from ..utils import CatalogMode, pxt_raises, rerun_on_network_error, skip_test_if_no_config, skip_test_if_not_installed
 
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
@@ -113,7 +113,7 @@ class TestHfDatasetsBasic:
 @pytest.mark.skipif(
     sysconfig.get_platform() == 'linux-aarch64', reason='libsndfile.so is missing on Linux ARM instances in CI'
 )
-@rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading datasets
+@rerun_on_network_error()
 class TestHfDatasets:
     NUM_SAMPLES = 100
 
