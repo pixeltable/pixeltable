@@ -8,12 +8,13 @@ a construction-time contract, not a runtime enforcement.
 
 Metric instruments are declared at the bottom of this module (the single inventory of pixeltable metrics),
 each recorded only from its owning call sites (most have exactly one; the udf instruments record at the
-five mutually exclusive execution sites).
+five mutually exclusive execution sites). The token counters record through `record_token_usage()`,
+called by provider UDFs that opt into token accounting with their response's usage dict.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, TypedDict as Attrs
+from typing import TYPE_CHECKING, Any, TypedDict as Attrs
 
 from pixeltable import telemetry
 
@@ -201,3 +202,19 @@ udf_input_tokens = telemetry.counter('pixeltable.udf.input_tokens', '{token}')
 udf_output_tokens = telemetry.counter('pixeltable.udf.output_tokens', '{token}')
 media_fetched_bytes = telemetry.counter('pixeltable.media.fetched_bytes', 'By')
 media_saved_bytes = telemetry.counter('pixeltable.media.saved_bytes', 'By')
+
+
+def record_token_usage(udf: str, usage: Any, input_key: str, output_key: str) -> None:
+    """Record a provider response's token usage into the udf_input_tokens/udf_output_tokens counters.
+
+    `usage` is the usage dict of the provider's response (untyped at this point, hence tolerant:
+    a missing/non-dict usage or a non-int count records nothing).
+    """
+    if not isinstance(usage, dict):
+        return
+    n_in = usage.get(input_key)
+    n_out = usage.get(output_key)
+    if isinstance(n_in, int):
+        udf_input_tokens.add(n_in, udf=udf)
+    if isinstance(n_out, int):
+        udf_output_tokens.add(n_out, udf=udf)

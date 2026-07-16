@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, Iterable, cast
 import httpx
 
 import pixeltable as pxt
-from pixeltable import env, exprs
+from pixeltable import env, exprs, telemetry_schemas
 from pixeltable.func import Tools
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
@@ -245,6 +245,7 @@ async def messages(
     )
 
     result_dict = json.loads(result.text)
+    telemetry_schemas.record_token_usage('messages', result_dict.get('usage'), 'input_tokens', 'output_tokens')
     return result_dict
 
 

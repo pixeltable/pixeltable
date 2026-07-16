@@ -20,7 +20,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from opentelemetry.trace import ProxyTracerProvider
 
 import pixeltable as pxt
-from pixeltable import telemetry
+from pixeltable import telemetry, telemetry_schemas
 from pixeltable.telemetry import SubscriberRegistry
 
 
@@ -34,7 +34,7 @@ def fail_on_marker(s: str) -> str:
 @pxt.udf
 async def mock_llm(s: str) -> dict:
     await asyncio.sleep(0)
-    return {'choice': s, 'usage': {'prompt_tokens': 7, 'completion_tokens': 3}}
+    return {'choice': s}
 
 
 def _set_env(env: dict[str, str]) -> None:
@@ -375,11 +375,20 @@ class TestBridge:
             latency = point('pixeltable.udf.latency', udf='casefold')
             assert latency.count == 8
             assert latency.sum >= 0
-
-            assert point('pixeltable.udf.input_tokens', udf='mock_llm').value == 7 * 8
-            assert point('pixeltable.udf.output_tokens', udf='mock_llm').value == 3 * 8
         finally:
             pxt.drop_dir('otel_metrics_smoke', force=True)
+
+    def test_token_usage_export(self, metric_reader: Any) -> None:
+        # record_token_usage() is called by the instrumented provider UDFs (openai/anthropic/gemini)
+        # with their response's usage dict; exercised directly here to avoid a remote API call
+        telemetry_schemas.record_token_usage(
+            'chat_completions', {'prompt_tokens': 7, 'completion_tokens': 3}, 'prompt_tokens', 'completion_tokens'
+        )
+        in_point = self._metric(metric_reader, 'pixeltable.udf.input_tokens').data.data_points[0]
+        out_point = self._metric(metric_reader, 'pixeltable.udf.output_tokens').data.data_points[0]
+        assert in_point.value == 7
+        assert out_point.value == 3
+        assert dict(in_point.attributes) == {'pxt.udf': 'chat_completions'}
 
     def test_cell_error_event(self, span_exporter: Any) -> None:
         # at DEBUG, cell.error events attach to the per-row spans; at INFO (no row spans) they fall

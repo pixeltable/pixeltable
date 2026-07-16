@@ -4,7 +4,7 @@ from typing import Any, Iterator
 
 import pytest
 
-from pixeltable import telemetry
+from pixeltable import telemetry, telemetry_schemas
 from pixeltable.telemetry import SubscriberRegistry
 
 
@@ -141,6 +141,23 @@ class TestHooks:
         h.record(0.25, udf='f')
         assert sub.counter_adds == [(c, 5, {'pxt.table': 'dir.tbl'})]
         assert sub.histogram_records == [(h, 0.25, {'pxt.udf': 'f'})]
+
+    def test_record_token_usage(self, sub: RecordingSubscriber) -> None:
+        # both counts present: one add per token counter, with the udf dimension
+        telemetry_schemas.record_token_usage(
+            'messages', {'input_tokens': 7, 'output_tokens': 3}, 'input_tokens', 'output_tokens'
+        )
+        assert sub.counter_adds == [
+            (telemetry_schemas.udf_input_tokens, 7, {'pxt.udf': 'messages'}),
+            (telemetry_schemas.udf_output_tokens, 3, {'pxt.udf': 'messages'}),
+        ]
+        # one count present: only that counter records
+        telemetry_schemas.record_token_usage('messages', {'input_tokens': 5}, 'input_tokens', 'output_tokens')
+        assert len(sub.counter_adds) == 3
+        # non-dict usage and non-int counts record nothing
+        telemetry_schemas.record_token_usage('messages', None, 'input_tokens', 'output_tokens')
+        telemetry_schemas.record_token_usage('messages', {'input_tokens': 'x'}, 'input_tokens', 'output_tokens')
+        assert len(sub.counter_adds) == 3
 
     def test_metrics_inactive_noop(self) -> None:
         assert not telemetry.active()

@@ -7,9 +7,7 @@ from typing import TYPE_CHECKING, Any, Callable, Sequence
 import cloudpickle  # type: ignore[import-untyped]
 
 import pixeltable.exceptions as excs
-from pixeltable import telemetry_schemas
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.misc import extract_token_usage
 
 from .function import Function, InvalidFunction
 from .signature import Signature
@@ -83,7 +81,6 @@ class CallableFunction(Function):
     async def aexec(self, *args: Any, **kwargs: Any) -> Any:
         assert not self.is_polymorphic
         assert self.is_async
-        value: Any
         if self.is_batched:
             # Pack the batched parameters into singleton lists
             constant_param_names = [p.name for p in self.signature.constant_parameters]
@@ -92,21 +89,12 @@ class CallableFunction(Function):
             batched_kwargs = {k: [v] for k, v in kwargs.items() if k not in constant_param_names}
             result = await self.py_fn(*batched_args, **constant_kwargs, **batched_kwargs)
             assert len(result) == 1
-            value = result[0]
+            return result[0]
         else:
-            value = await self.py_fn(*args, **kwargs)
-        self._record_token_usage(value)
-        return value
-
-    def _record_token_usage(self, result: Any) -> None:
-        usage = extract_token_usage(result)
-        if usage is not None:
-            telemetry_schemas.udf_input_tokens.add(usage[0], udf=self.display_name)
-            telemetry_schemas.udf_output_tokens.add(usage[1], udf=self.display_name)
+            return await self.py_fn(*args, **kwargs)
 
     def exec(self, args: Sequence[Any], kwargs: dict[str, Any]) -> Any:
         assert not self.is_polymorphic
-        value: Any
         if self.is_batched:
             # Pack the batched parameters into singleton lists
             constant_param_names = [p.name for p in self.signature.constant_parameters]
@@ -119,14 +107,11 @@ class CallableFunction(Function):
             else:
                 result = self.py_fn(*batched_args, **constant_kwargs, **batched_kwargs)
             assert len(result) == 1
-            value = result[0]
+            return result[0]
         elif inspect.iscoroutinefunction(self.py_fn):
-            value = get_runtime().run_coro(self.py_fn(*args, **kwargs))
+            return get_runtime().run_coro(self.py_fn(*args, **kwargs))
         else:
-            value = self.py_fn(*args, **kwargs)
-        # ollama is the only provider with sync UDFs; this records its token usage
-        self._record_token_usage(value)
-        return value
+            return self.py_fn(*args, **kwargs)
 
     async def aexec_batch(self, *args: Any, **kwargs: Any) -> list:
         """Execute the function with the given arguments and return the result.
@@ -139,9 +124,7 @@ class CallableFunction(Function):
         assert not self.is_polymorphic
         # Unpack the constant parameters
         constant_kwargs, batched_kwargs = self.create_batch_kwargs(kwargs)
-        result: list = await self.py_fn(*args, **constant_kwargs, **batched_kwargs)
-        self._record_token_usage(result)
-        return result
+        return await self.py_fn(*args, **constant_kwargs, **batched_kwargs)
 
     def exec_batch(self, args: list[Any], kwargs: dict[str, Any]) -> list:
         """Execute the function with the given arguments and return the result.
@@ -154,10 +137,7 @@ class CallableFunction(Function):
         assert not self.is_async
         # Unpack the constant parameters
         constant_kwargs, batched_kwargs = self.create_batch_kwargs(kwargs)
-        result: list = self.py_fn(*args, **constant_kwargs, **batched_kwargs)
-        # ollama is the only provider with sync UDFs; this records its token usage
-        self._record_token_usage(result)
-        return result
+        return self.py_fn(*args, **constant_kwargs, **batched_kwargs)
 
     def create_batch_kwargs(self, kwargs: dict[str, Any]) -> tuple[dict[str, Any], dict[str, list[Any]]]:
         """Converts kwargs containing lists into constant and batched kwargs in the format expected by a batched udf."""
