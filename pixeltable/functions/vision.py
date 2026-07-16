@@ -897,12 +897,9 @@ def bboxes_pad(
         if val < 0:
             raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'bboxes_pad(): {name} padding must be >= 0')
 
-    is_absolute, is_int = _validate_bboxes(bboxes, 'bboxes_pad()')
-    if not is_absolute:
-        raise pxt.RequestError(
-            pxt.ErrorCode.UNSUPPORTED_OPERATION,
-            'bboxes_pad(): padding requires absolute pixel coordinates, but bboxes use relative coordinates',
-        )
+    # padding is in pixels, so the coordinates are absolute by contract; don't infer (a float box within [0, 1]
+    # is a legitimate sub-pixel absolute box, not relative)
+    _, is_int = _validate_bboxes(bboxes, 'bboxes_pad()', absolute=True)
 
     arr = np.array(bboxes, dtype=np.float64)
     assert arr.ndim == 2 and arr.shape[1] == 4

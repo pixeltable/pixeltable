@@ -556,6 +556,14 @@ class TestVision:
 
             pxt.drop_table(t)
 
+        # float coordinates within [0, 1] are treated as sub-pixel absolute boxes, not rejected as relative
+        t = pxt.create_table('bbox_subpixel', {'bboxes': pxt.Json})
+        validate_update_status(t.insert([{'bboxes': [[0.1, 0.2, 0.3, 0.4]]}]), expected_rows=1)
+        b_out = t.select(out=bboxes_pad(t.bboxes, 'xyxy', x=10, y=20)).collect()['out'][0][0]
+        assert get_w(b_out, 'xyxy') == pytest.approx(0.2 + 20, abs=1)
+        assert get_h(b_out, 'xyxy') == pytest.approx(0.2 + 40, abs=1)
+        pxt.drop_table(t)
+
     def test_bboxes_pad_errors(self, uses_db: None) -> None:
         t = pxt.create_table('bbox_tbl', {'bboxes': pxt.Json})
         t.insert([{'bboxes': [[100, 100, 200, 300]]}])
@@ -587,12 +595,6 @@ class TestVision:
         # negative value
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be >= 0'):
             t.select(bboxes_pad(t.bboxes, 'xyxy', x=-5)).collect()
-
-        # relative bboxes
-        t2 = pxt.create_table('bbox_rel', {'bboxes': pxt.Json})
-        t2.insert([{'bboxes': [[0.1, 0.2, 0.3, 0.4]]}])
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='absolute pixel coordinates'):
-            t2.select(bboxes_pad(t2.bboxes, 'xyxy', x=10)).collect()
 
     def test_bboxes_pad_degenerate(self, uses_db: None) -> None:
         degenerate_boxes = [
