@@ -92,6 +92,10 @@ def build_db_runtime_bundle(project_dir: Path | None = None) -> Path:
     The server reads project/uv.lock and runs `uv sync --frozen` to install Python packages.
     System dependencies declared in pixeltable.toml [pixeltable.database] system_dependencies
     are included in metadata.json for the server-side Dockerfile builder to install via conda-forge.
+
+    Lockfiles are never generated here — the developer is expected to have run `uv lock` (or provided
+    a requirements.txt) in their project. If no lockfile and no conda environment is found, a warning
+    is emitted but the bundle is still built.
     """
     if project_dir is None:
         project_dir = Path.cwd()
@@ -109,11 +113,23 @@ def build_db_runtime_bundle(project_dir: Path | None = None) -> Path:
 
     files_set = set(_collect_project_files(project_dir, include, exclude))
     # Lock files are always bundled regardless of .gitignore — they control reproducible installs.
-    for lock_name in ('uv.lock', 'poetry.lock'):
+    has_lockfile = False
+    for lock_name in ('uv.lock', 'poetry.lock', 'requirements.txt'):
         lock_path = project_dir / lock_name
         if lock_path.is_file():
             files_set.add(lock_path)
+            has_lockfile = True
     files = sorted(files_set)
+
+    conda_env_yaml = _export_conda_env()
+
+    # No lockfile and no conda export means the image has no source for Python dependencies.
+    if not has_lockfile and conda_env_yaml is None:
+        Env.get().console_logger.warning(
+            'No dependency lockfile (uv.lock, poetry.lock, requirements.txt) was found and no conda '
+            'environment was detected.\nThe deployed runtime may not have the necessary Python '
+            'dependencies to run correctly.'
+        )
 
     fd, name = tempfile.mkstemp(suffix='.tar.bz2', prefix='pxt_runtime_')
     os.close(fd)
@@ -124,8 +140,6 @@ def build_db_runtime_bundle(project_dir: Path | None = None) -> Path:
         meta['system_dependencies'] = system_dependencies
     if runtime_cfg and runtime_cfg.pixeltable_source:
         meta['pixeltable_source'] = runtime_cfg.pixeltable_source.model_dump(exclude_none=True)
-
-    conda_env_yaml = _export_conda_env()
 
     with tarfile.open(bundle_path, 'w:bz2') as tf:
         __add_tarfile(tf, 'metadata.json', json.dumps(meta).encode('utf-8'))
