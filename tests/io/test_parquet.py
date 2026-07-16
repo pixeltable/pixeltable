@@ -427,7 +427,7 @@ class TestParquet:
 
     def test_export_array(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test_array1'), {'idx': pxt.Int, 'a1': pxt.Array[(10, 10), np.int64]})  # type: ignore[misc]
+        t = pxt.create_table(p('test_array1'), {'idx': pxt.Int, 'a1': pxt.Array[(10, 10), np.int64]})
         rows = [{'idx': i, 'a1': np.ones((10, 10), dtype=np.int64) * i} for i in range(1000)]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
 
@@ -437,7 +437,7 @@ class TestParquet:
 
     def test_export_ragged_array(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test_array1'), {'idx': pxt.Int, 'a1': pxt.Array[(None, None), np.int64]})  # type: ignore[misc]
+        t = pxt.create_table(p('test_array1'), {'idx': pxt.Int, 'a1': pxt.Array[(None, None), np.int64]})
         rng = np.random.default_rng(0)
         rows = [
             {'idx': i, 'a1': np.ones((rng.integers(1, 10) + 1, rng.integers(1, 10) + 1), dtype=np.int64) * i}
@@ -450,7 +450,7 @@ class TestParquet:
         validate_parquet_files(export_path, rows)
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot export array column'):
-            u = pxt.create_table(p('test_array2'), {'idx': pxt.Int, 'a1': pxt.Array[np.int64]})  # type: ignore[misc]
+            u = pxt.create_table(p('test_array2'), {'idx': pxt.Int, 'a1': pxt.Array[np.int64]})
             validate_update_status(u.insert(rows), expected_rows=len(rows))
             export_path = tmp_path / 'error.pq'
             pxt.io.export_parquet(u.order_by(u.idx), export_path)
