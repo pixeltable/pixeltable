@@ -549,12 +549,20 @@ def schema_update(schema_path: str, target: str) -> tuple[list[str], list[str]]:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'cannot load schema file: {schema_path}')
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module
+    # put the schema file's own directory on sys.path so it can import sibling modules next to it
+    sys_path_entry = str(path.parent)
+    sys.path.insert(0, sys_path_entry)
     try:
         spec.loader.exec_module(module)
     except Exception as e:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'error loading {schema_path}: {e}') from e
     finally:
         sys.modules.pop(module_name, None)
+        # remove the entry we prepended (the first occurrence, in case the directory was already present)
+        try:
+            sys.path.remove(sys_path_entry)
+        except ValueError:
+            pass
 
     # a model base carries __registered_models__ as its own class attribute, whereas the models defined
     # on it merely inherit it
