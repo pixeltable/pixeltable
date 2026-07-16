@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
+from pixeltable.catalog import Path as CatalogPath
 from pixeltable.catalog.model import TableModelMeta
 from pixeltable.catalog.table_metadata import TableMetadata
 from pixeltable.config import Config
@@ -563,7 +564,9 @@ def schema_update(schema_path: str, target: str) -> tuple[list[str], list[str]]:
     if len(bases) == 0:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'no model_base() found in {schema_path}')
 
-    if target != '':
+    # only create the target directory when it names an in-catalog path; a bare catalog root (eg '' or
+    # 'pxt://org:db') has no directory to create
+    if len(CatalogPath.parse(target, allow_empty_path=True).components) > 0:
         pxt.create_dir(target, parents=True, if_exists='ignore')
 
     created: list[str] = []
