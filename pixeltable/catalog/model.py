@@ -142,6 +142,10 @@ class ModelColumnRef(exprs.Expr):
     def __repr__(self) -> str:
         return f'ModelColumnRef({self.name!r})'
 
+    def __str__(self) -> str:
+        # Render as a bare column name, identically to the `ColumnRef` this placeholder stands in for.
+        return self.name
+
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('name', self.name)]
 
@@ -638,17 +642,6 @@ class TableModelMeta(type):
     def is_bound(cls) -> bool:
         return cls._binding_root is not None
 
-    class ValidationResults(NamedTuple):
-        new_columns: list[str]
-        deleted_columns: list[str]
-        altered_columns: list[str]
-        new_indices: list[str]
-        deleted_indices: list[str]
-        altered_indices: list[str]
-
-        def has_changes(self) -> bool:
-            return len(self.new_columns) > 0 or len(self.deleted_columns) > 0 or len(self.altered_columns) > 0
-
     @classmethod
     def _normalize_binding_root(cls, binding_root: str) -> str:
         if binding_root.endswith('/'):
@@ -906,6 +899,134 @@ def prepare_model(
     return iterator, additional_cols, resolved_idxs
 
 
+class ValidationResults(NamedTuple):
+    model_cls: TableModelMeta
+    tbl_exists: bool
+    model_kind: str  # 'table' or 'view'
+    existing_kind: str | None  # None if the table does not yet exist
+    model_iterator: str | None  # display string of the model's iterator call, or None if it has no iterator
+    existing_iterator: str | None  # None if the table does not yet exist or has no iterator
+    new_columns: list[str]
+    dropped_columns: list[str]
+    new_indexes: list[str]
+    dropped_indexes: list[str]
+
+    @property
+    def has_changes(self) -> bool:
+        return self.has_fatal_changes or self.has_destructive_changes or self.has_benign_changes
+
+    @property
+    def has_fatal_changes(self) -> bool:
+        return self.tbl_exists and (self.model_kind != self.existing_kind or self.model_iterator != self.existing_iterator)
+
+    @property
+    def has_destructive_changes(self) -> bool:
+        return self.tbl_exists and (len(self.dropped_columns) > 0 or len(self.dropped_indexes) > 0)
+
+    @property
+    def has_benign_changes(self) -> bool:
+        return not self.tbl_exists or len(self.new_columns) > 0 or len(self.new_indexes) > 0
+
+
+def validate_models(registered_models: dict[str, TableModelMeta], binding_root: str) -> dict[str, ValidationResults]:
+    """
+    Analyze each registered model against the current catalog state, summarizing the schema changes that creating
+    the models would entail, along with any incompatibilities with an already-existing table of the same name.
+    This is purely informational: it neither modifies the catalog nor raises on incompatibilities.
+    """
+    binding_root = TableModelMeta._normalize_binding_root(binding_root)
+    results: dict[str, ValidationResults] = {}
+
+    for name, model in registered_models.items():
+        model_cols = set(model.__columns__.keys())
+        model_idxs = set(model.__indexes__.keys())
+        # A model with no base is a table, otherwise a view.
+        model_kind = 'table' if model.__table_spec__['base'] is None else 'view'
+        # The model's iterator still carries `ModelColumnRef` placeholders, but those render identically to the
+        # `ColumnRef`s in a stored (bound) iterator call, so the display strings are directly comparable.
+        iterator = model.__table_spec__['iterator']
+        model_iterator = None if iterator is None else iterator.display_str()
+
+        existing = model._resolve_tbl(binding_root, if_not_exists='ignore')
+        if existing is None:
+            results[name] = ValidationResults(
+                model_cls=model,
+                tbl_exists=False,
+                new_columns=sorted(model_cols),
+                dropped_columns=[],
+                new_indexes=sorted(model_idxs),
+                dropped_indexes=[],
+                model_kind=model_kind,
+                existing_kind=None,
+                model_iterator=model_iterator,
+                existing_iterator=None,
+            )
+            continue
+
+        existing_md = existing.get_metadata()
+        # Restrict the existing columns to those defined in this table (i.e. not inherited from a base) and not
+        # produced by an iterator, so that they line up with the model's own declared columns.
+        existing_cols = {
+            col_name
+            for col_name, col_md in existing_md['columns'].items()
+            if col_md['defined_in'] == existing_md['name'] and not col_md['is_iterator_col']
+        }
+        existing_idxs = set(existing_md['indices'].keys())
+
+        # TODO: validate table properties (comment, custom_metadata, media_validation, primary_key, etc.)
+        # TODO: validate base table query
+
+        results[name] = ValidationResults(
+            model_cls=model,
+            tbl_exists=True,
+            new_columns=sorted(model_cols - existing_cols),
+            dropped_columns=sorted(existing_cols - model_cols),
+            new_indexes=sorted(model_idxs - existing_idxs),
+            dropped_indexes=sorted(existing_idxs - model_idxs),
+            model_kind=model_kind,
+            existing_kind=existing_md['kind'],
+            model_iterator=model_iterator,
+            existing_iterator=existing_md['iterator_call'],
+        )
+
+    return results
+
+
+def _format_diff(name: str, r: ValidationResults) -> list[str]:
+    """Human-readable lines describing how the model named `name` differs from the current catalog state."""
+    if not r.tbl_exists:
+        return [f'{r.model_kind.capitalize()} {name!r} (from model `{r.model_cls.__name__}`) does not yet exist.']
+
+    detail: list[str] = []
+    if r.model_kind != r.existing_kind:
+        detail.append(f'  kind mismatch (FATAL): `{r.model_cls.__name__}` specifies a {r.model_kind}, but {r.name!r} is a {r.existing_kind}')
+    if r.model_iterator != r.existing_iterator:
+        detail.append(f'  iterator mismatch (FATAL):')
+        detail.append(f'    model iterator   : {r.model_iterator}')
+        detail.append(f'    existing iterator: {r.existing_iterator}')
+    if len(r.new_columns) > 0:
+        detail.append(f'  the following columns are new to the model, and will be ADDED:')
+        for col_name in r.new_columns:
+            detail.append(f'     {col_name!r} = {r.model_cls.__columns__[col_name]}')
+    if len(r.dropped_columns) > 0:
+        detail.append(f'  the following columns are no longer in the model, and will be DROPPED:')
+        for col_name in r.dropped_columns:
+            detail.append(f'     {col_name!r}')
+    if len(r.new_indexes) > 0:
+        detail.append(f'  the following indexes are new to the model, and will be ADDED:')
+        for idx_name in r.new_indexes:
+            detail.append(f'     {idx_name!r} = {r.model_cls.__indexes__[idx_name]}')
+    if len(r.dropped_indexes) > 0:
+        detail.append(f'  the following indexes are no longer in the model, and will be DROPPED:')
+        for idx_name in r.dropped_indexes:
+            detail.append(f'     {idx_name!r}')
+
+    if len(detail) == 0:
+        return []
+
+    return [f'{r.model_kind.capitalize()} {name!r} (from model `{r.model_cls.__name__}`) has differences:', *detail]
+
+
 def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
     # mypy fundamentally does not understand metaclasses.
     cls = TableModelMeta(cls_name, (), {}, name='')
@@ -920,12 +1041,26 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         """Returns (created, existing): absolute paths of tables created now and those that already exist."""
         created: list[str] = []
         existed: list[str] = []
+
+        # Gather validation results for all models before creating anything. For now these are informational only;
+        # we neither act on them nor raise in response.
+        _ = validate_models(registered_models, binding_root)
+
         for model in registered_models.values():
             tbl, was_created = model._create(binding_root)
             (created if was_created else existed).append(str(tbl._path()))
+
         return created, existed
+
+    def _diff_all(binding_root: str = '') -> None:
+        results = validate_models(registered_models, binding_root)
+        lines: list[str] = []
+        for name, r in results.items():
+            lines.extend(_format_diff(name, r))
+        Env.get().console_logger.info('\n'.join(lines) if len(lines) > 0 else 'No models registered.')
 
     cls.bind_all = _bind_all  # type: ignore[attr-defined]
     cls.create_all = _create_all  # type: ignore[attr-defined]
+    cls.diff_all = _diff_all  # type: ignore[attr-defined]
 
     return cls  # type: ignore[return-value]
