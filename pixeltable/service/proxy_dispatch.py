@@ -85,8 +85,9 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, f'Unsupported proxy method: {request.class_name}.{request.method}'
             )
+        result = _convert_result(key, handler(request))
         _logger.debug('%s.%s (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
-        return _encode_response(ProxyResponse(result=_convert_result(key, handler(request))))
+        return _encode_response(ProxyResponse(result=result))
 
     except excs.Error as e:
         if e.detail is not None:

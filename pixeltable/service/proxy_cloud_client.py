@@ -1,12 +1,14 @@
 """TLS tunnel client for connecting to cloud-hosted databases via the proxy daemon sidecar.
 
-After a TLS handshake with the cloud endpoint, the client sends a PXT/1.0 CONNECT frame to
-authenticate and identify the target database. The sidecar validates the API key and, on
-success, forwards all subsequent bytes to the proxy daemon's HTTP server. This client then
-issues HTTP POST /rpc requests over that tunnel.
+Each connection does a TLS handshake with the cloud endpoint, then sends a PXT/1.0 CONNECT frame to
+authenticate and identify the target database. The sidecar validates the API key and, on success,
+forwards all subsequent bytes to the proxy daemon's HTTP server; this client then issues HTTP requests
+(POST /rpc, GET /media/<ref>) over that tunnel.
 
-Connection is persistent: the TLS socket is reused across multiple RPC calls. On any socket
-error the connection is torn down and re-established on the next request (transparent reconnect).
+Connections are pooled (`_TunnelPool`): a single TCP connection is serial for HTTP/1.1, so concurrent
+SDK calls (and parallel media downloads) each borrow their own tunnel connection. Broken connections are
+dropped and re-established on the next request (transparent reconnect). Transport only — the wire protocol
+(encode_body/decode_body) and media caching stay in the base ProxyClient.
 """
 
 from __future__ import annotations
@@ -15,6 +17,10 @@ import http.client
 import logging
 import socket
 import ssl
+import threading
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from pathlib import Path
 
 from . import proxy_client
 
@@ -23,6 +29,7 @@ _logger = logging.getLogger(__name__)
 _DEFAULT_PORT = 9000
 _CONNECT_TIMEOUT = 30.0
 _RPC_TIMEOUT = 1800.0
+_MAX_POOL_SIZE = 16  # matches the base fetch_media download threadpool
 
 
 class _TunnelHTTPConnection(http.client.HTTPConnection):
@@ -36,16 +43,54 @@ class _TunnelHTTPConnection(http.client.HTTPConnection):
         pass  # socket already set in __init__
 
 
+class _TunnelPool:
+    """Thread-safe pool of TLS + PXT/1.0 tunnel connections.
+
+    borrow() hands out an idle connection or opens a new one; on success it's returned to the pool, on any
+    transport error it's dropped (closed) and the exception propagates so the caller can retry on a fresh one.
+    """
+
+    def __init__(self, connect: Callable[[], http.client.HTTPConnection], max_size: int = _MAX_POOL_SIZE) -> None:
+        self._connect = connect
+        self._max = max_size
+        self._lock = threading.Lock()
+        self._idle: list[http.client.HTTPConnection] = []
+
+    @contextmanager
+    def borrow(self) -> Iterator[http.client.HTTPConnection]:
+        with self._lock:
+            conn = self._idle.pop() if self._idle else None
+        conn = conn or self._connect()
+        try:
+            yield conn
+        except (ConnectionError, OSError, http.client.HTTPException, ssl.SSLError):
+            conn.close()  # broken — drop it; the caller retries on a fresh connection
+            raise
+        else:
+            with self._lock:
+                if len(self._idle) < self._max:
+                    self._idle.append(conn)
+                else:
+                    conn.close()
+
+    def close(self) -> None:
+        with self._lock:
+            for conn in self._idle:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            self._idle.clear()
+
+
 class ProxyCloudClient(proxy_client.ProxyClient):
-    """HTTP-over-TLS-tunnel transport for a cloud-hosted database."""
+    """HTTP-over-TLS-tunnel transport for a cloud-hosted database (pooled, thread-safe)."""
 
     _org: str
     _db: str
     _api_key: str
     _host: str
     _port: int
-    _ssl_sock: ssl.SSLSocket | None
-    _http_conn: http.client.HTTPConnection | None
 
     def __init__(
         self,
@@ -62,10 +107,15 @@ class ProxyCloudClient(proxy_client.ProxyClient):
         self._host = host or f'{org}-{db}.pxt.run'
         self._port = port
         self._no_verify = no_verify
-        self._ssl_sock = None
-        self._http_conn = None
+        self._pool = _TunnelPool(self._connect_tunnel)
+        # Base ProxyClient._media_url() builds media URLs as f'{self._endpoint}/media/<ref>'. Set _endpoint so
+        # media results localize; those URLs are reachable only through the tunnel (see _fetch_url), not a
+        # direct GET. We don't call super().__init__() because the base's httpx client is unused here — all
+        # transport (RPC + media) goes through the tunnel pool.
+        self._endpoint = f'https://{self._host}:{self._port}'
 
-    def _connect(self) -> None:
+    def _connect_tunnel(self) -> http.client.HTTPConnection:
+        """Open one tunnel connection: TCP + TLS + PXT/1.0 CONNECT handshake."""
         ctx = ssl.create_default_context()
         if self._no_verify:
             ctx.check_hostname = False
@@ -99,50 +149,50 @@ class ProxyCloudClient(proxy_client.ProxyClient):
             if not first_line.startswith('PXT/1.0 200'):
                 raise PermissionError(f'PXT/1.0 handshake rejected: {first_line}')
 
-            # Switch from the connect-phase timeout to the RPC timeout now that the
-            # handshake is done. ssl_sock inherited _CONNECT_TIMEOUT from raw_sock;
-            # without this the socket would time out on any RPC that takes > 30s.
+            # Switch from the connect-phase timeout to the RPC timeout now that the handshake is done;
+            # otherwise the socket would time out on any request that takes longer than _CONNECT_TIMEOUT.
             ssl_sock.settimeout(_RPC_TIMEOUT)
-            self._ssl_sock = ssl_sock
-            self._http_conn = _TunnelHTTPConnection(self._host, ssl_sock, timeout=_RPC_TIMEOUT)
+            return _TunnelHTTPConnection(self._host, ssl_sock, timeout=_RPC_TIMEOUT)
         except Exception:
             (ssl_sock or raw_sock).close()
             raise
 
-    def _disconnect(self) -> None:
-        if self._http_conn is not None:
-            try:
-                self._http_conn.close()
-            except Exception:
-                pass
-            self._http_conn = None
-        if self._ssl_sock is not None:
-            try:
-                self._ssl_sock.close()
-            except Exception:
-                pass
-            self._ssl_sock = None
-
-    def _post(self, body: bytes) -> bytes:
-        """Transport only: POST the already-encoded body over the TLS tunnel and return the raw response bytes.
-
-        The wire protocol (encode_body/decode_body) is handled by the base ProxyClient._send; this override
-        exists solely to swap the transport to the reconnecting TLS tunnel.
-        """
+    def _request(self, method: str, path: str, body: bytes | None = None, content_type: str | None = None) -> bytes:
+        """Borrow a tunnel connection, issue one request, return the raw body. Retries once on a fresh connection."""
+        headers = {'Content-Type': content_type} if content_type else {}
         for attempt in range(2):
             try:
-                if self._ssl_sock is None:
-                    self._connect()
-                assert self._http_conn is not None
-                self._http_conn.request('POST', '/rpc', body=body, headers={'Content-Type': 'application/octet-stream'})
-                response = self._http_conn.getresponse()
-                content = response.read()
-                if response.status != 200:
-                    raise ConnectionError(f'proxy RPC error {response.status}: {content.decode(errors="replace")}')
-                return content
+                with self._pool.borrow() as conn:
+                    conn.request(method, path, body=body, headers=headers)
+                    response = conn.getresponse()
+                    content = response.read()
+                    if response.status != 200:
+                        raise ConnectionError(
+                            f'proxy {method} {path} error {response.status}: {content.decode(errors="replace")}'
+                        )
+                    return content
             except (ConnectionError, OSError, http.client.HTTPException, ssl.SSLError) as e:
                 _logger.debug('proxy tunnel error (attempt %d): %s', attempt + 1, e)
-                self._disconnect()
                 if attempt == 1:
                     raise
         raise AssertionError('unreachable')
+
+    def _post(self, body: bytes) -> bytes:
+        """RPC transport: POST the already-encoded body to /rpc over the tunnel (base _send handles the protocol)."""
+        return self._request('POST', '/rpc', body=body, content_type='application/octet-stream')
+
+    def _fetch_url(self, url: str) -> Path:
+        """Media transport: pull daemon-served media (/media/<ref>) over the tunnel; delegate external URLs.
+
+        The daemon serves persisted media at /media/<ref>, reachable only through the authenticated tunnel,
+        so those go over the pool. Non-daemon URLs (external s3/http media) fall back to the base transport.
+        FileCache bookkeeping stays in the base ProxyClient.fetch_media.
+        """
+        if not url.startswith(f'{self._endpoint}/media/'):
+            return super()._fetch_url(url)
+        from pixeltable.utils.local_store import TempStore
+
+        ref = url[len(self._endpoint) :]  # '/media/<ref>'
+        tmp_path = TempStore.create_path(extension=Path(ref).suffix)
+        tmp_path.write_bytes(self._request('GET', ref))
+        return tmp_path

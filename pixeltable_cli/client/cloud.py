@@ -33,8 +33,8 @@ def parse_db_uri(uri: str, prog: str = 'pxt') -> tuple[str, str]:
 
 def parse_org_uri(uri: str, prog: str = 'pxt') -> str:
     """Parse pxt://org and return org_slug. Exits on error."""
-    org, db, _ = _split_pxt_uri(uri)
-    if not org or db is not None:
+    org, db, path = _split_pxt_uri(uri)
+    if not org or db is not None or path is not None:
         print(f'{prog}: error: URI must be pxt://org, got {uri!r}', file=sys.stderr)
         sys.exit(2)
     return org
@@ -79,9 +79,9 @@ def _split_pxt_uri(uri: str) -> tuple[str | None, str | None, str | None]:
             db = after_colon
             path = None
     else:
-        org = rest.split('/')[0] if '/' in rest else rest
+        org, _, path = rest.partition('/')
         db = None
-        path = None
+        path = path or None
     return org or None, db or None, path
 
 

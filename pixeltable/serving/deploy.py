@@ -47,7 +47,7 @@ def _export_conda_env() -> bytes | None:
     """Export the active conda environment as a cross-platform YAML (no build strings).
 
     Returns None if conda is not active or the export fails.
-    Strips pixeltable* pip entries — the server installs pixeltable separately.
+    Strips pixeltable* dependency lines (both conda and pip) — the server installs pixeltable separately.
     """
     conda_prefix = os.environ.get('CONDA_PREFIX')
     if not conda_prefix:

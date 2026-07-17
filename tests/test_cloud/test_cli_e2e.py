@@ -310,6 +310,72 @@ class TestCloudE2E:
         for i in range(5):
             assert f'{i} item_{i}' in out, f'row {i} missing:\n{out}'
 
+    def test_sdk_media_over_tunnel(self, resources: Resources) -> None:
+        """Image round-trip over the TLS tunnel: insert a generated image, then read it back.
+
+        Reading the image cell forces ProxyCloudClient.fetch_media() to pull /media/<ref> over the tunnel
+        (the daemon serves it there, not via a direct HTTP GET). Regression guard for the media-localization
+        gap where ProxyCloudClient left _endpoint unset and any media result would fail to localize.
+        """
+        media_uri = f'{resources.db_uri}/media_test'
+        code = f"""
+            import pixeltable as pxt
+            from PIL import Image
+            pxt.init()
+            t = pxt.create_table(
+                '{media_uri}',
+                {{'id': pxt.Required[pxt.Int], 'img': pxt.Image}},
+                primary_key='id',
+                if_exists='replace_force',
+            )
+            t.insert([{{'id': 1, 'img': Image.new('RGB', (64, 48), (255, 0, 0))}}])
+            row = t.select(t.img).collect()[0]
+            print('img_size:', row['img'].size)
+        """
+        # Retry: proxy gateway may lag behind AVAILABLE state
+        for attempt in range(4):
+            out = _sdk(code)
+            if 'img_size: (64, 48)' in out:
+                break
+            if attempt < 3:
+                time.sleep(20)
+        assert 'img_size: (64, 48)' in out, f'media-over-tunnel round-trip failed:\n{out}'
+
+    def test_sdk_concurrent_inserts(self, resources: Resources) -> None:
+        """Two threads insert into the same hosted table at once — exercises the tunnel connection pool.
+
+        The pre-pool single-connection client would interleave bytes on one socket and corrupt the stream;
+        with the pool each thread borrows its own tunnel connection and both inserts land.
+        """
+        conc_uri = f'{resources.db_uri}/concurrent_test'
+        code = f"""
+            import concurrent.futures
+            import pixeltable as pxt
+            pxt.init()
+            pxt.create_table(
+                '{conc_uri}',
+                {{'id': pxt.Required[pxt.Int], 'name': pxt.String}},
+                primary_key='id',
+                if_exists='replace_force',
+            )
+            def _insert(base):
+                t = pxt.get_table('{conc_uri}')
+                return t.insert([{{'id': base + i, 'name': f'n{{base + i}}'}} for i in range(10)]).num_rows
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+                inserted = sum(ex.map(_insert, [0, 100]))
+            print('inserted:', inserted)
+            print('count:', pxt.get_table('{conc_uri}').count())
+        """
+        # Retry: proxy gateway may lag behind AVAILABLE state
+        for attempt in range(4):
+            out = _sdk(code)
+            if 'count: 20' in out:
+                break
+            if attempt < 3:
+                time.sleep(20)
+        assert 'inserted: 20' in out, f'concurrent inserts did not all land:\n{out}'
+        assert 'count: 20' in out, f'concurrent-insert final count wrong:\n{out}'
+
     def test_service_create(self, resources: Resources) -> None:
         out = _pxt_json(
             'service', 'create', resources.svc_name, '--base-uri', resources.db_uri, '--workers', '1', cwd=_SAMPLE_APP
