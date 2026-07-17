@@ -16,6 +16,7 @@ from mypy.types import AnyType, FunctionLike, Instance, NoneType, Type, TypeOfAn
 import pixeltable as pxt
 from pixeltable import exprs
 from pixeltable.catalog.model import TableModelMeta
+from pixeltable.type_system import _PxtType
 
 
 class PxtPlugin(Plugin):
@@ -44,6 +45,13 @@ class PxtPlugin(Plugin):
         if fullname in self.__FULLNAME_MAP:
             subst_name = self.__FULLNAME_MAP[fullname]
             return lambda ctx: adjust_pxt_type(ctx, subst_name)
+        if fullname == _REQUIRED_FULLNAME:
+            return adjust_required_type
+        return None
+
+    def get_base_class_hook(self, fullname: str) -> Callable[[ClassDefContext], None] | None:
+        if fullname == _PXT_TYPE_FULLNAME:
+            return make_pxt_type_subscriptable
         return None
 
     def get_method_signature_hook(self, fullname: str) -> Callable[[MethodSigContext], FunctionLike] | None:
@@ -71,8 +79,59 @@ def plugin(version: str) -> type:
 _AGGREGATOR_FULLNAME = f'{pxt.Aggregator.__module__}.{pxt.Aggregator.__name__}'
 _PXTITERATOR_FULLNAME = f'{pxt.PxtIterator.__module__}.{pxt.PxtIterator.__name__}'
 _FN_CALL_FULLNAME = f'{exprs.Expr.__module__}.{exprs.Expr.__name__}'
+_PXT_TYPE_FULLNAME = f'{_PxtType.__module__}.{_PxtType.__name__}'
+_REQUIRED_FULLNAME = f'{pxt.Required.__module__}.{pxt.Required.__name__}'
+_TABLE_MODEL_META_FULLNAME = f'{TableModelMeta.__module__}.{TableModelMeta.__name__}'
 
-_TABLE_MODEL_METACLASS_FULLNAME = f'{TableModelMeta.__module__}.{TableModelMeta.__name__}'
+
+def make_pxt_type_subscriptable(ctx: ClassDefContext) -> None:
+    """
+    mypy treats `SomeClass[...]` as a generic type application and rejects it for a non-generic class, ignoring
+    `__class_getitem__`. The Pixeltable type-hint family (`_PxtType` subclasses such as `Image`, `Array`, `Json`)
+    is parameterizable at runtime via `__class_getitem__` (e.g. `Image[(300, 300), 'RGB']`). To let those subscripts
+    type-check (as `Any`) in value positions such as schema dicts, we synthesize a metaclass whose
+    `__getitem__(item) -> Any` mypy resolves the subscript through (only a *metaclass* `__getitem__` is honored for
+    `Class[...]`; `__class_getitem__` and instance/classmethod `__getitem__` are not).
+
+    `Required` additionally must appear non-generic: while generic, mypy parses its argument as a type, so
+    `Required[Image[(300, 300)]]` fails ("Type expected within [...]") on the tuple before any hook runs. We clear
+    its type variables here; `adjust_required_type` keeps `Required[...]` working in annotation positions.
+    """
+    info = ctx.cls.info
+    meta = ctx.api.basic_new_typeinfo('_PxtSubscriptMeta', ctx.api.named_type('builtins.type'), ctx.cls.line)
+    any_type = AnyType(TypeOfAny.special_form)
+    add_method_to_class(
+        ctx.api,
+        meta.defn,
+        '__getitem__',
+        args=[nodes.Argument(nodes.Var('item'), any_type, None, nodes.ARG_POS)],
+        return_type=any_type,
+    )
+    # Register the synthesized metaclass under the class. Its fullname is qualified under this class
+    # (e.g. `...Image._PxtSubscriptMeta`), so it must be reachable from the class's symbol table or mypy's
+    # incremental-cache fixup fails to resolve it on deserialization.
+    meta_sym = nodes.SymbolTableNode(nodes.MDEF, meta)
+    meta_sym.plugin_generated = True
+    info.names[meta.name] = meta_sym
+
+    meta_inst = Instance(meta, [])
+    info.metaclass_type = meta_inst
+    info.declared_metaclass = meta_inst
+    if info.fullname == _REQUIRED_FULLNAME:
+        info.type_vars = []
+        info.defn.type_vars = []
+        info.add_type_vars()
+
+
+def adjust_required_type(ctx: AnalyzeTypeContext) -> Type:
+    """
+    In an annotation position, resolve `Required[T]` to `T` (the marker only signifies non-nullability, which has no
+    bearing on mypy's view); a bare `Required` resolves to `Any`. This complements `make_pxt_type_subscriptable`,
+    which makes `Required` non-generic (so mypy no longer interprets `Required[...]` natively).
+    """
+    if ctx.type.args:
+        return ctx.api.analyze_type(ctx.type.args[0])
+    return AnyType(TypeOfAny.special_form)
 
 
 def create_model_base_class(ctx: DynamicClassDefContext) -> None:
@@ -84,7 +143,7 @@ def create_model_base_class(ctx: DynamicClassDefContext) -> None:
     metaclass keyword arguments (`name=`, `base=`, ...) and the forwarded table methods on subclasses.
     """
     api = ctx.api
-    metaclass = api.named_type_or_none(_TABLE_MODEL_METACLASS_FULLNAME)
+    metaclass = api.named_type_or_none(_TABLE_MODEL_META_FULLNAME)
     if metaclass is None:
         # `TableModelMeta` isn't ready yet; try again on a later pass.
         api.defer()

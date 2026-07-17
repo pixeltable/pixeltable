@@ -30,6 +30,7 @@ from . import (
     llama_cpp,
     math,
     mistralai,
+    nebius,
     net,
     ollama,
     openai,

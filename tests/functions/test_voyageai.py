@@ -5,7 +5,7 @@ import pixeltable as pxt
 from ..utils import (
     get_image_files,
     get_video_files,
-    rerun,
+    rerun_on_network_error,
     skip_test_if_no_client,
     skip_test_if_not_installed,
     validate_update_status,
@@ -16,7 +16,7 @@ pytestmark = pytest.mark.local('UDF/integration test')
 
 @pytest.mark.remote_api
 @pytest.mark.very_expensive
-@rerun(reruns=3, reruns_delay=8)
+@rerun_on_network_error()
 class TestVoyageAI:
     @pytest.mark.parametrize('output_dimension', [None, 512])
     def test_embeddings(self, uses_db: None, output_dimension: int | None) -> None:

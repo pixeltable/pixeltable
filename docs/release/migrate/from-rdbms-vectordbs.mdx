@@ -14,11 +14,11 @@ If you're running a RAG application with Postgres for metadata, a vector databas
 
 | Your Database Stack | Pixeltable Equivalent |
 |---|---|
-| Postgres / MySQL for metadata | [`pxt.create_table()`](/tutorials/tables-and-data-operations) with typed columns |
+| Postgres / MySQL for metadata | [`pxt.create_table()`](/tutorials/tables-and-data-operations) with typed columns; load existing tables with [`import_sql()`](/howto/cookbooks/data/data-export-sql) |
 | Pinecone / Weaviate / Chroma for embeddings | [`add_embedding_index()`](/platform/embedding-indexes) — built-in HNSW search |
 | S3 for media files (referenced by URL) | [`pxt.Image`, `pxt.Video`, `pxt.Document`](/platform/type-system) native types |
 | ORM (SQLAlchemy, Prisma) | [`.select()`, `.where()`, `.order_by()`](/tutorials/queries-and-expressions) |
-| LangChain `DocumentLoader` | `insert()`, [`import_csv()`](/howto/cookbooks/data/data-import-csv), [import from S3](/integrations/cloud-storage) |
+| LangChain `DocumentLoader` | `insert()`, [`import_sql()`](/howto/cookbooks/data/data-export-sql), [`import_csv()`](/howto/cookbooks/data/data-import-csv), [import from S3](/integrations/cloud-storage) |
 | `RecursiveCharacterTextSplitter` | [`document_splitter`](/platform/iterators) iterator via `create_view()` |
 | `retriever.get_relevant_documents()` | [`.similarity()`](/platform/embedding-indexes) + `.order_by()` |
 | `create_retrieval_chain()` | [Computed column](/tutorials/computed-columns) with LLM call |

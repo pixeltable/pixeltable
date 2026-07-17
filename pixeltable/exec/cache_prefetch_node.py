@@ -9,9 +9,9 @@ from pathlib import Path
 from typing import AsyncIterator, Iterator
 from uuid import UUID
 
-from pixeltable import exceptions as excs, exprs
+from pixeltable import exceptions as excs, exprs, telemetry
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.http import fetch_url
+from pixeltable.utils.http import fetch_url, redact_url
 from pixeltable.utils.progress_reporter import ProgressReporter
 
 from .data_row_batch import DataRowBatch
@@ -162,7 +162,7 @@ class CachePrefetchNode(ExecNode):
                 assert url in self.in_flight_urls
                 _, info = self.in_flight_urls[url][0]
                 local_path = file_cache.add(info.col.get_tbl().id, info.col.id, url, tmp_path)
-                _logger.debug(f'cached {url} as {local_path}')
+                _logger.debug(f'cached {redact_url(url)} as {local_path}')
 
             # add the local path/exception to the slots that reference the url
             for row, info in self.in_flight_urls.pop(url):
@@ -223,16 +223,28 @@ class CachePrefetchNode(ExecNode):
                 self.__add_ready_row(row, row_idx)
 
         _logger.debug(f'submitting {len(cache_misses)} urls')
+        # carry the ambient instrumentation span onto the worker threads so fetch spans nest correctly
+        hooks_ctx = telemetry.capture_context()
         for url in cache_misses:
-            f = executor.submit(self.__fetch_url, url)
-            _logger.debug(f'submitted {url} for idx {url_pos[url]}')
+            f = executor.submit(self.__fetch_url, url, hooks_ctx)
+            _logger.debug(f'submitted {redact_url(url)} for idx {url_pos[url]}')
             self.in_flight_requests[f] = url
 
-    def __fetch_url(self, url: str) -> tuple[Path | None, Exception | None]:
+    def __fetch_url(self, url: str, hooks_ctx: telemetry.CtxSnapshot | None) -> tuple[Path | None, Exception | None]:
+        """Runs on a worker thread of the ThreadPoolExecutor."""
+        hooks_token = telemetry.restore_context(hooks_ctx)
+        safe_url = redact_url(url)
         try:
-            return fetch_url(url), None
+            with telemetry.span('pixeltable.media.fetch', level=telemetry.DEBUG, url=safe_url):
+                try:
+                    return fetch_url(url), None
+                except Exception as e:
+                    # The original exception can repeat the signed URL; export only its type and the redacted URL.
+                    raise excs.ExternalServiceError(
+                        excs.ErrorCode.PROVIDER_ERROR, f'Failed to download {safe_url}: {type(e).__name__}'
+                    ) from None
         except Exception as e:
-            # we want to add the file url to the exception message
-            exc = excs.ExternalServiceError(excs.ErrorCode.PROVIDER_ERROR, f'Failed to download {url}: {e}')
-            _logger.debug(f'Failed to download {url}: {e}', exc_info=e)
-            return None, exc
+            _logger.debug(f'Failed to download {safe_url}: {type(e).__name__}')
+            return None, e
+        finally:
+            telemetry.exit_context(hooks_token)

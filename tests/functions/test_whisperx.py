@@ -6,7 +6,7 @@ import pixeltable as pxt
 
 from ..utils import (
     get_audio_files,
-    rerun,
+    rerun_on_network_error,
     runs_linux_with_gpu,
     skip_test_if_no_config,
     skip_test_if_not_installed,
@@ -46,7 +46,7 @@ class TestWhisperx:
         assert 'long and deliberate process' in results['transcription2']['segments'][1]['text']
         assert 'city upon a hill' not in results['transcription2']['segments'][1]['text']  # due to shorter chunk size
 
-    @rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading models
+    @rerun_on_network_error()
     def test_diarization(self, uses_db: None) -> None:
         skip_test_if_not_installed('whisperx')
         skip_test_if_no_config('token', 'hf')

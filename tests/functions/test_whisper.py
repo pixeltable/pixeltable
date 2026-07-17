@@ -4,12 +4,12 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import get_audio_files, rerun, skip_test_if_not_installed, validate_update_status
+from ..utils import get_audio_files, rerun_on_network_error, skip_test_if_not_installed, validate_update_status
 
 pytestmark = pytest.mark.local('UDF/integration test')
 
 
-@rerun(reruns=1, reruns_delay=8)
+@rerun_on_network_error()
 class TestWhisper:
     @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Unreliable on Linux ARM')
     def test_whisper(self, uses_db: None) -> None:

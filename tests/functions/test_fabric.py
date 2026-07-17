@@ -9,7 +9,7 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import rerun, skip_test_if_not_installed, validate_update_status
+from ..utils import rerun_on_network_error, skip_test_if_not_installed, validate_update_status
 
 pytestmark = pytest.mark.local('UDF/integration test')
 
@@ -28,7 +28,7 @@ def _skip_if_not_fabric() -> None:
 
 @pytest.mark.skip(reason='Requires Microsoft Fabric environment with synapse-ml-fabric SDK')
 @pytest.mark.remote_api
-@rerun(reruns=3, reruns_delay=8)
+@rerun_on_network_error()
 class TestFabric:
     """Test suite for Microsoft Fabric Azure OpenAI integration."""
 

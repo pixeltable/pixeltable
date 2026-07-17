@@ -334,11 +334,13 @@ https://www.pixeltable.com/dashboard/{org-slug}/{db-slug}/storage/home/browse
   </Tab>
   <Tab title="Example">
     ```python
-    t = pxt.create_table('app/audio', {'audio': pxt.Audio})
+    from pixeltable.functions.video import extract_audio
+
+    t = pxt.create_table('app/videos', {'video': pxt.Video})
 
     t.add_computed_column(
-        segments=pxt.functions.video.audio_splitter(t.audio, duration=30),
-        destination='https://s3.us-west-004.backblazeb2.com/my-bucket/segments/'
+        audio=extract_audio(t.video, format='mp3'),
+        destination='https://s3.us-west-004.backblazeb2.com/my-bucket/audio/',
     )
     ```
   </Tab>

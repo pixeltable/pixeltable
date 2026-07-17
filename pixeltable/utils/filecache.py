@@ -15,6 +15,7 @@ from uuid import UUID
 import pixeltable.exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
+from pixeltable.utils.http import redact_url
 
 _logger = logging.getLogger(__name__)
 
@@ -206,7 +207,7 @@ class FileCache:
         key = self._url_hash(url)
         entry = self.cache.get(key, None)
         if entry is None:
-            _logger.debug(f'file cache miss for {url}')
+            _logger.debug(f'file cache miss for {redact_url(url)}')
             return None
         # update mtime and cache
         path = entry.path
@@ -216,7 +217,7 @@ class FileCache:
         self.cache.move_to_end(key, last=True)
         self.num_hits += 1
         self.keys_retrieved.add(key)
-        _logger.debug(f'file cache hit for {url}')
+        _logger.debug(f'file cache hit for {redact_url(url)}')
         return path
 
     def add(self, tbl_id: UUID, col_id: int, url: str, path: Path) -> Path:
@@ -241,7 +242,7 @@ class FileCache:
         new_path = entry.path
         os.rename(str(path), str(new_path))
         new_path.touch(exist_ok=True)
-        _logger.debug(f'FileCache: cached url {url} with file name {new_path}')
+        _logger.debug(f'FileCache: cached url {redact_url(url)} with file name {new_path}')
         return new_path
 
     def ensure_capacity(self, size: int) -> None:

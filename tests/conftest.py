@@ -168,6 +168,9 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
     pxt_logger = logging.getLogger('pixeltable')
     pxt_logger.setLevel(logging.DEBUG)
     pxt_logger.addHandler(stdout_handler)
+    test_logger = logging.getLogger('pixeltable_test')
+    test_logger.setLevel(logging.DEBUG)
+    test_logger.addHandler(stdout_handler)
     logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
 
     yield

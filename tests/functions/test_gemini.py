@@ -18,7 +18,7 @@ from ..utils import (
     get_test_video_files,
     get_video_files,
     pxt_raises,
-    rerun,
+    rerun_on_network_error,
     skip_test_if_no_client,
     skip_test_if_not_installed,
     validate_update_status,
@@ -31,7 +31,8 @@ _logger = logging.getLogger('pixeltable_test')
 
 
 @pytest.mark.remote_api
-@rerun(reruns=3, reruns_delay=8)
+@pytest.mark.very_expensive
+@rerun_on_network_error()
 class TestGemini:
     @pytest.mark.parametrize('model', ['gemini-2.5-flash-lite', 'gemini-3.1-pro-preview'])
     def test_generate_content(self, model: str, uses_db: None) -> None:
@@ -98,7 +99,6 @@ class TestGemini:
         assert 'French horn' in results['output'][0]['candidates'][0]['content']['parts'][0]['text']
         assert 'truck' in results['output'][1]['candidates'][0]['content']['parts'][0]['text']
 
-    @pytest.mark.expensive
     def test_generate_content_video(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
@@ -134,7 +134,6 @@ class TestGemini:
             print(f'Video analysis result id={i}: {text}')
             assert text and not any(word in text for word in ['failed', 'unable', 'invalid'])
 
-    @pytest.mark.expensive
     def test_generate_content_nano_banana(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
@@ -179,7 +178,6 @@ class TestGemini:
 
         run_tool_invocations_test(make_table)
 
-    @pytest.mark.expensive
     def test_generate_images(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
@@ -200,7 +198,7 @@ class TestGemini:
         assert results['output2'][0].size == (1280, 896)
 
     @pytest.mark.very_expensive
-    @rerun(reruns=3, reruns_delay=30)  # longer delay between reruns
+    @rerun_on_network_error(reruns_delay=30)
     def test_generate_videos(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
@@ -242,7 +240,7 @@ class TestGemini:
             assert audio_stream['duration_seconds'] == duration, metadata
 
     @pytest.mark.very_expensive
-    @rerun(reruns=3, reruns_delay=30)
+    @rerun_on_network_error(reruns_delay=30)
     def test_generate_videos_reference_images(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
@@ -274,7 +272,6 @@ class TestGemini:
         file_path = results['output'][0]
         assert Path(file_path).exists()
 
-    @pytest.mark.expensive
     def test_generate_speech(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
@@ -288,7 +285,6 @@ class TestGemini:
         assert Path(audio_path).exists()
         assert audio_path.endswith('.wav')
 
-    @pytest.mark.expensive
     def test_generate_speech_multispeaker(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
@@ -306,7 +302,6 @@ class TestGemini:
         assert Path(audio_path).exists()
         assert audio_path.endswith('.wav')
 
-    @pytest.mark.expensive
     def test_transcribe(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
@@ -373,7 +368,6 @@ class TestGemini:
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
         assert res[0]['rowid'] == 3
 
-    @pytest.mark.expensive
     def test_generate_content_scheduler(self, uses_db: None) -> None:
         """
         Scheduler stress test: 30 rows on gemini-2.5-flash free tier (~10 RPM) triggers 429s

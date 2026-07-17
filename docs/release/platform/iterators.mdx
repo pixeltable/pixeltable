@@ -202,33 +202,52 @@ Iterators are powerful tools for processing large media files. They work seamles
     ```python
     from pixeltable.functions.audio import audio_splitter
 
-    # Split audio into chunks
-    chunks_view = pxt.create_view(
-        'audio/chunks',
+    # Split by duration (exactly one of duration or max_size is required)
+    segments = pxt.create_view(
+        'audio/segments',
         audio_table,
         iterator=audio_splitter(
             audio=audio_table.audio,
-            duration=30.0,  # Split into 30-second chunks
-            overlap=2.0,          # 2-second overlap between chunks
-            min_segment_duration=5.0 # Drop last chunk if < 5 seconds
-        )
+            duration=30.0,  # ~30-second segments
+            overlap=2.0,  # 2-second overlap between segments
+            min_segment_duration=5.0,  # Drop last segment if < 5 seconds
+            min_silence_len=0.3,  # Snap cuts to quiet stretches
+            silence_thresh=-40.0,
+            trim_leading_silence=True,
+        ),
+    )
+
+    # Or split by byte budget (e.g. API upload limits)
+    size_limited = pxt.create_view(
+        'audio/size_limited',
+        audio_table,
+        iterator=audio_splitter(
+            audio=audio_table.audio,
+            max_size=24 * 1024 * 1024,  # at most 24 MB per segment
+        ),
     )
     ```
 
     ### Parameters
-    - `duration` (float): Duration of each audio chunk in seconds
-    - `overlap` (float, default: 0.0): Overlap duration between consecutive chunks in seconds
-    - `min_segment_duration` (float, default: 0.0): Minimum duration threshold - the last chunk will be dropped if it's shorter than this value
+    - `duration` (float | None): Segment length in seconds. Mutually exclusive with `max_size`.
+    - `max_size` (int | None): Maximum segment size in bytes. Mutually exclusive with `duration`.
+    - `overlap` (float, default: 0.0): Overlap between consecutive segments in seconds
+    - `min_segment_duration` (float, default: 0.0): Drop the last segment if shorter than this
+    - `min_silence_len` (float | None): If set, snap boundaries to quiet stretches of at least this length (seconds)
+    - `silence_thresh` (float, default: -40.0): dBFS level at or below which audio counts as silence
+    - `trim_leading_silence` (bool, default: False): Drop leading silence so each segment starts at audible content
 
     ### Returns
-    For each chunk, yields:
-    - `start_time_sec`: Start time of the chunk in seconds
-    - `end_time_sec`: End time of the chunk in seconds
-    - `audio_chunk`: The audio chunk as pxt.Audio type
+    For each segment, yields:
+    - `segment_start`: Start time of the segment in seconds
+    - `segment_end`: End time of the segment in seconds
+    - `audio_segment`: The audio segment as `pxt.Audio`
 
     ### Notes
-    - If the input contains no audio, no chunks are yielded
-    - The audio file is processed efficiently with proper codec handling
+    - Exactly one of `duration` or `max_size` must be specified
+    - With `max_size`, every emitted segment is guaranteed not to exceed the byte budget
+    - With `min_silence_len`, cuts land at the latest silence at or before the duration/`max_size` budget
+    - If the input contains no audio, no segments are yielded
     - Supports various audio formats including MP3, AAC, Vorbis, Opus, FLAC
   </Tab>
 </Tabs>
@@ -310,18 +329,19 @@ Iterators are powerful tools for processing large media files. They work seamles
 
   <Accordion title="Audio Transcription" icon="microphone">
     ```python
-    # Split long audio files
-    chunks = pxt.create_view(
-        'audio/chunks',
+    # Split long audio files (silence-aware cuts avoid mid-word boundaries)
+    segments = pxt.create_view(
+        'audio/segments',
         audio_table,
         iterator=audio_splitter(
             audio=audio_table.audio,
-            duration=30.0
-        )
+            duration=30.0,
+            min_silence_len=0.3,
+        ),
     )
 
     # Add transcription
-    chunks.add_computed_column(text=whisper_transcribe(chunks.audio_chunk))
+    segments.add_computed_column(text=whisper_transcribe(segments.audio_segment))
     ```
   </Accordion>
 

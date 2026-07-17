@@ -380,11 +380,9 @@ pxt serve my-service --config service.toml
 ```
 
 ```text Output
-Starting Pixeltable service: my-service
-  Bound to 0.0.0.0:8000
-  Listening on http://localhost:8000
-  API docs at http://localhost:8000/docs
+Pixeltable is running on http://localhost:8000
   Routes: 2
+  API docs at http://localhost:8000/docs
 ```
 
 #### Single-endpoint mode
@@ -418,7 +416,7 @@ Every `pxt serve` subcommand accepts these flags:
 When `--json` is set, a successful start emits:
 
 ```json
-{"status": "starting", "host": "0.0.0.0", "port": 8000, "url": "http://localhost:8000", "docs_url": "http://localhost:8000/docs", "routes": 2}
+{"status": "started", "host": "0.0.0.0", "port": 8000, "url": "http://localhost:8000", "docs_url": "http://localhost:8000/docs", "routes": 2}
 ```
 
 Errors (including port conflicts) emit to stderr:

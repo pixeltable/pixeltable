@@ -12,7 +12,7 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable.env import Env
 
-from ..utils import ensure_s3_pytest_resources_access, pxt_raises, rerun, skip_test_if_not_installed
+from ..utils import ensure_s3_pytest_resources_access, pxt_raises, rerun_on_network_error, skip_test_if_not_installed
 
 EXPECTED_SCHEMA = {
     'int_col': ts.IntType(nullable=True),
@@ -177,7 +177,7 @@ class TestPandas:
             's3://pxt-test/pytest-resources/onlinefoods.csv',
         ],
     )
-    @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
+    @rerun_on_network_error()
     def test_import_csv_from_remote(self, make_catalog_path: Callable[[str], str], source: str) -> None:
         p = make_catalog_path
         if source.startswith('s3://'):
@@ -227,7 +227,7 @@ class TestPandas:
             's3://pxt-test/pytest-resources/Financial Sample.xlsx',
         ],
     )
-    @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
+    @rerun_on_network_error()
     def test_import_excel_from_remote(self, make_catalog_path: Callable[[str], str], source: str) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('openpyxl')

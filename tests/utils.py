@@ -326,7 +326,7 @@ def assert_schema_eq(actual: pxt.Table, expected: pxt.Table) -> None:
 # from public Pixeltable types without reaching into a column's internal ColumnType.
 ALL_DATATYPES_SCHEMA: dict[str, Any] = {
     'row_id': pxt.Required[pxt.Int],
-    'c_array': pxt.Array[(10,), pxt.Float],  # type: ignore[misc]
+    'c_array': pxt.Array[(10,), pxt.Float],
     'c_audio': pxt.Audio,
     'c_bool': pxt.Bool,
     'c_date': pxt.Date,
@@ -978,6 +978,27 @@ def rerun(**kwargs: Any) -> Callable:
         # Set this to an explicit empty list to override the global default in cases where the @rerun decorator is used
         kwargs['only_rerun'] = []
     return pytest.mark.flaky(**kwargs)
+
+
+# Error patterns that indicate a transient network/service problem rather than a genuine test failure. Tests that hit
+# external services (remote APIs, model/dataset downloads, cloud object stores) should be retried when they fail with
+# one of these. Matched as substrings against the failure message.
+NETWORK_ERROR_PATTERNS = [
+    '429',
+    'Too Many Requests',
+    'Connection reset',
+    'Connection aborted',
+    'Max retries exceeded',
+    'timed out',
+    'Timeout',
+    'ExternalServiceError',
+    'URLError',
+]
+
+
+def rerun_on_network_error(reruns: int = 3, reruns_delay: int = 15, **kwargs: Any) -> Callable:
+    """Rerun a test that fails due to a transient network/service error."""
+    return rerun(reruns=reruns, reruns_delay=reruns_delay, only_rerun=NETWORK_ERROR_PATTERNS, **kwargs)
 
 
 # This will be set to True if the tests are running in a CI environment.

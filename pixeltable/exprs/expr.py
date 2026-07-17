@@ -288,8 +288,6 @@ class Expr(abc.ABC):
 
         if siblings is None:
             siblings = []
-        else:
-            assert all(sibling.tbl_handle is not None for sibling in siblings)
 
         def is_in(col_md: catalog.ColumnVersionMd, tbl: catalog.TablePath) -> bool:
             # the column must be physically present *and* pinned to the same version: the same physical column

@@ -11,7 +11,7 @@ from typing_extensions import Self
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-from pixeltable import exprs
+from pixeltable import exprs, telemetry
 from pixeltable.runtime import get_runtime
 
 from .data_row_batch import DataRowBatch
@@ -141,6 +141,9 @@ class ExecNode(abc.ABC):
         # benefits)
         result_queue: queue.Queue = queue.Queue(maxsize=2)
         caller_runtime = get_runtime()
+        # carry the ambient instrumentation span across the thread boundary so spans reported on the
+        # worker thread nest under it
+        hooks_ctx = telemetry.capture_context()
 
         def run() -> None:
             thread_runtime = get_runtime()
@@ -148,6 +151,7 @@ class ExecNode(abc.ABC):
             thread_runtime.copy_db_context(caller_runtime)
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
+            hooks_token = telemetry.restore_context(hooks_ctx)
             try:
 
                 async def produce() -> None:
@@ -159,6 +163,7 @@ class ExecNode(abc.ABC):
             except BaseException as e:
                 result_queue.put(e)
             finally:
+                telemetry.exit_context(hooks_token)
                 loop.close()
 
         thread = threading.Thread(target=run, daemon=True)

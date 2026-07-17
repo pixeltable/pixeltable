@@ -1459,7 +1459,7 @@ class TestFastAPI:
                 'id': pxt.Required[pxt.Int],
                 'val': pxt.Int,
                 'blob': pxt.Binary,
-                'arr': pxt.Array[(3,), pxt.Float],  # type: ignore[misc]
+                'arr': pxt.Array[(3,), pxt.Float],
                 'data': pxt.Json,
             },
             primary_key='id',

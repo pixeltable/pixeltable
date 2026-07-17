@@ -357,7 +357,7 @@ class TestInlinedObjects:
 
         schema = {
             'id': pxt.Int,
-            'media': pxt.Json[{'clip': pxt.Video, 'sound': pxt.Audio, 'doc': pxt.Document, 'label': str}],  # type: ignore[misc]
+            'media': pxt.Json[{'clip': pxt.Video, 'sound': pxt.Audio, 'doc': pxt.Document, 'label': str}],
         }
         t = pxt.create_table(p('test'), schema)
 

@@ -311,6 +311,25 @@ class TestCLI:
             assert route.one_row is True
             assert cfg.host == '127.0.0.1'
 
+    @pytest.mark.otel
+    def test_serve_otel(self) -> None:
+        """--otel resolves the instrumentation package and wires init()/instrument_fastapi() into serve."""
+        skip_test_if_not_installed('fastapi', 'uvicorn', 'opentelemetry.instrumentation.pixeltable')
+
+        argv = ['pxt', 'serve', 'insert', '--table', 'd.items', '--path', '/insert', '--otel']
+        with (
+            patch('pixeltable_cli.client.commands.serve.create_service_from_config', return_value='fake_app'),
+            patch('uvicorn.Config'),
+            patch('uvicorn.Server.run') as mock_run,
+            patch('sys.argv', argv),
+            patch('opentelemetry.instrumentation.pixeltable.init') as mock_otel_init,
+            patch('opentelemetry.instrumentation.pixeltable.instrument_fastapi') as mock_instrument_fastapi,
+        ):
+            cli_main()
+        mock_otel_init.assert_called_once_with()
+        mock_instrument_fastapi.assert_called_once_with('fake_app')
+        mock_run.assert_called_once_with()
+
     def test_started_status_json(self) -> None:
         from pixeltable_cli.client.commands.serve import _started_status
 

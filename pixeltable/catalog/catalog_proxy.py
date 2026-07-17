@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
     from .dir import Dir
     from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation, TableVersionMd
+    from .model import EmbeddingIndex
     from .path import Path
     from .table import Table
     from .table_path import TablePath
@@ -119,6 +120,7 @@ class CatalogProxy(CatalogBase):
         custom_metadata: Any,
         iterator: func.GeneratingFunctionCall | None,
         base: 'Query | None',
+        embedding_idxs: dict[str, 'EmbeddingIndex'],
     ) -> tuple[Table, bool]:
         args = {
             'path': path,
@@ -130,6 +132,7 @@ class CatalogProxy(CatalogBase):
             'custom_metadata': custom_metadata,
             'iterator': iterator,
             'base': base.as_dict() if base is not None else None,
+            'embedding_idxs': embedding_idxs,
         }
         md, was_created = self.client.send_request('CatalogBase', 'create_from_model', args)
         return self._make_table(md, is_anon_snapshot=False), was_created

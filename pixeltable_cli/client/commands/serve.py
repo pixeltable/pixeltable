@@ -11,6 +11,7 @@ import pydantic
 
 import pixeltable as pxt
 from pixeltable import config, exceptions as excs
+from pixeltable.env import Env
 from pixeltable.serving._config import create_service_from_config, lookup_service_config
 
 from ..parser import Parser
@@ -46,6 +47,11 @@ def _add_service_args(p: argparse.ArgumentParser) -> None:
     p.add_argument('--port', type=int, default=None, help='Bind port (overrides config default)')
     p.add_argument('--prefix', type=str, default=None, help='URL prefix (overrides config default)')
     p.add_argument('--config', type=str, default=None, help='Path to an additional TOML config file')
+    p.add_argument(
+        '--otel',
+        action='store_true',
+        help="Enable OpenTelemetry instrumentation (requires `pip install 'pixeltable[otel]'`)",
+    )
 
 
 def _add_output_args(p: argparse.ArgumentParser) -> None:
@@ -236,7 +242,18 @@ def _serve(args: argparse.Namespace) -> None:
         _print_dry_run(cfg, args.json)
         return
 
-    _run(cfg, create_service_from_config(cfg), args.json)
+    app = create_service_from_config(cfg)
+    if args.otel:
+        Env.get().require_package(
+            'opentelemetry.instrumentation.pixeltable',
+            not_installed_msg="--otel requires the instrumentation package; install: `pip install 'pixeltable[otel]'`",
+        )
+        import opentelemetry.instrumentation.pixeltable as pxt_otel
+
+        pxt_otel.init()
+        pxt_otel.instrument_fastapi(app)
+
+    _run(cfg, app, args.json)
 
 
 def _print_dry_run(cfg: config.ServiceConfig, json_output: bool) -> None:

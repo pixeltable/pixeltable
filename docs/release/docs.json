@@ -84,6 +84,7 @@
                   "howto/providers/working-with-tigris",
                   "howto/providers/working-with-together",
                   "howto/providers/working-with-twelvelabs",
+                  "howto/providers/working-with-vllm",
                   "howto/providers/working-with-voyageai",
                   "howto/working-with-fiftyone"
                 ]

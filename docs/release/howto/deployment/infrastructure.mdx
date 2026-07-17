@@ -282,6 +282,7 @@ Pixeltable integrates with existing data pipelines via import/export capabilitie
 **Import:**
 - CSV, Excel, JSON: [`pxt.io.import_csv()`](/sdk/latest/io#func-import_csv), [`pxt.io.import_excel()`](/sdk/latest/io#func-import_excel), [`pxt.io.import_json()`](/sdk/latest/io#func-import_json)
 - Parquet: [`pxt.io.import_parquet()`](/sdk/latest/io#func-import_parquet)
+- SQL databases: [`pxt.io.import_sql()`](/sdk/latest/io#func-import_sql) — see [SQL import/export cookbook](/howto/cookbooks/data/data-export-sql)
 - Pandas DataFrames: [`table.insert(df)`](/sdk/latest/table#method-insert) or [`pxt.create_table(source=df)`](/sdk/latest/pixeltable#func-create_table)
 - Hugging Face Datasets: [`pxt.io.import_huggingface_dataset()`](/sdk/latest/io#func-import_huggingface_dataset)
 
@@ -289,6 +290,8 @@ Pixeltable integrates with existing data pipelines via import/export capabilitie
 - CSV: [`pxt.io.export_csv(table, path)`](/sdk/latest/io#func-export_csv) for tabular data
 - JSON: [`pxt.io.export_json(table, path)`](/sdk/latest/io#func-export_json) for structured data
 - Parquet: [`pxt.io.export_parquet(table, path)`](/sdk/latest/io#func-export_parquet) for data warehousing
+- SQL databases: [`pxt.io.export_sql(table, ...)`](/sdk/latest/io#func-export_sql) — see [SQL import/export cookbook](/howto/cookbooks/data/data-export-sql)
+- Iceberg: [`pxt.io.export_iceberg(table, ...)`](/sdk/latest/io#func-export_iceberg) — see [analytics export cookbook](/howto/cookbooks/data/data-export-analytics)
 - LanceDB: [`pxt.io.export_lancedb(table, db_uri, table_name)`](/sdk/latest/io#func-export_lancedb) for vector databases
 - PyTorch: [`table.to_pytorch_dataset()`](/sdk/latest/query#method-to_pytorch_dataset) for ML training pipelines
 - COCO: [`table.to_coco_dataset()`](/sdk/latest/query#method-to_coco_dataset) for computer vision

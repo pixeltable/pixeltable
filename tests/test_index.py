@@ -24,7 +24,7 @@ from .utils import (
     local_embedding,
     pxt_raises,
     reload_catalog,
-    rerun,
+    rerun_on_network_error,
     skip_test_if_not_installed,
     validate_update_status,
 )
@@ -80,7 +80,7 @@ class TestIndex:
         reload_tester.run_reload_test(clear=True)
 
     @pytest.mark.parametrize('use_index_name,use_separate_embeddings', [(False, False), (True, False), (False, True)])
-    @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
+    @rerun_on_network_error()
     def test_similarity(
         self,
         use_index_name: bool,
@@ -1079,8 +1079,8 @@ class TestIndex:
         dim = len(precomputed_embeddings[0])
         precomputed_embeddings_f64 = [v.astype(np.float64) for v in precomputed_embeddings]
 
-        t.add_column(precomputed_embeddings=pxt.Array[(dim,), np.float32])  # type: ignore[misc]
-        t.add_column(precomputed_embeddings_f64=pxt.Array[(dim,), np.float64])  # type: ignore[misc]
+        t.add_column(precomputed_embeddings=pxt.Array[(dim,), np.float32])
+        t.add_column(precomputed_embeddings_f64=pxt.Array[(dim,), np.float64])
 
         for i in range(len(texts)):
             validate_update_status(
@@ -1162,11 +1162,7 @@ class TestIndex:
         p = make_catalog_path
         t = pxt.create_table(
             p('arr_val_test'),
-            {
-                'id': pxt.Int,
-                'vec': pxt.Array[(384,), np.float32],  # type: ignore[misc]
-                'vec2d': pxt.Array[(10, 10), np.float32],  # type: ignore[misc]
-            },
+            {'id': pxt.Int, 'vec': pxt.Array[(384,), np.float32], 'vec2d': pxt.Array[(10, 10), np.float32]},
             if_exists='replace',
         )
         t.insert([{'id': 0, 'vec': np.zeros(384, dtype=np.float32), 'vec2d': np.zeros((10, 10), dtype=np.float32)}])

@@ -4,10 +4,14 @@ generation API. In order to use them, the API key must be specified either with 
 or as `api_key` in the `reve` section of the Pixeltable config file.
 """
 
+import asyncio
+import atexit
+import base64
+import json
 import logging
 import re
 from io import BytesIO
-from typing import Any
+from typing import Any, TypedDict
 
 import aiohttp
 import PIL.Image
@@ -18,6 +22,11 @@ from pixeltable.utils.code import local_public_names
 from pixeltable.utils.image import to_base64
 
 _logger = logging.getLogger(__name__)
+
+
+class ImageResponse(TypedDict):
+    image: PIL.Image.Image
+    layout: dict
 
 
 class ReveRateLimitedError(Exception):
@@ -33,7 +42,6 @@ class ReveUnexpectedError(Exception):
 
 
 _REVE_BASE_URL = 'https://api.reve.com'
-_REVE_CONTENT_TYPE = 'image/png'
 _RETRY_AFTER_RE = re.compile(r'\d{1,2}')
 
 
@@ -49,16 +57,18 @@ class _ReveClient:
         self._request_headers = {
             'Authorization': f'Bearer {api_key}',
             'Content-Type': 'application/json',
-            'Accept': _REVE_CONTENT_TYPE,
+            'Accept': 'application/json',
         }
         self._session = None  # defer session creation until we have a running event loop
 
     def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None:
             self._session = aiohttp.ClientSession(base_url=_REVE_BASE_URL)
+            session = self._session
+            atexit.register(lambda: asyncio.run(session.close()))
         return self._session
 
-    async def _post(self, endpoint: str, *, payload: dict) -> PIL.Image.Image:
+    async def post(self, endpoint: str, *, payload: dict) -> dict[str, Any]:
         async with self._get_session().post(endpoint, json=payload, headers=self._request_headers) as resp:
             request_id = resp.headers.get('X-Reve-Request-Id')
             error_code = resp.headers.get('X-Reve-Error-Code')
@@ -73,22 +83,16 @@ class _ReveClient:
                         raise ReveContentViolationError(
                             f'Reve request {request_id} resulted in a content violation error'
                         )
-                    if resp.content_type != _REVE_CONTENT_TYPE:
+                    if resp.content_type != 'application/json':
                         raise ReveUnexpectedError(
-                            f'Reve request {request_id} expected content type {_REVE_CONTENT_TYPE}, '
-                            f'got {resp.content_type}'
+                            f'Reve request {request_id} expected content type application/json, got {resp.content_type}'
                         )
-
-                    img_data = await resp.read()
-                    if len(img_data) == 0:
-                        raise ReveUnexpectedError(f'Reve request {request_id} resulted in an empty image')
-                    img = PIL.Image.open(BytesIO(img_data))
-                    img.load()
-                    _logger.debug(
-                        f'Reve request {request_id} successful. Image bytes: {len(img_data)}, size: {img.size}'
-                        f', format: {img.format}, mode: {img.mode}'
-                    )
-                    return img
+                    raw = await resp.read()
+                    if len(raw) == 0:
+                        _logger.error(f'Reve request {request_id} resulted in an empty response: {resp}')
+                        raise ReveUnexpectedError(f'Reve request {request_id} resulted in an empty response')
+                    _logger.debug(f'Reve request {request_id} successful')
+                    return json.loads(raw)
                 case 429:
                     # Try to honor the server-provided Retry-After value if present
                     # Note: Retry-After value can also be given in the form of HTTP Date, which we don't
@@ -132,138 +136,82 @@ def _client() -> _ReveClient:
     return get_runtime().get_client('reve')
 
 
-# TODO Regarding rate limiting: Reve appears to be going for a credits per minute rate limiting model, but does not
-# currently communicate rate limit information in responses. Therefore neither of the currently implemented limiting
-# strategies is a perfect match, but "request-rate" is the closest. Reve does not currently enforce the rate limits,
-# but when it does, we can revisit this choice.
+# At the moment, Reve does not document their rate limits, and API responses do not include rate limits-related tokens.
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:reve')
 async def create(
-    prompt: str, *, aspect_ratio: str | None = None, version: str | None = None, model_kwargs: dict | None = None
-) -> PIL.Image.Image:
-    """
-    Creates an image from a text prompt.
-
-    This UDF wraps the `https://api.reve.com/v1/image/create` endpoint. For more information, refer to the official
-    [API documentation](https://api.reve.com/console/docs/create).
-
-    Args:
-        prompt: prompt describing the desired image
-        aspect_ratio: desired image aspect ratio, e.g. '3:2', '16:9', '1:1', etc.
-        version: specific model version to use. Latest if not specified.
-        model_kwargs: additional keyword arguments to pass to the Reve API.
-
-    Returns:
-        A generated image
-
-    Examples:
-        Add a computed column with generated square images to a table with text prompts:
-
-        >>> t.add_computed_column(img=reve.create(t.prompt, aspect_ratio='1:1'))
-    """
-    payload: dict[str, Any] = {'prompt': prompt}
-    if aspect_ratio is not None:
-        payload['aspect_ratio'] = aspect_ratio
-    if version is not None:
-        payload['version'] = version
-    if model_kwargs is not None:
-        payload.update(model_kwargs)
-
-    result = await _client()._post('/v1/image/create', payload=payload)
-    return result
-
-
-@pxt.udf(is_deterministic=False, resource_pool='request-rate:reve')
-async def edit(
-    image: PIL.Image.Image, edit_instruction: str, *, version: str | None = None, model_kwargs: dict | None = None
-) -> PIL.Image.Image:
-    """
-    Edits images based on a text prompt.
-
-    This UDF wraps the `https://api.reve.com/v1/image/edit` endpoint. For more information, refer to the official
-    [API documentation](https://api.reve.com/console/docs/edit)
-
-    Args:
-        image: image to edit
-        edit_instruction: text prompt describing the desired edit
-        version: specific model version to use. Latest if not specified.
-        model_kwargs: additional keyword arguments to pass to the Reve API.
-
-    Returns:
-        A generated image
-
-    Examples:
-        Add a computed column with catalog-ready images to the table with product pictures:
-
-        >>> t.add_computed_column(
-        ...     catalog_img=reve.edit(
-        ...         t.product_img,
-        ...         'Remove background and distractions from the product picture, improve lighting.',
-        ...     )
-        ... )
-    """
-    payload: dict[str, Any] = {'edit_instruction': edit_instruction, 'reference_image': to_base64(image)}
-    if version is not None:
-        payload['version'] = version
-    if model_kwargs is not None:
-        payload.update(model_kwargs)
-
-    result = await _client()._post('/v1/image/edit', payload=payload)
-    return result
-
-
-@pxt.udf(is_deterministic=False, resource_pool='request-rate:reve')
-async def remix(
     prompt: str,
-    images: list[PIL.Image.Image],
     *,
+    references: list[PIL.Image.Image] | None = None,
     aspect_ratio: str | None = None,
+    postprocessing: list[dict] | None = None,
     version: str | None = None,
     model_kwargs: dict | None = None,
-) -> PIL.Image.Image:
+) -> ImageResponse:
     """
-    Creates images based on a text prompt and reference images.
+    Creates an image from a text prompt, optionally guided by reference images.
 
-    The prompt may include `<img>0</img>`, `<img>1</img>`, etc. tags to refer to the images in the `images` argument.
+    The prompt may include `<frame>0</frame>`, `<frame>1</frame>`, etc. tags to refer to the reference images.
 
-    This UDF wraps the `https://api.reve.com/v1/image/remix` endpoint. For more information, refer to the official
-    [API documentation](https://api.reve.com/console/docs/remix)
+    This UDF wraps the `https://api.reve.com/v2/image/create` endpoint. For more information, refer to the official
+    [API documentation](https://api.reve.com/console/docs/v2/create).
 
     Args:
         prompt: prompt describing the desired image
-        images: list of reference images
+        references: optional list of reference images to guide the model
         aspect_ratio: desired image aspect ratio, e.g. '3:2', '16:9', '1:1', etc.
-        version: specific model version to use. Latest by default.
+        postprocessing: optional list of postprocessing operations to apply to the generated image
+            e.g. `[{'process': 'effect', 'effect_name': 'low_light'}]`.
+        version: specific model version to use. Latest if not specified.
         model_kwargs: additional keyword arguments to pass to the Reve API.
 
     Returns:
-        A generated image
+        A dictionary containing the generated image (`'image'` key) and layout metadata
+        (`'layout'` key) returned by the Reve API.
 
     Examples:
-        Add a computed column with promotional collages to a table with original images:
+        Add a computed column with generated images from text prompts:
+
+        >>> t.add_computed_column(img=reve.create(t.prompt, aspect_ratio='1:1'))
+
+        Remove the background from an image:
 
         >>> t.add_computed_column(
-        ...     promo_img=(
-        ...         reve.remix(
-        ...             'Generate a product promotional image by combining the image of the product'
-        ...             ' from <img>0</img> with the landmark scene from <img>1</img>',
-        ...             images=[t.product_img, t.local_landmark_img],
-        ...             aspect_ratio='16:9',
-        ...         )
+        ...     img=reve.create(
+        ...         'Remove the background from <frame>0</frame> and replace it with a clean white background',
+        ...         references=[t.product_img],
+        ...     )
+        ... )
+
+        Add a computed column that generates product shots in the style of a brand reference image:
+
+        >>> t.add_computed_column(
+        ...     img=reve.create(
+        ...         'Generate a product shot of <frame>0</frame> styled to match the aesthetic of <frame>1</frame>',
+        ...         references=[t.product_img, t.brand_reference_img],
         ...     )
         ... )
     """
-    if len(images) == 0:
-        raise pxt.RequestError(pxt.ErrorCode.MISSING_REQUIRED, 'Must include at least 1 reference image')
-
-    payload: dict[str, Any] = {'prompt': prompt, 'reference_images': [to_base64(img) for img in images]}
-    if version is not None:
-        payload['version'] = version
+    payload: dict[str, Any] = {'prompt': prompt}
+    if references is not None and len(references) > 0:
+        payload['references'] = [{'data': to_base64(img)} for img in references]
     if aspect_ratio is not None:
         payload['aspect_ratio'] = aspect_ratio
+    if version is not None:
+        payload['version'] = version
+    if postprocessing is not None:
+        payload['postprocessing'] = postprocessing
     if model_kwargs is not None:
         payload.update(model_kwargs)
-    result = await _client()._post('/v1/image/remix', payload=payload)
-    return result
+
+    body = await _client().post('/v2/image/create', payload=payload)
+    for field in ('image', 'layout'):
+        if field not in body:
+            raise ReveUnexpectedError(f'Reve response missing {field} field')
+    img_bytes = base64.b64decode(body['image'])
+    img = PIL.Image.open(BytesIO(img_bytes))
+    img.load()
+    _logger.debug(f'Image bytes: {len(img_bytes)}, size: {img.size}, format: {img.format}, mode: {img.mode}')
+    return ImageResponse(image=img, layout=body['layout'])
 
 
 __all__ = local_public_names(__name__)
