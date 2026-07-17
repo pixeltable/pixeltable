@@ -635,10 +635,10 @@ class LocalTable(Table):
             self._check_mutable('rename columns of')
             self._tbl_version.get().rename_column(old_name, new_name)
 
-    def alter_column(self, column: str | ColumnRef, *, new_type: type) -> None:
+    def alter_column(self, column: str | ColumnRef, *, set_type: type) -> None:
         from pixeltable.catalog import retry_loop
 
-        new_col_type = ts.ColumnType.normalize_type(new_type, nullable_default=True, allow_builtin_types=False)
+        new_col_type = ts.ColumnType.normalize_type(set_type, nullable_default=True, allow_builtin_types=False)
 
         @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)
         def do_alter_column() -> None:

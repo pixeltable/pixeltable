@@ -422,7 +422,7 @@ def _rename_column(request: ProxyRequest, tbl: LocalTable) -> None:
 
 def _alter_column(request: ProxyRequest, tbl: LocalTable) -> None:
     kwargs = _deserialize_args(request)
-    tbl.alter_column(kwargs['column'], new_type=kwargs['new_type'])
+    tbl.alter_column(kwargs['column'], set_type=kwargs['set_type'])
 
 
 def _add_embedding_index(request: ProxyRequest, tbl: LocalTable) -> None:

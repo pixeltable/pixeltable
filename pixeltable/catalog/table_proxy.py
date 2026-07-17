@@ -238,13 +238,13 @@ class TableProxy(Table):
         self._check_mutable('rename columns of')
         self._dispatch('rename_column', bound_args)
 
-    def alter_column(self, column: str | ColumnRef, *, new_type: type) -> None:
+    def alter_column(self, column: str | ColumnRef, *, set_type: type) -> None:
         bound_args = self._dispatch_args(locals())
         self._check_mutable('alter columns of')
 
-        # normalize new_type to a ColumnType so that it can be serialized
-        bound_args['new_type'] = ts.ColumnType.normalize_type(
-            new_type, nullable_default=True, allow_builtin_types=False
+        # normalize set_type to a ColumnType so that it can be serialized
+        bound_args['set_type'] = ts.ColumnType.normalize_type(
+            set_type, nullable_default=True, allow_builtin_types=False
         )
         self._dispatch('alter_column', bound_args)
 
