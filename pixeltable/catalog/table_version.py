@@ -954,22 +954,12 @@ class TableVersion:
     def alter_column(self, col: Column, new_type: ts.ColumnType) -> None:
         """Alter the type of a column. Currently only supports widening a value column to nullable."""
         assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
+        assert self.is_mutable
+        assert not col.is_computed
+        assert not col.is_pk
         if new_type == col.col_type:
             # no-op
             return
-
-        if not self.is_mutable:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot alter column for immutable table {self.name!r}'
-            )
-        if col.is_computed:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot alter the type of computed column {col.name!r}'
-            )
-        if col.is_pk:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot alter the type of primary key column {col.name!r}'
-            )
 
         if new_type.matches(col.col_type) and not col.col_type.nullable and new_type.nullable:
             # the only supported change: same basic type from non-nullable to nullable
