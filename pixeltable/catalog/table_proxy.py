@@ -238,7 +238,7 @@ class TableProxy(Table):
         self._check_mutable('rename columns of')
         self._dispatch('rename_column', bound_args)
 
-    def alter_column(self, column: str | ColumnRef, *, new_type: type | ts.ColumnType) -> None:
+    def alter_column(self, column: str | ColumnRef, *, new_type: type) -> None:
         bound_args = self._dispatch_args(locals())
         self._check_mutable('alter columns of')
 

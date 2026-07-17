@@ -635,7 +635,7 @@ class LocalTable(Table):
             self._check_mutable('rename columns of')
             self._tbl_version.get().rename_column(old_name, new_name)
 
-    def alter_column(self, column: str | ColumnRef, *, new_type: type | ts.ColumnType) -> None:
+    def alter_column(self, column: str | ColumnRef, *, new_type: type) -> None:
         from pixeltable.catalog import retry_loop
 
         new_col_type = ts.ColumnType.normalize_type(new_type, nullable_default=True, allow_builtin_types=False)

@@ -436,7 +436,7 @@ class Table(SchemaObject):
         """
 
     @abc.abstractmethod
-    def alter_column(self, column: str | ColumnRef, *, new_type: type | ts.ColumnType) -> None:
+    def alter_column(self, column: str | ColumnRef, *, new_type: type) -> None:
         """Alter the type of a column.
 
         Currently, the only supported change is widening a non-computed column from non-nullable to
