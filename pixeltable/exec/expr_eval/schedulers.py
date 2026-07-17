@@ -9,7 +9,7 @@ import math
 import os
 import sys
 import time
-from typing import Any, Collection, cast
+from typing import Any, Callable, Collection, cast
 
 from pixeltable import env, exceptions as excs, func, telemetry
 from pixeltable.config import Config
@@ -447,7 +447,10 @@ class ThreadPoolScheduler(Scheduler):
 
     The executor lives in Env's resource-pool cache (the same lazily-created-once mechanism used for
     RateLimitsInfo), so it's created once per process and reused across every insert/query, rather
-    than paying OS thread create/destroy cost on every operation.
+    than paying OS thread create/destroy cost on every operation. run() is the sole entry point onto
+    that executor: any evaluator with resource_pool=CPU_BOUND_POOL (see globals.Evaluator.resource_pool)
+    goes through this scheduler rather than reaching for the executor directly, so there's exactly one
+    place that submits work to it and restores the caller's telemetry context on the worker thread.
     """
 
     executor: concurrent.futures.ThreadPoolExecutor
@@ -464,6 +467,23 @@ class ThreadPoolScheduler(Scheduler):
     def matches(cls, resource_pool: str) -> bool:
         return resource_pool == CPU_BOUND_POOL
 
+    async def run(self, fn: Callable[..., Any], *args: Any) -> Any:
+        """Run fn(*args) on the shared executor, restoring the caller's telemetry context on the worker
+        thread; re-raises whatever fn raises."""
+        loop = asyncio.get_running_loop()
+        hooks_ctx = telemetry.capture_context()
+        return await loop.run_in_executor(self.executor, self._run_with_context, fn, args, hooks_ctx)
+
+    @staticmethod
+    def _run_with_context(
+        fn: Callable[..., Any], args: tuple[Any, ...], hooks_ctx: telemetry.CtxSnapshot | None
+    ) -> Any:
+        hooks_token = telemetry.restore_context(hooks_ctx)
+        try:
+            return fn(*args)
+        finally:
+            telemetry.exit_context(hooks_token)
+
     async def _main_loop(self) -> None:
         while True:
             item = await self.queue.get()
@@ -474,10 +494,8 @@ class ThreadPoolScheduler(Scheduler):
         assert not request.is_batched  # CPU_BOUND_POOL is rejected for batched functions in FnCallEvaluator
         if self.dispatcher.exc_event.is_set():
             return
-        loop = asyncio.get_running_loop()
-        hooks_ctx = telemetry.capture_context()
         try:
-            result = await loop.run_in_executor(self.executor, self._run_on_thread, request, hooks_ctx)
+            result = await self.run(self._call_udf, request)
             request.row[request.fn_call.slot_idx] = result
             self.dispatcher.dispatch(request.rows, exec_ctx)
         except Exception as exc:
@@ -486,26 +504,19 @@ class ThreadPoolScheduler(Scheduler):
             self.dispatcher.dispatch_exc(request.rows, request.fn_call.slot_idx, exc_tb, exec_ctx)
 
     @staticmethod
-    def _run_on_thread(request: FnCallArgs, hooks_ctx: telemetry.CtxSnapshot | None) -> Any:
-        """Runs the UDF call on a worker thread of the shared executor."""
-        hooks_token = telemetry.restore_context(hooks_ctx)
-        try:
-            pxt_fn = cast(func.CallableFunction, request.fn_call.fn)
-            # row.span is None past ExprEvalNode.MAX_ROW_SPANS; span_start() treats a None parent as
-            # "no explicit parent" and falls back to the ambient (operation) span rather than
-            # suppressing, so this cell span must be skipped explicitly to respect that cap, same as
-            # FnCallEvaluator._cell_span() does for the in-loop path
-            if request.row.span is None:
-                return pxt_fn.py_fn(*request.args, **request.kwargs)
-            with telemetry.span(
-                f'pixeltable.udf.{pxt_fn.display_name}',
-                level=telemetry.DEBUG,
-                parent=request.row.span,
-                set_current=telemetry.current_span() is not None,
-            ):
-                return pxt_fn.py_fn(*request.args, **request.kwargs)
-        finally:
-            telemetry.exit_context(hooks_token)
+    def _call_udf(request: FnCallArgs) -> Any:
+        """Runs the UDF call with its own cell span; called on a worker thread via run()."""
+        pxt_fn = cast(func.CallableFunction, request.fn_call.fn)
+        # row.span is None past ExprEvalNode.MAX_ROW_SPANS; require_parent=True suppresses the span
+        # rather than falling back to the ambient (operation) span, same as FnCallEvaluator._cell_span()
+        with telemetry.span(
+            f'pixeltable.udf.{pxt_fn.display_name}',
+            level=telemetry.DEBUG,
+            parent=request.row.span,
+            require_parent=True,
+            set_current=telemetry.current_span() is not None,
+        ):
+            return pxt_fn.py_fn(*request.args, **request.kwargs)
 
 
 # all concrete Scheduler subclasses that implement matches()

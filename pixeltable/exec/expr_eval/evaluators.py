@@ -1,20 +1,19 @@
 from __future__ import annotations
 
 import asyncio
-import concurrent.futures
 import contextlib
 import datetime
 import itertools
 import logging
-import os
 import sys
 from typing import Any, Callable, Iterator, cast
 
 import PIL.Image
 
-from pixeltable import catalog, env, exceptions as excs, exprs, func, telemetry
+from pixeltable import catalog, exceptions as excs, exprs, func, telemetry
 
 from .globals import CPU_BOUND_POOL, Dispatcher, Evaluator, ExprEvalCtx, FnCallArgs
+from .schedulers import ThreadPoolScheduler
 
 _logger = logging.getLogger(__name__)
 
@@ -79,6 +78,7 @@ class FnCallEvaluator(Evaluator):
         super().__init__(dispatcher, exec_ctx)
         self.fn_call = fn_call
         self.fn = cast(func.CallableFunction, fn_call.fn)
+        self.resource_pool = fn_call.resource_pool
         if fn_call.resource_pool is not None and fn_call.resource_pool != CPU_BOUND_POOL and not self.fn.is_async:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
@@ -116,10 +116,10 @@ class FnCallEvaluator(Evaluator):
     def _cell_span(self, row: exprs.DataRow) -> contextlib.AbstractContextManager[telemetry.SpanHandle | None]:
         """Context manager, with telemetry.span() semantics, covering one row's UDF call.
 
-        The span nests under the row's span; when the row has no span, returns a no-op nullcontext.
+        The span nests under the row's span; when the row has no span (eg past
+        ExprEvalNode.MAX_ROW_SPANS), require_parent=True suppresses it rather than falling back to the
+        ambient span.
         """
-        if row.span is None:
-            return contextlib.nullcontext()
         # DEBUG so cell spans emit/suppress in lockstep with the row span they nest under.
         # Set this span current only when an operation span is active. Each task copies the context at
         # creation, so the ambient span is task-specific and concurrent UDF calls don't see each other's.
@@ -127,6 +127,7 @@ class FnCallEvaluator(Evaluator):
             f'pixeltable.udf.{self.fn.display_name}',
             level=telemetry.DEBUG,
             parent=row.span,
+            require_parent=True,
             set_current=telemetry.current_span() is not None,
         )
 
@@ -304,7 +305,8 @@ class FnCallEvaluator(Evaluator):
 class MediaLoadEvaluator(Evaluator):
     """
     Evaluates a validating ColumnRef for an Image column: validates and decodes the image on the
-    shared cpu-bound thread pool instead of inline on the event-loop thread.
+    shared cpu-bound thread pool (ThreadPoolScheduler, see schedulers.py) instead of inline on the
+    event-loop thread.
 
     DataRow.__getitem__ forces PIL.Image.open().load() eagerly right after validation so a DataRow
     never caches a lazily-opened, still-open file handle - required on Windows, where a lingering
@@ -314,14 +316,11 @@ class MediaLoadEvaluator(Evaluator):
     """
 
     col_ref: exprs.ColumnRef
-    executor: concurrent.futures.ThreadPoolExecutor
 
     def __init__(self, col_ref: exprs.ColumnRef, dispatcher: Dispatcher, exec_ctx: ExprEvalCtx):
         super().__init__(dispatcher, exec_ctx)
         self.col_ref = col_ref
-        self.executor = env.Env.get().get_resource_pool_info(
-            CPU_BOUND_POOL, lambda: concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count())
-        )
+        self.resource_pool = CPU_BOUND_POOL
 
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
         assert self.col_ref.slot_idx >= 0
@@ -341,12 +340,12 @@ class MediaLoadEvaluator(Evaluator):
     async def _eval_row(self, row: exprs.DataRow, unvalidated_slot_idx: int, slot_idx: int) -> None:
         if asyncio.current_task().cancelled() or self.dispatcher.exc_event.is_set():
             return
-        loop = asyncio.get_running_loop()
-        hooks_ctx = telemetry.capture_context()
+        # _init_schedulers() instantiates this scheduler because our resource_pool is CPU_BOUND_POOL
+        scheduler = cast(ThreadPoolScheduler, self.dispatcher.schedulers[CPU_BOUND_POOL])
         col = self.col_ref.col
         path = row.file_paths[unvalidated_slot_idx]
         try:
-            img = await loop.run_in_executor(self.executor, self._validate_and_load, col, path, row.span, hooks_ctx)
+            img = await scheduler.run(self._validate_and_load, col, path, row.span)
         except excs.Error as exc:
             # media validation errors don't cause exceptions during query execution: recorded in the
             # slot, but the row still dispatches normally, matching ColumnRef.eval()'s own behavior
@@ -367,30 +366,16 @@ class MediaLoadEvaluator(Evaluator):
         self.dispatcher.dispatch([row], self.eval_ctx)
 
     @staticmethod
-    def _validate_and_load(
-        col: catalog.Column, path: str, row_span: telemetry.SpanHandle | None, hooks_ctx: telemetry.CtxSnapshot | None
-    ) -> PIL.Image.Image:
-        """Runs on a worker thread of the shared executor."""
-        hooks_token = telemetry.restore_context(hooks_ctx)
-        try:
-            validate_cm = (
-                telemetry.span('pixeltable.media.validate', level=telemetry.DEBUG, parent=row_span)
-                if row_span is not None
-                else contextlib.nullcontext()
-            )
-            with validate_cm:
-                col.col_type.validate_media(path)
-            decode_cm = (
-                telemetry.span('pixeltable.media.decode', level=telemetry.DEBUG, parent=row_span)
-                if row_span is not None
-                else contextlib.nullcontext()
-            )
-            with decode_cm:
-                img = PIL.Image.open(path)
-                img.load()
-            return img
-        finally:
-            telemetry.exit_context(hooks_token)
+    def _validate_and_load(col: catalog.Column, path: str, row_span: telemetry.SpanHandle | None) -> PIL.Image.Image:
+        """Runs on a worker thread of the shared executor, via ThreadPoolScheduler.run()."""
+        # row_span is None past ExprEvalNode.MAX_ROW_SPANS; require_parent=True suppresses these spans
+        # rather than falling back to the ambient (operation) span, same as FnCallEvaluator._cell_span()
+        with telemetry.span('pixeltable.media.validate', level=telemetry.DEBUG, parent=row_span, require_parent=True):
+            col.col_type.validate_media(path)
+        with telemetry.span('pixeltable.media.decode', level=telemetry.DEBUG, parent=row_span, require_parent=True):
+            img = PIL.Image.open(path)
+            img.load()
+        return img
 
 
 class NestedRowList:

@@ -126,11 +126,15 @@ class Evaluator(abc.ABC):
     dispatcher: Dispatcher
     is_closed: bool
     eval_ctx: 'ExprEvalCtx'
+    # resource pool this evaluator's work is scheduled on, if any; ExprEvalNode._init_schedulers() reads
+    # this to determine which Schedulers to instantiate for a given query
+    resource_pool: str | None
 
     def __init__(self, dispatcher: Dispatcher, exec_ctx: 'ExprEvalCtx') -> None:
         self.dispatcher = dispatcher
         self.is_closed = False
         self.eval_ctx = exec_ctx
+        self.resource_pool = None
 
     @abc.abstractmethod
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 import warnings
 from typing import TYPE_CHECKING, Any, Iterator, Sequence, cast
 from uuid import UUID
@@ -601,15 +600,11 @@ class ColumnRef(Expr):
                 return
 
             try:
-                # row.span is None past ExprEvalNode.MAX_ROW_SPANS; a None parent falls back to the
-                # ambient (operation) span rather than suppressing, so skip the span entirely rather
-                # than pass parent=None
-                span_cm = (
-                    telemetry.span('pixeltable.media.validate', level=telemetry.DEBUG, parent=data_row.span)
-                    if data_row.span is not None
-                    else contextlib.nullcontext()
-                )
-                with span_cm:
+                # row.span is None past ExprEvalNode.MAX_ROW_SPANS; require_parent=True suppresses the
+                # span rather than falling back to the ambient (operation) span
+                with telemetry.span(
+                    'pixeltable.media.validate', level=telemetry.DEBUG, parent=data_row.span, require_parent=True
+                ):
                     col.col_type.validate_media(data_row.file_paths[unvalidated_slot_idx])
                 # access the value only after successful validation
                 val = data_row[unvalidated_slot_idx]

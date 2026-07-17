@@ -14,7 +14,7 @@ from pixeltable.utils.progress_reporter import ProgressReporter
 
 from ..data_row_batch import DataRowBatch
 from ..exec_node import ExecNode
-from .evaluators import FnCallEvaluator, NestedRowList
+from .evaluators import NestedRowList
 from .globals import ExprEvalCtx, Scheduler
 from .row_buffer import RowBuffer
 from .schedulers import SCHEDULERS
@@ -219,11 +219,10 @@ class ExprEvalNode(ExecNode):
 
     def _init_schedulers(self) -> None:
         resource_pools = {
-            eval.fn_call.resource_pool
-            for eval in self.eval_ctx.slot_evaluators.values()
-            if isinstance(eval, FnCallEvaluator)
+            evaluator.resource_pool
+            for evaluator in self.eval_ctx.slot_evaluators.values()
+            if evaluator.resource_pool is not None
         }
-        resource_pools = {pool for pool in resource_pools if pool is not None}
         for pool_name in resource_pools:
             for scheduler in SCHEDULERS:
                 if scheduler.matches(pool_name):

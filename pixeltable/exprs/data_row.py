@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 import dataclasses
 import datetime
 import io
@@ -271,15 +270,11 @@ class DataRow:
             # TODO this fails if the url was instantiated dynamically using astype()
             assert self.file_paths[index] is not None
             if self.vals[index] is None:
-                # span is None past ExprEvalNode.MAX_ROW_SPANS; a None parent falls back to the
-                # ambient (operation) span rather than suppressing, so skip the span entirely rather
-                # than pass parent=None
-                span_cm = (
-                    telemetry.span('pixeltable.media.decode', level=telemetry.DEBUG, parent=self.span)
-                    if self.span is not None
-                    else contextlib.nullcontext()
-                )
-                with span_cm:
+                # span is None past ExprEvalNode.MAX_ROW_SPANS; require_parent=True suppresses the span
+                # rather than falling back to the ambient (operation) span
+                with telemetry.span(
+                    'pixeltable.media.decode', level=telemetry.DEBUG, parent=self.span, require_parent=True
+                ):
                     self.vals[index] = PIL.Image.open(self.file_paths[index])
                     self.vals[index].load()
 

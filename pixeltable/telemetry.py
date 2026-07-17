@@ -172,6 +172,7 @@ def span_start(
     *,
     level: int = INFO,
     parent: SpanHandle | None = None,
+    require_parent: bool = False,
     set_current: bool = False,
     attrs: HookAttrs = None,
 ) -> SpanHandle | None:
@@ -182,12 +183,18 @@ def span_start(
     ambient parent (a ContextVar, so it propagates into asyncio tasks) and requires that span_end() runs
     on the same thread/context; use capture_context()/restore_context()/exit_context() for explicit
     thread handoffs.
+
+    require_parent=True suppresses the span outright when parent is None, instead of falling back to the
+    ambient span; use this for a span that must nest under a specific parent (e.g. a per-row cell span)
+    and should stay dark rather than attach to an unrelated ambient span when that parent is absent.
     """
     env = SubscriberRegistry.get()
     subs = env._subscribers
     if not subs:
         return None
     if parent is None:
+        if require_parent:
+            return None
         parent = _current_span.get()
     # only operation spans (set_current=True) may be roots: spans reported from inside an operation that
     # carries no span (eg, a bare query) are suppressed rather than emitted as orphan roots. suppressed
@@ -265,11 +272,17 @@ def emit(name: str, attrs: HookAttrs = None) -> None:
 
 @contextlib.contextmanager
 def span(
-    name: str, *, level: int = INFO, parent: SpanHandle | None = None, set_current: bool = False, **attrs: Any
+    name: str,
+    *,
+    level: int = INFO,
+    parent: SpanHandle | None = None,
+    require_parent: bool = False,
+    set_current: bool = False,
+    **attrs: Any,
 ) -> Iterator[SpanHandle | None]:
     """Context-manager sugar for a lexical-block span.
 
-    Keyword attrs get a 'pxt.' prefix; None values are skipped.
+    Keyword attrs get a 'pxt.' prefix; None values are skipped. See span_start() for require_parent.
     """
     if not SubscriberRegistry.get()._subscribers:
         yield None
@@ -278,6 +291,7 @@ def span(
         name,
         level=level,
         parent=parent,
+        require_parent=require_parent,
         set_current=set_current,
         attrs={f'pxt.{k}': v for k, v in attrs.items() if v is not None},
     )
