@@ -659,6 +659,8 @@ class LocalTable(Table):
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot alter base table column {col.name!r}'
                 )
 
+            # TODO(PXT-960): follow up: allow alteration if it doesn't invalidate any dependents, and doesn't change
+            # their column types.
             dependent_user_cols = self._get_dependent_user_cols(col)
             if len(dependent_user_cols) > 0:
                 raise excs.RequestError(
