@@ -376,12 +376,6 @@ class LocalTable(Table):
         cat = get_runtime().catalog
         return [c for c in cat.get_column_dependents(col.get_tbl().id, col.id) if c.name is not None]
 
-    def _column_has_dependents(self, col: Column) -> bool:
-        """Returns True if the column has dependents, False otherwise."""
-        assert col is not None
-        assert col.name in self._get_schema()
-        return len(self._get_dependent_user_cols(col)) > 0
-
     def _ignore_or_drop_existing_columns(self, new_col_names: list[str], if_exists: IfExistsParam) -> list[str]:
         """Check and handle existing columns in the new column specification based on the if_exists parameter.
 
@@ -410,7 +404,7 @@ class LocalTable(Table):
                     col = self._tbl_version.get().cols_by_name[new_col_name]
                     # cannot drop a column with dependents; so reject
                     # replace directive if column has dependents.
-                    if self._column_has_dependents(col):
+                    if len(self._get_dependent_user_cols(col)) > 0:
                         raise excs.AlreadyExistsError(
                             excs.ErrorCode.COLUMN_ALREADY_EXISTS,
                             f'Column {new_col_name!r} already exists and has dependents. '
