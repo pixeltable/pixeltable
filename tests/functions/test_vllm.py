@@ -2,12 +2,12 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import rerun, skip_test_if_not_installed, validate_update_status
+from ..utils import rerun_on_network_error, skip_test_if_not_installed, validate_update_status
 
 pytestmark = pytest.mark.local('UDF/integration test')
 
 
-@rerun(reruns=3, reruns_delay=15)
+@rerun_on_network_error()
 class TestVllm:
     def test_chat_completions(self, uses_db: None) -> None:
         skip_test_if_not_installed('vllm')

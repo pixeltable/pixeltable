@@ -27,6 +27,7 @@ pytestmark = pytest.mark.local('UDF/integration test')
 
 
 class TestVision:
+    @pytest.mark.very_expensive
     def test_eval(self, uses_db: None) -> None:
         skip_test_if_not_installed('yolox')
         from pixeltable.functions.yolox import yolox
@@ -69,6 +70,7 @@ class TestVision:
             bboxes_draw(v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, fill=True)
         ).collect()
 
+    @pytest.mark.very_expensive
     def test_bboxes_draw(self, uses_db: None) -> None:
         skip_test_if_not_installed('yolox')
         from pixeltable.functions.yolox import yolox
