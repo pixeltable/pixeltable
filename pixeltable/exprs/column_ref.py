@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import warnings
 from typing import TYPE_CHECKING, Any, Iterator, Sequence, cast
 from uuid import UUID
@@ -11,7 +12,7 @@ import sqlalchemy as sql
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-from pixeltable import func
+from pixeltable import func, telemetry
 from pixeltable.catalog.table_version import TableVersionKey
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
@@ -600,7 +601,16 @@ class ColumnRef(Expr):
                 return
 
             try:
-                col.col_type.validate_media(data_row.file_paths[unvalidated_slot_idx])
+                # row.span is None past ExprEvalNode.MAX_ROW_SPANS; a None parent falls back to the
+                # ambient (operation) span rather than suppressing, so skip the span entirely rather
+                # than pass parent=None
+                span_cm = (
+                    telemetry.span('pixeltable.media.validate', level=telemetry.DEBUG, parent=data_row.span)
+                    if data_row.span is not None
+                    else contextlib.nullcontext()
+                )
+                with span_cm:
+                    col.col_type.validate_media(data_row.file_paths[unvalidated_slot_idx])
                 # access the value only after successful validation
                 val = data_row[unvalidated_slot_idx]
                 data_row.vals[self.slot_idx] = val

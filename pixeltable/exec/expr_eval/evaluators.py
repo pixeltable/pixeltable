@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import contextlib
 import datetime
 import itertools
 import logging
+import os
 import sys
 from typing import Any, Callable, Iterator, cast
 
-from pixeltable import exceptions as excs, exprs, func, telemetry
+import PIL.Image
+
+from pixeltable import catalog, env, exceptions as excs, exprs, func, telemetry
 
 from .globals import CPU_BOUND_POOL, Dispatcher, Evaluator, ExprEvalCtx, FnCallArgs
 
@@ -295,6 +299,98 @@ class FnCallEvaluator(Evaluator):
         batched_call_args = self._create_batch_call_args(list(self._queued_call_args_iter()))
         task = asyncio.create_task(self.eval_batch(batched_call_args))
         self.dispatcher.register_task(task)
+
+
+class MediaLoadEvaluator(Evaluator):
+    """
+    Evaluates a validating ColumnRef for an Image column: validates and decodes the image on the
+    shared cpu-bound thread pool instead of inline on the event-loop thread.
+
+    DataRow.__getitem__ forces PIL.Image.open().load() eagerly right after validation so a DataRow
+    never caches a lazily-opened, still-open file handle - required on Windows, where a lingering
+    open handle blocks a later move/delete of the same path (see its comment). That eager decode is
+    genuine CPU work that releases the GIL, same as resize(), so it belongs on the same worker pool
+    instead of serializing on the event loop.
+    """
+
+    col_ref: exprs.ColumnRef
+    executor: concurrent.futures.ThreadPoolExecutor
+
+    def __init__(self, col_ref: exprs.ColumnRef, dispatcher: Dispatcher, exec_ctx: ExprEvalCtx):
+        super().__init__(dispatcher, exec_ctx)
+        self.col_ref = col_ref
+        self.executor = env.Env.get().get_resource_pool_info(
+            CPU_BOUND_POOL, lambda: concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count())
+        )
+
+    def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
+        assert self.col_ref.slot_idx >= 0
+        unvalidated_slot_idx = self.col_ref.components[0].slot_idx
+        for row in rows:
+            if row.file_paths[unvalidated_slot_idx] is None:
+                # no media file to validate, we still need to replicate the value (ColumnRef.eval()'s
+                # own no-file branch)
+                assert row.file_urls[unvalidated_slot_idx] is None
+                row.vals[slot_idx] = row.vals[unvalidated_slot_idx]
+                row.has_val[slot_idx] = True
+                self.dispatcher.dispatch([row], self.eval_ctx)
+                continue
+            task = asyncio.create_task(self._eval_row(row, unvalidated_slot_idx, slot_idx))
+            self.dispatcher.register_task(task)
+
+    async def _eval_row(self, row: exprs.DataRow, unvalidated_slot_idx: int, slot_idx: int) -> None:
+        if asyncio.current_task().cancelled() or self.dispatcher.exc_event.is_set():
+            return
+        loop = asyncio.get_running_loop()
+        hooks_ctx = telemetry.capture_context()
+        col = self.col_ref.col
+        path = row.file_paths[unvalidated_slot_idx]
+        try:
+            img = await loop.run_in_executor(self.executor, self._validate_and_load, col, path, row.span, hooks_ctx)
+        except excs.Error as exc:
+            # media validation errors don't cause exceptions during query execution: recorded in the
+            # slot, but the row still dispatches normally, matching ColumnRef.eval()'s own behavior
+            self.dispatcher.row_builder.set_exc(row, slot_idx, exc)
+            self.dispatcher.dispatch([row], self.eval_ctx)
+            return
+        except Exception as exc:
+            _, _, exc_tb = sys.exc_info()
+            row.set_exc(slot_idx, exc)
+            self.dispatcher.dispatch_exc([row], slot_idx, exc_tb, self.eval_ctx)
+            return
+
+        row.vals[unvalidated_slot_idx] = img
+        row.vals[slot_idx] = img
+        row.has_val[slot_idx] = True
+        row.file_paths[slot_idx] = path
+        row.file_urls[slot_idx] = row.file_urls[unvalidated_slot_idx]
+        self.dispatcher.dispatch([row], self.eval_ctx)
+
+    @staticmethod
+    def _validate_and_load(
+        col: catalog.Column, path: str, row_span: telemetry.SpanHandle | None, hooks_ctx: telemetry.CtxSnapshot | None
+    ) -> PIL.Image.Image:
+        """Runs on a worker thread of the shared executor."""
+        hooks_token = telemetry.restore_context(hooks_ctx)
+        try:
+            validate_cm = (
+                telemetry.span('pixeltable.media.validate', level=telemetry.DEBUG, parent=row_span)
+                if row_span is not None
+                else contextlib.nullcontext()
+            )
+            with validate_cm:
+                col.col_type.validate_media(path)
+            decode_cm = (
+                telemetry.span('pixeltable.media.decode', level=telemetry.DEBUG, parent=row_span)
+                if row_span is not None
+                else contextlib.nullcontext()
+            )
+            with decode_cm:
+                img = PIL.Image.open(path)
+                img.load()
+            return img
+        finally:
+            telemetry.exit_context(hooks_token)
 
 
 class NestedRowList:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import datetime
 import io
@@ -14,7 +15,7 @@ import PIL.Image
 import sqlalchemy as sql
 
 import pixeltable.utils.image as image_utils
-from pixeltable import catalog, env
+from pixeltable import catalog, env, telemetry
 from pixeltable.telemetry import SpanHandle
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.misc import non_none_dict_factory
@@ -270,8 +271,17 @@ class DataRow:
             # TODO this fails if the url was instantiated dynamically using astype()
             assert self.file_paths[index] is not None
             if self.vals[index] is None:
-                self.vals[index] = PIL.Image.open(self.file_paths[index])
-                self.vals[index].load()
+                # span is None past ExprEvalNode.MAX_ROW_SPANS; a None parent falls back to the
+                # ambient (operation) span rather than suppressing, so skip the span entirely rather
+                # than pass parent=None
+                span_cm = (
+                    telemetry.span('pixeltable.media.decode', level=telemetry.DEBUG, parent=self.span)
+                    if self.span is not None
+                    else contextlib.nullcontext()
+                )
+                with span_cm:
+                    self.vals[index] = PIL.Image.open(self.file_paths[index])
+                    self.vals[index].load()
 
         return self.vals[index]
 

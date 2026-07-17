@@ -202,7 +202,7 @@ class ExprEvalCtx:
             self.gc_targets = np.zeros(self.row_builder.num_materialized, dtype=bool)
 
     def _init_slot_evaluators(self, dispatcher: Dispatcher, target_slot_idxs: list[int]) -> None:
-        from .evaluators import DefaultExprEvaluator, FnCallEvaluator, JsonMapperDispatcher
+        from .evaluators import DefaultExprEvaluator, FnCallEvaluator, JsonMapperDispatcher, MediaLoadEvaluator
 
         for slot_idx in target_slot_idxs:
             expr = self.row_builder.unique_exprs[slot_idx]
@@ -215,6 +215,8 @@ class ExprEvalCtx:
                 self.slot_evaluators[slot_idx] = FnCallEvaluator(expr, dispatcher, self)
             elif isinstance(expr, exprs.JsonMapperDispatch):
                 self.slot_evaluators[slot_idx] = JsonMapperDispatcher(expr, dispatcher, self)
+            elif isinstance(expr, exprs.ColumnRef) and expr.perform_validation and expr.col.col_type.is_image_type():
+                self.slot_evaluators[slot_idx] = MediaLoadEvaluator(expr, dispatcher, self)
             else:
                 self.slot_evaluators[slot_idx] = DefaultExprEvaluator(expr, dispatcher, self)
 
