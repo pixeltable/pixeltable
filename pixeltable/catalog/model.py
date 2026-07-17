@@ -917,7 +917,9 @@ class ValidationResults(NamedTuple):
 
     @property
     def has_fatal_changes(self) -> bool:
-        return self.tbl_exists and (self.model_kind != self.existing_kind or self.model_iterator != self.existing_iterator)
+        return self.tbl_exists and (
+            self.model_kind != self.existing_kind or self.model_iterator != self.existing_iterator
+        )
 
     @property
     def has_destructive_changes(self) -> bool:
@@ -971,7 +973,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
             for col_name, col_md in existing_md['columns'].items()
             if col_md['defined_in'] == existing_md['name'] and not col_md['is_iterator_col']
         }
-        existing_idxs = set(existing_md['indices'].keys())
+        existing_idxs = set(idx_name for idx_name, info in existing_md['indices'].items() if info['index_type'] == 'embedding')
 
         # TODO: validate table properties (comment, custom_metadata, media_validation, primary_key, etc.)
         # TODO: validate base table query
@@ -999,27 +1001,30 @@ def _format_diff(name: str, r: ValidationResults) -> list[str]:
 
     detail: list[str] = []
     if r.model_kind != r.existing_kind:
-        detail.append(f'  kind mismatch (FATAL): `{r.model_cls.__name__}` specifies a {r.model_kind}, but {r.name!r} is a {r.existing_kind}')
+        detail.append(
+            f'  kind mismatch (FATAL): `{r.model_cls.__name__}` specifies a {r.model_kind}, '
+            f'but {name!r} is a {r.existing_kind}'
+        )
     if r.model_iterator != r.existing_iterator:
-        detail.append(f'  iterator mismatch (FATAL):')
+        detail.append('  iterator mismatch (FATAL):')
         detail.append(f'    model iterator   : {r.model_iterator}')
         detail.append(f'    existing iterator: {r.existing_iterator}')
     if len(r.new_columns) > 0:
-        detail.append(f'  the following columns are new to the model, and will be ADDED:')
+        detail.append('  the following columns are new to the model, and will be ADDED:')
         for col_name in r.new_columns:
-            detail.append(f'     {col_name!r} = {r.model_cls.__columns__[col_name]}')
+            detail.append(f'    {col_name!r} = {r.model_cls.__columns__[col_name]}')
     if len(r.dropped_columns) > 0:
-        detail.append(f'  the following columns are no longer in the model, and will be DROPPED:')
+        detail.append('  the following columns are no longer in the model, and will be DROPPED:')
         for col_name in r.dropped_columns:
-            detail.append(f'     {col_name!r}')
+            detail.append(f'    {col_name!r}')
     if len(r.new_indexes) > 0:
-        detail.append(f'  the following indexes are new to the model, and will be ADDED:')
+        detail.append('  the following indexes are new to the model, and will be ADDED:')
         for idx_name in r.new_indexes:
-            detail.append(f'     {idx_name!r} = {r.model_cls.__indexes__[idx_name]}')
+            detail.append(f'    {idx_name!r} = {r.model_cls.__indexes__[idx_name]}')
     if len(r.dropped_indexes) > 0:
-        detail.append(f'  the following indexes are no longer in the model, and will be DROPPED:')
+        detail.append('  the following indexes are no longer in the model, and will be DROPPED:')
         for idx_name in r.dropped_indexes:
-            detail.append(f'     {idx_name!r}')
+            detail.append(f'    {idx_name!r}')
 
     if len(detail) == 0:
         return []
@@ -1057,7 +1062,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         lines: list[str] = []
         for name, r in results.items():
             lines.extend(_format_diff(name, r))
-        Env.get().console_logger.info('\n'.join(lines) if len(lines) > 0 else 'No models registered.')
+        Env.get().console_logger.info('\n'.join(lines) if len(lines) > 0 else 'Catalog is up to date.')
 
     cls.bind_all = _bind_all  # type: ignore[attr-defined]
     cls.create_all = _create_all  # type: ignore[attr-defined]

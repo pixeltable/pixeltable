@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import textwrap
 from typing import Callable
 
 import numpy as np
@@ -583,6 +584,85 @@ class TestTableModel:
             view_from_query.order_by(view_from_query.id, view_from_query.pos).collect(),
             view_from_query2.order_by(view_from_query2.id, view_from_query2.pos).collect(),
         )
+
+    def test_diff_all(self, make_catalog_path: Callable[[str], str]) -> None:
+        """`diff_all()` reports added/dropped columns and an iterator mismatch against already-created tables."""
+        skip_test_if_not_installed('imagehash')
+
+        p = make_catalog_path
+        root = p('')
+
+        # A base with a table model and a view model, 4 columns each. `create_default_idxs=False` keeps the diff
+        # focused on columns and the iterator (default indexes are not part of a model's declared `__indexes__`).
+        TableModel = pxt.model_base()
+
+        class ExampleTable(TableModel, name='test_table', create_default_idxs=False):
+            id: pxt.Required[pxt.Int]
+            name: pxt.String
+            value: pxt.Float
+            image: pxt.Image
+
+        class ExampleView(
+            TableModel,
+            name='test_view',
+            base=ExampleTable,
+            iterator=pxtf.image.tile_iterator(ExampleTable.image, (256, 256)),
+        ):
+            vc1 = ExampleTable.id + 1
+            vc2 = ExampleTable.id + 2
+            vc3 = ExampleTable.id + 3
+            vc4 = ExampleTable.id + 4
+
+        TableModel.create_all(root)
+
+        # Re-diffing the original models reports no differences (in particular, the view's iterator round-trips).
+        with capture_console_output() as out:
+            TableModel.diff_all(root)
+        assert out.getvalue().strip() == 'Catalog is up to date.'
+
+        # A fresh base whose models correspond to the created tables (same names), but with: two columns added and
+        # two dropped in the table, and a mismatched iterator (128 vs. 256) in the view.
+        TableModelV2 = pxt.model_base()
+
+        class ExampleTableV2(TableModelV2, name='test_table', create_default_idxs=False):
+            id: pxt.Required[pxt.Int]
+            image: pxt.Image
+            extra1: pxt.Int  # added
+            extra2: pxt.String  # added
+            # 'name' and 'value' dropped
+
+        class ExampleViewV2(
+            TableModelV2,
+            name='test_view',
+            base=ExampleTableV2,
+            iterator=pxtf.image.tile_iterator(ExampleTableV2.image, (128, 128)),  # mismatched tile size
+        ):
+            vc1 = ExampleTableV2.id + 1
+            vc2 = ExampleTableV2.id + 2
+            vextra1: pxt.Int
+            vextra2: pxt.String
+
+        with capture_console_output() as out:
+            TableModelV2.diff_all(root)
+        assert out.getvalue().strip() == textwrap.dedent("""
+            Table 'test_table' (from model `ExampleTableV2`) has differences:
+              the following columns are new to the model, and will be ADDED:
+                'extra1' = {'type': Int | None}
+                'extra2' = {'type': String | None}
+              the following columns are no longer in the model, and will be DROPPED:
+                'name'
+                'value'
+            View 'test_view' (from model `ExampleViewV2`) has differences:
+              iterator mismatch (FATAL):
+                model iterator   : tile_iterator(image, [128, 128])
+                existing iterator: tile_iterator(image, [256, 256])
+              the following columns are new to the model, and will be ADDED:
+                'vextra1' = {'type': Int | None}
+                'vextra2' = {'type': String | None}
+              the following columns are no longer in the model, and will be DROPPED:
+                'vc3'
+                'vc4'
+       """).strip()
 
     def test_table_model_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """Reproduce each error condition raised by `pixeltable.catalog.model`."""
