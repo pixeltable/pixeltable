@@ -121,7 +121,9 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pixeltable ${{ matrix.package-configs }}
+          # Constrain pgvector until the published pixeltable metadata carries the <0.5.0 pin;
+          # pgvector 0.5.0 removed HalfVector from pgvector.sqlalchemy, breaking the import.
+          python -m pip install pixeltable 'pgvector<0.5.0' ${{ matrix.package-configs }}
           python -m pip install filelock pytest pytest-xdist pytest-rerunfailures pytest-benchmark
       - name: Install spaCy model
         if: ${{ contains(matrix.package-configs, 'spacy') }}
