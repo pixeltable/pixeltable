@@ -992,6 +992,7 @@ NETWORK_ERROR_PATTERNS = [
     'timed out',
     'Timeout',
     'ExternalServiceError',
+    'URLError',
 ]
 
 
