@@ -505,8 +505,7 @@ class TableModelMeta(type):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT, f'{display_name}: `name` must be a valid Pixeltable identifier.'
                 )
-            # scoped to this model_base() so a long-lived process can re-load a schema without colliding with a
-            # previous load; duplicate names within one schema are still caught
+            # It needs to be scoped to this model_base()
             base_models = bases[0].__registered_models__  # type: ignore[attr-defined]
             if tbl_name in base_models:
                 raise excs.RequestError(
