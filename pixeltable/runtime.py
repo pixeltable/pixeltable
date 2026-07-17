@@ -184,6 +184,12 @@ class Runtime:
         return client
 
     async def close_clients(self) -> None:
+        """Gracefully close this runtime's clients and drop them.
+
+        Must be awaited on the event loop the clients were created on, while it is still running: async
+        clients are bound to that loop, and closing them there releases their sockets in order. Otherwise
+        the sockets are left for GC to close on an already-closed loop, which raises 'Event loop is closed'.
+        """
         for client in self._clients.values():
             close = getattr(client, 'close', None)
             if close is None:
