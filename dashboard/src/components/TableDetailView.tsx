@@ -1644,7 +1644,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
           <TableHeader
             metadata={metadata}
             versions={node?.versions ?? []}
-            rowCount={node?.row_count ?? null}
+            rowCount={metadata.row_count}
           />
         )
       })()}

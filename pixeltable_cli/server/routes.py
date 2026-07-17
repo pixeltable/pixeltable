@@ -440,7 +440,10 @@ def dashboard_search(req: Request) -> dict[str, Any]:
 @router.get('/api/dashboard/tables/{path:path}/meta')
 def dashboard_table_meta(req: Request) -> dict[str, Any]:
     path = _validate_path(req.path_params['path'])
-    return dict(pxt.get_table(path).get_metadata())
+    tbl = pxt.get_table(path)
+    md = dict(tbl.get_metadata())
+    md['row_count'] = tbl.count()
+    return md
 
 
 @router.get('/api/dashboard/tables/{path:path}/pipeline')

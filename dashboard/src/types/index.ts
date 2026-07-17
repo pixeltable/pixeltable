@@ -71,6 +71,7 @@ export interface TableMetadata {
   kind: 'table' | 'view' | 'snapshot' | 'replica';
   base: string | null;
   iterator_call: string | null;
+  row_count: number;
 }
 
 export interface DataColumn {
