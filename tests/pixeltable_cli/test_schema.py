@@ -10,6 +10,8 @@ from .conftest import PxtRunner
 
 SCHEMA_SRC = dedent(
     """
+    from __future__ import annotations
+
     import pixeltable as pxt
     import pixeltable.functions as pxtf
 
@@ -57,6 +59,8 @@ class TestSchema:
         schema_file.write_text(
             dedent(
                 """
+                from __future__ import annotations
+
                 import pixeltable as pxt
 
                 TableModel = pxt.model_base()
