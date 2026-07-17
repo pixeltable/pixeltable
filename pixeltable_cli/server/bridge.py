@@ -9,23 +9,70 @@ from __future__ import annotations
 
 import csv
 import datetime
+import importlib.util
 import io
 import json
 import logging
 import re
+import sys
+import threading
 import urllib.parse
 import urllib.request
+import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
+from pixeltable import exceptions as excs
+from pixeltable.catalog import Path as CatalogPath
+from pixeltable.catalog.model import TableModelMeta
 from pixeltable.catalog.table_metadata import TableMetadata
 from pixeltable.config import Config
 from pixeltable.env import Env
 
 _logger = logging.getLogger(__name__)
 
+# A loaded schema file's directory is placed on the process-global sys.path so it can import sibling modules.
+# _sys_path_lock guards the (un)registration; _sys_path_added refcounts each directory we add, so concurrent loads
+# of the same directory share one entry that is removed only once the last of them finishes.
+_sys_path_lock = threading.Lock()
+_sys_path_added: dict[str, int] = {}
+
 if TYPE_CHECKING:
     from pixeltable import exprs
+
+
+def _add_to_sys_path(entry: str) -> bool:
+    """Register a directory on sys.path; return True if the caller must later release it.
+
+    Refcounts directories we add so concurrent loads share one entry; a directory already present externally is
+    left untouched (and not released).
+    """
+    with _sys_path_lock:
+        if entry in _sys_path_added:
+            _sys_path_added[entry] += 1
+            return True
+        if entry in sys.path:
+            return False
+        sys.path.append(entry)
+        _sys_path_added[entry] = 1
+        return True
+
+
+def _remove_from_sys_path(entry: str) -> None:
+    """Release a directory registered via _add_to_sys_path(); remove it once the last holder releases it."""
+    with _sys_path_lock:
+        n = _sys_path_added.get(entry)
+        if n is None:
+            return
+        if n > 1:
+            _sys_path_added[entry] = n - 1
+        else:
+            del _sys_path_added[entry]
+            try:
+                sys.path.remove(entry)
+            except ValueError:
+                pass
 
 
 def _build_select(
@@ -523,3 +570,56 @@ def get_status() -> dict[str, Any]:
         'total_errors': total_errors,
         'config': config_info,
     }
+
+
+def schema_update(schema_path: str, target: str) -> tuple[list[str], list[str]]:
+    """Create the tables defined by a class-based schema file under target (idempotent).
+
+    Returns (created, existing): absolute paths of the tables created now and those that already exist.
+    """
+    path = Path(schema_path)
+    if not path.is_file():
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'schema file not found: {schema_path}')
+
+    # load under a unique key so a user schema file can't shadow an existing module (eg, one named json.py); the
+    # key is unique per load, so this needs no synchronization
+    module_name = f'pxt_schema_{uuid.uuid4().hex}'
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    if spec is None or spec.loader is None:
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'cannot load schema file: {schema_path}')
+    module = importlib.util.module_from_spec(spec)
+
+    # put the schema file's own directory on sys.path so it can import sibling modules next to it; only the
+    # sys.path (un)registration is synchronized, so concurrent loads still run exec_module() in parallel
+    sys_path_entry = str(path.parent)
+    needs_remove = _add_to_sys_path(sys_path_entry)
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception as e:
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'error loading {schema_path}: {e}') from e
+    finally:
+        sys.modules.pop(module_name, None)
+        if needs_remove:
+            _remove_from_sys_path(sys_path_entry)
+
+    # a model base carries __registered_models__ as its own class attribute, whereas the models defined
+    # on it merely inherit it
+    bases = [
+        v for v in vars(module).values() if isinstance(v, TableModelMeta) and '__registered_models__' in v.__dict__
+    ]
+    if len(bases) == 0:
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'no model_base() found in {schema_path}')
+
+    # only create the target directory when it names an in-catalog path; a bare catalog root (eg '' or
+    # 'pxt://org:db') has no directory to create
+    if len(CatalogPath.parse(target, allow_empty_path=True).components) > 0:
+        pxt.create_dir(target, parents=True, if_exists='ignore')
+
+    created: list[str] = []
+    existed: list[str] = []
+    for base in bases:
+        base_created, base_existed = base.create_all(target)
+        created.extend(base_created)
+        existed.extend(base_existed)
+    return created, existed
