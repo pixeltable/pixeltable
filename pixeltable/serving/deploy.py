@@ -88,7 +88,7 @@ def __add_tarfile(tf: tarfile.TarFile, name: str, content: bytes) -> None:
 
 
 def build_db_runtime_bundle(project_dir: Path | None = None) -> Path:
-    """Package the current project into a tarball for updating a cloud-hosted database runtime.
+    """Package the current project into a tarball for updating a hosted database runtime.
 
     Bundle layout:
         metadata.json   (always) — pxt_md_version, python_version

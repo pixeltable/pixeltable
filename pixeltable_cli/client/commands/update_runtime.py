@@ -8,14 +8,14 @@ import urllib.request
 from pathlib import Path
 
 from pixeltable.serving.deploy import build_db_runtime_bundle
+from pixeltable_cli.utils import _RUNTIME_POLL_INTERVAL, _RUNTIME_POLL_TIMEOUT, parse_db_uri
 
-from ..cloud import _RUNTIME_POLL_INTERVAL, _RUNTIME_POLL_TIMEOUT, parse_db_uri
 from ..http import get, post
 from ..parser import Parser
 
 
 def run(argv: list[str]) -> None:
-    parser = Parser(prog='pxt db update-runtime', description='Rebuild the Python runtime for a cloud-hosted database.')
+    parser = Parser(prog='pxt db update-runtime', description='Rebuild the Python runtime for a hosted database.')
     parser.add_argument('db_uri', help='Database URI: pxt://org:db')
     parser.add_argument(
         '--project-dir',
@@ -53,7 +53,7 @@ def run(argv: list[str]) -> None:
         try:
             if not args.json_output:
                 print('Uploading bundle...', end=' ', flush=True)
-            url_resp = get(f'/api/cloud/orgs/{org_slug}/dbs/{db_slug}/upload-url')
+            url_resp = get(f'/api/orgs/{org_slug}/dbs/{db_slug}/upload-url')
             presigned_url = url_resp['presigned_url']
             bundle_s3_key = url_resp['bundle_s3_key']
 
@@ -69,7 +69,7 @@ def run(argv: list[str]) -> None:
         finally:
             bundle_path.unlink(missing_ok=True)
 
-        post(f'/api/cloud/orgs/{org_slug}/dbs/{db_slug}/update-runtime', {'bundle_s3_key': bundle_s3_key})
+        post(f'/api/orgs/{org_slug}/dbs/{db_slug}/update-runtime', {'bundle_s3_key': bundle_s3_key})
 
         # Poll until state leaves UPDATING
         db: dict = {}
@@ -79,7 +79,7 @@ def run(argv: list[str]) -> None:
         while time.monotonic() < deadline:
             time.sleep(_RUNTIME_POLL_INTERVAL)
             try:
-                resp = get(f'/api/cloud/orgs/{org_slug}/dbs/{db_slug}')
+                resp = get(f'/api/orgs/{org_slug}/dbs/{db_slug}')
                 db = resp.get('database', resp) if isinstance(resp, dict) else {}
             except SystemExit:
                 break

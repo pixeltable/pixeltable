@@ -1572,3 +1572,95 @@ class TestPxtUri:
     def test_wrong_input_type_raises(self) -> None:
         with pytest.raises((pydantic.ValidationError, ValueError)):
             PxtUri(12345)  # type: ignore[arg-type]
+
+
+class TestHostedUriHelpers:
+    """URI parsing / printing helpers merged from the hosted-CLI commands into utils.py."""
+
+    def test_split_pxt_uri(self) -> None:
+        assert utils._split_pxt_uri('pxt://acme') == ('acme', None, None)
+        assert utils._split_pxt_uri('pxt://acme:main') == ('acme', 'main', None)
+        assert utils._split_pxt_uri('pxt://acme:main/services/foo') == ('acme', 'main', 'services/foo')
+        assert utils._split_pxt_uri('pxt://acme:main/') == ('acme', 'main', None)  # trailing slash → no path
+        assert utils._split_pxt_uri('not-a-uri') == (None, None, None)
+
+    def test_parse_db_uri(self) -> None:
+        assert utils.parse_db_uri('pxt://acme:main') == ('acme', 'main')
+
+    @pytest.mark.parametrize('bad', ['pxt://acme', 'pxt://acme:main/tbl', 'nope'])
+    def test_parse_db_uri_rejects(self, bad: str, capsys: pytest.CaptureFixture) -> None:
+        with pytest.raises(SystemExit) as info:
+            utils.parse_db_uri(bad)
+        assert info.value.code == 2
+        assert 'pxt://org:db' in capsys.readouterr().err
+
+    def test_parse_org_uri(self) -> None:
+        assert utils.parse_org_uri('pxt://acme') == 'acme'
+
+    @pytest.mark.parametrize('bad', ['pxt://acme:main', 'pxt://acme:main/x', 'nope'])
+    def test_parse_org_uri_rejects(self, bad: str) -> None:
+        with pytest.raises(SystemExit) as info:
+            utils.parse_org_uri(bad)
+        assert info.value.code == 2
+
+    def test_parse_base_uri(self) -> None:
+        assert utils.parse_base_uri('pxt://acme:main') == ('acme', 'main', '')
+        assert utils.parse_base_uri('pxt://acme:main/dir/sub') == ('acme', 'main', 'dir/sub')
+
+    @pytest.mark.parametrize('bad', ['pxt://acme', 'nope'])
+    def test_parse_base_uri_rejects(self, bad: str) -> None:
+        with pytest.raises(SystemExit) as info:
+            utils.parse_base_uri(bad)
+        assert info.value.code == 2
+
+    def test_parse_service_uri(self) -> None:
+        assert utils.parse_service_uri('pxt://acme:main/services/foo') == ('acme', 'main', 'foo')
+
+    @pytest.mark.parametrize(
+        'bad', ['pxt://acme:main/tables/foo', 'pxt://acme:main/services/', 'pxt://acme:main', 'pxt://acme']
+    )
+    def test_parse_service_uri_rejects(self, bad: str) -> None:
+        with pytest.raises(SystemExit) as info:
+            utils.parse_service_uri(bad)
+        assert info.value.code == 2
+
+    @pytest.mark.parametrize(
+        ('age_s', 'expected'),
+        [(0, '0s'), (45, '45s'), (90, '1m'), (3600, '1h'), (3660, '1h1m'), (86400, '1d'), (90000, '1d1h')],
+    )
+    def test_fmt_age(self, age_s: int, expected: str) -> None:
+        assert utils._fmt_age(age_s) == expected
+
+    def test_print_org(self, capsys: pytest.CaptureFixture) -> None:
+        utils.print_org({'org_slug': 'acme', 'org_id': 'o1', 'default_db_slug': 'main'})
+        out = capsys.readouterr().out
+        assert 'acme' in out and 'id=o1' in out and 'default_db=main' in out
+
+    def test_print_db(self, capsys: pytest.CaptureFixture) -> None:
+        utils.print_db({'db_slug': 'main', 'state': 'AVAILABLE', 'location': 'aws', 'region': 'us-east-1'})
+        out = capsys.readouterr().out
+        assert 'main' in out and 'state=AVAILABLE' in out and 'aws/us-east-1' in out
+
+    def test_print_service_prints_routes(self, capsys: pytest.CaptureFixture) -> None:
+        utils.print_service(
+            {
+                'service_name': 'svc',
+                'state': 'AVAILABLE',
+                'base_path': 'main',
+                'workers_min': 1,
+                'endpoint': 'https://svc.example',
+                'service_config': json.dumps({'prefix': '/v1', 'routes': [{'method': 'post', 'path': '/insert'}]}),
+            }
+        )
+        out = capsys.readouterr().out
+        assert 'svc' in out and 'state=AVAILABLE' in out
+        assert 'POST  https://svc.example/v1/insert' in out
+
+    def test_print_workers(self, capsys: pytest.CaptureFixture) -> None:
+        utils._print_workers(
+            [{'pod_id': 'pod-1', 'status': 'Running', 'ready': 1, 'total': 1, 'restarts': 0, 'age_s': 45}]
+        )
+        out = capsys.readouterr().out
+        assert 'POD ID' in out and 'pod-1' in out and 'Running' in out
+        utils._print_workers([])  # empty → prints nothing
+        assert capsys.readouterr().out == ''

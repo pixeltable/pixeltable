@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import sys
 
-from ..cloud import print_org
+from pixeltable_cli.utils import print_org
+
 from ..http import get
 from ..parser import Parser
 
@@ -14,7 +15,7 @@ def run(argv: list[str]) -> None:
     args = parser.parse_args(argv)
 
     try:
-        resp = get('/api/cloud/orgs')
+        resp = get('/api/orgs')
         orgs = resp.get('orgs', []) if isinstance(resp, dict) else []
         if args.json_output:
             print(json.dumps(orgs))

@@ -3,20 +3,21 @@ from __future__ import annotations
 import json
 import sys
 
-from ..cloud import parse_service_uri, poll_svc, print_service
+from pixeltable_cli.utils import parse_service_uri, poll_svc, print_service
+
 from ..http import post
 from ..parser import Parser
 
 
 def run(argv: list[str]) -> None:
-    parser = Parser(prog='pxt service stop', description='Stop a service in a cloud-hosted database.')
+    parser = Parser(prog='pxt service stop', description='Stop a service in a hosted database.')
     parser.add_argument('service_uri', help='Service URI: pxt://org:db/services/<name>')
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
 
     try:
         org_slug, db_slug, svc_name = parse_service_uri(args.service_uri, prog='pxt service stop')
-        resp = post(f'/api/cloud/orgs/{org_slug}/dbs/{db_slug}/services/{svc_name}/stop', {})
+        resp = post(f'/api/orgs/{org_slug}/dbs/{db_slug}/services/{svc_name}/stop', {})
         svc = resp.get('service', resp) if isinstance(resp, dict) else {}
         if svc.get('state') == 'STOPPING':
             svc = poll_svc(org_slug, db_slug, svc_name, frozenset({'STOPPING'}), f"Service '{svc_name}' is stopping...")

@@ -5,14 +5,14 @@ import sys
 
 from pixeltable import config as pxt_config
 from pixeltable.serving._config import lookup_service_config
+from pixeltable_cli.utils import parse_base_uri, poll_svc, print_service
 
-from ..cloud import parse_base_uri, poll_svc, print_service
 from ..http import post
 from ..parser import Parser
 
 
 def run(argv: list[str]) -> None:
-    parser = Parser(prog='pxt service create', description='Create a cloud-hosted service.')
+    parser = Parser(prog='pxt service create', description='Create a hosted service.')
     parser.add_argument('name', help='Service name (must match a [[pixeltable.service]] block in the config)')
     parser.add_argument(
         '--base-uri',
@@ -39,7 +39,7 @@ def run(argv: list[str]) -> None:
         service_config = lookup_service_config(args.name).model_dump_json()
 
         resp = post(
-            f'/api/cloud/orgs/{org_slug}/dbs/{db_slug}/services',
+            f'/api/orgs/{org_slug}/dbs/{db_slug}/services',
             {
                 'service_name': args.name,
                 'base_path': base_path,

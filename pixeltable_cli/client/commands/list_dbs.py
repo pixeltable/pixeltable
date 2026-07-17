@@ -3,20 +3,21 @@ from __future__ import annotations
 import json
 import sys
 
-from ..cloud import parse_org_uri, print_db
+from pixeltable_cli.utils import parse_org_uri, print_db
+
 from ..http import get
 from ..parser import Parser
 
 
 def run(argv: list[str]) -> None:
-    parser = Parser(prog='pxt db list', description='List cloud-hosted databases for an org.')
+    parser = Parser(prog='pxt db list', description='List hosted databases for an org.')
     parser.add_argument('org_uri', help='Org URI: pxt://org')
     parser.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
     args = parser.parse_args(argv)
 
     try:
         org_slug = parse_org_uri(args.org_uri, prog='pxt db list')
-        resp = get(f'/api/cloud/orgs/{org_slug}/dbs')
+        resp = get(f'/api/orgs/{org_slug}/dbs')
         dbs = resp.get('databases', []) if isinstance(resp, dict) else []
         if args.json_output:
             print(json.dumps(dbs))

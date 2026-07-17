@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import sys
 
-from ..cloud import parse_org_uri, print_org
+from pixeltable_cli.utils import parse_org_uri, print_org
+
 from ..http import get
 from ..parser import Parser
 
@@ -16,7 +17,7 @@ def run(argv: list[str]) -> None:
 
     try:
         org_slug = parse_org_uri(args.org_uri, prog='pxt org status')
-        resp = get(f'/api/cloud/orgs/{org_slug}')
+        resp = get(f'/api/orgs/{org_slug}')
         org = resp.get('org', resp) if isinstance(resp, dict) else {}
         if args.json_output:
             print(json.dumps(org))

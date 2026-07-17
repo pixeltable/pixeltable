@@ -4,9 +4,9 @@ import importlib
 import sys
 
 SERVICE_SUBCOMMANDS: dict[str, tuple[str, str]] = {
-    'create': ('create_service', 'create a service from a table in a cloud-hosted database'),
+    'create': ('create_service', 'create a service from a table in a hosted database'),
     'update': ('update_service', 'update service routes or worker count'),
-    'list': ('list_services', 'list services in a cloud-hosted database'),
+    'list': ('list_services', 'list services in a hosted database'),
     'start': ('start_service', 'start a service'),
     'stop': ('stop_service', 'stop a service'),
     'delete': ('delete_service', 'delete a service'),

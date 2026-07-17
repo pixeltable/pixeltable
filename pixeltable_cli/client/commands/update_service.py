@@ -5,8 +5,8 @@ import sys
 
 from pixeltable import config as pxt_config, exceptions as excs
 from pixeltable.serving._config import lookup_service_config
+from pixeltable_cli.utils import parse_service_uri, poll_svc, print_service
 
-from ..cloud import parse_service_uri, poll_svc, print_service
 from ..http import post
 from ..parser import Parser
 
@@ -36,7 +36,7 @@ def run(argv: list[str]) -> None:
             service_config = None
 
         resp = post(
-            f'/api/cloud/orgs/{org_slug}/dbs/{db_slug}/services/{svc_name}/update',
+            f'/api/orgs/{org_slug}/dbs/{db_slug}/services/{svc_name}/update',
             {
                 'workers': args.workers,
                 'cpu': args.cpu,
