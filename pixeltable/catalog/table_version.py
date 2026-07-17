@@ -961,22 +961,22 @@ class TableVersion:
             # no-op
             return
 
-        if set_type.matches(col.col_type) and not col.col_type.nullable and set_type.nullable:
-            # the only supported change: same basic type from non-nullable to nullable
-            old_type = col.col_type
-            col.col_type = set_type
-            self._schema_version_md.columns[col.id].col_type = set_type.as_dict()
-            self.bump_version(bump_schema_version=True)
-            self._write_md(new_version=True, new_schema_version=True)
-            _logger.info(
-                f'Altered column {col.name!r} type from {old_type} to {set_type} in table {self.name}, new version: '
-                f'{self.version}'
+        valid_alteration = set_type.matches(col.col_type) and not col.col_type.nullable and set_type.nullable
+        if not valid_alteration:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Column {col.name!r} type cannot be changed from {col.col_type} to {set_type}',
             )
-            return
 
-        raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION,
-            f'Column {col.name!r} type cannot be changed from {col.col_type} to {set_type}',
+        # alter column type from required to nullable
+        old_type = col.col_type
+        col.col_type = set_type
+        self._schema_version_md.columns[col.id].col_type = set_type.as_dict()
+        self.bump_version(bump_schema_version=True)
+        self._write_md(new_version=True, new_schema_version=True)
+        _logger.info(
+            f'Altered column {col.name!r} type from {old_type} to {set_type} in table {self.name}, new version: '
+            f'{self.version}'
         )
 
     def set_comment(self, new_comment: str | None) -> None:
