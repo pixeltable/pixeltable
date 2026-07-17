@@ -2,12 +2,13 @@ from __future__ import annotations
 import __future__
 
 import dataclasses
+import itertools
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, MutableMapping, NamedTuple, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, MutableMapping, NamedTuple, TypedDict
 
-from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
+from pixeltable import catalog, exceptions as excs, exprs, func, index, type_system as ts
 from pixeltable.env import Env
 from pixeltable.query_clauses import SampleClause
 from pixeltable.runtime import get_runtime
@@ -15,6 +16,7 @@ from pixeltable.types import ColumnSpec
 
 from .globals import MediaValidation, is_valid_identifier
 from .table import Table
+from .table_version_handle import TableVersionHandle
 
 if TYPE_CHECKING:
     import pixeltable as pxt
@@ -464,8 +466,6 @@ class TableModelMeta(type):
     Metaclass that collects annotated column definitions and other table metadata from a class body.
     """
 
-    registered_models: ClassVar[dict[str, TableModelMeta]] = {}  # table name -> model
-
     __table_spec__: TableSpec
     __columns__: dict[str, ColumnSpec]
     __indexes__: dict[str, EmbeddingIndex]
@@ -505,11 +505,13 @@ class TableModelMeta(type):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT, f'{display_name}: `name` must be a valid Pixeltable identifier.'
                 )
-            if tbl_name in mcs.registered_models:
+            # It needs to be scoped to this model_base()
+            base_models = bases[0].__registered_models__  # type: ignore[attr-defined]
+            if tbl_name in base_models:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
                     f'{display_name} has name {tbl_name!r}, but that name was '
-                    f'previously used by `{mcs.registered_models[tbl_name].__name__}`.',
+                    f'previously used by `{base_models[tbl_name].__name__}`.',
                 )
 
             # Validate base
@@ -617,7 +619,6 @@ class TableModelMeta(type):
         cls = super().__new__(mcs, cls_name, bases, namespace_dict)
         assert hasattr(bases[0], '__registered_models__')  # This was checked in __prepare__()
         bases[0].__registered_models__[namespace.table_spec['name']] = cls
-        mcs.registered_models[namespace.table_spec['name']] = cls
         return cls
 
     def _resolve_tbl(cls, binding_root: str, if_not_exists: Literal['error', 'ignore']) -> Table | None:
@@ -673,14 +674,16 @@ class TableModelMeta(type):
             cls._binding_root = binding_root
             return tbl
 
-    def _create(cls, binding_root: str = '') -> Table:
+    def _create(cls, binding_root: str = '') -> tuple[Table, bool]:
+        """Returns the table and whether it was created now (False if it already existed)."""
         binding_root = cls._normalize_binding_root(binding_root)
 
         if cls.is_bound:
-            return cls._resolve_tbl(binding_root, if_not_exists='error')
+            tbl = cls._resolve_tbl(binding_root, if_not_exists='error')
+            assert tbl is not None
+            return tbl, False
 
         table_spec: TableSpec = cls.__table_spec__
-        indexes: dict[str, EmbeddingIndex] = cls.__indexes__
 
         # Bind the base query to an actual Query over the (already-existing) base table. This happens client-side,
         # outside any transaction; the resulting Query references real columns and so is serializable to whichever
@@ -715,25 +718,13 @@ class TableModelMeta(type):
             custom_metadata=table_spec['custom_metadata'],
             iterator=table_spec['iterator'],
             base=base,
+            embedding_idxs=cls.__indexes__,
         )
 
         if was_created:
-            # Add any declared embedding indexes.
-            # TODO: Bring this under the transaction umbrella of create_from_model().
-            for idx_name, idx_spec in indexes.items():
-                col_ref = idx_spec.column
-                if isinstance(col_ref, str):
-                    col_ref = getattr(tbl, col_ref)
-                elif isinstance(col_ref, ModelColumnRef):
-                    col_ref = getattr(tbl, col_ref.name)
-                kwargs = dataclasses.asdict(idx_spec)
-                kwargs['column'] = col_ref
-                kwargs['idx_name'] = idx_name
-                tbl.add_embedding_index(**kwargs)
-
             Env.get().console_logger.info(f'Created {tbl._path()!r} from {table_spec["display_name"]}.')
 
-        return cls._bind(binding_root)
+        return cls._bind(binding_root), was_created
 
     def __getattr__(cls, item: str) -> Any:
         if item in FORWARDED_TABLE_METHODS:
@@ -759,6 +750,161 @@ class TableModelMeta(type):
         return cls._resolve_tbl(cls._binding_root, if_not_exists='error')
 
 
+def prepare_model(
+    tbl_handle: TableVersionHandle,
+    columns: dict[str, ColumnSpec],
+    display_name: str,
+    media_validation: MediaValidation,
+    iterator: func.GeneratingFunctionCall | None,
+    base: 'pxt.Query | None',
+    embedding_idxs: dict[str, EmbeddingIndex],
+) -> tuple[
+    func.GeneratingFunctionCall | None, list[catalog.Column], list[tuple[catalog.Column, str | None, index.IndexBase]]
+]:
+    """
+    Given model declarations in the form of columns, base, iterator, and embedding_idx specifications, along with
+    the relevant metadata, assembles lists of additional columns and additional indices to be created in the table.
+    The outputs will be fully resolved (ModelColumnRefs replaced with actual ColumnRefs and EmbeddingIndex
+    dataclass instances replaced with actual instances of index.IndexBase).
+
+    Returns: a tuple of (rebound iterator, additional columns, additional idxs).
+    """
+
+    # View columns always go in a specific order:
+    # - iterator columns first
+    # - then columns from the base query's select_list
+    #     (but not if it's a select(*): then just inherit the base table's columns)
+    # - finally, the view's additional_columns.
+
+    # Create a counter to track column ids.
+    next_col_id = itertools.count()
+
+    # A registry of visible columns of the table (base table/query columns, iterator columns,
+    # and additional columns).
+    visible_cols: dict[str, catalog.Column] = {}
+
+    # A substitution dictionary resolving ModelColumnRefs to actual ColumnRefs; we'll build this up incrementally
+    # as we process the model's columns.
+    subst_dict: dict[exprs.Expr, exprs.Expr] = {}
+
+    # First the iterator columns, if present.
+    if iterator is not None:
+        # Rebind the iterator, resolving its argument references against the base table.
+        assert base is not None
+        base_tbl_subst_dict: dict[exprs.Expr, exprs.Expr] = {
+            ModelColumnRef(col.name): exprs.ColumnRef(col.column_version_md()) for col in base._first_tbl.columns()
+        }
+        subst_args = [arg.substitute(base_tbl_subst_dict) for arg in iterator.args]
+        subst_kwargs = {k: v.substitute(base_tbl_subst_dict) for k, v in iterator.kwargs.items()}
+        subst_bound_args = {k: v.substitute(base_tbl_subst_dict) for k, v in iterator.bound_args.items()}
+        iterator = func.GeneratingFunctionCall(
+            iterator.it, subst_args, subst_kwargs, subst_bound_args, iterator.outputs, iterator.validation_error
+        )
+        # Build substitutions for the iterator's output columns.
+        for name, output in iterator.outputs.items():
+            catalog_col = catalog.Column.create(name, {'type': output.col_type, 'stored': output.is_stored})  # type: ignore[arg-type]
+            catalog_col.id = next(next_col_id)
+            catalog_col.tbl_handle = tbl_handle
+            visible_cols[name] = catalog_col
+            subst_dict[ModelColumnRef(name)] = exprs.ColumnRef(
+                catalog_col.column_version_md(), perform_validation=(media_validation == 'on_read')
+            )
+
+    if base is not None:
+        # Build substitutions for the base table/query's columns.
+        if base.select_list is None:
+            # select(*): all visible columns from the base table
+            for col in base._first_tbl.columns():
+                # Iterator column names take precedence over base table column names in the model namespace, so
+                # only update the substitution dicts if the name isn't already present.
+                if col.name not in visible_cols:
+                    visible_cols[col.name] = col
+                    ref = exprs.ColumnRef(col.column_version_md())
+                    subst_dict[ModelColumnRef(col.name)] = ref
+        else:
+            # explicit select list: new columns will be created that represent the selected expressions.
+            for expr, select_name in base.select_list:
+                col_name: str | None
+                if select_name is not None:
+                    # The select list has an explicit name for this expression as a kwarg; use it.
+                    col_name = select_name
+                elif isinstance(expr, exprs.ColumnRef):
+                    # It's an unnamed column reference; use the name of the referenced column as a fallback.
+                    col_name = expr.column_md.name
+                else:
+                    # It's a compound expression with no explicit name. A name will be assigned when the table
+                    # is created, but it's anonymous to the TableModel.
+                    # TODO: Revisit this behavior. Should we be allowing unnamed compound expressions in the
+                    #     first place?
+                    col_name = None
+
+                # Increment the `id` whether or not this column is visible to the model, to ensure we have
+                # ids that are consistent at table creation time.
+                id = next(next_col_id)
+                if col_name is not None:
+                    # Column names that arrived via an explicit select list take precedence over iterator column
+                    # names in the model namespace, so here we always update the dicts.
+                    catalog_col = catalog.Column.create(col_name, expr.col_type)
+                    catalog_col.id = id
+                    catalog_col.tbl_handle = tbl_handle
+                    visible_cols[col_name] = catalog_col
+                    subst_dict[ModelColumnRef(col_name)] = exprs.ColumnRef(
+                        catalog_col.column_version_md(), perform_validation=(media_validation == 'on_read')
+                    )
+
+    # Process any additional columns specified in the view model body.
+    additional_cols: list[catalog.Column] = []
+    for name, spec in columns.items():
+        subst_spec = spec.copy()
+        if 'value' in subst_spec:
+            subst_spec['value'] = subst_spec['value'].substitute(subst_dict)
+            residual_placeholders = list(subst_spec['value'].subexprs(ModelColumnRef))
+            if len(residual_placeholders) > 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'Column {name!r} in {display_name} references columns that are not in '
+                    f"the model's scope: {[c.name for c in residual_placeholders]}",
+                )
+        catalog_col = catalog.Column.create(name, subst_spec)
+        catalog_col.tbl_handle = tbl_handle
+        catalog_col.id = next(next_col_id)
+        additional_cols.append(catalog_col)
+        visible_cols[name] = catalog_col
+        subst_dict[ModelColumnRef(name, catalog_col.col_type)] = exprs.ColumnRef(
+            catalog_col.column_version_md(),
+            perform_validation=subst_spec.get('media_validation', media_validation) == 'on_read',
+        )
+
+    # Resolve each declared embedding index against the model's visible columns.
+    resolved_idxs: list[tuple[catalog.Column, str | None, index.IndexBase]] = []
+    for idx_name, idx_spec in embedding_idxs.items():
+        if not isinstance(idx_spec.column, ModelColumnRef):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'Embedding index {idx_name!r} in {display_name} has an invalid column reference.',
+            )
+        col_name = idx_spec.column.name
+        if col_name not in visible_cols:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'Embedding index {idx_name!r} in {display_name} references unknown column {col_name!r}.',
+            )
+        idx = index.EmbeddingIndex(
+            metric=idx_spec.metric,
+            precision=idx_spec.precision,
+            embed=idx_spec.embedding,
+            string_embed=idx_spec.string_embed,
+            image_embed=idx_spec.image_embed,
+            audio_embed=idx_spec.audio_embed,
+            video_embed=idx_spec.video_embed,
+            document_embed=idx_spec.document_embed,
+            column=visible_cols[col_name],
+        )
+        resolved_idxs.append((visible_cols[col_name], idx_name, idx))
+
+    return iterator, additional_cols, resolved_idxs
+
+
 def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
     # mypy fundamentally does not understand metaclasses.
     cls = TableModelMeta(cls_name, (), {}, name='')
@@ -769,9 +915,14 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         for model in registered_models.values():
             model._bind(binding_root)
 
-    def _create_all(binding_root: str = '') -> None:
+    def _create_all(binding_root: str = '') -> tuple[list[str], list[str]]:
+        """Returns (created, existing): absolute paths of tables created now and those that already exist."""
+        created: list[str] = []
+        existed: list[str] = []
         for model in registered_models.values():
-            model._create(binding_root)
+            tbl, was_created = model._create(binding_root)
+            (created if was_created else existed).append(str(tbl._path()))
+        return created, existed
 
     cls.bind_all = _bind_all  # type: ignore[attr-defined]
     cls.create_all = _create_all  # type: ignore[attr-defined]

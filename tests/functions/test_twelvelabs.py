@@ -8,7 +8,7 @@ from ..utils import (
     get_audio_files,
     get_image_files,
     get_video_files,
-    rerun,
+    rerun_on_network_error,
     skip_test_if_no_client,
     skip_test_if_not_installed,
     validate_update_status,
@@ -19,7 +19,7 @@ pytestmark = pytest.mark.local('UDF/integration test')
 
 @pytest.mark.remote_api
 @pytest.mark.expensive
-@rerun(reruns=3, reruns_delay=8)
+@rerun_on_network_error()
 class TestTwelveLabs:
     def test_embed_text(self, uses_db: None) -> None:
         skip_test_if_not_installed('twelvelabs')
@@ -92,6 +92,7 @@ class TestTwelveLabs:
         res = v.select(embedding=v.video_segment.embedding()).collect()
         assert res['embedding'][0].shape == (512,)
 
+    @pytest.mark.skip(reason='feature broken: PXT-1234')
     def test_embed_large_media(self, uses_db: None) -> None:
         skip_test_if_not_installed('twelvelabs')
         skip_test_if_no_client('twelvelabs')

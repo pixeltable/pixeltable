@@ -16,6 +16,11 @@ from .utils import (
 )
 
 
+@pxt.udf
+def double(x: float) -> float:
+    return x * 2.0
+
+
 class TestSnapshot:
     def run_basic_test(
         self,
@@ -96,8 +101,8 @@ class TestSnapshot:
                     schema = (
                         {
                             'v1': tbl.c3 * 2.0,
-                            # include a lambda to make sure that is handled correctly
-                            'v2': tbl.c3.apply(lambda x: x * 2.0, col_type=pxt.Float),
+                            # include a udf call to make sure that is handled correctly
+                            'v2': double(tbl.c3),
                         }
                         if has_cols
                         else {}
@@ -377,8 +382,8 @@ class TestSnapshot:
 
         snap_result = [0, 1, 2, 3, 4]
         assert sorted(snap.select(snap.val).collect()['val']) == snap_result
-        assert sorted(row['val'] for row in snap.val.head(n=100)) == snap_result
-        assert snap.val.count() == 5
+        assert sorted(row['val'] for row in snap.select(snap.val).head(n=100)) == snap_result
+        assert snap.count() == 5
 
     def test_multiple_snapshot_paths(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path

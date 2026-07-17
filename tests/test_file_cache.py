@@ -9,7 +9,7 @@ import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.utils.filecache import FileCache
 
-from .utils import get_image_files, rerun
+from .utils import get_image_files, rerun_on_network_error
 
 pytestmark = pytest.mark.local('inspects local FileCache internals')
 
@@ -18,7 +18,7 @@ class TestFileCache:
     # TODO: Understand why this test is flaky on Windows. (It appears to be a timing issue
     #     related to the Windows filesystem.)
     @pytest.mark.skipif(platform.system() == 'Windows', reason='Test is flaky on Windows')
-    @rerun(reruns=3)  # Occasional download timeouts
+    @rerun_on_network_error()
     def test_eviction(self, uses_db: None) -> None:
         # Set a very small cache size of 200 kiB for this test (the imagenette images are ~5-10 kiB each)
         fc = FileCache.get()

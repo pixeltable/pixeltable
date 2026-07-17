@@ -13,7 +13,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:22089',
+        target: `http://localhost:${process.env.PXT_PORT || 22089}`,
         changeOrigin: true,
       },
     },

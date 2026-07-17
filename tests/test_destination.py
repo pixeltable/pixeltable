@@ -14,7 +14,7 @@ from pixeltable.functions.net import presigned_url
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
 
-from .utils import MediaStore, pxt_raises, rerun, skip_test_if_not_installed
+from .utils import CatalogMode, MediaStore, pxt_raises, rerun_on_network_error, skip_test_if_not_installed
 
 
 class TestDestination:
@@ -66,15 +66,25 @@ class TestDestination:
                 pytest.skip(f'Destination {str(dest_id)!r} not reachable or not configured properly: {exc}')
             return None
 
-    def test_dest_errors(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_dest_errors(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('test_dest_errors'), schema={'img': pxt.Image})
-        valid_dest = 'tests/data/'
 
-        # Basic tests of the destination parameter: types and store / computed
+        # destination type and scheme are checked regardless of the catalog kind
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='must be a string or path'):
             t.add_computed_column(img_rot=t.img.rotate(90), destination=27)
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be a valid reference to a supported'):
+            t.add_computed_column(img_rot=t.img.rotate(90), destination='https://anything/')
 
+        if catalog_mode == 'proxy':
+            # a hosted table has no client-accessible local store, so any local-filesystem destination is rejected
+            # (before the more specific local-path checks below would apply)
+            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='not supported for a hosted table'):
+                t.add_computed_column(img_rot=t.img.rotate(90), destination='tests/data/')
+            return
+
+        valid_dest = 'tests/data/'
+        # destination only applies to stored computed columns
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='only applies to stored computed columns'):
             t.add_computed_column(img_rot=t.img.rotate(90), stored=False, destination=valid_dest)
 
@@ -92,10 +102,6 @@ class TestDestination:
             t.add_computed_column(
                 img_rot=t.img.rotate(90), destination='tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'
             )
-
-        # Test with invalid scheme
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be a valid reference to a supported'):
-            t.add_computed_column(img_rot=t.img.rotate(90), destination='https://anything/')
 
     def test_invalid_bucket(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
@@ -202,10 +208,17 @@ class TestDestination:
         with pytest.raises(ValueError, match='Invalid pxtfs:// store URI'):
             ObjectPath.parse_object_storage_addr('pxtfs://org:db/homebucket', allow_obj_name=False)
 
-    @rerun(reruns=3, reruns_delay=15)
+    @rerun_on_network_error()
     @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS)
-    def test_destination(self, make_catalog_path: Callable[[str], str], dest_id: StorageTarget) -> None:
+    def test_destination(
+        self, make_catalog_path: Callable[[str], str], dest_id: StorageTarget, catalog_mode: CatalogMode
+    ) -> None:
         """Test various media destinations."""
+        if catalog_mode == 'proxy' and dest_id == StorageTarget.LOCAL_STORE:
+            pytest.skip(
+                'a local-filesystem destination is not valid for a hosted table: the daemon keeps media in '
+                'its media dir or an external store, never a local path'
+            )
         p = make_catalog_path
         skip_test_if_not_installed('boto3')
         from pixeltable.utils.pxt_store import PxtStore
@@ -229,8 +242,11 @@ class TestDestination:
         r_dest = t.select(t.img.fileurl, t.img_rot1.fileurl, t.img_rot2.fileurl, t.img_rot3.fileurl).collect()
         print(r_dest)
 
-        # img_rot1 (destination=None) goes to the catalog's default store; img_rot2/3 to the explicit (shared) dests
-        assert MediaStore.count(t, default_output_dest=True) == 2
+        # img_rot1 (destination=None) goes to the catalog's default store; img_rot2/3 to the explicit (shared) dests.
+        # img is inserted from local file paths: referenced in place locally, but over the proxy each insert ships
+        # the file and persists it in the daemon's default store, so the default store also holds one img per row.
+        shipped_per_insert = 1 if catalog_mode == 'proxy' else 0
+        assert MediaStore.count(t, default_output_dest=True) == 2 + 2 * shipped_per_insert
         assert ObjectOps.count(t._id, dest=dest1_uri) == 2
         assert ObjectOps.count(t._id, dest=dest2_uri) == 2
 
@@ -238,7 +254,7 @@ class TestDestination:
         assert ObjectOps.count(t._id, 3, dest=dest1_uri) == 1
         assert ObjectOps.count(t._id, 4, dest=dest2_uri) == 1
 
-        assert MediaStore.count(t, tbl_version=5, default_output_dest=True) == 1
+        assert MediaStore.count(t, tbl_version=5, default_output_dest=True) == 1 + shipped_per_insert
         assert ObjectOps.count(t._id, 5, dest=dest1_uri) == 1
         assert ObjectOps.count(t._id, 5, dest=dest2_uri) == 1
 
@@ -275,8 +291,15 @@ class TestDestination:
         assert ObjectOps.count(save_id, dest=dest2_uri) == 0
 
     @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS)
-    def test_dest_two_copies(self, make_catalog_path: Callable[[str], str], dest_id: StorageTarget) -> None:
+    def test_dest_two_copies(
+        self, make_catalog_path: Callable[[str], str], dest_id: StorageTarget, catalog_mode: CatalogMode
+    ) -> None:
         """Test destination with two Stores receiving copies of the same computed image"""
+        if catalog_mode == 'proxy' and dest_id == StorageTarget.LOCAL_STORE:
+            pytest.skip(
+                'a local-filesystem destination is not valid for a hosted table: the daemon keeps media in '
+                'its media dir or an external store, never a local path'
+            )
         p = make_catalog_path
         dest_uri = self.resolve_destination_uri(dest_id)
 
@@ -298,7 +321,10 @@ class TestDestination:
         print(r_dest)
 
         assert len(r) == 2
-        assert len(r) == MediaStore.count(t, default_output_dest=True)
+        # img_rot1 (destination=None) goes to the default store, one per row; over the proxy that store also holds
+        # each input img, shipped and persisted there (local references the source files in place)
+        shipped_imgs = len(r) if catalog_mode == 'proxy' else 0
+        assert MediaStore.count(t, default_output_dest=True) == len(r) + shipped_imgs
         assert len(r) == ObjectOps.count(t._id, dest=dest1_uri)
 
         # The outcome of this test is unusual:
@@ -413,7 +439,7 @@ class TestDestination:
             assert ObjectOps.count(t._id, dest=uri) == 0
 
     @pytest.mark.local('media destination/object-store internals')
-    @rerun(reruns=3, reruns_delay=15)
+    @rerun_on_network_error()
     def test_presigned_url_all_destinations(self, uses_db: None) -> None:
         """Test presigned_url UDF for all cloud storage destinations"""
         # Exclude LOCAL_STORE as it doesn't support presigned URLs

@@ -268,8 +268,7 @@ class TempStore:
     A temporary store for files of data that are not yet persisted to their destination(s).
     A destination is typically either a LocalStore (local persisted files) or a cloud object store.
 
-    The TempStore class has no internal state. It provides functionality to manage temporary files
-    in the env.Env.get().tmp_dir directory.
+    It provides functionality to manage temporary files in the env.Env.get().tmp_dir directory.
     It reuses some of the LocalStore functionality to create unique file names and save objects.
     """
 
@@ -309,7 +308,7 @@ class TempStore:
     def create_path(cls, tbl_id: UUID | None = None, extension: str | None = None) -> Path:
         """Return a new, unique Path located in the temporary store.
         If tbl_id is provided, the path name will be similar to a LocalStore path based on the tbl_id.
-        If tbl_id is None, a random UUID will be used to create the path."""
+        Otherwise a random UUID will be used to create the path."""
         if extension is None:
             extension = ''
         if tbl_id is not None:

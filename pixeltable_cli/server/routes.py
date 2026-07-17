@@ -10,6 +10,7 @@ import sqlalchemy as sa
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
+from pixeltable.catalog import Path
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.types import TreeNode
@@ -70,7 +71,7 @@ def config(_req: Request) -> models.ConfigResponse:
     # - params from registered API client factories
     # - name-suffix match for keys that aren't tied to an Env-registered client (eg, azure.storage_account_key)
     client_creds: set[str] = set(Env.get().get_client_credential_params().values())
-    sensitive_suffixes = ('key', 'token', 'secret', 'password')
+    sensitive_suffixes = ('key', 'token', 'secret', 'password', 'otlp_headers')
     entries: list[models.ConfigEntry] = []
     for ck in Config.get().config_keys():
         source = Config.get().get_value_source(ck.key, section=ck.section)
@@ -115,14 +116,30 @@ def list_dir(req: Request) -> models.LsResponse:
 
 
 def _list_dir(path: str, *, tree: bool, details: bool, counts: bool) -> models.LsResponse:
-    full_tree = pxt.get_dir_tree()
-    nodes = _get_dir_children(full_tree, path)
+    # A hosted path (pxt://<org>:<db>/...) lists a remote catalog; split off its catalog-root URI so we
+    # fetch that catalog's tree and navigate by the in-catalog remainder. catalog_root is '' for a local path.
+    path_obj = Path.parse(path, allow_empty_path=True)
+    db_uri = path_obj.uri
+    relative_path = '/'.join(path_obj.components)
+    full_tree = pxt.get_dir_tree(db_uri)
+    nodes = _get_dir_children(full_tree, relative_path)
+    _reroot(nodes, db_uri)
     if tree:
         return models.LsResponse(entries=[], tree={'path': path, 'entries': nodes})
     entries = [_to_entry(n, details=details) for n in nodes]
     if counts:
         _fill_counts(entries)
     return models.LsResponse(entries=entries)
+
+
+def _reroot(nodes: list[TreeNode], catalog_root: str) -> None:
+    """Prefix each node's path with catalog_root"""
+    if catalog_root == '':
+        return
+    for n in nodes:
+        n['path'] = f'{catalog_root}/{n["path"]}'
+        if n['kind'] == 'directory':
+            _reroot(n['entries'], catalog_root)
 
 
 @router.get('/api/tables/{path:path}/rows')
@@ -333,7 +350,7 @@ def columns(req: Request) -> models.ColumnsResponse:
         )
     if path is not None:
         _validate_path(path)
-    paths = [path] if path is not None else _collect_table_paths()
+    paths = _resolve_table_paths(path)
     entries: list[models.ColumnEntry] = []
     for p in paths:
         try:
@@ -368,7 +385,7 @@ def indexes(req: Request) -> models.IdxsResponse:
         )
     if path is not None:
         _validate_path(path)
-    paths = [path] if path is not None else _collect_table_paths()
+    paths = _resolve_table_paths(path)
     entries: list[models.IdxEntry] = []
     for p in paths:
         try:
@@ -405,6 +422,15 @@ def move(req: Request) -> models.MoveResponse:
     body = req.body(models.MoveBody)
     pxt.move(body.path, body.new_path)
     return models.MoveResponse(path=body.path, new_path=body.new_path)
+
+
+@router.post('/api/schema/update')
+def schema_update(req: Request) -> models.SchemaUpdateResponse:
+    body = req.body(models.SchemaUpdateBody)
+    created, existed = bridge.schema_update(body.schema_path, body.target)
+    tables = [models.SchemaUpdateEntry(path=p, action='created') for p in created]
+    tables += [models.SchemaUpdateEntry(path=p, action='exists') for p in existed]
+    return models.SchemaUpdateResponse(tables=tables)
 
 
 @router.get('/api/dashboard/search')
@@ -550,17 +576,39 @@ def _tbl_count(path: str) -> int | None:
         return None
 
 
-def _collect_table_paths() -> list[str]:
+def _resolve_table_paths(path: str | None) -> list[str]:
+    """Resolve an optional path to the list of table paths it designates.
+
+    None designates every table in the in-process catalog. A directory (including a hosted db root, e.g.
+    pxt://org:db) designates every table beneath it, recursively. Any other path designates a single table.
+    """
+    if path is None:
+        return _collect_from_tree(pxt.get_dir_tree(''), scope='')
+    try:
+        tree = pxt.get_dir_tree(path)
+    except excs.NotFoundError:
+        raise  # the path doesn't exist: report it rather than silently returning nothing
+    except excs.Error:
+        return [path]  # exists but is not a directory: a single table
+    return _collect_from_tree(tree, scope=path)
+
+
+def _collect_from_tree(nodes: list[TreeNode], scope: str) -> list[str]:
+    """Collect the path of every table node in the tree, recursing into directories.
+
+    Node paths are relative to the tree's own root, so prepend scope to make each path resolve in its
+    catalog; scope is '' for the in-process catalog root, whose node paths are already fully qualified.
+    """
     paths: list[str] = []
 
-    def collect(nodes: list[TreeNode]) -> None:
-        for n in nodes:
+    def collect(ns: list[TreeNode]) -> None:
+        for n in ns:
             if n['kind'] == 'directory':
                 collect(n['entries'])
             else:
-                paths.append(n['path'])
+                paths.append(f'{scope}/{n["path"]}' if scope != '' else n['path'])
 
-    collect(pxt.get_dir_tree())
+    collect(nodes)
     return paths
 
 

@@ -16,7 +16,7 @@ import hashlib
 import itertools
 import re
 from collections import defaultdict
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict
 
 import numpy as np
 import PIL.Image
@@ -163,6 +163,15 @@ def __calculate_image_tpfp(
     return tp, fp
 
 
+class DetectionEval(TypedDict):
+    min_iou: float
+    category: int
+    tp: list[int]
+    fp: list[int]
+    scores: list[float]
+    num_gts: int
+
+
 @pxt.udf
 def eval_detections(
     pred_bboxes: list[list[int]],
@@ -171,7 +180,7 @@ def eval_detections(
     gt_bboxes: list[list[int]],
     gt_labels: list[int],
     min_iou: float = 0.5,
-) -> list[dict]:
+) -> list[DetectionEval]:
     """
     Evaluates the performance of a set of predicted bounding boxes against a set of ground truth bounding boxes.
 
@@ -185,25 +194,17 @@ def eval_detections(
             considered a true positive.
 
     Returns:
-        A list of dictionaries, one per label class, with the following structure:
-        ```python
-        {
-            'min_iou': float,  # The value of `min_iou` used for the detections
-            'class': int,  # The label class
-            # List of 1's and 0's indicating true positives for each
-            # predicted bounding box of this class
-            'tp': list[int],
-            # List of 1's and 0's indicating false positives for each
-            # predicted bounding box of this class; `fp[n] == 1 - tp[n]`
-            'fp': list[int],
-            # List of predicted scores for each bounding box of this class
-            'scores': list[float],
-            'num_gts': int,  # Number of ground truth bounding boxes of this class
-        }
-        ```
+        A list of dictionaries, one per label class, with the following entries:
+
+        - `min_iou` (`float`): the value of `min_iou` used for the detections
+        - `category` (`int`): the label class
+        - `tp` (`list[int]`): 1 or 0 for each predicted bounding box of this class, indicating a true positive
+        - `fp` (`list[int]`): 1 or 0 for each predicted bounding box of this class; `fp[n] == 1 - tp[n]`
+        - `scores` (`list[float]`): the predicted scores for each bounding box of this class
+        - `num_gts` (`int`): the number of ground truth bounding boxes of this class
     """
     class_idxs = list(set(pred_labels + gt_labels))
-    result: list[dict] = []
+    result: list[DetectionEval] = []
     pred_bboxes_arr = np.asarray(pred_bboxes)
     pred_classes_arr = np.asarray(pred_labels)
     pred_scores_arr = np.asarray(pred_scores)
@@ -220,7 +221,7 @@ def eval_detections(
         result.append(
             {
                 'min_iou': min_iou,
-                'class': class_idx,
+                'category': class_idx,
                 'tp': tp.tolist(),
                 'fp': fp.tolist(),
                 'scores': ordered_class_pred_scores.tolist(),
@@ -251,7 +252,7 @@ class mean_ap(pxt.Aggregator):
 
     def update(self, eval_dicts: list[dict]) -> None:
         for eval_dict in eval_dicts:
-            class_idx = eval_dict['class']
+            class_idx = eval_dict['category']
             self.class_tpfp[class_idx].append(eval_dict)
 
     def value(self) -> dict:
@@ -426,23 +427,33 @@ def bboxes_draw(
     return img_to_draw
 
 
-def _validate_bboxes(bboxes: list, error_prefix: str, validate_range: bool = True) -> bool:
-    """Check that bboxes are either all int or all float. Return True for absolute, False for relative."""
+def _validate_bboxes(
+    bboxes: list, error_prefix: str, validate_range: bool = True, absolute: bool | None = None
+) -> tuple[bool, bool]:
+    """Validate bboxes and classify their coordinates. Returns (is_absolute, is_int).
+
+    - relative: all of them are floats within [0.0, 1.0]
+    - absolute pixel coordinates can be int or float
+    - param absolute overrides that inference (for callers whose parameters determine the mode).
+    """
     if not all(len(b) == 4 for b in bboxes):
         raise pxt.RequestError(
             pxt.ErrorCode.INVALID_ARGUMENT, f'{error_prefix}: each bounding box must have exactly 4 coordinates'
         )
-    is_absolute = all(
-        isinstance(x, int) and (not validate_range or x >= 0) for x in itertools.chain.from_iterable(bboxes)
-    )
-    is_relative = all(isinstance(x, float) and (not validate_range or (0.0 <= x <= 1.0)) for box in bboxes for x in box)
-    if not (is_absolute or is_relative):
+    coords = list(itertools.chain.from_iterable(bboxes))
+    # bool is a subclass of int; reject it so JSON true/false isn't accepted as a numeric coordinate
+    if not all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in coords):
         raise pxt.RequestError(
-            pxt.ErrorCode.INVALID_ARGUMENT,
-            f'{error_prefix}: bounding box coordinates must be either all int'
-            f'{" (>= 0)" if validate_range else ""} or all float{" (in [0, 1])" if validate_range else ""}',
+            pxt.ErrorCode.INVALID_ARGUMENT, f'{error_prefix}: bounding box coordinates must be int or float'
         )
-    return is_absolute
+    is_int = all(isinstance(x, int) for x in coords)
+    if absolute is not None:
+        is_absolute = absolute
+    else:
+        is_absolute = is_int or not all(0.0 <= x <= 1.0 for x in coords)
+    if validate_range and not all(x >= 0 for x in coords):
+        raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'{error_prefix}: bounding box coordinates must be >= 0')
+    return is_absolute, is_int
 
 
 @pxt.udf
@@ -456,8 +467,9 @@ def bboxes_convert(
     Convert a list of bounding boxes from src_format to dst_format.
 
     Args:
-        bboxes: List of bounding boxes, each either specified with absolute pixel coordinates or relative
-            coordinates in [0, 1].
+        bboxes: List of bounding boxes, each with absolute pixel coordinates or relative coordinates in [0, 1].
+            Coordinates may be int or float; relative vs absolute is inferred (relative only when every coordinate
+            is within [0, 1]), so absolute float coordinates such as 10.5 are supported.
         src_format: Source format, one of 'xyxy', 'xywh', 'cxcywh'.
         dst_format: Destination format, one of 'xyxy', 'xywh', 'cxcywh'.
 
@@ -471,7 +483,7 @@ def bboxes_convert(
         raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid src_format: {src_format!r}')
     if dst_format not in ('xyxy', 'xywh', 'cxcywh'):
         raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid dst_format: {dst_format!r}')
-    is_absolute = _validate_bboxes(bboxes, 'bboxes_convert()')
+    _, is_int = _validate_bboxes(bboxes, 'bboxes_convert()')
     if src_format == dst_format:
         return bboxes
 
@@ -494,7 +506,7 @@ def bboxes_convert(
     else:  # cxcywh -> xywh
         result = np.column_stack([c0 - c2 / 2, c1 - c3 / 2, c2, c3])
 
-    if is_absolute:
+    if is_int:
         # don't use round() here, it rounds to the nearest even number
         result = np.floor(result + 0.5).astype(int)
     return result.tolist()
@@ -522,8 +534,9 @@ def bboxes_resize(
     Only one of `width`, `height`, or `aspect` can be specified.
 
     Args:
-        bboxes: List of bounding boxes, each either specified with absolute pixel coordinates or relative
-            coordinates in [0, 1].
+        bboxes: List of bounding boxes, each with absolute pixel coordinates or relative coordinates in [0, 1].
+            Coordinates may be int or float; relative vs absolute is inferred (relative only when every coordinate
+            is within [0, 1]), so absolute float coordinates such as 10.5 are supported.
         format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
         width: Target width. Pass an `int` for absolute pixels or a `float` for relative coordinates.
         height: Target height. Pass an `int` for absolute pixels or a `float` for relative coordinates.
@@ -617,7 +630,7 @@ def _bboxes_resize(
             pxt.ErrorCode.UNSUPPORTED_OPERATION, 'aspect_mode is only valid when aspect is specified'
         )
 
-    is_absolute = _validate_bboxes(bboxes, 'bboxes_resize()')
+    is_absolute, is_int = _validate_bboxes(bboxes, 'bboxes_resize()')
     if is_absolute and (width_f is not None or height_f is not None):
         raise pxt.RequestError(
             pxt.ErrorCode.UNSUPPORTED_OPERATION,
@@ -684,22 +697,22 @@ def _bboxes_resize(
         w, h = new_w, new_h
 
     # Convert back to original format.
-    # For absolute coordinates, round w/h first, then derive positions from rounded
+    # For integer coordinates, round w/h first, then derive positions from rounded
     # dimensions so that x2-x1==round(w) (xyxy) and x+w is consistent (xywh).
-    if is_absolute:
+    if is_int:
         # don't use round() here, it rounds to the nearest even number
         w = np.floor(w + 0.5)
         h = np.floor(h + 0.5)
 
     if format == 'xyxy':
-        if is_absolute:
+        if is_int:
             x1 = np.floor(cx - w / 2 + 0.5)
             y1 = np.floor(cy - h / 2 + 0.5)
             result = np.column_stack([x1, y1, x1 + w, y1 + h]).astype(int)
         else:
             result = np.column_stack([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2])
     elif format == 'xywh':
-        if is_absolute:
+        if is_int:
             x1 = np.floor(cx - w / 2 + 0.5)
             y1 = np.floor(cy - h / 2 + 0.5)
             result = np.column_stack([x1, y1, w, h]).astype(int)
@@ -707,7 +720,7 @@ def _bboxes_resize(
             result = np.column_stack([cx - w / 2, cy - h / 2, w, h])
     else:  # cxcywh
         result = np.column_stack([cx, cy, w, h])
-        if is_absolute:
+        if is_int:
             result = np.floor(result + 0.5).astype(int)
 
     if not valid.all():
@@ -729,8 +742,9 @@ def bboxes_scale(
     Re-scale a list of bounding boxes (center-anchored).
 
     Args:
-        bboxes: List of bounding boxes, each either specified with absolute pixel coordinates or relative
-            coordinates in [0, 1].
+        bboxes: List of bounding boxes, each with absolute pixel coordinates or relative coordinates in [0, 1].
+            Coordinates may be int or float; relative vs absolute is inferred (relative only when every coordinate
+            is within [0, 1]), so absolute float coordinates such as 10.5 are supported.
         format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
         factor: Scale factor to apply to both box dimensions.
         x_factor: Scale factor to apply to the box width.
@@ -762,7 +776,7 @@ def bboxes_scale(
     if has_y and y_factor <= 0:
         raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, 'bboxes_scale(): y_factor must be positive')
 
-    is_absolute = _validate_bboxes(bboxes, 'bboxes_scale()')
+    _, is_int = _validate_bboxes(bboxes, 'bboxes_scale()')
     arr = np.array(bboxes, dtype=np.float64)
     assert arr.ndim == 2 and arr.shape[1] == 4
     c0, c1, c2, c3 = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
@@ -802,19 +816,19 @@ def bboxes_scale(
             h *= y_factor
 
     # Convert back to original format
-    if is_absolute:
+    if is_int:
         w = np.floor(w + 0.5)
         h = np.floor(h + 0.5)
 
     if format == 'xyxy':
-        if is_absolute:
+        if is_int:
             x1 = np.floor(cx - w / 2 + 0.5)
             y1 = np.floor(cy - h / 2 + 0.5)
             result = np.column_stack([x1, y1, x1 + w, y1 + h]).astype(int)
         else:
             result = np.column_stack([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2])
     elif format == 'xywh':
-        if is_absolute:
+        if is_int:
             x1 = np.floor(cx - w / 2 + 0.5)
             y1 = np.floor(cy - h / 2 + 0.5)
             result = np.column_stack([x1, y1, w, h]).astype(int)
@@ -822,7 +836,7 @@ def bboxes_scale(
             result = np.column_stack([cx - w / 2, cy - h / 2, w, h])
     else:  # cxcywh
         result = np.column_stack([cx, cy, w, h])
-        if is_absolute:
+        if is_int:
             result = np.floor(result + 0.5).astype(int)
 
     if not valid.all():
@@ -887,12 +901,9 @@ def bboxes_pad(
         if val < 0:
             raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, f'bboxes_pad(): {name} padding must be >= 0')
 
-    is_absolute = _validate_bboxes(bboxes, 'bboxes_pad()')
-    if not is_absolute:
-        raise pxt.RequestError(
-            pxt.ErrorCode.UNSUPPORTED_OPERATION,
-            'bboxes_pad(): padding requires absolute pixel coordinates, but bboxes use relative coordinates',
-        )
+    # padding is in pixels, so the coordinates are absolute by contract; don't infer (a float box within [0, 1]
+    # is a legitimate sub-pixel absolute box, not relative)
+    _, is_int = _validate_bboxes(bboxes, 'bboxes_pad()', absolute=True)
 
     arr = np.array(bboxes, dtype=np.float64)
     assert arr.ndim == 2 and arr.shape[1] == 4
@@ -926,7 +937,9 @@ def bboxes_pad(
         c2 = np.where(valid, c2 + pad_left + pad_right, c2)
         c3 = np.where(valid, c3 + pad_top + pad_bottom, c3)
 
-    result = np.floor(np.column_stack([c0, c1, c2, c3]) + 0.5).astype(int)
+    result = np.column_stack([c0, c1, c2, c3])
+    if is_int:
+        result = np.floor(result + 0.5).astype(int)
 
     if orig is not None:
         result[~valid] = orig[~valid]
@@ -947,11 +960,12 @@ def bboxes_clip_to_canvas(
     Clip a list of bounding boxes to a canvas of specified size.
 
     Args:
-        bboxes: List of bounding boxes, each either specified with absolute pixel coordinates (`int`) or relative
-            coordinates (`float`).
+        bboxes: List of bounding boxes, specified with absolute pixel coordinates if `width`/`height` are given,
+            with relative coordinates otherwise. All-integer boxes are always treated as absolute and require
+            `width`/`height`.
         format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
-        width: Canvas width in absolute pixels. Required for absolute coordinates, must not be specified for relative.
-        height: Canvas height in absolute pixels. Required for absolute coordinates, must not be specified for relative.
+        width: Canvas width in absolute pixels. Required for absolute coordinates, omit for relative.
+        height: Canvas height in absolute pixels. Required for absolute coordinates, omit for relative.
         min_visibility: Minimum fraction of the bounding box that must be visible after clipping. If the visibility
             is less than this value, returns None.
         min_area: Minimum area of the bounding box after clipping. If the area is less than this value, returns None.
@@ -963,17 +977,19 @@ def bboxes_clip_to_canvas(
     if len(bboxes) == 0:
         return []
 
-    is_absolute = _validate_bboxes(bboxes, 'bboxes_clip_to_canvas()', validate_range=False)
-
-    if is_absolute and (width is None or height is None):
+    # width/height determine the mode: present means absolute pixel coordinates, absent means relative
+    if (width is None) != (height is None):
         raise pxt.RequestError(
             pxt.ErrorCode.MISSING_REQUIRED,
             'bboxes_clip_to_canvas(): both width and height must be specified for absolute coordinates',
         )
-    if not is_absolute and (width is not None or height is not None):
+    is_absolute, is_int = _validate_bboxes(
+        bboxes, 'bboxes_clip_to_canvas()', validate_range=False, absolute=width is not None
+    )
+    if not is_absolute and is_int:
         raise pxt.RequestError(
-            pxt.ErrorCode.UNSUPPORTED_OPERATION,
-            'bboxes_clip_to_canvas(): width/height must not be specified for relative coordinates',
+            pxt.ErrorCode.MISSING_REQUIRED,
+            'bboxes_clip_to_canvas(): all-integer coordinates are absolute pixels and require width and height',
         )
     if not (0.0 <= min_visibility <= 1.0):
         raise pxt.RequestError(
@@ -1031,7 +1047,7 @@ def bboxes_clip_to_canvas(
     else:  # cxcywh
         result_arr = np.column_stack([(cx1 + cx2) / 2, (cy1 + cy2) / 2, cx2 - cx1, cy2 - cy1])
 
-    if is_absolute:
+    if is_int:
         result_arr = np.floor(result_arr + 0.5).astype(int)
 
     # Degenerate boxes pass through unchanged
@@ -1065,10 +1081,12 @@ def bboxes_crop_canvas(
     Adjust a list of bounding boxes to account for a canvas crop.
 
     Args:
-        bboxes: List of bounding boxes, each either specified with absolute pixel coordinates or relative coordinates.
+        bboxes: List of bounding boxes, specified with absolute pixel coordinates if `canvas_width`/`canvas_height`
+            are given, with relative coordinates otherwise. All-integer boxes are always treated as absolute and
+            require `canvas_width`/`canvas_height`.
         format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
-        canvas_width: Canvas width.
-        canvas_height: Canvas height.
+        canvas_width: Canvas width in absolute pixels. Required for absolute coordinates, omit for relative.
+        canvas_height: Canvas height in absolute pixels. Required for absolute coordinates, omit for relative.
         canvas_region: Canvas region that was cropped, either specified with absolute pixel coordinates or relative
             coordinates, in the format specified by `canvas_region_format`.
         canvas_region_format: Format of the `canvas_region` coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
@@ -1079,17 +1097,21 @@ def bboxes_crop_canvas(
     if len(bboxes) == 0:
         return []
 
-    is_absolute = _validate_bboxes(bboxes, 'bboxes_crop_canvas()', validate_range=False)
-
-    if is_absolute and (canvas_width is None or canvas_height is None):
+    # canvas_width/canvas_height determine the mode: present means absolute pixel coordinates, absent means
+    # relative
+    if (canvas_width is None) != (canvas_height is None):
         raise pxt.RequestError(
             pxt.ErrorCode.MISSING_REQUIRED,
             'bboxes_crop_canvas(): both canvas_width and canvas_height must be specified for absolute coordinates',
         )
-    if not is_absolute and (canvas_width is not None or canvas_height is not None):
+    is_absolute, is_int = _validate_bboxes(
+        bboxes, 'bboxes_crop_canvas()', validate_range=False, absolute=canvas_width is not None
+    )
+    if not is_absolute and is_int:
         raise pxt.RequestError(
-            pxt.ErrorCode.UNSUPPORTED_OPERATION,
-            'bboxes_crop_canvas(): canvas_width/canvas_height must not be specified for relative coordinates',
+            pxt.ErrorCode.MISSING_REQUIRED,
+            'bboxes_crop_canvas(): all-integer coordinates are absolute pixels and require canvas_width and '
+            'canvas_height',
         )
 
     # Validate canvas_region
@@ -1173,7 +1195,7 @@ def bboxes_crop_canvas(
     else:  # cxcywh
         result = np.column_stack([(nx1 + nx2) / 2, (ny1 + ny2) / 2, nx2 - nx1, ny2 - ny1])
 
-    if is_absolute:
+    if is_int:
         result = np.floor(result + 0.5).astype(int)
 
     # Degenerate boxes pass through unchanged
@@ -1219,7 +1241,7 @@ def bboxes_resize_canvas(
     if len(bboxes) == 0:
         return []
 
-    is_absolute = _validate_bboxes(bboxes, 'bboxes_resize_canvas()', validate_range=False)
+    is_absolute, is_int = _validate_bboxes(bboxes, 'bboxes_resize_canvas()', validate_range=False)
     if not is_absolute:
         raise pxt.RequestError(
             pxt.ErrorCode.UNSUPPORTED_OPERATION, 'bboxes_resize_canvas(): requires absolute bounding boxes'
@@ -1310,8 +1332,8 @@ def bboxes_resize_canvas(
     arr[:, 2] *= scale_x
     arr[:, 3] *= scale_y
 
-    # Round absolute coordinates
-    result = np.floor(arr + 0.5).astype(int)
+    # integer coordinates stay integer
+    result = np.floor(arr + 0.5).astype(int) if is_int else arr
 
     # Restore degenerate boxes
     if orig is not None:
@@ -1356,6 +1378,52 @@ def _get_contours(mask: np.ndarray, thickness: int = 1) -> np.ndarray:
     return boundaries
 
 
+def _overlay_id_map(
+    img: PIL.Image.Image,
+    segmentation: np.ndarray,
+    *,
+    alpha: float,
+    background: int,
+    segment_colors: list[str] | None,
+    draw_contours: bool,
+    contour_thickness: int,
+) -> PIL.Image.Image:
+    """
+    Paint a colored overlay onto `img` from a 2D `(H, W)` id-map, where each pixel holds the id of the segment
+    it belongs to. Pixels equal to `background` are left untouched; every other segment id is assigned a color
+    (from `segment_colors`, else auto-generated from the id) and alpha-composited over the image at opacity
+    `alpha`, optionally outlining each segment with a full-opacity contour.
+    """
+    if segmentation.shape != (img.height, img.width):
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            f'Segmentation shape {segmentation.shape} does not match image dimensions ({img.height}, {img.width})',
+        )
+    segment_ids = sorted(int(sid) for sid in np.unique(segmentation) if sid != background)
+    if segment_colors is None:
+        segment_colors = []
+    missing_ids = segment_ids[len(segment_colors) :]
+    auto_colors = __create_label_colors(missing_ids)
+    color_map = {**auto_colors, **dict(zip(segment_ids, segment_colors))}
+
+    segment_alpha = int(alpha * 255)
+
+    overlay_array = np.zeros((img.height, img.width, 4), dtype=np.uint8)
+    rgb_by_id = {sid: PIL.ImageColor.getrgb(color_map[sid]) for sid in segment_ids}
+    for segment_id in segment_ids:
+        rgb = rgb_by_id[segment_id]
+        mask = segmentation == segment_id
+        overlay_array[mask] = (*rgb, segment_alpha)
+        if draw_contours:
+            contour_mask = _get_contours(mask, contour_thickness)
+            overlay_array[contour_mask] = (*rgb, 255)
+
+    overlay = PIL.Image.fromarray(overlay_array, mode='RGBA')
+    img_rgba = img.convert('RGBA')
+    result = PIL.Image.alpha_composite(img_rgba, overlay)
+    return result.convert('RGB')
+
+
 @pxt.udf
 def overlay_segmentation(
     img: PIL.Image.Image,
@@ -1376,12 +1444,21 @@ def overlay_segmentation(
 
     If no colors are specified, this function randomly assigns each segment a specific color based on a hash of its id.
 
+    Two input formats are supported:
+
+    - A 2D `(H, W)` int32 id-map where each pixel value is a segment id. This matches the panoptic
+        output of [`detr_for_segmentation()`][pixeltable.functions.huggingface.detr_for_segmentation].
+    - A 3D `(num_instances, H, W)` boolean stack with one binary mask per instance. This matches the
+        per-instance mask output of [`sam_for_segmentation()`][pixeltable.functions.huggingface.sam_for_segmentation].
+        Instances are assigned ids `1..num_instances` in order; where masks overlap the highest id wins.
+
     Args:
         img: Input image.
-        segmentation: 2D array of the same shape as `img` where each pixel value is a segment id.
+        segmentation: Either a 2D `(H, W)` int32 array of segment ids, or a 3D `(num_instances, H, W)`
+            boolean array of per-instance masks.
         alpha: Blend factor for the overlay (0.0 = only original image, 1.0 = only segmentation colors).
         background: Segment id to treat as background (not overlaid with color, showing the original
-            image through).
+            image through). Only meaningful for the 2D id-map form.
         segment_colors: List of colors, one per segment id. If the list is shorter than the number of segments, the
             remaining segments will be assigned colors automatically.
         draw_contours: If True, draw contours around each segment with full opacity.
@@ -1390,34 +1467,55 @@ def overlay_segmentation(
     Returns:
         The image with the colored segmentation overlay.
     """
+    return _overlay_id_map(
+        img,
+        segmentation,
+        alpha=alpha,
+        background=background,
+        segment_colors=segment_colors,
+        draw_contours=draw_contours,
+        contour_thickness=contour_thickness,
+    )
 
-    if segmentation.shape != (img.height, img.width):
-        raise ValueError(
-            f'Segmentation shape {segmentation.shape} does not match image dimensions ({img.height}, {img.width})'
+
+@overlay_segmentation.overload
+def _(
+    img: PIL.Image.Image,
+    segmentation: pxt.Array[(None, None, None), pxt.Bool],
+    *,
+    ids: pxt.Array[(None,), pxt.Int] | None = None,
+    alpha: float = 0.5,
+    segment_colors: list[str] | None = None,
+    draw_contours: bool = True,
+    contour_thickness: int = 1,
+) -> PIL.Image.Image:
+    num_instances = segmentation.shape[0]
+    if ids is not None and len(ids) != num_instances:
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            f'`ids` (length {len(ids)}) must have the same length as the number of instance masks ({num_instances})',
         )
-    segment_ids = sorted(int(sid) for sid in np.unique(segmentation) if sid != background)
-    if segment_colors is None:
-        segment_colors = []
-    missing_ids = segment_ids[len(segment_colors) :]
-    auto_colors = __create_label_colors(missing_ids)
-    color_map = {**auto_colors, **dict(zip(segment_ids, segment_colors))}
-
-    segment_alpha = int(alpha * 255)
-
-    overlay_array = np.zeros((img.height, img.width, 4), dtype=np.uint8)
-    segment_colors = {id: PIL.ImageColor.getrgb(color_map[id]) for id in segment_ids}
-    for segment_id in segment_ids:
-        rgb = segment_colors[segment_id]
-        mask = segmentation == segment_id
-        overlay_array[mask] = (*rgb, segment_alpha)
-        if draw_contours:
-            contour_mask = _get_contours(mask, contour_thickness)
-            overlay_array[contour_mask] = (*rgb, 255)
-
-    overlay = PIL.Image.fromarray(overlay_array, mode='RGBA')
-    img_rgba = img.convert('RGBA')
-    result = PIL.Image.alpha_composite(img_rgba, overlay)
-    return result.convert('RGB')
+    if segmentation.shape[1:] != (img.height, img.width):
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            f'Instance mask shape {segmentation.shape[1:]} does not match image dimensions ({img.height}, {img.width})',
+        )
+    # Each instance is painted with its id, which determines its color. When `ids` is given (e.g. persistent
+    # tracking ids), a given id maps to the same color in every frame; otherwise instances are numbered 1..N in
+    # order. Where masks overlap, later instances win (which is highest-id-wins for the default 1..N case).
+    id_map = np.zeros((img.height, img.width), dtype=np.int32)
+    instance_ids = np.arange(1, num_instances + 1) if ids is None else np.asarray(ids)
+    for instance_id, mask in zip(instance_ids.astype(np.int32), segmentation, strict=True):
+        id_map[mask] = instance_id
+    return _overlay_id_map(
+        img,
+        id_map,
+        alpha=alpha,
+        background=0,
+        segment_colors=segment_colors,
+        draw_contours=draw_contours,
+        contour_thickness=contour_thickness,
+    )
 
 
 __all__ = local_public_names(__name__)

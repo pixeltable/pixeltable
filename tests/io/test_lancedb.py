@@ -1,18 +1,15 @@
 import datetime
 import io
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
 import PIL.Image
-import pytest
 
 import pixeltable as pxt
 
 from ..utils import pxt_raises, skip_test_if_not_installed
-
-pytestmark = pytest.mark.local('TODO: convert; import/export (lancedb)')
 
 
 @pxt.udf
@@ -23,10 +20,11 @@ def udf_with_exc(i: int, val: int) -> int:
 
 
 class TestLanceDb:
-    def test_export(self, uses_db: None, tmp_path: Path) -> None:
+    def test_export(self, make_catalog_path: Callable[[str], str], tmp_path: Path) -> None:
         skip_test_if_not_installed('lance', 'lancedb')
         import lancedb  # type: ignore[import-untyped]
 
+        p = make_catalog_path
         n_rows = 1000
         schema = {
             'row_id': pxt.Int,
@@ -37,10 +35,10 @@ class TestLanceDb:
             'c_timestamp': pxt.Timestamp,
             'c_date': pxt.Date,
             'c_json': pxt.Json,
-            'c_array': pxt.Array[(10,), pxt.Float],  # type: ignore[misc]
+            'c_array': pxt.Array[(10,), pxt.Float],
             'c_image': pxt.Image,
         }
-        t = pxt.create_table('test_export', schema)
+        t = pxt.create_table(p('test_export'), schema)
 
         rows = [
             {
@@ -94,7 +92,7 @@ class TestLanceDb:
             pxt.io.export_lancedb(t, Path(__file__), 'test', if_exists='overwrite')
 
         # export query result containing PIL image, with if_exists='overwrite'
-        t2 = pxt.create_table('test2', schema)
+        t2 = pxt.create_table(p('test2'), schema)
         t2.insert(rows[:100])
         query = t2.order_by(t2.row_id, asc=True).select(
             t2.row_id,

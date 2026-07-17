@@ -15,6 +15,7 @@ from ..utils import (
     SAMPLE_IMAGE_URL,
     pxt_raises,
     rerun,
+    rerun_on_network_error,
     skip_test_if_no_client,
     skip_test_if_not_installed,
     validate_update_status,
@@ -27,7 +28,7 @@ _logger = logging.getLogger('pixeltable_test')
 
 
 @pytest.mark.remote_api
-@rerun(reruns=3, reruns_delay=8)
+@rerun_on_network_error()
 class TestOpenai:
     @pytest.mark.expensive
     def test_audio(self, uses_db: None) -> None:

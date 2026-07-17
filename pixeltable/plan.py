@@ -587,7 +587,7 @@ class Planner:
 
         def json_filter(e: exprs.Expr) -> bool:
             if isinstance(e, exprs.JsonPath):
-                return not e.is_relative_path() and isinstance(e.anchor, exprs.ColumnRef)
+                return isinstance(e.anchor, exprs.ColumnRef)
             if isinstance(e, exprs.ColumnPropertyRef):
                 return e.col_ref.col.col_type.is_json_type()
             return isinstance(e, exprs.ColumnRef) and e.col.col_type.is_json_type()

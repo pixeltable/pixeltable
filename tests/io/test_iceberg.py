@@ -1,5 +1,5 @@
 import pathlib
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import pyarrow as pa
@@ -18,18 +18,17 @@ from ..utils import (
     validate_update_status,
 )
 
-pytestmark = pytest.mark.local('TODO: convert; import/export (iceberg)')
-
 
 class TestIceberg:
     @classmethod
     def _catalog(cls, tmp_path: pathlib.Path) -> Any:
         return iceberg_catalog(tmp_path / 'warehouse')
 
-    def test_export_all_types(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_export_all_types(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """Export a table with every supported type and verify the Iceberg output."""
         skip_test_if_not_installed('pyiceberg')
-        t = create_all_datatypes_tbl(arrow_compatible_json=True)
+        p = make_catalog_path
+        t = create_all_datatypes_tbl(name=p('all_datatype_tbl'), arrow_compatible_json=True)
 
         # Iceberg has no fixed-shape tensor type; the caller is expected to project the
         # column to a list before exporting.
@@ -85,20 +84,24 @@ class TestIceberg:
             assert isinstance(exp_row['c_image'], bytes)
             assert len(exp_row['c_image']) > 0
 
-    def test_export_fixed_shape_tensor_errors(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_export_fixed_shape_tensor_errors(
+        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+    ) -> None:
         """Fixed-shape array columns should raise; Iceberg has no analogous type."""
         skip_test_if_not_installed('pyiceberg')
+        p = make_catalog_path
         catalog = TestIceberg._catalog(tmp_path)
 
-        fixed = pxt.create_table('test_iceberg_tensor', {'c_array': pxt.Array[(4,), pxt.Float]})  # type: ignore[misc]
+        fixed = pxt.create_table(p('test_iceberg_tensor'), {'c_array': pxt.Array[(4,), pxt.Float]})
         fixed.insert([{'c_array': np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)}])
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='fixed-shape tensor'):
             pxt.io.export_iceberg(fixed, catalog, 'pxt.tensor_fixed')
 
-    def test_export_variable_shape_array(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_export_variable_shape_array(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """Variable-shape arrays map to pa.list_(...) and are exported as Iceberg lists."""
         skip_test_if_not_installed('pyiceberg')
-        variable = pxt.create_table('test_iceberg_tensor_var', {'c_array': pxt.Array[(None,), pxt.Float]})  # type: ignore[misc]
+        p = make_catalog_path
+        variable = pxt.create_table(p('test_iceberg_tensor_var'), {'c_array': pxt.Array[(None,), pxt.Float]})
         variable.insert(
             [
                 {'c_array': np.array([1.0, 2.0, 3.0], dtype=np.float32)},
@@ -112,11 +115,12 @@ class TestIceberg:
         exported = catalog.load_table('pxt.tensor_var').scan().to_arrow().to_pylist()
         assert sorted(r['c_array'] for r in exported) == [[1.0, 2.0, 3.0], [4.0, 5.0]]
 
-    def test_export_with_nulls(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_export_with_nulls(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """Verify null handling across multiple types."""
         skip_test_if_not_installed('pyiceberg')
+        p = make_catalog_path
         t = pxt.create_table(
-            'test_iceberg_nulls',
+            p('test_iceberg_nulls'),
             {
                 'c_int': pxt.Int,
                 'c_string': pxt.String,
@@ -149,10 +153,11 @@ class TestIceberg:
         second = next(r for r in exported if r['c_int'] is None)
         assert second['c_string'] == 'hello'
 
-    def test_export_with_query(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_export_with_query(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """Test export with filtering and column selection."""
         skip_test_if_not_installed('pyiceberg')
-        t = pxt.create_table('test_iceberg_query', {'c_int': pxt.Int, 'c_string': pxt.String})
+        p = make_catalog_path
+        t = pxt.create_table(p('test_iceberg_query'), {'c_int': pxt.Int, 'c_string': pxt.String})
         rows = [{'c_int': i, 'c_string': f'row_{i}'} for i in range(10)]
         validate_update_status(t.insert(rows), expected_rows=10)
 
@@ -169,11 +174,12 @@ class TestIceberg:
         assert subset.num_rows == 10
         assert subset.column_names == ['c_string']
 
-    def test_if_exists(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_if_exists(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """Verify error/replace/append branches of if_exists."""
         skip_test_if_not_installed('pyiceberg')
+        p = make_catalog_path
 
-        t = pxt.create_table('test_iceberg_if_exists', {'c_int': pxt.Int, 'c_string': pxt.String})
+        t = pxt.create_table(p('test_iceberg_if_exists'), {'c_int': pxt.Int, 'c_string': pxt.String})
         t.insert([{'c_int': i, 'c_string': f'row_{i}'} for i in range(5)])
 
         catalog = TestIceberg._catalog(tmp_path)
@@ -198,7 +204,7 @@ class TestIceberg:
             pxt.io.export_iceberg(t, catalog, 'pxt.if_exists', if_exists='badval')  # type: ignore[arg-type]
 
         # Replace + preflight failure: existing table must be preserved.
-        bad = pxt.create_table('test_iceberg_replace_bad', {'c_array': pxt.Array[(4,), pxt.Float]})  # type: ignore[misc]
+        bad = pxt.create_table(p('test_iceberg_replace_bad'), {'c_array': pxt.Array[(4,), pxt.Float]})
         bad.insert([{'c_array': np.array([1.0, 2.0, 3.0, 4.0], dtype=np.float32)}])
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='fixed-shape tensor'):
             pxt.io.export_iceberg(bad, catalog, 'pxt.if_exists', if_exists='replace')
@@ -210,12 +216,15 @@ class TestIceberg:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='namespace-qualified'):
             pxt.io.export_iceberg(t, catalog, 'ns.')
 
-    def test_failure_handling(self, uses_db: None, fault_injection: None, tmp_path: pathlib.Path) -> None:
+    def test_failure_handling(
+        self, make_catalog_path: Callable[[str], str], fault_injection: None, tmp_path: pathlib.Path
+    ) -> None:
         """Inject faults at the instrumented points in export_iceberg() and verify that the existing
         table is left intact and no temp table is leaked."""
         skip_test_if_not_installed('pyiceberg')
+        p = make_catalog_path
 
-        t = pxt.create_table('test_iceberg_faults', {'c_int': pxt.Int, 'c_string': pxt.String})
+        t = pxt.create_table(p('test_iceberg_faults'), {'c_int': pxt.Int, 'c_string': pxt.String})
         t.insert([{'c_int': i, 'c_string': f'row_{i}'} for i in range(5)])
 
         catalog = TestIceberg._catalog(tmp_path)
@@ -242,10 +251,13 @@ class TestIceberg:
         fault.assert_count(1)
         assert catalog.load_table('pxt.faults').scan().to_arrow().num_rows == 5
 
-    def test_append_schema_mismatch(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_append_schema_mismatch(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """Appending a query whose schema doesn't match the existing Iceberg table should raise."""
         skip_test_if_not_installed('pyiceberg')
-        t = pxt.create_table('test_iceberg_mismatch', {'c_int': pxt.Int, 'c_string': pxt.String, 'c_float': pxt.Float})
+        p = make_catalog_path
+        t = pxt.create_table(
+            p('test_iceberg_mismatch'), {'c_int': pxt.Int, 'c_string': pxt.String, 'c_float': pxt.Float}
+        )
         t.insert([{'c_int': 1, 'c_string': 'a', 'c_float': 1.0}])
 
         catalog = TestIceberg._catalog(tmp_path)
@@ -255,10 +267,13 @@ class TestIceberg:
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='not compatible'):
             pxt.io.export_iceberg(t.select(t.c_int, t.c_string), catalog, 'pxt.mismatch', if_exists='append')
 
-    def test_export_json_invalid_rejected(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_export_json_invalid_rejected(
+        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+    ) -> None:
         """JSON columns whose values cannot be reduced to a single arrow type must be rejected."""
         skip_test_if_not_installed('pyiceberg')
-        t = pxt.create_table('test_iceberg_bad_json', {'c_json': pxt.Json})
+        p = make_catalog_path
+        t = pxt.create_table(p('test_iceberg_bad_json'), {'c_json': pxt.Json})
         catalog = TestIceberg._catalog(tmp_path)
 
         # Mixed struct and list shapes across rows: pa.infer_type() can't unify them.
@@ -279,13 +294,14 @@ class TestIceberg:
             pxt.io.export_iceberg(t, catalog, 'pxt.bad_json')
         t.delete()
 
-    def test_schema_override(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_schema_override(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """`schema_overrides` pins arrow types for specified columns."""
         skip_test_if_not_installed('pyiceberg')
+        p = make_catalog_path
         catalog = TestIceberg._catalog(tmp_path)
 
         # Null-only JSON field: an explicit struct override pins the column type so the export succeeds.
-        t = pxt.create_table('test_iceberg_override_null', {'c_json': pxt.Json})
+        t = pxt.create_table(p('test_iceberg_override_null'), {'c_json': pxt.Json})
         t.insert([{'c_json': {'a': None}}, {'c_json': {'a': None}}])
         override = {'c_json': pa.struct([pa.field('a', pa.string())])}
         pxt.io.export_iceberg(t, catalog, 'pxt.override_null', schema_overrides=override)
@@ -294,7 +310,7 @@ class TestIceberg:
         assert all(r['c_json']['a'] is None for r in exported.to_pylist())
 
         # Scalar downcast: int64 -> int32 round-trips with matching values.
-        t2 = pxt.create_table('test_iceberg_override_int', {'c_int': pxt.Int})
+        t2 = pxt.create_table(p('test_iceberg_override_int'), {'c_int': pxt.Int})
         t2.insert([{'c_int': i} for i in range(3)])
         pxt.io.export_iceberg(t2, catalog, 'pxt.override_int', schema_overrides={'c_int': pa.int32()})
         loaded = catalog.load_table('pxt.override_int').scan().to_arrow()
@@ -302,7 +318,7 @@ class TestIceberg:
         assert sorted(r['c_int'] for r in loaded.to_pylist()) == [0, 1, 2]
 
         # Override that does not fit the data: string values cannot be cast to int64.
-        t3 = pxt.create_table('test_iceberg_override_bad', {'c_string': pxt.String})
+        t3 = pxt.create_table(p('test_iceberg_override_bad'), {'c_string': pxt.String})
         t3.insert([{'c_string': 'hello'}])
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='schema_overrides'):
             pxt.io.export_iceberg(t3, catalog, 'pxt.override_bad', schema_overrides={'c_string': pa.int64()})
@@ -313,10 +329,11 @@ class TestIceberg:
                 t3, catalog, 'pxt.override_extraneous', schema_overrides={'does_not_exist': pa.int64()}
             )
 
-    def test_namespace_auto_create(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_namespace_auto_create(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """A non-existent namespace in the table identifier should be created automatically."""
         skip_test_if_not_installed('pyiceberg')
-        t = pxt.create_table('test_iceberg_ns', {'c_int': pxt.Int})
+        p = make_catalog_path
+        t = pxt.create_table(p('test_iceberg_ns'), {'c_int': pxt.Int})
         t.insert([{'c_int': 1}, {'c_int': 2}])
 
         catalog = TestIceberg._catalog(tmp_path)

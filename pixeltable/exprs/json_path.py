@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import io
+import random
 from pathlib import Path
 from typing import Any
 
-import jmespath
 import sqlalchemy as sql
 
 from pixeltable import catalog, exceptions as excs, type_system as ts
@@ -22,33 +22,49 @@ from .sql_element_cache import SqlElementCache
 class JsonPath(Expr):
     """
     anchor can be None, in which case this is a relative JsonPath and the anchor is set later via set_anchor().
-    scope_idx: for relative paths, index of referenced JsonMapper
-    (0: indicates the immediately preceding JsonMapper, -1: the parent of the immediately preceding mapper, ...)
+    root_type: for relative paths, the type of the element the path is rooted at (the source list element type of
+    the enclosing JsonMapper); used to resolve the path's own type. None means the element type is unknown.
     """
 
     path_elements: list[str | int | slice]
-    compiled_path: jmespath.parser.ParsedResult | None
-    scope_idx: int
+    root_type: ts.ColumnType | None
+    _relative_path_root_id: int | None  # explicitly assigned id of a relative path root; None otherwise
     file_handles: dict[Path, io.BufferedReader]  # key: file path
 
     def __init__(
-        self, anchor: Expr | None, path_elements: list[str | int | slice] | None = None, scope_idx: int = 0
+        self,
+        anchor: Expr | None,
+        path_elements: list[str | int | slice] | None = None,
+        root_type: ts.ColumnType | None = None,
     ) -> None:
         if path_elements is None:
             path_elements = []
 
-        super().__init__(
-            self.__resolve_type(anchor.col_type, path_elements) if anchor is not None else ts.JsonType(nullable=True)
-        )
+        if anchor is not None:
+            col_type = self.__resolve_type(anchor.col_type, path_elements)
+        elif root_type is not None:
+            col_type = self.__resolve_type(root_type, path_elements)
+        else:
+            col_type = ts.JsonType(nullable=True)
+        super().__init__(col_type)
+        self.root_type = root_type
         self.path_elements = path_elements
-        self.compiled_path = jmespath.compile(self._json_path()) if len(path_elements) > 0 else None
         if anchor is not None:
             self.components = [anchor]
-        self.scope_idx = scope_idx
-        # NOTE: the _create_id() result will change if set_anchor() gets called;
-        # this is not a problem, because _create_id() shouldn't be called after init()
+
+        # relative path root: it has no anchor and no path elements (we can see a non-None anchor with no path elements
+        # for intermediate JsonPaths)
+        assert anchor is not None or len(path_elements) == 0
+        # we assign a random id to relative path roots: each one is a separate mapper scope, but they have no
+        # distinguishing attributes (other than identity)
+        self._relative_path_root_id = random.getrandbits(63) if anchor is None else None
+
         self.id = self._create_id()
         self.file_handles = {}
+
+    @classmethod
+    def create_relative_path_root(cls, root_type: ts.ColumnType | None = None) -> 'JsonPath':
+        return cls(None, root_type=root_type)
 
     @classmethod
     def __errstr(cls, el: str | int | slice) -> str:
@@ -165,8 +181,11 @@ class JsonPath(Expr):
         self.file_handles.clear()
 
     def __repr__(self) -> str:
-        # else 'R': the anchor is RELATIVE_PATH_ROOT
-        anchor_str = str(self.anchor) if self.anchor is not None else 'R'
+        from .object_ref import ObjectRef
+
+        # a relative path prints its root as 'R', whether still unbound (anchor is None) or already bound to a
+        # mapper's scope anchor (an ObjectRef)
+        anchor_str = 'R' if self.anchor is None or isinstance(self.anchor, ObjectRef) else str(self.anchor)
         if len(self.path_elements) == 0:
             return anchor_str
         sep = '.' if isinstance(self.path_elements[0], str) and self.path_elements[0] != '*' else ''
@@ -182,16 +201,20 @@ class JsonPath(Expr):
         else:
             components_dict = super()._as_dict()
         path_elements = [[el.start, el.stop, el.step] if isinstance(el, slice) else el for el in self.path_elements]
-        return {'path_elements': path_elements, 'scope_idx': self.scope_idx, **components_dict}
+        root_type = self.root_type.as_dict() if self.root_type is not None else None
+        return {'path_elements': path_elements, 'root_type': root_type, **components_dict}
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> JsonPath:
         assert 'path_elements' in d
-        assert 'scope_idx' in d
         assert len(components) <= 1
         anchor = components[0] if len(components) == 1 else None
         path_elements = [slice(el[0], el[1], el[2]) if isinstance(el, list) else el for el in d['path_elements']]
-        return cls(anchor, path_elements, d['scope_idx'])
+        root_type = ts.ColumnType.from_dict(d['root_type']) if d.get('root_type') is not None else None
+        if anchor is None and len(path_elements) > 0:
+            # a relative path serialized before roots became explicit anchors: re-anchor it on a fresh root
+            anchor = cls.create_relative_path_root(root_type)
+        return cls(anchor, path_elements, root_type)
 
     @property
     def anchor(self) -> Expr | None:
@@ -201,28 +224,15 @@ class JsonPath(Expr):
         assert len(self.components) == 0
         self.components = [anchor]
 
-    def is_relative_path(self) -> bool:
-        return self.anchor is None
-
     def _has_relative_path(self) -> bool:
-        return self.is_relative_path() or super()._has_relative_path()
+        # an as-yet-unbound (= relative) root has no anchor; every other JsonPath has one
+        return self.anchor is None or super()._has_relative_path()
 
     def _bind_rel_paths(self, mapper: 'JsonMapperDispatch' | None = None) -> None:
-        if self.is_relative_path():
-            # TODO: take scope_idx into account
+        if self.anchor is None:
             self.set_anchor(mapper.scope_anchor)
         else:
             self.anchor._bind_rel_paths(mapper)
-
-    def __call__(self, *args: object, **kwargs: object) -> 'JsonPath':
-        """
-        Construct a relative path that references an ancestor of the immediately enclosing JsonMapper.
-        """
-        if not self.is_relative_path():
-            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, '() for an absolute path is invalid')
-        if len(args) != 1 or not isinstance(args[0], int) or args[0] >= 0:
-            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'R() requires a negative index')
-        return JsonPath(None, [], args[0])
 
     def _resolves_to_json_array(self) -> bool:
         # True if this path resolves to a typed json array (a list or tuple)
@@ -239,26 +249,52 @@ class JsonPath(Expr):
         last = self.path_elements[-1]
         return isinstance(last, slice) or last == '*'
 
-    def _append_field(self, name: str) -> 'JsonPath':
+    def _append(self, element: str | int | slice) -> 'JsonPath':
+        # a relative root anchors the paths derived from it; any other path passes on its own anchor
+        base = self if self.anchor is None else self.anchor
         elements = [*self.path_elements]
-        if self._resolves_to_json_array() and not self._ends_with_slice():
-            # a field access on a bare json array path contains an implicit ['*']
+        if (
+            isinstance(element, str)
+            and element != '*'
+            and self._resolves_to_json_array()
+            and not self._ends_with_slice()
+        ):
+            # a field access on a bare json array path contains an implicit ['*']; '*' is itself that projection
             elements.append('*')
-        elements.append(name)
-        return JsonPath(self.anchor, elements)
+        elements.append(element)
+        return JsonPath(base, elements, root_type=self.root_type)
 
-    def __getattr__(self, name: str) -> 'JsonPath':
+    def __getattr__(self, name: str) -> 'Expr':
+        import functools
+        from typing import Callable, cast
+
+        from pixeltable.func import FunctionRegistry
+
         assert isinstance(name, str)
-        return self._append_field(name)
+        # map()/filter()/sort():
+        # - exposed as methods on a json expr
+        # - like a registered method they take precedence over field access, and a colliding field stays reachable
+        #   via subscript, e.g. path['map']. They take a callable, so unlike a udf they aren't registered
+        #   type-methods: bind this expr as the source and return the resulting function. The cast reflects that
+        #   the bound function is only ever called, never used as an Expr itself.
+        if self.col_type.is_json_type() and name in ('map', 'filter', 'sort'):
+            from pixeltable.functions.globals import filter as filter_fn, map as map_fn, sort as sort_fn
+
+            fn = cast(Callable[..., Expr], {'map': map_fn, 'filter': filter_fn, 'sort': sort_fn}[name])
+            return cast('Expr', functools.partial(fn, self))
+
+        # a registered method takes precedence over field access (delegating to Expr.__getattr__); a colliding
+        # field stays reachable via subscript, e.g. path['len']
+        if (
+            self.col_type.is_json_type()
+            and FunctionRegistry.get().lookup_type_method(self.col_type.type_enum, name) is None
+        ):
+            return self._append(name)
+        return super().__getattr__(name)
 
     def __getitem__(self, index: object) -> 'JsonPath':
-        if isinstance(index, str):
-            if index == '*':
-                # the '*' operator is itself a projection over an array, not a field to project
-                return JsonPath(self.anchor, [*self.path_elements, '*'])
-            return self._append_field(index)
-        if isinstance(index, (int, slice)):
-            return JsonPath(self.anchor, [*self.path_elements, index])
+        if isinstance(index, (str, int, slice)):
+            return self._append(index)
         raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Invalid json list index: {index}')
 
     def default_column_name(self) -> str | None:
@@ -289,11 +325,16 @@ class JsonPath(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('path_elements', self.path_elements)]
 
+    def _create_id(self) -> int:
+        if self._relative_path_root_id is not None:
+            return self._relative_path_root_id
+        return super()._create_id()
+
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         """
         Postgres appears to have a bug: jsonb_path_query('{a: [{b: 0}, {b: 1}]}', '$.a.b') returns
         *two* rows (each containing col val 0), not a single row with [0, 0].
-        We need to use a workaround: retrieve the entire dict, then use jmespath to extract the path correctly.
+        We need to use a workaround: retrieve the entire dict, then extract the path in Python (see _eval_path()).
         """
         # path_str = '$.' + '.'.join(self.path_elements)
         # assert isinstance(self._anchor(), ColumnRef)
@@ -314,11 +355,32 @@ class JsonPath(Expr):
                 result.append(f'[{print_slice(element)}]')
         return ''.join(result)
 
+    def _eval_path(self, value: Any, idx: int = 0) -> Any:
+        """Evaluate path_elements[idx:] against value."""
+        n = len(self.path_elements)
+        while idx < n:
+            el = self.path_elements[idx]
+            if el == '*' or isinstance(el, slice):
+                # a wildcard or slice opens a projection: apply the rest of the path to each element, keeping one
+                # positionally-aligned result per element (null where the rest of the path doesn't resolve)
+                if not isinstance(value, list):
+                    return None
+                items = value[el] if isinstance(el, slice) else value
+                return [self._eval_path(v, idx + 1) for v in items]
+            if isinstance(el, int):
+                # return list element if in bounds, else None
+                value = value[el] if isinstance(value, list) and -len(value) <= el < len(value) else None
+            else:
+                # return dict value if key exists, else None
+                value = value.get(el) if isinstance(value, dict) else None
+            idx += 1
+        return value
+
     def eval(self, row: DataRow, row_builder: RowBuilder) -> None:
         assert self.anchor is not None, self
         val = row[self.anchor.slot_idx]
-        if self.compiled_path is not None:
-            val = self.compiled_path.search(val)
+        if len(self.path_elements) > 0:
+            val = self._eval_path(val)
         row[self.slot_idx] = val
         if val is None or self.anchor is None or not isinstance(self.anchor, ColumnRef):
             return
@@ -339,6 +401,3 @@ class JsonPath(Expr):
             return
 
         row.vals[self.slot_idx] = reconstruct_json(val, cell_md.file_urls, self.file_handles)
-
-
-RELATIVE_PATH_ROOT = JsonPath(None)

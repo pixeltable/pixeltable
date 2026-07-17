@@ -83,6 +83,18 @@ class QueryTemplateFunction(Function):
         pass  # only one signature supported for QueryTemplateFunction
 
     @property
+    def is_storable(self) -> bool:
+        # the query is serialized inline by value, so it is storable only if every function embedded in its
+        # clauses is itself storable
+        if self.template_query is None:
+            return True
+        return all(
+            fn_call.fn.is_storable
+            for query_expr in self.template_query._component_exprs()
+            for fn_call in query_expr.subexprs(exprs.FunctionCall)
+        )
+
+    @property
     def is_async(self) -> bool:
         return True
 
@@ -208,10 +220,9 @@ def retrieval_udf(
     """
     # Argument validation
     col_refs: list[exprs.ColumnRef]
-    # TODO: get rid of references to ColumnRef internals and replace instead with a public interface
     col_names = table.columns()
     if parameters is None:
-        col_refs = [table[col_name] for col_name in col_names if not table[col_name].col.is_computed]
+        col_refs = [table[col_name] for col_name in col_names if not table[col_name].column_md.is_computed]
     else:
         for param in parameters:
             if isinstance(param, str) and param not in col_names:
@@ -225,7 +236,7 @@ def retrieval_udf(
         raise excs.RequestError(excs.ErrorCode.MISSING_REQUIRED, 'Parameter list cannot be empty.')
 
     # Construct the Query
-    predicates = [col_ref == exprs.Variable(col_ref.col.name, col_ref.col.col_type) for col_ref in col_refs]
+    predicates = [col_ref == exprs.Variable(col_ref.column_md.name, col_ref.column_md.col_type) for col_ref in col_refs]
     where_clause = reduce(lambda c1, c2: c1 & c2, predicates)
     df = table.select().where(where_clause)
     if limit is not None:
@@ -233,7 +244,7 @@ def retrieval_udf(
 
     # Construct the signature
     query_params = [
-        func.Parameter(col_ref.col.name, col_ref.col.col_type, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        func.Parameter(col_ref.column_md.name, col_ref.column_md.col_type, inspect.Parameter.POSITIONAL_OR_KEYWORD)
         for col_ref in col_refs
     ]
 
@@ -245,7 +256,10 @@ def retrieval_udf(
             f'Retrieves an entry from the dataset {name!r} that matches the given parameters.\n\nParameters:\n'
         )
         description += '\n'.join(
-            [f'    {col_ref.col.name}: of type `{col_ref.col.col_type._to_base_str()}`' for col_ref in col_refs]
+            [
+                f'    {col_ref.column_md.name}: of type `{col_ref.column_md.col_type._to_base_str()}`'
+                for col_ref in col_refs
+            ]
         )
 
     fn = func.QueryTemplateFunction(df, query_params, name=name, comment=description)

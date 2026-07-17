@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import inspect
 from typing import TYPE_CHECKING, Any, Callable, Sequence
-from uuid import UUID
 
 import cloudpickle  # type: ignore[import-untyped]
 
@@ -21,12 +20,13 @@ class CallableFunction(Function):
     """Pixeltable Function backed by a Python Callable.
 
     CallableFunctions come in two flavors:
-    - references to lambdas and functions defined in notebooks, which are pickled and serialized to the store
+    - references to lambdas and functions defined in notebooks, which are pickled and cannot be serialized to the store
     - functions that are defined in modules are serialized via the default mechanism
     """
 
     py_fns: list[Callable]
     self_name: str | None
+    _display_name: str | None
     batch_size: int | None
 
     def __init__(
@@ -35,6 +35,7 @@ class CallableFunction(Function):
         py_fns: list[Callable],
         self_path: str | None = None,
         self_name: str | None = None,
+        display_name: str | None = None,
         batch_size: int | None = None,
         is_method: bool = False,
         is_property: bool = False,
@@ -49,6 +50,7 @@ class CallableFunction(Function):
             )
         self.py_fns = py_fns
         self.self_name = self_name
+        self._display_name = display_name
         self.batch_size = batch_size
         self.__doc__ = self.py_fns[0].__doc__
         super().__init__(
@@ -152,11 +154,21 @@ class CallableFunction(Function):
 
     @property
     def display_name(self) -> str:
-        return self.self_name
+        if self._display_name is not None:
+            return self._display_name
+        if self.self_name is not None:
+            return self.self_name
+        return super().display_name
 
     @property
     def name(self) -> str:
         return self.self_name
+
+    @property
+    def is_storable(self) -> bool:
+        # a CallableFunction without a fully-qualified path has no serialized form other than a pickled body, which
+        # we don't want to store in the db; one with a path is serialized by reference and can be stored
+        return self.self_path is not None
 
     def overload(self, fn: Callable) -> CallableFunction:
         if self.self_path is None:
@@ -204,10 +216,12 @@ class CallableFunction(Function):
                 )
                 return InvalidFunction(d['name'], d, error_msg)
         if 'id' in d:
-            # legacy: body stored in the functions table (see schema.Function for the deprecation TODO)
-            from .function_registry import FunctionRegistry
-
-            return FunctionRegistry.get().get_stored_function(UUID(hex=d['id']))
+            # a legacy reference into the now-removed 'functions' table; the pickled body cannot be resolved from
+            # this dict alone, so it loads as an InvalidFunction rather than a usable function
+            name = d.get('name', str(d['id']))
+            return InvalidFunction(
+                name, d, f'the UDF {name!r} was stored in the legacy functions table, which is no longer supported'
+            )
         return super()._from_dict(d)
 
     def to_store(self) -> tuple[dict, bytes]:
