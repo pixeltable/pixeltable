@@ -462,8 +462,6 @@
         </outline>
         <outline text="module|pixeltable.functions.reve">
           <outline text="udf|pixeltable.functions.reve.create" />
-          <outline text="udf|pixeltable.functions.reve.edit" />
-          <outline text="udf|pixeltable.functions.reve.remix" />
         </outline>
         <outline text="module|pixeltable.functions.runwayml">
           <outline text="udf|pixeltable.functions.runwayml.text_to_image" />
