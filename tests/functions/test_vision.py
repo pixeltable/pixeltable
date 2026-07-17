@@ -27,6 +27,7 @@ pytestmark = pytest.mark.local('UDF/integration test')
 
 
 class TestVision:
+    @pytest.mark.very_expensive
     def test_eval(self, uses_db: None) -> None:
         skip_test_if_not_installed('yolox')
         from pixeltable.functions.yolox import yolox
@@ -69,6 +70,7 @@ class TestVision:
             bboxes_draw(v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, fill=True)
         ).collect()
 
+    @pytest.mark.very_expensive
     def test_bboxes_draw(self, uses_db: None) -> None:
         skip_test_if_not_installed('yolox')
         from pixeltable.functions.yolox import yolox
@@ -1236,10 +1238,7 @@ class TestVision:
         masks[0, 0:2, 0:3] = True  # instance 1 covers top-left quadrant
         masks[1, 2:4, 3:6] = True  # instance 2 covers bottom-right quadrant
 
-        t = pxt.create_table(
-            'test_tbl',
-            {'img': pxt.Image, 'masks': pxt.Array[(None, None, None), pxt.Bool]},  # type: ignore[misc]
-        )
+        t = pxt.create_table('test_tbl', {'img': pxt.Image, 'masks': pxt.Array[(None, None, None), pxt.Bool]})
         img = PIL.Image.new('RGB', (width, height), color=(128, 128, 128))
         t.insert(img=img, masks=masks)
 
@@ -1275,11 +1274,7 @@ class TestVision:
 
         t = pxt.create_table(
             'test_tbl',
-            {
-                'img': pxt.Image,
-                'masks': pxt.Array[(None, None, None), pxt.Bool],  # type: ignore[misc]
-                'ids': pxt.Array[(None,), pxt.Int],  # type: ignore[misc]
-            },
+            {'img': pxt.Image, 'masks': pxt.Array[(None, None, None), pxt.Bool], 'ids': pxt.Array[(None,), pxt.Int]},
         )
         img = PIL.Image.new('RGB', (width, height), color=(128, 128, 128))
         t.insert(img=img, masks=frame_a, ids=np.array([5, 9]))
@@ -1308,7 +1303,7 @@ class TestVision:
         image_files = get_image_files()[:3]
         t.insert({'img': f} for f in image_files)
 
-        segmentation_map = t.segmentation.segmentation.astype(pxt.Array[(None, None), np.int32])  # type: ignore[misc]
+        segmentation_map = t.segmentation.segmentation.astype(pxt.Array[(None, None), np.int32])
         _ = t.select(overlay_segmentation(t.img, segmentation_map)).collect()
 
         # test non-defaults

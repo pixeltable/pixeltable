@@ -25,6 +25,7 @@ CMAKE_POLICY_VERSION_MINIMUM := 3.5
 UV_VERSION := 0.9.3
 FFMPEG_VERSION := 6.1.1=gpl*
 MINTLIFY_VERSION := 4.2.506
+OTEL_PKG := packages/opentelemetry-instrumentation-pixeltable
 
 .DEFAULT_GOAL := help
 
@@ -36,19 +37,19 @@ help:
 	@echo ''
 	@echo 'Targets:'
 	@echo '  install       Install the development environment'
-	@echo '  test          Run pytest, stresstest, and check'
-	@echo '  fulltest      Run fullpytest, nbtest, stresstest, and check'
+	@echo '  test          Run pytest and check'
+	@echo '  fulltest      Run fullpytest, nbtest, and check'
 	@echo '  slimtest      Run a slimpytest and check'
 	@echo '  check         Run typecheck, lint, formatcheck, and nbcheck'
 	@echo '  format        Run `ruff format` (updates .py files in place)'
 	@echo '  release       Create a pypi release and post to github'
 	@echo '  docs          Build mintlify documentation'
-	@echo '  docs-dev      Deploy versioned docs to dev with errors visible (auto-updates doctools)'
-	@echo '  docs-stage    Deploy versioned documentation to staging (auto-updates doctools)'
-	@echo '  docs-prod     Deploy documentation from staging to production (auto-updates doctools)'
+	@echo '  docs-serve    Serve documentation locally with live reload'
+	@echo '  docs-deploy   Deploy documentation (requires TARGET=dev|stage|prod)'
+	@echo '  linkscheck    Check for broken links in the built documentation'
+	@echo '  clean         Remove generated files and temp files'
 	@echo ''
 	@echo 'Individual test targets:'
-	@echo '  clean         Remove generated files and temp files'
 	@echo '  pytest        Run `pytest`'
 	@echo '  fullpytest    Run `pytest`, including expensive tests'
 	@echo '  slimpytest    Run `pytest` with a minimal set of tests'
@@ -182,18 +183,21 @@ typecheck: install
 	@mypy pixeltable pixeltable_cli tests tool
 	# Separate direct check of model.py (which is shadowed by the generated model.pyi in the main run)
 	@mypy pixeltable/catalog/model.py
+	@echo 'Running `mypy` on $(OTEL_PKG) ...'
+	@MYPYPATH=$(OTEL_PKG)/src mypy --explicit-package-bases --namespace-packages \
+		$(OTEL_PKG)/src/opentelemetry/instrumentation/pixeltable $(OTEL_PKG)/tests
 
 .PHONY: lint
 lint: install
 	@echo 'Running `ruff check` ...'
-	@ruff check pixeltable pixeltable_cli tests tool
+	@ruff check pixeltable pixeltable_cli tests tool $(OTEL_PKG)/src $(OTEL_PKG)/tests
 
 .PHONY: formatcheck
 formatcheck: install
 	@echo 'Running `ruff format --check` ...'
-	@ruff format --check pixeltable pixeltable_cli tests tool
+	@ruff format --check pixeltable pixeltable_cli tests tool $(OTEL_PKG)/src $(OTEL_PKG)/tests
 	@echo 'Running `ruff check --select I` ...'
-	@ruff check --select I pixeltable pixeltable_cli tests tool
+	@ruff check --select I pixeltable pixeltable_cli tests tool $(OTEL_PKG)/src $(OTEL_PKG)/tests
 
 .PHONY: nbcheck
 nbcheck: install
@@ -203,9 +207,9 @@ nbcheck: install
 .PHONY: format
 format: install
 	@echo 'Running `ruff format` ...'
-	@ruff format pixeltable pixeltable_cli tests tool
+	@ruff format pixeltable pixeltable_cli tests tool $(OTEL_PKG)/src $(OTEL_PKG)/tests
 	@echo 'Running `ruff check --select I --fix` ...'
-	@ruff check --select I --fix pixeltable pixeltable_cli tests tool
+	@ruff check --select I --fix pixeltable pixeltable_cli tests tool $(OTEL_PKG)/src $(OTEL_PKG)/tests
 	@echo 'Running `./scripts/format-notebooks.sh` ...'
 	@./scripts/format-notebooks.sh
 
