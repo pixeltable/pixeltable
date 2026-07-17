@@ -382,8 +382,8 @@ class TestSnapshot:
 
         snap_result = [0, 1, 2, 3, 4]
         assert sorted(snap.select(snap.val).collect()['val']) == snap_result
-        assert sorted(row['val'] for row in snap.val.head(n=100)) == snap_result
-        assert snap.val.count() == 5
+        assert sorted(row['val'] for row in snap.select(snap.val).head(n=100)) == snap_result
+        assert snap.count() == 5
 
     def test_multiple_snapshot_paths(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path

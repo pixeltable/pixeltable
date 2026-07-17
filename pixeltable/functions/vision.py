@@ -16,7 +16,7 @@ import hashlib
 import itertools
 import re
 from collections import defaultdict
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict
 
 import numpy as np
 import PIL.Image
@@ -163,6 +163,15 @@ def __calculate_image_tpfp(
     return tp, fp
 
 
+class DetectionEval(TypedDict):
+    min_iou: float
+    category: int
+    tp: list[int]
+    fp: list[int]
+    scores: list[float]
+    num_gts: int
+
+
 @pxt.udf
 def eval_detections(
     pred_bboxes: list[list[int]],
@@ -171,7 +180,7 @@ def eval_detections(
     gt_bboxes: list[list[int]],
     gt_labels: list[int],
     min_iou: float = 0.5,
-) -> list[dict]:
+) -> list[DetectionEval]:
     """
     Evaluates the performance of a set of predicted bounding boxes against a set of ground truth bounding boxes.
 
@@ -185,25 +194,17 @@ def eval_detections(
             considered a true positive.
 
     Returns:
-        A list of dictionaries, one per label class, with the following structure:
-        ```python
-        {
-            'min_iou': float,  # The value of `min_iou` used for the detections
-            'class': int,  # The label class
-            # List of 1's and 0's indicating true positives for each
-            # predicted bounding box of this class
-            'tp': list[int],
-            # List of 1's and 0's indicating false positives for each
-            # predicted bounding box of this class; `fp[n] == 1 - tp[n]`
-            'fp': list[int],
-            # List of predicted scores for each bounding box of this class
-            'scores': list[float],
-            'num_gts': int,  # Number of ground truth bounding boxes of this class
-        }
-        ```
+        A list of dictionaries, one per label class, with the following entries:
+
+        - `min_iou` (`float`): the value of `min_iou` used for the detections
+        - `category` (`int`): the label class
+        - `tp` (`list[int]`): 1 or 0 for each predicted bounding box of this class, indicating a true positive
+        - `fp` (`list[int]`): 1 or 0 for each predicted bounding box of this class; `fp[n] == 1 - tp[n]`
+        - `scores` (`list[float]`): the predicted scores for each bounding box of this class
+        - `num_gts` (`int`): the number of ground truth bounding boxes of this class
     """
     class_idxs = list(set(pred_labels + gt_labels))
-    result: list[dict] = []
+    result: list[DetectionEval] = []
     pred_bboxes_arr = np.asarray(pred_bboxes)
     pred_classes_arr = np.asarray(pred_labels)
     pred_scores_arr = np.asarray(pred_scores)
@@ -220,7 +221,7 @@ def eval_detections(
         result.append(
             {
                 'min_iou': min_iou,
-                'class': class_idx,
+                'category': class_idx,
                 'tp': tp.tolist(),
                 'fp': fp.tolist(),
                 'scores': ordered_class_pred_scores.tolist(),
@@ -251,7 +252,7 @@ class mean_ap(pxt.Aggregator):
 
     def update(self, eval_dicts: list[dict]) -> None:
         for eval_dict in eval_dicts:
-            class_idx = eval_dict['class']
+            class_idx = eval_dict['category']
             self.class_tpfp[class_idx].append(eval_dict)
 
     def value(self) -> dict:
