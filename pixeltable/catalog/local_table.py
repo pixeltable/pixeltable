@@ -658,7 +658,6 @@ class LocalTable(Table):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot alter base table column {col.name!r}'
                 )
-            col = self._tbl_version.get().cols_by_name[col.name]
 
             dependent_user_cols = self._get_dependent_user_cols(col)
             if len(dependent_user_cols) > 0:
