@@ -530,7 +530,7 @@ class ExprEvalNode(ExecNode):
                     exc.detail = traceback.format_exc()
                 self.error = exc
             else:
-                self.error = excs.Error(
-                    excs.ErrorCode.GENERIC_USER_ERROR, f'Exception in task: {exc}\n{traceback.format_exc()}'
-                )
+                # chain the original exception so its traceback is preserved
+                self.error = excs.Error(excs.ErrorCode.GENERIC_USER_ERROR, f'Exception in task: {exc}')
+                self.error.__cause__ = exc
             self.exc_event.set()

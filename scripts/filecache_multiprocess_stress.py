@@ -98,9 +98,10 @@ def _worker(worker_id: int, port: int, n_images: int, rows: int, rounds: int, n_
     Exit code: 1 if any thread hit a non-capacity error (a real failure); 2 if the only errors were the
     acceptable 'out of capacity' contention signal; 0 if every thread completed cleanly.
     """
-    fatal: list[Exception] = []
-    # per-thread slots: each thread writes only its own index, so no cross-thread synchronization is needed
+    # per-thread slots: each thread writes only its own index, so results are safe to read after join() without
+    # any shared-state synchronization
     capacity_hits = [0] * n_threads
+    errors: list[Exception | None] = [None] * n_threads
     try:
         tbls = [
             pxt.create_table(f'stress_{worker_id}_{thread_id}', {'idx': pxt.Int, 'img': pxt.Image}, if_exists='replace')
@@ -114,7 +115,7 @@ def _worker(worker_id: int, port: int, n_images: int, rows: int, rounds: int, n_
                 )
             except Exception as exc:
                 traceback.print_exc()
-                fatal.append(exc)
+                errors[thread_id] = exc
 
         threads = [threading.Thread(target=run, args=(thread_id,)) for thread_id in range(n_threads)]
         for thread in threads:
@@ -127,7 +128,7 @@ def _worker(worker_id: int, port: int, n_images: int, rows: int, rounds: int, n_
         sys.exit(1)
 
     # exit decision is outside the try so these SystemExits are not caught and downgraded above
-    if len(fatal) > 0:
+    if any(e is not None for e in errors):
         sys.exit(1)
     if sum(capacity_hits) > 0:
         sys.exit(2)
@@ -196,10 +197,9 @@ def main() -> int:
         print(f'worker exit codes: {exit_codes}')
         print(f'file cache after run: {len(cache_files)} files, {cache_kib:.0f} KiB (capacity ~{capacity_kib:.0f} KiB)')
 
-        # exit 1 == a real (non-capacity) failure in some thread; exit 2 == only the acceptable out-of-capacity
-        # contention signal was hit; exit 0 == every thread completed cleanly (no contention reached)
-        # 0 == clean, 2 == acceptable out-of-capacity contention; anything else is a failure, including None and
-        # the negative codes multiprocessing reports when a worker is killed by a signal
+        # 0 == every thread completed cleanly; 2 == only the acceptable out-of-capacity contention signal was hit;
+        # anything else is a real failure, including None and the negative codes multiprocessing reports when a
+        # worker is killed by a signal
         fatal = any(code not in (0, 2) for code in exit_codes)
         contention_reached = any(code == 2 for code in exit_codes)
         print(f'contention (FILE_CACHE_FULL) reached: {contention_reached}')

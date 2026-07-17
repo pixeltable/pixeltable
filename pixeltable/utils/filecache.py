@@ -64,6 +64,8 @@ class FileCache:
     Cache entries are identified by a hash of the file url and stored in Env.file_cache_dir. The time of last
     access of a cache entry is its file's mtime.
 
+    All FileCache operations only raise pxt.Error and never leak other exceptions (e.g., FileNotFoundError).
+
     Concurrency:
     - The cache directory is shared state: multiple threads in this process, and multiple processes sharing the
       same file_cache_dir, operate on it concurrently.
@@ -167,7 +169,7 @@ class FileCache:
                 entries.append(CacheEntry.from_file(path))
             except (ValueError, OSError):
                 # the file matched the name pattern but vanished between the glob and the stat (another process
-                # evicted it), or is otherwise unreadable; ignore it
+                # evicted it), or is otherwise unreadable and cannot be safely deleted; ignore it
                 continue
 
         # a full rebuild: reset both so the scan replaces prior state instead of adding to it
@@ -194,7 +196,7 @@ class FileCache:
     def clear(self, tbl_id: UUID | None = None) -> None:
         """Remove cache entries.
 
-        Removes all entries from the cache if no tbl_id is specified.
+        clear(None) removes all entries from the cache, and is purely a test utility.
         """
         with self._lock:
             self.new_redownload_witnessed = False
@@ -205,33 +207,20 @@ class FileCache:
                 # instance or process may have written files we never adopted. The lock file and any foreign
                 # files do not match the entry-name pattern and are left in place.
                 _logger.debug('clearing all entries from file cache')
-                failures: list[str] = []
                 for path_str in glob.glob(str(Env.get().file_cache_dir / '*')):
-                    if _CACHE_ENTRY_FILE_RE.fullmatch(os.path.basename(path_str)) is None:
-                        continue
-                    try:
-                        os.remove(path_str)
-                    except FileNotFoundError:
-                        pass  # already removed by another process
-                    except OSError as exc:
-                        failures.append(f'{os.path.basename(path_str)}: {exc}')
+                    if _CACHE_ENTRY_FILE_RE.fullmatch(os.path.basename(path_str)) is not None:
+                        self._try_remove_file(Path(path_str))
                 self.cache.clear()
                 self.total_size = 0
                 self.num_requests, self.num_hits, self.num_evictions = 0, 0, 0
                 self.keys_retrieved.clear()
                 self.keys_evicted_after_retrieval.clear()
-                if len(failures) > 0:
-                    detail = '\n  '.join(failures)
-                    raise RuntimeError(
-                        f'FileCache.clear(): could not remove {len(failures)} file(s) from '
-                        f'{Env.get().file_cache_dir}:\n  {detail}'
-                    )
                 return
 
             entries_to_remove = [e for e in self.cache.values() if e.tbl_id == tbl_id]
             _logger.debug(f'clearing {self.num_files(tbl_id)} entries from file cache for table {tbl_id}')
             for entry in entries_to_remove:
-                self._remove_file(entry.path)
+                self._try_remove_file(entry.path)
                 self.cache.pop(entry.key, None)
                 self.total_size -= entry.size
 
@@ -271,12 +260,16 @@ class FileCache:
         h.update(url.encode())
         return h.hexdigest()
 
-    def _remove_file(self, path: Path) -> None:
-        """Remove a cache file, if it still exists."""
+    def _try_remove_file(self, path: Path) -> bool:
+        """Remove a cache file. Returns True if the file is now absent (removed here, or already gone),
+        False if it could not be removed (e.g., held open by another process on Windows)."""
         try:
             os.remove(str(path))
         except FileNotFoundError:
-            pass
+            return True  # already gone
+        except OSError:
+            return False  # in use elsewhere
+        return True
 
     def lookup(self, url: str) -> Path | None:
         """Look up a file in the cache by URL and return its Path, or None if not found.
@@ -327,7 +320,7 @@ class FileCache:
                             os.stat(str(existing.path)).st_mtime, tz=timezone.utc
                         )
                     # discard the redundant download and return the existing file
-                    self._remove_file(path)
+                    self._try_remove_file(path)
                     self.cache.move_to_end(key, last=True)
                     self.keys_retrieved.add(key)
                     return existing.path
@@ -359,7 +352,15 @@ class FileCache:
                 # the lock an evictor could remove new_path before the lease is set. os.utime() renews the lease and,
                 # unlike touch(), never recreates a missing file.
                 os.replace(str(path), str(new_path))
-                os.utime(str(new_path))
+                try:
+                    os.utime(str(new_path))
+                except FileNotFoundError as exc:
+                    # new_path was removed between the replace and the utime by a concurrent clear()
+                    raise excs.ConcurrencyError(
+                        excs.ErrorCode.CONCURRENT_MODIFICATION,
+                        f'File cache entry for {redact_url(url)} was removed by a concurrent operation '
+                        '(such as dropping the table).',
+                    ) from exc
             self.cache[key] = entry
             self.total_size += entry.size
             _logger.debug(f'FileCache: cached url {redact_url(url)} with file name {new_path}')
@@ -391,7 +392,9 @@ class FileCache:
                     if mtime is not None and time.time() - mtime < self.lease_seconds:
                         # leased (in use here or in another process); skip it
                         continue
-                    self._remove_file(entry.path)
+                    if not self._try_remove_file(entry.path):
+                        # in use elsewhere; leave it counted and try the next
+                        continue
                 del self.cache[key]
                 self.total_size -= entry.size
                 self.num_evictions += 1
