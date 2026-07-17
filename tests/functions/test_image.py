@@ -8,7 +8,7 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable.functions.image import alpha_composite, blend, composite, stitch_tiles, tile_iterator
 
-from ..utils import SAMPLE_IMAGE_URL, get_image_files, pxt_raises, rerun
+from ..utils import SAMPLE_IMAGE_URL, get_image_files, pxt_raises, rerun_on_network_error
 
 pytestmark = pytest.mark.local('UDF/integration test')
 
@@ -80,7 +80,7 @@ class TestImage:
                 size=(200, 300), mode='RGB', nullable=nullable
             )
 
-    @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
+    @rerun_on_network_error()
     def test_tile_iterator(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'image': pxt.Image})
         t.insert(image=SAMPLE_IMAGE_URL)
@@ -173,7 +173,7 @@ class TestImage:
         assert len(result) == 1
         assert result[0]['stitched'] is None
 
-    @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
+    @rerun_on_network_error()
     def test_tile_iterator_errors(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'image': pxt.Image})
         t.insert(image=SAMPLE_IMAGE_URL)
