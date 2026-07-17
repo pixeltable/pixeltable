@@ -6,7 +6,7 @@ import itertools
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, MutableMapping, NamedTuple, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, MutableMapping, NamedTuple, TypedDict
 
 from pixeltable import catalog, exceptions as excs, exprs, func, index, type_system as ts
 from pixeltable.env import Env
@@ -466,8 +466,6 @@ class TableModelMeta(type):
     Metaclass that collects annotated column definitions and other table metadata from a class body.
     """
 
-    registered_models: ClassVar[dict[str, TableModelMeta]] = {}  # table name -> model
-
     __table_spec__: TableSpec
     __columns__: dict[str, ColumnSpec]
     __indexes__: dict[str, EmbeddingIndex]
@@ -507,11 +505,13 @@ class TableModelMeta(type):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT, f'{display_name}: `name` must be a valid Pixeltable identifier.'
                 )
-            if tbl_name in mcs.registered_models:
+            # It needs to be scoped to this model_base()
+            base_models = bases[0].__registered_models__  # type: ignore[attr-defined]
+            if tbl_name in base_models:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
                     f'{display_name} has name {tbl_name!r}, but that name was '
-                    f'previously used by `{mcs.registered_models[tbl_name].__name__}`.',
+                    f'previously used by `{base_models[tbl_name].__name__}`.',
                 )
 
             # Validate base
@@ -619,7 +619,6 @@ class TableModelMeta(type):
         cls = super().__new__(mcs, cls_name, bases, namespace_dict)
         assert hasattr(bases[0], '__registered_models__')  # This was checked in __prepare__()
         bases[0].__registered_models__[namespace.table_spec['name']] = cls
-        mcs.registered_models[namespace.table_spec['name']] = cls
         return cls
 
     def _resolve_tbl(cls, binding_root: str, if_not_exists: Literal['error', 'ignore']) -> Table | None:
@@ -675,11 +674,14 @@ class TableModelMeta(type):
             cls._binding_root = binding_root
             return tbl
 
-    def _create(cls, binding_root: str = '') -> Table:
+    def _create(cls, binding_root: str = '') -> tuple[Table, bool]:
+        """Returns the table and whether it was created now (False if it already existed)."""
         binding_root = cls._normalize_binding_root(binding_root)
 
         if cls.is_bound:
-            return cls._resolve_tbl(binding_root, if_not_exists='error')
+            tbl = cls._resolve_tbl(binding_root, if_not_exists='error')
+            assert tbl is not None
+            return tbl, False
 
         table_spec: TableSpec = cls.__table_spec__
 
@@ -722,7 +724,7 @@ class TableModelMeta(type):
         if was_created:
             Env.get().console_logger.info(f'Created {tbl._path()!r} from {table_spec["display_name"]}.')
 
-        return cls._bind(binding_root)
+        return cls._bind(binding_root), was_created
 
     def __getattr__(cls, item: str) -> Any:
         if item in FORWARDED_TABLE_METHODS:
@@ -913,9 +915,14 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         for model in registered_models.values():
             model._bind(binding_root)
 
-    def _create_all(binding_root: str = '') -> None:
+    def _create_all(binding_root: str = '') -> tuple[list[str], list[str]]:
+        """Returns (created, existing): absolute paths of tables created now and those that already exist."""
+        created: list[str] = []
+        existed: list[str] = []
         for model in registered_models.values():
-            model._create(binding_root)
+            tbl, was_created = model._create(binding_root)
+            (created if was_created else existed).append(str(tbl._path()))
+        return created, existed
 
     cls.bind_all = _bind_all  # type: ignore[attr-defined]
     cls.create_all = _create_all  # type: ignore[attr-defined]

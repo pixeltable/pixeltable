@@ -32,7 +32,10 @@ from pixeltable.functions.string import (
     reverse,
     rfind,
     rjust,
+    rsplit,
     rstrip,
+    split,
+    splitlines,
     startswith,
     string_splitter,
     strip,
@@ -119,8 +122,14 @@ class TestString:
             (reverse, lambda s: s[::-1], [], {}),
             (rfind, str.rfind, ['relation', 10, -10], {}),
             (rjust, str.rjust, [100], {}),
+            (rsplit, str.rsplit, [], {}),
+            (rsplit, str.rsplit, ['e', 2], {}),
             (rstrip, str.rstrip, [], {}),
             (rstrip, str.rstrip, ['ST'], {}),
+            (split, str.split, [], {}),
+            (split, str.split, ['e', 2], {}),
+            (splitlines, str.splitlines, [], {}),
+            (splitlines, str.splitlines, [True], {}),
             (startswith, str.startswith, ['Codd'], {}),
             (strip, str.strip, [], {}),
             (strip, str.strip, ['ST'], {}),
@@ -149,9 +158,13 @@ class TestString:
 
         # Check that they can all be called with method syntax too
         for pxt_fn, _, _, _ in test_params:
-            mref = t.s.__getattr__(pxt_fn.name)  # noqa: PLC2801
+            mref = getattr(t.s, pxt_fn.name)
             assert isinstance(mref, exprs.MethodRef)
             assert mref.method_name == pxt_fn.name, pxt_fn
+
+        # a method call executes end to end (count was formerly shadowed by a ColumnRef method)
+        actual = t.order_by(t.s).select(out=t.s.count('relation')).collect()['out']
+        assert actual == [s.count('relation') for s in self.TEST_STRS]
 
     def test_removeprefix(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})

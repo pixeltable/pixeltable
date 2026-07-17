@@ -98,11 +98,11 @@ def _(self: sql.ColumnElement, digits: sql.ColumnElement | None = None) -> sql.C
 
 
 @pxt.udf(is_method=True)
-def pow(self: int, other: int) -> float:
+def pow(self: float, other: float) -> float:
     """
     Raise `self` to the power of `other`.
 
-    Equivalent to Python [`self ** other`](https://docs.python.org/3/library/functions.html#pow).
+    Equivalent to Python [`builtins.pow()`](https://docs.python.org/3/library/functions.html#pow).
     """
     return self**other
 
@@ -110,6 +110,66 @@ def pow(self: int, other: int) -> float:
 @pow.to_sql
 def _(self: sql.ColumnElement, other: sql.ColumnElement) -> sql.ColumnElement:
     return sql.func.pow(self, other)
+
+
+@pxt.udf(is_method=True)
+def sqrt(self: float) -> float:
+    """
+    Return the square root of the given number.
+
+    Equivalent to Python [`math.sqrt()`](https://docs.python.org/3/library/math.html#math.sqrt).
+    """
+    return math.sqrt(self)
+
+
+@sqrt.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.func.sqrt(self)
+
+
+@pxt.udf(is_method=True)
+def exp(self: float) -> float:
+    """
+    Return `e` raised to the power of the given number.
+
+    Equivalent to Python [`math.exp()`](https://docs.python.org/3/library/math.html#math.exp).
+    """
+    return math.exp(self)
+
+
+@exp.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.func.exp(self)
+
+
+@pxt.udf(is_method=True)
+def log(self: float) -> float:
+    """
+    Return the natural logarithm of the given number.
+
+    Equivalent to Python [`math.log()`](https://docs.python.org/3/library/math.html#math.log).
+    """
+    return math.log(self)
+
+
+@log.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.func.ln(self)
+
+
+@pxt.udf(is_method=True)
+def log10(self: float) -> float:
+    """
+    Return the base-10 logarithm of the given number.
+
+    Equivalent to Python [`math.log10()`](https://docs.python.org/3/library/math.html#math.log10).
+    """
+    return math.log10(self)
+
+
+@log10.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.func.log10(self)
 
 
 @pxt.udf(is_method=True)

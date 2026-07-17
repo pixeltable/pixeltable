@@ -177,3 +177,17 @@ class RevertResponse(BaseModel):
     path: str
     from_version: int
     to_version: int
+
+
+class SchemaUpdateBody(BaseModel):
+    schema_path: str  # absolute filesystem path to the schema file on the daemon host
+    target: PxtPath
+
+
+class SchemaUpdateEntry(BaseModel):
+    path: str  # absolute path of the table
+    action: Literal['created', 'exists']
+
+
+class SchemaUpdateResponse(BaseModel):
+    tables: list[SchemaUpdateEntry]

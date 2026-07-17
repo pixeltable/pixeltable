@@ -14,6 +14,21 @@ pytestmark = pytest.mark.local('UDF/integration test')
 
 
 class TestImage:
+    def test_size(self, img_tbl: pxt.Table) -> None:
+        t = img_tbl
+        res = t.select(
+            s=t.img.size,
+            w=t.img.width,
+            h=t.img.height,
+            s0=t.img.size[0],
+            s1=t.img.size[1],
+            area=t.img.size[0] * t.img.size[1],
+        ).collect()
+        assert all(row['s'] == [row['w'], row['h']] for row in res)
+        assert all(row['s0'] == row['w'] for row in res)
+        assert all(row['s1'] == row['h'] for row in res)
+        assert all(row['area'] == row['w'] * row['h'] for row in res)
+
     def test_image(self, img_tbl: pxt.Table) -> None:
         # mask_img = next(f for f in get_image_files() if f.endswith('n03888257_1389.JPEG'))
         t = img_tbl

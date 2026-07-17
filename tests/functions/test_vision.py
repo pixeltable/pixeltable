@@ -558,6 +558,14 @@ class TestVision:
 
             pxt.drop_table(t)
 
+        # float coordinates within [0, 1] are treated as sub-pixel absolute boxes, not rejected as relative
+        t = pxt.create_table('bbox_subpixel', {'bboxes': pxt.Json})
+        validate_update_status(t.insert([{'bboxes': [[0.1, 0.2, 0.3, 0.4]]}]), expected_rows=1)
+        b_out = t.select(out=bboxes_pad(t.bboxes, 'xyxy', x=10, y=20)).collect()['out'][0][0]
+        assert get_w(b_out, 'xyxy') == pytest.approx(0.2 + 20, abs=1)
+        assert get_h(b_out, 'xyxy') == pytest.approx(0.2 + 40, abs=1)
+        pxt.drop_table(t)
+
     def test_bboxes_pad_errors(self, uses_db: None) -> None:
         t = pxt.create_table('bbox_tbl', {'bboxes': pxt.Json})
         t.insert([{'bboxes': [[100, 100, 200, 300]]}])
@@ -589,12 +597,6 @@ class TestVision:
         # negative value
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be >= 0'):
             t.select(bboxes_pad(t.bboxes, 'xyxy', x=-5)).collect()
-
-        # relative bboxes
-        t2 = pxt.create_table('bbox_rel', {'bboxes': pxt.Json})
-        t2.insert([{'bboxes': [[0.1, 0.2, 0.3, 0.4]]}])
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='absolute pixel coordinates'):
-            t2.select(bboxes_pad(t2.bboxes, 'xyxy', x=10)).collect()
 
     def test_bboxes_pad_degenerate(self, uses_db: None) -> None:
         degenerate_boxes = [
@@ -682,6 +684,13 @@ class TestVision:
 
                 pxt.drop_table(t)
 
+        # float absolute coordinates (as produced by detection models) are converted without rounding
+        t = pxt.create_table('convert_float', {'bboxes': pxt.Json})
+        validate_update_status(t.insert([{'bboxes': [[10.5, 20.5, 30.5, 60.5]]}]), expected_rows=1)
+        res = t.select(out=bboxes_convert(t.bboxes, src_format='xyxy', dst_format='xywh')).collect()
+        assert res[0]['out'][0] == pytest.approx([10.5, 20.5, 20.0, 40.0])
+        pxt.drop_table(t)
+
     def test_bboxes_convert_errors(self, uses_db: None) -> None:
         t = pxt.create_table('convert_err', {'bboxes': pxt.Json})
         t.insert([{'bboxes': [[10, 20, 30, 40]]}])
@@ -689,6 +698,16 @@ class TestVision:
             t.select(bboxes_convert(t.bboxes, src_format='coco', dst_format='xyxy')).collect()
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Invalid dst_format'):
             t.select(bboxes_convert(t.bboxes, src_format='xyxy', dst_format='coco')).collect()
+        t.delete()
+
+        # negative coordinates, int and float
+        t.insert([{'bboxes': [[-10, 20, 30, 40]]}])
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be >= 0'):
+            t.select(bboxes_convert(t.bboxes, src_format='xyxy', dst_format='xywh')).collect()
+        t.delete()
+        t.insert([{'bboxes': [[-10.5, 20.0, 30.0, 40.0]]}])
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be >= 0'):
+            t.select(bboxes_convert(t.bboxes, src_format='xyxy', dst_format='xywh')).collect()
         t.delete()
 
         self._test_bbox_validation(t, bboxes_convert(t.bboxes, src_format='xyxy', dst_format='xywh'))
@@ -788,8 +807,8 @@ class TestVision:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Invalid format'):
             t.select(bboxes_clip_to_canvas(t.bboxes, 'coco', width=640, height=480)).collect()
 
-        # Missing both width/height for absolute coords
-        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='both width and height must be specified'):
+        # Missing both width/height for absolute (integer) coords
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='integer coordinates are absolute pixels'):
             t.select(bboxes_clip_to_canvas(t.bboxes, 'xyxy')).collect()
 
         # Missing height for absolute coords
@@ -814,9 +833,9 @@ class TestVision:
         t.delete()
         t.insert([{'bboxes': [[0.1, 0.2, 0.3, 0.4]]}])
 
-        # width/height specified for relative coords
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='must not be specified for relative'):
-            t.select(bboxes_clip_to_canvas(t.bboxes, 'xyxy', width=640, height=480)).collect()
+        # width/height force absolute mode; float coords within [0, 1] are then sub-pixel absolute boxes
+        res = t.select(out=bboxes_clip_to_canvas(t.bboxes, 'xyxy', width=640, height=480)).collect()
+        assert res[0]['out'][0] == pytest.approx([0.1, 0.2, 0.3, 0.4])
 
         self._test_bbox_validation(t, bboxes_clip_to_canvas(t.bboxes, 'xyxy', width=640, height=480))
 
@@ -969,8 +988,8 @@ class TestVision:
                 )
             ).collect()
 
-        # Missing canvas_width/canvas_height for absolute coords
-        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='both canvas_width and canvas_height must be specified'):
+        # Missing canvas_width/canvas_height for absolute (integer) coords
+        with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='integer coordinates are absolute pixels'):
             t.select(
                 bboxes_crop_canvas(t.bboxes, 'xyxy', canvas_region=[10, 10, 100, 100], canvas_region_format='xyxy')
             ).collect()
@@ -1017,18 +1036,19 @@ class TestVision:
         t.delete()
         t.insert([{'bboxes': [[0.1, 0.2, 0.3, 0.4]]}])
 
-        # canvas_width/canvas_height specified for relative coords
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='must not be specified for relative'):
-            t.select(
-                bboxes_crop_canvas(
-                    t.bboxes,
-                    'xyxy',
-                    canvas_region=[0.1, 0.1, 0.5, 0.5],
-                    canvas_region_format='xyxy',
-                    canvas_width=640,
-                    canvas_height=480,
-                )
-            ).collect()
+        # canvas_width/canvas_height force absolute mode; float coords within [0, 1] are then sub-pixel
+        # absolute boxes, translated by the region origin
+        res = t.select(
+            out=bboxes_crop_canvas(
+                t.bboxes,
+                'xyxy',
+                canvas_region=[0.1, 0.1, 0.5, 0.5],
+                canvas_region_format='xyxy',
+                canvas_width=640,
+                canvas_height=480,
+            )
+        ).collect()
+        assert res[0]['out'][0] == pytest.approx([0.0, 0.1, 0.2, 0.3])
 
         # Crop region extending beyond relative canvas
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='extends beyond canvas bounds'):
@@ -1096,6 +1116,17 @@ class TestVision:
                     )
                     assert all(out[i][j] == pytest.approx(expected[j], abs=1) for j in range(4))
                 pxt.drop_table(t)
+
+        # float absolute coordinates (as produced by detection models) are scaled without rounding
+        t = pxt.create_table('bbox_resize_float', {'bboxes': pxt.Json})
+        validate_update_status(t.insert([{'bboxes': [[12.5, 20.25, 100.0, 200.5]]}]), expected_rows=1)
+        res = t.select(
+            out=bboxes_resize_canvas(
+                t.bboxes, 'xyxy', canvas_width=640, canvas_height=480, new_canvas_width=1280, new_canvas_height=960
+            )
+        ).collect()
+        assert res[0]['out'][0] == pytest.approx([25.0, 40.5, 200.0, 401.0])
+        pxt.drop_table(t)
 
     def test_bboxes_resize_canvas_degenerate(self, uses_db: None) -> None:
         # Test degenerate boxes pass through unchanged
@@ -1212,22 +1243,30 @@ class TestVision:
 
     def _test_bbox_validation(self, t: pxt.Table, udf_call: Any) -> None:
         """Test that the bboxes parameter gets validated."""
-        # Mixed int/float within a single box
+        # Mixed int/float within a single box: valid, treated as absolute pixel coordinates
         t.delete()
         t.insert([{'bboxes': [[10, 20.0, 30, 40]]}])
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'either all int.*or all float'):
-            t.select(udf_call).collect()
+        res = t.select(out=udf_call).collect()
+        assert len(res) == 1
+        assert res[0]['out'] is not None
         t.delete()
 
-        # Mixed absolute/relative across boxes
+        # Mixed int and sub-[0, 1] float boxes: valid, treated as absolute pixel coordinates
         t.insert([{'bboxes': [[10, 20, 30, 40], [0.1, 0.2, 0.3, 0.4]]}])
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'either all int.*or all float'):
-            t.select(udf_call).collect()
+        res = t.select(out=udf_call).collect()
+        assert len(res) == 1
+        assert res[0]['out'] is not None
         t.delete()
 
         # Wrong coordinate count
         t.insert([{'bboxes': [[10, 20, 30]]}])
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='exactly 4 coordinates'):
+            t.select(udf_call).collect()
+        t.delete()
+
+        # Non-numeric coordinates
+        t.insert([{'bboxes': [[10, 20, 30, 'x']]}])
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be int or float'):
             t.select(udf_call).collect()
         t.delete()
 

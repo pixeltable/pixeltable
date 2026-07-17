@@ -46,6 +46,7 @@ class TestTimestamp:
         test_dts, t = self.make_test_table()
 
         from pixeltable.functions.timestamp import (
+            date,
             day,
             hour,
             isocalendar,
@@ -65,7 +66,7 @@ class TestTimestamp:
 
         test_params: list[tuple[pxt.Function, Callable, list, dict]] = [
             # (pxt_fn, str_fn, args, **kwargs)
-            # (date, lambda dt: datetime(dt.year, dt.month, dt.day), [], {}),
+            (date, datetime.date, [], {}),
             # (time, lambda dt: datetime(1, 1, 1, dt.hour, dt.minute, dt.second, dt.microsecond), [], {}),
             (year, datetime.year.__get__, [], {}),
             (month, datetime.month.__get__, [], {}),

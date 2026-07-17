@@ -200,7 +200,7 @@ class FunctionCall(Expr):
             subst = self.fn.instantiate(self.args, self.kwargs)
             return subst.display_str(inline)
         if self.is_method_call:
-            return f'{self.components[0]}.{self.fn.name}({self._print_args(1, inline)})'
+            return f'{self.components[0]}.{self.fn.display_name}({self._print_args(1, inline)})'
         else:
             fn_name = self.fn.display_name or 'anonymous_fn'
             return f'{fn_name}({self._print_args()})'

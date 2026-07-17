@@ -1550,7 +1550,7 @@ class Query:
 
             Select unique cities in table `addresses`
 
-            >>> results = addresses.city.distinct()
+            >>> results = addresses.select(addresses.city).distinct()
 
             Select unique locations (street, city) in the state of `CA`
 
