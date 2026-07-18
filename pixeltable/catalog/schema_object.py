@@ -2,7 +2,7 @@ import abc
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from pixeltable import exceptions as excs
+from pixeltable import exceptions as excs, telemetry, telemetry_schemas
 from pixeltable.runtime import get_runtime
 
 if TYPE_CHECKING:
@@ -36,6 +36,7 @@ class SchemaObject(abc.ABC):
                 return None
             return get_runtime().catalog.get_dir(dir_id)
 
+    @telemetry.spanned('pixeltable.catalog.resolve_path', level=telemetry.DEBUG)
     def _path(self) -> 'catalog.Path':
         """Returns the path to this schema object. Raises TABLE_NOT_FOUND if dropped.
 
@@ -47,7 +48,9 @@ class SchemaObject(abc.ABC):
                 # an instance that's in the process of getting dropped has dir_id unset
                 raise excs.table_was_dropped(self._id)
             path = get_runtime().catalog.get_dir_path(dir_id)
-            return path.append(self._name())
+            full_path = path.append(self._name())
+            telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.CatalogAttrs(path=str(full_path)))
+            return full_path
 
     @abc.abstractmethod
     def _display_name(self) -> str:

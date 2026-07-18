@@ -1,3 +1,5 @@
+import asyncio
+import json
 import logging
 import multiprocessing
 import os
@@ -10,14 +12,29 @@ import opentelemetry.instrumentation.pixeltable as pxt_otel
 import pytest
 from opentelemetry import trace
 from opentelemetry.instrumentation.pixeltable import PixeltableInstrumentor, _sdk
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import ProxyTracerProvider
 
 import pixeltable as pxt
-from pixeltable import telemetry
+from pixeltable import telemetry, telemetry_schemas
 from pixeltable.telemetry import SubscriberRegistry
+
+
+@pxt.udf
+def fail_on_marker(s: str) -> str:
+    if s == 'fail':
+        raise ValueError('deliberate failure')
+    return s.upper()
+
+
+@pxt.udf
+async def mock_llm(s: str) -> dict:
+    await asyncio.sleep(0)
+    return {'choice': s}
 
 
 def _set_env(env: dict[str, str]) -> None:
@@ -180,6 +197,49 @@ def test_protocol_grpc(tmp_path: Path) -> None:
     )
 
 
+def check_span_dump_without_endpoint() -> None:
+    for k in [k for k in os.environ if k.startswith('OTEL_') and k != 'OTEL_SPAN_DUMP']:
+        del os.environ[k]
+    pxt_otel.init()
+    assert isinstance(trace.get_tracer_provider(), TracerProvider)
+    assert _sdk._state.owns_tracer_provider
+    parent = telemetry.span_start('pixeltable.op', set_current=True)
+    telemetry.span_end(telemetry.span_start('pixeltable.udf.foo', set_current=True))
+    telemetry.span_end(parent)
+    spans = {}
+    for line in Path(os.environ['OTEL_SPAN_DUMP']).read_text(encoding='utf-8').splitlines():
+        span = json.loads(line)
+        spans[span['name']] = span
+    assert set(spans) == {'pixeltable.op', 'pixeltable.udf.foo'}
+    assert spans['pixeltable.udf.foo']['parent_id'] == spans['pixeltable.op']['context']['span_id']
+
+
+def test_span_dump_without_endpoint(tmp_path: Path) -> None:
+    # a span dump alone activates export (no longer inert): spans land in the file as JSON lines,
+    # written synchronously on span end
+    _run_isolated(check_span_dump_without_endpoint, {'OTEL_SPAN_DUMP': str(tmp_path / 'spans.jsonl')}, tmp_path)
+
+
+def check_span_dump_composes_with_otlp() -> None:
+    pxt_otel.init()
+    tp = trace.get_tracer_provider()
+    processors = tp._active_span_processor._span_processors  # type: ignore[attr-defined]
+    assert {type(p).__name__ for p in processors} == {'BatchSpanProcessor', 'SimpleSpanProcessor'}
+
+
+def test_span_dump_composes_with_otlp(tmp_path: Path) -> None:
+    # endpoint + span dump: both processors attach to the same provider
+    _run_isolated(
+        check_span_dump_composes_with_otlp,
+        {
+            'OTEL_SPAN_DUMP': str(tmp_path / 'spans.jsonl'),
+            'OTEL_EXPORTER_OTLP_ENDPOINT': 'http://127.0.0.1:9',
+            'OTEL_EXPORTER_OTLP_TIMEOUT': '1',
+        },
+        tmp_path,
+    )
+
+
 def test_standard_header_parsing() -> None:
     assert _sdk._parse_headers('Authorization=Basic%20abc%2Cdef,X-Test=a%20b') == {
         'authorization': 'Basic abc,def',
@@ -201,8 +261,15 @@ class TestBridge:
         instrumentor.uninstrument()
 
     def test_span_capture(self, span_exporter: Any) -> None:
-        telemetry.span_end(telemetry.span_start('pixeltable.insert', set_current=True))
-        assert [s.name for s in span_exporter.get_finished_spans()] == ['pixeltable.insert']
+        handle = telemetry.span_start('pixeltable.insert', set_current=True, attrs={'pxt.table_id': 't1'})
+        telemetry.add_attrs(handle, num_rows=5, updated_cols=['a', 'b'])
+        telemetry.span_end(handle)
+        (span,) = span_exporter.get_finished_spans()
+        assert span.name == 'pixeltable.insert'
+        # start attrs and add_attrs() end attrs both land on the exported span
+        assert span.attributes['pxt.table_id'] == 't1'
+        assert span.attributes['pxt.num_rows'] == 5
+        assert tuple(span.attributes['pxt.updated_cols']) == ('a', 'b')
 
     def test_span_nesting(self, span_exporter: Any) -> None:
         parent = telemetry.span_start('pixeltable.op', set_current=True)
@@ -212,6 +279,147 @@ class TestBridge:
         spans = {s.name: s for s in span_exporter.get_finished_spans()}
         assert spans['pixeltable.udf.foo'].parent is not None
         assert spans['pixeltable.udf.foo'].parent.span_id == spans['pixeltable.op'].context.span_id
+
+    def test_span_event(self, span_exporter: Any) -> None:
+        handle = telemetry.span_start('pixeltable.insert', set_current=True)
+        telemetry.emit(handle, 'pixeltable.cell.error', column='c', count=2, skipped=None)
+        telemetry.span_end(handle)
+        (span,) = span_exporter.get_finished_spans()
+        (event,) = span.events
+        assert event.name == 'pixeltable.cell.error'
+        assert dict(event.attributes) == {'pxt.column': 'c', 'pxt.count': 2}
+
+    @pytest.fixture
+    def metric_reader(self) -> Iterator[Any]:
+        reader = InMemoryMetricReader()
+        meter_provider = MeterProvider(metric_readers=[reader])
+        instrumentor = PixeltableInstrumentor()
+        instrumentor.instrument(meter_provider=meter_provider)
+        yield reader
+        instrumentor.uninstrument()
+        meter_provider.shutdown()
+
+    def _metric(self, reader: Any, name: str) -> Any:
+        data = reader.get_metrics_data()
+        all_metrics = [m for rm in data.resource_metrics for sm in rm.scope_metrics for m in sm.metrics]
+        matches = [m for m in all_metrics if m.name == name]
+        assert len(matches) == 1, f'expected exactly one metric named {name!r}, got {len(matches)}'
+        return matches[0]
+
+    def test_counter_export(self, metric_reader: Any) -> None:
+        c = telemetry.counter('pixeltable.test.rows', unit='{row}')
+        c.add(3, table='dir.tbl')
+        c.add(5, table='dir.tbl')
+        metric = self._metric(metric_reader, 'pixeltable.test.rows')
+        assert metric.unit == '{row}'
+        (point,) = metric.data.data_points
+        assert point.value == 8
+        assert dict(point.attributes) == {'pxt.table': 'dir.tbl'}
+
+    def test_histogram_export(self, metric_reader: Any) -> None:
+        h = telemetry.histogram('pixeltable.test.latency', unit='s')
+        h.record(0.5, udf='f')
+        h.record(1.5, udf='f')
+        metric = self._metric(metric_reader, 'pixeltable.test.latency')
+        (point,) = metric.data.data_points
+        assert point.count == 2
+        assert point.sum == 2.0
+        assert dict(point.attributes) == {'pxt.udf': 'f'}
+        # a declared bucket-boundary advisory reaches the SDK aggregation
+        hb = telemetry.histogram('pixeltable.test.latency_bounded', unit='s', boundaries=(0.1, 1.0, 10.0))
+        hb.record(0.5, udf='f')
+        metric = self._metric(metric_reader, 'pixeltable.test.latency_bounded')
+        (point,) = metric.data.data_points
+        assert list(point.explicit_bounds) == [0.1, 1.0, 10.0]
+
+    def test_metrics_end_to_end(self, metric_reader: Any) -> None:
+        pxt.create_dir('otel_metrics_smoke', if_exists='replace_force')
+        try:
+            t = pxt.create_table('otel_metrics_smoke.tbl', {'a': pxt.String, 'b': pxt.String})
+            # casefold: an existing scalar sync UDF without a to_sql translation, so both the insert and
+            # the update recompute run through the Python evaluator and the metric counts are deterministic
+            t.add_computed_column(folded=t.a.casefold())
+            t.add_computed_column(checked=fail_on_marker(t.b))
+            t.add_computed_column(llm=mock_llm(t.a))
+            rows = [{'a': f'r{i}', 'b': 'fail' if i == 0 else f'r{i}'} for i in range(4)]
+            status = t.insert(rows, on_error='ignore')
+            assert status.num_excs > 0
+            t.update({'a': t.a + '!'})
+
+            def point(name: str, **attrs: str) -> Any:
+                metric = self._metric(metric_reader, name)
+                pts = [
+                    p
+                    for p in metric.data.data_points
+                    if all(dict(p.attributes).get(f'pxt.{k}') == v for k, v in attrs.items())
+                ]
+                assert len(pts) == 1, f'{name} {attrs}: expected 1 matching data point, got {len(pts)}'
+                return pts[0]
+
+            # 4 rows inserted, then re-inserted as new versions by the update
+            rows_written = point('pixeltable.rows.written', table='tbl')
+            assert rows_written.value == 8
+            assert 'pxt.table_id' in dict(rows_written.attributes)
+
+            assert point('pixeltable.cells.computed', table='tbl').value >= 8
+
+            assert point('pixeltable.cells.errors', table='tbl').value == 1
+            assert point('pixeltable.udf.errors', udf='fail_on_marker').value == 1
+
+            # 4 calls on insert + 4 on update (both columns depend on 'a')
+            assert point('pixeltable.udf.calls', udf='casefold').value == 8
+            assert point('pixeltable.udf.calls', udf='mock_llm').value == 8
+            # 4 attempts on insert, 1 failed; not recomputed by the update ('checked' depends on 'b')
+            assert point('pixeltable.udf.calls', udf='fail_on_marker').value == 3
+
+            latency = point('pixeltable.udf.latency', udf='casefold')
+            assert latency.count == 8
+            assert latency.sum >= 0
+        finally:
+            pxt.drop_dir('otel_metrics_smoke', force=True)
+
+    def test_token_usage_export(self, metric_reader: Any) -> None:
+        # record_token_usage() is called by the instrumented provider UDFs (openai/anthropic/gemini)
+        # with their response's usage dict; exercised directly here to avoid a remote API call
+        telemetry_schemas.record_token_usage(
+            'chat_completions', {'prompt_tokens': 7, 'completion_tokens': 3}, 'prompt_tokens', 'completion_tokens'
+        )
+        in_point = self._metric(metric_reader, 'pixeltable.udf.input_tokens').data.data_points[0]
+        out_point = self._metric(metric_reader, 'pixeltable.udf.output_tokens').data.data_points[0]
+        assert in_point.value == 7
+        assert out_point.value == 3
+        assert dict(in_point.attributes) == {'pxt.udf': 'chat_completions'}
+
+    def test_cell_error_event(self, span_exporter: Any) -> None:
+        # at DEBUG, cell.error events attach to the per-row spans; at INFO (no row spans) they fall
+        # back to the ambient operation span
+        telemetry.set_span_level(telemetry.DEBUG)
+        pxt.create_dir('otel_event_smoke', if_exists='replace_force')
+        try:
+            t = pxt.create_table('otel_event_smoke.tbl', {'b': pxt.String})
+            t.add_computed_column(checked=fail_on_marker(t.b))
+            status = t.insert([{'b': 'fail'}, {'b': 'ok'}], on_error='ignore')
+            assert status.num_excs > 0
+            spans = span_exporter.get_finished_spans()
+            events = [e for s in spans if s.name == 'pixeltable.row' for e in s.events]
+            (event,) = events  # one failing row -> one event, on its row span
+            assert event.name == 'pixeltable.cell.error'
+            assert event.attributes['pxt.column'] == 'checked'
+            assert event.attributes['pxt.error'] == 'ValueError'
+            insert_span = next(s for s in spans if s.name == 'pixeltable.insert')
+            assert insert_span.events == ()
+
+            telemetry.set_span_level(telemetry.INFO)
+            status = t.insert([{'b': 'fail'}], on_error='ignore')
+            assert status.num_excs > 0
+            spans = span_exporter.get_finished_spans()
+            info_insert = [s for s in spans if s.name == 'pixeltable.insert'][-1]
+            (event,) = info_insert.events
+            assert event.name == 'pixeltable.cell.error'
+            assert event.attributes['pxt.column'] == 'checked'
+        finally:
+            pxt.drop_dir('otel_event_smoke', force=True)
+            telemetry.set_span_level(telemetry.INFO)
 
     def test_uninstrument_stops_emission(self) -> None:
         span_exporter = InMemorySpanExporter()

@@ -1,10 +1,16 @@
 """Dependency-free instrumentation hooks.
 
-Core pixeltable reports spans (timed, nested units of work) and discrete events through this module;
-subscribers (e.g. the bridge in `opentelemetry-instrumentation-pixeltable`) translate them into a
-telemetry backend. With no subscribers registered every call is a near-free no-op, but hot loops should
-still guard with `if telemetry.active():` before building attribute dicts (or pass `attrs` as a
-callable).
+Core pixeltable reports spans (timed, nested units of work), discrete events attached to spans, and
+metrics through this module; subscribers (e.g. the bridge in `opentelemetry-instrumentation-pixeltable`)
+translate them into a telemetry backend. Metric instruments are declared once at module level
+(`_rows = telemetry.counter(...)`) and recorded where the measurement happens
+(`_rows.add(n, table=path)`). With no subscribers registered every call is a near-free no-op, but hot
+loops should still guard with `if telemetry.active():` before building attribute dicts (or pass `attrs`
+as a callable).
+
+In production, run with log export disabled (the bridge's default; `logs=False`) or route exports
+through a collector configured to redact secrets: log records can carry credentials (API keys in
+error messages, signed URLs, connection strings) that would otherwise leak to the telemetry backend.
 
 Spans should cover contiguous units of real computation (a UDF call, a DB insert batch, model loading) or
 serve as structural containers (operation and exec-node spans). A CPU work span must not contain a
@@ -16,10 +22,12 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import functools
+import inspect
 import logging
 import threading
 from contextvars import ContextVar, Token
-from typing import Any, Callable, Hashable, Iterator
+from typing import Any, Callable, Hashable, Iterator, TypeVar, cast
 from weakref import WeakKeyDictionary
 
 _logger = logging.getLogger(__name__)
@@ -29,6 +37,8 @@ DEBUG = 10
 INFO = 20
 
 HookAttrs = dict[str, Any] | Callable[[], dict[str, Any]] | None
+
+F = TypeVar('F', bound=Callable[..., Any])
 
 
 class Subscriber(Hashable):
@@ -53,7 +63,14 @@ class Subscriber(Hashable):
     def on_span_end(self, token: Any, exc: BaseException | None, attrs: dict[str, Any] | None) -> None:
         pass
 
-    def on_event(self, name: str, attrs: dict[str, Any] | None) -> None:
+    def on_event(self, token: Any, name: str, attrs: dict[str, Any]) -> None:
+        """Attach a discrete event to the span identified by token (this subscriber's on_span_start() return)."""
+        pass
+
+    def on_counter_add(self, counter: Counter, value: int | float, attrs: dict[str, Any]) -> None:
+        pass
+
+    def on_histogram_record(self, histogram: Histogram, value: int | float, attrs: dict[str, Any]) -> None:
         pass
 
     def capture_context(self) -> Any:
@@ -85,6 +102,8 @@ class SpanHandle:
 # the ambient span; a ContextVar rather than a thread-local so it propagates into asyncio tasks and
 # concurrent tasks on one thread don't see each other's spans
 _current_span: ContextVar[SpanHandle | None] = ContextVar('pxt_current_span', default=None)
+# the innermost enclosing spanned() span, exposed via func_span() for add_attrs() call sites
+_func_span: ContextVar[SpanHandle | None] = ContextVar('pxt_func_span', default=None)
 
 
 class SubscriberRegistry:
@@ -250,17 +269,91 @@ def add_attrs(handle: SpanHandle | None, **attrs: Any) -> None:
     handle.pending_attrs.update({f'pxt.{k}': v for k, v in attrs.items() if v is not None})
 
 
-def emit(name: str, attrs: HookAttrs = None) -> None:
-    """Report a discrete event (e.g. a counter increment) to all subscribers."""
-    subs = SubscriberRegistry.get()._subscribers
-    if not subs:
+def emit(handle: SpanHandle | None, name: str, **attrs: Any) -> None:
+    """Attach a discrete event to the given span; a no-op for None handles.
+
+    Keyword attrs get a 'pxt.' prefix; None values are skipped.
+    """
+    if not isinstance(handle, SpanHandle):
         return
-    attrs = _resolve_attrs(attrs)
-    for s in subs:
+    prefixed = {f'pxt.{k}': v for k, v in attrs.items() if v is not None}
+    for s, token in zip(handle.subs, handle.tokens, strict=True):
         try:
-            s.on_event(name, attrs)
+            s.on_event(token, name, prefixed)
         except Exception as e:
             SubscriberRegistry.get()._log_subscriber_error(s, 'on_event', e)
+
+
+class Counter:
+    """A monotonic count of things; declare once at module level with counter().
+
+    `name`/`unit` identify the backend instrument (unit is a UCUM code, e.g. '{row}', 'By', 's').
+    """
+
+    __slots__ = ('name', 'unit')
+
+    def __init__(self, name: str, unit: str) -> None:
+        self.name = name
+        self.unit = unit
+
+    def add(self, value: int | float, **attrs: Any) -> None:
+        """Add value to the counter; keyword attrs get a 'pxt.' prefix, None values are skipped.
+
+        Attrs become metric dimensions (one time series per distinct value combination), so only pass
+        low-cardinality values (table path, UDF name); ids, urls, and versions belong on spans.
+        """
+        env = SubscriberRegistry.get()
+        subs = env._subscribers
+        if not subs:
+            return
+        prefixed = {f'pxt.{k}': v for k, v in attrs.items() if v is not None}
+        for s in subs:
+            try:
+                s.on_counter_add(self, value, prefixed)
+            except Exception as e:
+                env._log_subscriber_error(s, 'on_counter_add', e)
+
+
+class Histogram:
+    """A distribution of per-observation values; declare once at module level with histogram().
+
+    Record individual observations only (a call's latency, a file's size); recording pre-aggregated
+    sums produces meaningless percentiles. `boundaries` advises the backend's bucket layout for
+    backends whose defaults don't fit the recorded value range.
+    """
+
+    __slots__ = ('boundaries', 'name', 'unit')
+
+    def __init__(self, name: str, unit: str, boundaries: tuple[float, ...] | None = None) -> None:
+        self.name = name
+        self.unit = unit
+        self.boundaries = boundaries
+
+    def record(self, value: int | float, **attrs: Any) -> None:
+        """Record one observation; keyword attrs get a 'pxt.' prefix, None values are skipped.
+
+        The same low-cardinality rule as Counter.add() applies to attrs.
+        """
+        env = SubscriberRegistry.get()
+        subs = env._subscribers
+        if not subs:
+            return
+        prefixed = {f'pxt.{k}': v for k, v in attrs.items() if v is not None}
+        for s in subs:
+            try:
+                s.on_histogram_record(self, value, prefixed)
+            except Exception as e:
+                env._log_subscriber_error(s, 'on_histogram_record', e)
+
+
+def counter(name: str, unit: str = '') -> Counter:
+    """Declare a counter instrument; module-level, once per metric name."""
+    return Counter(name, unit)
+
+
+def histogram(name: str, unit: str = '', boundaries: tuple[float, ...] | None = None) -> Histogram:
+    """Declare a histogram instrument; module-level, once per metric name."""
+    return Histogram(name, unit, boundaries)
 
 
 @contextlib.contextmanager
@@ -288,6 +381,41 @@ def span(
         raise
     else:
         span_end(handle)
+
+
+def func_span() -> SpanHandle | None:
+    """Handle of the innermost enclosing spanned() span, for use with add_attrs().
+
+    None if there is no enclosing spanned() function or its span was suppressed (add_attrs() accepts None).
+    """
+    return _func_span.get()
+
+
+def spanned(name: str, *, level: int = INFO, set_current: bool = False) -> Callable[[F], F]:
+    """Decorator form of span() for a function whose entire body is one span.
+
+    The span's handle isn't lexically available inside the function; use `add_attrs(func_span(), ...)` to
+    attach attributes to it.
+    """
+
+    def decorator(fn: F) -> F:
+        # a generator/coroutine function returns immediately, which would end the span before any work runs
+        assert not inspect.iscoroutinefunction(fn) and not inspect.isgeneratorfunction(fn)
+
+        @functools.wraps(fn)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            if not SubscriberRegistry.get()._subscribers:
+                return fn(*args, **kwargs)
+            with span(name, level=level, set_current=set_current) as handle:
+                token = _func_span.set(handle)
+                try:
+                    return fn(*args, **kwargs)
+                finally:
+                    _func_span.reset(token)
+
+        return cast(F, wrapper)
+
+    return decorator
 
 
 @dataclasses.dataclass(slots=True)

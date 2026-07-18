@@ -11,7 +11,7 @@ import pandas as pd
 import pydantic
 from pandas.io.formats.style import Styler
 
-from pixeltable import Query, catalog, exceptions as excs, exprs, func, type_system as ts
+from pixeltable import Query, catalog, exceptions as excs, exprs, func, telemetry, telemetry_schemas, type_system as ts
 from pixeltable.catalog import DirEntry, TablePath
 from pixeltable.catalog.insertable_table import OnErrorParameter
 from pixeltable.config import Config
@@ -53,6 +53,7 @@ def init(config_overrides: dict[str, Any] | None = None, additional_config_files
     _ = get_runtime().catalog
 
 
+@telemetry.spanned('pixeltable.create_table', set_current=True)
 def create_table(
     path: str,
     schema: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None,
@@ -187,6 +188,7 @@ def create_table(
     media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
     primary_key: list[str] | None = normalize_primary_key_parameter(primary_key)
 
+    telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(path=str(path_obj)))
     data_source: TableDataConduit | None = None
     if source is not None:
         data_source = TableDataConduit.create(source, source_format=source_format, extra_fields=extra_args)
@@ -246,6 +248,7 @@ def create_table(
         )
     )
 
+    telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(tbl._id)))
     if was_created:
         _logger.info(f'Created table {tbl._name()!r}; id={tbl._id}')
         Env.get().console_logger.info(f'Created table {tbl._name()!r}.')
@@ -426,34 +429,37 @@ def create_view(
     # mapping and report the same errors
     additional_columns = catalog.normalize_schema(additional_columns)
 
-    view, was_created = (
-        get_runtime()
-        .get_catalog(path_obj)
-        .create_view(
-            path_obj,
-            tbl_path,
-            select_list=select_list,
-            where=where,
-            sample_clause=sample_clause,
-            additional_columns=additional_columns,
-            is_snapshot=is_snapshot,
-            create_default_idxs=create_default_idxs,
-            iterator=iterator,
-            comment=comment,
-            custom_metadata=custom_metadata,
-            media_validation=media_validation_,
-            if_exists=if_exists_,
+    span_name = 'pixeltable.create_snapshot' if is_snapshot else 'pixeltable.create_view'
+    with telemetry.span(span_name, set_current=True, **telemetry_schemas.OpAttrs(path=str(path_obj))) as op_span:
+        view, was_created = (
+            get_runtime()
+            .get_catalog(path_obj)
+            .create_view(
+                path_obj,
+                tbl_path,
+                select_list=select_list,
+                where=where,
+                sample_clause=sample_clause,
+                additional_columns=additional_columns,
+                is_snapshot=is_snapshot,
+                create_default_idxs=create_default_idxs,
+                iterator=iterator,
+                comment=comment,
+                custom_metadata=custom_metadata,
+                media_validation=media_validation_,
+                if_exists=if_exists_,
+            )
         )
-    )
 
-    if was_created:
-        _logger.info(f'Created {view._display_str()}, id={view._id}')
-        Env.get().console_logger.info(f'Created {view._display_str()}.')
-    else:
-        d = view._display_str()
-        Env.get().console_logger.info(f'{d[0].upper()}{d[1:]} already exists.')
+        telemetry.add_attrs(op_span, **telemetry_schemas.OpAttrs(table_id=str(view._id)))
+        if was_created:
+            _logger.info(f'Created {view._display_str()}, id={view._id}')
+            Env.get().console_logger.info(f'Created {view._display_str()}.')
+        else:
+            d = view._display_str()
+            Env.get().console_logger.info(f'{d[0].upper()}{d[1:]} already exists.')
 
-    return view
+        return view
 
 
 def create_snapshot(
@@ -582,6 +588,7 @@ def get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') ->
     return tbl
 
 
+@telemetry.spanned('pixeltable.move', set_current=True)
 def move(
     path: str,
     new_path: str,
@@ -626,6 +633,9 @@ def move(
             excs.ErrorCode.UNSUPPORTED_OPERATION, 'move(): source and destination cannot be identical'
         )
     path_obj, new_path_obj = catalog.Path.parse(path), catalog.Path.parse(new_path)
+    telemetry.add_attrs(
+        telemetry.func_span(), **telemetry_schemas.OpAttrs(path=str(path_obj), new_path=str(new_path_obj))
+    )
     if path_obj.catalog_uri != new_path_obj.catalog_uri:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -638,6 +648,7 @@ def move(
     get_runtime().get_catalog(path_obj).move(path_obj, new_path_obj, if_exists_, if_not_exists_)
 
 
+@telemetry.spanned('pixeltable.drop_table', set_current=True)
 def drop_table(
     table: str | catalog.Table, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error'
 ) -> None:
@@ -684,6 +695,7 @@ def drop_table(
         path_obj = catalog.Path.parse(table)
 
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
+    telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(path=str(path_obj)))
     get_runtime().get_catalog(path_obj).drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
 
 
@@ -851,6 +863,7 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
     return [str(p) for p in _extract_paths(contents, parent=path_obj, entry_type=catalog.Table)]
 
 
+@telemetry.spanned('pixeltable.create_dir', set_current=True)
 def create_dir(
     path: str, *, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error', parents: bool = False
 ) -> catalog.Dir | None:
@@ -900,9 +913,11 @@ def create_dir(
     """
     path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
+    telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(path=str(path_obj)))
     return get_runtime().get_catalog(path_obj).create_dir(path_obj, if_exists=if_exists_, parents=parents)
 
 
+@telemetry.spanned('pixeltable.drop_dir', set_current=True)
 def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
     """Remove a directory.
 
@@ -942,6 +957,7 @@ def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ig
     """
     path_obj = catalog.Path.parse(path)  # validate format
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
+    telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(path=str(path_obj)))
     get_runtime().get_catalog(path_obj).drop_dir(path_obj, if_not_exists=if_not_exists_, force=force)
 
 

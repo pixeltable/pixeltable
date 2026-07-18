@@ -279,6 +279,33 @@ For tests that call external APIs (OpenAI, Anthropic, etc.):
 2. Run with the `remote_api` marker: `pytest -m "remote_api" tests/functions/test_openai.py`
 3. These tests are excluded from CI by default
 
+## Debugging with Span Dumps
+
+To inspect Pixeltable's internal spans (e.g. for a performance investigation), have the OTel bridge
+append every finished span to a JSONL file: one JSON object per line with `name`, `context.trace_id`,
+`context.span_id`, `parent_id`, `start_time`/`end_time` (ISO timestamps), `attributes`, and `status`.
+Spans are written synchronously, so the file is complete even if the process crashes.
+
+- Script/notebook: run with `OTEL_SPAN_DUMP=/tmp/spans.jsonl` set (the process must call
+  `pxt_otel.init()`), or pass `pxt_otel.init(span_dump='/tmp/spans.jsonl')` directly. Requires
+  `pip install 'pixeltable[otel]'`; no OTLP endpoint needed.
+- `pxt serve ... --span-dump /tmp/spans.jsonl`
+- Set `OTEL_SPAN_LEVEL=debug` (or `trace`) for per-row and per-UDF spans; the default `info` emits
+  operation-level spans only.
+- To also capture every SQL statement (with `db.statement`), call
+  `pxt_otel._instrument_sqlalchemy(engine=pixeltable.env.Env.get().engine)` after `init()`; requires
+  `pip install opentelemetry-instrumentation-sqlalchemy`.
+- To nest Pixeltable spans under HTTP request spans in a FastAPI app, call
+  `pxt_otel.instrument_fastapi(app)` after `init()`; requires
+  `pip install opentelemetry-instrumentation-fastapi`.
+
+Durations are `end_time - start_time`; reconstruct trace trees by joining `parent_id` to
+`context.span_id`. Quick look at the slowest operations:
+
+```bash
+jq -r '[.name, .start_time, .end_time] | @tsv' /tmp/spans.jsonl
+```
+
 ## Database and Storage
 
 - Pixeltable uses embedded PostgreSQL at `~/.pixeltable/pgdata`

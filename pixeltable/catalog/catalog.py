@@ -17,7 +17,7 @@ import sqlalchemy.exc as sql_exc
 from sqlalchemy.dialects.postgresql import array as pg_array
 
 import pixeltable.index as index
-from pixeltable import exceptions as excs, exprs, func, telemetry
+from pixeltable import exceptions as excs, exprs, func, telemetry, telemetry_schemas
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
@@ -379,7 +379,16 @@ class Catalog(CatalogBase):
                 pending_ops_tbl_id = None
 
             # one span per acquisition attempt; retries show up as sibling spans
-            xact_span = telemetry.span_start('pixeltable.catalog.begin_xact', attrs={'pxt.for_write': for_write})
+            xact_span = telemetry.span_start('pixeltable.catalog.begin_xact')
+            telemetry.add_attrs(
+                xact_span,
+                **telemetry_schemas.XactAttrs(
+                    for_write=for_write,
+                    attempt=num_retries,
+                    read_table_ids=[str(id) for id in read_tbl_ids] + [str(tvp.tbl_id) for tvp in read_tvps] or None,
+                    write_table_ids=[str(id) for id in write_tbl_ids] + [str(tvp.tbl_id) for tvp in write_tvps] or None,
+                ),
+            )
             attempt_exc: BaseException | None = None
             try:
                 self._in_write_xact = for_write
@@ -683,6 +692,7 @@ class Catalog(CatalogBase):
         if has_pending_ops:
             raise PendingTableOpsError(row.id)
 
+    @telemetry.spanned('pixeltable.catalog.acquire_write_lock', level=telemetry.DEBUG)
     def _acquire_write_lock(
         self, *, tbl_id: UUID, lock_mutable_tree: bool = False, check_pending_ops: bool = True
     ) -> set[UUID]:
@@ -694,6 +704,7 @@ class Catalog(CatalogBase):
         Returns the set of locked table IDs, which could be empty if the lock couldn't be acquired,
         e.g., tbl is a non-mutable table.
         """
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.CatalogAttrs(table_id=str(tbl_id)))
         where_clause = schema.Table.id == tbl_id
         conn = get_runtime().conn
         row = conn.execute(sql.select(schema.Table).where(where_clause).with_for_update(nowait=True)).one_or_none()
@@ -884,10 +895,21 @@ class Catalog(CatalogBase):
                         # cleared properly if an error occurs during op execution.
                         if tv is not None:
                             self.mark_modified_tv(tv.handle)
+                        op_attrs = telemetry_schemas.CatalogAttrs(table_id=str(tbl_id))
                         if is_rollback:
-                            op.undo(tv)
+                            with telemetry.span(
+                                f'pixeltable.op.{type(op).__name__}.undo',
+                                set_current=telemetry.current_span() is not None,
+                                **op_attrs,
+                            ):
+                                op.undo(tv)
                         else:
-                            op.exec(tv)
+                            with telemetry.span(
+                                f'pixeltable.op.{type(op).__name__}',
+                                set_current=telemetry.current_span() is not None,
+                                **op_attrs,
+                            ):
+                                op.exec(tv)
 
                         _logger.debug(f'Finalize pending ops({tbl_id}): op {op!s} done, updating status')
                         if self._set_pending_op_status(tbl_id, op, new_op_status, is_final_op=is_final_op):
@@ -896,10 +918,21 @@ class Catalog(CatalogBase):
 
                 # this op runs outside of a transaction
                 fault_injection.process_fault(FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT)
+                op_attrs = telemetry_schemas.CatalogAttrs(table_id=str(tbl_id))
                 if is_rollback:
-                    op.undo(tv)
+                    with telemetry.span(
+                        f'pixeltable.op.{type(op).__name__}.undo',
+                        set_current=telemetry.current_span() is not None,
+                        **op_attrs,
+                    ):
+                        op.undo(tv)
                 else:
-                    op.exec(tv)
+                    with telemetry.span(
+                        f'pixeltable.op.{type(op).__name__}',
+                        set_current=telemetry.current_span() is not None,
+                        **op_attrs,
+                    ):
+                        op.exec(tv)
                 # no need to invalidate tv here: all operations that modify metadata (cached in tv) are executed
                 # inside a transaction and therefore wouldn't end up here
                 rollover_op_update = (op, new_op_status, is_final_op)
@@ -1025,6 +1058,7 @@ class Catalog(CatalogBase):
             )
         return pending_ops_stmt
 
+    @telemetry.spanned('pixeltable.catalog.set_pending_op_status', level=telemetry.DEBUG)
     def _set_pending_op_status(self, tbl_id: UUID, op: TableOp, new_status: OpStatus, *, is_final_op: bool) -> bool:
         """
         Updates the pending op status in the store. If is_final_op, sets table status to LIVE after additional checks.
@@ -1037,6 +1071,7 @@ class Catalog(CatalogBase):
         Returns True if no unresolved pending ops remain on the table, and the table's status was set to LIVE. False
         otherwise.
         """
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.CatalogAttrs(table_id=str(tbl_id)))
         pending_ops_stmt = self._pending_table_ops_update_stmt(tbl_id, op, new_status, is_final_op=is_final_op)
         conn = get_runtime().conn
         rowcount = conn.execute(pending_ops_stmt).rowcount
@@ -1068,18 +1103,20 @@ class Catalog(CatalogBase):
         rowcount = conn.execute(reset_tbl_state_stmt).rowcount
         if rowcount == 0 and not isinstance(op, DeleteTableMdOp):
             _logger.info(
-                f'Finalize pending ops({tbl_id}): no Table rows matched. Another process may have deleted the table '
-                'concurrently.'
+                f'Finalize pending ops({tbl_id}): no Table rows matched. Another process may have deleted the '
+                'table concurrently.'
             )
 
         return True
 
+    @telemetry.spanned('pixeltable.catalog.read_pending_ops', level=telemetry.DEBUG)
     def _read_pending_table_ops(self, tbl_id: UUID) -> list[TableOp]:
         """
         Selects table's pending ops for update and returns them as TableOps in order.
 
         Must be called inside a transaction with the table selected for update.
         """
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.CatalogAttrs(table_id=str(tbl_id)))
         conn = get_runtime().conn
         q = (
             sql.select(schema.PendingTableOp)
@@ -1154,6 +1191,7 @@ class Catalog(CatalogBase):
             result.add(col)
         return result
 
+    @telemetry.spanned('pixeltable.catalog.acquire_dir_xlock', level=telemetry.DEBUG)
     def _acquire_dir_xlock(
         self, *, parent_id: UUID | None = None, dir_id: UUID | None = None, dir_name: str | None = None
     ) -> None:
@@ -1267,6 +1305,7 @@ class Catalog(CatalogBase):
             else:
                 raise AssertionError(f'unexpected SchemaObject type: {type(src_obj).__name__}')
 
+    @telemetry.spanned('pixeltable.catalog.prepare_dir_op', level=telemetry.DEBUG)
     def _prepare_dir_op(
         self,
         add_dir_path: Path | None = None,
@@ -1380,6 +1419,7 @@ class Catalog(CatalogBase):
 
         return None
 
+    @telemetry.spanned('pixeltable.catalog.get_schema_object', level=telemetry.DEBUG)
     def _get_schema_object(
         self,
         path: Path,
@@ -1397,6 +1437,7 @@ class Catalog(CatalogBase):
         - raise_if_not_exists is True and the path does not exist
         - expected is not None and the existing object has a different type
         """
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.CatalogAttrs(path=str(path)))
         assert expected in (None, LocalTable, Dir), expected
 
         if path.is_root:
@@ -1809,7 +1850,9 @@ class Catalog(CatalogBase):
     @retry_loop(for_write=False)
     def get_table(self, path: Path, if_not_exists: IfNotExistsParam) -> LocalTable | None:
         obj = self._get_schema_object(
-            path, expected=LocalTable, raise_if_not_exists=(if_not_exists == IfNotExistsParam.ERROR)
+            path,
+            expected=LocalTable,  # type: ignore[type-abstract]
+            raise_if_not_exists=(if_not_exists == IfNotExistsParam.ERROR),
         )
         if obj is None:
             _logger.info(f'Skipped table {path!r} (does not exist).')
@@ -1826,7 +1869,7 @@ class Catalog(CatalogBase):
         def drop_fn() -> None:
             tbl = self._get_schema_object(
                 path,
-                expected=LocalTable,
+                expected=LocalTable,  # type: ignore[type-abstract]
                 raise_if_not_exists=(if_not_exists == IfNotExistsParam.ERROR and not force),
                 lock_parent=True,
                 lock_obj=False,
@@ -1996,7 +2039,9 @@ class Catalog(CatalogBase):
         drop_fn()
         self._roll_forward()
 
+    @telemetry.spanned('pixeltable.catalog.drop_dir', level=telemetry.DEBUG)
     def _drop_dir(self, dir_id: UUID, dir_path: Path, force: bool = False) -> None:
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.CatalogAttrs(path=str(dir_path)))
         conn = get_runtime().conn
         if not force:
             # check for existing entries
@@ -2025,8 +2070,10 @@ class Catalog(CatalogBase):
         conn.execute(sql.delete(schema.Dir).where(schema.Dir.id == dir_id))
         _logger.info(f'Removed directory {dir_path!r}.')
 
+    @telemetry.spanned('pixeltable.catalog.get_view_ids', level=telemetry.DEBUG)
     def get_view_ids(self, tbl_id: UUID, for_update: bool = False) -> list[UUID]:
         """Return the ids of views that directly reference the given table"""
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.CatalogAttrs(table_id=str(tbl_id)))
         conn = get_runtime().conn
         # check whether this table still exists
         q = sql.select(sql.func.count()).select_from(schema.Table).where(self._active_tbl_clause(tbl_id=tbl_id))
@@ -2475,6 +2522,7 @@ class Catalog(CatalogBase):
 
         return TableVersionMd(tbl_md, version_md, schema_version_md)
 
+    @telemetry.spanned('pixeltable.catalog.write_tbl_md')
     def write_tbl_md(
         self,
         tbl_id: UUID,
@@ -2497,6 +2545,12 @@ class Catalog(CatalogBase):
 
         If inserting `version_md` or `schema_version_md` would be a primary key violation, an exception will be raised.
         """
+        telemetry.add_attrs(
+            telemetry.func_span(),
+            **telemetry_schemas.CatalogAttrs(
+                table_id=str(tbl_id), version=None if version_md is None else version_md.version
+            ),
+        )
         assert self._in_write_xact
         assert version_md is None or version_md.created_at > 0.0
         assert pending_ops is None or len(pending_ops) > 0
@@ -2661,10 +2715,12 @@ class Catalog(CatalogBase):
         res = conn.execute(stmt)
         assert res.rowcount == 1, res.rowcount
 
+    @telemetry.spanned('pixeltable.catalog.delete_tbl_md')
     def delete_tbl_md(self, tbl_id: UUID) -> None:
         """
         Deletes all table metadata from the store for the given table UUID.
         """
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.CatalogAttrs(table_id=str(tbl_id)))
         conn = get_runtime().conn
         _logger.info(f'delete_tbl_md({tbl_id})')
         status = conn.execute(sql.delete(schema.TableSchemaVersion).where(schema.TableSchemaVersion.tbl_id == tbl_id))
@@ -2705,8 +2761,13 @@ class Catalog(CatalogBase):
 
         return md
 
+    @telemetry.spanned('pixeltable.catalog.load_tbl_version')
     def _load_tbl_version(self, key: TableVersionKey, *, check_pending_ops: bool = True) -> TableVersion:
         """Creates TableVersion instance from stored metadata and registers it in _tbl_versions."""
+        telemetry.add_attrs(
+            telemetry.func_span(),
+            **telemetry_schemas.CatalogAttrs(table_id=str(key.tbl_id), version=key.effective_version),
+        )
         tv_md = self.load_tbl_md(key)
         tbl_md = tv_md.tbl_md
         version_md = tv_md.version_md

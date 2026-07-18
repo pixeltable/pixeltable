@@ -59,8 +59,10 @@ class _OtelSubscriber(telemetry.Subscriber):
     def __init__(self, tracer_provider: Any | None, meter_provider: Any | None) -> None:
         self._tracer = trace.get_tracer('pixeltable', __version__, tracer_provider=tracer_provider)
         self._meter = otel_metrics.get_meter('pixeltable', __version__, meter_provider=meter_provider)
-        # TODO(part 2): create the metric instruments here and translate events in on_event() once core
-        # emits the corresponding telemetry.emit() events
+        # OTEL instruments are created on first use, keyed by the telemetry declaration object (which
+        # carries the instrument's name/unit)
+        self._counters: dict[telemetry.Counter, otel_metrics.Counter] = {}
+        self._histograms: dict[telemetry.Histogram, otel_metrics.Histogram] = {}
 
     def on_span_start(self, name: str, parent_token: Any, attrs: dict[str, Any] | None, set_current: bool) -> Any:
         if parent_token is not None:
@@ -85,6 +87,29 @@ class _OtelSubscriber(telemetry.Subscriber):
         span.end()
         if token.ctx_token is not None:
             otel_context.detach(token.ctx_token)
+
+    def on_event(self, token: Any, name: str, attrs: dict[str, Any]) -> None:
+        assert isinstance(token, _SpanToken)
+        token.span.add_event(name, attributes=_clean_attrs(attrs))
+
+    def on_counter_add(self, counter: telemetry.Counter, value: int | float, attrs: dict[str, Any]) -> None:
+        inst = self._counters.get(counter)
+        if inst is None:
+            # a concurrent first add is safe: setdefault keeps one winner and the SDK meter dedups
+            # instrument creation by (name, kind, unit) under its own lock
+            inst = self._counters.setdefault(counter, self._meter.create_counter(counter.name, unit=counter.unit))
+        inst.add(value, attributes=_clean_attrs(attrs))
+
+    def on_histogram_record(self, histogram: telemetry.Histogram, value: int | float, attrs: dict[str, Any]) -> None:
+        inst = self._histograms.get(histogram)
+        if inst is None:
+            inst = self._histograms.setdefault(
+                histogram,
+                self._meter.create_histogram(
+                    histogram.name, unit=histogram.unit, explicit_bucket_boundaries_advisory=histogram.boundaries
+                ),
+            )
+        inst.record(value, attributes=_clean_attrs(attrs))
 
     def capture_context(self) -> Any:
         return otel_context.get_current()

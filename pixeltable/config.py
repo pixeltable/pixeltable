@@ -592,6 +592,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'service_name': 'service.name resource attribute (default: pixeltable)',
         'exporter_otlp_headers': "OTLP headers as comma-separated 'key=value' pairs",
         'span_level': "Span verbosity: 'info' (default), 'debug', or 'trace'",
+        'span_dump': 'File to append finished spans to, one JSON object per line',
         'metrics': 'Export metrics via OTLP (default: only when an OTLP endpoint is configured)',
         'logs': 'Export pixeltable logs via OTLP (default: false)',
     },
