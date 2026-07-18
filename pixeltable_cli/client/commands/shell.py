@@ -9,6 +9,7 @@ import sys
 import traceback
 
 from ..parser import Parser
+from ..utils import display_path, get_request
 
 EPILOG = """\
 Inside the shell:
@@ -17,6 +18,18 @@ Inside the shell:
   exit | quit | Ctrl-D     leave the shell"""
 
 _PROMPT = 'pxt> '
+
+
+def _prompt() -> str:
+    """The REPL prompt: 'pxt <wd>> ' when the daemon has a working directory set, else the bare 'pxt> '.
+    A daemon that can't be reached falls back to the bare prompt instead of ending the session."""
+    try:
+        uri = get_request('/api/cwd')['uri']
+    except (SystemExit, Exception):
+        return _PROMPT
+    if uri is None:
+        return _PROMPT
+    return f'pxt {display_path(uri)}> '
 
 
 def run(argv: list[str]) -> None:
@@ -34,7 +47,7 @@ def run(argv: list[str]) -> None:
 
     while True:
         try:
-            line = input(_PROMPT)
+            line = input(_prompt())
         except EOFError:
             sys.stdout.write('\n')
             return

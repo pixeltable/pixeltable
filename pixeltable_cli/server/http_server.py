@@ -16,6 +16,7 @@ import json
 import logging
 import mimetypes
 import sys
+import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -73,8 +74,8 @@ class _DaemonHandler(BaseHTTPRequestHandler):
         url_path = unquote(parsed.path)
         query = parse_qs(parsed.query, keep_blank_values=True)
 
-        match = router.match(method, url_path)
-        if match is None:
+        handler = router.match(method, url_path)
+        if handler is None:
             # Static fallback: the SPA expects unknown non-/api/ paths to resolve to index.html
             # so client-side routing works. Reject if the SPA isn't bundled.
             if method == 'GET' and not url_path.startswith('/api/') and _HAS_STATIC_BUNDLE:
@@ -83,7 +84,6 @@ class _DaemonHandler(BaseHTTPRequestHandler):
             self._send_json({'detail': 'not found'}, http.HTTPStatus.NOT_FOUND)
             return
 
-        handler, path_params = match
         if method == 'POST':
             body_bytes = self._read_body()
             if body_bytes is None:
@@ -91,15 +91,23 @@ class _DaemonHandler(BaseHTTPRequestHandler):
                 return
         else:
             body_bytes = b''
-        req = Request(path_params=path_params, query=query, body_bytes=body_bytes)
+        req = Request(query=query, body_bytes=body_bytes, headers={k.lower(): v for k, v in self.headers.items()})
         try:
             result = handler(req)
         except excs.Error as e:
             self._send_json({'detail': str(e), 'error_code': e.error_code.name}, e.http_status)
             return
-        except Exception:
-            _logger.exception('Unhandled error in %s %s', method, url_path)
-            self._send_json({'detail': 'internal server error'}, http.HTTPStatus.INTERNAL_SERVER_ERROR)
+        except Exception as e:
+            # log the full request target (self.path includes the query string) plus the resolved catalog
+            # paths, so the affected path is visible whether it arrived in the query string or the body
+            _logger.exception('Unhandled error in %s %s (paths=%s)', method, self.path, req.resolved_paths)
+            # Return the exception message and daemon-side traceback rather than a bare 'internal server
+            # error': the daemon serves only localhost for the same user, so this leaks nothing, and it
+            # gives the user a concrete failure to act on and report.
+            self._send_json(
+                {'detail': f'{type(e).__name__}: {e}', 'traceback': traceback.format_exc()},
+                http.HTTPStatus.INTERNAL_SERVER_ERROR,
+            )
             return
 
         if isinstance(result, RawResponse):

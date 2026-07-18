@@ -12,8 +12,8 @@ import json
 import sys
 from pathlib import Path
 
-from ..http import post
 from ..parser import Parser
+from ..utils import post_request
 
 EPILOG = """\
 Examples:
@@ -45,7 +45,7 @@ def _update(schema: str, target: str, *, as_json: bool) -> None:
         print(f'pxt schema update: schema file not found: {schema}', file=sys.stderr)
         sys.exit(1)
 
-    resp = post('/api/schema/update', {'schema_path': str(schema_path.resolve()), 'target': target})
+    resp = post_request('/api/schema/update', {'schema_path': str(schema_path.resolve()), 'target': target})
 
     if as_json:
         print(json.dumps(resp, indent=2))

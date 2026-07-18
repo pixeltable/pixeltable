@@ -1,8 +1,8 @@
 import json
 
 from ..confirm import confirm_or_exit
-from ..http import post, quote_path
 from ..parser import Parser
+from ..utils import display_path, post_request, validate_path_arg
 
 EPILOG = """\
 Examples:
@@ -32,8 +32,8 @@ def run(argv: list[str]) -> None:
 
     confirm_or_exit(f'remove directory {args.path}?', args.force)
 
-    resp = post(f'/api/dirs/{quote_path(args.path)}/drop', {'cascade': args.recursive})
+    resp = post_request('/api/dirs/drop', {'path': validate_path_arg(args.path), 'cascade': args.recursive})
     if args.as_json:
         print(json.dumps(resp, indent=2))
     else:
-        print(f'removed {resp["path"]}')
+        print(f'removed {display_path(resp["path"])}')

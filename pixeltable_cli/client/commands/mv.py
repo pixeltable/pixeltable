@@ -1,8 +1,8 @@
 import json
 
 from ...utils import validate_path_shape
-from ..http import post
 from ..parser import Parser
+from ..utils import display_path, post_request
 
 EPILOG = """\
 Examples:
@@ -40,8 +40,8 @@ def run(argv: list[str]) -> None:
         print(f'would move {args.path} -> {dst}')
         return
 
-    resp = post('/api/move', {'path': args.path, 'new_path': dst})
+    resp = post_request('/api/move', {'path': args.path, 'new_path': dst})
     if args.as_json:
         print(json.dumps(resp, indent=2))
     else:
-        print(f'moved {resp["path"]} -> {resp["new_path"]}')
+        print(f'moved {display_path(resp["path"])} -> {display_path(resp["new_path"])}')

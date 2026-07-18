@@ -1,8 +1,8 @@
 import json
 from typing import Any
 
-from ..http import get, quote_path
 from ..parser import Parser
+from ..utils import display_path, get_request, validate_path_arg
 
 EPILOG = """\
 Columns under -l:
@@ -32,8 +32,12 @@ def run(argv: list[str]) -> None:
 
     # Only -l/--long triggers the per-entry get_metadata() fetch. JSON consumers who want
     # the full schema info pass -l --json; bare --json stays cheap on large catalogs.
-    url = '/api/dirs' if args.path == '' else f'/api/dirs/{quote_path(args.path)}'
-    resp = get(url, params={'tree': args.tree or None, 'details': args.long or None, 'counts': args.counts or None})
+    # An empty path lists the root, so it is sent as no path at all.
+    path = validate_path_arg(args.path) if args.path != '' else None
+    resp = get_request(
+        '/api/dirs',
+        params={'path': path, 'tree': args.tree or None, 'details': args.long or None, 'counts': args.counts or None},
+    )
 
     if args.as_json:
         print(json.dumps(resp, indent=2))
@@ -54,7 +58,7 @@ def run(argv: list[str]) -> None:
 
     rows: list[list[str]] = []
     for e in resp['entries']:
-        row = [e['path'], e['kind']]
+        row = [display_path(e['path']), e['kind']]
         if args.counts:
             row.append('' if e.get('num_rows') is None else str(e['num_rows']))
         if args.long:

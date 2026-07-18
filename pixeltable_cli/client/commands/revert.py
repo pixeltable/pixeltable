@@ -1,8 +1,8 @@
 import json
 
 from ..confirm import confirm_or_exit
-from ..http import post, quote_path
 from ..parser import Parser
+from ..utils import post_request, validate_path_arg
 
 EPILOG = """\
 Examples:
@@ -35,7 +35,7 @@ def run(argv: list[str]) -> None:
 
     confirm_or_exit(f'revert {args.path} by {args.steps} version(s)? this is irreversible.', args.force)
 
-    resp = post(f'/api/tables/{quote_path(args.path)}/revert', {'steps': args.steps})
+    resp = post_request('/api/tables/revert', {'path': validate_path_arg(args.path), 'steps': args.steps})
     if args.as_json:
         print(json.dumps(resp, indent=2))
     else:

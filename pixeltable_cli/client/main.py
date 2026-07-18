@@ -7,6 +7,8 @@ from collections.abc import Callable
 # Each key names a module under pixeltable_cli.client.commands.* exposing run(argv: list[str]) -> None.
 COMMANDS: dict[str, str] = {
     'health': 'show daemon info',
+    'cwd': 'set or clear the working directory prepended to relative paths',
+    'pwd': 'print the working directory',
     'ls': 'list catalog entries',
     'describe': "show a table's schema and metadata",
     'errors': 'list rows where a computed column failed',

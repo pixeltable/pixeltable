@@ -15,7 +15,7 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.types import TreeNode
 from pixeltable_cli import models
-from pixeltable_cli.utils import identity, validate_path_shape
+from pixeltable_cli.utils import identity
 
 from . import bridge
 from .router import RawResponse, Request, Router
@@ -26,16 +26,6 @@ _STARTED_AT = datetime.datetime.now(datetime.timezone.utc).isoformat()
 # Freeze the identity fingerprint at import time so /health reports what the daemon was
 # launched with, not what os.environ looks like right now. Used to trigger a daemon restart.
 _IDENTITY: dict[str, Any] = identity()
-
-
-def _validate_path(path: str) -> str:
-    """Reject URL paths whose shape pixeltable would later reject with a generic error."""
-    if path == '':
-        return path
-    err = validate_path_shape(path)
-    if err is not None:
-        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, err)
-    return path
 
 
 @router.get('/api/health')
@@ -101,18 +91,41 @@ def config(_req: Request) -> models.ConfigResponse:
 
 
 @router.get('/api/dirs')
-def list_root(req: Request) -> models.LsResponse:
-    return _list_dir(
-        '', tree=req.query_bool('tree'), details=req.query_bool('details'), counts=req.query_bool('counts')
-    )
-
-
-@router.get('/api/dirs/{path:path}')
 def list_dir(req: Request) -> models.LsResponse:
-    path = _validate_path(req.path_params['path'])
+    path = req.resolve_path(req.query_str('path') or '')
     return _list_dir(
         path, tree=req.query_bool('tree'), details=req.query_bool('details'), counts=req.query_bool('counts')
     )
+
+
+@router.get('/api/cwd')
+def get_cwd(req: Request) -> models.CwdResponse:
+    from . import daemon  # local import avoids the daemon -> http_server -> routes cycle
+
+    return models.CwdResponse(uri=daemon.get_wd(req.headers.get('x-pxt-session')))
+
+
+@router.post('/api/cwd')
+def set_cwd(req: Request) -> models.CwdResponse:
+    from . import daemon  # local import avoids the daemon -> http_server -> routes cycle
+
+    session = req.headers.get('x-pxt-session')
+    if session is None:
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'no session; cannot set a working directory')
+    resolved = req.resolve_path(req.body(models.CwdBody).uri)
+    if resolved == '':
+        # the catalog root is the default (no prefix), so a working directory that resolves to root clears it
+        daemon.clear_wd(session)
+        return models.CwdResponse(uri=None)
+    _require_dir(resolved)
+    daemon.set_wd(session, resolved)
+    return models.CwdResponse(uri=resolved)
+
+
+def _require_dir(path: str) -> None:
+    """Raise if path does not name an existing directory (reuses the ls tree navigation)."""
+    path_obj = Path.parse(path, allow_empty_path=True)
+    _get_dir_children(pxt.get_dir_tree(path_obj.uri), '/'.join(path_obj.components))
 
 
 def _list_dir(path: str, *, tree: bool, details: bool, counts: bool) -> models.LsResponse:
@@ -142,9 +155,9 @@ def _reroot(nodes: list[TreeNode], catalog_root: str) -> None:
             _reroot(n['entries'], catalog_root)
 
 
-@router.get('/api/tables/{path:path}/rows')
+@router.get('/api/tables/rows')
 def table_rows(req: Request) -> models.RowsResponse:
-    path = _validate_path(req.path_params['path'])
+    path = req.resolve_path(req.query_str('path') or '')
     n = req.query_int('n', default=10, ge=1, le=1000)
     cols_list = _split_csv(req.query_str('cols'))
     if cols_list is not None and len(cols_list) > 1000:
@@ -175,9 +188,9 @@ def table_rows(req: Request) -> models.RowsResponse:
     return models.RowsResponse(columns=columns_list, rows=out_rows)
 
 
-@router.get('/api/tables/{path:path}/row')
+@router.get('/api/tables/row')
 def table_row(req: Request) -> models.GetResponse:
-    path = _validate_path(req.path_params['path'])
+    path = req.resolve_path(req.query_str('path') or '')
     pk = req.query_list('pk')
     if len(pk) == 0:
         raise excs.RequestError(excs.ErrorCode.MISSING_REQUIRED, "missing or empty 'pk' query parameter")
@@ -238,15 +251,15 @@ def table_row(req: Request) -> models.GetResponse:
     return models.GetResponse(pk_columns=pk_names, row=row)
 
 
-@router.get('/api/tables/{path:path}/count')
+@router.get('/api/tables/count')
 def table_count(req: Request) -> models.CountResponse:
-    path = _validate_path(req.path_params['path'])
+    path = req.resolve_path(req.query_str('path') or '')
     return models.CountResponse(path=path, count=pxt.get_table(path).count())
 
 
-@router.get('/api/tables/{path:path}/errors')
+@router.get('/api/tables/errors')
 def table_errors(req: Request) -> models.ErrorsResponse:
-    path = _validate_path(req.path_params['path'])
+    path = req.resolve_path(req.query_str('path') or '')
     col = req.query_str('col')
     t = pxt.get_table(path)
     md = t.get_metadata()
@@ -297,26 +310,26 @@ def table_errors(req: Request) -> models.ErrorsResponse:
     return models.ErrorsResponse(entries=entries)
 
 
-@router.get('/api/tables/{path:path}/history')
+@router.get('/api/tables/history')
 def table_history(req: Request) -> models.HistoryResponse:
-    path = _validate_path(req.path_params['path'])
+    path = req.resolve_path(req.query_str('path') or '')
     n = req.query_int('n', default=None, ge=1)
     versions = pxt.get_table(path).get_versions(n)
     return models.HistoryResponse(versions=[dict(v) for v in versions])
 
 
-@router.post('/api/tables/{path:path}/drop')
+@router.post('/api/tables/drop')
 def drop_table(req: Request) -> models.DropResponse:
-    path = _validate_path(req.path_params['path'])
     body = req.body(models.DropBody)
+    path = req.resolve_path(body.path)
     pxt.drop_table(path, force=body.cascade)
     return models.DropResponse(path=path, dropped=True)
 
 
-@router.post('/api/tables/{path:path}/revert')
+@router.post('/api/tables/revert')
 def revert(req: Request) -> models.RevertResponse:
-    path = _validate_path(req.path_params['path'])
     body = req.body(models.RevertBody)
+    path = req.resolve_path(body.path)
     if body.steps < 1:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'steps must be >= 1')
     t = pxt.get_table(path)
@@ -331,9 +344,9 @@ def revert(req: Request) -> models.RevertResponse:
     return models.RevertResponse(path=path, from_version=from_version, to_version=to_version)
 
 
-@router.get('/api/tables/{path:path}')
+@router.get('/api/tables/describe')
 def describe_table(req: Request) -> models.DescribeResponse:
-    path = _validate_path(req.path_params['path'])
+    path = req.resolve_path(req.query_str('path') or '')
     t = pxt.get_table(path)
     return models.DescribeResponse(text=repr(t), metadata=dict(t.get_metadata()))
 
@@ -349,7 +362,7 @@ def columns(req: Request) -> models.ColumnsResponse:
             excs.ErrorCode.INVALID_ARGUMENT, "'path' query parameter is empty; omit it entirely for all tables"
         )
     if path is not None:
-        _validate_path(path)
+        path = req.resolve_path(path)
     paths = _resolve_table_paths(path)
     entries: list[models.ColumnEntry] = []
     for p in paths:
@@ -384,7 +397,7 @@ def indexes(req: Request) -> models.IdxsResponse:
             excs.ErrorCode.INVALID_ARGUMENT, "'path' query parameter is empty; omit it entirely for all tables"
         )
     if path is not None:
-        _validate_path(path)
+        path = req.resolve_path(path)
     paths = _resolve_table_paths(path)
     entries: list[models.IdxEntry] = []
     for p in paths:
@@ -409,10 +422,10 @@ def indexes(req: Request) -> models.IdxsResponse:
     return models.IdxsResponse(entries=entries)
 
 
-@router.post('/api/dirs/{path:path}/drop')
+@router.post('/api/dirs/drop')
 def drop_dir(req: Request) -> models.DropResponse:
-    path = _validate_path(req.path_params['path'])
     body = req.body(models.DropBody)
+    path = req.resolve_path(body.path)
     pxt.drop_dir(path, force=body.cascade)
     return models.DropResponse(path=path, dropped=True)
 
@@ -420,14 +433,16 @@ def drop_dir(req: Request) -> models.DropResponse:
 @router.post('/api/move')
 def move(req: Request) -> models.MoveResponse:
     body = req.body(models.MoveBody)
-    pxt.move(body.path, body.new_path)
-    return models.MoveResponse(path=body.path, new_path=body.new_path)
+    src = req.resolve_path(body.path)
+    dst = req.resolve_path(body.new_path)
+    pxt.move(src, dst)
+    return models.MoveResponse(path=src, new_path=dst)
 
 
 @router.post('/api/schema/update')
 def schema_update(req: Request) -> models.SchemaUpdateResponse:
     body = req.body(models.SchemaUpdateBody)
-    created, existed = bridge.schema_update(body.schema_path, body.target)
+    created, existed = bridge.schema_update(body.schema_path, req.resolve_path(body.target))
     tables = [models.SchemaUpdateEntry(path=p, action='created') for p in created]
     tables += [models.SchemaUpdateEntry(path=p, action='exists') for p in existed]
     return models.SchemaUpdateResponse(tables=tables)
@@ -442,15 +457,15 @@ def dashboard_search(req: Request) -> dict[str, Any]:
     return bridge.search(q, limit=limit)
 
 
-@router.get('/api/dashboard/tables/{path:path}/meta')
+@router.get('/api/dashboard/tables/meta')
 def dashboard_table_meta(req: Request) -> dict[str, Any]:
-    path = _validate_path(req.path_params['path'])
+    path = req.resolve_path(req.query_str('path') or '')
     return dict(pxt.get_table(path).get_metadata())
 
 
-@router.get('/api/dashboard/tables/{path:path}/pipeline')
+@router.get('/api/dashboard/tables/pipeline')
 def dashboard_pipeline(req: Request) -> dict[str, Any]:
-    path = _validate_path(req.path_params['path'])
+    path = req.resolve_path(req.query_str('path') or '')
     return bridge.get_pipeline(tbl_path=path)
 
 
@@ -459,9 +474,9 @@ def dashboard_pipeline_root(_req: Request) -> dict[str, Any]:
     return bridge.get_pipeline(tbl_path=None)
 
 
-@router.get('/api/dashboard/tables/{path:path}/data')
+@router.get('/api/dashboard/tables/data')
 def dashboard_table_data(req: Request) -> dict[str, Any]:
-    path = _validate_path(req.path_params['path'])
+    path = req.resolve_path(req.query_str('path') or '')
     return bridge.get_table_data(
         path,
         offset=req.query_int('offset', default=0, ge=0),
@@ -472,9 +487,9 @@ def dashboard_table_data(req: Request) -> dict[str, Any]:
     )
 
 
-@router.get('/api/dashboard/tables/{path:path}/export')
+@router.get('/api/dashboard/tables/export')
 def dashboard_table_export(req: Request) -> RawResponse:
-    path = _validate_path(req.path_params['path'])
+    path = req.resolve_path(req.query_str('path') or '')
     # Whole CSV is materialized in memory by bridge.export_table_csv before sending.
     # 100k is the documented upper bound; widen later if we move to chunked streaming.
     limit = req.query_int('limit', default=100_000, ge=1, le=100_000)
