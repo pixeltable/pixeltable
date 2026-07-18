@@ -601,6 +601,8 @@ class TestTableModel:
             name: pxt.String
             value: pxt.Float
             image: pxt.Image
+            idx1 = EmbeddingIndex(image, embedding=dummy_embedding.using(n=768))
+            idx2 = EmbeddingIndex(image, embedding=dummy_embedding.using(n=512))
 
         class ExampleView(
             TableModel,
@@ -612,6 +614,11 @@ class TestTableModel:
             vc2 = ExampleTable.id + 2
             vc3 = ExampleTable.id + 3
             vc4 = ExampleTable.id + 4
+
+        # Created as a view; V2 redeclares it as a table, producing a kind mismatch.
+        class ExampleKind(TableModel, name='test_kind', base=ExampleTable):
+            kc1 = ExampleTable.value + 1
+            kc2 = ExampleTable.value + 2
 
         TableModel.create_all(root)
 
@@ -630,6 +637,9 @@ class TestTableModel:
             extra1: pxt.Int  # added
             extra2: pxt.String  # added
             # 'name' and 'value' dropped
+            idx1 = EmbeddingIndex(image, embedding=dummy_embedding.using(n=768))  # kept
+            idx3 = EmbeddingIndex(image, embedding=dummy_embedding.using(n=256))  # added
+            # 'idx2' dropped
 
         class ExampleViewV2(
             TableModelV2,
@@ -642,9 +652,21 @@ class TestTableModel:
             vextra1: pxt.Int
             vextra2: pxt.String
 
+        # Redeclares 'test_kind' (created above as a view) as a table, with the same columns; only the kind differs.
+        class ExampleKindV2(TableModelV2, name='test_kind'):
+            kc1: pxt.Float
+            kc2: pxt.Float
+
+        # A model with no corresponding table in the catalog; it would be created.
+        class ExampleNewV2(TableModelV2, name='test_new'):
+            id: pxt.Required[pxt.Int]
+            data: pxt.String
+
         with capture_console_output() as out:
             TableModelV2.diff_all(root)
-        assert out.getvalue().strip() == textwrap.dedent("""
+        assert (
+            out.getvalue().strip()
+            == textwrap.dedent("""
             Table 'test_table' (from model `ExampleTableV2`) has differences:
               the following columns are new to the model, and will be ADDED:
                 'extra1' = {'type': Int | None}
@@ -652,6 +674,10 @@ class TestTableModel:
               the following columns are no longer in the model, and will be DROPPED:
                 'name'
                 'value'
+              the following indexes are new to the model, and will be ADDED:
+                'idx3' = EmbeddingIndex(column=image, embedding=dummy_embedding(text, n=256))
+              the following indexes are no longer in the model, and will be DROPPED:
+                'idx2'
             View 'test_view' (from model `ExampleViewV2`) has differences:
               iterator mismatch (FATAL):
                 model iterator   : tile_iterator(image, [128, 128])
@@ -662,7 +688,11 @@ class TestTableModel:
               the following columns are no longer in the model, and will be DROPPED:
                 'vc3'
                 'vc4'
+            Table 'test_kind' (from model `ExampleKindV2`) has differences:
+              kind mismatch (FATAL): `ExampleKindV2` specifies a table, but 'test_kind' is a view
+            Table 'test_new' (from model `ExampleNewV2`) does not yet exist.
        """).strip()
+        )
 
     def test_table_model_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """Reproduce each error condition raised by `pixeltable.catalog.model`."""

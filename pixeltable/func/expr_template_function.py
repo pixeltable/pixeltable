@@ -159,8 +159,8 @@ class ExprTemplateFunction(Function):
     def __str__(self) -> str:
         return str(self.templates[0].expr)
 
-    # def __repr__(self) -> str:
-    #     return f'ExprTemplateFunction(name={self.name}, templates={self.templates})'
+    def __repr__(self) -> str:
+        return str(self)
 
     def _as_dict(self) -> dict:
         if self.self_path is not None:

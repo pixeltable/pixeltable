@@ -104,6 +104,27 @@ class EmbeddingIndex:
     metric: Literal['cosine', 'ip', 'l2'] = 'cosine'
     precision: Literal['fp16', 'fp32'] = 'fp16'
 
+    def __repr__(self) -> str:
+        embeds = [
+            f'{name}={fn}'
+            for name, fn in (
+                ('embedding', self.embedding),
+                ('string_embed', self.string_embed),
+                ('image_embed', self.image_embed),
+                ('audio_embed', self.audio_embed),
+                ('video_embed', self.video_embed),
+                ('document_embed', self.document_embed),
+            )
+            if fn is not None
+        ]
+        parts = [f'column={self.column}', *embeds]
+        # Only surface metric/precision when they deviate from their defaults.
+        if self.metric != 'cosine':
+            parts.append(f'metric={self.metric!r}')
+        if self.precision != 'fp16':
+            parts.append(f'precision={self.precision!r}')
+        return f'EmbeddingIndex({", ".join(parts)})'
+
 
 class TableSpec(TypedDict):
     """Table specification from a TableModel or ViewModel."""
@@ -973,7 +994,9 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
             for col_name, col_md in existing_md['columns'].items()
             if col_md['defined_in'] == existing_md['name'] and not col_md['is_iterator_col']
         }
-        existing_idxs = set(idx_name for idx_name, info in existing_md['indices'].items() if info['index_type'] == 'embedding')
+        existing_idxs = {
+            idx_name for idx_name, info in existing_md['indices'].items() if info['index_type'] == 'embedding'
+        }
 
         # TODO: validate table properties (comment, custom_metadata, media_validation, primary_key, etc.)
         # TODO: validate base table query
@@ -997,7 +1020,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
 def _format_diff(name: str, r: ValidationResults) -> list[str]:
     """Human-readable lines describing how the model named `name` differs from the current catalog state."""
     if not r.tbl_exists:
-        return [f'{r.model_kind.capitalize()} {name!r} (from model `{r.model_cls.__name__}`) does not yet exist.']
+        return [f'{r.model_kind.capitalize()} {name!r} (from model `{r.model_cls.__name__}`) ' 'does not yet exist, and will be CREATED.']
 
     detail: list[str] = []
     if r.model_kind != r.existing_kind:
