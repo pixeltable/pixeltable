@@ -17,7 +17,7 @@ from ..utils import (
     get_video_files,
     pxt_raises,
     reload_catalog,
-    rerun,
+    rerun_on_network_error,
     skip_test_if_no_config,
     skip_test_if_not_installed,
     validate_update_status,
@@ -27,7 +27,7 @@ pytestmark = pytest.mark.local('UDF/integration test')
 
 
 @pytest.mark.very_expensive  # Downloads Hugging Face models
-@rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading models
+@rerun_on_network_error()
 @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
 class TestHuggingface:
     def test_hf_function(self, uses_db: None) -> None:

@@ -11,6 +11,10 @@ from typing import Any, Literal
 import aiohttp
 import numpy as np
 
+# we're importing TypedDict and NotRequired from typing_extensions, not typing: on Python 3.10 the stdlib TypedDict
+# does not register typing_extensions.NotRequired into __optional_keys__
+from typing_extensions import NotRequired, TypedDict
+
 import pixeltable as pxt
 from pixeltable import type_system as ts
 from pixeltable.env import register_client
@@ -184,10 +188,21 @@ def _(model: str, dimensions: int | None) -> ts.ArrayType:
     return ts.ArrayType((dim,), dtype=np.dtype(np.float32), nullable=False)
 
 
+class JinaRerankResult(TypedDict):
+    index: int
+    relevance_score: float
+    document: NotRequired[str]
+
+
+class JinaRerankResponse(TypedDict):
+    results: list[JinaRerankResult]
+    usage: dict
+
+
 @pxt.udf(resource_pool='request-rate:jina')
 async def rerank(
     query: str, documents: list[str], *, model: str, top_n: int | None = None, return_documents: bool | None = None
-) -> dict:
+) -> JinaRerankResponse:
     """
     Reranks documents based on their relevance to a query using Jina AI reranker models.
 
@@ -238,9 +253,9 @@ async def rerank(
 
     # Format the response
     results_list = result.get('results', [])
-    formatted_results = []
+    formatted_results: list[JinaRerankResult] = []
     for r in results_list:
-        item = {'index': r.get('index'), 'relevance_score': r.get('relevance_score')}
+        item: JinaRerankResult = {'index': r.get('index'), 'relevance_score': r.get('relevance_score')}
         if return_documents is True and 'document' in r:
             doc = r['document']
             # Handle both string and dict formats from the API

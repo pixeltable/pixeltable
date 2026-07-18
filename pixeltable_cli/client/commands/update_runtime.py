@@ -34,10 +34,13 @@ def run(argv: list[str]) -> None:
 
         project_dir = Path.cwd().resolve()
 
-        required = ('pyproject.toml', 'uv.lock', 'pixeltable.toml')
+        # Accept any project marker build_db_runtime_bundle can use: a project file or any lockfile it
+        # supports (uv.lock / poetry.lock / requirements.txt). Keep this in sync with deploy.py's lockfile list.
+        required = ('pyproject.toml', 'uv.lock', 'poetry.lock', 'requirements.txt', 'pixeltable.toml')
         if not any((project_dir / f).exists() for f in required):
             print(
-                f'pxt: error: no pyproject.toml, uv.lock, or pixeltable.toml found in {project_dir}.\n'
+                f'pxt: error: no project files (pyproject.toml, uv.lock, poetry.lock, requirements.txt, '
+                f'or pixeltable.toml) found in {project_dir}.\n'
                 'Run from your project directory or pass --project-dir.',
                 file=sys.stderr,
             )
