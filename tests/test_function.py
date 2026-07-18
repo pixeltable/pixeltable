@@ -1917,7 +1917,7 @@ class TestFunction:
         videos = get_video_files()[:2]
         t_vid = pxt.create_table(p('test_est_vid'), {'video': pxt.Video})
         t_vid.add_computed_column(emb=mock_embed(t_vid.video))
-        with pxt_raises(pxt.ErrorCode.GENERIC_USER_ERROR, match='not in the resolved function signature'):
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='not in the resolved function signature'):
             t_vid.insert([{'video': v} for v in videos])
 
     def test_resource_estimator_non_polymorphic(self, make_catalog_path: Callable[[str], str]) -> None:

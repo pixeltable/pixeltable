@@ -8,6 +8,7 @@ UDFs).
 """
 
 import itertools
+import threading
 from collections.abc import Iterator
 from typing import Any, Callable, Literal, TypedDict, TypeVar
 
@@ -1789,14 +1790,15 @@ def text_to_speech(text: str, *, model_id: str, speaker_id: int | None = None, v
     speaker_embeddings = None
     if 'speecht5' in model_id.lower():
         ds: datasets.Dataset
-        if len(_speecht5_embeddings_dataset) == 0:
-            ds = datasets.load_dataset(
-                'Matthijs/cmu-arctic-xvectors', split='validation', revision='refs/convert/parquet'
-            )
-            _speecht5_embeddings_dataset.append(ds)
-        else:
-            assert len(_speecht5_embeddings_dataset) == 1
-            ds = _speecht5_embeddings_dataset[0]
+        with _cache_lock:
+            if len(_speecht5_embeddings_dataset) == 0:
+                ds = datasets.load_dataset(
+                    'Matthijs/cmu-arctic-xvectors', split='validation', revision='refs/convert/parquet'
+                )
+                _speecht5_embeddings_dataset.append(ds)
+            else:
+                assert len(_speecht5_embeddings_dataset) == 1
+                ds = _speecht5_embeddings_dataset[0]
         speaker_embeddings = torch.tensor(ds[speaker_id or 7306]['xvector']).unsqueeze(0).to(device)
 
     with torch.no_grad():
@@ -2216,26 +2218,30 @@ def _lookup_model(
     # Include `create` and kwargs in key so different model classes/configs get separate entries.
     # Callers that must pass a lambda can supply an explicit `cache_key` to avoid per-call misses.
     key = cache_key if cache_key is not None else (model_id, create, device, tuple(sorted(kwargs.items())))
-    if key not in _model_cache:
-        if pass_device_to_create:
-            model = create(model_id, device=device, **kwargs)
-        else:
-            model = create(model_id, **kwargs)
-        if isinstance(model, nn.Module):
-            if not pass_device_to_create and device is not None:
-                model.to(device)
-            model.eval()
-        _model_cache[key] = model
-    return _model_cache[key]
+    with _cache_lock:
+        if key not in _model_cache:
+            if pass_device_to_create:
+                model = create(model_id, device=device, **kwargs)
+            else:
+                model = create(model_id, **kwargs)
+            if isinstance(model, nn.Module):
+                if not pass_device_to_create and device is not None:
+                    model.to(device)
+                model.eval()
+            _model_cache[key] = model
+        return _model_cache[key]
 
 
 def _lookup_processor(model_id: str, create: Callable[[str], T], **kwargs: Any) -> T:
     key = (model_id, create, tuple(sorted(kwargs.items())))
-    if key not in _processor_cache:
-        _processor_cache[key] = create(model_id, **kwargs)
-    return _processor_cache[key]
+    with _cache_lock:
+        if key not in _processor_cache:
+            _processor_cache[key] = create(model_id, **kwargs)
+        return _processor_cache[key]
 
 
+# guards all of the module-level caches below; held across model loads so a cache miss never loads twice
+_cache_lock = threading.Lock()
 _model_cache: dict[tuple, Any] = {}
 _speecht5_embeddings_dataset: list[Any] = []  # contains only the speecht5 embeddings loaded by text_to_speech()
 _processor_cache: dict[tuple, Any] = {}

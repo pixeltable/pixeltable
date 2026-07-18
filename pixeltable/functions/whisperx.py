@@ -3,6 +3,7 @@
 
 """WhisperX audio transcription and diarization functions."""
 
+import threading
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -145,42 +146,49 @@ def _lookup_transcription_model(model: str, device: str, compute_type: str) -> '
     import whisperx
 
     key = (model, device, compute_type)
-    if key not in _model_cache:
-        transcription_model = whisperx.load_model(model, device, compute_type=compute_type)
-        _model_cache[key] = transcription_model
-    return _model_cache[key]
+    with _cache_lock:
+        if key not in _model_cache:
+            transcription_model = whisperx.load_model(model, device, compute_type=compute_type)
+            _model_cache[key] = transcription_model
+        return _model_cache[key]
 
 
 def _lookup_alignment_model(language_code: str, device: str, model_name: str | None) -> tuple['Wav2Vec2Model', dict]:
     import whisperx
 
     key = (language_code, device, model_name)
-    if key not in _alignment_model_cache:
-        model, metadata = whisperx.load_align_model(language_code=language_code, device=device, model_name=model_name)
-        _alignment_model_cache[key] = (model, metadata)
-    return _alignment_model_cache[key]
+    with _cache_lock:
+        if key not in _alignment_model_cache:
+            model, metadata = whisperx.load_align_model(
+                language_code=language_code, device=device, model_name=model_name
+            )
+            _alignment_model_cache[key] = (model, metadata)
+        return _alignment_model_cache[key]
 
 
 def _lookup_diarization_model(device: str, model_name: str | None) -> 'DiarizationPipeline':
     from whisperx.diarize import DiarizationPipeline
 
     key = (device, model_name)
-    if key not in _diarization_model_cache:
-        auth_token = Config.get().get_string_value('token', section='hf')
-        if auth_token is None:
-            raise pxt.AuthorizationError(
-                pxt.ErrorCode.MISSING_CREDENTIALS,
-                'A Hugging Face token is required to use WhisperX diarization features. To fix this,\n'
-                "set the `HF_TOKEN` environment variable, or the 'token' config value in the [hf] "
-                'section of your Pixeltable config file.',
-            )
-        kwargs: dict[str, Any] = {'device': device, 'token': auth_token}
-        if model_name is not None:
-            kwargs['model_name'] = model_name
-        _diarization_model_cache[key] = DiarizationPipeline(**kwargs)
-    return _diarization_model_cache[key]
+    with _cache_lock:
+        if key not in _diarization_model_cache:
+            auth_token = Config.get().get_string_value('token', section='hf')
+            if auth_token is None:
+                raise pxt.AuthorizationError(
+                    pxt.ErrorCode.MISSING_CREDENTIALS,
+                    'A Hugging Face token is required to use WhisperX diarization features. To fix this,\n'
+                    "set the `HF_TOKEN` environment variable, or the 'token' config value in the [hf] "
+                    'section of your Pixeltable config file.',
+                )
+            kwargs: dict[str, Any] = {'device': device, 'token': auth_token}
+            if model_name is not None:
+                kwargs['model_name'] = model_name
+            _diarization_model_cache[key] = DiarizationPipeline(**kwargs)
+        return _diarization_model_cache[key]
 
 
+# guards the caches below; held across model loads so a cache miss never loads twice
+_cache_lock = threading.Lock()
 _model_cache: dict[tuple[str, str, str], 'FasterWhisperPipeline'] = {}
 _alignment_model_cache: dict[tuple[str, str, str | None], tuple['Wav2Vec2Model', dict]] = {}
 _diarization_model_cache: dict[tuple[str, str | None], 'DiarizationPipeline'] = {}
