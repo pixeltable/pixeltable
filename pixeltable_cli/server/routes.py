@@ -424,6 +424,15 @@ def move(req: Request) -> models.MoveResponse:
     return models.MoveResponse(path=body.path, new_path=body.new_path)
 
 
+@router.post('/api/schema/update')
+def schema_update(req: Request) -> models.SchemaUpdateResponse:
+    body = req.body(models.SchemaUpdateBody)
+    created, existed = bridge.schema_update(body.schema_path, body.target)
+    tables = [models.SchemaUpdateEntry(path=p, action='created') for p in created]
+    tables += [models.SchemaUpdateEntry(path=p, action='exists') for p in existed]
+    return models.SchemaUpdateResponse(tables=tables)
+
+
 @router.get('/api/dashboard/search')
 def dashboard_search(req: Request) -> dict[str, Any]:
     q = req.query_str('q', default='') or ''

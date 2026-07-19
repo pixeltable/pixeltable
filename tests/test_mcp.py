@@ -11,12 +11,12 @@ import pytest
 
 import pixeltable as pxt
 
-from .utils import reload_catalog, rerun, skip_test_if_no_client, skip_test_if_not_installed
+from .utils import reload_catalog, rerun_on_network_error, skip_test_if_no_client, skip_test_if_not_installed
 
 _logger = logging.getLogger('pixeltable_test')
 
 
-@rerun(reruns=3, delay=30)
+@rerun_on_network_error()
 class TestMcp:
     def test_mcp_server(self, make_catalog_path: Callable[[str], str], init_mcp_server: str) -> None:
         skip_test_if_not_installed('mcp')

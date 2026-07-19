@@ -20,7 +20,6 @@ import pixeltable as pxt
 import pixeltable.utils.fault_injection as prod_fault_injection
 import tests.fault_injection as test_fault_injection
 from pixeltable import exprs, functions as pxtf
-from pixeltable.catalog.model import TableModelMeta
 from pixeltable.config import Config
 from pixeltable.env import LOG_FMT_STR, Env
 from pixeltable.functions.huggingface import clip, sentence_transformer
@@ -168,6 +167,9 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
     pxt_logger = logging.getLogger('pixeltable')
     pxt_logger.setLevel(logging.DEBUG)
     pxt_logger.addHandler(stdout_handler)
+    test_logger = logging.getLogger('pixeltable_test')
+    test_logger.setLevel(logging.DEBUG)
+    test_logger.addHandler(stdout_handler)
     logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
 
     yield
@@ -216,7 +218,6 @@ def _reset_catalog_state() -> None:
     # Clean the DB *before* reloading. This is because some tests
     # (such as test_migration.py) may leave the DB in a broken state.
     clean_db()
-    TableModelMeta.registered_models.clear()
     Config.init({}, reinit=True)
     Env.get().default_time_zone = None
     Env.get().user = None

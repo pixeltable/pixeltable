@@ -89,11 +89,11 @@ def cli(pxt_daemon: int, make_catalog_path: Callable[[str], str]) -> PxtRunner:
     # make_catalog_path resets the catalog (like uses_db) and pulls in the local/proxy axis, so a test
     # using cli() auto-forks over both backends unless it is marked @pytest.mark.local. The CLI daemon and
     # this test process share PIXELTABLE_HOME, so both resolve a pxt:// path to the same local proxy daemon.
-    def _run(*args: str, check: bool = True) -> PxtResult:
+    def _run(*args: str, check: bool = True, cwd: str | os.PathLike[str] | None = None) -> PxtResult:
         # BROWSER=true prevents an actual browser tab open on `pxt dashboard` when tests are run on a dev machine.
         env = {**os.environ, 'PXT_PORT': str(pxt_daemon), 'BROWSER': 'true'}
         r = subprocess.run(
-            ['pxt', *args], capture_output=True, text=True, env=env, check=False, stdin=subprocess.DEVNULL
+            ['pxt', *args], capture_output=True, text=True, env=env, check=False, stdin=subprocess.DEVNULL, cwd=cwd
         )
         if check and r.returncode != 0:
             raise AssertionError(f'pxt {args} failed (rc={r.returncode}): {r.stderr}')
