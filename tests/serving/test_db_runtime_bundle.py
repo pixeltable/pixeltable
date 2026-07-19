@@ -25,7 +25,8 @@ class TestDbRuntimeBundle:
         monkeypatch.chdir(tmp_path)
         Config.init({}, reinit=True)
 
-        (tmp_path / 'udfs.py').write_text('import pixeltable as pxt\n')
+        # newline='\n' so the write isn't translated to CRLF on Windows (the content assertion below is exact)
+        (tmp_path / 'udfs.py').write_text('import pixeltable as pxt\n', newline='\n')
         (tmp_path / 'subdir').mkdir()
         (tmp_path / 'subdir' / 'helper.py').write_text('# helper\n')
 

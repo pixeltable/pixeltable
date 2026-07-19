@@ -22,6 +22,15 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from tenacity import (
+    before_sleep_log,
+    retry,
+    retry_if_exception_type,
+    retry_if_not_exception_type,
+    stop_after_delay,
+    wait_exponential_jitter,
+)
+
 from . import proxy_client
 
 _logger = logging.getLogger(__name__)
@@ -30,6 +39,10 @@ _DEFAULT_PORT = 9000
 _CONNECT_TIMEOUT = 30.0
 _RPC_TIMEOUT = 1800.0
 _MAX_POOL_SIZE = 16  # matches the base fetch_media download threadpool
+
+# The server can restart and drop the connection mid-call; retry transient transport failures with backoff.
+_TUNNEL_TRANSIENT_EXC = (ConnectionError, OSError, http.client.HTTPException, ssl.SSLError)
+_TUNNEL_RETRY_MAX_DELAY = 90.0  # seconds; > _CONNECT_TIMEOUT so a hung handshake still leaves retry budget
 
 
 class _TunnelHTTPConnection(http.client.HTTPConnection):
@@ -46,8 +59,10 @@ class _TunnelHTTPConnection(http.client.HTTPConnection):
 class _TunnelPool:
     """Thread-safe pool of TLS + PXT/1.0 tunnel connections.
 
-    borrow() hands out an idle connection or opens a new one; on success it's returned to the pool, on any
-    transport error it's dropped (closed) and the exception propagates so the caller can retry on a fresh one.
+    borrow() hands out an idle connection or opens a new one; only on a clean return does it go back to the
+    pool. On ANY exception it's closed and dropped — a broken transport can't be reused, and a connection
+    whose request raised (e.g. a non-retryable 4xx -> RuntimeError) must not leak — then the exception
+    propagates so the caller can retry on a fresh one where appropriate.
     """
 
     def __init__(self, connect: Callable[[], http.client.HTTPConnection], max_size: int = _MAX_POOL_SIZE) -> None:
@@ -63,8 +78,8 @@ class _TunnelPool:
         conn = conn or self._connect()
         try:
             yield conn
-        except (ConnectionError, OSError, http.client.HTTPException, ssl.SSLError):
-            conn.close()  # broken — drop it; the caller retries on a fresh connection
+        except BaseException:
+            conn.close()  # never return a connection whose use raised (broken transport OR a raised HTTP error)
             raise
         else:
             with self._lock:
@@ -158,24 +173,32 @@ class ProxyCloudClient(proxy_client.ProxyClient):
             raise
 
     def _request(self, method: str, path: str, body: bytes | None = None, content_type: str | None = None) -> bytes:
-        """Borrow a tunnel connection, issue one request, return the raw body. Retries once on a fresh connection."""
+        """Borrow a tunnel connection, issue one request, return the raw body.
+
+        Transient transport failures (the server can restart and drop the connection) are retried with backoff
+        on a fresh connection; auth rejection (PermissionError) and non-5xx HTTP errors are not.
+        """
         headers = {'Content-Type': content_type} if content_type else {}
-        for attempt in range(2):
-            try:
-                with self._pool.borrow() as conn:
-                    conn.request(method, path, body=body, headers=headers)
-                    response = conn.getresponse()
-                    content = response.read()
-                    if response.status != 200:
-                        raise ConnectionError(
-                            f'proxy {method} {path} error {response.status}: {content.decode(errors="replace")}'
-                        )
+
+        @retry(
+            retry=retry_if_exception_type(_TUNNEL_TRANSIENT_EXC) & retry_if_not_exception_type(PermissionError),
+            wait=wait_exponential_jitter(initial=0.5, max=5.0),
+            stop=stop_after_delay(_TUNNEL_RETRY_MAX_DELAY),
+            before_sleep=before_sleep_log(_logger, logging.DEBUG),
+            reraise=True,
+        )
+        def _attempt() -> bytes:
+            with self._pool.borrow() as conn:
+                conn.request(method, path, body=body, headers=headers)
+                response = conn.getresponse()
+                content = response.read()
+                if response.status == 200:
                     return content
-            except (ConnectionError, OSError, http.client.HTTPException, ssl.SSLError) as e:
-                _logger.debug('proxy tunnel error (attempt %d): %s', attempt + 1, e)
-                if attempt == 1:
-                    raise
-        raise AssertionError('unreachable')
+                msg = f'proxy {method} {path} error {response.status}: {content.decode(errors="replace")}'
+                # 5xx is transient (gateway/pod rollout) → retryable; anything else (4xx, media 404) is not.
+                raise ConnectionError(msg) if response.status >= 500 else RuntimeError(msg)
+
+        return _attempt()
 
     def _post(self, body: bytes) -> bytes:
         """RPC transport: POST the already-encoded body to /rpc over the tunnel (base _send handles the protocol)."""
