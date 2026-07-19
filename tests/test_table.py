@@ -1303,7 +1303,10 @@ class TestTable:
         t.add_embedding_index('img', idx_name='img_idx1', metric='cosine', embedding=clip_embed)
 
         files = get_image_files()[:2]
-        imgs = [PIL.Image.open(f) for f in files]
+        imgs: list[PIL.Image.Image] = []
+        for f in files:
+            with PIL.Image.open(f) as img:
+                imgs.append(img)
         out = t.compute([{'img': f} for f in files])
         assert out.column_names == ['img', 'rotated', 'md']
         assert all(set(row.keys()) == {'img', 'rotated', 'md'} for row in out)

@@ -197,12 +197,10 @@ class OnErrorParameter(enum.Enum):
         return False
 
     @classmethod
-    def fail_on_exception(cls, v: Any) -> bool:
+    def fail_on_exception(cls, v: str) -> bool:
         if not cls.is_valid(v):
             raise ValueError(f'Invalid value for on_error: {v}')
-        if isinstance(v, str):
-            return v.lower() != cls.IGNORE.value
-        return True
+        return v.lower() == cls.ABORT.value
 
 
 class IfExistsParam(enum.Enum):

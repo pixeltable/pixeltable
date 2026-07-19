@@ -51,6 +51,7 @@ class FilterNode(ExecNode):
             output_batch = DataRowBatch(self.row_builder)
             for row in batch:
                 # a predicate whose evaluation failed (recorded under ignore_errors) counts as not passing
+                # TODO: should we record this somewhere else so the user can query for failed rows?
                 if row.has_exc(self.predicate_slot_idx) or not row[self.predicate_slot_idx]:
                     continue
                 num_passed += 1
