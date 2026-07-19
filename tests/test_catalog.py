@@ -172,6 +172,9 @@ class TestCatalog:
 
     @pytest.mark.local('recovers transparently when the server drops the pooled db connections')
     def test_dropped_connection(self, uses_db: None) -> None:
+        if not Env.get().is_local:
+            # the way this test drops connections (pg_terminate_backend on the pixeltable db) is specific to pgserver
+            pytest.skip('requires pgserver')
         pxt.create_dir('d')
         t = pxt.create_table('d/t', {'a': pxt.Int})
         t.insert([{'a': 1}])
