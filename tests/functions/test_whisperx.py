@@ -20,6 +20,7 @@ pytestmark = pytest.mark.local('UDF/integration test')
     sysconfig.get_platform() == 'linux-aarch64', reason='libsndfile.so is missing on CI Linux ARM instances'
 )
 @pytest.mark.skipif(runs_linux_with_gpu(), reason='crashes on Linux with GPU')
+@rerun_on_network_error()
 class TestWhisperx:
     def test_transcription(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')
@@ -46,7 +47,6 @@ class TestWhisperx:
         assert 'long and deliberate process' in results['transcription2']['segments'][1]['text']
         assert 'city upon a hill' not in results['transcription2']['segments'][1]['text']  # due to shorter chunk size
 
-    @rerun_on_network_error()
     def test_diarization(self, uses_db: None) -> None:
         skip_test_if_not_installed('whisperx')
         skip_test_if_no_config('token', 'hf')
