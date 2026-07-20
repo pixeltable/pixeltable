@@ -32,7 +32,8 @@ def run(argv: list[str]) -> None:
 
     # Only -l/--long triggers the per-entry get_metadata() fetch. JSON consumers who want
     # the full schema info pass -l --json; bare --json stays cheap on large catalogs.
-    # An empty path lists the root, so it is sent as no path at all.
+    # An empty path is sent as no path at all, so the daemon lists the session working directory
+    # (the catalog root when none is set).
     path = validate_path_arg(args.path) if args.path != '' else None
     resp = get_request(
         '/api/dirs',

@@ -364,6 +364,12 @@ def ensure_running() -> str:
             # the user do it: a non-None health response means fetch_health() already verified the responder is
             # our daemon.
             reported_pid = health.get('pid')
+            if not isinstance(reported_pid, int):
+                # a non-int pid can't be a real process id; refuse to target it for a restart rather than
+                # act on an untrustworthy health response
+                raise RuntimeError(
+                    f'daemon on port {get_port()} reported an invalid pid ({reported_pid!r}); not restarting it'
+                )
             kill_and_wait(reported_pid)
             spawn_detached()
             wait_for_health()

@@ -231,6 +231,22 @@ class TestProbe:
         assert url.startswith('http://127.0.0.1:')
         assert actions == [('kill', 100), ('spawn',)]
 
+    def test_identity_mismatch_invalid_pid_refuses(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Identity drift but the responder reports a non-int pid: refuse to restart (no kill, no spawn)
+        rather than act on an untrustworthy pid."""
+        _patch_identity(monkeypatch, {'pxt_version': 'NEW'})
+        health = _health_payload(pxt_version='OLD')
+        health['pid'] = 'not-a-pid'
+        monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: health)
+        monkeypatch.setattr(client_utils, 'read_pidfile', lambda: 100)
+        monkeypatch.setattr(
+            client_utils, 'kill_and_wait', lambda pid, timeout=5.0: pytest.fail('must not kill an invalid pid')
+        )
+        monkeypatch.setattr(client_utils, 'spawn_detached', lambda: pytest.fail('must not spawn'))
+
+        with pytest.raises(RuntimeError, match='invalid pid'):
+            client_utils.ensure_running()
+
     def test_cross_verify_kept_killed_pid(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Post-restart cross-verify: the new responder still reports the killed PID."""
         _patch_identity(monkeypatch, {'pxt_version': 'NEW'})
