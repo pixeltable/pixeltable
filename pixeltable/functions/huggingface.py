@@ -542,6 +542,10 @@ def sam3_for_segmentation(
     masks_np = result['masks'].cpu().numpy()
     if masks_np.dtype != np.bool_:
         masks_np = masks_np.astype(bool)
+    if masks_np.shape[0] == 0:
+        # with zero detections, post_process_instance_segmentation skips resizing to target_sizes,
+        # leaving masks at the model's internal resolution
+        masks_np = masks_np.reshape((0, image.height, image.width))
 
     return SamForSegmentationResponse(
         scores=result['scores'].cpu().numpy(), boxes=result['boxes'].cpu().numpy(), masks=masks_np
