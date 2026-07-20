@@ -120,7 +120,10 @@ def build_db_runtime_bundle(project_dir: Path | None = None) -> Path:
     exclude = runtime_cfg.exclude if runtime_cfg else None
     system_dependencies: list[str] = (runtime_cfg.system_dependencies or []) if runtime_cfg else []
 
-    python_version = f'{sys.version_info.major}.{sys.version_info.minor}'
+    # Config override wins; otherwise use the deploy environment's version.
+    python_version = (runtime_cfg.python_version if runtime_cfg else None) or (
+        f'{sys.version_info.major}.{sys.version_info.minor}'
+    )
 
     files_set = set(_collect_project_files(project_dir, include, exclude))
     # Lock files are always bundled regardless of .gitignore — they control reproducible installs.

@@ -32,6 +32,17 @@ def synthesize_tone_duration(frequency_hz: int) -> float:
         os.unlink(wav_path)
 
 
+@pxt.udf
+def json_max(numbers_json: str) -> int:
+    """Return the max of a JSON array of ints, computed by the `jq` CLI.
+
+    Exercises a second system dependency (jq>=1.6 in pixeltable.toml) to confirm conda MatchSpecs with
+    version constraints are installed and usable in the runtime env.
+    """
+    r = subprocess.run(['jq', 'max'], input=numbers_json, capture_output=True, text=True, check=True)
+    return int(r.stdout.strip())
+
+
 @pxt.query
 def find_by_id(item_id: int) -> pxt.Query:
     items = pxt.get_table('e2e_items')

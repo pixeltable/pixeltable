@@ -168,9 +168,9 @@ def resources(request: pytest.FixtureRequest) -> Iterator[Resources]:
     # an existing lock). Regenerate it fresh from the pyproject on every run — always, even if one exists —
     # so a stale/absent lock can't deploy the wrong pixeltable or fail the server-side `uv sync --frozen`.
     (_SAMPLE_APP / 'uv.lock').unlink(missing_ok=True)
-    _lock = subprocess.run(['uv', 'lock'], cwd=_SAMPLE_APP, capture_output=True, text=True)
-    if _lock.returncode != 0:
-        raise RuntimeError(f'uv lock failed for sample app:\n{_lock.stdout}\n{_lock.stderr}')
+    lock = subprocess.run(['uv', 'lock'], cwd=_SAMPLE_APP, capture_output=True, text=True, check=False)
+    if lock.returncode != 0:
+        raise RuntimeError(f'uv lock failed for sample app:\n{lock.stdout}\n{lock.stderr}')
 
     run_id = uuid.uuid4().hex[:8]
     db_slug = f'clitest-e2e-{run_id}'

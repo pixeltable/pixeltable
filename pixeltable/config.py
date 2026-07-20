@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import threading
 import typing
@@ -165,7 +166,32 @@ class DatabaseRuntimeConfig(pydantic.BaseModel):
     include: list[str] | None = None
     exclude: list[str] | None = None
     system_dependencies: list[str] | None = None
+    # Override the runtime Python version.
+    python_version: str | None = None
     pixeltable_source: PixeltableSource | None = None
+
+    @pydantic.field_validator('system_dependencies')
+    @classmethod
+    def _check_system_dependencies(cls, v: list[str] | None) -> list[str] | None:
+        # Each entry is a conda/micromamba MatchSpec installed from conda-forge. Resolvability can only be
+        # checked by conda at build time, so validate just the obvious mistakes here — before the bundle is
+        # built and shipped — leaving version-constraint operators (<,>,,) alone as they're valid MatchSpec.
+        for spec in v or []:
+            if not spec.strip():
+                raise ValueError('system_dependencies entries must be non-empty conda package specs')
+            if any(c in spec for c in ';&$`\n\\'):
+                raise ValueError(f'invalid character in system dependency spec {spec!r}')
+        return v
+
+    @pydantic.field_validator('python_version')
+    @classmethod
+    def _check_python_version(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        v = v.strip()
+        if not re.fullmatch(r'\d+\.\d+(\.\d+)?', v):
+            raise ValueError(f'python_version must be a version like "3.12" or "3.12.8", got {v!r}')
+        return v
 
 
 class ConfigKey(NamedTuple):

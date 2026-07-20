@@ -1,5 +1,7 @@
+# Each entry is a conda/micromamba MatchSpec (name, optional version constraints), installed from
+# conda-forge into the runtime env — same syntax as a conda install line, including comma-separated ranges.
 [pixeltable.database]
-system_dependencies = ["ffmpeg"]
+system_dependencies = ["ffmpeg", "jq>=1.6", "ripgrep>=13,<15"]
 
 [[pixeltable.service]]
 name = "e2e-svc"
