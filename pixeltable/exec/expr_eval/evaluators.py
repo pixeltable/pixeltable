@@ -291,11 +291,19 @@ class NestedRowList:
     rows: list[exprs.DataRow]
     num_completed: int
     completion: asyncio.Event
+    target_slot_idx: int  # nested slot holding the target expr, evaluated per element
+    element_slot_idx: int  # nested slot holding the source element (the scope anchor)
 
-    def __init__(self, rows: list[exprs.DataRow]):
+    def __init__(self, rows: list[exprs.DataRow], target_slot_idx: int, element_slot_idx: int):
         self.num_completed = 0
         self.rows = rows
         self.completion = asyncio.Event()
+        self.target_slot_idx = target_slot_idx
+        self.element_slot_idx = element_slot_idx
+        if len(rows) == 0:
+            # an empty source list produces no nested rows, so complete_row() is never called and we need to signal
+            # completion here
+            self.completion.set()
 
     def complete_row(self) -> None:
         self.num_completed += 1
@@ -315,24 +323,39 @@ class JsonMapperDispatcher(Evaluator):
     scope_anchor: exprs.ObjectRef
     nested_eval_ctx: ExprEvalCtx  # ExprEvalCtx needed to evaluate the nested rows
     external_slot_map: dict[int, int]  # slot idx in parent row -> slot idx in nested row
-    has_async_calls: bool  # True if target_expr contains any async FunctionCalls
+    has_async_calls: bool  # True if any nested output expr contains async FunctionCalls
+    target_slot_idx: int  # nested slot holding the target expr, evaluated per element
+    element_slot_idx: int  # nested slot holding the source element (the scope anchor)
 
     def __init__(self, e: exprs.JsonMapperDispatch, dispatcher: Dispatcher, exec_ctx: ExprEvalCtx):
         super().__init__(dispatcher, exec_ctx)
         self.e = e
-        self.target_expr = e.target_expr.copy()  # we need new slot idxs
+        # we need new slot idxs, so we operate on copies
+        self.target_expr = e.target_expr.copy()
         self.scope_anchor = e.scope_anchor.copy()
-        nested_row_builder = exprs.RowBuilder(output_exprs=[self.target_expr], columns=[], input_exprs=[])
-        nested_row_builder.set_slot_idxs([self.target_expr, self.scope_anchor])
-        target_expr_ctx = nested_row_builder.create_eval_ctx([self.target_expr], limit_scope=True)
-        self.has_async_calls = any(isinstance(e, exprs.FunctionCall) and e.is_async for e in target_expr_ctx.exprs)
-        target_scope = self.target_expr.scope()
+
+        # the anchor always needs a slot so the target's relative paths resolve
+        slot_exprs = [self.target_expr, self.scope_anchor]
+        # a map's result is the target value; filter/sort reproduce the source element, so they keep the anchor
+        # among the outputs (a non-output slot is garbage-collected once its dependents have run). a map omits it,
+        # so a target that ignores the element (an outer scope) doesn't clash with the nested anchor in the
+        # single-scope create_eval_ctx below
+        if e.op == exprs.JsonMapper.Operator.MAP:
+            output_exprs = [self.target_expr]
+        else:
+            output_exprs = slot_exprs
+        nested_row_builder = exprs.RowBuilder(output_exprs=output_exprs, columns=[], input_exprs=[])
+        nested_row_builder.set_slot_idxs(slot_exprs)
+        nested_ctx = nested_row_builder.create_eval_ctx(output_exprs, limit_scope=True)
+        self.has_async_calls = any(isinstance(e, exprs.FunctionCall) and e.is_async for e in nested_ctx.exprs)
+        target_scope = self.scope_anchor.scope()
+
         # we need to pre-populated nested rows with slot values that are produced in an outer scope (literals excluded)
-        parent_exprs = [
-            e for e in target_expr_ctx.exprs if e.scope() != target_scope and not isinstance(e, exprs.Literal)
-        ]
+        parent_exprs = [e for e in nested_ctx.exprs if e.scope() != target_scope and not isinstance(e, exprs.Literal)]
         self.external_slot_map = {exec_ctx.row_builder.unique_exprs[e].slot_idx: e.slot_idx for e in parent_exprs}
-        self.nested_eval_ctx = ExprEvalCtx(dispatcher, nested_row_builder, [self.target_expr], parent_exprs)
+        self.nested_eval_ctx = ExprEvalCtx(dispatcher, nested_row_builder, output_exprs, parent_exprs)
+        self.target_slot_idx = self.target_expr.slot_idx
+        self.element_slot_idx = self.scope_anchor.slot_idx
 
     def reset(self) -> None:
         super().reset()
@@ -364,7 +387,7 @@ class JsonMapperDispatcher(Evaluator):
             ]
             for nested_row, anchor_val in zip(nested_rows, src):
                 # It's possible that self.scope_anchor.slot_idx is None; this corresponds to the case where the
-                # mapper expression doesn't actually contain references to RELATIVE_PATH_ROOT.
+                # mapper expression doesn't actually contain references to the relative root.
                 if self.scope_anchor.slot_idx is not None:
                     nested_row[self.scope_anchor.slot_idx] = anchor_val
                 for slot_idx_, nested_slot_idx in self.external_slot_map.items():
@@ -373,7 +396,7 @@ class JsonMapperDispatcher(Evaluator):
 
             # we modify DataRow.vals here directly, rather than going through __getitem__(), because we don't have
             # an official "value" yet (the nested rows are not yet materialized)
-            row.vals[self.e.slot_idx] = NestedRowList(nested_rows)
+            row.vals[self.e.slot_idx] = NestedRowList(nested_rows, self.target_slot_idx, self.element_slot_idx)
             all_nested_rows.extend(nested_rows)
 
         self.dispatcher.dispatch(all_nested_rows, self.nested_eval_ctx)
@@ -383,8 +406,8 @@ class JsonMapperDispatcher(Evaluator):
     async def gather(self, rows: list[exprs.DataRow]) -> None:
         """Wait for nested rows to complete, then signal completion to the parent rows"""
         if self.has_async_calls:
-            # if our target expr contains async FunctionCalls, they typically get completed out-of-order, and it's
-            # more effective to dispatch them as they complete
+            # if our nested output exprs contain async FunctionCalls, they typically get completed out-of-order,
+            # and it's more effective to dispatch them as they complete
             remaining = {
                 asyncio.create_task(row.vals[self.e.slot_idx].completion.wait()): row
                 for row in rows
@@ -398,7 +421,7 @@ class JsonMapperDispatcher(Evaluator):
                 self.dispatcher.dispatch(done_rows, self.eval_ctx)
 
         else:
-            # our target expr doesn't contain async FunctionCalls, which means they will get completed in-order
+            # our nested output exprs don't contain async FunctionCalls, which means they will get completed in-order
             for row in rows:
                 if row.has_val[self.e.slot_idx]:
                     # the source_expr's value is not a list

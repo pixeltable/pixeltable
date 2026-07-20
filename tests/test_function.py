@@ -98,6 +98,18 @@ class TestFunction:
         # TODO: add Function.exec() and then use that
         assert deserialized.py_fn(1) == 2
 
+    def test_display_name_fallback(self, init_env: None) -> None:
+        # a CallableFunction with no name falls back to the base display_name rather than leaking None into
+        # reprs and error messages (FunctionCall.display_str uses display_name)
+        def f(x: int) -> int:
+            return x
+
+        cf = func.CallableFunction([func.Signature.create(f, None, None)], [f], self_path=None, self_name=None)
+        assert cf.display_name == '<anonymous>'
+        # an explicit display_name override still wins
+        cf2 = func.CallableFunction([func.Signature.create(f, None, None)], [f], self_name='_f', display_name='f')
+        assert cf2.display_name == 'f'
+
         # by-value ExprTemplateFunction (here from .using()
         tmpl = self.f1.using(c=2.0)
         assert isinstance(tmpl, func.ExprTemplateFunction)
@@ -467,18 +479,14 @@ class TestFunction:
         def lt_x(x: int) -> pxt.Query:
             return t.where(t.c2 < x).select(t.c2, t.c1).order_by(t.c1)
 
-        assert_type_eq(
-            lt_x.signature.return_type,
-            pxt.Json[[{'c2': pxt.Float | None, 'c1': pxt.Int | None}]],  # type: ignore[misc]
-        )
+        assert_type_eq(lt_x.signature.return_type, pxt.Json[[{'c2': pxt.Float | None, 'c1': pxt.Int | None}]])
 
         @pxt.query
         def lt_x_with_default(x: int, mult: int = 2) -> pxt.Query:
             return t.where(t.c2 < x * mult).select(t.c2, t.c1).order_by(t.c1)
 
         assert_type_eq(
-            lt_x_with_default.signature.return_type,
-            pxt.Json[[{'c2': pxt.Float | None, 'c1': pxt.Int | None}]],  # type: ignore[misc]
+            lt_x_with_default.signature.return_type, pxt.Json[[{'c2': pxt.Float | None, 'c1': pxt.Int | None}]]
         )
 
         @pxt.query
@@ -486,8 +494,7 @@ class TestFunction:
             return t.where(t.c2 < x).select(t.c2, t.c1).order_by(t.c1)
 
         assert_type_eq(
-            lt_x_with_unused_default.signature.return_type,
-            pxt.Json[[{'c2': pxt.Float | None, 'c1': pxt.Int | None}]],  # type: ignore[misc]
+            lt_x_with_unused_default.signature.return_type, pxt.Json[[{'c2': pxt.Float | None, 'c1': pxt.Int | None}]]
         )
 
         res1 = reload_tester.run_query(t.select(out=lt_x(t.c1)).order_by(t.c1))
@@ -613,10 +620,7 @@ class TestFunction:
             """simply returns 2 passages from the table"""
             return chunks.select(chunks.text).limit(2)
 
-        assert_type_eq(
-            retrieval.signature.return_type,
-            pxt.Json[[{'text': pxt.String | None}]],  # type: ignore[misc]
-        )
+        assert_type_eq(retrieval.signature.return_type, pxt.Json[[{'text': pxt.String | None}]])
 
         res = queries.select(queries.i, out=retrieval(queries.query_text, queries.i)).collect()
         # Default (return_scalar=False): each row is a dict, not a bare string.
@@ -639,7 +643,7 @@ class TestFunction:
         def retrieval_scalar(s: str, n: int) -> pxt.Query:
             return chunks.select(chunks.text).limit(2)
 
-        assert_type_eq(retrieval_scalar.signature.return_type, pxt.Json[[pxt.String | None]])  # type: ignore[misc]
+        assert_type_eq(retrieval_scalar.signature.return_type, pxt.Json[[pxt.String | None]])
         res = queries.select(queries.i, out=retrieval_scalar(queries.query_text, queries.i)).collect()
         assert all(len(out) == 2 and all(isinstance(x, str) for x in out) for out in res['out'])
 
@@ -653,10 +657,7 @@ class TestFunction:
         def retrieve() -> pxt.Query:
             return v.select(v.text).limit(20)
 
-        assert_type_eq(
-            retrieve.signature.return_type,
-            pxt.Json[[{'text': pxt.String | None}]],  # type: ignore[misc]
-        )
+        assert_type_eq(retrieve.signature.return_type, pxt.Json[[{'text': pxt.String | None}]])
 
         retrieval = pxt.create_table(p('test/retrieval'), {'n': pxt.Int})
         retrieval.add_computed_column(result=retrieve())
@@ -769,10 +770,7 @@ class TestFunction:
         def lt_x(x: int) -> pxt.Query:
             return t.where(t.c2 < x).select(t.c2, t.c1).order_by(t.c1)
 
-        assert_type_eq(
-            lt_x.signature.return_type,
-            pxt.Json[[{'c2': pxt.Float | None, 'c1': pxt.Int | None}]],  # type: ignore[misc]
-        )
+        assert_type_eq(lt_x.signature.return_type, pxt.Json[[{'c2': pxt.Float | None, 'c1': pxt.Int | None}]])
 
         u = pxt.create_table(p('test2'), {'c': pxt.Json})
         u.add_computed_column(out=pxtf.map(u.c['*'], lambda x: lt_x(x)))
@@ -791,10 +789,7 @@ class TestFunction:
         def c(x: int, y: int) -> pxt.Query:
             return t.order_by(t.a).where(t.a > x).select(c=t.a + y).limit(10)
 
-        assert_type_eq(
-            c.signature.return_type,
-            pxt.Json[[{'c': pxt.Int | None}]],  # type: ignore[misc]
-        )
+        assert_type_eq(c.signature.return_type, pxt.Json[[{'c': pxt.Int | None}]])
 
     def test_query_udf_after_drop(self, make_catalog_path: Callable[[str], str]) -> None:
         """Stored computed columns whose value_expr contains a @pxt.query UDF must remain loadable
@@ -1348,7 +1343,7 @@ class TestFunction:
         t.add_computed_column(seconds_since_epoch=udf_with_timestamp_constants(t.ts1))
         t.add_computed_column(seconds_since_2000=udf_with_timestamp_constants(t.ts1, ts2=datetime(2000, 1, 1)))
 
-        t = pxt.create_table(p('test2'), {'a': pxt.Array[pxt.Float, (6,)]})  # type: ignore[misc]
+        t = pxt.create_table(p('test2'), {'a': pxt.Array[pxt.Float, (6,)]})
         t.add_computed_column(add_one=udf_with_array_constants(t.a))
         t.add_computed_column(add_zeros=udf_with_array_constants(t.a, b=np.zeros(6, dtype=np.float32)))
 
@@ -1922,7 +1917,7 @@ class TestFunction:
         videos = get_video_files()[:2]
         t_vid = pxt.create_table(p('test_est_vid'), {'video': pxt.Video})
         t_vid.add_computed_column(emb=mock_embed(t_vid.video))
-        with pxt_raises(pxt.ErrorCode.GENERIC_USER_ERROR, match='not in the resolved function signature'):
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='not in the resolved function signature'):
             t_vid.insert([{'video': v} for v in videos])
 
     def test_resource_estimator_non_polymorphic(self, make_catalog_path: Callable[[str], str]) -> None:

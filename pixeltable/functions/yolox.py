@@ -1,6 +1,7 @@
 """YOLOX object detection functions."""
 
-from typing import TYPE_CHECKING
+import threading
+from typing import TYPE_CHECKING, TypedDict
 
 import PIL.Image
 
@@ -14,8 +15,14 @@ if TYPE_CHECKING:
     from yolox.models import Yolox, YoloxProcessor  # type: ignore[import-untyped]
 
 
+class YoloxResponse(TypedDict):
+    bboxes: list[list[float]]
+    scores: list[float]
+    labels: list[int]
+
+
 @pxt.udf(batch_size=4)
-def yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5) -> Batch[dict]:
+def yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5) -> Batch[YoloxResponse]:
     """
     Computes YOLOX object detections for the specified image. `model_id` should reference one of the models
     defined in the [YOLOX documentation](https://github.com/Megvii-BaseDetection/YOLOX).
@@ -51,8 +58,13 @@ def yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0
         return processor.postprocess(normalized_images, output, threshold=threshold)
 
 
+class CocoAnnotation(TypedDict):
+    bbox: list[int]
+    category: int
+
+
 @pxt.udf
-def yolo_to_coco(detections: dict) -> list:
+def yolo_to_coco(detections: dict) -> list[CocoAnnotation]:
     """
     Converts the output of a YOLOX object detection model to COCO format.
 
@@ -74,10 +86,10 @@ def yolo_to_coco(detections: dict) -> list:
     bboxes, labels = detections['bboxes'], detections['labels']
     num_annotations = len(detections['bboxes'])
     assert num_annotations == len(detections['labels'])
-    result = []
+    result: list[CocoAnnotation] = []
     for i in range(num_annotations):
         bbox = bboxes[i]
-        ann = {
+        ann: CocoAnnotation = {
             'bbox': [round(bbox[0]), round(bbox[1]), round(bbox[2] - bbox[0]), round(bbox[3] - bbox[1])],
             'category': labels[i],
         }
@@ -89,21 +101,23 @@ def _lookup_model(model_id: str, device: str) -> 'Yolox':
     from yolox.models import Yolox
 
     key = (model_id, device)
-    if key not in _model_cache:
-        _model_cache[key] = Yolox.from_pretrained(model_id, device=device)
-
-    return _model_cache[key]
+    with _cache_lock:
+        if key not in _model_cache:
+            _model_cache[key] = Yolox.from_pretrained(model_id, device=device)
+        return _model_cache[key]
 
 
 def _lookup_processor(model_id: str) -> 'YoloxProcessor':
     from yolox.models import YoloxProcessor
 
-    if model_id not in _processor_cache:
-        _processor_cache[model_id] = YoloxProcessor(model_id)
+    with _cache_lock:
+        if model_id not in _processor_cache:
+            _processor_cache[model_id] = YoloxProcessor(model_id)
+        return _processor_cache[model_id]
 
-    return _processor_cache[model_id]
 
-
+# guards the caches below; held across model loads so a cache miss never loads twice
+_cache_lock = threading.Lock()
 _model_cache: dict[tuple[str, str], 'Yolox'] = {}
 _processor_cache: dict[str, 'YoloxProcessor'] = {}
 

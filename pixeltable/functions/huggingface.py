@@ -8,6 +8,7 @@ UDFs).
 """
 
 import itertools
+import threading
 from collections.abc import Iterator
 from typing import Any, Callable, Literal, TypedDict, TypeVar
 
@@ -296,8 +297,23 @@ def detr_for_object_detection(
     ]
 
 
+class SegmentInfo(TypedDict):
+    id: int
+    label_id: int
+    label_text: str
+    score: float
+    was_fused: bool
+
+
+class DetrForSegmentationResponse(TypedDict):
+    segmentation: pxt.Array
+    segments_info: list[SegmentInfo]
+
+
 @pxt.udf(batch_size=4)
-def detr_for_segmentation(image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5) -> Batch[dict]:
+def detr_for_segmentation(
+    image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5
+) -> Batch[DetrForSegmentationResponse]:
     """
     Computes DETR panoptic segmentation for the specified image. `model_id` should be a reference to a pretrained
     [DETR Model](https://huggingface.co/docs/transformers/model_doc/detr) with a segmentation head.
@@ -375,7 +391,13 @@ def detr_for_segmentation(image: Batch[PIL.Image.Image], *, model_id: str, thres
         ]
         output_list.append({'segmentation': seg_array, 'segments_info': segments_info})
 
-    return output_list
+    return output_list  # type: ignore[return-value]
+
+
+class VitForImageClassificationResponse(TypedDict):
+    scores: list[float]
+    labels: list[int]
+    label_text: list[str]
 
 
 class SamForSegmentationResponse(TypedDict):
@@ -872,7 +894,7 @@ class sam3_for_video_segmentation(pxt.PxtIterator[Sam3VideoSegmentationFrame]):
 @pxt.udf(batch_size=4)
 def vit_for_image_classification(
     image: Batch[PIL.Image.Image], *, model_id: str, top_k: int = 5
-) -> Batch[dict[str, Any]]:
+) -> Batch[VitForImageClassificationResponse]:
     """
     Computes image classifications for the specified image using a Vision Transformer (ViT) model.
     `model_id` should be a reference to a pretrained [ViT Model](https://huggingface.co/docs/transformers/en/model_doc/vit).
@@ -942,7 +964,7 @@ def vit_for_image_classification(
     return [
         {
             'scores': [top_k_probs[n, k].item() for k in range(top_k_probs.shape[1])],
-            'labels': [top_k_indices[n, k].item() for k in range(top_k_probs.shape[1])],
+            'labels': [int(top_k_indices[n, k].item()) for k in range(top_k_probs.shape[1])],
             'label_text': [model.config.id2label[int(top_k_indices[n, k].item())] for k in range(top_k_probs.shape[1])],  # type: ignore[index]
         }
         for n in range(top_k_probs.shape[0])
@@ -1040,8 +1062,23 @@ def speech2text_for_conditional_generation(audio: pxt.Audio, *, model_id: str, l
     return transcription[0]
 
 
+class CocoImageInfo(TypedDict):
+    width: int
+    height: int
+
+
+class CocoAnnotation(TypedDict):
+    bbox: list[float]
+    category: int
+
+
+class CocoResponse(TypedDict):
+    image: CocoImageInfo
+    annotations: list[CocoAnnotation]
+
+
 @pxt.udf
-def detr_to_coco(image: PIL.Image.Image, detr_info: dict[str, Any]) -> dict[str, Any]:
+def detr_to_coco(image: PIL.Image.Image, detr_info: dict[str, Any]) -> CocoResponse:
     """
     Converts the output of a DETR object detection model to COCO format.
 
@@ -1061,7 +1098,7 @@ def detr_to_coco(image: PIL.Image.Image, detr_info: dict[str, Any]) -> dict[str,
         ... )
     """
     bboxes, labels = detr_info['boxes'], detr_info['labels']
-    annotations = [
+    annotations: list[CocoAnnotation] = [
         {'bbox': [bbox[0], bbox[1], bbox[2] - bbox[0], bbox[3] - bbox[1]], 'category': label}
         for bbox, label in zip(bboxes, labels)
     ]
@@ -1124,8 +1161,14 @@ def text_generation(text: str, *, model_id: str, model_kwargs: dict[str, Any] | 
     return generated_text
 
 
+class TextClassificationResponse(TypedDict):
+    label: int
+    label_text: str
+    score: float
+
+
 @pxt.udf(batch_size=16)
-def text_classification(text: Batch[str], *, model_id: str, top_k: int = 5) -> Batch[list[dict[str, Any]]]:
+def text_classification(text: Batch[str], *, model_id: str, top_k: int = 5) -> Batch[list[TextClassificationResponse]]:
     """
     Classifies text using a pretrained classification model. `model_id` should be a reference to a pretrained
     [text classification model](https://huggingface.co/models?pipeline_tag=text-classification)
@@ -1169,17 +1212,14 @@ def text_classification(text: Batch[str], *, model_id: str, top_k: int = 5) -> B
     probs = torch.softmax(logits, dim=-1)
     top_k_probs, top_k_indices = torch.topk(probs, top_k, dim=-1)
 
-    results = []
+    results: list[list[TextClassificationResponse]] = []
     for i in range(len(text)):
         # Return as list of individual classification items for HuggingFace compatibility
-        classification_items = []
+        classification_items: list[TextClassificationResponse] = []
         for k in range(top_k_probs.shape[1]):
+            label = int(top_k_indices[i, k].item())
             classification_items.append(
-                {
-                    'label': top_k_indices[i, k].item(),
-                    'label_text': model.config.id2label[top_k_indices[i, k].item()],
-                    'score': top_k_probs[i, k].item(),
-                }
+                {'label': label, 'label_text': model.config.id2label[label], 'score': top_k_probs[i, k].item()}
             )
         results.append(classification_items)
 
@@ -1286,10 +1326,18 @@ def summarization(text: Batch[str], *, model_id: str, model_kwargs: dict[str, An
     return tokenizer.batch_decode(outputs, skip_special_tokens=True)
 
 
+class TokenClassificationResponse(TypedDict):
+    word: str
+    entity_group: str
+    score: float
+    start: int
+    end: int
+
+
 @pxt.udf
 def token_classification(
     text: str, *, model_id: str, aggregation_strategy: Literal['simple', 'first', 'average', 'max'] = 'simple'
-) -> list[dict[str, Any]]:
+) -> list[TokenClassificationResponse]:
     """
     Extracts named entities from text using a pretrained named entity recognition (NER) model.
     `model_id` should be a reference to a pretrained
@@ -1359,10 +1407,10 @@ def token_classification(
             confidence_scores = [confidence_scores]
 
         # Extract entities from predictions
-        entities = []
+        entities: list[TokenClassificationResponse] = []
         offset_mapping = inputs['offset_mapping'][0].tolist()
 
-        current_entity = None
+        current_entity: TokenClassificationResponse | None = None
 
         for token_class, confidence, (start_offset, end_offset) in zip(
             predicted_token_classes, confidence_scores, offset_mapping
@@ -1430,8 +1478,15 @@ def token_classification(
         return entities
 
 
+class QuestionAnsweringResponse(TypedDict):
+    answer: str
+    score: float
+    start: int
+    end: int
+
+
 @pxt.udf
-def question_answering(context: str, question: str, *, model_id: str) -> dict[str, Any]:
+def question_answering(context: str, question: str, *, model_id: str) -> QuestionAnsweringResponse:
     """
     Answers questions based on provided context using a pretrained QA model. `model_id` should be a reference to a
     pretrained [question answering model](https://huggingface.co/models?pipeline_tag=question-answering) such as
@@ -1735,14 +1790,15 @@ def text_to_speech(text: str, *, model_id: str, speaker_id: int | None = None, v
     speaker_embeddings = None
     if 'speecht5' in model_id.lower():
         ds: datasets.Dataset
-        if len(_speecht5_embeddings_dataset) == 0:
-            ds = datasets.load_dataset(
-                'Matthijs/cmu-arctic-xvectors', split='validation', revision='refs/convert/parquet'
-            )
-            _speecht5_embeddings_dataset.append(ds)
-        else:
-            assert len(_speecht5_embeddings_dataset) == 1
-            ds = _speecht5_embeddings_dataset[0]
+        with _cache_lock:
+            if len(_speecht5_embeddings_dataset) == 0:
+                ds = datasets.load_dataset(
+                    'Matthijs/cmu-arctic-xvectors', split='validation', revision='refs/convert/parquet'
+                )
+                _speecht5_embeddings_dataset.append(ds)
+            else:
+                assert len(_speecht5_embeddings_dataset) == 1
+                ds = _speecht5_embeddings_dataset[0]
         speaker_embeddings = torch.tensor(ds[speaker_id or 7306]['xvector']).unsqueeze(0).to(device)
 
     with torch.no_grad():
@@ -2162,26 +2218,30 @@ def _lookup_model(
     # Include `create` and kwargs in key so different model classes/configs get separate entries.
     # Callers that must pass a lambda can supply an explicit `cache_key` to avoid per-call misses.
     key = cache_key if cache_key is not None else (model_id, create, device, tuple(sorted(kwargs.items())))
-    if key not in _model_cache:
-        if pass_device_to_create:
-            model = create(model_id, device=device, **kwargs)
-        else:
-            model = create(model_id, **kwargs)
-        if isinstance(model, nn.Module):
-            if not pass_device_to_create and device is not None:
-                model.to(device)
-            model.eval()
-        _model_cache[key] = model
-    return _model_cache[key]
+    with _cache_lock:
+        if key not in _model_cache:
+            if pass_device_to_create:
+                model = create(model_id, device=device, **kwargs)
+            else:
+                model = create(model_id, **kwargs)
+            if isinstance(model, nn.Module):
+                if not pass_device_to_create and device is not None:
+                    model.to(device)
+                model.eval()
+            _model_cache[key] = model
+        return _model_cache[key]
 
 
 def _lookup_processor(model_id: str, create: Callable[[str], T], **kwargs: Any) -> T:
     key = (model_id, create, tuple(sorted(kwargs.items())))
-    if key not in _processor_cache:
-        _processor_cache[key] = create(model_id, **kwargs)
-    return _processor_cache[key]
+    with _cache_lock:
+        if key not in _processor_cache:
+            _processor_cache[key] = create(model_id, **kwargs)
+        return _processor_cache[key]
 
 
+# guards all of the module-level caches below; held across model loads so a cache miss never loads twice
+_cache_lock = threading.Lock()
 _model_cache: dict[tuple, Any] = {}
 _speecht5_embeddings_dataset: list[Any] = []  # contains only the speecht5 embeddings loaded by text_to_speech()
 _processor_cache: dict[tuple, Any] = {}
