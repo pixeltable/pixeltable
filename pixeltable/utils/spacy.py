@@ -1,3 +1,4 @@
+import threading
 from typing import TYPE_CHECKING
 
 from pixeltable import exceptions as excs
@@ -7,6 +8,8 @@ if TYPE_CHECKING:
     import spacy
 
 
+# guards the cache below; held across model loads so a cache miss never loads twice
+_cache_lock = threading.Lock()
 _MODEL_CACHE: dict[str, 'spacy.Language'] = {}
 
 
@@ -22,15 +25,16 @@ def get_spacy_model(model_name: str) -> 'spacy.Language':
     Env.get().require_package('spacy')
     import spacy
 
-    if model_name not in _MODEL_CACHE:
-        try:
-            model = spacy.load(model_name)
-        except OSError as e:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Failed to locate spaCy model {model_name!r}. To install it, run:\n'
-                f'    python -m spacy download {model_name}',
-            ) from e
-        _MODEL_CACHE[model_name] = model
+    with _cache_lock:
+        if model_name not in _MODEL_CACHE:
+            try:
+                model = spacy.load(model_name)
+            except OSError as e:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Failed to locate spaCy model {model_name!r}. To install it, run:\n'
+                    f'    python -m spacy download {model_name}',
+                ) from e
+            _MODEL_CACHE[model_name] = model
 
-    return _MODEL_CACHE[model_name]
+        return _MODEL_CACHE[model_name]

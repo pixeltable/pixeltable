@@ -444,7 +444,7 @@
   },
   "integrations": {
     "telemetry": {
-      "enabled": false
+      "enabled": true
     }
   },
   "errors": {

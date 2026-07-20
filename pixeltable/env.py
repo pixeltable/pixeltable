@@ -74,6 +74,7 @@ class Env:
 
     # info about optional packages that are utilized by some parts of the code
     __optional_packages: dict[str, PackageInfo]
+    _optional_packages_lock: threading.Lock  # guards the lazy is_installed/version fields of __optional_packages
 
     _httpd: http.server.HTTPServer | None
     _http_address: str | None
@@ -81,10 +82,12 @@ class Env:
     _managed_logging_handlers: list[tuple[logging.Logger, logging.Handler]]
     _logfilename: str | None
     _file_cache_size_g: float
+    _file_cache_lease_s: float
     _default_input_media_dest: str | None
     _default_output_media_dest: str | None
     _pxt_api_key: str | None
     _default_video_encoder: str | None
+    _default_video_encoder_lock: threading.Lock
     _initialized: bool
 
     _resource_pool_info: dict[str, Any]
@@ -134,9 +137,11 @@ class Env:
         self._db_url = None
         self._default_time_zone = None
         self.__optional_packages = {}
+        self._optional_packages_lock = threading.Lock()
         self._httpd = None
         self._http_address = None
         self._default_video_encoder = None
+        self._default_video_encoder_lock = threading.Lock()
 
         self._logfilename = None
         self._managed_logging_handlers = []
@@ -293,6 +298,11 @@ class Env:
                 f'(either add a `file_cache_size_g` entry to the `pixeltable` section of {Config.get().config_file},\n'
                 'or set the PIXELTABLE_FILE_CACHE_SIZE_G environment variable)',
             )
+
+        # how long an accessed cache file is protected from eviction; exceeds the expected duration of a single
+        # query/insert so a file fetched at the start of an operation is still present when the operation needs it
+        lease_s = config.get_float_value('file_cache_lease_s')
+        self._file_cache_lease_s = 600.0 if lease_s is None else lease_s
 
         self._default_input_media_dest = config.get_string_value('input_media_dest')
         self._default_output_media_dest = config.get_string_value('output_media_dest')
@@ -651,9 +661,10 @@ class Env:
 
     @property
     def default_video_encoder(self) -> str | None:
-        if self._default_video_encoder is None:
-            self._default_video_encoder = self._determine_default_video_encoder()
-        return self._default_video_encoder
+        with self._default_video_encoder_lock:
+            if self._default_video_encoder is None:
+                self._default_video_encoder = self._determine_default_video_encoder()
+            return self._default_video_encoder
 
     def _determine_default_video_encoder(self) -> str | None:
         """
@@ -785,40 +796,43 @@ class Env:
         assert package_name in self.__optional_packages
         package_info = self.__optional_packages[package_name]
 
-        if not package_info.is_installed:
-            # Check again whether the package has been installed.
-            # We do this so that if a user gets an "optional library not found" error message, they can
-            # `pip install` the library and re-run the Pixeltable operation without having to restart
-            # their Python session.
-            package_info.is_installed = importlib.util.find_spec(package_name) is not None
+        # the lazily-populated is_installed/version fields are shared; guard the check-then-set so concurrent
+        # callers don't race on find_spec/import or observe a half-assigned version
+        with self._optional_packages_lock:
             if not package_info.is_installed:
-                # Still not found.
-                if not_installed_msg is None:
-                    not_installed_msg = f'This feature requires the `{package_name}` package'
+                # Check again whether the package has been installed.
+                # We do this so that if a user gets an "optional library not found" error message, they can
+                # `pip install` the library and re-run the Pixeltable operation without having to restart
+                # their Python session.
+                package_info.is_installed = importlib.util.find_spec(package_name) is not None
+                if not package_info.is_installed:
+                    # Still not found.
+                    if not_installed_msg is None:
+                        not_installed_msg = f'This feature requires the `{package_name}` package'
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'{not_installed_msg}. To install it, run: `pip install -U {package_info.library_name}`',
+                    )
+
+            if min_version is None:
+                return
+
+            # check whether we have a version >= the required one
+            if package_info.version is None:
+                module = importlib.import_module(package_name)
+                version_str: str | None = getattr(module, '__version__', None)
+                if version_str is None:
+                    version_str = importlib.metadata.version(package_info.library_name)
+                package_info.version = [int(x) for x in version_str.split('.')]
+
+            if min_version > package_info.version:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'{not_installed_msg}. To install it, run: `pip install -U {package_info.library_name}`',
+                    f'The installed version of package `{package_name}` is '
+                    f'{".".join(str(v) for v in package_info.version)}, '
+                    f'but version >={".".join(str(v) for v in min_version)} is required. '
+                    f'To fix this, run: `pip install -U {package_info.library_name}`',
                 )
-
-        if min_version is None:
-            return
-
-        # check whether we have a version >= the required one
-        if package_info.version is None:
-            module = importlib.import_module(package_name)
-            version_str: str | None = getattr(module, '__version__', None)
-            if version_str is None:
-                version_str = importlib.metadata.version(package_info.library_name)
-            package_info.version = [int(x) for x in version_str.split('.')]
-
-        if min_version > package_info.version:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'The installed version of package `{package_name}` is '
-                f'{".".join(str(v) for v in package_info.version)}, '
-                f'but version >={".".join(str(v) for v in min_version)} is required. '
-                f'To fix this, run: `pip install -U {package_info.library_name}`',
-            )
 
     def clear_tmp_dir(self) -> None:
         for path in glob.glob(f'{self._tmp_dir}/*'):

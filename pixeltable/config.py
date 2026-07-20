@@ -534,6 +534,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'pgdata': 'Path to the Pixeltable postgres data directory',
         'db': 'Postgres database name',
         'file_cache_size_g': 'Size of the file cache in GB',
+        'file_cache_lease_s': 'Seconds a cached media file is protected from eviction after it is accessed',
         'time_zone': 'Default time zone for timestamps',
         'hide_warnings': 'Hide warnings from the console',
         'verbosity': 'Verbosity level for console output',
