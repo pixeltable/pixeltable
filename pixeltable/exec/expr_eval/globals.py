@@ -2,18 +2,34 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import concurrent.futures
+import os
 from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Iterable, Protocol
 
 import numpy as np
 
-from pixeltable import exprs, func
+from pixeltable import env, exprs, func
 
 # resource_pool id for CPU-bound, synchronous UDFs dispatched onto the shared ThreadPoolScheduler
 # executor (see schedulers.py); unlike 'rate-limits:'/'request-rate:' pools, there's a single one of
 # these, since CPU work isn't partitioned per provider the way API rate limits are
 CPU_BOUND_POOL = 'cpu-bound'
+
+
+def cpu_bound_executor() -> concurrent.futures.ThreadPoolExecutor:
+    """The shared, process-wide executor for CPU-bound work that releases the GIL.
+
+    Lives in Env's resource-pool cache (the same lazily-created-once mechanism used for
+    RateLimitsInfo), so it's created once per process and reused across every insert/query. Sized to
+    cpu_count(): unlike the I/O-bound pools in CachePrefetchNode/ObjectStoreSaveNode, which target
+    concurrent in-flight *requests* (network-latency-bound, so oversubscribing cores is fine),
+    CPU-bound work only benefits from as many threads as there are cores to run them on.
+    """
+    return env.Env.get().get_resource_pool_info(
+        CPU_BOUND_POOL, lambda: concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count())
+    )
 
 
 @dataclass

@@ -36,7 +36,7 @@ def b64_encode(img: PIL.Image.Image, image_format: str = 'png') -> str:
     return to_base64(img, format=image_format)
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def alpha_composite(im1: PIL.Image.Image, im2: PIL.Image.Image) -> PIL.Image.Image:
     """
     Alpha composite `im2` over `im1`.
@@ -46,7 +46,7 @@ def alpha_composite(im1: PIL.Image.Image, im2: PIL.Image.Image) -> PIL.Image.Ima
     return PIL.Image.alpha_composite(im1, im2)
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def blend(im1: PIL.Image.Image, im2: PIL.Image.Image, alpha: float) -> PIL.Image.Image:
     """
     Return a new image by interpolating between two input images, using a constant alpha.
@@ -56,7 +56,7 @@ def blend(im1: PIL.Image.Image, im2: PIL.Image.Image, alpha: float) -> PIL.Image
     return PIL.Image.blend(im1, im2, alpha)
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def composite(image1: PIL.Image.Image, image2: PIL.Image.Image, mask: PIL.Image.Image) -> PIL.Image.Image:
     """
     Return a composite image by blending two images using a mask.
@@ -70,7 +70,7 @@ def composite(image1: PIL.Image.Image, image2: PIL.Image.Image, mask: PIL.Image.
 
 
 # Image.convert()
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def convert(self: PIL.Image.Image, mode: str) -> PIL.Image.Image:
     """
     Convert the image to a different mode.
@@ -116,7 +116,7 @@ def _(self: Expr, box: tuple[int, int, int, int]) -> ts.ColumnType:
 
 
 # Image.getchannel()
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def getchannel(self: PIL.Image.Image, channel: int) -> PIL.Image.Image:
     """
     Return an L-mode image containing a single channel of the original image.
@@ -152,7 +152,7 @@ def get_metadata(self: PIL.Image.Image) -> util.ImageMetadata:
 
 
 # Image.point()
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def point(self: PIL.Image.Image, lut: list[int], mode: str | None = None) -> PIL.Image.Image:
     """
     Map image pixels through a lookup table.
@@ -186,7 +186,7 @@ def _(self: Expr, size: tuple[int, int]) -> ts.ColumnType:
 
 
 # Image.rotate()
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def rotate(self: PIL.Image.Image, angle: int) -> PIL.Image.Image:
     """
     Return a copy of the image rotated by the given angle.
@@ -200,7 +200,7 @@ def rotate(self: PIL.Image.Image, angle: int) -> PIL.Image.Image:
     return self.rotate(angle)
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def effect_spread(self: PIL.Image.Image, distance: int) -> PIL.Image.Image:
     """
     Randomly spread pixels in an image.
@@ -237,7 +237,7 @@ def _(self: Expr) -> ts.ColumnType:
     return self.col_type
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def entropy(self: PIL.Image.Image, mask: PIL.Image.Image | None = None, extrema: list | None = None) -> float:
     """
     Returns the entropy of the image, optionally using a mask and extrema.
@@ -263,7 +263,7 @@ def getbands(self: PIL.Image.Image) -> tuple[str, ...]:
     return self.getbands()
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def getbbox(self: PIL.Image.Image, *, alpha_only: bool = True) -> tuple[int, int, int, int] | None:
     """
     Return a bounding box for the non-zero regions of the image.
@@ -277,7 +277,7 @@ def getbbox(self: PIL.Image.Image, *, alpha_only: bool = True) -> tuple[int, int
     return self.getbbox(alpha_only=alpha_only)
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def getcolors(self: PIL.Image.Image, maxcolors: int = 256) -> list[tuple[int, int]]:
     """
     Return a list of colors used in the image, up to a maximum of `maxcolors`.
@@ -291,7 +291,7 @@ def getcolors(self: PIL.Image.Image, maxcolors: int = 256) -> list[tuple[int, in
     return self.getcolors(maxcolors)
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def getextrema(self: PIL.Image.Image) -> tuple[int, int]:
     """
     Return a 2-tuple containing the minimum and maximum pixel values of the image.
@@ -342,7 +342,7 @@ def getprojection(self: PIL.Image.Image) -> tuple[list[int], list[int]]:
     return self.getprojection()
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def histogram(self: PIL.Image.Image, mask: PIL.Image.Image | None = None, extrema: list | None = None) -> list[int]:
     """
     Return a histogram for the image.
@@ -357,7 +357,7 @@ def histogram(self: PIL.Image.Image, mask: PIL.Image.Image | None = None, extrem
     return self.histogram(mask, extrema)  # type: ignore[arg-type]
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def quantize(
     self: PIL.Image.Image,
     colors: int = 256,
@@ -386,7 +386,7 @@ def quantize(
     return self.quantize(colors, method, kmeans, palette, dither)
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def reduce(self: PIL.Image.Image, factor: int, box: tuple[int, int, int, int] | None = None) -> PIL.Image.Image:
     """
     Reduce the image by the given factor.
@@ -402,7 +402,7 @@ def reduce(self: PIL.Image.Image, factor: int, box: tuple[int, int, int, int] | 
     return self.reduce(factor, box)
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def thumbnail(
     self: PIL.Image.Image,
     size: tuple[int, int],
@@ -652,7 +652,7 @@ class stitch_tiles(pxt.Aggregator):
         return self.canvas
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def to_video(
     image: pxt.Image,
     *,

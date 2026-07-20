@@ -6,7 +6,6 @@ import datetime
 import inspect
 import logging
 import math
-import os
 import sys
 import time
 from typing import Any, Callable, Collection, cast
@@ -17,7 +16,7 @@ from pixeltable.utils import fault_injection
 from pixeltable.utils.fault_injection import FaultLocation
 from pixeltable.utils.http import exponential_backoff, is_retriable_error
 
-from .globals import CPU_BOUND_POOL, Dispatcher, ExprEvalCtx, FnCallArgs, Scheduler
+from .globals import CPU_BOUND_POOL, Dispatcher, ExprEvalCtx, FnCallArgs, Scheduler, cpu_bound_executor
 
 _logger = logging.getLogger(__name__)
 
@@ -445,12 +444,10 @@ class ThreadPoolScheduler(Scheduler):
     in-flight *requests* (network-latency-bound, so oversubscribing cores is fine), CPU-bound work
     only benefits from as many threads as there are cores to run them on.
 
-    The executor lives in Env's resource-pool cache (the same lazily-created-once mechanism used for
-    RateLimitsInfo), so it's created once per process and reused across every insert/query, rather
-    than paying OS thread create/destroy cost on every operation. run() is the sole entry point onto
-    that executor: any evaluator with resource_pool=CPU_BOUND_POOL (see globals.Evaluator.resource_pool)
-    goes through this scheduler rather than reaching for the executor directly, so there's exactly one
-    place that submits work to it and restores the caller's telemetry context on the worker thread.
+    run() is the sole entry point onto that executor for UDF calls: any evaluator with
+    resource_pool=CPU_BOUND_POOL (see globals.Evaluator.resource_pool) goes through this scheduler
+    rather than reaching for the executor directly, so there's exactly one place that submits UDF
+    work to it and restores the caller's telemetry context on the worker thread.
     """
 
     executor: concurrent.futures.ThreadPoolExecutor
@@ -459,9 +456,7 @@ class ThreadPoolScheduler(Scheduler):
         super().__init__(resource_pool, dispatcher)
         loop_task = asyncio.create_task(self._main_loop())
         self.dispatcher.register_task(loop_task)
-        self.executor = env.Env.get().get_resource_pool_info(
-            CPU_BOUND_POOL, lambda: concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count())
-        )
+        self.executor = cpu_bound_executor()
 
     @classmethod
     def matches(cls, resource_pool: str) -> bool:

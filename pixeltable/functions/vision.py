@@ -1424,7 +1424,7 @@ def _overlay_id_map(
     return result.convert('RGB')
 
 
-@pxt.udf
+@pxt.udf(resource_pool='cpu-bound')
 def overlay_segmentation(
     img: PIL.Image.Image,
     segmentation: pxt.Array[(None, None), np.int32],

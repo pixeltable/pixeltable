@@ -14,7 +14,7 @@ from pixeltable.utils.code import local_public_names
 from pixeltable.utils.local_store import TempStore
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def overlay_text(
     video: pxt.Video,
     text: str,
@@ -249,7 +249,7 @@ def _create_drawtext_params(
     return drawtext_params
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def overlay_image(
     video: pxt.Video,
     image: pxt.Image,
@@ -405,7 +405,7 @@ def overlay_image(
     )
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def crop(
     video: pxt.Video,
     bbox: list[int],
@@ -498,7 +498,7 @@ def crop(
     )
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def resize(
     video: pxt.Video,
     *,
@@ -572,7 +572,7 @@ def resize(
     )
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def reverse(
     video: pxt.Video,
     audio: Literal['reverse', 'drop', 'keep'] = 'drop',
@@ -706,7 +706,7 @@ def _fade(
     )
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def fade_in(
     video: pxt.Video,
     *,
@@ -745,7 +745,7 @@ def fade_in(
     return _fade(video, 'in', duration, color, video_encoder=video_encoder, video_encoder_args=video_encoder_args)
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def fade_out(
     video: pxt.Video,
     *,
@@ -795,7 +795,7 @@ def fade_out(
     )
 
 
-@pxt.udf
+@pxt.udf(resource_pool='cpu-bound')
 def transition(
     video1: pxt.Video,
     video2: pxt.Video,
@@ -916,7 +916,7 @@ def transition(
     )
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def speed(
     video: pxt.Video,
     *,
@@ -999,7 +999,7 @@ def _flip(
     )
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def mirror_x(
     video: pxt.Video, *, video_encoder: str | None = None, video_encoder_args: dict[str, Any] | None = None
 ) -> pxt.Video:
@@ -1024,7 +1024,7 @@ def mirror_x(
     return _flip(video, 'h', video_encoder, video_encoder_args)
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def mirror_y(
     video: pxt.Video, *, video_encoder: str | None = None, video_encoder_args: dict[str, Any] | None = None
 ) -> pxt.Video:
@@ -1049,7 +1049,7 @@ def mirror_y(
     return _flip(video, 'v', video_encoder, video_encoder_args)
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def rotate(
     video: pxt.Video,
     *,
@@ -1116,7 +1116,7 @@ def rotate(
     )
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def grayscale(
     video: pxt.Video, *, video_encoder: str | None = None, video_encoder_args: dict[str, Any] | None = None
 ) -> pxt.Video:
@@ -1151,7 +1151,7 @@ def grayscale(
     )
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def adjust_brightness(
     video: pxt.Video,
     *,
@@ -1204,7 +1204,7 @@ def adjust_brightness(
     )
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def ffmpeg_filter(
     video: pxt.Video,
     *,
@@ -1272,7 +1272,7 @@ def ffmpeg_filter(
     )
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, resource_pool='cpu-bound')
 def scroll(
     video: pxt.Video,
     *,
