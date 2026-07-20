@@ -1617,7 +1617,14 @@ class TestHostedUriHelpers:
         assert utils.parse_service_uri('pxt://acme:main/services/foo') == ('acme', 'main', 'foo')
 
     @pytest.mark.parametrize(
-        'bad', ['pxt://acme:main/tables/foo', 'pxt://acme:main/services/', 'pxt://acme:main', 'pxt://acme']
+        'bad',
+        [
+            'pxt://acme:main/tables/foo',
+            'pxt://acme:main/services/',
+            'pxt://acme:main/services/foo/bar',  # extra path component rejected
+            'pxt://acme:main',
+            'pxt://acme',
+        ],
     )
     def test_parse_service_uri_rejects(self, bad: str) -> None:
         with pytest.raises(SystemExit) as info:

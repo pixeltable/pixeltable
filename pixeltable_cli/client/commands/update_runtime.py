@@ -60,13 +60,13 @@ def run(argv: list[str]) -> None:
             presigned_url = url_resp['presigned_url']
             bundle_s3_key = url_resp['bundle_s3_key']
 
-            with bundle_path.open('rb') as fh:
-                req = urllib.request.Request(presigned_url, data=fh, method='PUT')
-                req.add_header('Content-Type', 'application/octet-stream')
-                req.add_header('Content-Length', str(bundle_path.stat().st_size))
-                with urllib.request.urlopen(req, timeout=300) as r:
-                    if r.status >= 400:
-                        raise RuntimeError(f'Bundle upload failed: HTTP {r.status}')
+            data = bundle_path.read_bytes()  # urllib wants a bytes-like body; the bundle is a small project tarball
+            req = urllib.request.Request(presigned_url, data=data, method='PUT')
+            req.add_header('Content-Type', 'application/octet-stream')
+            req.add_header('Content-Length', str(len(data)))
+            with urllib.request.urlopen(req, timeout=300) as r:
+                if r.status >= 400:
+                    raise RuntimeError(f'Bundle upload failed: HTTP {r.status}')
             if not args.json_output:
                 print('done')
         finally:

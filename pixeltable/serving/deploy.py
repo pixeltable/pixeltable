@@ -70,7 +70,13 @@ def _load_database_runtime_config(project_dir: Path) -> config.DatabaseRuntimeCo
     """Read [pixeltable.database] config from project_dir/pixeltable.toml; fall back to Config singleton."""
     toml_path = project_dir / 'pixeltable.toml'
     if toml_path.is_file():
-        db_raw = toml.load(toml_path).get('pixeltable', {}).get('database')
+        try:
+            parsed = toml.load(toml_path)
+        except Exception as e:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid TOML in {toml_path.name}: {e}'
+            ) from e
+        db_raw = parsed.get('pixeltable', {}).get('database')
         if db_raw is not None:
             try:
                 return config.DatabaseRuntimeConfig.model_validate(db_raw)

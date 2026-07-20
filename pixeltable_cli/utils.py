@@ -198,8 +198,10 @@ def parse_service_uri(uri: str, prog: str = 'pxt') -> tuple[str, str, str]:
         print(f'{prog}: error: URI must be pxt://org:db/services/<name>, got {uri!r}', file=sys.stderr)
         sys.exit(2)
     svc_name = path[len('services/') :]
-    if not svc_name:
-        print(f'{prog}: error: URI must include a service name', file=sys.stderr)
+    if not svc_name or '/' in svc_name:
+        print(
+            f'{prog}: error: URI must be pxt://org:db/services/<name> with no extra path, got {uri!r}', file=sys.stderr
+        )
         sys.exit(2)
     return org, db, svc_name
 
