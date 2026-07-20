@@ -61,7 +61,9 @@ class TableVersionHandle:
         """
         cat = get_runtime().catalog
         if get_runtime().in_xact:
-            return cat.get_tbl_version(self.key)
+            # disable validation because we can get here during the TableVersion initialization while the instance is
+            # not yet valid.
+            return cat.get_tbl_version(self.key, validate_initialized=False)
 
         if self.effective_version is not None:
             cached_tv = cat._tbl_versions.get(self.key)
