@@ -27,13 +27,105 @@ _IS_WINDOWS = os.name == 'nt'
 
 
 def session_key() -> str:
-    """Stable per-terminal session id: the parent shell's pid plus its start time.
+    """Stable per-terminal session id: the invoking shell's pid plus its start time.
 
     The start time distinguishes a recycled pid, so a stale working directory can't bleed into an unrelated
     shell that the OS later assigns the same pid.
+
+    On POSIX the `pxt` console script is exec'd in place, so os.getppid() is the shell itself. On Windows the
+    console-script entry point is an .exe trampoline that launches the interpreter as a child and stays its
+    parent, so os.getppid() is that trampoline: a distinct pid for every `pxt` invocation, which would give
+    each command its own session and defeat the working directory. Step up to the trampoline's own parent to
+    recover the shell that all of a terminal's commands share.
     """
+    if _IS_WINDOWS:
+        launcher_pid = os.getppid()
+        shell_pid = _win_parent_pid(launcher_pid)
+        # fall back to the trampoline if its parent can't be resolved (session won't persist, but is stable
+        # within a single command rather than crashing)
+        pid = shell_pid if shell_pid is not None else launcher_pid
+        return f'{pid}:{_win_process_creation_time(pid)}'
     ppid = os.getppid()
     return f'{ppid}:{_parent_start_time(ppid)}'
+
+
+def _win_parent_pid(pid: int) -> int | None:
+    """The parent pid of pid on Windows, via a Toolhelp process snapshot; None if it can't be resolved."""
+    # ctypes.wintypes exists only on Windows, so import it inside this platform-guarded path.
+    import ctypes
+    from ctypes import wintypes
+
+    class ProcessEntry(ctypes.Structure):
+        _fields_ = [
+            ('dwSize', wintypes.DWORD),
+            ('cntUsage', wintypes.DWORD),
+            ('th32ProcessID', wintypes.DWORD),
+            ('th32DefaultHeapID', ctypes.POINTER(ctypes.c_ulong)),  # ULONG_PTR: pointer-sized, only its width matters
+            ('th32ModuleID', wintypes.DWORD),
+            ('cntThreads', wintypes.DWORD),
+            ('th32ParentProcessID', wintypes.DWORD),
+            ('pcPriClassBase', ctypes.c_long),
+            ('dwFlags', wintypes.DWORD),
+            ('szExeFile', ctypes.c_char * 260),
+        ]
+
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)  # type: ignore[attr-defined]  # Windows-only
+    # Set restype explicitly: a HANDLE is pointer-sized and would be truncated under the default int restype
+    # on 64-bit Windows.
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    kernel32.Process32First.restype = wintypes.BOOL
+    kernel32.Process32First.argtypes = [wintypes.HANDLE, ctypes.POINTER(ProcessEntry)]
+    kernel32.Process32Next.restype = wintypes.BOOL
+    kernel32.Process32Next.argtypes = [wintypes.HANDLE, ctypes.POINTER(ProcessEntry)]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+
+    snap_all_processes = 0x00000002  # TH32CS_SNAPPROCESS
+    invalid_handle = wintypes.HANDLE(-1).value  # INVALID_HANDLE_VALUE
+    snapshot = kernel32.CreateToolhelp32Snapshot(snap_all_processes, 0)
+    if snapshot == invalid_handle:
+        return None
+    try:
+        entry = ProcessEntry()
+        entry.dwSize = ctypes.sizeof(ProcessEntry)
+        if not kernel32.Process32First(snapshot, ctypes.byref(entry)):
+            return None
+        while True:
+            if entry.th32ProcessID == pid:
+                return int(entry.th32ParentProcessID)
+            if not kernel32.Process32Next(snapshot, ctypes.byref(entry)):
+                return None
+    finally:
+        kernel32.CloseHandle(snapshot)
+
+
+def _win_process_creation_time(pid: int) -> str:
+    """The creation time of pid on Windows as an opaque string; empty if it can't be read."""
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)  # type: ignore[attr-defined]  # Windows-only
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.GetProcessTimes.restype = wintypes.BOOL
+    kernel32.GetProcessTimes.argtypes = [wintypes.HANDLE, *([ctypes.POINTER(wintypes.FILETIME)] * 4)]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+
+    query_limited_info = 0x1000  # PROCESS_QUERY_LIMITED_INFORMATION: minimal rights to read the creation time
+    handle = kernel32.OpenProcess(query_limited_info, False, pid)
+    if not handle:
+        return ''
+    try:
+        creation = wintypes.FILETIME()
+        unused = wintypes.FILETIME()  # exit/kernel/user times are required out-params but not needed here
+        ok = kernel32.GetProcessTimes(
+            handle, ctypes.byref(creation), ctypes.byref(unused), ctypes.byref(unused), ctypes.byref(unused)
+        )
+        if not ok:
+            return ''
+        return str((creation.dwHighDateTime << 32) | creation.dwLowDateTime)
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 def _parent_start_time(pid: int) -> str:
