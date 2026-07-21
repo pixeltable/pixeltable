@@ -295,6 +295,8 @@ class TestTableModel:
                 'primary_key': None,
                 'kind': 'table',
                 'base': None,
+                'view_filter': None,
+                'view_sample': None,
                 'iterator_call': None,
             },
             tbl.get_metadata(),
@@ -615,6 +617,13 @@ class TestTableModel:
             vc3 = ExampleTable.id + 3
             vc4 = ExampleTable.id + 4
 
+        # A view whose base query carries a filter and a sample clause (on `id`, which survives V2's table changes),
+        # so V2 can exercise filter/sample mismatches.
+        class ExampleFiltered(
+            TableModel, name='test_filtered', base=ExampleTable.where(ExampleTable.id > 0).sample(n=10, seed=1)
+        ):
+            fc1 = ExampleTable.id + 1
+
         # Created as a view; V2 redeclares it as a table, producing a kind mismatch.
         class ExampleKind(TableModel, name='test_kind', base=ExampleTable):
             kc1 = ExampleTable.value + 1
@@ -652,6 +661,12 @@ class TestTableModel:
             vextra1: pxt.Int
             vextra2: pxt.String
 
+        # The same view, but with a changed filter and sample clause (columns unchanged).
+        class ExampleFilteredV2(
+            TableModelV2, name='test_filtered', base=ExampleTableV2.where(ExampleTableV2.id > 5).sample(n=20, seed=2)
+        ):
+            fc1 = ExampleTableV2.id + 1
+
         # Redeclares 'test_kind' (created above as a view) as a table, with the same columns; only the kind differs.
         class ExampleKindV2(TableModelV2, name='test_kind'):
             kc1: pxt.Float
@@ -688,6 +703,13 @@ class TestTableModel:
               the following columns are no longer in the model, and will be DROPPED:
                 'vc3'
                 'vc4'
+            View 'test_filtered' (from model `ExampleFilteredV2`) has differences:
+              view filter mismatch (FATAL):
+                model filter   : id > 5
+                existing filter: id > 0
+              view sample mismatch (FATAL):
+                model sample   : sample(n=20, n_per_stratum=None, fraction=None, seed=2, [])
+                existing sample: sample(n=10, n_per_stratum=None, fraction=None, seed=1, [])
             Table 'test_kind' (from model `ExampleKindV2`) has differences:
               kind mismatch (FATAL): `ExampleKindV2` specifies a table, but 'test_kind' is a view
             Table 'test_new' (from model `ExampleNewV2`) does not yet exist, and will be CREATED.

@@ -1007,6 +1007,10 @@ class ValidationResults(NamedTuple):
     existing_kind: str | None  # None if the table does not yet exist
     model_iterator: str | None  # display string of the model's iterator call, or None if it has no iterator
     existing_iterator: str | None  # None if the table does not yet exist or has no iterator
+    model_filter: str | None  # display string of the model view's filter, or None if it has none (or is a table)
+    existing_filter: str | None  # None if the table does not yet exist or has no filter
+    model_sample: str | None  # display string of the model view's sample clause, or None if it has none
+    existing_sample: str | None  # None if the table does not yet exist or has no sample clause
     new_columns: list[str]
     dropped_columns: list[str]
     new_indexes: list[str]
@@ -1019,7 +1023,10 @@ class ValidationResults(NamedTuple):
     @property
     def has_fatal_changes(self) -> bool:
         return self.tbl_exists and (
-            self.model_kind != self.existing_kind or self.model_iterator != self.existing_iterator
+            self.model_kind != self.existing_kind
+            or self.model_iterator != self.existing_iterator
+            or self.model_filter != self.existing_filter
+            or self.model_sample != self.existing_sample
         )
 
     @property
@@ -1044,11 +1051,16 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
         model_cols = set(model.__columns__.keys())
         model_idxs = set(model.__indexes__.keys())
         # A model with no base is a table, otherwise a view.
-        model_kind = 'table' if model.__table_spec__['base'] is None else 'view'
+        base = model.__table_spec__['base']
+        model_kind = 'table' if base is None else 'view'
         # The model's iterator still carries `ModelColumnRef` placeholders, but those render identically to the
         # `ColumnRef`s in a stored (bound) iterator call, so the display strings are directly comparable.
         iterator = model.__table_spec__['iterator']
         model_iterator = None if iterator is None else iterator.display_str()
+        # The model view's (unbound) filter/sample clauses carry `ModelColumnRef` placeholders, but those render
+        # identically to the `ColumnRef`s in the stored, bound clauses, so the display strings are comparable.
+        model_filter = None if base is None or base.where_clause is None else str(base.where_clause)
+        model_sample = None if base is None or base.sample_clause is None else str(base.sample_clause)
 
         existing = model._resolve_tbl(binding_root, if_not_exists='ignore')
         if existing is None:
@@ -1063,6 +1075,10 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
                 existing_kind=None,
                 model_iterator=model_iterator,
                 existing_iterator=None,
+                model_filter=model_filter,
+                existing_filter=None,
+                model_sample=model_sample,
+                existing_sample=None,
             )
             continue
 
@@ -1079,7 +1095,6 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
         }
 
         # TODO: validate table properties (comment, custom_metadata, media_validation, primary_key, etc.)
-        # TODO: validate base table query
         # TODO: validate column structure
 
         results[name] = ValidationResults(
@@ -1093,6 +1108,10 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
             existing_kind=existing_md['kind'],
             model_iterator=model_iterator,
             existing_iterator=existing_md['iterator_call'],
+            model_filter=model_filter,
+            existing_filter=existing_md['view_filter'],
+            model_sample=model_sample,
+            existing_sample=existing_md['view_sample'],
         )
 
     return results
@@ -1116,6 +1135,14 @@ def _format_diff(name: str, r: ValidationResults) -> list[str]:
         detail.append('  iterator mismatch (FATAL):')
         detail.append(f'    model iterator   : {r.model_iterator}')
         detail.append(f'    existing iterator: {r.existing_iterator}')
+    if r.model_filter != r.existing_filter:
+        detail.append('  view filter mismatch (FATAL):')
+        detail.append(f'    model filter   : {r.model_filter}')
+        detail.append(f'    existing filter: {r.existing_filter}')
+    if r.model_sample != r.existing_sample:
+        detail.append('  view sample mismatch (FATAL):')
+        detail.append(f'    model sample   : {r.model_sample}')
+        detail.append(f'    existing sample: {r.existing_sample}')
     if len(r.new_columns) > 0:
         detail.append('  the following columns are new to the model, and will be ADDED:')
         for col_name in r.new_columns:
