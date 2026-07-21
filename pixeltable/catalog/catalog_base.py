@@ -3,6 +3,8 @@ from __future__ import annotations
 import abc
 from typing import TYPE_CHECKING, Any, Mapping
 
+from pixeltable.catalog import model
+
 if TYPE_CHECKING:
     from uuid import UUID
 
@@ -70,6 +72,9 @@ class CatalogBase(abc.ABC):
         base: 'Query | None',
         embedding_idxs: dict[str, 'EmbeddingIndex'],
     ) -> tuple[Table, bool]: ...
+
+    @abc.abstractmethod
+    def update_from_model(self, updates: dict[Path, model.Updates]) -> None: ...
 
     @abc.abstractmethod
     def get_table(self, path: Path, if_not_exists: IfNotExistsParam) -> Table | None: ...

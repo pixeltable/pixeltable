@@ -690,9 +690,15 @@ class TestTableModel:
                 'vc4'
             Table 'test_kind' (from model `ExampleKindV2`) has differences:
               kind mismatch (FATAL): `ExampleKindV2` specifies a table, but 'test_kind' is a view
-            Table 'test_new' (from model `ExampleNewV2`) does not yet exist.
-       """).strip()
+            Table 'test_new' (from model `ExampleNewV2`) does not yet exist, and will be CREATED.
+            """).strip()
         )
+
+        with pxt_raises(
+            excs.ErrorCode.SCHEMA_MISMATCH,
+            match=r'One or more tables cannot be updated, because their models are inconsistent with the existing'
+        ):
+            TableModelV2.update_all(root)
 
     def test_table_model_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """Reproduce each error condition raised by `pixeltable.catalog.model`."""

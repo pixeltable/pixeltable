@@ -8,7 +8,7 @@ import time
 from collections import defaultdict
 from collections.abc import Collection
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Mapping, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Mapping, TypedDict, TypeVar
 from uuid import UUID, uuid4
 
 import psycopg
@@ -18,6 +18,7 @@ from sqlalchemy.dialects.postgresql import array as pg_array
 
 import pixeltable.index as index
 from pixeltable import exceptions as excs, exprs, func, telemetry
+from pixeltable.catalog import model
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
@@ -32,7 +33,6 @@ from .dir import Dir
 from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation, QColumnId
 from .insertable_table import InsertableTable
 from .local_table import LocalTable
-from .model import EmbeddingIndex, prepare_model
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
 from .table_path import TablePath, TableVersionPath
@@ -1685,7 +1685,7 @@ class Catalog(CatalogBase):
         custom_metadata: Any,
         iterator: func.GeneratingFunctionCall | None,
         base: 'pxt.Query | None',
-        embedding_idxs: dict[str, EmbeddingIndex],
+        embedding_idxs: dict[str, model.EmbeddingIndex],
     ) -> tuple[LocalTable, bool]:
         """Create a table or view from a declarative model.
 
@@ -1703,7 +1703,7 @@ class Catalog(CatalogBase):
         tbl_id = uuid4()
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
 
-        iterator, additional_cols, resolved_idxs = prepare_model(
+        iterator, additional_cols, resolved_idxs = model.prepare_model(
             tbl_handle, columns, display_name, media_validation, iterator, base, embedding_idxs
         )
 
@@ -1747,6 +1747,42 @@ class Catalog(CatalogBase):
                 additional_idxs=resolved_idxs,
                 explicit_tbl_id=tbl_id,
             )
+
+    def update_from_model(self, updates: dict[Path, model.Updates]) -> None:
+        """Update a table or view from a declarative model.
+
+        If the table does not exist, raises NotFoundError. If the model is incompatible with the existing table,
+        raises RequestError.
+        """
+        tbls = [self.get_table(path, IfNotExistsParam.ERROR) for path in updates.keys()]
+
+        @retry_loop(for_write=True, write_tvps=[tbl._tbl_version_path for tbl in tbls], lock_mutable_tree=True)
+        def update_fn() -> None:
+            # (tbl_version_path, tbl_version, updates) tuple for each table in the model update
+            tbl_info = list(
+                zip((tbl._tbl_version_path for tbl in tbls), (tbl._tbl_version.get() for tbl in tbls), updates.values())
+            )
+
+            # First drop any columns or indices that are being removed. Do this in *inverse* declaration order so that
+            # dependent columns or indices are dropped first.
+            for _, tbl_version, update in tbl_info[::-1]:
+                for col_name in update['dropped_columns']:
+                    col = tbl_version.cols_by_name[col_name]
+                    tbl_version.drop_column(col)
+                for idx_name in update['dropped_idxs']:
+                    idx = tbl_version.idxs_by_name[idx_name]
+                    tbl_version.drop_index(idx.id)
+
+            # Now add any new columns or indices, in forward order (base tables first).
+            for tvp, tv, update in tbl_info:
+                resolved_cols, resolved_idxs = model.prepare_model_updates(
+                    tvp, tv.display_str(), update['new_columns'], update['new_idxs']
+                )
+                tbl_version.add_columns(resolved_cols)
+                for col, idx_name, idx in resolved_idxs:
+                    tbl_version.add_index(col, idx_name, idx)
+
+        update_fn()
 
     def _validate_model(
         self,

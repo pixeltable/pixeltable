@@ -920,6 +920,93 @@ def prepare_model(
     return iterator, additional_cols, resolved_idxs
 
 
+class Updates(TypedDict):
+    new_columns: dict[str, ColumnSpec]
+    dropped_columns: list[str]
+    new_idxs: dict[str, EmbeddingIndex]
+    dropped_idxs: list[str]
+
+
+class PreparedUpdates(TypedDict):
+    new_columns: dict[str, Column]
+    dropped_columns: list[Column]
+    new_idxs: dict[str, tuple[Column, str | None, index.IndexBase]]
+    dropped_idxs: list[int]
+
+
+def prepare_model_updates(
+    tvp: catalog.TableVersionPath,
+    display_name: str,
+    new_columns: dict[str, ColumnSpec],
+    new_idxs: dict[str, EmbeddingIndex],
+) -> tuple[list[Column], list[tuple[Column, str | None, index.IndexBase]]]:
+    visible_cols: dict[str, catalog.Column] = {}
+    subst_dict: dict[exprs.Expr, exprs.Expr] = {}
+
+    # Pre-populate the visible columns and substitution dict with the existing table's visible columns.
+    # This includes iterator columns and base table columns.
+    for col in tvp.columns():
+        visible_cols[col.name] = col
+        subst_dict[ModelColumnRef(name)] = exprs.ColumnRef(
+            col.column_version_md(), perform_validation=(col.media_validation == MediaValidation.ON_READ)
+        )
+
+    tbl_handle = tvp.tbl_version
+    next_col_id = itertools.count(start=tvp.tbl_version.get().next_col_id)
+
+    # Process any additional columns specified in the view model body.
+    additional_cols: list[catalog.Column] = []
+    for name, spec in new_columns.items():
+        subst_spec = spec.copy()
+        if 'value' in subst_spec:
+            subst_spec['value'] = subst_spec['value'].substitute(subst_dict)
+            residual_placeholders = list(subst_spec['value'].subexprs(ModelColumnRef))
+            if len(residual_placeholders) > 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'Column {name!r} in {display_name} references columns that are not in '
+                    f"the model's scope: {[c.name for c in residual_placeholders]}",
+                )
+        catalog_col = catalog.Column.create(name, subst_spec)
+        catalog_col.tbl_handle = tbl_handle
+        catalog_col.id = next(next_col_id)
+        additional_cols.append(catalog_col)
+        visible_cols[name] = catalog_col
+        subst_dict[ModelColumnRef(name, catalog_col.col_type)] = exprs.ColumnRef(
+            catalog_col.column_version_md(),
+            perform_validation=subst_spec.get('media_validation', str(tvp.media_validation).lower()) == 'on_read',
+        )
+
+    # Resolve each declared embedding index against the model's visible columns.
+    resolved_idxs: list[tuple[catalog.Column, str | None, index.IndexBase]] = []
+    for idx_name, idx_spec in new_idxs.items():
+        if not isinstance(idx_spec.column, ModelColumnRef):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'Embedding index {idx_name!r} in {display_name} has an invalid column reference.',
+            )
+        col_name = idx_spec.column.name
+        if col_name not in visible_cols:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'Embedding index {idx_name!r} in {display_name} references unknown column {col_name!r}.',
+            )
+        idx = index.EmbeddingIndex(
+            metric=idx_spec.metric,
+            precision=idx_spec.precision,
+            embed=idx_spec.embedding,
+            string_embed=idx_spec.string_embed,
+            image_embed=idx_spec.image_embed,
+            audio_embed=idx_spec.audio_embed,
+            video_embed=idx_spec.video_embed,
+            document_embed=idx_spec.document_embed,
+            column=visible_cols[col_name],
+        )
+        resolved_idxs.append((visible_cols[col_name], idx_name, idx))
+
+    return additional_cols, resolved_idxs
+
+
 class ValidationResults(NamedTuple):
     model_cls: TableModelMeta
     tbl_exists: bool
@@ -1020,7 +1107,10 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
 def _format_diff(name: str, r: ValidationResults) -> list[str]:
     """Human-readable lines describing how the model named `name` differs from the current catalog state."""
     if not r.tbl_exists:
-        return [f'{r.model_kind.capitalize()} {name!r} (from model `{r.model_cls.__name__}`) ' 'does not yet exist, and will be CREATED.']
+        return [
+            f'{r.model_kind.capitalize()} {name!r} (from model `{r.model_cls.__name__}`) '
+            'does not yet exist, and will be CREATED.'
+        ]
 
     detail: list[str] = []
     if r.model_kind != r.existing_kind:
@@ -1087,8 +1177,40 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
             lines.extend(_format_diff(name, r))
         Env.get().console_logger.info('\n'.join(lines) if len(lines) > 0 else 'Catalog is up to date.')
 
+    def _update_all(binding_root: str = '', *, allow_destructive: bool = False) -> None:
+        results = validate_models(registered_models, binding_root)
+
+        fatal = [(name, r) for name, r in results.items() if r.has_fatal_changes]
+        if len(fatal) > 0:
+            detail = '\n'.join(line for name, r in fatal for line in _format_diff(name, r))
+            raise excs.RequestError(
+                excs.ErrorCode.SCHEMA_MISMATCH,
+                'One or more tables cannot be updated, because their models are inconsistent '
+                'with the existing table(s) in the catalog.\n'
+                f'{detail}\n'
+                'Adjust the existing table(s) manually, or adjust the models to be consistent with the catalog.',
+            )
+
+        destructive = [(name, r) for name, r in results.items() if r.has_destructive_changes]
+        if len(destructive) > 0 and not allow_destructive:
+            detail = '\n'.join(line for name, r in destructive for line in _format_diff(name, r))
+            raise excs.RequestError(
+                excs.ErrorCode.SCHEMA_MISMATCH,
+                f'The following updates would result in destructive catalog changes.\n'
+                f'{detail}\n'
+                'If you wish to apply these changes, re-run `update_all()` with `allow_destructive=True`.\n'
+                'If you intended to rename columns or indexes instead of dropping them, apply those changes '
+                'directly with `pxt.move()`.',
+            )
+
+        to_update = [(name, r) for name, r in results.items() if r.has_changes]
+        if len(to_update) == 0:
+            Env.get().console_logger.info('Catalog is up to date.')
+            return
+
     cls.bind_all = _bind_all  # type: ignore[attr-defined]
     cls.create_all = _create_all  # type: ignore[attr-defined]
     cls.diff_all = _diff_all  # type: ignore[attr-defined]
+    cls.update_all = _update_all  # type: ignore[attr-defined]
 
     return cls  # type: ignore[return-value]
