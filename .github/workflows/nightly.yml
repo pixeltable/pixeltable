@@ -117,7 +117,10 @@ jobs:
         # cmake is needed for certain CI environments where it is not preinstalled.
         run: ./scripts/retry.sh 3 30 conda install -y -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==6.1.1=gpl*'
       - name: Delete source tree
-        run: rm -rf pixeltable  # Ensure we use pypi pixeltable package for testing, not local source tree
+        # Ensure we use the pypi pixeltable package for testing, not the local source tree. pixeltable_cli
+        # must go too: `python -m pixeltable_cli.server.daemon` puts the cwd first on sys.path, so the local
+        # source tree (without the SPA bundle the wheel ships) would shadow the installed package.
+        run: rm -rf pixeltable pixeltable_cli
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
