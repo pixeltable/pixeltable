@@ -1,5 +1,6 @@
 """YOLOX object detection functions."""
 
+import threading
 from typing import TYPE_CHECKING, TypedDict
 
 import PIL.Image
@@ -100,21 +101,23 @@ def _lookup_model(model_id: str, device: str) -> 'Yolox':
     from yolox.models import Yolox
 
     key = (model_id, device)
-    if key not in _model_cache:
-        _model_cache[key] = Yolox.from_pretrained(model_id, device=device)
-
-    return _model_cache[key]
+    with _cache_lock:
+        if key not in _model_cache:
+            _model_cache[key] = Yolox.from_pretrained(model_id, device=device)
+        return _model_cache[key]
 
 
 def _lookup_processor(model_id: str) -> 'YoloxProcessor':
     from yolox.models import YoloxProcessor
 
-    if model_id not in _processor_cache:
-        _processor_cache[model_id] = YoloxProcessor(model_id)
+    with _cache_lock:
+        if model_id not in _processor_cache:
+            _processor_cache[model_id] = YoloxProcessor(model_id)
+        return _processor_cache[model_id]
 
-    return _processor_cache[model_id]
 
-
+# guards the caches below; held across model loads so a cache miss never loads twice
+_cache_lock = threading.Lock()
 _model_cache: dict[tuple[str, str], 'Yolox'] = {}
 _processor_cache: dict[str, 'YoloxProcessor'] = {}
 

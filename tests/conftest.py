@@ -224,6 +224,7 @@ def _reset_catalog_state() -> None:
     reload_catalog()
     FileCache.get().validate()
     FileCache.get().set_capacity(10 << 30)  # 10 GiB
+    FileCache.get().set_lease_seconds(Env.get()._file_cache_lease_s)  # reset any per-test override
 
 
 def _validate_catalog_state() -> None:
