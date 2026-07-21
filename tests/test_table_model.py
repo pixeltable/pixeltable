@@ -745,8 +745,6 @@ class TestTableModel:
         # Purely additive, so no `allow_destructive` needed.
         TableModelV2.update_all(root)
 
-        TableModelV2.bind_all(root)
-
         # The new columns and index are present on the table; the new column is present on the view.
         tbl_md = ExampleTableV2.get_metadata()
         assert 'plus_ten' in tbl_md['columns']
@@ -758,6 +756,38 @@ class TestTableModel:
         tbl = ExampleTableV2.table
         res = tbl.order_by(tbl.id).select(tbl.id, tbl.plus_ten).collect()
         assert res['plus_ten'] == [11.0, 12.0]
+
+        # A third base that both drops and adds columns, on the table and the view. The dropped columns
+        # (`plus_ten`, `note`, `vc1`) have no dependents, so the only obstacle is that dropping is destructive.
+        TableModelV3 = pxt.model_base()
+
+        class ExampleTableV3(TableModelV3, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            value: pxt.Float
+            image: pxt.Image
+            doubled = value * 2  # added
+            label: pxt.String  # added
+            # 'plus_ten' and 'note' dropped
+            embed_a = EmbeddingIndex(image, embedding=dummy_embedding.using(n=768))
+            embed_b = EmbeddingIndex(image, embedding=dummy_embedding.using(n=512))
+
+        class ExampleViewV3(TableModelV3, name='test_view', base=ExampleTableV3):
+            vc2 = ExampleTableV3.value + 2  # kept
+            vc3 = ExampleTableV3.value + 3  # added
+            # 'vc1' dropped
+
+        # Refuses without opt-in, since columns are being dropped.
+        with pxt_raises(excs.ErrorCode.SCHEMA_MISMATCH, match='destructive'):
+            TableModelV3.update_all(root)
+
+        # Succeeds with the opt-in.
+        TableModelV3.update_all(root, allow_destructive=True)
+
+        tbl_md = ExampleTableV3.get_metadata()
+        assert {'doubled', 'label'} <= set(tbl_md['columns'].keys())
+        assert not ({'plus_ten', 'note'} & set(tbl_md['columns'].keys()))
+        view_md = ExampleViewV3.get_metadata()
+        assert 'vc3' in view_md['columns'] and 'vc1' not in view_md['columns']
 
     def test_table_model_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """Reproduce each error condition raised by `pixeltable.catalog.model`."""
@@ -979,44 +1009,25 @@ class TestTableModel:
         ):
             pass
 
-        ExampleTableModel._create(p(''))  # should succeed; schema matches existing table
+        # `diff_all()` reports every mismatch between a model and its existing table at once.
+        with capture_console_output() as out:
+            TableModel.diff_all(p(''))
+        report = out.getvalue()
 
-        # The validation errors below are raised by `Catalog.create_from_model` in the catalog that owns the
-        # table, so the paths they report are in-db paths (no proxy prefix) — identical in local and proxy modes.
-        with pxt_raises(
-            excs.ErrorCode.SCHEMA_MISMATCH,
-            match=r"model `BadTableModel` is defined as a table, but the existing 'test_view' is a view.",
-        ):
-            BadTableModel._create(p(''))
+        # Kind mismatches: table-vs-view, view-vs-table, view-vs-snapshot.
+        assert "kind mismatch (FATAL): `BadTableModel` specifies a table, but 'test_view' is a view" in report
+        assert "kind mismatch (FATAL): `BadViewModel` specifies a view, but 'test_table' is a table" in report
+        assert "kind mismatch (FATAL): `BadViewModel2` specifies a view, but 'test_snapshot' is a snapshot" in report
 
-        with pxt_raises(
-            excs.ErrorCode.SCHEMA_MISMATCH,
-            match=r"model `BadViewModel` is defined as a view, but the existing 'test_table' is a table.",
-        ):
-            BadViewModel._create(p(''))
+        # Iterator mismatches: a differing iterator, a missing one, and an extraneous one.
+        assert 'tile_iterator(img, [128, 128])' in report  # IteratorMismatch: model's iterator
+        assert 'model iterator   : None' in report  # MissingIterator: model has no iterator
+        assert 'existing iterator: None' in report  # ExtraneousIterator: existing view has no iterator
 
-        with pxt_raises(
-            excs.ErrorCode.SCHEMA_MISMATCH,
-            match=r"model `BadViewModel2` is defined as a view, but the existing 'test_snapshot' is a snapshot.",
-        ):
-            BadViewModel2._create(p(''))
+        # Models that match their existing tables produce no differences.
+        assert '`ExampleTableModel`' not in report
+        assert '`GoodIterViewModel`' not in report
 
-        GoodIterViewModel._create(p(''))
-
-        with pxt_raises(
-            excs.ErrorCode.SCHEMA_MISMATCH,
-            match=r"Iterator for model `IteratorMismatch` does not match the existing table 'test_iter_view_2'.",
-        ):
-            IteratorMismatch._create(p(''))
-
-        with pxt_raises(
-            excs.ErrorCode.SCHEMA_MISMATCH,
-            match=r"Iterator for model `MissingIterator` does not match the existing table 'test_iter_view_3'.",
-        ):
-            MissingIterator._create(p(''))
-
-        with pxt_raises(
-            excs.ErrorCode.SCHEMA_MISMATCH,
-            match=r"Iterator for model `ExtraneousIterator` does not match the existing table 'test_view_2'.",
-        ):
-            ExtraneousIterator._create(p(''))
+        # `create_all()` only creates; it refuses to run when any existing table differs from its model.
+        with pxt_raises(excs.ErrorCode.SCHEMA_MISMATCH, match=r'Call `update_all\(\)` instead'):
+            TableModel.create_all(p(''))

@@ -1081,6 +1081,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
 
         # TODO: validate table properties (comment, custom_metadata, media_validation, primary_key, etc.)
         # TODO: validate base table query
+        # TODO: validate column structure
 
         results[name] = ValidationResults(
             model_cls=model,
@@ -1154,9 +1155,18 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         created: list[str] = []
         existed: list[str] = []
 
-        # Gather validation results for all models before creating anything. For now these are informational only;
-        # we neither act on them nor raise in response.
-        _ = validate_models(registered_models, binding_root)
+        # `create_all()` only creates tables; it never mutates an existing one. If any existing table differs from
+        # its model, refuse and point the user at `update_all()`.
+        results = validate_models(registered_models, binding_root)
+        changed = [(name, r) for name, r in results.items() if r.tbl_exists and r.has_changes]
+        if len(changed) > 0:
+            detail = '\n'.join(line for name, r in changed for line in _format_diff(name, r))
+            raise excs.RequestError(
+                excs.ErrorCode.SCHEMA_MISMATCH,
+                'One or more existing tables differ from their models.\n'
+                f'{detail}\n'
+                'Call `update_all()` instead if you intended to also modify existing tables.',
+            )
 
         for model in registered_models.values():
             tbl, was_created = model._create(binding_root)

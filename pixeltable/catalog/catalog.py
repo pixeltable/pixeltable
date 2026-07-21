@@ -1707,11 +1707,10 @@ class Catalog(CatalogBase):
             tbl_handle, columns, display_name, media_validation, iterator, base, embedding_idxs
         )
 
-        # If the table already exists, validate the model against it and rebind (the server enforces its own
-        # consistency; we never trust a client to have validated).
+        # If the table already exists, rebind to it. `create_all()` validates up front that every existing table
+        # already matches its model, so reaching here means there is nothing to create.
         existing = self.get_table(path, IfNotExistsParam.IGNORE)
         if existing is not None:
-            self._validate_model(existing, display_name, base, iterator)
             return existing, False
 
         if base is None:
@@ -1783,36 +1782,6 @@ class Catalog(CatalogBase):
                     tv.add_index(col, idx_name, idx_base)
 
         update_fn()
-
-    def _validate_model(
-        self,
-        existing: LocalTable,
-        display_name: str,
-        base: pxt.Query | None,
-        iterator: func.GeneratingFunctionCall | None,
-    ) -> None:
-        """Raise if a model's schema is incompatible with an already-existing table of the same name."""
-        existing_md = existing.get_metadata()
-        model_kind = 'table' if base is None else 'view'
-        if model_kind != existing_md['kind']:
-            raise excs.RequestError(
-                excs.ErrorCode.SCHEMA_MISMATCH,
-                f'{display_name} is defined as a {model_kind}, '
-                f'but the existing {existing_md["path"]!r} is a {existing_md["kind"]}.',
-            )
-
-        # TODO: validate table properties (comment, custom_metadata, media_validation, primary_key, etc.)
-        # TODO: validate base table query
-        # TODO: inspect columns and indices
-
-        bound_iterator_str = 'None' if iterator is None else iterator.display_str()
-        if bound_iterator_str != str(existing_md['iterator_call']):
-            raise excs.RequestError(
-                excs.ErrorCode.SCHEMA_MISMATCH,
-                f'Iterator for {display_name} does not match the existing table {existing_md["path"]!r}.\n'
-                f'  Model iterator: {bound_iterator_str}\n'
-                f'  Existing iterator: {existing_md["iterator_call"]}',
-            )
 
     def add_columns(self, tbl: TableVersionPath, cols: list[Column]) -> None:
         @retry_loop(for_write=True, write_tvps=[tbl], lock_mutable_tree=False)
