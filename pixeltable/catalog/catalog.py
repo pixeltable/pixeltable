@@ -497,18 +497,14 @@ class Catalog(CatalogBase):
                 self._modified_tvs.clear()
 
     def _evict_caches(self) -> None:
-        # Evict LRU _tbls entries. Safe to evict freely: LocalTable is a handle wrapper;
-        # existing Python variables remain valid, and the next get_table_by_id reloads.
+        # Evict LRU _tbls entries
         while len(self._tbls) > _MAX_TBL_CACHE_SIZE:
             self._tbls.popitem(last=False)
 
-        # Evict LRU _tbl_versions entries.
-        # Live TVs (effective_version=None) already have is_validated=False (set by begin_xact).
-        # Snapshot TVs (effective_version!=None): del without touching is_validated, so thread-local
-        # handles continue returning the old immutable instance safely (avoids the assertion in
-        # TableVersionHandle.get() that fires when is_validated=False on a snapshot).
+        # Evict LRU _tbl_versions entries. Reset is_validate to False preemptively in case an instance escapes.
         while len(self._tbl_versions) > _MAX_TBL_CACHE_SIZE:
-            self._tbl_versions.popitem(last=False)
+            _, tv = self._tbl_versions.popitem(last=False)
+            tv.is_validated = False
 
     def _acquire_locks(
         self,
