@@ -8,7 +8,7 @@ import time
 from collections import defaultdict
 from collections.abc import Collection
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Mapping, TypedDict, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Mapping, TypeVar
 from uuid import UUID, uuid4
 
 import psycopg
@@ -1754,7 +1754,7 @@ class Catalog(CatalogBase):
         If the table does not exist, raises NotFoundError. If the model is incompatible with the existing table,
         raises RequestError.
         """
-        tbls = [self.get_table(path, IfNotExistsParam.ERROR) for path in updates.keys()]
+        tbls = [self.get_table(path, IfNotExistsParam.ERROR) for path in updates]
 
         @retry_loop(for_write=True, write_tvps=[tbl._tbl_version_path for tbl in tbls], lock_mutable_tree=True)
         def update_fn() -> None:
@@ -1778,9 +1778,9 @@ class Catalog(CatalogBase):
                 resolved_cols, resolved_idxs = model.prepare_model_updates(
                     tvp, tv.display_str(), update['new_columns'], update['new_idxs']
                 )
-                tbl_version.add_columns(resolved_cols)
-                for col, idx_name, idx in resolved_idxs:
-                    tbl_version.add_index(col, idx_name, idx)
+                tv.add_columns(resolved_cols, print_stats=False, on_error='abort')
+                for col, idx_name, idx_base in resolved_idxs:
+                    tv.add_index(col, idx_name, idx_base)
 
         update_fn()
 

@@ -696,9 +696,69 @@ class TestTableModel:
 
         with pxt_raises(
             excs.ErrorCode.SCHEMA_MISMATCH,
-            match=r'One or more tables cannot be updated, because their models are inconsistent with the existing'
+            match=r'One or more tables cannot be updated, because their models are inconsistent with the existing',
         ):
             TableModelV2.update_all(root)
+
+    @pytest.mark.local  # `update_from_model()` is not yet supported over a proxied catalog.
+    def test_update_all(self, make_catalog_path: Callable[[str], str]) -> None:
+        """`update_all()` applies purely additive changes (new columns and indexes) to existing tables."""
+        skip_test_if_not_installed('imagehash')
+
+        p = make_catalog_path
+        root = p('')
+
+        TableModel = pxt.model_base()
+
+        # Index names are deliberately not of the form `idx<n>`, to avoid colliding with the default b-tree indexes
+        # that are auto-named `idx<n>` (created because `create_default_idxs` defaults to `True`).
+        class ExampleTable(TableModel, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            value: pxt.Float
+            image: pxt.Image
+            embed_a = EmbeddingIndex(image, embedding=dummy_embedding.using(n=768))
+
+        class ExampleView(TableModel, name='test_view', base=ExampleTable):
+            vc1 = ExampleTable.value + 1
+
+        TableModel.create_all(root)
+
+        images = get_image_files()
+        ExampleTable.insert([{'id': 1, 'value': 1.0, 'image': images[0]}, {'id': 2, 'value': 2.0, 'image': images[1]}])
+
+        # A fresh base whose models match the created tables plus purely additive changes: two new columns and a new
+        # index on the table, and a new column on the view. No drops, no kind/iterator mismatch.
+        TableModelV2 = pxt.model_base()
+
+        class ExampleTableV2(TableModelV2, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            value: pxt.Float
+            image: pxt.Image
+            plus_ten = value + 10  # new computed column
+            note: pxt.String  # new (plain) column
+            embed_a = EmbeddingIndex(image, embedding=dummy_embedding.using(n=768))
+            embed_b = EmbeddingIndex(image, embedding=dummy_embedding.using(n=512))  # new index
+
+        class ExampleViewV2(TableModelV2, name='test_view', base=ExampleTableV2):
+            vc1 = ExampleTableV2.value + 1
+            vc2 = ExampleTableV2.value + 2  # new column
+
+        # Purely additive, so no `allow_destructive` needed.
+        TableModelV2.update_all(root)
+
+        TableModelV2.bind_all(root)
+
+        # The new columns and index are present on the table; the new column is present on the view.
+        tbl_md = ExampleTableV2.get_metadata()
+        assert 'plus_ten' in tbl_md['columns']
+        assert 'note' in tbl_md['columns']
+        assert {'embed_a', 'embed_b'} <= set(tbl_md['indices'].keys())
+        assert 'vc2' in ExampleViewV2.get_metadata()['columns']
+
+        # The new computed column is backfilled for the existing rows.
+        tbl = ExampleTableV2.table
+        res = tbl.order_by(tbl.id).select(tbl.id, tbl.plus_ten).collect()
+        assert res['plus_ten'] == [11.0, 12.0]
 
     def test_table_model_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """Reproduce each error condition raised by `pixeltable.catalog.model`."""
