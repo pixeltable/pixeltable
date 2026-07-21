@@ -9,6 +9,7 @@ Usage example:
 """
 
 from datetime import date, timedelta
+from typing import TypedDict
 
 import sqlalchemy as sql
 
@@ -117,8 +118,16 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
     return sql.extract('isodow', self)
 
 
+class IsoCalendar(TypedDict):
+    """The ISO year, week number, and weekday of a date or timestamp."""
+
+    year: int
+    week: int
+    weekday: int
+
+
 @pxt.udf(is_method=True)
-def isocalendar(self: date) -> dict:
+def isocalendar(self: date) -> IsoCalendar:
     """
     Return a dictionary with three entries: `'year'`, `'week'`, and `'weekday'`.
 
@@ -177,6 +186,18 @@ def add_days(self: date, n: int) -> date:
     Equivalent to [`date + timedelta(days=n)`](https://docs.python.org/3/library/datetime.html#datetime.timedelta).
     """
     return self + timedelta(days=n)
+
+
+@pxt.udf(is_method=True)
+def replace(self: date, year: int | None = None, month: int | None = None, day: int | None = None) -> date:
+    """
+    Return a date with the same attributes, except for those attributes given new values by whichever keyword
+    arguments are specified.
+
+    Equivalent to [`date.replace()`](https://docs.python.org/3/library/datetime.html#datetime.date.replace).
+    """
+    kwargs = {k: v for k, v in locals().items() if k != 'self' and v is not None}
+    return self.replace(**kwargs)
 
 
 __all__ = local_public_names(__name__)

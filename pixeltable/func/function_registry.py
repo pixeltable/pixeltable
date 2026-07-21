@@ -56,7 +56,12 @@ class FunctionRegistry:
     def lookup_type_method(self, base_type: ts.ColumnType.Type, name: str) -> Function | None:
         """
         Look up a method (or property) by name for a given base type. If no such method is registered, return None.
+
+        An exact match on the base type takes precedence; an Int base additionally matches methods registered
+        for Float.
         """
         if base_type in self.type_methods and name in self.type_methods[base_type]:
             return self.type_methods[base_type][name]
+        if base_type == ts.ColumnType.Type.INT:
+            return self.lookup_type_method(ts.ColumnType.Type.FLOAT, name)
         return None

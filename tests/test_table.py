@@ -44,7 +44,7 @@ from .utils import (
     pxt_raises,
     read_data_file,
     reload_catalog,
-    rerun,
+    rerun_on_network_error,
     skip_test_if_not_installed,
     stock_price,
     validate_repr,
@@ -2057,7 +2057,7 @@ class TestTable:
         rows = [{'media': f, 'is_bad_media': not is_valid} for f, is_valid in zip(doc_paths, is_valid)]
         self.check_bad_media(p, rows, pxt.Document, validate_local_path=catalog_mode == 'local')
 
-    @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
+    @rerun_on_network_error()
     def test_validate_external_url(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('boto3')

@@ -478,16 +478,18 @@ def pad(self: str, width: int, side: str = 'left', fillchar: str = ' ') -> str:
 
 
 @pxt.udf(is_method=True)
-def partition(self: str, sep: str = ' ') -> list:
+def partition(self: str, sep: str = ' ') -> tuple[str, str, str]:
     """
     Splits string at the first occurrence of `sep`, and returns 3 elements containing the part before the
     separator, the separator itself, and the part after the separator. If the separator is not found, return 3 elements
     containing string itself, followed by two empty strings.
     """
+    # the runtime value is a list (json arrays are lists; path expressions index into them); the annotation
+    # carries the fixed three-element schema
     idx = self.find(sep)
     if idx == -1:
-        return [self, '', '']
-    return [self[:idx], sep, self[idx + builtins.len(sep) :]]
+        return [self, '', '']  # type: ignore[return-value]
+    return [self[:idx], sep, self[idx + builtins.len(sep) :]]  # type: ignore[return-value]
 
 
 @pxt.udf(is_method=True)
@@ -626,15 +628,32 @@ def rjust(self: str, width: int, fillchar: str = ' ') -> str:
 
 
 @pxt.udf(is_method=True)
-def rpartition(self: str, sep: str = ' ') -> list:
+def rpartition(self: str, sep: str = ' ') -> tuple[str, str, str]:
     """
     This method splits string at the last occurrence of `sep`, and returns a list containing the part before the
     separator, the separator itself, and the part after the separator.
     """
+    # the runtime value is a list (json arrays are lists; path expressions index into them); the annotation
+    # carries the fixed three-element schema
     idx = self.rfind(sep)
     if idx == -1:
-        return [self, '', '']
-    return [self[:idx], sep, self[idx + builtins.len(sep) :]]
+        return [self, '', '']  # type: ignore[return-value]
+    return [self[:idx], sep, self[idx + builtins.len(sep) :]]  # type: ignore[return-value]
+
+
+@pxt.udf(is_method=True)
+def rsplit(self: str, sep: str | None = None, maxsplit: int = -1) -> list[str]:
+    """
+    Return a list of the words in the string, using `sep` as the delimiter string, splitting from the right.
+
+    Equivalent to [`str.rsplit()`](https://docs.python.org/3/library/stdtypes.html#str.rsplit).
+
+    Args:
+        sep: The delimiter string. If omitted or `None`, runs of consecutive whitespace are regarded as a single
+            separator.
+        maxsplit: Maximum number of splits (starting from the right). `-1` (the default) means no limit.
+    """
+    return self.rsplit(sep, maxsplit)
 
 
 @pxt.udf(is_method=True)
@@ -714,6 +733,34 @@ def slice_replace(self: str, start: int | None = None, stop: int | None = None, 
         repl: replacement value
     """
     return self[:start] + repl + self[stop:]
+
+
+@pxt.udf(is_method=True)
+def split(self: str, sep: str | None = None, maxsplit: int = -1) -> list[str]:
+    """
+    Return a list of the words in the string, using `sep` as the delimiter string.
+
+    Equivalent to [`str.split()`](https://docs.python.org/3/library/stdtypes.html#str.split).
+
+    Args:
+        sep: The delimiter string. If omitted or `None`, runs of consecutive whitespace are regarded as a single
+            separator.
+        maxsplit: Maximum number of splits. `-1` (the default) means no limit.
+    """
+    return self.split(sep, maxsplit)
+
+
+@pxt.udf(is_method=True)
+def splitlines(self: str, keepends: bool = False) -> list[str]:
+    """
+    Return a list of the lines in the string, breaking at line boundaries.
+
+    Equivalent to [`str.splitlines()`](https://docs.python.org/3/library/stdtypes.html#str.splitlines).
+
+    Args:
+        keepends: If `True`, line breaks are included in the resulting list.
+    """
+    return self.splitlines(keepends)
 
 
 @pxt.udf(is_method=True)

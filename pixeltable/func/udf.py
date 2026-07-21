@@ -33,6 +33,7 @@ def udf(
     is_deterministic: bool = True,
     resource_pool: str | None = None,
     type_substitutions: Sequence[dict] | None = None,
+    display_name: str | None = None,
     _force_stored: bool = False,
 ) -> Callable[[Callable], CallableFunction]: ...
 
@@ -77,6 +78,7 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
         is_deterministic = kwargs.pop('is_deterministic', None)
         resource_pool = kwargs.pop('resource_pool', None)
         type_substitutions = kwargs.pop('type_substitutions', None)
+        display_name = kwargs.pop('display_name', None)
         force_stored = kwargs.pop('_force_stored', False)
         if len(kwargs) > 0:
             raise excs.RequestError(
@@ -95,6 +97,7 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
                 is_deterministic=is_deterministic,
                 resource_pool=resource_pool,
                 type_substitutions=type_substitutions,
+                display_name=display_name,
                 force_stored=force_stored,
                 from_decorator=True,
             )
@@ -114,6 +117,7 @@ def make_function(
     resource_pool: str | None = None,
     type_substitutions: Sequence[dict] | None = None,
     function_name: str | None = None,
+    display_name: str | None = None,
     force_stored: bool = False,
     from_decorator: bool = False,
 ) -> CallableFunction:
@@ -237,6 +241,7 @@ def make_function(
         py_fns=[py_fn] * len(signatures),  # All signatures share the same Python function
         self_path=function_path,
         self_name=function_name,
+        display_name=display_name,
         batch_size=batch_size,
         is_method=is_method,
         is_property=is_property,
