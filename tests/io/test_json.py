@@ -1,21 +1,28 @@
 import datetime
 import json
 import pathlib
+from typing import Callable
 
 import pytest
 
 import pixeltable as pxt
 from pixeltable.config import Config
 
-from ..utils import create_all_datatypes_tbl, get_image_files, skip_test_if_not_installed, validate_update_status
-
-pytestmark = pytest.mark.local('TODO: convert; import/export (json)')
+from ..utils import (
+    ALL_DATATYPES_SCHEMA,
+    create_all_datatypes_tbl,
+    get_image_files,
+    rerun_on_network_error,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 
 
 class TestJson:
-    def test_export_all_types(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_export_all_types(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """Export a table with every supported type and verify the JSONL output."""
-        t = create_all_datatypes_tbl()
+        p = make_catalog_path
+        t = create_all_datatypes_tbl(name=p('all_datatype_tbl'))
         rows = t.order_by(t.row_id).collect()
 
         json_path = tmp_path / 'all_types.jsonl'
@@ -51,16 +58,20 @@ class TestJson:
             for col_name in media_cols:
                 assert exp_row[col_name] == url_row[f'{col_name}_fileurl']
 
-    def test_export_non_serializable_json_errors(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_export_non_serializable_json_errors(
+        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+    ) -> None:
         """Exporting a JSON column with non-serializable values should raise an error."""
-        t = create_all_datatypes_tbl(non_serializable_json=True)
+        p = make_catalog_path
+        t = create_all_datatypes_tbl(name=p('all_datatype_tbl'), non_serializable_json=True)
         with pytest.raises(pxt.Error, match='not JSON-serializable'):
             pxt.io.export_json(t, tmp_path / 'should_fail.jsonl')
 
-    def test_export_with_nulls(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_export_with_nulls(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """Verify null handling across multiple types."""
+        p = make_catalog_path
         t = pxt.create_table(
-            'test_json_nulls',
+            p('test_json_nulls'),
             {
                 'c_int': pxt.Int,
                 'c_string': pxt.String,
@@ -88,9 +99,10 @@ class TestJson:
         assert exported[0]['c_timestamp'] is None
         assert exported[1]['c_int'] is None
 
-    def test_export_with_query(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_export_with_query(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """Test export with filtering and column selection."""
-        t = pxt.create_table('test_json_query', {'c_int': pxt.Int, 'c_string': pxt.String})
+        p = make_catalog_path
+        t = pxt.create_table(p('test_json_query'), {'c_int': pxt.Int, 'c_string': pxt.String})
         rows = [{'c_int': i, 'c_string': f'row_{i}'} for i in range(10)]
         validate_update_status(t.insert(rows), expected_rows=10)
 
@@ -108,9 +120,10 @@ class TestJson:
         assert len(exported) == 10
         assert list(exported[0].keys()) == ['c_string']
 
-    def test_export_non_ascii(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_export_non_ascii(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """Verify non-ASCII characters are preserved."""
-        t = pxt.create_table('test_json_encoding', {'name': pxt.String})
+        p = make_catalog_path
+        t = pxt.create_table(p('test_json_encoding'), {'name': pxt.String})
         t.insert([{'name': 'Manwë'}, {'name': 'Fëanor'}])
 
         json_path = tmp_path / 'encoding.jsonl'
@@ -122,31 +135,33 @@ class TestJson:
         assert 'Manwë' in names
         assert 'Fëanor' in names
 
-    def test_round_trip(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_round_trip(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """Export JSONL, re-import, and verify data matches."""
-        t = pxt.create_table('test_json_rt', {'c_int': pxt.Int, 'c_string': pxt.String, 'c_float': pxt.Float})
+        p = make_catalog_path
+        t = pxt.create_table(p('test_json_rt'), {'c_int': pxt.Int, 'c_string': pxt.String, 'c_float': pxt.Float})
         t.insert([{'c_int': 1, 'c_string': 'hello', 'c_float': 1.5}, {'c_int': 2, 'c_string': 'world', 'c_float': 2.5}])
 
         json_path = tmp_path / 'round_trip.jsonl'
         pxt.io.export_json(t, json_path)
 
-        t2 = pxt.io.import_json('test_json_rt2', str(json_path))
+        t2 = pxt.io.import_json(p('test_json_rt2'), str(json_path))
 
         original = t.order_by(t.c_int).collect()
         reimported = t2.order_by(t2.c_int).collect()
 
         assert original == reimported
 
-    def test_round_trip_media(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_round_trip_media(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """Export JSONL with media columns, re-import, and verify file URLs survive the round-trip."""
-        t = create_all_datatypes_tbl()
+        p = make_catalog_path
+        t = create_all_datatypes_tbl(name=p('all_datatype_tbl'))
 
         json_path = tmp_path / 'round_trip_media.jsonl'
         pxt.io.export_json(t, json_path)
 
-        # Build schema overrides from the original table, excluding binary (not exportable to JSON)
-        schema_overrides = {name: ct for name, ct in t._get_schema().items() if not ct.is_binary_type()}
-        t2 = pxt.io.import_json('test_json_rt_media', str(json_path), schema_overrides=schema_overrides)
+        # Build schema overrides from the declared types, excluding binary (not exportable to JSON)
+        schema_overrides = {name: col_type for name, col_type in ALL_DATATYPES_SCHEMA.items() if name != 'c_binary'}
+        t2 = pxt.io.import_json(p('test_json_rt_media'), str(json_path), schema_overrides=schema_overrides)
 
         # Select only columns that survive JSON export (binary is excluded)
         exportable_cols = [getattr(t, name) for name in t2.columns()]
@@ -155,8 +170,10 @@ class TestJson:
 
         assert original == reimported
 
-    def test_export_remote_urls(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    @rerun_on_network_error()
+    def test_export_remote_urls(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """Verify that remote URLs (S3, HTTPS) are exported as-is."""
+        p = make_catalog_path
         skip_test_if_not_installed('boto3')
         urls = {
             'c_video': 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4',
@@ -165,7 +182,7 @@ class TestJson:
         }
 
         t = pxt.create_table(
-            'test_json_remote', {'c_video': pxt.Video, 'c_audio': pxt.Audio, 'c_document': pxt.Document}
+            p('test_json_remote'), {'c_video': pxt.Video, 'c_audio': pxt.Audio, 'c_document': pxt.Document}
         )
         t.insert([urls])
 
@@ -178,15 +195,18 @@ class TestJson:
         for col, expected_url in urls.items():
             assert exported[0][col] == expected_url, f'{col}: expected {expected_url}, got {exported[0][col]}'
 
-    def test_export_unstored_media_expression_errors(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_export_unstored_media_expression_errors(
+        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+    ) -> None:
         """Exporting a media-typed expression that is not backed by a stored column should raise an error."""
-
-        t = pxt.create_table('test_json_transform', {'img': pxt.Image})
+        p = make_catalog_path
+        t = pxt.create_table(p('test_json_transform'), {'img': pxt.Image})
         t.insert([{'img': get_image_files()[0]}])
 
         with pytest.raises(pxt.Error, match='Cannot export media expression'):
             pxt.io.export_json(t.select(t.img.rotate(90)), tmp_path / 'should_fail.jsonl')
 
+    @pytest.mark.local('uses a local-filesystem destination, which a hosted table does not support')
     def test_export_computed_media_with_destination(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Computed media columns with a local file destination export their file URLs."""
         dest_path = Config.get().home / 'test-json-dest'

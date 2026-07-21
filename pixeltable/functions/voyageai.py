@@ -5,7 +5,7 @@ first `pip install voyageai` and configure your Voyage AI credentials, as descri
 the [Working with Voyage AI](https://docs.pixeltable.com/notebooks/integrations/working-with-voyageai) tutorial.
 """
 
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 import numpy as np
 import PIL.Image
@@ -140,10 +140,21 @@ def _(
     return ts.ArrayType((dimensions,), dtype=ts.FloatType(), nullable=False)
 
 
+class VoyageRerankResult(TypedDict):
+    index: int
+    document: str | None
+    relevance_score: float
+
+
+class VoyageRerankResponse(TypedDict):
+    results: list[VoyageRerankResult]
+    total_tokens: int
+
+
 @pxt.udf(resource_pool='request-rate:voyageai')
 async def rerank(
     query: str, documents: list[str], *, model: str, top_k: int | None = None, truncation: bool = True
-) -> dict:
+) -> VoyageRerankResponse:
     """
     Reranks documents based on their relevance to a query.
 

@@ -5,6 +5,7 @@ import base64
 import datetime
 import json
 import math
+import os
 import re
 import urllib.parse
 import urllib.request
@@ -25,6 +26,7 @@ from pixeltable.functions.globals import cast
 from pixeltable.functions.video import legacy_frame_iterator
 
 from .utils import (
+    CatalogMode,
     ReloadTester,
     assert_columns_eq,
     create_all_datatypes_tbl,
@@ -32,6 +34,7 @@ from .utils import (
     get_image_files,
     pxt_raises,
     reload_catalog,
+    rerun_on_network_error,
     skip_test_if_not_installed,
     validate_update_status,
 )
@@ -221,7 +224,7 @@ class TestExprs:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
             _ = t.where(t.c2 <= 2).select(self.value_exc(t.c2 - 1)).show()
 
-    def test_props(self, test_tbl: pxt.Table, img_tbl: pxt.Table) -> None:
+    def test_props(self, test_tbl: pxt.Table, img_tbl: pxt.Table, catalog_mode: CatalogMode) -> None:
         t = test_tbl
         # errortype/-msg for computed column
         res = t.select(error=t.c8.errortype).collect()
@@ -234,15 +237,23 @@ class TestExprs:
         res = img_t.select(img_t.img.fileurl).collect().to_pandas()
         stored_urls = set(res.iloc[:, 0])
         assert len(stored_urls) == len(res)
-        all_urls = {urllib.parse.urljoin('file:', urllib.request.pathname2url(path)) for path in get_image_files()}
-        assert stored_urls <= all_urls
+        if catalog_mode == 'local':
+            all_urls = {urllib.parse.urljoin('file:', urllib.request.pathname2url(path)) for path in get_image_files()}
+            assert stored_urls <= all_urls
+        else:
+            # over the proxy each fileurl is a fetchable daemon media URL, not the local source file
+            assert all(urllib.parse.urlparse(u).scheme in ('http', 'https') and '/media/' in u for u in stored_urls)
 
         # localpath
         res = img_t.select(img_t.img.localpath).collect().to_pandas()
         stored_paths = set(res.iloc[:, 0])
         assert len(stored_paths) == len(res)
-        all_paths = set(get_image_files())
-        assert stored_paths <= all_paths
+        if catalog_mode == 'local':
+            all_paths = set(get_image_files())
+            assert stored_paths <= all_paths
+        else:
+            # over the proxy each localpath is a fetched local copy, openable but not the original source file
+            assert all(os.path.exists(p) for p in stored_paths)
 
         # errortype/-msg for image column
         res = img_t.select(error=img_t.img.errortype).collect().to_pandas()
@@ -455,6 +466,40 @@ class TestExprs:
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH) as exc_info:
             t.select(t.c6 + t.c2.apply(math.floor, col_type=pxt.Int)).collect()
         assert '+ requires numeric types, but left operand has type `dict`' in str(exc_info.value)
+
+    def test_pow(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        res = (
+            t.where(t.c2 == 2)
+            .select(
+                pos=t.c2**3,  # int ** non-negative int literal stays int
+                neg=t.c2**-2,  # a negative literal exponent is non-integral, matching Python's 2 ** -2 == 0.25
+                dyn=t.c2**t.c2,  # a dynamic exponent can't be proven non-negative, so it widens to float
+                dyn_neg=t.c2 ** (t.c2 * -1),  # a dynamically-negative exponent is a float, not an error
+                float_base=t.c3**2,
+                json=t.c6.f2**3,  # a json operand's runtime type is unknown, so the result is a float
+            )
+            .collect()
+        )
+        assert res.schema == {
+            'pos': 'Required[Int]',
+            'neg': 'Required[Float]',
+            'dyn': 'Required[Float]',
+            'dyn_neg': 'Required[Float]',
+            'float_base': 'Required[Float]',
+            'json': 'Float',  # a json path is nullable, so the result is nullable
+        }
+        r = res[0]
+        assert r['pos'] == 8 and isinstance(r['pos'], int)
+        assert r['neg'] == 2**-2  # 0.25
+        assert r['dyn'] == 4.0
+        assert r['dyn_neg'] == 2**-2  # 0.25, no error
+        assert r['float_base'] == 4.0
+        assert r['json'] == 8.0
+
+        # we also get an int result when executing in Python
+        forced = t.where(t.c2 == 2).select(p=t.c2.apply(math.floor, col_type=pxt.Int) ** 3).collect()
+        assert forced[0]['p'] == 8 and isinstance(forced[0]['p'], int)
 
     def test_comparison(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
@@ -686,10 +731,59 @@ class TestExprs:
             res['item_of_vartype_list'][i] == [res['c2'][i], res['c1'][i], res['c3'][i]] for i in range(len(res))
         )
 
+    def test_json_path_projection(self, make_catalog_path: Callable[[str], str]) -> None:
+        # a projection ('*' or a slice) yields one positionally-aligned result per source element: a missing field,
+        # a null element, or a non-list element under a further projection becomes null, never dropped. So parallel
+        # projections stay the same length and line up by index, and nesting preserves structure at every level.
+        t = pxt.create_table(make_catalog_path('proj'), {'id': pxt.Int, 'dets': pxt.Json, 'matrix': pxt.Json})
+        t.insert(
+            [
+                # missing field in the middle; a null element; nested lists with a null, an empty, and a non-list
+                {
+                    'id': 0,
+                    'dets': [{'l': 'a', 's': 0.9}, {'l': 'b'}, {'l': 'c', 's': 0.7}],
+                    'matrix': [[1, None], 5, []],
+                },
+                # everything present, no nulls
+                {'id': 1, 'dets': [{'l': 'd', 's': 0.1}], 'matrix': [[6, 7]]},
+                # the field is missing from every element; empty source lists
+                {'id': 2, 'dets': [{'l': 'e'}, {'l': 'f'}], 'matrix': []},
+                # a null source resolves to null, not an empty list
+                {'id': 3, 'dets': None, 'matrix': None},
+            ]
+        )
+        res = (
+            t.order_by(t.id)
+            .select(
+                labels=t.dets['*'].l,
+                scores=t.dets['*'].s,  # wildcard projection over a sometimes-missing field
+                sliced=t.dets[:].s,  # a slice opens a projection too
+                nested=t.matrix['*']['*'],  # nested projection
+            )
+            .collect()
+        )
+        assert list(res['labels']) == [['a', 'b', 'c'], ['d'], ['e', 'f'], None]
+        assert list(res['scores']) == [[0.9, None, 0.7], [0.1], [None, None], None]
+        assert list(res['sliced']) == [[0.9, None, 0.7], [0.1], [None, None], None]
+        # the inner null and empty are kept; the non-list element (5) becomes null at its position
+        assert list(res['nested']) == [[[1, None], None, []], [[6, 7]], [], None]
+        # parallel projections are the same length in every row, so they align by index
+        assert all(row_l is None or len(row_l) == len(row_s) for row_l, row_s in zip(res['labels'], res['scores']))
+
+        # on a typed source, a projection resolves to a nullable element type: a projection may not resolve for
+        # every element, which is exactly what the aligned nulls above realize at runtime. (A strict schema won't
+        # accept a missing field or null element, so the null values themselves are exercised on the untyped col.)
+        tt = pxt.create_table(make_catalog_path('proj_typed'), {'dets': pxt.Json[[{'l': pxt.String, 's': pxt.Float}]]})
+        tt.insert([{'dets': [{'l': 'a', 's': 0.9}, {'l': 'b', 's': 0.1}]}])
+        typed = tt.select(labels=tt.dets['*'].l, scores=tt.dets['*'].s).collect()
+        assert typed.schema == {'labels': 'Json[(String | None, ...)]', 'scores': 'Json[(Float | None, ...)]'}
+        assert list(typed['scores']) == [[0.9, 0.1]]
+
     def test_json_path_types(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         spec = {
             'f1': str,
+            'img': pxt.Image,
             'f2': {
                 'f2a': int,
                 'f2b': (int, str, pxt.Video, {'f2b1': str}),
@@ -734,6 +828,9 @@ class TestExprs:
             (t.col.f5[:].f5a, pxt.Json[(int | None, str | None, float | None, ...)]),
             (t.col.f4['*'].f4b, pxt.Json[[str | None]]),  # special '*' operator
             (t.col.f4.f4a, pxt.Json[[int | None]]),  # field access on a list projects without an explicit slice/'*'
+            # attribute access on a json path that resolves to a non-JSON type dispatches to that type's UDFs
+            (t.col.img.width, pxt.Int),  # is_property UDF auto-invokes
+            (t.col.img.rotate(90), pxt.Image),  # is_method UDF
         )
         for expr, expected_type in cases:
             print(expr)
@@ -756,45 +853,64 @@ class TestExprs:
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=regex):
                 _ = expr[el]
 
+        # an unknown method/property on such a json path raises, like any missing attribute
+        with pytest.raises(AttributeError):
+            _ = t.col.img.not_a_method
+
     def test_json_mapper(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl
 
+        # These queries use the method form (t.j.map(...)); the computed columns below use the function form
+        # (pxtf.map(...)), and the row-by-row equality checks at the end verify the two forms are interchangeable.
+
         # top-level is dict
-        res1 = reload_tester.run_query(
-            t.select(input=t.c6.f5, output=pxtf.map(t.c6.f5['*'], lambda x: x + 1)).order_by(t.c2)
-        )
+        res1 = reload_tester.run_query(t.select(input=t.c6.f5, output=t.c6.f5.map(lambda x: x + 1)).order_by(t.c2))
+        assert res1.schema['output'] == 'Json[(Float | None, ...)]'
         for row in res1:
             assert row['output'] == [x + 1 for x in row['input']]
 
         # top-level is list of dicts; subsequent json path element references the dicts
         res2 = reload_tester.run_query(
-            t.select(input=t.c7, output=pxtf.map(t.c7['*'].f5, lambda x: [x[3], x[2], x[1], x[0]])).order_by(t.c2)
+            t.select(input=t.c7, output=t.c7['*'].f5.map(lambda x: [x[3], x[2], x[1], x[0]])).order_by(t.c2)
         )
+        assert res2.schema['output'] == 'Json[(Json[(Json | None, Json | None, Json | None, Json | None)], ...)]'
         for row in res2:
             assert row['output'] == [[d['f5'][3], d['f5'][2], d['f5'][1], d['f5'][0]] for d in row['input']]
 
         # target expr contains global-scope dependency
         res3 = reload_tester.run_query(
-            t.select(input=t.c6, output=pxtf.map(t.c6.f5['*'], lambda x: x * t.c6.f5[1])).order_by(t.c2)
+            t.select(input=t.c6, output=t.c6.f5['*'].map(lambda x: x * t.c6.f5[1])).order_by(t.c2)
         )
+        assert res3.schema['output'] == 'Json[(Float | None, ...)]'
         for row in res3:
             assert row['output'] == [x * row['input']['f5'][1] for x in row['input']['f5']]
 
-        # mapper appears inside the anchor of a JsonPath
-        res4 = reload_tester.run_query(
-            t.select(input=t.c6, output=pxtf.map(t.c6.f5['*'], lambda x: x + 1)[0]).order_by(t.c2)
-        )
+        # mapper appears inside the anchor of a JsonPath: the subscript resolves to the mapped element type
+        res4 = reload_tester.run_query(t.select(input=t.c6, output=t.c6.f5['*'].map(lambda x: x + 1)[0]).order_by(t.c2))
+        assert res4.schema['output'] == 'Float'
         for row in res4:
             assert row['output'] == row['input']['f5'][0] + 1
 
         # test it as a computed column
-        validate_update_status(t.add_computed_column(out1=pxtf.map(t.c6.f5['*'], lambda x: x + 1)), 100)
+        validate_update_status(t.add_computed_column(out1=pxtf.map(t.c6.f5, lambda x: x + 1)), 100)
         validate_update_status(
             t.add_computed_column(out2=pxtf.map(t.c7['*'].f5, lambda x: [x[3], x[2], x[1], x[0]])), 100
         )
-        validate_update_status(t.add_computed_column(out3=pxtf.map(t.c6.f5['*'], lambda x: x * t.c6.f5[1])), 100)
-        validate_update_status(t.add_computed_column(out4=pxtf.map(t.c6.f5['*'], lambda x: x + 1)[0]), 100)
+        validate_update_status(t.add_computed_column(out3=pxtf.map(t.c6.f5, lambda x: x * t.c6.f5[1])), 100)
+        validate_update_status(t.add_computed_column(out4=pxtf.map(t.c6.f5, lambda x: x + 1)[0]), 100)
         res_col = reload_tester.run_query(t.select(t.out1, t.out2, t.out3, t.out4).order_by(t.c2))
+        assert res_col.schema == {
+            'out1': 'Json[(Float | None, ...)]',
+            'out2': 'Json[(Json[(Json | None, Json | None, Json | None, Json | None)], ...)]',
+            'out3': 'Json[(Float | None, ...)]',
+            'out4': 'Float',
+        }
+        # the stored value exprs display in method form with the relative root shown as R (matching creation)
+        md = t.get_metadata()['columns']
+        assert md['out1']['computed_with'] == 'c6.f5.map(lambda R: R + 1)'
+        assert md['out2']['computed_with'] == 'c7[*].f5.map(lambda R: [R[3], R[2], R[1], R[0]])'
+        assert md['out3']['computed_with'] == 'c6.f5.map(lambda R: R * c6.f5[1])'
+        assert md['out4']['computed_with'] == 'c6.f5.map(lambda R: R + 1)[0]'
 
         for row1, row2, row3, row4, row_col in zip(res1, res2, res3, res4, res_col):
             assert row1['output'] == row_col['out1']
@@ -803,7 +919,120 @@ class TestExprs:
             assert row4['output'] == row_col['out4']
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Failed to evaluate map function.'):
-            pxtf.map(t.c6.f5['*'], lambda x: x and False)
+            t.c6.f5.map(lambda x: x and False)
+
+        reload_tester.run_reload_test()
+
+    def test_json_filter(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
+        t = test_tbl
+
+        # These queries use the method form (t.j.filter(...)); the computed columns below use the function form
+        # (pxtf.filter(...)), and the row-by-row equality checks at the end verify the two forms are interchangeable.
+
+        # keep the elements greater than a constant
+        res1 = reload_tester.run_query(t.select(input=t.c6.f5, output=t.c6.f5.filter(lambda x: x > 2)).order_by(t.c2))
+        assert res1.schema['output'] == 'Json'  # c6.f5 is an untyped Json list, so the element type is unknown
+        assert all(row['output'] == [x for x in row['input'] if x > 2] for row in res1)
+
+        # predicate contains a global-scope dependency
+        res2 = reload_tester.run_query(
+            t.select(input=t.c6, output=t.c6.f5.filter(lambda x: x >= t.c6.f2)).order_by(t.c2)
+        )
+        assert res2.schema['output'] == 'Json'
+        assert all(row['output'] == [x for x in row['input']['f5'] if x >= row['input']['f2']] for row in res2)
+
+        # source elements are dicts; the retained elements are the dicts themselves
+        res3 = reload_tester.run_query(t.select(input=t.c7, output=t.c7.filter(lambda x: x.f2 > 0)).order_by(t.c2))
+        assert res3.schema['output'] == 'Json'
+        assert all(row['output'] == [x for x in row['input'] if x['f2'] > 0] for row in res3)
+
+        # a predicate that retains nothing yields an empty list
+        res4 = reload_tester.run_query(
+            t.select(input=t.c6.f5, output=t.c6.f5.filter(lambda x: x > 1000)).order_by(t.c2)
+        )
+        assert res4.schema['output'] == 'Json'
+        assert all(row['output'] == [] for row in res4)
+
+        # filter appears inside the anchor of a JsonPath
+        res5 = reload_tester.run_query(
+            t.select(input=t.c6.f5, output=t.c6.f5.filter(lambda x: x > 2)[0]).order_by(t.c2)
+        )
+        assert res5.schema['output'] == 'Json'
+        assert all(row['output'] == next(x for x in row['input'] if x > 2) for row in res5)
+
+        # test it as a computed column
+        validate_update_status(t.add_computed_column(fout1=pxtf.filter(t.c6.f5, lambda x: x > 2)), 100)
+        validate_update_status(t.add_computed_column(fout3=pxtf.filter(t.c7, lambda x: x.f2 > 0)), 100)
+        res_col = reload_tester.run_query(t.select(t.fout1, t.fout3).order_by(t.c2))
+        assert res_col.schema == {'fout1': 'Json', 'fout3': 'Json'}
+        # the stored value exprs display in method form with the relative root shown as R (matching creation)
+        md = t.get_metadata()['columns']
+        assert md['fout1']['computed_with'] == 'c6.f5.filter(lambda R: R > 2)'
+        assert md['fout3']['computed_with'] == 'c7.filter(lambda R: R.f2 > 0)'
+        assert all(r1['output'] == rc['fout1'] for r1, rc in zip(res1, res_col))
+        assert all(r3['output'] == rc['fout3'] for r3, rc in zip(res3, res_col))
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Failed to evaluate filter predicate.'):
+            t.c6.f5.filter(lambda x: x and False)
+
+        reload_tester.run_reload_test()
+
+    def test_json_sort(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
+        t = test_tbl
+
+        # These queries use the method form (t.j.sort(...)); the computed columns below use the function form
+        # (pxtf.sort(...)), and the row-by-row equality checks at the end verify the two forms are interchangeable.
+
+        # keyless sort of a scalar list, ascending and descending
+        res1 = reload_tester.run_query(t.select(input=t.c6.f5, output=t.c6.f5.sort()).order_by(t.c2))
+        assert res1.schema['output'] == 'Json'  # c6.f5 is an untyped Json list, so the element type is unknown
+        assert all(row['output'] == sorted(row['input']) for row in res1)
+
+        res2 = reload_tester.run_query(t.select(input=t.c6.f5, output=t.c6.f5.sort(asc=False)).order_by(t.c2))
+        assert res2.schema['output'] == 'Json'
+        assert all(row['output'] == sorted(row['input'], reverse=True) for row in res2)
+
+        # keyed sort: order by a per-element key expr
+        res3 = reload_tester.run_query(t.select(input=t.c6.f5, output=t.c6.f5.sort(key=lambda x: -x)).order_by(t.c2))
+        assert res3.schema['output'] == 'Json'
+        assert all(row['output'] == sorted(row['input'], key=lambda x: -x) for row in res3)
+
+        # key may be passed positionally (matching map()/filter() and the sort() repr), equivalent to key=
+        res3p = reload_tester.run_query(t.select(input=t.c6.f5, output=t.c6.f5.sort(lambda x: -x)).order_by(t.c2))
+        assert all(row['output'] == sorted(row['input'], key=lambda x: -x) for row in res3p)
+
+        # key contains a global-scope dependency
+        res4 = reload_tester.run_query(
+            t.select(input=t.c6, output=t.c6.f5.sort(key=lambda x: x * t.c6.f2, asc=False)).order_by(t.c2)
+        )
+        assert res4.schema['output'] == 'Json'
+        assert all(
+            row['output'] == sorted(row['input']['f5'], key=lambda x: x * row['input']['f2'], reverse=True)
+            for row in res4
+        )
+
+        # source elements are dicts; the reordered elements are the dicts themselves
+        res5 = reload_tester.run_query(t.select(input=t.c7, output=t.c7.sort(key=lambda x: x.f2)).order_by(t.c2))
+        assert res5.schema['output'] == 'Json'
+        assert all(row['output'] == sorted(row['input'], key=lambda d: d['f2']) for row in res5)
+
+        # test it as a computed column
+        validate_update_status(t.add_computed_column(sout1=pxtf.sort(t.c6.f5)), 100)
+        validate_update_status(t.add_computed_column(sout2=pxtf.sort(t.c6.f5, asc=False)), 100)
+        validate_update_status(t.add_computed_column(sout3=pxtf.sort(t.c6.f5, key=lambda x: -x)), 100)
+        res_col = reload_tester.run_query(t.select(t.sout1, t.sout2, t.sout3).order_by(t.c2))
+        assert res_col.schema == {'sout1': 'Json', 'sout2': 'Json', 'sout3': 'Json'}
+        # both the keyless and keyed forms display as a method call, with the relative root shown as R
+        md = t.get_metadata()['columns']
+        assert md['sout1']['computed_with'] == 'c6.f5.sort()'
+        assert md['sout2']['computed_with'] == 'c6.f5.sort(asc=False)'
+        assert md['sout3']['computed_with'] == 'c6.f5.sort(lambda R: R * -1)'
+        assert all(r1['output'] == rc['sout1'] for r1, rc in zip(res1, res_col))
+        assert all(r2['output'] == rc['sout2'] for r2, rc in zip(res2, res_col))
+        assert all(r3['output'] == rc['sout3'] for r3, rc in zip(res3, res_col))
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Failed to evaluate sort key.'):
+            t.c6.f5.sort(key=lambda x: x and False)
 
         reload_tester.run_reload_test()
 
@@ -811,9 +1040,9 @@ class TestExprs:
         p = make_catalog_path
         # Workflow with multiple JsonMapper instances
         t = pxt.create_table(p('test'), {'id': pxt.Int, 'jcol': pxt.Json})
-        t.add_computed_column(outputx=pxtf.map(t.jcol.x['*'], lambda x: x + 1))
-        t.add_computed_column(outputy=pxtf.map(t.jcol.y['*'], lambda x: x + 2))
-        t.add_computed_column(outputz=pxtf.map(t.jcol.z['*'], lambda x: x + 3))
+        t.add_computed_column(outputx=pxtf.map(t.jcol.x, lambda x: x + 1))
+        t.add_computed_column(outputy=pxtf.map(t.jcol.y, lambda x: x + 2))
+        t.add_computed_column(outputz=pxtf.map(t.jcol.z, lambda x: x + 3))
         for i in range(8):
             data = {}
             if (i & 1) != 0:
@@ -824,11 +1053,49 @@ class TestExprs:
                 data['z'] = [7, 8, 9]
             t.insert([{'id': i, 'jcol': data}])
         res = reload_tester.run_query(t.select(t.outputx, t.outputy, t.outputz).order_by(t.id))
+        assert res.schema == {
+            'outputx': 'Json[(Float | None, ...)]',
+            'outputy': 'Json[(Float | None, ...)]',
+            'outputz': 'Json[(Float | None, ...)]',
+        }
         for i in range(8):
-            print(res[i])
             assert res[i]['outputx'] == (None if (i & 1) == 0 else [2, 3, 4])
             assert res[i]['outputy'] == (None if (i & 2) == 0 else [6, 7, 8])
             assert res[i]['outputz'] == (None if (i & 4) == 0 else [10, 11, 12])
+
+        reload_tester.run_reload_test()
+
+    def test_nested_chained_mappers(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('test'), {'j': pxt.Json, 'jj': pxt.Json})
+        t.insert([{'j': [1, -2, 3], 'jj': [[1, 2], [3]]}])
+
+        # nested mapper: an inner map inside the outer map's function, applied to each inner list
+        res = reload_tester.run_query(t.select(o=t.jj.map(lambda outer: outer.map(lambda inner: inner + 1))))
+        assert res[0]['o'] == [[2, 3], [4]]
+
+        # chained mappers: the output of one map is the input of the next
+        res = reload_tester.run_query(t.select(o=t.j.map(lambda x: x + 1).map(lambda x: x * 10)))
+        assert res[0]['o'] == [20, -10, 40]
+
+        # map composed with filter, in both orders
+        res = reload_tester.run_query(t.select(o=t.j.map(lambda x: x + 1).filter(lambda x: x > 2)))
+        assert res[0]['o'] == [4]
+        res = reload_tester.run_query(t.select(o=t.j.filter(lambda x: x > 0).map(lambda x: x * 10)))
+        assert res[0]['o'] == [10, 30]
+
+        # map composed with sort
+        res = reload_tester.run_query(t.select(o=t.j.map(lambda x: x * 2).sort()))
+        assert res[0]['o'] == [-4, 2, 6]
+
+        # the nested and chained compositions as stored computed columns (function form), exercising reload
+        validate_update_status(t.add_computed_column(nested=pxtf.map(t.jj, lambda o: pxtf.map(o, lambda i: i + 1))), 1)
+        validate_update_status(
+            t.add_computed_column(chained=pxtf.map(pxtf.map(t.j, lambda x: x + 1), lambda x: x * 10)), 1
+        )
+        res = reload_tester.run_query(t.select(t.nested, t.chained))
+        assert res[0]['nested'] == [[2, 3], [4]]
+        assert res[0]['chained'] == [20, -10, 40]
 
         reload_tester.run_reload_test()
 
@@ -1183,6 +1450,7 @@ class TestExprs:
         result = t.select(t.img, t.img.height, t.img.rotate(90)).show(n=100)
         _ = result._repr_html_()
 
+    @rerun_on_network_error()
     def test_ext_imgs(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('img_test'), {'img': pxt.Image})
@@ -1667,8 +1935,8 @@ class TestExprs:
             # JsonPath
             (t.c_json.f2.f5[2:4][3], 'c_json.f2.f5[2:4][3]'),
             # JsonPath with relative root (with and without a succeeding path)
-            (pxtf.map(t.c_json.f2.f5['*'], lambda x: x), 'map(c_json.f2.f5[*], lambda R: R)'),
-            (pxtf.map(t.c_json.f2.f5['*'], lambda x: x.abcd), 'map(c_json.f2.f5[*], lambda R: R.abcd)'),
+            (t.c_json.f2.f5['*'].map(lambda x: x), 'c_json.f2.f5[*].map(lambda R: R)'),
+            (t.c_json.f2.f5['*'].map(lambda x: x.abcd), 'c_json.f2.f5[*].map(lambda R: R.abcd)'),
             # MethodRef
             (t.c_image.resize((100, 100)), 'c_image.resize([100, 100])'),
             # TypeCast
@@ -1724,15 +1992,15 @@ class TestExprs:
         # Filter down to just 5 rows of the table.
         v = pxt.create_view(p('test_view'), t.where(t.c2 < 5))
 
-        assert len(t.c2.head(n=100)) == 100
-        assert len(v.c2.head(n=100)) == 5
-        assert len(t.c2.tail(n=100)) == 100
-        assert len(v.c2.tail(n=100)) == 5
-        assert len(t.c2.show(n=100)) == 100
-        assert len(v.c2.show(n=100)) == 5
+        assert len(t.select(t.c2).head(n=100)) == 100
+        assert len(v.select(v.c2).head(n=100)) == 5
+        assert len(t.select(t.c2).tail(n=100)) == 100
+        assert len(v.select(v.c2).tail(n=100)) == 5
+        assert len(t.select(t.c2).show(n=100)) == 100
+        assert len(v.select(v.c2).show(n=100)) == 5
 
-        assert t.c2.head()._col_names == ['c2']
-        assert v.c2.head()._col_names == ['c2']
+        assert t.select(t.c2).head()._col_names == ['c2']
+        assert v.select(v.c2).head()._col_names == ['c2']
 
         # Test snapshots of the base table and of the view, with and without additional_columns
         snap1 = pxt.create_snapshot(p('test_snapshot_1'), t)
@@ -1741,13 +2009,31 @@ class TestExprs:
         snap4 = pxt.create_snapshot(p('test_snapshot_4'), v, additional_columns={'x1': v.c2})
         t.delete()
 
-        assert len(t.c2.head(n=100)) == 0
-        assert len(v.c2.head(n=100)) == 0
-        assert len(snap1.c2.head(n=100)) == 100
+        assert len(t.select(t.c2).head(n=100)) == 0
+        assert len(v.select(v.c2).head(n=100)) == 0
+        assert len(snap1.select(snap1.c2).head(n=100)) == 100
         assert len(snap2.select(snap2.c2).head(n=100)) == 5
-        assert len(snap2.c2.head(n=100)) == 5
-        assert len(snap3.c2.head(n=100)) == 100
-        assert len(snap4.c2.head(n=100)) == 5
+        assert len(snap3.select(snap3.c2).head(n=100)) == 100
+        assert len(snap4.select(snap4.c2).head(n=100)) == 5
+
+    def test_math_builtins(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        res = t.select(t.c3, p=t.c3**2, a=abs(-t.c3), r0=round(t.c3), r1=round(t.c3, 2)).order_by(t.c2).collect()
+        assert all(row['p'] == row['c3'] ** 2 for row in res)
+        assert all(row['a'] == abs(-row['c3']) for row in res)
+        assert all(row['r0'] == round(row['c3'], 0) for row in res)
+        assert all(row['r1'] == round(row['c3'], 2) for row in res)
+
+    def test_expr_not_iterable(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not iterable'):
+            iter(t.c1)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not iterable'):
+            list(t.c6)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not iterable'):
+            _, _ = t.c1
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'len\(\) of a Pixeltable expression'):
+            len(t.c1)
 
 
 @pxt.udf

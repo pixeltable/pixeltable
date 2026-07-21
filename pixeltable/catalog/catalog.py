@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import dataclasses
 import functools
-import itertools
 import logging
 import random
 import time
@@ -18,7 +17,7 @@ import sqlalchemy.exc as sql_exc
 from sqlalchemy.dialects.postgresql import array as pg_array
 
 import pixeltable.index as index
-from pixeltable import exceptions as excs, exprs, func
+from pixeltable import exceptions as excs, exprs, func, telemetry
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
@@ -33,7 +32,7 @@ from .dir import Dir
 from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation, QColumnId
 from .insertable_table import InsertableTable
 from .local_table import LocalTable
-from .model import ModelColumnRef
+from .model import EmbeddingIndex, prepare_model
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
 from .table_path import TablePath, TableVersionPath
@@ -381,6 +380,9 @@ class Catalog(CatalogBase):
                 self._finalize_pending_ops(pending_ops_tbl_id)
                 pending_ops_tbl_id = None
 
+            # one span per acquisition attempt; retries show up as sibling spans
+            xact_span = telemetry.span_start('pixeltable.catalog.begin_xact', attrs={'pxt.for_write': for_write})
+            attempt_exc: BaseException | None = None
             try:
                 self._in_write_xact = for_write
                 self._x_locked_tbl_ids = set()
@@ -428,30 +430,42 @@ class Catalog(CatalogBase):
                             raise
 
                     assert not self._undo_actions
+                    # success: end the attempt span here so it covers only the acquisition, not the
+                    # caller's work under the yield; the finally below then sees None and no-ops
+                    telemetry.span_end(xact_span)
+                    xact_span = None
                     yield conn
                     return
 
-            except PendingTableOpsError:
+            except PendingTableOpsError as e:
                 has_exc = True
                 if pending_ops_tbl_id is not None:
                     # the next iteration of the loop will deal with pending ops for this table id
                     continue
                 else:
                     # we got this exception after getting the initial table locks and therefore need to abort
+                    attempt_exc = e
                     raise
 
             except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
                 has_exc = True
+                attempt_exc = e
                 single_tbl, single_tbl_id = self._get_single_tbl(write_tvps, read_tvps, write_tbl_ids, read_tbl_ids)
                 self.convert_sql_exc(e, tbl_id=single_tbl_id, tbl=single_tbl, convert_db_excs=convert_db_excs)
                 raise  # re-raise the error if it didn't convert to a pxt.Error
 
             except (Exception, KeyboardInterrupt) as e:
                 has_exc = True
+                attempt_exc = e
                 _logger.debug(f'Caught {e.__class__}: {e}', exc_info=True)
                 raise
 
             finally:
+                # failure: xact_span is still non-None only if this attempt failed before the yield;
+                # attempt_exc is None on retry `continue`s (the attempt span ends clean and the retry
+                # shows up as a sibling), non-None when the attempt raised
+                telemetry.span_end(xact_span, exc=attempt_exc)
+                xact_span = None
                 self._in_write_xact = False
                 self._x_locked_tbl_ids.clear()
                 self._column_dependents = None
@@ -645,7 +659,7 @@ class Catalog(CatalogBase):
         read_handles = path_handles[:0:-1] if for_write else path_handles[::-1]
         for handle in read_handles:
             # update cache
-            _ = self._get_tbl_version(handle.key, validate_initialized=True)
+            _ = self._get_tbl_version(handle.key)
         if not for_write:
             return set()  # nothing to lock
         return self._acquire_write_lock(
@@ -725,7 +739,7 @@ class Catalog(CatalogBase):
         if lock_mutable_tree:
             # also lock mutable views
             key = TableVersionKey(row.id, tbl_md.current_version if tbl_md.is_snapshot else None)
-            tv = self._get_tbl_version(key, validate_initialized=True)
+            tv = self._get_tbl_version(key)
             for view in tv.mutable_views:
                 locked.update(
                     self._acquire_write_lock(
@@ -772,7 +786,7 @@ class Catalog(CatalogBase):
 
         if not tbl_md.is_pure_snapshot:
             key = TableVersionKey(row.id, tbl_md.current_version if tbl_md.is_snapshot else None)
-            self._get_tbl_version(key, validate_initialized=True)
+            self._get_tbl_version(key)
 
     def _roll_forward(self) -> None:
         """Finalize pending ops for all tables in self._roll_forward_ids."""
@@ -875,9 +889,7 @@ class Catalog(CatalogBase):
 
                     tbl_version = tbl_md.current_version if tbl_md.is_snapshot else None
                     tv = (
-                        self._get_tbl_version(
-                            TableVersionKey(tbl_id, tbl_version), check_pending_ops=False, validate_initialized=True
-                        )
+                        self._get_tbl_version(TableVersionKey(tbl_id, tbl_version), check_pending_ops=False)
                         if op.needs_tv
                         else None
                     )
@@ -1102,7 +1114,7 @@ class Catalog(CatalogBase):
         """Returns ids of all tables that form the tree of mutable views starting at tbl_id; includes the root."""
         key = TableVersionKey(tbl_id, None)
         assert key in self._tbl_versions, f'{key} not in {self._tbl_versions.keys()}\n{self._debug_str()}'
-        tv = self._get_tbl_version(key, validate_initialized=True)
+        tv = self._get_tbl_version(key)
         result: set[UUID] = {tv.id}
         for view in tv.mutable_views:
             result.update(self._get_mutable_tree(view.id))
@@ -1152,7 +1164,7 @@ class Catalog(CatalogBase):
         dependents = self._column_dependents[QColumnId(tbl_id, col_id)]
         result: set[Column] = set()
         for dependent in dependents:
-            tv = self._get_tbl_version(TableVersionKey(dependent.tbl_id, None), validate_initialized=True)
+            tv = self._get_tbl_version(TableVersionKey(dependent.tbl_id, None))
             col = tv.cols_by_id[dependent.col_id]
             result.add(col)
         return result
@@ -1480,32 +1492,17 @@ class Catalog(CatalogBase):
 
         columns = [Column.create(name, spec) for name, spec in schema.items()]
 
-        @retry_loop(for_write=True)
-        def create_fn() -> tuple[UUID, bool]:
-            return self._create_table(
-                path,
-                columns,
-                if_exists,
-                primary_key,
-                comment,
-                custom_metadata,
-                media_validation,
-                create_default_idxs,
-                is_versioned,
-            )
-
-        self._roll_forward_ids.clear()
-        tbl_id, is_created = create_fn()
-        self._roll_forward()
-
-        @retry_loop(read_tbl_ids=[tbl_id])
-        def _get_tbl() -> tuple[LocalTable, bool]:
-            tbl = self.get_table_by_id(tbl_id)
-            _logger.info(f'Created table {tbl._name()!r}, id={tbl._id}')
-            Env.get().console_logger.info(f'Created table {tbl._name()!r}.')
-            return tbl, is_created
-
-        return _get_tbl()
+        return self._create_table(
+            path,
+            columns,
+            if_exists,
+            primary_key,
+            comment,
+            custom_metadata,
+            media_validation,
+            create_default_idxs,
+            is_versioned,
+        )
 
     def _create_table(
         self,
@@ -1518,37 +1515,59 @@ class Catalog(CatalogBase):
         media_validation: MediaValidation,
         create_default_idxs: bool,
         is_versioned: bool,
-        tbl_id: UUID | None = None,
-    ) -> tuple[UUID, bool]:
+        additional_idxs: list[tuple[Column, str | None, 'index.IndexBase']] | None = None,
+        explicit_tbl_id: UUID | None = None,
+    ) -> tuple[LocalTable, bool]:
         import pixeltable.metadata.schema
+
+        # If a table id is passed in advance, we guarantee that the returned table will be created with that id.
+        # Therefore IfExistsParam.IGNORE is incompatible with explicit_tbl_id.
+        assert explicit_tbl_id is None or if_exists != IfExistsParam.IGNORE
 
         if primary_key is None:
             primary_key = []
+        if additional_idxs is None:
+            additional_idxs = []
 
-        existing = self._handle_path_collision(path, InsertableTable, False, if_exists)
-        if existing is not None:
-            assert isinstance(existing, LocalTable)
-            return existing._id, False
+        @retry_loop(for_write=True)
+        def create_fn() -> tuple[UUID, bool]:
+            existing = self._handle_path_collision(path, InsertableTable, False, if_exists)
+            if existing is not None:
+                assert isinstance(existing, LocalTable)
+                return existing._id, False
 
-        dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
-        assert dir is not None
+            dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
+            assert dir is not None
 
-        md, ops = InsertableTable._create(
-            path.name,
-            columns,
-            primary_key=primary_key,
-            comment=comment,
-            custom_metadata=custom_metadata,
-            media_validation=media_validation,
-            create_default_idxs=create_default_idxs,
-            is_versioned=is_versioned,
-            tbl_id=tbl_id,
-        )
-        if tbl_id is None:
-            tbl_id = UUID(md.tbl_md.tbl_id)
-        md.tbl_md.pending_stmt = pixeltable.metadata.schema.TableStatement.CREATE_TABLE
-        self.write_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
-        return tbl_id, True
+            # This is an actual table creation event; if no explicit_tbl_id was provided, assign a random one now.
+            tbl_id = explicit_tbl_id or uuid4()
+
+            md, ops = InsertableTable._create(
+                tbl_id,
+                path.name,
+                columns,
+                primary_key=primary_key,
+                comment=comment,
+                custom_metadata=custom_metadata,
+                media_validation=media_validation,
+                create_default_idxs=create_default_idxs,
+                is_versioned=is_versioned,
+                additional_idxs=additional_idxs,
+            )
+            assert tbl_id == UUID(md.tbl_md.tbl_id)
+            md.tbl_md.pending_stmt = pixeltable.metadata.schema.TableStatement.CREATE_TABLE
+            self.write_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
+            return tbl_id, True
+
+        self._roll_forward_ids.clear()
+        tbl_id, is_created = create_fn()
+        self._roll_forward()
+
+        @retry_loop(read_tbl_ids=[tbl_id])
+        def get_tbl_fn() -> LocalTable:
+            return self.get_table_by_id(tbl_id)
+
+        return get_tbl_fn(), is_created
 
     def create_view(
         self,
@@ -1570,37 +1589,21 @@ class Catalog(CatalogBase):
 
         additional_columns_ = [Column.create(name, spec) for name, spec in additional_columns.items()]
 
-        @retry_loop(for_write=True)
-        def create_fn() -> tuple[UUID, bool]:
-            return self._create_view(
-                path,
-                base,
-                select_list,
-                where,
-                sample_clause,
-                additional_columns_,
-                is_snapshot,
-                create_default_idxs,
-                iterator,
-                comment,
-                custom_metadata,
-                media_validation,
-                if_exists,
-            )
-
-        self._roll_forward_ids.clear()
-        view_id, is_created = create_fn()
-        if not is_snapshot and base.is_mutable():
-            # invalidate base's TableVersion instance, so that it gets reloaded with the new mutable view
-            self._clear_tv_cache(base.tbl_version.key)
-
-        self._roll_forward()
-
-        @retry_loop(read_tbl_ids=[view_id])
-        def _get_tbl() -> tuple[LocalTable, bool]:
-            return self.get_table_by_id(view_id), is_created
-
-        return _get_tbl()
+        return self._create_view(
+            path,
+            base,
+            select_list,
+            where,
+            sample_clause,
+            additional_columns_,
+            is_snapshot,
+            create_default_idxs,
+            iterator,
+            comment,
+            custom_metadata,
+            media_validation,
+            if_exists,
+        )
 
     def _create_view(
         self,
@@ -1617,51 +1620,76 @@ class Catalog(CatalogBase):
         custom_metadata: Any,
         media_validation: MediaValidation,
         if_exists: IfExistsParam,
-        tbl_id: UUID | None = None,
-    ) -> tuple[UUID, bool]:
-        existing = self._handle_path_collision(path, View, is_snapshot, if_exists, base=base)
-        if existing is not None:
-            assert isinstance(existing, View)
-            return existing._id, False
+        additional_idxs: list[tuple[Column, str | None, 'index.IndexBase']] | None = None,
+        explicit_tbl_id: UUID | None = None,
+    ) -> tuple[LocalTable, bool]:
+        assert explicit_tbl_id is None or if_exists == IfExistsParam.ERROR
 
-        if not is_snapshot and base.is_mutable():
-            # this is a mutable view of a mutable base; X-lock the base and advance its view_sn before adding
-            # the view
-            base_id = base.tbl_id
-            assert len(self._acquire_write_lock(tbl_id=base_id)) == 1, base_id
-            self._x_locked_tbl_ids.add(base_id)
-            base_tv = self._get_tbl_version(TableVersionKey(base.tbl_id, None), validate_initialized=True)
-            self.mark_modified_tv(base_tv.handle)
-            base_tv.tbl_md.view_sn += 1
-            result = get_runtime().conn.execute(
-                sql.update(schema.Table)
-                .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md, dict_factory=schema.md_dict_factory)})
-                .where(schema.Table.id == base.tbl_id)
+        if additional_idxs is None:
+            additional_idxs = []
+
+        @retry_loop(for_write=True)
+        def create_fn() -> tuple[UUID, bool]:
+            existing = self._handle_path_collision(path, View, is_snapshot, if_exists, base=base)
+            if existing is not None:
+                assert isinstance(existing, View)
+                return existing._id, False
+
+            if not is_snapshot and base.is_mutable():
+                # this is a mutable view of a mutable base; X-lock the base and advance its view_sn before adding
+                # the view
+                base_id = base.tbl_id
+                assert len(self._acquire_write_lock(tbl_id=base_id)) == 1, base_id
+                self._x_locked_tbl_ids.add(base_id)
+                base_tv = self._get_tbl_version(TableVersionKey(base.tbl_id, None))
+                self.mark_modified_tv(base_tv.handle)
+                base_tv.tbl_md.view_sn += 1
+                result = get_runtime().conn.execute(
+                    sql.update(schema.Table)
+                    .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md, dict_factory=schema.md_dict_factory)})
+                    .where(schema.Table.id == base.tbl_id)
+                )
+                assert result.rowcount == 1, result.rowcount
+
+            dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
+            assert dir is not None
+
+            tbl_id = explicit_tbl_id or uuid4()
+
+            md, ops = View._create(
+                tbl_id,
+                path.name,
+                base=base,
+                select_list=select_list,
+                additional_columns=additional_columns,
+                predicate=where,
+                sample_clause=sample_clause,
+                is_snapshot=is_snapshot,
+                create_default_idxs=create_default_idxs,
+                iterator_call=iterator,
+                comment=comment,
+                custom_metadata=custom_metadata,
+                media_validation=media_validation,
+                additional_idxs=additional_idxs,
             )
-            assert result.rowcount == 1, result.rowcount
+            assert tbl_id == UUID(md.tbl_md.tbl_id)
+            md.tbl_md.pending_stmt = schema.TableStatement.CREATE_VIEW
+            self.write_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
+            fault_injection.process_fault(FaultLocation.CATALOG_CREATE_VIEW_BEFORE_MD_COMMITTED)
+            return tbl_id, True
 
-        dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
-        assert dir is not None
-        md, ops = View._create(
-            path.name,
-            base=base,
-            select_list=select_list,
-            additional_columns=additional_columns,
-            predicate=where,
-            sample_clause=sample_clause,
-            is_snapshot=is_snapshot,
-            create_default_idxs=create_default_idxs,
-            iterator_call=iterator,
-            comment=comment,
-            custom_metadata=custom_metadata,
-            media_validation=media_validation,
-            tbl_id=tbl_id,
-        )
-        tbl_id = UUID(md.tbl_md.tbl_id)
-        md.tbl_md.pending_stmt = schema.TableStatement.CREATE_VIEW
-        self.write_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
-        fault_injection.process_fault(FaultLocation.CATALOG_CREATE_VIEW_BEFORE_MD_COMMITTED)
-        return tbl_id, True
+        self._roll_forward_ids.clear()
+        view_id, is_created = create_fn()
+        if not is_snapshot and base.is_mutable():
+            # invalidate base's TableVersion instance, so that it gets reloaded with the new mutable view
+            self._clear_tv_cache(base.tbl_version.key)
+        self._roll_forward()
+
+        @retry_loop(read_tbl_ids=[view_id])
+        def get_tbl_fn() -> LocalTable:
+            return self.get_table_by_id(view_id)
+
+        return get_tbl_fn(), is_created
 
     def create_from_model(
         self,
@@ -1674,6 +1702,7 @@ class Catalog(CatalogBase):
         custom_metadata: Any,
         iterator: func.GeneratingFunctionCall | None,
         base: 'pxt.Query | None',
+        embedding_idxs: dict[str, EmbeddingIndex],
     ) -> tuple[LocalTable, bool]:
         """Create a table or view from a declarative model.
 
@@ -1686,69 +1715,14 @@ class Catalog(CatalogBase):
         If a table already exists at `path`, validates the model against it and returns it (idempotent rebind);
         otherwise creates it. Returns `(table, was_created)`.
         """
-        subst_dict: dict[exprs.Expr, exprs.Expr] = {}
-
-        if base is not None:
-            # Build substitutions for the base table's columns.
-            if base.select_list is None:
-                # select(*): all visible columns from the base table
-                for col in base._first_tbl.columns():
-                    subst_dict[ModelColumnRef(col.name)] = exprs.ColumnRef(col.column_version_md())
-            else:
-                for expr, name in base.select_list:
-                    if name is not None:
-                        subst_dict[ModelColumnRef(name)] = expr
-                    elif isinstance(expr, exprs.ColumnRef):
-                        subst_dict[ModelColumnRef(expr.column_md.name)] = expr
-
         # We allocate the table id up front so that self-referential ColumnRefs (built below) point at it; since
         # this runs in the catalog that owns the table, no such reference ever needs to be serialized.
         tbl_id = uuid4()
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
 
-        initial_col_id = 0
-        if iterator is not None:
-            # Rebind the iterator with substitutions from the base table.
-            subst_args = [arg.substitute(subst_dict) for arg in iterator.args]
-            subst_kwargs = {k: v.substitute(subst_dict) for k, v in iterator.kwargs.items()}
-            subst_bound_args = {k: v.substitute(subst_dict) for k, v in iterator.bound_args.items()}
-            iterator = func.GeneratingFunctionCall(
-                iterator.it, subst_args, subst_kwargs, subst_bound_args, iterator.outputs, iterator.validation_error
-            )
-            # Build substitutions for the iterator's output columns.
-            for i, (name, output) in enumerate(iterator.outputs.items()):
-                catalog_col = Column.create(name, {'type': output.col_type, 'stored': output.is_stored})  # type: ignore[arg-type]
-                catalog_col.tbl_handle = tbl_handle
-                catalog_col.id = i
-                subst_dict[ModelColumnRef(name)] = exprs.ColumnRef(
-                    catalog_col.column_version_md(), perform_validation=(media_validation == 'on_read')
-                )
-            initial_col_id += len(iterator.outputs)
-
-        if base is not None and base.select_list is not None:
-            initial_col_id += len(base.select_list)
-
-        next_col_id = itertools.count(initial_col_id)
-        catalog_columns: list[Column] = []
-        for name, spec in columns.items():
-            subst_spec = spec.copy()
-            if 'value' in subst_spec:
-                subst_spec['value'] = subst_spec['value'].substitute(subst_dict)
-                residual_placeholders = list(subst_spec['value'].subexprs(ModelColumnRef))
-                if len(residual_placeholders) > 0:
-                    raise excs.RequestError(
-                        excs.ErrorCode.INVALID_SCHEMA,
-                        f'Column {name!r} in {display_name} references columns that are not in '
-                        f"the model's scope: {[c.name for c in residual_placeholders]}",
-                    )
-            catalog_col = Column.create(name, subst_spec)
-            catalog_col.tbl_handle = tbl_handle
-            catalog_col.id = next(next_col_id)
-            catalog_columns.append(catalog_col)
-            subst_dict[ModelColumnRef(name, catalog_col.col_type)] = exprs.ColumnRef(
-                catalog_col.column_version_md(),
-                perform_validation=subst_spec.get('media_validation', media_validation) == 'on_read',
-            )
+        iterator, additional_cols, resolved_idxs = prepare_model(
+            tbl_handle, columns, display_name, media_validation, iterator, base, embedding_idxs
+        )
 
         # If the table already exists, validate the model against it and rebind (the server enforces its own
         # consistency; we never trust a client to have validated).
@@ -1757,59 +1731,39 @@ class Catalog(CatalogBase):
             self._validate_model(existing, display_name, base, iterator)
             return existing, False
 
-        base_tvp: TableVersionPath | None
         if base is None:
-            base_tvp = None
+            return self._create_table(
+                path=path,
+                columns=additional_cols,
+                if_exists=IfExistsParam.ERROR,
+                primary_key=None,
+                comment=comment,
+                custom_metadata=custom_metadata,
+                media_validation=media_validation,
+                create_default_idxs=create_default_idxs,
+                is_versioned=True,
+                additional_idxs=resolved_idxs,
+                explicit_tbl_id=tbl_id,
+            )
 
-            @retry_loop(for_write=True)
-            def create_fn() -> tuple[UUID, bool]:
-                return self._create_table(
-                    path=path,
-                    columns=catalog_columns,
-                    if_exists=IfExistsParam.ERROR,
-                    primary_key=None,
-                    comment=comment,
-                    custom_metadata=custom_metadata,
-                    media_validation=media_validation,
-                    create_default_idxs=create_default_idxs,
-                    is_versioned=True,
-                    tbl_id=tbl_id,
-                )
         else:
-            base_tvp = base._first_tbl
-
-            @retry_loop(for_write=True)
-            def create_fn() -> tuple[UUID, bool]:
-                return self._create_view(
-                    path=path,
-                    base=base_tvp,
-                    select_list=base.select_list,
-                    where=base.where_clause,
-                    sample_clause=base.sample_clause,
-                    additional_columns=catalog_columns,
-                    is_snapshot=False,
-                    create_default_idxs=create_default_idxs,
-                    iterator=iterator,
-                    comment=comment,
-                    custom_metadata=custom_metadata,
-                    media_validation=media_validation,
-                    if_exists=IfExistsParam.ERROR,
-                    tbl_id=tbl_id,
-                )
-
-        self._roll_forward_ids.clear()
-        created_id, _ = create_fn()
-        assert created_id == tbl_id
-        if base_tvp is not None and base_tvp.is_mutable():
-            # invalidate base's TableVersion instance, so that it gets reloaded with the new mutable view
-            self._clear_tv_cache(base_tvp.tbl_version.key)
-        self._roll_forward()
-
-        @retry_loop(read_tbl_ids=[tbl_id])
-        def _get_tbl() -> LocalTable:
-            return self.get_table_by_id(tbl_id)
-
-        return _get_tbl(), True
+            return self._create_view(
+                path=path,
+                base=base._first_tbl,
+                select_list=base.select_list,
+                where=base.where_clause,
+                sample_clause=base.sample_clause,
+                additional_columns=additional_cols,
+                is_snapshot=False,
+                create_default_idxs=create_default_idxs,
+                iterator=iterator,
+                comment=comment,
+                custom_metadata=custom_metadata,
+                media_validation=media_validation,
+                if_exists=IfExistsParam.ERROR,
+                additional_idxs=resolved_idxs,
+                explicit_tbl_id=tbl_id,
+            )
 
     def _validate_model(
         self,
@@ -1844,7 +1798,7 @@ class Catalog(CatalogBase):
     def add_columns(self, tbl: TableVersionPath, cols: list[Column]) -> None:
         @retry_loop(for_write=True, write_tvps=[tbl], lock_mutable_tree=False)
         def add_fn() -> None:
-            tv = self._get_tbl_version(TableVersionKey(tbl.tbl_id, None), validate_initialized=True)
+            tv = self._get_tbl_version(TableVersionKey(tbl.tbl_id, None))
             md, ops = tv.add_columns_ops(cols)
             md.tbl_md.pending_stmt = schema.TableStatement.ADD_COLUMNS
             self.write_tbl_md(
@@ -2105,7 +2059,7 @@ class Catalog(CatalogBase):
         result = [r[0] for r in conn.execute(q).all()]
         return result
 
-    def get_tbl_version(self, key: TableVersionKey, *, validate_initialized: bool = False) -> TableVersion | None:
+    def get_tbl_version(self, key: TableVersionKey, *, validate_initialized: bool = True) -> TableVersion | None:
         """
         Returns the TableVersion instance for the given table version key, and updates the cache if necessary.
 
@@ -2122,7 +2076,7 @@ class Catalog(CatalogBase):
         return do_get_tbl_version()
 
     def _get_tbl_version(
-        self, key: TableVersionKey, *, check_pending_ops: bool = True, validate_initialized: bool = False
+        self, key: TableVersionKey, *, check_pending_ops: bool = True, validate_initialized: bool = True
     ) -> TableVersion | None:
         """
         Returns the TableVersion instance for the given table key, and updates the cache if necessary.

@@ -7,7 +7,7 @@ import inspect
 import json
 import sys
 import typing
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, TypeVar, overload
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, NoReturn, TypeVar, overload
 from uuid import UUID
 
 import numpy as np
@@ -102,9 +102,9 @@ class Expr(abc.ABC):
 
     def bind_rel_paths(self) -> None:
         """
-        Binds relative JsonPaths to mapper.
-        This needs to be done in a separate phase after __init__(), because RelativeJsonPath()(-1) cannot be resolved
-        by the immediately containing JsonMapper during initialization.
+        Binds relative (= un-anchored) JsonPaths to their enclosing mapper.
+        This is a separate phase after __init__(), because a relative root's mapper is only established once the
+        surrounding map expression has been fully constructed.
         """
         self._bind_rel_paths()
         has_rel_path = self._has_relative_path()
@@ -288,8 +288,6 @@ class Expr(abc.ABC):
 
         if siblings is None:
             siblings = []
-        else:
-            assert all(sibling.tbl_handle is not None for sibling in siblings)
 
         def is_in(col_md: catalog.ColumnVersionMd, tbl: catalog.TablePath) -> bool:
             # the column must be physically present *and* pinned to the same version: the same physical column
@@ -724,10 +722,17 @@ class Expr(abc.ABC):
         """
         ex.: <img col>.rotate(60)
         """
+        from pixeltable.func import FunctionRegistry
+
         from .json_path import JsonPath
         from .method_ref import MethodRef
 
-        if self.col_type.is_json_type():
+        # A json expr exposes its fields as attributes, but a registered method of the same name takes
+        # precedence (a colliding field stays reachable via subscript, e.g. t.col['len']).
+        if (
+            self.col_type.is_json_type()
+            and FunctionRegistry.get().lookup_type_method(self.col_type.type_enum, name) is None
+        ):
             return JsonPath(self).__getattr__(name)
         else:
             method_ref = MethodRef(self, name)
@@ -742,6 +747,22 @@ class Expr(abc.ABC):
     def __bool__(self) -> bool:
         raise TypeError(
             f'Pixeltable expressions cannot be used in conjunction with Python boolean operators (and/or/not)\n{self!r}'
+        )
+
+    def __iter__(self) -> NoReturn:
+        # without this, iteration falls back to __getitem__(0), __getitem__(1), ..., which never terminates for
+        # json/array columns (every index yields another expression)
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            'Pixeltable expressions are not iterable. Iteration over data is expressed as a query '
+            f'(e.g. t.select(...).collect()) or a view with an iterator: {self}',
+        )
+
+    def __len__(self) -> NoReturn:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f'len() of a Pixeltable expression is undefined; string and json columns support .len(), '
+            f'row counts are t.count(): {self}',
         )
 
     def __lt__(self, other: object) -> 'exprs.Comparison':
@@ -813,6 +834,21 @@ class Expr(abc.ABC):
 
     def __floordiv__(self, other: object) -> 'exprs.ArithmeticExpr':
         return self._make_arithmetic_expr(ArithmeticOperator.FLOORDIV, other)
+
+    def __pow__(self, other: object) -> 'exprs.ArithmeticExpr':
+        return self._make_arithmetic_expr(ArithmeticOperator.POW, other)
+
+    def __abs__(self) -> 'exprs.FunctionCall':
+        from pixeltable.functions.math import abs as abs_fn
+
+        return abs_fn(self)
+
+    def __round__(self, ndigits: object = None) -> 'exprs.FunctionCall':
+        from pixeltable.functions.math import round as round_fn
+
+        if ndigits is None:
+            return round_fn(self)
+        return round_fn(self, ndigits)
 
     def __radd__(self, other: object) -> exprs.ArithmeticExpr | exprs.StringOp:
         if self.col_type.is_string_type():

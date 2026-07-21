@@ -200,7 +200,7 @@ class FunctionCall(Expr):
             subst = self.fn.instantiate(self.args, self.kwargs)
             return subst.display_str(inline)
         if self.is_method_call:
-            return f'{self.components[0]}.{self.fn.name}({self._print_args(1, inline)})'
+            return f'{self.components[0]}.{self.fn.display_name}({self._print_args(1, inline)})'
         else:
             fn_name = self.fn.display_name or 'anonymous_fn'
             return f'{fn_name}({self._print_args()})'
@@ -377,7 +377,11 @@ class FunctionCall(Expr):
 
         kwargs: dict[str, Any] = {}
         parameters = self.fn.signature.parameters
+        # Aggregator init parameters are passed to the constructor (via agg_init_args), not to update().
+        init_param_names = self.fn.init_param_names[0] if isinstance(self.fn, func.AggregateFunction) else ()
         for param_name, idx in self.kwarg_idxs.items():
+            if param_name in init_param_names:
+                continue
             val = data_row[self.components[idx].slot_idx]
             if (
                 val is None

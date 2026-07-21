@@ -5,6 +5,7 @@ import sys
 from typing import TYPE_CHECKING, Any, Callable, Sequence, overload
 
 from pixeltable import catalog, exceptions as excs, type_system as ts
+from pixeltable.utils.system import is_interactive_env
 
 from .callable_function import CallableFunction
 from .expr_template_function import ExprTemplate, ExprTemplateFunction
@@ -32,6 +33,7 @@ def udf(
     is_deterministic: bool = True,
     resource_pool: str | None = None,
     type_substitutions: Sequence[dict] | None = None,
+    display_name: str | None = None,
     _force_stored: bool = False,
 ) -> Callable[[Callable], CallableFunction]: ...
 
@@ -76,6 +78,7 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
         is_deterministic = kwargs.pop('is_deterministic', None)
         resource_pool = kwargs.pop('resource_pool', None)
         type_substitutions = kwargs.pop('type_substitutions', None)
+        display_name = kwargs.pop('display_name', None)
         force_stored = kwargs.pop('_force_stored', False)
         if len(kwargs) > 0:
             raise excs.RequestError(
@@ -94,6 +97,7 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
                 is_deterministic=is_deterministic,
                 resource_pool=resource_pool,
                 type_substitutions=type_substitutions,
+                display_name=display_name,
                 force_stored=force_stored,
                 from_decorator=True,
             )
@@ -113,6 +117,7 @@ def make_function(
     resource_pool: str | None = None,
     type_substitutions: Sequence[dict] | None = None,
     function_name: str | None = None,
+    display_name: str | None = None,
     force_stored: bool = False,
     from_decorator: bool = False,
 ) -> CallableFunction:
@@ -129,6 +134,13 @@ def make_function(
         function_path = None
     elif decorated_fn.__module__ != '__main__' and decorated_fn.__name__.isidentifier():
         function_path = f'{decorated_fn.__module__}.{decorated_fn.__qualname__}'
+
+    elif from_decorator and is_interactive_env() and decorated_fn.__name__.isidentifier():
+        # Give a udf inlined in a notebook cell a __main__.<name> path to enable computed columns with inlined udfs;
+        # resolves only within the session and degrades to InvalidFunction elsewhere
+        # TODO: remove and rework the offending notebooks
+        function_path = f'{decorated_fn.__module__}.{decorated_fn.__qualname__}'
+
     else:
         # Check that we came here through a decorator, and that we're not in an interactive environment
         # or notebook. The `from_decorator` check is necessary because of the apply() function.
@@ -229,6 +241,7 @@ def make_function(
         py_fns=[py_fn] * len(signatures),  # All signatures share the same Python function
         self_path=function_path,
         self_name=function_name,
+        display_name=display_name,
         batch_size=batch_size,
         is_method=is_method,
         is_property=is_property,
@@ -241,7 +254,11 @@ def make_function(
     if function_path is not None:
         # do the validation at the very end, so it's easier to write tests for other failure scenarios
         validate_symbol_path(function_path)
-        FunctionRegistry.get().register_function(function_path, result)
+        # a __main__ path (a udf inlined in a notebook cell) is not importable across sessions and would collide
+        # in the registry if the cell is re-run, so it carries a path for serialization but is not registered
+        # TODO: remove this when removing support for inlined udfs in notebooks
+        if decorated_fn.__module__ != '__main__':
+            FunctionRegistry.get().register_function(function_path, result)
 
     return result
 
