@@ -429,7 +429,7 @@ class RandomTableOps:
             return success(f'No Required columns to alter in {self.tbl_descr(t)}.')
         col_name = random.choice(required_cols)
         col_ref = getattr(t, col_name)
-        t.alter_column(col_name, set_type=col_ref.col_type.copy(nullable=True))
+        t.alter_column(col_name, type_=col_ref.col_type.copy(nullable=True))
         return success(f'Altered column {col_name!r} to nullable in {self.tbl_descr(t)}.')
 
     def run_op(self, op: Callable) -> None:

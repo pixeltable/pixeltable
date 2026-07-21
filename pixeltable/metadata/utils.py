@@ -75,8 +75,8 @@ class MetadataUtils:
             diff.append(f'renamed to {new.name}')
         assert old.is_pk == new.is_pk, 'Not implemented: describe a primary key change'
         if old.col_type != new.col_type:
-            set_type = ts.ColumnType.from_dict(new.col_type)
-            diff.append(f'type changed to {set_type!r}')
+            type_ = ts.ColumnType.from_dict(new.col_type)
+            diff.append(f'type changed to {type_!r}')
         assert old.value_expr == new.value_expr, 'Not implemented: describe a value expression change'
         assert old.media_validation == new.media_validation, 'Not implemented: describe a media validation change'
         assert old.comment == new.comment, 'Not implemented: describe a comment change'

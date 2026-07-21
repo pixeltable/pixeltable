@@ -310,7 +310,7 @@ class Dumper:
         self._create_pk_test_tables()
 
         # Make c7 nullable
-        t.alter_column(t.c7, set_type=pxt.Json)
+        t.alter_column(t.c7, type_=pxt.Json)
         # Insert new row that confirms that c7 is not required
         t.insert(c1=c1_data[0], c2=num_rows, c3=c3_data[0], c4=c4_data[0], c5=c5_data[0], c6=c6_data[0])
 
