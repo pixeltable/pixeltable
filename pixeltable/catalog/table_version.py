@@ -961,8 +961,8 @@ class TableVersion:
             # no-op
             return
 
-        valid_alteration = type_.matches(col.col_type) and not col.col_type.nullable and type_.nullable
-        if not valid_alteration:
+        valid_change = type_.matches(col.col_type) and not col.col_type.nullable and type_.nullable
+        if not valid_change:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Column {col.name!r} type cannot be changed from {col.col_type} to {type_}',
