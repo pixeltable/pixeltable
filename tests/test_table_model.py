@@ -598,11 +598,15 @@ class TestTableModel:
         # focused on columns and the iterator (default indexes are not part of a model's declared `__indexes__`).
         TableModel = pxt.model_base()
 
+        # In V2, `test_table` exercises every alterable column property across a few kept columns: `score` (type),
+        # `image` (media_validation), and the computed `derived` (value expression, stored, comment, custom_metadata).
         class ExampleTable(TableModel, name='test_table', create_default_idxs=False):
             id: pxt.Required[pxt.Int]
             name: pxt.String
             value: pxt.Float
             image: pxt.Image
+            score: pxt.Float
+            derived = Column(value=id + 1, comment='before', custom_metadata={'v': 1})
             idx1 = EmbeddingIndex(image, embedding=dummy_embedding.using(n=768))
             idx2 = EmbeddingIndex(image, embedding=dummy_embedding.using(n=512))
 
@@ -642,7 +646,9 @@ class TestTableModel:
 
         class ExampleTableV2(TableModelV2, name='test_table', create_default_idxs=False):
             id: pxt.Required[pxt.Int]
-            image: pxt.Image
+            image = Column(type=pxt.Image, media_validation='on_read')  # kept, media_validation changed
+            score: pxt.Int  # kept, but its type changed (Float -> Int)
+            derived = Column(value=id + 100, stored=False, comment='after', custom_metadata={'v': 2})  # 4 props changed
             extra1: pxt.Int  # added
             extra2: pxt.String  # added
             # 'name' and 'value' dropped
@@ -683,6 +689,13 @@ class TestTableModel:
             out.getvalue().strip()
             == textwrap.dedent("""
             Table 'test_table' (from model `ExampleTableV2`) has differences:
+              the following columns have altered properties (FATAL):
+                'derived' computed_with: model='id + 100', existing='id + 1'
+                'derived' is_stored: model=False, existing=True
+                'derived' comment: model='after', existing='before'
+                'derived' custom_metadata: model={'v': 2}, existing={'v': 1}
+                'image' media_validation: model='on_read', existing='on_write'
+                'score' type: model='Int', existing='Float'
               the following columns are new to the model, and will be ADDED:
                 'extra1' = {'type': Int | None}
                 'extra2' = {'type': String | None}

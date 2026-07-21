@@ -21,6 +21,8 @@ from .table_version_handle import TableVersionHandle
 if TYPE_CHECKING:
     import pixeltable as pxt
 
+    from .table_metadata import ColumnMetadata
+
 # Table methods exposed as class-level operations on the model.
 FORWARDED_TABLE_METHODS: frozenset[str] = frozenset(
     (
@@ -1015,6 +1017,10 @@ class ValidationResults(NamedTuple):
     dropped_columns: list[str]
     new_indexes: list[str]
     dropped_indexes: list[str]
+    # Columns present in both the model and the existing table whose properties differ, as
+    # (column name, model properties, existing properties). Fatal for now; some alterations will later be
+    # applicable via `allow_destructive=True`.
+    altered_columns: list[tuple[str, dict[str, Any], dict[str, Any]]]
 
     @property
     def has_changes(self) -> bool:
@@ -1027,6 +1033,7 @@ class ValidationResults(NamedTuple):
             or self.model_iterator != self.existing_iterator
             or self.model_filter != self.existing_filter
             or self.model_sample != self.existing_sample
+            or len(self.altered_columns) > 0
         )
 
     @property
@@ -1036,6 +1043,45 @@ class ValidationResults(NamedTuple):
     @property
     def has_benign_changes(self) -> bool:
         return not self.tbl_exists or len(self.new_columns) > 0 or len(self.new_indexes) > 0
+
+
+def _model_column_properties(spec: ColumnSpec, default_media_validation: str) -> dict[str, Any]:
+    """The comparable properties of a column declared by `spec`, resolved to match a stored column's metadata.
+
+    A computed column's value expression carries `ModelColumnRef` placeholders, but those render identically to the
+    `ColumnRef`s in the stored expression, so the display strings are directly comparable. Defaults mirror
+    `Column.create` (`stored=True`, `primary_key=False`) and a media column's `media_validation` falls back to the
+    table default, as it does on the stored column.
+    """
+    col_type = _col_type_from_spec(spec)
+    value = spec.get('value')
+    comment = spec.get('comment')
+    return {
+        'type': col_type._to_str(as_schema=True),
+        'computed_with': exprs.Expr.from_object(value).display_str(inline=False) if value is not None else None,
+        'is_primary_key': spec.get('primary_key', False),
+        'is_stored': spec.get('stored', True),
+        'media_validation': (spec.get('media_validation') or default_media_validation)
+        if col_type.is_media_type()
+        else None,
+        'comment': comment if comment else None,
+        'custom_metadata': spec.get('custom_metadata'),
+        'destination': str(spec['destination']) if spec.get('destination') is not None else None,
+    }
+
+
+def _existing_column_properties(col_md: 'ColumnMetadata') -> dict[str, Any]:
+    """The comparable properties of an existing column, drawn from its `ColumnMetadata`."""
+    return {
+        'type': col_md['type_'],
+        'computed_with': col_md['computed_with'],
+        'is_primary_key': col_md['is_primary_key'],
+        'is_stored': col_md['is_stored'],
+        'media_validation': col_md['media_validation'],
+        'comment': col_md['comment'],
+        'custom_metadata': col_md['custom_metadata'],
+        'destination': col_md['destination'],
+    }
 
 
 def validate_models(registered_models: dict[str, TableModelMeta], binding_root: str) -> dict[str, ValidationResults]:
@@ -1079,6 +1125,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
                 existing_filter=None,
                 model_sample=model_sample,
                 existing_sample=None,
+                altered_columns=[],
             )
             continue
 
@@ -1094,8 +1141,18 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
             idx_name for idx_name, info in existing_md['indices'].items() if info['index_type'] == 'embedding'
         }
 
+        # For columns present in both, flag any whose properties differ. Only meaningful when the kinds match; a
+        # kind mismatch is already fatal and makes column-level comparison moot.
+        altered_columns: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+        if model_kind == existing_md['kind']:
+            default_media_validation = model.__table_spec__['media_validation'].name.lower()
+            for col_name in sorted(model_cols & existing_cols):
+                model_props = _model_column_properties(model.__columns__[col_name], default_media_validation)
+                existing_props = _existing_column_properties(existing_md['columns'][col_name])
+                if model_props != existing_props:
+                    altered_columns.append((col_name, model_props, existing_props))
+
         # TODO: validate table properties (comment, custom_metadata, media_validation, primary_key, etc.)
-        # TODO: validate column structure
 
         results[name] = ValidationResults(
             model_cls=model,
@@ -1112,6 +1169,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
             existing_filter=existing_md['view_filter'],
             model_sample=model_sample,
             existing_sample=existing_md['view_sample'],
+            altered_columns=altered_columns,
         )
 
     return results
@@ -1143,6 +1201,12 @@ def _format_diff(name: str, r: ValidationResults) -> list[str]:
         detail.append('  view sample mismatch (FATAL):')
         detail.append(f'    model sample   : {r.model_sample}')
         detail.append(f'    existing sample: {r.existing_sample}')
+    if len(r.altered_columns) > 0:
+        detail.append('  the following columns have altered properties (FATAL):')
+        for col_name, model_props, existing_props in r.altered_columns:
+            for prop, model_val in model_props.items():
+                if model_val != existing_props[prop]:
+                    detail.append(f'    {col_name!r} {prop}: model={model_val!r}, existing={existing_props[prop]!r}')
     if len(r.new_columns) > 0:
         detail.append('  the following columns are new to the model, and will be ADDED:')
         for col_name in r.new_columns:
