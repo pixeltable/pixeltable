@@ -658,6 +658,14 @@ class LocalTable(Table):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot alter base table column {col.name!r}'
                 )
+            if col.is_computed:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot alter the type of computed column {col.name!r}'
+                )
+            if col.is_pk:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot alter the type of primary key column {col.name!r}'
+                )
 
             # TODO(PXT-960): follow up: allow alteration if it doesn't invalidate any dependents, and doesn't change
             # their column types.
@@ -667,14 +675,6 @@ class LocalTable(Table):
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'Cannot alter column {col.name!r} because the following columns depend on it: '
                     f'{", ".join(c.qualified_name for c in dependent_user_cols)}',
-                )
-            if col.is_computed:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot alter the type of computed column {col.name!r}'
-                )
-            if col.is_pk:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot alter the type of primary key column {col.name!r}'
                 )
 
             self._tbl_version.get().alter_column(col, new_col_type)
