@@ -12,7 +12,7 @@ from pixeltable.utils.object_stores import ObjectOps
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
-import pgvector.sqlalchemy  # type: ignore[import-untyped]
+import pgvector.sqlalchemy
 import sqlalchemy as sql
 
 import pixeltable.exprs as exprs
