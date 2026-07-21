@@ -205,6 +205,12 @@ def _create_from_model(request: ProxyRequest) -> tuple[list, bool]:
     return md, was_created
 
 
+def _update_from_model(request: ProxyRequest) -> None:
+    # Deserialize through the read-transaction path, since each Updates carries Exprs (column value expressions).
+    kwargs = _deserialize_args(request)
+    get_runtime().catalog.update_from_model(kwargs['updates'])
+
+
 def _get_table(request: ProxyRequest) -> list | None:
     kwargs = _deserialize_args(request)
     cat = get_runtime().catalog
@@ -531,6 +537,7 @@ _HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest], Any]] = {
     ('CatalogBase', 'create_table'): _create_table,
     ('CatalogBase', 'create_view'): _create_view,
     ('CatalogBase', 'create_from_model'): _create_from_model,
+    ('CatalogBase', 'update_from_model'): _update_from_model,
     ('CatalogBase', 'get_table'): _get_table,
     ('CatalogBase', 'get_table_by_id'): _get_table_by_id,
     ('CatalogBase', 'move'): _catalog_method,

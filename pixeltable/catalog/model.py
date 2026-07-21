@@ -921,17 +921,11 @@ def prepare_model(
 
 
 class Updates(TypedDict):
+    path: catalog.Path
     new_columns: dict[str, ColumnSpec]
     dropped_columns: list[str]
     new_idxs: dict[str, EmbeddingIndex]
     dropped_idxs: list[str]
-
-
-class PreparedUpdates(TypedDict):
-    new_columns: dict[str, Column]
-    dropped_columns: list[Column]
-    new_idxs: dict[str, tuple[Column, str | None, index.IndexBase]]
-    dropped_idxs: list[int]
 
 
 def prepare_model_updates(
@@ -1209,7 +1203,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
             return
 
         binding_root = TableModelMeta._normalize_binding_root(binding_root)
-        updates: dict[catalog.Path, Updates] = {}
+        updates: list[Updates] = []
         for name, r in to_update:
             model = r.model_cls
             # Resolve `type` annotations to ColumnTypes, mirroring `_create()`.
@@ -1221,16 +1215,22 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                         spec['type'], nullable_default=True, allow_builtin_types=False
                     )
                 new_columns[col_name] = spec
-            updates[catalog.Path.parse(f'{binding_root}{name}')] = Updates(
-                new_columns=new_columns,
-                dropped_columns=list(r.dropped_columns),
-                new_idxs={idx_name: model.__indexes__[idx_name] for idx_name in r.new_indexes},
-                dropped_idxs=list(r.dropped_indexes),
+            updates.append(
+                Updates(
+                    path=catalog.Path.parse(f'{binding_root}{name}'),
+                    new_columns=new_columns,
+                    dropped_columns=list(r.dropped_columns),
+                    new_idxs={idx_name: model.__indexes__[idx_name] for idx_name in r.new_indexes},
+                    dropped_idxs=list(r.dropped_indexes),
+                )
             )
 
         # All models share `binding_root`, hence a single catalog; apply every table's changes in one transaction.
-        cat = get_runtime().get_catalog(next(iter(updates)))
+        cat = get_runtime().get_catalog(updates[0]['path'])
         cat.update_from_model(updates)
+
+        # Now create any new tables.
+        _create_all(binding_root)
 
     cls.bind_all = _bind_all  # type: ignore[attr-defined]
     cls.create_all = _create_all  # type: ignore[attr-defined]

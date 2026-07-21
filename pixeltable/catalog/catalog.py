@@ -1748,19 +1748,19 @@ class Catalog(CatalogBase):
                 explicit_tbl_id=tbl_id,
             )
 
-    def update_from_model(self, updates: dict[Path, model.Updates]) -> None:
+    def update_from_model(self, updates: list[model.Updates]) -> None:
         """Update a table or view from a declarative model.
 
         If the table does not exist, raises NotFoundError. If the model is incompatible with the existing table,
         raises RequestError.
         """
-        tbls = [self.get_table(path, IfNotExistsParam.ERROR) for path in updates]
+        tbls = [self.get_table(update['path'], IfNotExistsParam.ERROR) for update in updates]
 
         @retry_loop(for_write=True, write_tvps=[tbl._tbl_version_path for tbl in tbls], lock_mutable_tree=True)
         def update_fn() -> None:
             # (tbl_version_path, tbl_version, updates) tuple for each table in the model update
             tbl_info = list(
-                zip((tbl._tbl_version_path for tbl in tbls), (tbl._tbl_version.get() for tbl in tbls), updates.values())
+                zip((tbl._tbl_version_path for tbl in tbls), (tbl._tbl_version.get() for tbl in tbls), updates)
             )
 
             # First drop any columns or indices that are being removed. Do this in *inverse* declaration order so that

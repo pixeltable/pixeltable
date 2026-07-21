@@ -700,7 +700,6 @@ class TestTableModel:
         ):
             TableModelV2.update_all(root)
 
-    @pytest.mark.local  # `update_from_model()` is not yet supported over a proxied catalog.
     def test_update_all(self, make_catalog_path: Callable[[str], str]) -> None:
         """`update_all()` applies purely additive changes (new columns and indexes) to existing tables."""
         skip_test_if_not_installed('imagehash')
