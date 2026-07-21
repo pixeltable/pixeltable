@@ -59,11 +59,12 @@ class TableVersionHandle:
         transaction's view. Outside a transaction, a snapshot version can be served from the catalog's cache without
         starting a transaction; a live version (effective_version is None) is always fetched from the database.
         """
-        cat = get_runtime().catalog
-        if get_runtime().in_xact:
+        runtime = get_runtime()
+        cat = runtime.catalog
+        if runtime.in_xact:
             # disable validation because we can get here during the TableVersion initialization while the instance is
             # not yet valid.
-            return cat.get_tbl_version(self.key, validate_initialized=False)
+            return cat._get_tbl_version(self.key, validate_initialized=False)
 
         if self.effective_version is not None:
             cached_tv = cat._tbl_versions.get(self.key)
