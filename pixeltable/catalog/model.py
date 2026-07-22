@@ -1351,36 +1351,37 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
             )
 
         to_update = [(name, r) for name, r in results.items() if r.has_changes]
+
         if len(to_update) == 0:
             Env.get().console_logger.info('Catalog is up to date.')
-            return
 
-        binding_root = TableModelMeta._normalize_binding_root(binding_root)
-        updates: list[Updates] = []
-        for name, r in to_update:
-            model = r.model_cls
-            # Resolve `type` annotations to ColumnTypes, mirroring `_create()`.
-            new_columns: dict[str, ColumnSpec] = {}
-            for col_name in r.new_columns:
-                spec = model.__columns__[col_name].copy()
-                if 'type' in spec:
-                    spec['type'] = ts.ColumnType.normalize_type(  # type: ignore[typeddict-item]
-                        spec['type'], nullable_default=True, allow_builtin_types=False
+        else:
+            binding_root = TableModelMeta._normalize_binding_root(binding_root)
+            updates: list[Updates] = []
+            for name, r in to_update:
+                model = r.model_cls
+                # Resolve `type` annotations to ColumnTypes, mirroring `_create()`.
+                new_columns: dict[str, ColumnSpec] = {}
+                for col_name in r.new_columns:
+                    spec = model.__columns__[col_name].copy()
+                    if 'type' in spec:
+                        spec['type'] = ts.ColumnType.normalize_type(  # type: ignore[typeddict-item]
+                            spec['type'], nullable_default=True, allow_builtin_types=False
+                        )
+                    new_columns[col_name] = spec
+                updates.append(
+                    Updates(
+                        path=catalog.Path.parse(f'{binding_root}{name}'),
+                        new_columns=new_columns,
+                        dropped_columns=list(r.dropped_columns),
+                        new_idxs={idx_name: model.__indexes__[idx_name] for idx_name in r.new_indexes},
+                        dropped_idxs=list(r.dropped_indexes),
                     )
-                new_columns[col_name] = spec
-            updates.append(
-                Updates(
-                    path=catalog.Path.parse(f'{binding_root}{name}'),
-                    new_columns=new_columns,
-                    dropped_columns=list(r.dropped_columns),
-                    new_idxs={idx_name: model.__indexes__[idx_name] for idx_name in r.new_indexes},
-                    dropped_idxs=list(r.dropped_indexes),
                 )
-            )
 
-        # All models share `binding_root`, hence a single catalog; apply every table's changes in one transaction.
-        cat = get_runtime().get_catalog(updates[0]['path'])
-        cat.update_from_model(updates)
+            # All models share `binding_root`, hence a single catalog; apply every table's changes in one transaction.
+            cat = get_runtime().get_catalog(updates[0]['path'])
+            cat.update_from_model(updates)
 
         # Now create any new tables.
         _create_all(binding_root)

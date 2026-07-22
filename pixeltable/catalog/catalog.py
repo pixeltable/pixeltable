@@ -1695,8 +1695,7 @@ class Catalog(CatalogBase):
         be resolved across a proxy boundary. `base`, when present (i.e. this is a view), is an already-bound Query
         over the existing base table.
 
-        If a table already exists at `path`, validates the model against it and returns it (idempotent rebind);
-        otherwise creates it. Returns `(table, was_created)`.
+        Returns `(table, was_created)`.
         """
         # We allocate the table id up front so that self-referential ColumnRefs (built below) point at it; since
         # this runs in the catalog that owns the table, no such reference ever needs to be serialized.
@@ -1767,10 +1766,33 @@ class Catalog(CatalogBase):
             for _, tbl_version, update in tbl_info[::-1]:
                 for col_name in update['dropped_columns']:
                     col = tbl_version.cols_by_name[col_name]
+                    # Sanity check that the column has no dependents. This could happen in theory if the user does a
+                    # create_view() to manually add a view on top of a model. In such a case, model validation alone
+                    # would be insufficient to catch the dependent column, and dropping it directly would introduce
+                    # catalog corruption.
+                    dependent_user_cols = [
+                        c for c in self.get_column_dependents(tbl_version.id, col.id) if c.name is not None
+                    ]
+                    if len(dependent_user_cols) > 0:
+                        raise excs.RequestError(
+                            excs.ErrorCode.UNSUPPORTED_OPERATION,
+                            f'Cannot drop column {col.name!r} because the following columns depend on it:\n'
+                            f'{", ".join(c.name for c in dependent_user_cols)}',
+                        )
                     tbl_version.drop_column(col)
+
                 for idx_name in update['dropped_idxs']:
-                    idx = tbl_version.idxs_by_name[idx_name]
-                    tbl_version.drop_index(idx.id)
+                    idx_info = tbl_version.idxs_by_name[idx_name]
+                    val_col = idx_info.val_col
+                    col_dependents = get_runtime().catalog.get_column_dependents(val_col.get_tbl().id, val_col.id)
+                    dependent_user_cols = [c for c in col_dependents if c.name is not None]
+                    if len(dependent_user_cols) > 0:
+                        raise excs.RequestError(
+                            excs.ErrorCode.UNSUPPORTED_OPERATION,
+                            f'Cannot drop index {idx_info.name!r} because the following columns depend on it:\n'
+                            f'{", ".join(c.name for c in dependent_user_cols)}',
+                        )
+                    tbl_version.drop_index(idx_info.id)
 
             # Now add any new columns or indices, in forward order (base tables first).
             for tvp, tv, update in tbl_info:
