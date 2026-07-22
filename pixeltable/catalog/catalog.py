@@ -1770,9 +1770,8 @@ class Catalog(CatalogBase):
                     # create_view() to manually add a view on top of a model. In such a case, model validation alone
                     # would be insufficient to catch the dependent column, and dropping it directly would introduce
                     # catalog corruption.
-                    dependent_user_cols = [
-                        c for c in self.get_column_dependents(tbl_version.id, col.id) if c.name is not None
-                    ]
+                    col_dependents = self.get_column_dependents(tbl_version.id, col.id)
+                    dependent_user_cols = [c for c in col_dependents if c.name is not None]
                     if len(dependent_user_cols) > 0:
                         raise excs.RequestError(
                             excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -1784,7 +1783,7 @@ class Catalog(CatalogBase):
                 for idx_name in update['dropped_idxs']:
                     idx_info = tbl_version.idxs_by_name[idx_name]
                     val_col = idx_info.val_col
-                    col_dependents = get_runtime().catalog.get_column_dependents(val_col.get_tbl().id, val_col.id)
+                    col_dependents = self.get_column_dependents(val_col.get_tbl().id, val_col.id)
                     dependent_user_cols = [c for c in col_dependents if c.name is not None]
                     if len(dependent_user_cols) > 0:
                         raise excs.RequestError(

@@ -898,7 +898,7 @@ def prepare_model(
         visible_cols[name] = catalog_col
         subst_dict[ModelColumnRef(name, catalog_col.col_type)] = exprs.ColumnRef(
             catalog_col.column_version_md(),
-            perform_validation=subst_spec.get('media_validation', media_validation) == 'on_read',
+            perform_validation=subst_spec.get('media_validation', media_validation.name.lower()) == 'on_read',
         )
 
     # Resolve each declared embedding index against the model's visible columns.
@@ -979,7 +979,7 @@ def prepare_model_updates(
         visible_cols[name] = catalog_col
         subst_dict[ModelColumnRef(name, catalog_col.col_type)] = exprs.ColumnRef(
             catalog_col.column_version_md(),
-            perform_validation=subst_spec.get('media_validation', str(tvp.media_validation).lower()) == 'on_read',
+            perform_validation=subst_spec.get('media_validation', tvp.media_validation().name.lower()) == 'on_read',
         )
 
     # Resolve each declared embedding index against the model's visible columns.
