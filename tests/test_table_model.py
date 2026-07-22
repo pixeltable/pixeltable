@@ -410,10 +410,7 @@ class TestTableModel:
             TableModel,
             name='test_view_from_query',
             base=ExampleTableModel.select(
-                ExampleTableModel.value,
-                ExampleTableModel.img,
-                ExampleTableModel.value + 1,
-                plusone=(ExampleTableModel.value + 1),
+                ExampleTableModel.value, ExampleTableModel.img, plusone=(ExampleTableModel.value + 1)
             ).where(ExampleTableModel.value > 0.5),
         ):
             view_col_1: pxt.Image
@@ -472,7 +469,7 @@ class TestTableModel:
 
         view_from_query2 = pxt.create_view(
             p(f'{prefix}test_view_from_query_2'),
-            tbl2.select(tbl2.value, tbl2.img, tbl2.value + 1, plusone=tbl2.value + 1).where(tbl2.value > 0.5),
+            tbl2.select(tbl2.value, tbl2.img, plusone=tbl2.value + 1).where(tbl2.value > 0.5),
             additional_columns={'view_col_1': pxt.Image},
             create_default_idxs=True,
         )
@@ -621,10 +618,12 @@ class TestTableModel:
             vc3 = ExampleTable.id + 3
             vc4 = ExampleTable.id + 4
 
-        # A view whose base query carries a filter and a sample clause (on `id`, which survives V2's table changes),
-        # so V2 can exercise filter/sample mismatches.
-        class ExampleFiltered(
-            TableModel, name='test_filtered', base=ExampleTable.where(ExampleTable.id > 0).sample(n=10, seed=1)
+        class ExampleQueryView(
+            TableModel,
+            name='test_query_view',
+            base=ExampleTable.select(ExampleTable.id, id_copy=ExampleTable.id, plusone=(ExampleTable.value + 1))
+            .where(ExampleTable.id > 0)
+            .sample(n=10, seed=1),
         ):
             fc1 = ExampleTable.id + 1
 
@@ -667,10 +666,14 @@ class TestTableModel:
             vextra1: pxt.Int
             vextra2: pxt.String
 
-        # The same view, but with a changed filter and sample clause (columns unchanged).
-        class ExampleFilteredV2(
-            TableModelV2, name='test_filtered', base=ExampleTableV2.where(ExampleTableV2.id > 5).sample(n=20, seed=2)
+        class ExampleQueryViewV2(
+            TableModelV2,
+            name='test_query_view',
+            base=ExampleTableV2.select(ExampleTableV2.id)
+            .where(ExampleTableV2.id > 5)
+            .sample(n=20, seed=2),
         ):
+            id_copy = Column(value=ExampleTableV2.id, stored=False)
             fc1 = ExampleTableV2.id + 1
 
         # Redeclares 'test_kind' (created above as a view) as a table, with the same columns; only the kind differs.
@@ -690,8 +693,8 @@ class TestTableModel:
             == textwrap.dedent("""
             Table 'test_table' (from model `ExampleTableV2`) has differences:
               the following columns have altered properties (FATAL):
-                'derived' computed_with: model='id + 100', existing='id + 1'
-                'derived' is_stored: model=False, existing=True
+                'derived' value: model='id + 100', existing='id + 1'
+                'derived' stored: model=False, existing=True
                 'derived' comment: model='after', existing='before'
                 'derived' custom_metadata: model={'v': 2}, existing={'v': 1}
                 'image' media_validation: model='on_read', existing='on_write'
@@ -716,15 +719,20 @@ class TestTableModel:
               the following columns are no longer in the model, and will be DROPPED:
                 'vc3'
                 'vc4'
-            View 'test_filtered' (from model `ExampleFilteredV2`) has differences:
+            View 'test_query_view' (from model `ExampleQueryViewV2`) has differences:
               view filter mismatch (FATAL):
                 model filter   : id > 5
                 existing filter: id > 0
               view sample mismatch (FATAL):
                 model sample   : sample(n=20, n_per_stratum=None, fraction=None, seed=2, [])
                 existing sample: sample(n=10, n_per_stratum=None, fraction=None, seed=1, [])
+              the following columns are no longer in the model, and will be DROPPED:
+                'plusone'
             Table 'test_kind' (from model `ExampleKindV2`) has differences:
               kind mismatch (FATAL): `ExampleKindV2` specifies a table, but 'test_kind' is a view
+              the following columns have altered properties (FATAL):
+                'kc1' value: model=None, existing='value + 1'
+                'kc2' value: model=None, existing='value + 2'
             Table 'test_new' (from model `ExampleNewV2`) does not yet exist, and will be CREATED.
             """).strip()
         )

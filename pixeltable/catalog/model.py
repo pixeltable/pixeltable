@@ -16,12 +16,11 @@ from pixeltable.types import ColumnSpec
 
 from .globals import MediaValidation, is_valid_identifier
 from .table import Table
+from .table_metadata import ColumnMetadata
 from .table_version_handle import TableVersionHandle
 
 if TYPE_CHECKING:
     import pixeltable as pxt
-
-    from .table_metadata import ColumnMetadata
 
 # Table methods exposed as class-level operations on the model.
 FORWARDED_TABLE_METHODS: frozenset[str] = frozenset(
@@ -1058,9 +1057,9 @@ def _model_column_properties(spec: ColumnSpec, default_media_validation: str) ->
     comment = spec.get('comment')
     return {
         'type': col_type._to_str(as_schema=True),
-        'computed_with': exprs.Expr.from_object(value).display_str(inline=False) if value is not None else None,
-        'is_primary_key': spec.get('primary_key', False),
-        'is_stored': spec.get('stored', True),
+        'value': exprs.Expr.from_object(value).display_str(inline=False) if value is not None else None,
+        'primary_key': spec.get('primary_key', False),
+        'stored': spec.get('stored', True),
         'media_validation': (spec.get('media_validation') or default_media_validation)
         if col_type.is_media_type()
         else None,
@@ -1070,18 +1069,32 @@ def _model_column_properties(spec: ColumnSpec, default_media_validation: str) ->
     }
 
 
-def _existing_column_properties(col_md: 'ColumnMetadata') -> dict[str, Any]:
+def _existing_column_properties(col_md: ColumnMetadata) -> dict[str, Any]:
     """The comparable properties of an existing column, drawn from its `ColumnMetadata`."""
     return {
         'type': col_md['type_'],
-        'computed_with': col_md['computed_with'],
-        'is_primary_key': col_md['is_primary_key'],
-        'is_stored': col_md['is_stored'],
+        'value': col_md['computed_with'],
+        'primary_key': col_md['is_primary_key'],
+        'stored': col_md['is_stored'],
         'media_validation': col_md['media_validation'],
         'comment': col_md['comment'],
         'custom_metadata': col_md['custom_metadata'],
         'destination': col_md['destination'],
     }
+
+
+def _visible_columns(model: TableModelMeta) -> dict[str, ColumnSpec]:
+    """The model's declared columns, plus any its base query projects via a `select()` clause."""
+    specs: dict[str, ColumnSpec] = dict(model.__columns__)
+    base = model.__table_spec__['base']
+    if base is not None and base.select_clause is not None:
+        items, named_items = base.select_clause
+        for item in items:
+            assert isinstance(item, ModelColumnRef)  # "anonymous" compound expressions are not allowed here
+            specs[item.name] = {'value': item, 'stored': False}
+        for col_name, expr in named_items.items():
+            specs[col_name] = {'value': expr, 'stored': not isinstance(expr, ModelColumnRef)}
+    return specs
 
 
 def validate_models(registered_models: dict[str, TableModelMeta], binding_root: str) -> dict[str, ValidationResults]:
@@ -1094,17 +1107,13 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
     results: dict[str, ValidationResults] = {}
 
     for name, model in registered_models.items():
-        model_cols = set(model.__columns__.keys())
+        visible_columns = _visible_columns(model)
+        model_cols = set(visible_columns.keys())
         model_idxs = set(model.__indexes__.keys())
-        # A model with no base is a table, otherwise a view.
         base = model.__table_spec__['base']
         model_kind = 'table' if base is None else 'view'
-        # The model's iterator still carries `ModelColumnRef` placeholders, but those render identically to the
-        # `ColumnRef`s in a stored (bound) iterator call, so the display strings are directly comparable.
         iterator = model.__table_spec__['iterator']
         model_iterator = None if iterator is None else iterator.display_str()
-        # The model view's (unbound) filter/sample clauses carry `ModelColumnRef` placeholders, but those render
-        # identically to the `ColumnRef`s in the stored, bound clauses, so the display strings are comparable.
         model_filter = None if base is None or base.where_clause is None else str(base.where_clause)
         model_sample = None if base is None or base.sample_clause is None else str(base.sample_clause)
 
@@ -1141,16 +1150,14 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
             idx_name for idx_name, info in existing_md['indices'].items() if info['index_type'] == 'embedding'
         }
 
-        # For columns present in both, flag any whose properties differ. Only meaningful when the kinds match; a
-        # kind mismatch is already fatal and makes column-level comparison moot.
+        # For columns present in both, flag any whose properties differ.
         altered_columns: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
-        if model_kind == existing_md['kind']:
-            default_media_validation = model.__table_spec__['media_validation'].name.lower()
-            for col_name in sorted(model_cols & existing_cols):
-                model_props = _model_column_properties(model.__columns__[col_name], default_media_validation)
-                existing_props = _existing_column_properties(existing_md['columns'][col_name])
-                if model_props != existing_props:
-                    altered_columns.append((col_name, model_props, existing_props))
+        default_media_validation = model.__table_spec__['media_validation'].name.lower()
+        for col_name in sorted(model_cols & existing_cols):
+            model_props = _model_column_properties(visible_columns[col_name], default_media_validation)
+            existing_props = _existing_column_properties(existing_md['columns'][col_name])
+            if model_props != existing_props:
+                altered_columns.append((col_name, model_props, existing_props))
 
         # TODO: validate table properties (comment, custom_metadata, media_validation, primary_key, etc.)
 
@@ -1208,9 +1215,10 @@ def _format_diff(name: str, r: ValidationResults) -> list[str]:
                 if model_val != existing_props[prop]:
                     detail.append(f'    {col_name!r} {prop}: model={model_val!r}, existing={existing_props[prop]!r}')
     if len(r.new_columns) > 0:
+        model_column_specs = _visible_columns(r.model_cls)
         detail.append('  the following columns are new to the model, and will be ADDED:')
         for col_name in r.new_columns:
-            detail.append(f'    {col_name!r} = {r.model_cls.__columns__[col_name]}')
+            detail.append(f'    {col_name!r} = {model_column_specs[col_name]}')
     if len(r.dropped_columns) > 0:
         detail.append('  the following columns are no longer in the model, and will be DROPPED:')
         for col_name in r.dropped_columns:
