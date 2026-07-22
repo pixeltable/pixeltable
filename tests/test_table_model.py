@@ -597,7 +597,10 @@ class TestTableModel:
 
         # In V2, `test_table` exercises every alterable column property across a few kept columns: `score` (type),
         # `image` (media_validation), and the computed `derived` (value expression, stored, comment, custom_metadata).
-        class ExampleTable(TableModel, name='test_table', create_default_idxs=False):
+        # It also changes table-level properties (comment, custom_metadata).
+        class ExampleTable(
+            TableModel, name='test_table', create_default_idxs=False, comment='before', custom_metadata={'origin': 'v1'}
+        ):
             id: pxt.Required[pxt.Int]
             name: pxt.String
             value: pxt.Float
@@ -643,7 +646,13 @@ class TestTableModel:
         # two dropped in the table, and a mismatched iterator (128 vs. 256) in the view.
         TableModelV2 = pxt.model_base()
 
-        class ExampleTableV2(TableModelV2, name='test_table', create_default_idxs=False):
+        class ExampleTableV2(
+            TableModelV2,
+            name='test_table',
+            create_default_idxs=False,
+            comment='after',
+            custom_metadata={'origin': 'v2'},
+        ):
             id: pxt.Required[pxt.Int]
             image = Column(type=pxt.Image, media_validation='on_read')  # kept, media_validation changed
             score: pxt.Int  # kept, but its type changed (Float -> Int)
@@ -669,9 +678,7 @@ class TestTableModel:
         class ExampleQueryViewV2(
             TableModelV2,
             name='test_query_view',
-            base=ExampleTableV2.select(ExampleTableV2.id)
-            .where(ExampleTableV2.id > 5)
-            .sample(n=20, seed=2),
+            base=ExampleTableV2.select(ExampleTableV2.id).where(ExampleTableV2.id > 5).sample(n=20, seed=2),
         ):
             id_copy = Column(value=ExampleTableV2.id, stored=False)
             fc1 = ExampleTableV2.id + 1
@@ -692,6 +699,9 @@ class TestTableModel:
             out.getvalue().strip()
             == textwrap.dedent("""
             Table 'test_table' (from model `ExampleTableV2`) has differences:
+              the following table properties have changed (FATAL):
+                comment: model='after', existing='before'
+                custom_metadata: model={'origin': 'v2'}, existing={'origin': 'v1'}
               the following columns have altered properties (FATAL):
                 'derived' value: model='id + 100', existing='id + 1'
                 'derived' stored: model=False, existing=True

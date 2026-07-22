@@ -16,7 +16,7 @@ from pixeltable.types import ColumnSpec
 
 from .globals import MediaValidation, is_valid_identifier
 from .table import Table
-from .table_metadata import ColumnMetadata
+from .table_metadata import ColumnMetadata, TableMetadata
 from .table_version_handle import TableVersionHandle
 
 if TYPE_CHECKING:
@@ -1020,6 +1020,8 @@ class ValidationResults(NamedTuple):
     # (column name, model properties, existing properties). Fatal for now; some alterations will later be
     # applicable via `allow_destructive=True`.
     altered_columns: list[tuple[str, dict[str, Any], dict[str, Any]]]
+    # Table-level properties that differ, as (property name, model value, existing value). Fatal for now.
+    altered_properties: list[tuple[str, Any, Any]]
 
     @property
     def has_changes(self) -> bool:
@@ -1033,6 +1035,7 @@ class ValidationResults(NamedTuple):
             or self.model_filter != self.existing_filter
             or self.model_sample != self.existing_sample
             or len(self.altered_columns) > 0
+            or len(self.altered_properties) > 0
         )
 
     @property
@@ -1080,6 +1083,25 @@ def _existing_column_properties(col_md: ColumnMetadata) -> dict[str, Any]:
         'comment': col_md['comment'],
         'custom_metadata': col_md['custom_metadata'],
         'destination': col_md['destination'],
+    }
+
+
+def _model_table_properties(model: TableModelMeta) -> dict[str, Any]:
+    """The comparable table-level properties declared by a model."""
+    spec = model.__table_spec__
+    return {
+        'media_validation': spec['media_validation'].name.lower(),
+        'comment': spec['comment'],
+        'custom_metadata': spec['custom_metadata'],
+    }
+
+
+def _existing_table_properties(md: TableMetadata) -> dict[str, Any]:
+    """The comparable table-level properties of an existing table, drawn from its `TableMetadata`."""
+    return {
+        'media_validation': md['media_validation'],
+        'comment': md['comment'],
+        'custom_metadata': md['custom_metadata'],
     }
 
 
@@ -1135,6 +1157,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
                 model_sample=model_sample,
                 existing_sample=None,
                 altered_columns=[],
+                altered_properties=[],
             )
             continue
 
@@ -1159,7 +1182,13 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
             if model_props != existing_props:
                 altered_columns.append((col_name, model_props, existing_props))
 
-        # TODO: validate table properties (comment, custom_metadata, media_validation, primary_key, etc.)
+        # Flag any table-level properties that differ.
+        existing_table_props = _existing_table_properties(existing_md)
+        altered_properties = [
+            (prop, model_val, existing_table_props[prop])
+            for prop, model_val in _model_table_properties(model).items()
+            if model_val != existing_table_props[prop]
+        ]
 
         results[name] = ValidationResults(
             model_cls=model,
@@ -1177,6 +1206,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
             model_sample=model_sample,
             existing_sample=existing_md['view_sample'],
             altered_columns=altered_columns,
+            altered_properties=altered_properties,
         )
 
     return results
@@ -1208,6 +1238,10 @@ def _format_diff(name: str, r: ValidationResults) -> list[str]:
         detail.append('  view sample mismatch (FATAL):')
         detail.append(f'    model sample   : {r.model_sample}')
         detail.append(f'    existing sample: {r.existing_sample}')
+    if len(r.altered_properties) > 0:
+        detail.append('  the following table properties have changed (FATAL):')
+        for prop, model_val, existing_val in r.altered_properties:
+            detail.append(f'    {prop}: model={model_val!r}, existing={existing_val!r}')
     if len(r.altered_columns) > 0:
         detail.append('  the following columns have altered properties (FATAL):')
         for col_name, model_props, existing_props in r.altered_columns:
