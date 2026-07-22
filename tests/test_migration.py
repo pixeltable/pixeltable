@@ -29,8 +29,8 @@ from pixeltable.metadata.schema import Table, TableSchemaVersion, TableVersion
 from .conftest import clean_db
 from .utils import (
     SAMPLE_IMAGE_URL,
-    TESTS_DIR,
     get_audio_files,
+    get_documents,
     get_video_files,
     reload_catalog,
     rerun,
@@ -327,7 +327,7 @@ class TestMigration:
         if version >= 45:
             row['c9'] = get_audio_files()[0]
             row['c10'] = get_video_files()[0]
-            row['c11'] = TESTS_DIR / 'data' / 'documents' / 'pxtbrief.txt'
+            row['c11'] = get_documents()[0]
             row['c12'] = np.zeros((10,), dtype=np.float64)
             row['c13'] = uuid.uuid4()
             row['c14'] = datetime.now().date()

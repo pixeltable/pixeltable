@@ -541,6 +541,7 @@ def get_audio_files(include_bad_audio: bool = False, extension: str | None = Non
         glob_result = [f for f in glob_result if 'bad_audio' not in f]
     if extension is not None:
         glob_result = [f for f in glob_result if f.endswith(extension)]
+    glob_result.sort()
     return glob_result
 
 
@@ -548,29 +549,37 @@ def get_audio_file(name: str) -> str | None:
     audio_dir = TESTS_DIR / 'data' / 'audio'
     file_path = audio_dir / name
     glob_result = glob.glob(f'{file_path}', recursive=True)
+    glob_result.sort()
     return glob_result.pop(0) if len(glob_result) > 0 else None
 
 
 def get_documents() -> list[str]:
     docs_dir = TESTS_DIR / 'data' / 'documents'
-    return glob.glob(f'{docs_dir}/*', recursive=True)
+    glob_result = glob.glob(f'{docs_dir}/*', recursive=True)
+    glob_result.sort()
+    return glob_result
 
 
 def get_csv_files() -> list[str]:
     csv_dir = TESTS_DIR / 'data' / 'csv'
-    return glob.glob(f'{csv_dir}/*', recursive=True)
+    glob_result = glob.glob(f'{csv_dir}/*', recursive=True)
+    glob_result.sort()
+    return glob_result
 
 
 def get_csv_file(name: str) -> str | None:
     csv_dir = TESTS_DIR / 'data' / 'csv'
     file_path = csv_dir / name
     glob_result = glob.glob(f'{file_path}', recursive=True)
+    glob_result.sort()
     return glob_result.pop(0) if len(glob_result) > 0 else None
 
 
 def get_json_files() -> list[str]:
     json_dir = TESTS_DIR / 'data' / 'json'
-    return glob.glob(f'{json_dir}/*', recursive=True)
+    glob_result = glob.glob(f'{json_dir}/*', recursive=True)
+    glob_result.sort()
+    return glob_result
 
 
 def get_json_file(name: str) -> str | None:
