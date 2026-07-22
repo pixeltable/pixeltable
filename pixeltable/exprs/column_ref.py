@@ -619,6 +619,10 @@ class ColumnRef(Expr):
         return catalog.QColumnId(UUID(d['col_tbl_id']), d['col_id'])
 
     @classmethod
+    def _get_refd_column_ids(cls, expr_dict: dict[str, Any]) -> set[catalog.QColumnId]:
+        return {cls.get_column_id(expr_dict)}
+
+    @classmethod
     def _from_dict(
         cls, d: dict, _: list[Expr], tbl_versions: dict[UUID, catalog.TableVersion] | None = None
     ) -> ColumnRef:

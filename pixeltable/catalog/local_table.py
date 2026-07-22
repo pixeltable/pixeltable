@@ -845,7 +845,24 @@ class LocalTable(Table):
         # Find out if anything depends on this index
         val_col = idx_info.val_col
         col_dependents = get_runtime().catalog.get_column_dependents(val_col.get_tbl().id, val_col.id)
-        dependent_user_cols = [c for c in col_dependents if c.name is not None]
+        dependent_user_cols = {c for c in col_dependents if c.name is not None}
+        # similarity exprs reference an index as (indexed column, index name) rather than through the index
+        # value column, so they don't show up in the dependents above; scan computed columns for them
+        tbl_versions = [self._tbl_version.get()] + [
+            v._tbl_version.get()
+            for v in self._get_views(recursive=True, mutable_only=True)
+            if v._tbl_version is not None
+        ]
+        for tv in tbl_versions:
+            for c in tv.cols_by_id.values():
+                if c.name is None or c.value_expr_dict is None:
+                    continue
+                for qcol_id, name in exprs.SimilarityExpr.get_refd_indices(c.value_expr_dict):
+                    # a None index name resolves to the sole embedding index on the column at execution time
+                    if qcol_id == idx_info.col.qid and (
+                        name == idx_info.name or (name is None and isinstance(idx_info.idx, index.EmbeddingIndex))
+                    ):
+                        dependent_user_cols.add(c)
         if len(dependent_user_cols) > 0:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
