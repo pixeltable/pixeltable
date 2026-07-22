@@ -28,7 +28,7 @@ def _log_on_failure(request: pytest.FixtureRequest) -> Any:
     except pytest.FixtureLookupError:
         return
     print(f'\n{"─" * 60}')
-    print(f'TEST FAILED — status for {resources.db_slug}')
+    print(f'TEST FAILED - status for {resources.db}')
     print(f'{"─" * 60}')
     for cmd, label in [
         (['pxt', 'db', 'status', resources.db_uri, '--json'], 'DB status'),

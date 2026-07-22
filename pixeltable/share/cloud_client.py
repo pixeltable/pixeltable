@@ -70,65 +70,63 @@ def list_orgs() -> dict[str, Any]:
     return api_call(ListOrgsRequest())
 
 
-def get_org(org_slug: str) -> dict[str, Any] | None:
+def get_org(org: str) -> dict[str, Any] | None:
     resp = api_call(ListOrgsRequest())
-    return next((o for o in resp.get('orgs', []) if o.get('org_slug') == org_slug), None)
+    return next((o for o in resp.get('orgs', []) if o.get('org_slug') == org), None)
 
 
-def list_dbs(org_slug: str) -> dict[str, Any]:
-    return api_call(ListDatabaseRequest(org_slug=org_slug))
+def list_dbs(org: str) -> dict[str, Any]:
+    return api_call(ListDatabaseRequest(org_slug=org))
 
 
-def create_db(org_slug: str, db_slug: str, location: str = 'aws', region: str = 'us-east-1') -> dict[str, Any]:
-    return api_call(CreateDatabaseRequest(org_slug=org_slug, db_slug=db_slug, location=location, region=region))
+def create_db(org: str, db: str, location: str = 'aws', region: str = 'us-east-1') -> dict[str, Any]:
+    return api_call(CreateDatabaseRequest(org_slug=org, db_slug=db, location=location, region=region))
 
 
-def get_db(org_slug: str, db_slug: str) -> dict[str, Any]:
-    return api_call(GetDatabaseRequest(org_slug=org_slug, db_slug=db_slug))
+def get_db(org: str, db: str) -> dict[str, Any]:
+    return api_call(GetDatabaseRequest(org_slug=org, db_slug=db))
 
 
-def delete_db(org_slug: str, db_slug: str) -> dict[str, Any]:
-    return api_call(DeleteDatabaseRequest(org_slug=org_slug, db_slug=db_slug))
+def delete_db(org: str, db: str) -> dict[str, Any]:
+    return api_call(DeleteDatabaseRequest(org_slug=org, db_slug=db))
 
 
-def start_db(org_slug: str, db_slug: str) -> dict[str, Any]:
-    return api_call(StartDatabaseRequest(org_slug=org_slug, db_slug=db_slug))
+def start_db(org: str, db: str) -> dict[str, Any]:
+    return api_call(StartDatabaseRequest(org_slug=org, db_slug=db))
 
 
-def stop_db(org_slug: str, db_slug: str) -> dict[str, Any]:
-    return api_call(StopDatabaseRequest(org_slug=org_slug, db_slug=db_slug))
+def stop_db(org: str, db: str) -> dict[str, Any]:
+    return api_call(StopDatabaseRequest(org_slug=org, db_slug=db))
 
 
 def update_db(
-    org_slug: str,
-    db_slug: str,
+    org: str,
+    db: str,
     workers: int | None = None,
     cpu: float | None = None,
     memory_mb: int | None = None,
     disk_gb: int | None = None,
 ) -> dict[str, Any]:
     return api_call(
-        UpdateDatabaseRequest(
-            org_slug=org_slug, db_slug=db_slug, workers=workers, cpu=cpu, memory_mb=memory_mb, disk_gb=disk_gb
-        )
+        UpdateDatabaseRequest(org_slug=org, db_slug=db, workers=workers, cpu=cpu, memory_mb=memory_mb, disk_gb=disk_gb)
     )
 
 
-def get_upload_url(org_slug: str, db_slug: str) -> dict[str, Any]:
-    return api_call(GetBundleUploadUrlRequest(org_slug=org_slug, db_slug=db_slug))
+def get_upload_url(org: str, db: str) -> dict[str, Any]:
+    return api_call(GetBundleUploadUrlRequest(org_slug=org, db_slug=db))
 
 
-def trigger_runtime_update(org_slug: str, db_slug: str, bundle_s3_key: str) -> dict[str, Any]:
-    return api_call(UpdateRuntimeRequest(org_slug=org_slug, db_slug=db_slug, bundle_s3_key=bundle_s3_key))
+def trigger_runtime_update(org: str, db: str, bundle_s3_key: str) -> dict[str, Any]:
+    return api_call(UpdateRuntimeRequest(org_slug=org, db_slug=db, bundle_s3_key=bundle_s3_key))
 
 
-def list_services(org_slug: str, db_slug: str) -> dict[str, Any]:
-    return api_call(ListServicesRequest(org_slug=org_slug, db_slug=db_slug))
+def list_services(org: str, db: str) -> dict[str, Any]:
+    return api_call(ListServicesRequest(org_slug=org, db_slug=db))
 
 
 def create_service(
-    org_slug: str,
-    db_slug: str,
+    org: str,
+    db: str,
     service_name: str,
     base_path: str = '',
     workers: int = 1,
@@ -139,8 +137,8 @@ def create_service(
 ) -> dict[str, Any]:
     return api_call(
         CreateServiceRequest(
-            org_slug=org_slug,
-            db_slug=db_slug,
+            org_slug=org,
+            db_slug=db,
             service_name=service_name,
             base_path=base_path,
             workers_min=workers,
@@ -152,25 +150,25 @@ def create_service(
     )
 
 
-def get_service(org_slug: str, db_slug: str, svc_name: str) -> dict[str, Any]:
-    return api_call(GetServiceRequest(org_slug=org_slug, db_slug=db_slug, service_name=svc_name))
+def get_service(org: str, db: str, svc_name: str) -> dict[str, Any]:
+    return api_call(GetServiceRequest(org_slug=org, db_slug=db, service_name=svc_name))
 
 
-def delete_service(org_slug: str, db_slug: str, svc_name: str) -> dict[str, Any]:
-    return api_call(DeleteServiceRequest(org_slug=org_slug, db_slug=db_slug, service_name=svc_name))
+def delete_service(org: str, db: str, svc_name: str) -> dict[str, Any]:
+    return api_call(DeleteServiceRequest(org_slug=org, db_slug=db, service_name=svc_name))
 
 
-def start_service(org_slug: str, db_slug: str, svc_name: str) -> dict[str, Any]:
-    return api_call(StartServiceRequest(org_slug=org_slug, db_slug=db_slug, service_name=svc_name))
+def start_service(org: str, db: str, svc_name: str) -> dict[str, Any]:
+    return api_call(StartServiceRequest(org_slug=org, db_slug=db, service_name=svc_name))
 
 
-def stop_service(org_slug: str, db_slug: str, svc_name: str) -> dict[str, Any]:
-    return api_call(StopServiceRequest(org_slug=org_slug, db_slug=db_slug, service_name=svc_name))
+def stop_service(org: str, db: str, svc_name: str) -> dict[str, Any]:
+    return api_call(StopServiceRequest(org_slug=org, db_slug=db, service_name=svc_name))
 
 
 def update_service(
-    org_slug: str,
-    db_slug: str,
+    org: str,
+    db: str,
     svc_name: str,
     workers: int | None = None,
     cpu: float | None = None,
@@ -180,8 +178,8 @@ def update_service(
 ) -> dict[str, Any]:
     return api_call(
         UpdateServiceRequest(
-            org_slug=org_slug,
-            db_slug=db_slug,
+            org_slug=org,
+            db_slug=db,
             service_name=svc_name,
             workers_min=workers,
             cpu=cpu,

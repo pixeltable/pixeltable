@@ -45,8 +45,8 @@ def get_bucket_credentials(org: str, db: str, bucket: str, prefix: str | None = 
     Fetch temporary R2 credentials for a home bucket from the cloud control plane.
 
     Args:
-        org: Organization slug
-        db: Database slug
+        org: Organization name
+        db: Database name
         bucket: Bucket name registered
         prefix: Optional key prefix to scope access within the home bucket
 
@@ -74,14 +74,14 @@ def get_bucket_credentials(org: str, db: str, bucket: str, prefix: str | None = 
 
 
 def get_presigned_url_from_cloud(
-    org_slug: str, db_slug: str, bucket: str, key: str, method: Literal['get', 'put'] = 'get', expiration: int = 3600
+    org: str, db: str, bucket: str, key: str, method: Literal['get', 'put'] = 'get', expiration: int = 3600
 ) -> str:
     """
     Request a presigned URL from Pixeltable Cloud for a key in given bucket.
     Uses backend credentials on the cloud so URL expiry is independent of temp credential TTL.
     """
     request = GetPresignedUrlRequest(
-        org_slug=org_slug, db_slug=db_slug, bucket_name=bucket, key=key, method=method, expiration=expiration
+        org_slug=org, db_slug=db, bucket_name=bucket, key=key, method=method, expiration=expiration
     )
     try:
         response = requests.post(PIXELTABLE_API_URL, data=request.model_dump_json(), headers=_api_headers(), timeout=30)

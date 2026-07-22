@@ -298,8 +298,8 @@ class PxtStore(ObjectStoreBase):
                 excs.ErrorCode.UNSUPPORTED_OPERATION, f'StorageObjectAddress does not contain an object name: {soa}'
             )
         return get_presigned_url_from_cloud(
-            org_slug=soa.account,
-            db_slug=soa.account_extension or '',
+            org=soa.account,
+            db=soa.account_extension or '',
             bucket=soa.container,
             key=soa.key,
             method='get',

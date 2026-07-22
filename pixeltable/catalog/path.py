@@ -7,7 +7,7 @@ from pixeltable import exceptions as excs
 
 from .globals import is_valid_identifier
 
-# pxt://<org>[:<db>][/<rest>] — org is a required slug, db an optional slug, rest the in-db path part
+# pxt://<org>[:<db>][/<rest>]: org is a required name, db an optional name, rest the in-db path part
 # (which may carry a trailing :version). The org:db colon lives in the netloc and never collides with
 # the version colon, which is in rest.
 _URI_RE = re.compile(r'^pxt://(?P<org>[^:/]+)(?::(?P<db>[^/]+))?(?:/(?P<rest>.*))?$')

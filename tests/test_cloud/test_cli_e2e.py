@@ -13,7 +13,7 @@ Optional env:
     PIXELTABLE_API_URL        (default: https://dev-internal-api.pixeltable.com)
     PIXELTABLE_CLOUD_HOST     (default: dev.pxt.run)
     PXT_E2E_SVC_DOMAIN        (default: svc.<CLOUD_HOST>)
-    PXT_E2E_ORG_SLUG          (default: pixeltable)
+    PXT_E2E_ORG          (default: pixeltable)
     PXT_E2E_SKIP_CLEANUP      (set to 1 to leave resources for inspection)
 """
 
@@ -42,7 +42,7 @@ _API_KEY = os.environ.get('PIXELTABLE_API_KEY', '')
 _API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://dev-internal-api.pixeltable.com')
 _CLOUD_HOST = os.environ.get('PIXELTABLE_CLOUD_HOST', 'dev.pxt.run')
 _SVC_DOMAIN = os.environ.get('PXT_E2E_SVC_DOMAIN', f'svc.{_CLOUD_HOST}')
-_ORG_SLUG = os.environ.get('PXT_E2E_ORG_SLUG', 'pixeltable')
+_ORG = os.environ.get('PXT_E2E_ORG', 'pixeltable')
 _SKIP_CLEANUP = os.environ.get('PXT_E2E_SKIP_CLEANUP', '0') == '1'
 
 
@@ -150,8 +150,8 @@ _SVC_NAME = 'e2e-svc'  # must match [[pixeltable.service]] name in sample_app/pi
 
 
 class Resources(NamedTuple):
-    org_slug: str
-    db_slug: str
+    org: str
+    db: str
     svc_name: str
     db_uri: str
     svc_uri: str
@@ -173,20 +173,14 @@ def resources(request: pytest.FixtureRequest) -> Iterator[Resources]:
         raise RuntimeError(f'uv lock failed for sample app:\n{lock.stdout}\n{lock.stderr}')
 
     run_id = uuid.uuid4().hex[:8]
-    db_slug = f'clitest-e2e-{run_id}'
-    db_uri = f'pxt://{_ORG_SLUG}:{db_slug}'
+    db = f'clitest-e2e-{run_id}'
+    db_uri = f'pxt://{_ORG}:{db}'
     svc_uri = f'{db_uri}/services/{_SVC_NAME}'
-    svc_base = f'https://{_ORG_SLUG}-{db_slug}.{_SVC_DOMAIN}/{_SVC_NAME}'
+    svc_base = f'https://{_ORG}-{db}.{_SVC_DOMAIN}/{_SVC_NAME}'
     table_uri = f'{db_uri}/e2e_items'
 
     r = Resources(
-        org_slug=_ORG_SLUG,
-        db_slug=db_slug,
-        svc_name=_SVC_NAME,
-        db_uri=db_uri,
-        svc_uri=svc_uri,
-        svc_base=svc_base,
-        table_uri=table_uri,
+        org=_ORG, db=db, svc_name=_SVC_NAME, db_uri=db_uri, svc_uri=svc_uri, svc_base=svc_base, table_uri=table_uri
     )
     try:
         yield r
@@ -240,27 +234,27 @@ class TestCloudE2E:
         assert '[' in out or '{' in out
 
     def test_org_status(self, resources: Resources) -> None:
-        out = _pxt_json('org', 'status', f'pxt://{resources.org_slug}')
-        assert resources.org_slug in out
+        out = _pxt_json('org', 'status', f'pxt://{resources.org}')
+        assert resources.org in out
 
     def test_db_create(self, resources: Resources) -> None:
         _pxt('db', 'create', resources.db_uri)
         out = _pxt_json('db', 'status', resources.db_uri)
         assert 'AVAILABLE' in out
-        assert resources.db_slug in out
+        assert resources.db in out
 
     def test_db_list(self, resources: Resources) -> None:
-        out = _pxt_json('db', 'list', f'pxt://{resources.org_slug}')
-        assert resources.db_slug in out
+        out = _pxt_json('db', 'list', f'pxt://{resources.org}')
+        assert resources.db in out
 
     def test_db_status(self, resources: Resources) -> None:
         out = _pxt_json('db', 'status', resources.db_uri)
-        assert resources.db_slug in out
+        assert resources.db in out
 
     def test_db_update(self, resources: Resources) -> None:
         _pxt('db', 'update', resources.db_uri, '--workers', '2')
         out = _pxt_json('db', 'status', resources.db_uri)
-        assert resources.db_slug in out
+        assert resources.db in out
 
     def test_sdk_create_table(self, resources: Resources) -> None:
         code = f"""

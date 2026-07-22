@@ -270,10 +270,10 @@ def print_service(svc: dict[str, Any]) -> None:
 
 
 def print_org(org: dict[str, Any]) -> None:
-    slug = org.get('org_slug', '')
+    name = org.get('org_slug', '')
     org_id = org.get('org_id', '')
     default_db = org.get('default_db_slug') or ''
-    line = f'{slug}  id={org_id}'
+    line = f'{name}  id={org_id}'
     if default_db:
         line += f'  default_db={default_db}'
     print(line)
