@@ -1321,7 +1321,9 @@ def _format_diff(name: str, diff: TableDiff) -> list[str]:
     """Human-readable lines describing how the model named `name` differs from the current catalog state."""
     kind = diff['kind']
     if not diff['exists']:
-        return [f'{kind.capitalize()} {name!r} (from model `{diff["model_cls"]}`) does not yet exist, and will be CREATED.']
+        return [
+            f'{kind.capitalize()} {name!r} (from model `{diff["model_cls"]}`) does not yet exist, and will be CREATED.'
+        ]
 
     changes = diff['changes']
     if len(changes) == 0:
@@ -1455,7 +1457,9 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
             )
 
         # Apply column/index changes to existing tables. Brand-new tables are handled by `_create_all()` below.
-        to_update = [(name, d) for name, d in diffs.items() if d['resolution'] in ('update_additive', 'update_destructive')]
+        to_update = [
+            (name, d) for name, d in diffs.items() if d['resolution'] in ('update_additive', 'update_destructive')
+        ]
 
         if len(to_update) == 0:
             Env.get().console_logger.info('Catalog is up to date.')
