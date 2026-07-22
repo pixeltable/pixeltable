@@ -1,6 +1,6 @@
-"""Pixeltable cloud control-plane API client.
+"""Client for the Pixeltable cloud management API.
 
-All cloud API assembly lives here. Callers pass plain Python values;
+All management API assembly lives here. Callers pass plain Python values;
 this module constructs the protocol request objects and returns raw response dicts.
 """
 
@@ -13,29 +13,29 @@ import requests
 
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
-from pixeltable.share.protocol.api import (
-    CreateDatabaseRequest,
+from pixeltable.service.management_protocol import (
+    CreateDbRequest,
     CreateServiceRequest,
-    DeleteDatabaseRequest,
+    DeleteDbRequest,
     DeleteServiceRequest,
     GetBundleUploadUrlRequest,
-    GetDatabaseRequest,
+    GetDbRequest,
     GetServiceRequest,
-    ListDatabaseRequest,
+    ListDbRequest,
     ListOrgsRequest,
     ListServicesRequest,
-    StartDatabaseRequest,
+    StartDbRequest,
     StartServiceRequest,
-    StopDatabaseRequest,
+    StopDbRequest,
     StopServiceRequest,
-    UpdateDatabaseRequest,
+    UpdateDbRequest,
     UpdateRuntimeRequest,
     UpdateServiceRequest,
 )
 
 PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.pixeltable.com')
 
-_LONG_OPS = frozenset({'create_database', 'update_runtime', 'delete_database'})
+_LONG_OPS = frozenset({'create_db', 'update_runtime', 'delete_db'})
 
 
 def _api_headers() -> dict[str, str]:
@@ -76,27 +76,27 @@ def get_org(org: str) -> dict[str, Any] | None:
 
 
 def list_dbs(org: str) -> dict[str, Any]:
-    return api_call(ListDatabaseRequest(org=org))
+    return api_call(ListDbRequest(org=org))
 
 
 def create_db(org: str, db: str, location: str = 'aws', region: str = 'us-east-1') -> dict[str, Any]:
-    return api_call(CreateDatabaseRequest(org=org, db=db, location=location, region=region))
+    return api_call(CreateDbRequest(org=org, db=db, location=location, region=region))
 
 
 def get_db(org: str, db: str) -> dict[str, Any]:
-    return api_call(GetDatabaseRequest(org=org, db=db))
+    return api_call(GetDbRequest(org=org, db=db))
 
 
 def delete_db(org: str, db: str) -> dict[str, Any]:
-    return api_call(DeleteDatabaseRequest(org=org, db=db))
+    return api_call(DeleteDbRequest(org=org, db=db))
 
 
 def start_db(org: str, db: str) -> dict[str, Any]:
-    return api_call(StartDatabaseRequest(org=org, db=db))
+    return api_call(StartDbRequest(org=org, db=db))
 
 
 def stop_db(org: str, db: str) -> dict[str, Any]:
-    return api_call(StopDatabaseRequest(org=org, db=db))
+    return api_call(StopDbRequest(org=org, db=db))
 
 
 def update_db(
@@ -107,9 +107,7 @@ def update_db(
     memory_mb: int | None = None,
     disk_gb: int | None = None,
 ) -> dict[str, Any]:
-    return api_call(
-        UpdateDatabaseRequest(org=org, db=db, workers=workers, cpu=cpu, memory_mb=memory_mb, disk_gb=disk_gb)
-    )
+    return api_call(UpdateDbRequest(org=org, db=db, workers=workers, cpu=cpu, memory_mb=memory_mb, disk_gb=disk_gb))
 
 
 def get_upload_url(org: str, db: str) -> dict[str, Any]:

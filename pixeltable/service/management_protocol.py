@@ -1,4 +1,4 @@
-"""Cloud API protocol — shared request/response models between the pxt SDK and cloud server."""
+"""Management API protocol: request/response models shared between the pxt SDK and the Pixeltable cloud server."""
 
 from __future__ import annotations
 
@@ -11,16 +11,11 @@ from pydantic import BaseModel, field_validator
 from pixeltable.config import ServiceConfig
 
 
-class PixeltableStoreOperationType(str, Enum):
-    GET_BUCKET_CREDENTIALS = 'get_bucket_credentials'
-    GET_PRESIGNED_URL = 'get_presigned_url'
-
-
 class ServiceOperationType(str, Enum):
-    CREATE_DATABASE = 'create_database'
-    GET_DATABASE = 'get_database'
-    LIST_DATABASES = 'list_databases'
-    DELETE_DATABASE = 'delete_database'
+    CREATE_DB = 'create_db'
+    GET_DB = 'get_db'
+    LIST_DBS = 'list_dbs'
+    DELETE_DB = 'delete_db'
 
     CREATE_SERVICE = 'create_service'
     GET_SERVICE = 'get_service'
@@ -32,9 +27,9 @@ class ServiceOperationType(str, Enum):
     LIST_SERVICE_RUNS = 'list_service_runs'
     GET_SERVICE_RUN = 'get_service_run'
 
-    START_DATABASE = 'start_database'
-    STOP_DATABASE = 'stop_database'
-    UPDATE_DATABASE = 'update_database'
+    START_DB = 'start_db'
+    STOP_DB = 'stop_db'
+    UPDATE_DB = 'update_db'
     UPDATE_RUNTIME = 'update_runtime'
     GET_BUNDLE_UPLOAD_URL = 'get_bundle_upload_url'
 
@@ -45,11 +40,11 @@ class ServiceOperationType(str, Enum):
     LIST_SECRETS = 'list_secrets'
 
 
-# Database operations
+# Db operations
 
 
-class CreateDatabaseRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.CREATE_DATABASE] = ServiceOperationType.CREATE_DATABASE
+class CreateDbRequest(BaseModel):
+    operation_type: Literal[ServiceOperationType.CREATE_DB] = ServiceOperationType.CREATE_DB
     org: Optional[str] = None
     db: str
     db_name: Optional[str] = None
@@ -60,19 +55,19 @@ class CreateDatabaseRequest(BaseModel):
     disk_gb: int = 10
 
 
-class GetDatabaseRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.GET_DATABASE] = ServiceOperationType.GET_DATABASE
+class GetDbRequest(BaseModel):
+    operation_type: Literal[ServiceOperationType.GET_DB] = ServiceOperationType.GET_DB
     org: Optional[str] = None
     db: str
 
 
-class ListDatabaseRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.LIST_DATABASES] = ServiceOperationType.LIST_DATABASES
+class ListDbRequest(BaseModel):
+    operation_type: Literal[ServiceOperationType.LIST_DBS] = ServiceOperationType.LIST_DBS
     org: Optional[str] = None
 
 
-class UpdateDatabaseRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.UPDATE_DATABASE] = ServiceOperationType.UPDATE_DATABASE
+class UpdateDbRequest(BaseModel):
+    operation_type: Literal[ServiceOperationType.UPDATE_DB] = ServiceOperationType.UPDATE_DB
     org: Optional[str] = None
     db: str
     db_name: Optional[str] = None
@@ -83,20 +78,20 @@ class UpdateDatabaseRequest(BaseModel):
     disk_gb: Optional[int] = None
 
 
-class DeleteDatabaseRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.DELETE_DATABASE] = ServiceOperationType.DELETE_DATABASE
+class DeleteDbRequest(BaseModel):
+    operation_type: Literal[ServiceOperationType.DELETE_DB] = ServiceOperationType.DELETE_DB
     org: Optional[str] = None
     db: str
 
 
-class StartDatabaseRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.START_DATABASE] = ServiceOperationType.START_DATABASE
+class StartDbRequest(BaseModel):
+    operation_type: Literal[ServiceOperationType.START_DB] = ServiceOperationType.START_DB
     org: Optional[str] = None
     db: str
 
 
-class StopDatabaseRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.STOP_DATABASE] = ServiceOperationType.STOP_DATABASE
+class StopDbRequest(BaseModel):
+    operation_type: Literal[ServiceOperationType.STOP_DB] = ServiceOperationType.STOP_DB
     org: Optional[str] = None
     db: str
 
@@ -161,7 +156,7 @@ class ListSecretsResponse(BaseModel):
 class ServiceRecord(BaseModel):
     service_id: str
     org_id: str
-    database_id: str
+    db_id: str
     service_name: str
     base_path: str = ''
     workers_min: int = 1
@@ -330,46 +325,3 @@ class ListOrgsRequest(BaseModel):
 
 class ListOrgsResponse(BaseModel):
     orgs: list[OrgRecord]
-
-
-# Home bucket credentials and presigned URLs
-
-
-class GetBucketCredentialsRequest(BaseModel):
-    operation_type: Literal[PixeltableStoreOperationType.GET_BUCKET_CREDENTIALS] = (
-        PixeltableStoreOperationType.GET_BUCKET_CREDENTIALS
-    )
-    org: str
-    db: str
-    bucket_name: str
-    prefix: Optional[str] = None
-
-
-class GetBucketCredentialsResponse(BaseModel):
-    access_key_id: str
-    secret_access_key: str
-    session_token: str
-    endpoint_url: str
-    storage_provider: str
-    resolved_bucket_name: str
-    ttl_seconds: int
-    prefix: Optional[str] = None
-    no_space_left: bool = False
-
-
-class GetPresignedUrlRequest(BaseModel):
-    operation_type: Literal[PixeltableStoreOperationType.GET_PRESIGNED_URL] = (
-        PixeltableStoreOperationType.GET_PRESIGNED_URL
-    )
-    org: str
-    db: str
-    bucket_name: str
-    key: str
-    method: str = 'get'
-    expiration: int = 3600
-
-
-class GetPresignedUrlResponse(BaseModel):
-    url: str
-    key: str
-    expiration: int

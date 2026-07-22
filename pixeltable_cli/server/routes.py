@@ -13,7 +13,7 @@ from pixeltable import exceptions as excs
 from pixeltable.catalog import Path
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.share import cloud_client
+from pixeltable.service import management_client
 from pixeltable.types import TreeNode
 from pixeltable_cli import models
 from pixeltable_cli.utils import identity, validate_path_shape
@@ -643,13 +643,13 @@ def _redact_db_password(url: str | None) -> str | None:
 
 @router.get('/api/orgs')
 def list_orgs(_req: Request) -> dict[str, Any]:
-    return cloud_client.list_orgs()
+    return management_client.list_orgs()
 
 
 @router.get('/api/orgs/{org}')
 def get_org(req: Request) -> dict[str, Any]:
     org = req.path_params['org']
-    result = cloud_client.get_org(org)
+    result = management_client.get_org(org)
     if result is None:
         raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, f"Org '{org}' not found")
     return {'org': result}
@@ -657,39 +657,39 @@ def get_org(req: Request) -> dict[str, Any]:
 
 @router.get('/api/orgs/{org}/dbs')
 def list_dbs(req: Request) -> dict[str, Any]:
-    return cloud_client.list_dbs(req.path_params['org'])
+    return management_client.list_dbs(req.path_params['org'])
 
 
 @router.post('/api/orgs/{org}/dbs')
 def create_db(req: Request) -> dict[str, Any]:
     body = req.body(models.CreateDbBody)
-    return cloud_client.create_db(req.path_params['org'], body.db, body.location, body.region)
+    return management_client.create_db(req.path_params['org'], body.db, body.location, body.region)
 
 
 @router.get('/api/orgs/{org}/dbs/{db}')
 def get_db(req: Request) -> dict[str, Any]:
-    return cloud_client.get_db(req.path_params['org'], req.path_params['db'])
+    return management_client.get_db(req.path_params['org'], req.path_params['db'])
 
 
 @router.post('/api/orgs/{org}/dbs/{db}/delete')
 def delete_db(req: Request) -> dict[str, Any]:
-    return cloud_client.delete_db(req.path_params['org'], req.path_params['db'])
+    return management_client.delete_db(req.path_params['org'], req.path_params['db'])
 
 
 @router.post('/api/orgs/{org}/dbs/{db}/start')
 def start_db(req: Request) -> dict[str, Any]:
-    return cloud_client.start_db(req.path_params['org'], req.path_params['db'])
+    return management_client.start_db(req.path_params['org'], req.path_params['db'])
 
 
 @router.post('/api/orgs/{org}/dbs/{db}/stop')
 def stop_db(req: Request) -> dict[str, Any]:
-    return cloud_client.stop_db(req.path_params['org'], req.path_params['db'])
+    return management_client.stop_db(req.path_params['org'], req.path_params['db'])
 
 
 @router.post('/api/orgs/{org}/dbs/{db}/update')
 def update_db(req: Request) -> dict[str, Any]:
     body = req.body(models.UpdateDbBody)
-    return cloud_client.update_db(
+    return management_client.update_db(
         req.path_params['org'],
         req.path_params['db'],
         workers=body.workers,
@@ -701,24 +701,24 @@ def update_db(req: Request) -> dict[str, Any]:
 
 @router.get('/api/orgs/{org}/dbs/{db}/upload-url')
 def get_upload_url(req: Request) -> dict[str, Any]:
-    return cloud_client.get_upload_url(req.path_params['org'], req.path_params['db'])
+    return management_client.get_upload_url(req.path_params['org'], req.path_params['db'])
 
 
 @router.post('/api/orgs/{org}/dbs/{db}/update-runtime')
 def trigger_runtime_update(req: Request) -> dict[str, Any]:
     body = req.body(models.UpdateRuntimeBody)
-    return cloud_client.trigger_runtime_update(req.path_params['org'], req.path_params['db'], body.bundle_s3_key)
+    return management_client.trigger_runtime_update(req.path_params['org'], req.path_params['db'], body.bundle_s3_key)
 
 
 @router.get('/api/orgs/{org}/dbs/{db}/services')
 def list_services(req: Request) -> dict[str, Any]:
-    return cloud_client.list_services(req.path_params['org'], req.path_params['db'])
+    return management_client.list_services(req.path_params['org'], req.path_params['db'])
 
 
 @router.post('/api/orgs/{org}/dbs/{db}/services')
 def create_service(req: Request) -> dict[str, Any]:
     body = req.body(models.CreateServiceBody)
-    return cloud_client.create_service(
+    return management_client.create_service(
         req.path_params['org'],
         req.path_params['db'],
         body.service_name,
@@ -733,28 +733,28 @@ def create_service(req: Request) -> dict[str, Any]:
 
 @router.get('/api/orgs/{org}/dbs/{db}/services/{svc_name}')
 def get_service(req: Request) -> dict[str, Any]:
-    return cloud_client.get_service(req.path_params['org'], req.path_params['db'], req.path_params['svc_name'])
+    return management_client.get_service(req.path_params['org'], req.path_params['db'], req.path_params['svc_name'])
 
 
 @router.post('/api/orgs/{org}/dbs/{db}/services/{svc_name}/delete')
 def delete_service(req: Request) -> dict[str, Any]:
-    return cloud_client.delete_service(req.path_params['org'], req.path_params['db'], req.path_params['svc_name'])
+    return management_client.delete_service(req.path_params['org'], req.path_params['db'], req.path_params['svc_name'])
 
 
 @router.post('/api/orgs/{org}/dbs/{db}/services/{svc_name}/start')
 def start_service(req: Request) -> dict[str, Any]:
-    return cloud_client.start_service(req.path_params['org'], req.path_params['db'], req.path_params['svc_name'])
+    return management_client.start_service(req.path_params['org'], req.path_params['db'], req.path_params['svc_name'])
 
 
 @router.post('/api/orgs/{org}/dbs/{db}/services/{svc_name}/stop')
 def stop_service(req: Request) -> dict[str, Any]:
-    return cloud_client.stop_service(req.path_params['org'], req.path_params['db'], req.path_params['svc_name'])
+    return management_client.stop_service(req.path_params['org'], req.path_params['db'], req.path_params['svc_name'])
 
 
 @router.post('/api/orgs/{org}/dbs/{db}/services/{svc_name}/update')
 def update_service(req: Request) -> dict[str, Any]:
     body = req.body(models.UpdateServiceBody)
-    return cloud_client.update_service(
+    return management_client.update_service(
         req.path_params['org'],
         req.path_params['db'],
         req.path_params['svc_name'],
