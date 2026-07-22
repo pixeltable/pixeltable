@@ -895,6 +895,17 @@ class TestTableModel:
                 pass
 
         with pxt_raises(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            match=r'`base` select\(\) list may contain only direct column references or named expressions, '
+            r'but contains an anonymous compound expression: id \+ 1',
+        ):
+
+            class InvalidBaseQuery(
+                TableModel, name='invalid_base_query', base=ValidTableModel.select(ValidTableModel.id + 1)
+            ):
+                pass
+
+        with pxt_raises(
             excs.ErrorCode.INVALID_SCHEMA, match=r'Pixeltable schemas must be direct subclasses of a model_base\(\).'
         ):
 

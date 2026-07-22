@@ -553,6 +553,17 @@ class TableModelMeta(type):
                         f'(another Pixeltable model, or a query over a model).',
                     )
                 assert isinstance(base, ModelQuery)
+                if base.select_clause is not None:
+                    # Validate the select list.
+                    items, _ = base.select_clause
+                    for item in items:
+                        if not isinstance(item, ModelColumnRef):
+                            raise excs.RequestError(
+                                excs.ErrorCode.INVALID_ARGUMENT,
+                                f'{display_name}: `base` select() list may contain only direct column references '
+                                f'or named expressions, but contains an anonymous compound expression: {item}\n'
+                                f'Use kwargs syntax to give it an explicit name: select(my_name=...)',
+                            )
                 base_model = base.from_clause
                 if len(base_model.__bases__) == 0 or base_model.__bases__[0] is not bases[0]:
                     raise excs.RequestError(
