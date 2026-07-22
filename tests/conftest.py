@@ -115,6 +115,10 @@ def _set_up_external_db_schema(worker_id: int | str) -> str:
     return schema_name
 
 
+def _worker_db_name(worker_id: int | str) -> str:
+    return f'test_{worker_id}'
+
+
 @pytest.fixture(scope='session')
 def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:  # type: ignore[misc]
     os.chdir(os.path.dirname(os.path.dirname(__file__)))  # Project root directory
@@ -127,7 +131,7 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
     home_dir = str(tmp_path_factory.mktemp('base') / '.pixeltable')
     os.environ['PIXELTABLE_HOME'] = home_dir
     os.environ['PIXELTABLE_CONFIG'] = str(shared_home / 'config.toml')
-    os.environ['PIXELTABLE_DB'] = f'test_{worker_id}'
+    os.environ['PIXELTABLE_DB'] = _worker_db_name(worker_id)
     os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
     os.environ['PIXELTABLE_API_URL'] = 'https://preprod-internal-api.pixeltable.com'
     os.environ['FIFTYONE_DATABASE_DIR'] = f'{home_dir}/.fiftyone'
@@ -255,7 +259,7 @@ def proxy_daemon_db(init_env: None, worker_id: str) -> Iterator[str]:
     pytest.importorskip('uvicorn')
     from pixeltable.service import proxy_daemon
 
-    db = f'testdb_{worker_id}'
+    db = _worker_db_name(worker_id)
     proxy_daemon.start(db)
     try:
         yield db
