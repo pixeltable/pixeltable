@@ -985,11 +985,10 @@ def rerun(**kwargs: Any) -> Callable:
 # one of these. Matched as substrings against the failure message.
 NETWORK_ERROR_PATTERNS = [
     '429',
-    '503',
     'Too Many Requests',
     'Connection reset',
     'Connection aborted',
-    'Service unavailable',
+    'Max retries exceeded',
     'timed out',
     'Timeout',
     'ExternalServiceError',
