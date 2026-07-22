@@ -327,7 +327,8 @@ class TestMigration:
         if version >= 45:
             row['c9'] = get_audio_files()[0]
             row['c10'] = get_video_files()[0]
-            row['c11'] = get_documents()[0]
+            # TODO(PXT-1249): document_splitter does not currently support xml
+            row['c11'] = next(d for d in get_documents() if not d.endswith('.xml'))
             row['c12'] = np.zeros((10,), dtype=np.float64)
             row['c13'] = uuid.uuid4()
             row['c14'] = datetime.now().date()
