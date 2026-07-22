@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import warnings
-from typing import TYPE_CHECKING, Any, Iterator, Sequence, cast
+from typing import Any, Iterator, Sequence, cast
 from uuid import UUID
 
 import numpy as np
@@ -13,7 +13,6 @@ import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import func
 from pixeltable.catalog.table_version import TableVersionKey
-from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 
 from ..utils.description_helper import DescriptionHelper
@@ -24,9 +23,6 @@ from .expr import Expr
 from .literal import Literal
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
-
-if TYPE_CHECKING:
-    from pixeltable._query import Query, ResultSet
 
 
 class ColumnRef(Expr):
@@ -516,34 +512,6 @@ class ColumnRef(Expr):
 
     def default_column_name(self) -> str | None:
         return self.column_md.name
-
-    def select(self) -> 'Query':
-        from pixeltable._query import Query
-        from pixeltable.query_clauses import FromClause
-
-        # Resolve the column's table against the catalog it belongs to (which may be a hosted/proxy catalog),
-        # at its effective_version so a column accessed via a snapshot/view resolves against the pinned version
-        # rather than the live table. get_table_by_id() manages its own transaction, so no begin_xact is needed
-        # here (and a proxy catalog has none).
-        cat = get_runtime().get_catalog(Env.get().tbl_catalog_uri(self.col_md.tbl_id))
-        tbl = cat.get_table_by_id(self.col_md.tbl_id, version=self.col_md.effective_version)
-        return Query(FromClause([tbl._tbl_path])).select(self)
-
-    def show(self, *args: Any, **kwargs: Any) -> 'ResultSet':
-        return self.select().show(*args, **kwargs)
-
-    def head(self, *args: Any, **kwargs: Any) -> 'ResultSet':
-        return self.select().head(*args, **kwargs)
-
-    def tail(self, *args: Any, **kwargs: Any) -> 'ResultSet':
-        return self.select().tail(*args, **kwargs)
-
-    def count(self) -> int:
-        return self.select().count()
-
-    def distinct(self) -> 'Query':
-        """Return distinct values in this column."""
-        return self.select().distinct()
 
     def __str__(self) -> str:
         col_md = self.column_md

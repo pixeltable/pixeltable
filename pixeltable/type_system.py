@@ -23,10 +23,21 @@ import numpy as np
 import PIL.Image
 import pydantic
 import sqlalchemy as sql
-from typing_extensions import _AnnotatedAlias
+import typing_extensions
+from typing_extensions import NotRequired, _AnnotatedAlias, is_typeddict
 
 import pixeltable.exceptions as excs
 from pixeltable.utils import parse_local_file_path
+
+# The TypedDict field markers Required/NotRequired affect a key's presence (recorded in __optional_keys__), not
+# the field's value type. They may be imported from typing_extensions or, on Python 3.11+, from typing; treat all
+# of those as equivalent.
+_TYPED_DICT_FIELD_MARKERS = {
+    NotRequired,
+    typing_extensions.Required,
+    getattr(typing, 'NotRequired', None),
+    getattr(typing, 'Required', None),
+} - {None}
 
 
 class ColumnType:
@@ -354,6 +365,11 @@ class ColumnType:
             return cls.from_python_type(
                 type_args[0], nullable_default=False, allow_builtin_types=allow_builtin_types
             ).copy(nullable=False)
+        elif origin in _TYPED_DICT_FIELD_MARKERS:
+            # Required[T]/NotRequired[T] mark a TypedDict field's key presence (recorded in __optional_keys__), so
+            # the field's value type is simply T
+            assert len(type_args) == 1
+            return cls.from_python_type(type_args[0], allow_builtin_types=allow_builtin_types)
         elif origin is typing.Annotated:
             origin = type_args[0]
             parameters = type_args[1]
@@ -368,8 +384,9 @@ class ColumnType:
                     # We always allow Pixeltable types
                     return origin.as_col_type(nullable=nullable_default)
 
-                if getattr(origin, '__orig_bases__', None) == (typing.TypedDict,):
-                    # We always allow TypedDicts
+                if is_typeddict(origin):
+                    # We always allow TypedDicts, including typing_extensions.TypedDict and TypedDict
+                    # subclasses (the pattern for mixing required and optional fields)
                     assert isinstance(origin, type)
                     return cls.__from_typed_dict(nullable_default, origin)
 
@@ -1080,6 +1097,19 @@ class JsonType(ColumnType):
 
     def copy(self, nullable: bool) -> ColumnType:
         return JsonType(type_schema=self.type_schema, nullable=nullable)
+
+    def array_element_type(self) -> ColumnType | None:
+        """The element type of a json array type."""
+        if self.type_schema is None or not isinstance(self.type_schema.type_spec, list):
+            # Not a typed json array
+            return None
+        if self.type_schema.variadic_type is not None:
+            # a variadic list
+            return self.type_schema.variadic_type
+        if len(self.type_schema.type_spec) > 0:
+            # a fixed tuple
+            return ColumnType.common_supertype(self.type_schema.type_spec)
+        return None
 
     def matches(self, other: ColumnType) -> bool:
         return isinstance(other, JsonType) and self.type_schema == other.type_schema

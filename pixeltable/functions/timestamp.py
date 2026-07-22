@@ -8,19 +8,20 @@ Usage example:
 >>> t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
 """
 
-from datetime import datetime
+import datetime
 
 import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable.env import Env
+from pixeltable.functions.date import IsoCalendar
 from pixeltable.utils.code import local_public_names
 
 _SQL_ZERO = sql.literal(0)
 
 
 @pxt.udf(is_property=True)
-def year(self: datetime) -> int:
+def year(self: datetime.datetime) -> int:
     """
     Between [`MINYEAR`](https://docs.python.org/3/library/datetime.html#datetime.MINYEAR) and
     [`MAXYEAR`](https://docs.python.org/3/library/datetime.html#datetime.MAXYEAR) inclusive.
@@ -36,7 +37,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 
 
 @pxt.udf(is_property=True)
-def month(self: datetime) -> int:
+def month(self: datetime.datetime) -> int:
     """
     Between 1 and 12 inclusive.
 
@@ -51,7 +52,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 
 
 @pxt.udf(is_property=True)
-def day(self: datetime) -> int:
+def day(self: datetime.datetime) -> int:
     """
     Between 1 and the number of days in the given month of the given year.
 
@@ -66,7 +67,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 
 
 @pxt.udf(is_property=True)
-def hour(self: datetime) -> int:
+def hour(self: datetime.datetime) -> int:
     """
     Between 0 and 23 inclusive.
 
@@ -81,7 +82,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 
 
 @pxt.udf(is_property=True)
-def minute(self: datetime) -> int:
+def minute(self: datetime.datetime) -> int:
     """
     Between 0 and 59 inclusive.
 
@@ -96,7 +97,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 
 
 @pxt.udf(is_property=True)
-def second(self: datetime) -> int:
+def second(self: datetime.datetime) -> int:
     """
     Between 0 and 59 inclusive.
 
@@ -111,7 +112,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 
 
 @pxt.udf(is_property=True)
-def microsecond(self: datetime) -> int:
+def microsecond(self: datetime.datetime) -> int:
     """
     Between 0 and 999999 inclusive.
 
@@ -129,7 +130,22 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 
 
 @pxt.udf(is_method=True)
-def astimezone(self: datetime, tz: str) -> datetime:
+def date(self: datetime.datetime) -> datetime.date:
+    """
+    Return the date part of the timestamp.
+
+    Equivalent to [`datetime.date()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.date).
+    """
+    return self.date()
+
+
+@date.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.cast(self, sql.Date)
+
+
+@pxt.udf(is_method=True)
+def astimezone(self: datetime.datetime, tz: str) -> datetime.datetime:
     """
     Convert the datetime to the given time zone.
 
@@ -144,7 +160,7 @@ def astimezone(self: datetime, tz: str) -> datetime:
 
 
 @pxt.udf(is_method=True)
-def weekday(self: datetime) -> int:
+def weekday(self: datetime.datetime) -> int:
     """
     Between 0 (Monday) and 6 (Sunday) inclusive.
 
@@ -159,7 +175,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 
 
 @pxt.udf(is_method=True)
-def isoweekday(self: datetime) -> int:
+def isoweekday(self: datetime.datetime) -> int:
     """
     Return the day of the week as an integer, where Monday is 1 and Sunday is 7.
 
@@ -174,7 +190,7 @@ def _(self: sql.ColumnElement) -> sql.ColumnElement:
 
 
 @pxt.udf(is_method=True)
-def isocalendar(self: datetime) -> dict:
+def isocalendar(self: datetime.datetime) -> IsoCalendar:
     """
     Return a dictionary with three entries: `'year'`, `'week'`, and `'weekday'`.
 
@@ -186,7 +202,7 @@ def isocalendar(self: datetime) -> dict:
 
 
 @pxt.udf(is_method=True)
-def isoformat(self: datetime, sep: str = 'T', timespec: str = 'auto') -> str:
+def isoformat(self: datetime.datetime, sep: str = 'T', timespec: str = 'auto') -> str:
     """
     Return a string representing the date and time in ISO 8601 format.
 
@@ -202,7 +218,7 @@ def isoformat(self: datetime, sep: str = 'T', timespec: str = 'auto') -> str:
 
 
 @pxt.udf(is_method=True)
-def strftime(self: datetime, format: str) -> str:
+def strftime(self: datetime.datetime, format: str) -> str:
     """
     Return a string representing the date and time, controlled by an explicit format string.
 
@@ -218,13 +234,13 @@ def strftime(self: datetime, format: str) -> str:
 @pxt.udf(is_method=True)
 def make_timestamp(
     year: int, month: int, day: int, hour: int = 0, minute: int = 0, second: int = 0, microsecond: int = 0
-) -> datetime:
+) -> datetime.datetime:
     """
     Create a timestamp.
 
     Equivalent to [`datetime()`](https://docs.python.org/3/library/datetime.html#datetime.datetime).
     """
-    return datetime(year, month, day, hour, minute, second, microsecond, tzinfo=Env.get().default_time_zone)
+    return datetime.datetime(year, month, day, hour, minute, second, microsecond, tzinfo=Env.get().default_time_zone)
 
 
 @make_timestamp.to_sql
@@ -248,7 +264,7 @@ def _(
 
 
 # @pxt.udf
-# def date(self: datetime) -> datetime:
+# def date(self: datetime.datetime) -> datetime.datetime:
 #     """
 #     Return the date part of the datetime.
 #
@@ -259,7 +275,7 @@ def _(
 #
 #
 # @pxt.udf
-# def time(self: datetime) -> datetime:
+# def time(self: datetime.datetime) -> datetime.datetime:
 #     """
 #     Return the time part of the datetime, with microseconds set to 0.
 #
@@ -271,7 +287,7 @@ def _(
 
 @pxt.udf(is_method=True)
 def replace(
-    self: datetime,
+    self: datetime.datetime,
     year: int | None = None,
     month: int | None = None,
     day: int | None = None,
@@ -279,7 +295,7 @@ def replace(
     minute: int | None = None,
     second: int | None = None,
     microsecond: int | None = None,
-) -> datetime:
+) -> datetime.datetime:
     """
     Return a datetime with the same attributes, except for those attributes given new values by whichever keyword
     arguments are specified.
@@ -291,7 +307,7 @@ def replace(
 
 
 @pxt.udf(is_method=True)
-def strip_timezone(self: datetime) -> datetime:
+def strip_timezone(self: datetime.datetime) -> datetime.datetime:
     """
     Return a naive datetime with the same wall-clock as `self` and no `tzinfo`.
 
@@ -301,7 +317,7 @@ def strip_timezone(self: datetime) -> datetime:
 
 
 @pxt.udf(is_method=True)
-def toordinal(self: datetime) -> int:
+def toordinal(self: datetime.datetime) -> int:
     """
     Return the proleptic Gregorian ordinal of the date, where January 1 of year 1 has ordinal 1.
 
@@ -311,7 +327,7 @@ def toordinal(self: datetime) -> int:
 
 
 @pxt.udf(is_method=True)
-def posix_timestamp(self: datetime) -> float:
+def posix_timestamp(self: datetime.datetime) -> float:
     """
     Return POSIX timestamp corresponding to the datetime instance.
 

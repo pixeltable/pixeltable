@@ -17,7 +17,7 @@ from ..utils import (
     get_video_files,
     pxt_raises,
     reload_catalog,
-    rerun,
+    rerun_on_network_error,
     skip_test_if_no_config,
     skip_test_if_not_installed,
     validate_update_status,
@@ -27,7 +27,7 @@ pytestmark = pytest.mark.local('UDF/integration test')
 
 
 @pytest.mark.very_expensive  # Downloads Hugging Face models
-@rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading models
+@rerun_on_network_error()
 @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
 class TestHuggingface:
     def test_hf_function(self, uses_db: None) -> None:
@@ -342,6 +342,29 @@ class TestHuggingface:
             'test_view_fps', t, iterator=sam3_for_video_segmentation(t.short_clip, text=['car'], fps=2.0)
         )
         assert v_fps.count() == 4
+
+    def test_sam3_for_segmentation_no_detections(self, uses_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        from huggingface_hub import get_token
+
+        if get_token() is None:
+            pytest.skip('Skipping SAM 3 test: facebook/sam3 is gated and no Hugging Face token is configured')
+        from pixeltable.functions.huggingface import sam3_for_segmentation
+        from pixeltable.functions.vision import overlay_segmentation
+
+        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+        # threshold=1.0 guarantees zero detections (scores never exceed 1.0)
+        t.add_computed_column(seg=sam3_for_segmentation(t.img, text='orange', threshold=1.0))
+        t.add_computed_column(viz=overlay_segmentation(t.img, t.seg.masks))
+        validate_update_status(t.insert(img=SAMPLE_IMAGE_URL), expected_rows=1)
+
+        res = t.select(t.seg, t.viz, height=t.img.height, width=t.img.width).collect()[0]
+        result = res['seg']
+        assert result['scores'].shape == (0,)
+        assert result['boxes'].shape == (0, 4)
+        # empty masks match the image dimensions, so downstream consumers like overlay_segmentation work
+        assert result['masks'].shape == (0, res['height'], res['width'])
+        assert res['viz'].size == (res['width'], res['height'])
 
     def test_vit_for_image_classification(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')
