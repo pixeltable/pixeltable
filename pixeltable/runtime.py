@@ -147,12 +147,10 @@ class Runtime:
                     excs.ErrorCode.SERVICE_NOT_FOUND,
                     f'No local proxy is running for {db!r}. Start it with: pxt localproxy start {db}',
                 )
-            return CatalogProxy(catalog_uri, ProxyClient(f'http://127.0.0.1:{info["port"]}'))
+            return CatalogProxy(catalog_uri, ProxyClient.local(f'http://127.0.0.1:{info["port"]}'))
 
         # Remote database: connect via TLS to the proxy endpoint.
-        from pixeltable.service.proxy_cloud_client import (
-            ProxyCloudClient,
-        )  # local: breaks circular import via proxy_dispatch
+        from pixeltable.service.proxy_client import ProxyClient  # local: breaks circular import via proxy_dispatch
 
         api_key = Env.get().pxt_api_key
         if api_key is None:
@@ -182,7 +180,7 @@ class Runtime:
         no_verify = os.environ.get('PIXELTABLE_CLOUD_NO_VERIFY', '') in ('1', 'true', 'yes')
         return CatalogProxy(
             catalog_uri,
-            ProxyCloudClient(
+            ProxyClient.remote(
                 catalog_uri.org, catalog_uri.db, api_key, host=host, port=port_override, no_verify=no_verify
             ),
         )

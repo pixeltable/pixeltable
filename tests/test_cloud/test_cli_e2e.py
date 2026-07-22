@@ -315,9 +315,9 @@ class TestCloudE2E:
     def test_sdk_media_over_tunnel(self, resources: Resources) -> None:
         """Image round-trip over the TLS tunnel: insert a generated image, then read it back.
 
-        Reading the image cell forces ProxyCloudClient.fetch_media() to pull /media/<ref> over the tunnel
+        Reading the image cell forces TunnelTransport.fetch() to pull /media/<ref> over the tunnel
         (the daemon serves it there, not via a direct HTTP GET). Regression guard for the media-localization
-        gap where ProxyCloudClient left _endpoint unset and any media result would fail to localize.
+        gap where the tunnel transport produced no media_url and any media result would fail to localize.
         """
         media_uri = f'{resources.db_uri}/media_test'
         code = f"""
