@@ -129,7 +129,14 @@ jobs:
       - name: Run the unit tests
         env:
           PXTTEST_CI_OS: ${{ matrix.os }}
-        run: pytest -v -m 'not very_expensive' tests
+        run: pytest -v -m 'not very_expensive' --junitxml=junit-report.xml tests
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-junit-${{ matrix.os }}-py${{ matrix.python-version }}-${{ strategy.job-index }}
+          path: junit-report.xml
+          if-no-files-found: ignore
       - name: Print utilization info
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
         run: |
