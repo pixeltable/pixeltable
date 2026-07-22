@@ -642,7 +642,7 @@ class Catalog(CatalogBase):
         read_handles = path_handles[:0:-1] if for_write else path_handles[::-1]
         for handle in read_handles:
             # update cache
-            _ = self._get_tbl_version(handle.key, validate_initialized=True)
+            _ = self._get_tbl_version(handle.key)
         if not for_write:
             return set()  # nothing to lock
         return self._acquire_write_lock(
@@ -722,7 +722,7 @@ class Catalog(CatalogBase):
         if lock_mutable_tree:
             # also lock mutable views
             key = TableVersionKey(row.id, tbl_md.current_version if tbl_md.is_snapshot else None)
-            tv = self._get_tbl_version(key, validate_initialized=True)
+            tv = self._get_tbl_version(key)
             for view in tv.mutable_views:
                 locked.update(
                     self._acquire_write_lock(
@@ -769,7 +769,7 @@ class Catalog(CatalogBase):
 
         if not tbl_md.is_pure_snapshot:
             key = TableVersionKey(row.id, tbl_md.current_version if tbl_md.is_snapshot else None)
-            self._get_tbl_version(key, validate_initialized=True)
+            self._get_tbl_version(key)
 
     def _roll_forward(self) -> None:
         """Finalize pending ops for all tables in self._roll_forward_ids."""
@@ -872,9 +872,7 @@ class Catalog(CatalogBase):
 
                     tbl_version = tbl_md.current_version if tbl_md.is_snapshot else None
                     tv = (
-                        self._get_tbl_version(
-                            TableVersionKey(tbl_id, tbl_version), check_pending_ops=False, validate_initialized=True
-                        )
+                        self._get_tbl_version(TableVersionKey(tbl_id, tbl_version), check_pending_ops=False)
                         if op.needs_tv
                         else None
                     )
@@ -1099,7 +1097,7 @@ class Catalog(CatalogBase):
         """Returns ids of all tables that form the tree of mutable views starting at tbl_id; includes the root."""
         key = TableVersionKey(tbl_id, None)
         assert key in self._tbl_versions, f'{key} not in {self._tbl_versions.keys()}\n{self._debug_str()}'
-        tv = self._get_tbl_version(key, validate_initialized=True)
+        tv = self._get_tbl_version(key)
         result: set[UUID] = {tv.id}
         for view in tv.mutable_views:
             result.update(self._get_mutable_tree(view.id))
@@ -1149,7 +1147,7 @@ class Catalog(CatalogBase):
         dependents = self._column_dependents[QColumnId(tbl_id, col_id)]
         result: set[Column] = set()
         for dependent in dependents:
-            tv = self._get_tbl_version(TableVersionKey(dependent.tbl_id, None), validate_initialized=True)
+            tv = self._get_tbl_version(TableVersionKey(dependent.tbl_id, None))
             col = tv.cols_by_id[dependent.col_id]
             result.add(col)
         return result
@@ -1624,7 +1622,7 @@ class Catalog(CatalogBase):
                 base_id = base.tbl_id
                 assert len(self._acquire_write_lock(tbl_id=base_id)) == 1, base_id
                 self._x_locked_tbl_ids.add(base_id)
-                base_tv = self._get_tbl_version(TableVersionKey(base.tbl_id, None), validate_initialized=True)
+                base_tv = self._get_tbl_version(TableVersionKey(base.tbl_id, None))
                 self.mark_modified_tv(base_tv.handle)
                 base_tv.tbl_md.view_sn += 1
                 result = get_runtime().conn.execute(
@@ -1807,7 +1805,7 @@ class Catalog(CatalogBase):
     def add_columns(self, tbl: TableVersionPath, cols: list[Column]) -> None:
         @retry_loop(for_write=True, write_tvps=[tbl], lock_mutable_tree=False)
         def add_fn() -> None:
-            tv = self._get_tbl_version(TableVersionKey(tbl.tbl_id, None), validate_initialized=True)
+            tv = self._get_tbl_version(TableVersionKey(tbl.tbl_id, None))
             md, ops = tv.add_columns_ops(cols)
             md.tbl_md.pending_stmt = schema.TableStatement.ADD_COLUMNS
             self.write_tbl_md(
@@ -2069,7 +2067,7 @@ class Catalog(CatalogBase):
         result = [r[0] for r in conn.execute(q).all()]
         return result
 
-    def get_tbl_version(self, key: TableVersionKey, *, validate_initialized: bool = False) -> TableVersion | None:
+    def get_tbl_version(self, key: TableVersionKey, *, validate_initialized: bool = True) -> TableVersion | None:
         """
         Returns the TableVersion instance for the given table version key, and updates the cache if necessary.
 
@@ -2086,7 +2084,7 @@ class Catalog(CatalogBase):
         return do_get_tbl_version()
 
     def _get_tbl_version(
-        self, key: TableVersionKey, *, check_pending_ops: bool = True, validate_initialized: bool = False
+        self, key: TableVersionKey, *, check_pending_ops: bool = True, validate_initialized: bool = True
     ) -> TableVersion | None:
         """
         Returns the TableVersion instance for the given table key, and updates the cache if necessary.
