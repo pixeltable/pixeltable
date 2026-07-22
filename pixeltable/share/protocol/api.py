@@ -50,8 +50,8 @@ class ServiceOperationType(str, Enum):
 
 class CreateDatabaseRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.CREATE_DATABASE] = ServiceOperationType.CREATE_DATABASE
-    org_slug: Optional[str] = None
-    db_slug: str
+    org: Optional[str] = None
+    db: str
     db_name: Optional[str] = None
     location: Optional[str] = None
     region: Optional[str] = None
@@ -62,19 +62,19 @@ class CreateDatabaseRequest(BaseModel):
 
 class GetDatabaseRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.GET_DATABASE] = ServiceOperationType.GET_DATABASE
-    org_slug: Optional[str] = None
-    db_slug: str
+    org: Optional[str] = None
+    db: str
 
 
 class ListDatabaseRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.LIST_DATABASES] = ServiceOperationType.LIST_DATABASES
-    org_slug: Optional[str] = None
+    org: Optional[str] = None
 
 
 class UpdateDatabaseRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.UPDATE_DATABASE] = ServiceOperationType.UPDATE_DATABASE
-    org_slug: Optional[str] = None
-    db_slug: str
+    org: Optional[str] = None
+    db: str
     db_name: Optional[str] = None
     default_bucket: Optional[str] = None
     workers: Optional[int] = None
@@ -85,33 +85,33 @@ class UpdateDatabaseRequest(BaseModel):
 
 class DeleteDatabaseRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.DELETE_DATABASE] = ServiceOperationType.DELETE_DATABASE
-    org_slug: Optional[str] = None
-    db_slug: str
+    org: Optional[str] = None
+    db: str
 
 
 class StartDatabaseRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.START_DATABASE] = ServiceOperationType.START_DATABASE
-    org_slug: Optional[str] = None
-    db_slug: str
+    org: Optional[str] = None
+    db: str
 
 
 class StopDatabaseRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.STOP_DATABASE] = ServiceOperationType.STOP_DATABASE
-    org_slug: Optional[str] = None
-    db_slug: str
+    org: Optional[str] = None
+    db: str
 
 
 class UpdateRuntimeRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.UPDATE_RUNTIME] = ServiceOperationType.UPDATE_RUNTIME
-    org_slug: Optional[str] = None
-    db_slug: str
+    org: Optional[str] = None
+    db: str
     bundle_s3_key: str
 
 
 class GetBundleUploadUrlRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.GET_BUNDLE_UPLOAD_URL] = ServiceOperationType.GET_BUNDLE_UPLOAD_URL
-    org_slug: Optional[str] = None
-    db_slug: str
+    org: Optional[str] = None
+    db: str
 
 
 class GetBundleUploadUrlResponse(BaseModel):
@@ -124,8 +124,8 @@ class GetBundleUploadUrlResponse(BaseModel):
 
 class SetSecretRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.SET_SECRET] = ServiceOperationType.SET_SECRET
-    org_slug: str
-    db_slug: Optional[str] = None
+    org: str
+    db: Optional[str] = None
     key: str
     value: str
 
@@ -136,8 +136,8 @@ class SetSecretResponse(BaseModel):
 
 class DeleteSecretRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.DELETE_SECRET] = ServiceOperationType.DELETE_SECRET
-    org_slug: str
-    db_slug: Optional[str] = None
+    org: str
+    db: Optional[str] = None
     key: str
 
 
@@ -147,8 +147,8 @@ class DeleteSecretResponse(BaseModel):
 
 class ListSecretsRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.LIST_SECRETS] = ServiceOperationType.LIST_SECRETS
-    org_slug: str
-    db_slug: Optional[str] = None
+    org: str
+    db: Optional[str] = None
 
 
 class ListSecretsResponse(BaseModel):
@@ -175,8 +175,8 @@ class ServiceRecord(BaseModel):
 
 class CreateServiceRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.CREATE_SERVICE] = ServiceOperationType.CREATE_SERVICE
-    org_slug: Optional[str] = None
-    db_slug: str
+    org: Optional[str] = None
+    db: str
     service_name: str
     base_path: str = ''
     workers_min: int = 1
@@ -200,8 +200,8 @@ class CreateServiceResponse(BaseModel):
 
 class GetServiceRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.GET_SERVICE] = ServiceOperationType.GET_SERVICE
-    org_slug: Optional[str] = None
-    db_slug: str
+    org: Optional[str] = None
+    db: str
     service_name: str
 
 
@@ -211,8 +211,8 @@ class GetServiceResponse(BaseModel):
 
 class ListServicesRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.LIST_SERVICES] = ServiceOperationType.LIST_SERVICES
-    org_slug: Optional[str] = None
-    db_slug: str
+    org: Optional[str] = None
+    db: str
 
 
 class ListServicesResponse(BaseModel):
@@ -221,8 +221,8 @@ class ListServicesResponse(BaseModel):
 
 class StartServiceRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.START_SERVICE] = ServiceOperationType.START_SERVICE
-    org_slug: Optional[str] = None
-    db_slug: str
+    org: Optional[str] = None
+    db: str
     service_name: str
 
 
@@ -232,8 +232,8 @@ class StartServiceResponse(BaseModel):
 
 class StopServiceRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.STOP_SERVICE] = ServiceOperationType.STOP_SERVICE
-    org_slug: Optional[str] = None
-    db_slug: str
+    org: Optional[str] = None
+    db: str
     service_name: str
 
 
@@ -243,8 +243,8 @@ class StopServiceResponse(BaseModel):
 
 class UpdateServiceRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.UPDATE_SERVICE] = ServiceOperationType.UPDATE_SERVICE
-    org_slug: Optional[str] = None
-    db_slug: str
+    org: Optional[str] = None
+    db: str
     service_name: str
     workers_min: Optional[int] = None
     description: Optional[str] = None
@@ -267,8 +267,8 @@ class UpdateServiceResponse(BaseModel):
 
 class DeleteServiceRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.DELETE_SERVICE] = ServiceOperationType.DELETE_SERVICE
-    org_slug: Optional[str] = None
-    db_slug: str
+    org: Optional[str] = None
+    db: str
     service_name: str
 
 
@@ -278,15 +278,15 @@ class DeleteServiceResponse(BaseModel):
 
 class ListServiceRunsRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.LIST_SERVICE_RUNS] = ServiceOperationType.LIST_SERVICE_RUNS
-    org_slug: Optional[str] = None
-    db_slug: str
+    org: Optional[str] = None
+    db: str
     service_name: str
 
 
 class GetServiceRunRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.GET_SERVICE_RUN] = ServiceOperationType.GET_SERVICE_RUN
-    org_slug: Optional[str] = None
-    db_slug: str
+    org: Optional[str] = None
+    db: str
     service_name: str
     run_id: str
 
@@ -318,8 +318,8 @@ class GetServiceRunResponse(BaseModel):
 
 class OrgRecord(BaseModel):
     org_id: str
-    org_slug: str
-    default_db_slug: Optional[str] = None
+    org: str
+    default_db: Optional[str] = None
     created_at: float
     updated_at: float
 
@@ -339,8 +339,8 @@ class GetBucketCredentialsRequest(BaseModel):
     operation_type: Literal[PixeltableStoreOperationType.GET_BUCKET_CREDENTIALS] = (
         PixeltableStoreOperationType.GET_BUCKET_CREDENTIALS
     )
-    org_slug: str
-    db_slug: str
+    org: str
+    db: str
     bucket_name: str
     prefix: Optional[str] = None
 
@@ -361,8 +361,8 @@ class GetPresignedUrlRequest(BaseModel):
     operation_type: Literal[PixeltableStoreOperationType.GET_PRESIGNED_URL] = (
         PixeltableStoreOperationType.GET_PRESIGNED_URL
     )
-    org_slug: str
-    db_slug: str
+    org: str
+    db: str
     bucket_name: str
     key: str
     method: str = 'get'

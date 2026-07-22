@@ -53,7 +53,7 @@ def get_bucket_credentials(org: str, db: str, bucket: str, prefix: str | None = 
     Returns:
         GetBucketCredentialsResponse with temporary credentials
     """
-    request = GetBucketCredentialsRequest(org_slug=org, db_slug=db, bucket_name=bucket, prefix=prefix)
+    request = GetBucketCredentialsRequest(org=org, db=db, bucket_name=bucket, prefix=prefix)
     try:
         response = requests.post(PIXELTABLE_API_URL, data=request.model_dump_json(), headers=_api_headers(), timeout=15)
         if response.status_code != 200:
@@ -80,9 +80,7 @@ def get_presigned_url_from_cloud(
     Request a presigned URL from Pixeltable Cloud for a key in given bucket.
     Uses backend credentials on the cloud so URL expiry is independent of temp credential TTL.
     """
-    request = GetPresignedUrlRequest(
-        org_slug=org, db_slug=db, bucket_name=bucket, key=key, method=method, expiration=expiration
-    )
+    request = GetPresignedUrlRequest(org=org, db=db, bucket_name=bucket, key=key, method=method, expiration=expiration)
     try:
         response = requests.post(PIXELTABLE_API_URL, data=request.model_dump_json(), headers=_api_headers(), timeout=30)
         if response.status_code != 200:

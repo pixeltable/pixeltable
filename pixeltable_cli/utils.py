@@ -234,7 +234,7 @@ def _print_workers(workers: list[dict[str, Any]]) -> None:
 
 
 def print_db(db: dict[str, Any]) -> None:
-    name = db.get('db_name') or db.get('db_slug', '')
+    name = db.get('db_name') or db.get('db', '')
     state = db.get('state', '')
     location = db.get('location', '')
     region = db.get('region', '')
@@ -270,9 +270,9 @@ def print_service(svc: dict[str, Any]) -> None:
 
 
 def print_org(org: dict[str, Any]) -> None:
-    name = org.get('org_slug', '')
+    name = org.get('org', '')
     org_id = org.get('org_id', '')
-    default_db = org.get('default_db_slug') or ''
+    default_db = org.get('default_db') or ''
     line = f'{name}  id={org_id}'
     if default_db:
         line += f'  default_db={default_db}'

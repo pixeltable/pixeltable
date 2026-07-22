@@ -72,31 +72,31 @@ def list_orgs() -> dict[str, Any]:
 
 def get_org(org: str) -> dict[str, Any] | None:
     resp = api_call(ListOrgsRequest())
-    return next((o for o in resp.get('orgs', []) if o.get('org_slug') == org), None)
+    return next((o for o in resp.get('orgs', []) if o.get('org') == org), None)
 
 
 def list_dbs(org: str) -> dict[str, Any]:
-    return api_call(ListDatabaseRequest(org_slug=org))
+    return api_call(ListDatabaseRequest(org=org))
 
 
 def create_db(org: str, db: str, location: str = 'aws', region: str = 'us-east-1') -> dict[str, Any]:
-    return api_call(CreateDatabaseRequest(org_slug=org, db_slug=db, location=location, region=region))
+    return api_call(CreateDatabaseRequest(org=org, db=db, location=location, region=region))
 
 
 def get_db(org: str, db: str) -> dict[str, Any]:
-    return api_call(GetDatabaseRequest(org_slug=org, db_slug=db))
+    return api_call(GetDatabaseRequest(org=org, db=db))
 
 
 def delete_db(org: str, db: str) -> dict[str, Any]:
-    return api_call(DeleteDatabaseRequest(org_slug=org, db_slug=db))
+    return api_call(DeleteDatabaseRequest(org=org, db=db))
 
 
 def start_db(org: str, db: str) -> dict[str, Any]:
-    return api_call(StartDatabaseRequest(org_slug=org, db_slug=db))
+    return api_call(StartDatabaseRequest(org=org, db=db))
 
 
 def stop_db(org: str, db: str) -> dict[str, Any]:
-    return api_call(StopDatabaseRequest(org_slug=org, db_slug=db))
+    return api_call(StopDatabaseRequest(org=org, db=db))
 
 
 def update_db(
@@ -108,20 +108,20 @@ def update_db(
     disk_gb: int | None = None,
 ) -> dict[str, Any]:
     return api_call(
-        UpdateDatabaseRequest(org_slug=org, db_slug=db, workers=workers, cpu=cpu, memory_mb=memory_mb, disk_gb=disk_gb)
+        UpdateDatabaseRequest(org=org, db=db, workers=workers, cpu=cpu, memory_mb=memory_mb, disk_gb=disk_gb)
     )
 
 
 def get_upload_url(org: str, db: str) -> dict[str, Any]:
-    return api_call(GetBundleUploadUrlRequest(org_slug=org, db_slug=db))
+    return api_call(GetBundleUploadUrlRequest(org=org, db=db))
 
 
 def trigger_runtime_update(org: str, db: str, bundle_s3_key: str) -> dict[str, Any]:
-    return api_call(UpdateRuntimeRequest(org_slug=org, db_slug=db, bundle_s3_key=bundle_s3_key))
+    return api_call(UpdateRuntimeRequest(org=org, db=db, bundle_s3_key=bundle_s3_key))
 
 
 def list_services(org: str, db: str) -> dict[str, Any]:
-    return api_call(ListServicesRequest(org_slug=org, db_slug=db))
+    return api_call(ListServicesRequest(org=org, db=db))
 
 
 def create_service(
@@ -137,8 +137,8 @@ def create_service(
 ) -> dict[str, Any]:
     return api_call(
         CreateServiceRequest(
-            org_slug=org,
-            db_slug=db,
+            org=org,
+            db=db,
             service_name=service_name,
             base_path=base_path,
             workers_min=workers,
@@ -151,19 +151,19 @@ def create_service(
 
 
 def get_service(org: str, db: str, svc_name: str) -> dict[str, Any]:
-    return api_call(GetServiceRequest(org_slug=org, db_slug=db, service_name=svc_name))
+    return api_call(GetServiceRequest(org=org, db=db, service_name=svc_name))
 
 
 def delete_service(org: str, db: str, svc_name: str) -> dict[str, Any]:
-    return api_call(DeleteServiceRequest(org_slug=org, db_slug=db, service_name=svc_name))
+    return api_call(DeleteServiceRequest(org=org, db=db, service_name=svc_name))
 
 
 def start_service(org: str, db: str, svc_name: str) -> dict[str, Any]:
-    return api_call(StartServiceRequest(org_slug=org, db_slug=db, service_name=svc_name))
+    return api_call(StartServiceRequest(org=org, db=db, service_name=svc_name))
 
 
 def stop_service(org: str, db: str, svc_name: str) -> dict[str, Any]:
-    return api_call(StopServiceRequest(org_slug=org, db_slug=db, service_name=svc_name))
+    return api_call(StopServiceRequest(org=org, db=db, service_name=svc_name))
 
 
 def update_service(
@@ -178,8 +178,8 @@ def update_service(
 ) -> dict[str, Any]:
     return api_call(
         UpdateServiceRequest(
-            org_slug=org,
-            db_slug=db,
+            org=org,
+            db=db,
             service_name=svc_name,
             workers_min=workers,
             cpu=cpu,

@@ -1556,12 +1556,12 @@ class TestHostedUriHelpers:
         assert utils._fmt_age(age_s) == expected
 
     def test_print_org(self, capsys: pytest.CaptureFixture) -> None:
-        utils.print_org({'org_slug': 'acme', 'org_id': 'o1', 'default_db_slug': 'main'})
+        utils.print_org({'org': 'acme', 'org_id': 'o1', 'default_db': 'main'})
         out = capsys.readouterr().out
         assert 'acme' in out and 'id=o1' in out and 'default_db=main' in out
 
     def test_print_db(self, capsys: pytest.CaptureFixture) -> None:
-        utils.print_db({'db_slug': 'main', 'state': 'AVAILABLE', 'location': 'aws', 'region': 'us-east-1'})
+        utils.print_db({'db': 'main', 'state': 'AVAILABLE', 'location': 'aws', 'region': 'us-east-1'})
         out = capsys.readouterr().out
         assert 'main' in out and 'state=AVAILABLE' in out and 'aws/us-east-1' in out
 
