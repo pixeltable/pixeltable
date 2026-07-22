@@ -730,10 +730,10 @@ class TestTableModel:
                 'vc3'
                 'vc4'
             View 'test_query_view' (from model `ExampleQueryViewV2`) has differences:
-              view filter mismatch (FATAL):
+              filter mismatch (FATAL):
                 model filter   : id > 5
                 existing filter: id > 0
-              view sample mismatch (FATAL):
+              sample mismatch (FATAL):
                 model sample   : sample(n=20, n_per_stratum=None, fraction=None, seed=2, [])
                 existing sample: sample(n=10, n_per_stratum=None, fraction=None, seed=1, [])
               the following columns are no longer in the model, and will be DROPPED:

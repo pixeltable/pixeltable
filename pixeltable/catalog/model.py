@@ -6,7 +6,7 @@ import itertools
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, MutableMapping, NamedTuple, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, MutableMapping, TypedDict
 
 from pixeltable import catalog, exceptions as excs, exprs, func, index, type_system as ts
 from pixeltable.env import Env
@@ -1012,50 +1012,50 @@ def prepare_model_updates(
     return additional_cols, resolved_idxs
 
 
-class ValidationResults(NamedTuple):
-    model_cls: TableModelMeta
-    tbl_exists: bool
-    model_kind: str  # 'table' or 'view'
-    existing_kind: str | None  # None if the table does not yet exist
-    model_iterator: str | None  # display string of the model's iterator call, or None if it has no iterator
-    existing_iterator: str | None  # None if the table does not yet exist or has no iterator
-    model_filter: str | None  # display string of the model view's filter, or None if it has none (or is a table)
-    existing_filter: str | None  # None if the table does not yet exist or has no filter
-    model_sample: str | None  # display string of the model view's sample clause, or None if it has none
-    existing_sample: str | None  # None if the table does not yet exist or has no sample clause
-    new_columns: list[str]
-    dropped_columns: list[str]
-    new_indexes: list[str]
-    dropped_indexes: list[str]
-    # Columns present in both the model and the existing table whose properties differ, as
-    # (column name, model properties, existing properties). Fatal for now; some alterations will later be
-    # applicable via `allow_destructive=True`.
-    altered_columns: list[tuple[str, dict[str, Any], dict[str, Any]]]
-    # Table-level properties that differ, as (property name, model value, existing value). Fatal for now.
-    altered_properties: list[tuple[str, Any, Any]]
+class SchemaChange(TypedDict):
+    """One atomic difference between a model and the catalog."""
 
-    @property
-    def has_changes(self) -> bool:
-        return self.has_fatal_changes or self.has_destructive_changes or self.has_benign_changes
+    target: Literal['column', 'index', 'table']
+    # column name, index name, or for 'table', the differing attribute:
+    # 'kind' | 'iterator' | 'view_filter' | 'view_sample' | 'media_validation' | 'comment' | 'custom_metadata'
+    name: str
+    op: Literal['add', 'drop', 'alter']
+    severity: Literal['additive', 'destructive', 'unsupported']
+    model: Any | None  # model-side value; None for drops
+    existing: Any | None  # catalog-side value; None for adds
+    description: str
 
-    @property
-    def has_fatal_changes(self) -> bool:
-        return self.tbl_exists and (
-            self.model_kind != self.existing_kind
-            or self.model_iterator != self.existing_iterator
-            or self.model_filter != self.existing_filter
-            or self.model_sample != self.existing_sample
-            or len(self.altered_columns) > 0
-            or len(self.altered_properties) > 0
-        )
 
-    @property
-    def has_destructive_changes(self) -> bool:
-        return self.tbl_exists and (len(self.dropped_columns) > 0 or len(self.dropped_indexes) > 0)
+class TableDiff(TypedDict):
+    """How one model differs from its catalog table."""
 
-    @property
-    def has_benign_changes(self) -> bool:
-        return not self.tbl_exists or len(self.new_columns) > 0 or len(self.new_indexes) > 0
+    path: str  # catalog path of the table
+    model_cls: str  # model class name, so an agent can map back to code
+    kind: Literal['table', 'view']
+    exists: bool
+    resolution: Literal['up_to_date', 'create', 'update_additive', 'update_destructive', 'unsupported']
+    changes: list[SchemaChange]
+
+
+# Table-level attribute names that are reported as a single grouped diff (as opposed to `kind`/`iterator`/`filter`/
+# `sample`, which each get their own diff line).
+_TABLE_PROP_NAMES: tuple[str, ...] = ('media_validation', 'comment', 'custom_metadata')
+
+
+def _resolution(
+    exists: bool, changes: list[SchemaChange]
+) -> Literal['up_to_date', 'create', 'update_additive', 'update_destructive', 'unsupported']:
+    """Reduce a table's list of changes to the single action `update_all()` would take."""
+    if not exists:
+        return 'create'
+    if len(changes) == 0:
+        return 'up_to_date'
+    severities = {change['severity'] for change in changes}
+    if 'unsupported' in severities:
+        return 'unsupported'
+    if 'destructive' in severities:
+        return 'update_destructive'
+    return 'update_additive'
 
 
 def _model_column_properties(spec: ColumnSpec, default_media_validation: str) -> dict[str, Any]:
@@ -1130,45 +1130,66 @@ def _visible_columns(model: TableModelMeta) -> dict[str, ColumnSpec]:
     return specs
 
 
-def validate_models(registered_models: dict[str, TableModelMeta], binding_root: str) -> dict[str, ValidationResults]:
+def _add_column_change(col_name: str, spec: ColumnSpec) -> SchemaChange:
+    return SchemaChange(
+        target='column',
+        name=col_name,
+        op='add',
+        severity='additive',
+        model=str(spec),
+        existing=None,
+        description=f'column {col_name!r} will be added',
+    )
+
+
+def _add_index_change(idx_name: str, idx: EmbeddingIndex) -> SchemaChange:
+    return SchemaChange(
+        target='index',
+        name=idx_name,
+        op='add',
+        severity='additive',
+        model=str(idx),
+        existing=None,
+        description=f'index {idx_name!r} will be added',
+    )
+
+
+def validate_models(registered_models: dict[str, TableModelMeta], binding_root: str) -> dict[str, TableDiff]:
     """
     Analyze each registered model against the current catalog state, summarizing the schema changes that creating
     the models would entail, along with any incompatibilities with an already-existing table of the same name.
     This is purely informational: it neither modifies the catalog nor raises on incompatibilities.
     """
     binding_root = TableModelMeta._normalize_binding_root(binding_root)
-    results: dict[str, ValidationResults] = {}
+    results: dict[str, TableDiff] = {}
 
     for name, model in registered_models.items():
         visible_columns = _visible_columns(model)
         model_cols = set(visible_columns.keys())
         model_idxs = set(model.__indexes__.keys())
         base = model.__table_spec__['base']
-        model_kind = 'table' if base is None else 'view'
+        model_kind: Literal['table', 'view'] = 'table' if base is None else 'view'
         iterator = model.__table_spec__['iterator']
         model_iterator = None if iterator is None else iterator.display_str()
         model_filter = None if base is None or base.where_clause is None else str(base.where_clause)
         model_sample = None if base is None or base.sample_clause is None else str(base.sample_clause)
 
+        bound_path = f'{binding_root}{name}'
         existing = model._resolve_tbl(binding_root, if_not_exists='ignore')
+
         if existing is None:
-            results[name] = ValidationResults(
-                model_cls=model,
-                tbl_exists=False,
-                new_columns=sorted(model_cols),
-                dropped_columns=[],
-                new_indexes=sorted(model_idxs),
-                dropped_indexes=[],
-                model_kind=model_kind,
-                existing_kind=None,
-                model_iterator=model_iterator,
-                existing_iterator=None,
-                model_filter=model_filter,
-                existing_filter=None,
-                model_sample=model_sample,
-                existing_sample=None,
-                altered_columns=[],
-                altered_properties=[],
+            # The table does not yet exist; every column and index is an addition.
+            changes: list[SchemaChange] = [
+                _add_column_change(col_name, visible_columns[col_name]) for col_name in sorted(model_cols)
+            ]
+            changes += [_add_index_change(idx_name, model.__indexes__[idx_name]) for idx_name in sorted(model_idxs)]
+            results[name] = TableDiff(
+                path=bound_path,
+                model_cls=model.__name__,
+                kind=model_kind,
+                exists=False,
+                resolution=_resolution(False, changes),
+                changes=changes,
             )
             continue
 
@@ -1184,103 +1205,183 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
             idx_name for idx_name, info in existing_md['indices'].items() if info['index_type'] == 'embedding'
         }
 
-        # For columns present in both, flag any whose properties differ.
-        altered_columns: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+        changes = []
+
+        # Structural mismatches (kind/iterator/filter/sample); each is unsupported (requires a manual migration).
+        if model_kind != existing_md['kind']:
+            changes.append(
+                SchemaChange(
+                    target='table',
+                    name='kind',
+                    op='alter',
+                    severity='unsupported',
+                    model=model_kind,
+                    existing=existing_md['kind'],
+                    description=f'`{model.__name__}` specifies a {model_kind}, but {name!r} is a {existing_md["kind"]}',
+                )
+            )
+        for attr, model_val, existing_val in (
+            ('iterator', model_iterator, existing_md['iterator_call']),
+            ('view_filter', model_filter, existing_md['view_filter']),
+            ('view_sample', model_sample, existing_md['view_sample']),
+        ):
+            if model_val != existing_val:
+                changes.append(
+                    SchemaChange(
+                        target='table',
+                        name=attr,
+                        op='alter',
+                        severity='unsupported',
+                        model=model_val,
+                        existing=existing_val,
+                        description=f'{attr} mismatch: model={model_val!r}, existing={existing_val!r}',
+                    )
+                )
+
+        # Table-level properties that differ (media_validation/comment/custom_metadata); unsupported for now.
+        existing_table_props = _existing_table_properties(existing_md)
+        for prop, model_val in _model_table_properties(model).items():
+            existing_val = existing_table_props[prop]
+            if model_val != existing_val:
+                changes.append(
+                    SchemaChange(
+                        target='table',
+                        name=prop,
+                        op='alter',
+                        severity='unsupported',
+                        model=model_val,
+                        existing=existing_val,
+                        description=f'table property {prop!r}: model={model_val!r}, existing={existing_val!r}',
+                    )
+                )
+
+        # Columns present in both, whose properties differ; unsupported for now (some alterations will later be
+        # applicable via `allow_destructive=True`).
         default_media_validation = model.__table_spec__['media_validation'].name.lower()
         for col_name in sorted(model_cols & existing_cols):
             model_props = _model_column_properties(visible_columns[col_name], default_media_validation)
             existing_props = _existing_column_properties(existing_md['columns'][col_name])
-            if model_props != existing_props:
-                altered_columns.append((col_name, model_props, existing_props))
+            altered = {prop: mv for prop, mv in model_props.items() if mv != existing_props[prop]}
+            if len(altered) > 0:
+                changes.append(
+                    SchemaChange(
+                        target='column',
+                        name=col_name,
+                        op='alter',
+                        severity='unsupported',
+                        model=altered,
+                        existing={prop: existing_props[prop] for prop in altered},
+                        description=f'column {col_name!r} has altered properties: {", ".join(altered)}',
+                    )
+                )
 
-        # Flag any table-level properties that differ.
-        existing_table_props = _existing_table_properties(existing_md)
-        altered_properties = [
-            (prop, model_val, existing_table_props[prop])
-            for prop, model_val in _model_table_properties(model).items()
-            if model_val != existing_table_props[prop]
-        ]
+        # Additive/destructive column and index changes.
+        for col_name in sorted(model_cols - existing_cols):
+            changes.append(_add_column_change(col_name, visible_columns[col_name]))
+        for col_name in sorted(existing_cols - model_cols):
+            changes.append(
+                SchemaChange(
+                    target='column',
+                    name=col_name,
+                    op='drop',
+                    severity='destructive',
+                    model=None,
+                    existing=None,
+                    description=f'column {col_name!r} will be dropped',
+                )
+            )
+        for idx_name in sorted(model_idxs - existing_idxs):
+            changes.append(_add_index_change(idx_name, model.__indexes__[idx_name]))
+        for idx_name in sorted(existing_idxs - model_idxs):
+            changes.append(
+                SchemaChange(
+                    target='index',
+                    name=idx_name,
+                    op='drop',
+                    severity='destructive',
+                    model=None,
+                    existing=None,
+                    description=f'index {idx_name!r} will be dropped',
+                )
+            )
 
-        results[name] = ValidationResults(
-            model_cls=model,
-            tbl_exists=True,
-            new_columns=sorted(model_cols - existing_cols),
-            dropped_columns=sorted(existing_cols - model_cols),
-            new_indexes=sorted(model_idxs - existing_idxs),
-            dropped_indexes=sorted(existing_idxs - model_idxs),
-            model_kind=model_kind,
-            existing_kind=existing_md['kind'],
-            model_iterator=model_iterator,
-            existing_iterator=existing_md['iterator_call'],
-            model_filter=model_filter,
-            existing_filter=existing_md['view_filter'],
-            model_sample=model_sample,
-            existing_sample=existing_md['view_sample'],
-            altered_columns=altered_columns,
-            altered_properties=altered_properties,
+        results[name] = TableDiff(
+            path=bound_path,
+            model_cls=model.__name__,
+            kind=model_kind,
+            exists=True,
+            resolution=_resolution(True, changes),
+            changes=changes,
         )
 
     return results
 
 
-def _format_diff(name: str, r: ValidationResults) -> list[str]:
+def _format_diff(name: str, diff: TableDiff) -> list[str]:
     """Human-readable lines describing how the model named `name` differs from the current catalog state."""
-    if not r.tbl_exists:
+    kind = diff['kind']
+    if not diff['exists']:
+        return [f'{kind.capitalize()} {name!r} (from model `{diff["model_cls"]}`) does not yet exist, and will be CREATED.']
+
+    changes = diff['changes']
+    if len(changes) == 0:
+        return []
+
+    def by(target: str, op: str | None = None, names: tuple[str, ...] | None = None) -> list[SchemaChange]:
         return [
-            f'{r.model_kind.capitalize()} {name!r} (from model `{r.model_cls.__name__}`) '
-            'does not yet exist, and will be CREATED.'
+            c
+            for c in changes
+            if c['target'] == target and (op is None or c['op'] == op) and (names is None or c['name'] in names)
         ]
 
     detail: list[str] = []
-    if r.model_kind != r.existing_kind:
-        detail.append(
-            f'  kind mismatch (FATAL): `{r.model_cls.__name__}` specifies a {r.model_kind}, '
-            f'but {name!r} is a {r.existing_kind}'
-        )
-    if r.model_iterator != r.existing_iterator:
-        detail.append('  iterator mismatch (FATAL):')
-        detail.append(f'    model iterator   : {r.model_iterator}')
-        detail.append(f'    existing iterator: {r.existing_iterator}')
-    if r.model_filter != r.existing_filter:
-        detail.append('  view filter mismatch (FATAL):')
-        detail.append(f'    model filter   : {r.model_filter}')
-        detail.append(f'    existing filter: {r.existing_filter}')
-    if r.model_sample != r.existing_sample:
-        detail.append('  view sample mismatch (FATAL):')
-        detail.append(f'    model sample   : {r.model_sample}')
-        detail.append(f'    existing sample: {r.existing_sample}')
-    if len(r.altered_properties) > 0:
+
+    for c in by('table', names=('kind',)):
+        detail.append(f'  kind mismatch (FATAL): {c["description"]}')
+    for attr, label in (('iterator', 'iterator'), ('view_filter', 'filter'), ('view_sample', 'sample')):
+        for c in by('table', names=(attr,)):
+            detail.append(f'  {label} mismatch (FATAL):')
+            detail.append(f'    model {label}   : {c["model"]}')
+            detail.append(f'    existing {label}: {c["existing"]}')
+
+    table_props = by('table', names=_TABLE_PROP_NAMES)
+    if len(table_props) > 0:
         detail.append('  the following table properties have changed (FATAL):')
-        for prop, model_val, existing_val in r.altered_properties:
-            detail.append(f'    {prop}: model={model_val!r}, existing={existing_val!r}')
-    if len(r.altered_columns) > 0:
+        for c in table_props:
+            detail.append(f'    {c["name"]}: model={c["model"]!r}, existing={c["existing"]!r}')
+
+    altered_cols = by('column', op='alter')
+    if len(altered_cols) > 0:
         detail.append('  the following columns have altered properties (FATAL):')
-        for col_name, model_props, existing_props in r.altered_columns:
-            for prop, model_val in model_props.items():
-                if model_val != existing_props[prop]:
-                    detail.append(f'    {col_name!r} {prop}: model={model_val!r}, existing={existing_props[prop]!r}')
-    if len(r.new_columns) > 0:
-        model_column_specs = _visible_columns(r.model_cls)
+        for c in altered_cols:
+            for prop, model_val in c['model'].items():
+                detail.append(f'    {c["name"]!r} {prop}: model={model_val!r}, existing={c["existing"][prop]!r}')
+
+    new_cols = by('column', op='add')
+    if len(new_cols) > 0:
         detail.append('  the following columns are new to the model, and will be ADDED:')
-        for col_name in r.new_columns:
-            detail.append(f'    {col_name!r} = {model_column_specs[col_name]}')
-    if len(r.dropped_columns) > 0:
+        for c in new_cols:
+            detail.append(f'    {c["name"]!r} = {c["model"]}')
+
+    dropped_cols = by('column', op='drop')
+    if len(dropped_cols) > 0:
         detail.append('  the following columns are no longer in the model, and will be DROPPED:')
-        for col_name in r.dropped_columns:
-            detail.append(f'    {col_name!r}')
-    if len(r.new_indexes) > 0:
+        for c in dropped_cols:
+            detail.append(f'    {c["name"]!r}')
+
+    new_idxs = by('index', op='add')
+    if len(new_idxs) > 0:
         detail.append('  the following indexes are new to the model, and will be ADDED:')
-        for idx_name in r.new_indexes:
-            detail.append(f'    {idx_name!r} = {r.model_cls.__indexes__[idx_name]}')
-    if len(r.dropped_indexes) > 0:
+        for c in new_idxs:
+            detail.append(f'    {c["name"]!r} = {c["model"]}')
+
+    dropped_idxs = by('index', op='drop')
+    if len(dropped_idxs) > 0:
         detail.append('  the following indexes are no longer in the model, and will be DROPPED:')
-        for idx_name in r.dropped_indexes:
-            detail.append(f'    {idx_name!r}')
+        for c in dropped_idxs:
+            detail.append(f'    {c["name"]!r}')
 
-    if len(detail) == 0:
-        return []
-
-    return [f'{r.model_kind.capitalize()} {name!r} (from model `{r.model_cls.__name__}`) has differences:', *detail]
+    return [f'{kind.capitalize()} {name!r} (from model `{diff["model_cls"]}`) has differences:', *detail]
 
 
 def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
@@ -1300,10 +1401,10 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
 
         # `create_all()` only creates tables; it never mutates an existing one. If any existing table differs from
         # its model, refuse and point the user at `update_all()`.
-        results = validate_models(registered_models, binding_root)
-        changed = [(name, r) for name, r in results.items() if r.tbl_exists and r.has_changes]
+        diffs = validate_models(registered_models, binding_root)
+        changed = [(name, d) for name, d in diffs.items() if d['exists'] and d['resolution'] != 'up_to_date']
         if len(changed) > 0:
-            detail = '\n'.join(line for name, r in changed for line in _format_diff(name, r))
+            detail = '\n'.join(line for name, d in changed for line in _format_diff(name, d))
             raise excs.RequestError(
                 excs.ErrorCode.SCHEMA_MISMATCH,
                 'One or more existing tables differ from their models.\n'
@@ -1317,19 +1418,22 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
 
         return created, existed
 
+    def _get_model_diff(binding_root: str = '') -> dict[str, TableDiff]:
+        return validate_models(registered_models, binding_root)
+
     def _diff_all(binding_root: str = '') -> None:
-        results = validate_models(registered_models, binding_root)
+        diffs = _get_model_diff(binding_root)
         lines: list[str] = []
-        for name, r in results.items():
-            lines.extend(_format_diff(name, r))
+        for name, d in diffs.items():
+            lines.extend(_format_diff(name, d))
         Env.get().console_logger.info('\n'.join(lines) if len(lines) > 0 else 'Catalog is up to date.')
 
     def _update_all(binding_root: str = '', *, allow_destructive: bool = False) -> None:
-        results = validate_models(registered_models, binding_root)
+        diffs = validate_models(registered_models, binding_root)
 
-        fatal = [(name, r) for name, r in results.items() if r.has_fatal_changes]
+        fatal = [(name, d) for name, d in diffs.items() if d['resolution'] == 'unsupported']
         if len(fatal) > 0:
-            detail = '\n'.join(line for name, r in fatal for line in _format_diff(name, r))
+            detail = '\n'.join(line for name, d in fatal for line in _format_diff(name, d))
             raise excs.RequestError(
                 excs.ErrorCode.SCHEMA_MISMATCH,
                 'One or more tables cannot be updated, because their models are inconsistent '
@@ -1338,9 +1442,9 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                 'Adjust the existing table(s) manually, or adjust the models to be consistent with the catalog.',
             )
 
-        destructive = [(name, r) for name, r in results.items() if r.has_destructive_changes]
+        destructive = [(name, d) for name, d in diffs.items() if d['resolution'] == 'update_destructive']
         if len(destructive) > 0 and not allow_destructive:
-            detail = '\n'.join(line for name, r in destructive for line in _format_diff(name, r))
+            detail = '\n'.join(line for name, d in destructive for line in _format_diff(name, d))
             raise excs.RequestError(
                 excs.ErrorCode.SCHEMA_MISMATCH,
                 f'The following updates would result in destructive catalog changes.\n'
@@ -1350,7 +1454,8 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                 'directly with `pxt.move()`.',
             )
 
-        to_update = [(name, r) for name, r in results.items() if r.has_changes]
+        # Apply column/index changes to existing tables. Brand-new tables are handled by `_create_all()` below.
+        to_update = [(name, d) for name, d in diffs.items() if d['resolution'] in ('update_additive', 'update_destructive')]
 
         if len(to_update) == 0:
             Env.get().console_logger.info('Catalog is up to date.')
@@ -1358,11 +1463,15 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         else:
             binding_root = TableModelMeta._normalize_binding_root(binding_root)
             updates: list[Updates] = []
-            for name, r in to_update:
-                model = r.model_cls
+            for name, d in to_update:
+                model = registered_models[name]
+                new_col_names = [c['name'] for c in d['changes'] if c['target'] == 'column' and c['op'] == 'add']
+                dropped_col_names = [c['name'] for c in d['changes'] if c['target'] == 'column' and c['op'] == 'drop']
+                new_idx_names = [c['name'] for c in d['changes'] if c['target'] == 'index' and c['op'] == 'add']
+                dropped_idx_names = [c['name'] for c in d['changes'] if c['target'] == 'index' and c['op'] == 'drop']
                 # Resolve `type` annotations to ColumnTypes, mirroring `_create()`.
                 new_columns: dict[str, ColumnSpec] = {}
-                for col_name in r.new_columns:
+                for col_name in new_col_names:
                     spec = model.__columns__[col_name].copy()
                     if 'type' in spec:
                         spec['type'] = ts.ColumnType.normalize_type(  # type: ignore[typeddict-item]
@@ -1373,9 +1482,9 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                     Updates(
                         path=catalog.Path.parse(f'{binding_root}{name}'),
                         new_columns=new_columns,
-                        dropped_columns=list(r.dropped_columns),
-                        new_idxs={idx_name: model.__indexes__[idx_name] for idx_name in r.new_indexes},
-                        dropped_idxs=list(r.dropped_indexes),
+                        dropped_columns=dropped_col_names,
+                        new_idxs={idx_name: model.__indexes__[idx_name] for idx_name in new_idx_names},
+                        dropped_idxs=dropped_idx_names,
                     )
                 )
 
@@ -1388,6 +1497,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
 
     cls.bind_all = _bind_all  # type: ignore[attr-defined]
     cls.create_all = _create_all  # type: ignore[attr-defined]
+    cls.get_model_diff = _get_model_diff  # type: ignore[attr-defined]
     cls.diff_all = _diff_all  # type: ignore[attr-defined]
     cls.update_all = _update_all  # type: ignore[attr-defined]
 
