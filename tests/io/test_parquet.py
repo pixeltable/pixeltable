@@ -374,6 +374,7 @@ class TestParquet:
         # Test that we can reimport the image (it will come back as bytes)
         _ = pxt.io.import_parquet(p('imported_image'), parquet_path=str(export_path))
 
+    @rerun_on_network_error()
     def test_import_images(
         self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, tmp_path: pathlib.Path
     ) -> None:

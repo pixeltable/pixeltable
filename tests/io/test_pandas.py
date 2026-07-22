@@ -208,6 +208,7 @@ class TestPandas:
         t3.insert('tests/data/datasets/edge-cases.csv')
         assert t3.count() == 2 * 4
 
+    @rerun_on_network_error()
     def test_pandas_images(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('boto3')  # This test relies on s3 URLs

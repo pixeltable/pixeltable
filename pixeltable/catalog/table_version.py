@@ -225,7 +225,7 @@ class TableVersion:
     def handle(self) -> 'TableVersionHandle':
         from .table_version_handle import TableVersionHandle
 
-        return TableVersionHandle(self.key, tbl_version=self)
+        return TableVersionHandle(self.key)
 
     @classmethod
     def create_initial_md(

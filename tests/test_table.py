@@ -2110,6 +2110,7 @@ class TestTable:
     )
     # TODO: cannot be converted because it inspects the local file cache via FileCache and tbl._id
     @pytest.mark.local('inspects the local file cache via FileCache and tbl._id')
+    @rerun_on_network_error()
     def test_create_s3_image_table(self, uses_db: None) -> None:
         skip_test_if_not_installed('boto3')
         tbl = pxt.create_table('test', {'img': pxt.Image})
@@ -2173,6 +2174,7 @@ class TestTable:
         ]
         tbl.insert({'img': f'{TESTS_DIR}/data/images/{file}'} for file in files)
 
+    @rerun_on_network_error()
     def test_video_url(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('boto3')
@@ -2188,6 +2190,7 @@ class TestTable:
         with av.open(local_path) as container:
             assert container.streams.video[0].codec_context.name == 'h264'
 
+    @rerun_on_network_error()
     def test_create_video_table(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         if Env.get().is_using_cockroachdb:
@@ -2244,6 +2247,7 @@ class TestTable:
         pxt.drop_table(p('test_tbl'))
         assert MediaStore.count(view, default_output_dest=True) == 0
 
+    @rerun_on_network_error()
     def test_video_urls(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('boto3')

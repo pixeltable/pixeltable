@@ -50,6 +50,7 @@ EXPENSIVE_NOTEBOOKS=(
     video-image-slideshow
     working-with-hugging-face
     working-with-llama-cpp
+    working-with-ollama             # [PXT-1246] Unreliable
 )
 
 IFS=$'\n'
