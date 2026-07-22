@@ -842,6 +842,54 @@ class TestTableModel:
         view_md = ExampleViewV3.get_metadata()
         assert 'vc3' in view_md['columns'] and 'vc1' not in view_md['columns']
 
+    def test_update_all_errors(self, make_catalog_path: Callable[[str], str]) -> None:
+        """`update_all()` raises an error if a model's schema is inconsistent with the existing table."""
+        p = make_catalog_path
+        TableModel = pxt.model_base()
+
+        class ExampleTable(TableModel, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            value: pxt.Float
+            img: pxt.Image
+
+            idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
+
+        TableModel.create_all(p(''))
+
+        # Add a view manually, not visible to the model_base
+        v = pxt.create_view(p('test_view'), ExampleTable.table)
+        v.add_computed_column(vc1=(ExampleTable.value + 1))
+        v.add_computed_column(vc2=(ExampleTable.img.embedding()))
+
+        TableModelV2 = pxt.model_base()
+
+        # Drop the `value` column, but without dropping the dependent column `vc1` in the manually added view
+        class ExampleTable(TableModelV2, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            img: pxt.Image
+
+            idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
+
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r"Cannot drop column 'value' because the following columns depend on it:\nvc1",
+        ):
+            TableModelV2.update_all(p(''), allow_destructive=True)
+
+        TableModelV3 = pxt.model_base()
+
+        # Drop the `idx` index, but without dropping the dependent column `vc1` in the manually added view
+        class ExampleTable(TableModelV3, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            value: pxt.Float
+            img: pxt.Image
+
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r"Cannot drop index 'idx' because the following columns depend on it:\nvc2",
+        ):
+            TableModelV3.update_all(p(''), allow_destructive=True)
+
     def test_table_model_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """Reproduce each error condition raised by `pixeltable.catalog.model`."""
         p = make_catalog_path
