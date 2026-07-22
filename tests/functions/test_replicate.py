@@ -10,6 +10,7 @@ pytestmark = pytest.mark.local('UDF/integration test')
 
 @pytest.mark.remote_api
 @pytest.mark.very_expensive
+@pytest.mark.skip(reason='[PXT-1248] Out of credits')
 @rerun_on_network_error()
 class TestReplicate:
     def test_chat_completions(self, uses_db: None) -> None:
