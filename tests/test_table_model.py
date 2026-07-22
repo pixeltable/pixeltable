@@ -859,12 +859,12 @@ class TestTableModel:
         # Add a view manually, not visible to the model_base
         v = pxt.create_view(p('test_view'), ExampleTable.table)
         v.add_computed_column(vc1=(ExampleTable.value + 1))
-        v.add_computed_column(vc2=(ExampleTable.img.embedding()))
+        v.add_computed_column(vc2=(ExampleTable.img.embedding()))  # type: ignore[attr-defined]
 
         TableModelV2 = pxt.model_base()
 
         # Drop the `value` column, but without dropping the dependent column `vc1` in the manually added view
-        class ExampleTable(TableModelV2, name='test_table'):
+        class ExampleTableV2(TableModelV2, name='test_table'):
             id: pxt.Required[pxt.Int]
             img: pxt.Image
 
@@ -879,7 +879,7 @@ class TestTableModel:
         TableModelV3 = pxt.model_base()
 
         # Drop the `idx` index, but without dropping the dependent column `vc1` in the manually added view
-        class ExampleTable(TableModelV3, name='test_table'):
+        class ExampleTableV3(TableModelV3, name='test_table'):
             id: pxt.Required[pxt.Int]
             value: pxt.Float
             img: pxt.Image
