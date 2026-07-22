@@ -1,37 +1,271 @@
+"""`pxt db {create,list,status,start,stop,update,update-runtime,delete} <uri>` - manage hosted databases."""
+
 from __future__ import annotations
 
-import importlib
+import argparse
+import json
+import os
 import sys
+import time
+import urllib.request
+from pathlib import Path
+from typing import Any
 
-DB_SUBCOMMANDS: dict[str, tuple[str, str]] = {
-    'create': ('create_db', 'create a hosted database'),
-    'list': ('list_dbs', 'list hosted databases for an org'),
-    'delete': ('delete_db', 'delete a hosted database'),
-    'start': ('start_db', 'start (wake) a stopped hosted database'),
-    'stop': ('stop_db', 'stop (sleep) a running hosted database'),
-    'update': ('update_db', 'update worker count or resource limits for a hosted database'),
-    'update-runtime': ('update_runtime', 'trigger a runtime rebuild for a hosted database'),
-    'status': ('db_status', 'show status of a hosted database'),
-}
+from pixeltable_cli.utils import (
+    _RUNTIME_POLL_INTERVAL,
+    _RUNTIME_POLL_TIMEOUT,
+    parse_db_uri,
+    parse_org_uri,
+    poll_db,
+    print_db,
+)
 
+from ..http import get, post
+from ..parser import Parser
 
-def _print_help() -> None:
-    sys.stdout.write('usage: pxt db <subcommand> [args...]\n\nsubcommands:\n')
-    width = max(len(k) for k in DB_SUBCOMMANDS)
-    for sub, (_, help_text) in DB_SUBCOMMANDS.items():
-        sys.stdout.write(f'  {sub.ljust(width)}  {help_text}\n')
-    sys.stdout.write("\nUse 'pxt db <subcommand> --help' for subcommand options.\n")
+EPILOG = """\
+Examples:
+  pxt db create pxt://org:db
+  pxt db list pxt://org
+  pxt db status pxt://org:db
+  pxt db start pxt://org:db
+  pxt db stop pxt://org:db
+  pxt db update pxt://org:db --workers 2
+  pxt db update-runtime pxt://org:db --project-dir .
+  pxt db delete pxt://org:db
+"""
 
 
 def run(argv: list[str]) -> None:
-    if not argv or argv[0] in ('-h', '--help'):
-        _print_help()
-        sys.exit(0)
-    subcmd = argv[0]
-    if subcmd not in DB_SUBCOMMANDS:
-        print(f'pxt db: unknown subcommand: {subcmd!r}', file=sys.stderr)
-        print("Use 'pxt db --help' for a list of subcommands.", file=sys.stderr)
-        sys.exit(2)
-    module_name, _ = DB_SUBCOMMANDS[subcmd]
-    mod = importlib.import_module(f'pixeltable_cli.client.commands.{module_name}')
-    mod.run(argv[1:])
+    parser = Parser(prog='pxt db', description='manage hosted databases', epilog=EPILOG)
+    sub = parser.add_subparsers(dest='action', required=True)
+
+    p = sub.add_parser('create', help='create a hosted database')
+    p.add_argument('db_uri', help='Database URI: pxt://org:db')
+    p.add_argument('--location', default='aws', help='Cloud provider (default: aws)')
+    p.add_argument('--region', default='us-east-1', help='Region (default: us-east-1)')
+    p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
+
+    p = sub.add_parser('list', help='list hosted databases for an org')
+    p.add_argument('org_uri', help='Org URI: pxt://org')
+    p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
+
+    p = sub.add_parser('status', help='show status of a hosted database')
+    p.add_argument('db_uri', help='Database URI: pxt://org:db')
+    p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
+
+    p = sub.add_parser('start', help='start (wake) a stopped hosted database')
+    p.add_argument('db_uri', help='Database URI: pxt://org:db')
+    p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
+
+    p = sub.add_parser('stop', help='stop (sleep) a running hosted database')
+    p.add_argument('db_uri', help='Database URI: pxt://org:db')
+    p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
+
+    p = sub.add_parser('update', help='update worker count or resource limits')
+    p.add_argument('db_uri', help='Database URI: pxt://org:db')
+    p.add_argument('--workers', type=int, default=None, help='Number of proxy daemon workers')
+    p.add_argument('--cpu', type=float, default=None, help='CPU cores per worker')
+    p.add_argument('--memory', type=int, default=None, dest='memory_mb', help='Memory per worker in MB')
+    p.add_argument('--disk', type=int, default=None, dest='disk_gb', help='Disk per worker in GB')
+    p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
+
+    p = sub.add_parser('update-runtime', help='rebuild the Python runtime for a hosted database')
+    p.add_argument('db_uri', help='Database URI: pxt://org:db')
+    p.add_argument(
+        '--project-dir',
+        default=None,
+        metavar='DIR',
+        help='Project directory containing pyproject.toml and uv.lock (default: current directory)',
+    )
+    p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
+
+    p = sub.add_parser('delete', help='delete a hosted database')
+    p.add_argument('db_uri', help='Database URI: pxt://org:db')
+    p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
+
+    args = parser.parse_args(argv)
+
+    if args.action == 'create':
+        _do_create(args)
+    elif args.action == 'list':
+        _do_list(args)
+    elif args.action == 'status':
+        _do_status(args)
+    elif args.action == 'start':
+        _do_start(args)
+    elif args.action == 'stop':
+        _do_stop(args)
+    elif args.action == 'update':
+        _do_update(args)
+    elif args.action == 'update-runtime':
+        _do_update_runtime(args)
+    elif args.action == 'delete':
+        _do_delete(args)
+
+
+def _do_create(args: argparse.Namespace) -> None:
+    org, db = parse_db_uri(args.db_uri, prog='pxt db create')
+    resp = post(f'/api/orgs/{org}/dbs', {'db': db, 'location': args.location, 'region': args.region})
+    result = resp.get('database', resp) if isinstance(resp, dict) else {}
+    if result.get('state') == 'PROVISIONING':
+        result = poll_db(org, db, frozenset({'PROVISIONING'}), f"Database '{db}' is provisioning...")
+    if args.json_output:
+        print(json.dumps(result))
+    else:
+        print_db(result)
+
+
+def _do_list(args: argparse.Namespace) -> None:
+    org = parse_org_uri(args.org_uri, prog='pxt db list')
+    resp = get(f'/api/orgs/{org}/dbs')
+    dbs = resp.get('databases', []) if isinstance(resp, dict) else []
+    if args.json_output:
+        print(json.dumps(dbs))
+    elif not dbs:
+        print('No databases.')
+    else:
+        for db in dbs:
+            print_db(db)
+
+
+def _do_status(args: argparse.Namespace) -> None:
+    org, db = parse_db_uri(args.db_uri, prog='pxt db status')
+    resp = get(f'/api/orgs/{org}/dbs/{db}')
+    result = resp.get('database', resp) if isinstance(resp, dict) else {}
+    if args.json_output:
+        print(json.dumps(result))
+    else:
+        print_db(result)
+
+
+def _do_start(args: argparse.Namespace) -> None:
+    org, db = parse_db_uri(args.db_uri, prog='pxt db start')
+    post(f'/api/orgs/{org}/dbs/{db}/start', {})
+    result = poll_db(org, db, frozenset({'UPDATING', 'STARTING'}), f"Database '{db}' is starting...")
+    if args.json_output:
+        print(json.dumps(result))
+    else:
+        print_db(result)
+
+
+def _do_stop(args: argparse.Namespace) -> None:
+    org, db = parse_db_uri(args.db_uri, prog='pxt db stop')
+    post(f'/api/orgs/{org}/dbs/{db}/stop', {})
+    result = poll_db(org, db, frozenset({'STOPPING'}), f"Database '{db}' is stopping...")
+    if args.json_output:
+        print(json.dumps(result))
+    else:
+        print_db(result)
+
+
+def _do_update(args: argparse.Namespace) -> None:
+    org, db = parse_db_uri(args.db_uri, prog='pxt db update')
+    resp = post(
+        f'/api/orgs/{org}/dbs/{db}/update',
+        {'workers': args.workers, 'cpu': args.cpu, 'memory_mb': args.memory_mb, 'disk_gb': args.disk_gb},
+    )
+    result = resp.get('database', resp) if isinstance(resp, dict) else {}
+    if result.get('state') == 'UPDATING':
+        result = poll_db(org, db, frozenset({'UPDATING'}), f"Database '{db}' is updating...")
+    if args.json_output:
+        print(json.dumps(result))
+    else:
+        print_db(result)
+
+
+def _do_delete(args: argparse.Namespace) -> None:
+    org, db = parse_db_uri(args.db_uri, prog='pxt db delete')
+    post(f'/api/orgs/{org}/dbs/{db}/delete', {})
+    if args.json_output:
+        print(json.dumps({'deleted': db}))
+    else:
+        print(f"Deleted database '{db}'.")
+
+
+def _do_update_runtime(args: argparse.Namespace) -> None:
+    # imported lazily: build_db_runtime_bundle pulls in pixeltable, which the stdlib-only client avoids
+    # loading for the other db subcommands
+    from pixeltable.serving.deploy import build_db_runtime_bundle
+
+    org, db = parse_db_uri(args.db_uri, prog='pxt db update-runtime')
+
+    if args.project_dir is not None:
+        os.chdir(args.project_dir)
+    project_dir = Path.cwd().resolve()
+
+    # Markers that identify a project directory: a project file or a supported lockfile.
+    # Keep this list in sync with deploy.py.
+    required = ('pyproject.toml', 'uv.lock', 'poetry.lock', 'requirements.txt', 'pixeltable.toml')
+    if not any((project_dir / f).exists() for f in required):
+        print(
+            f'pxt: error: no project files (pyproject.toml, uv.lock, poetry.lock, requirements.txt, '
+            f'or pixeltable.toml) found in {project_dir}.\n'
+            'Run from your project directory or pass --project-dir.',
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    if not args.json_output:
+        print('Building runtime bundle...', end=' ', flush=True)
+    bundle_path = build_db_runtime_bundle(project_dir)
+    if not args.json_output:
+        size_mb = bundle_path.stat().st_size / (1024 * 1024)
+        print(f'done ({size_mb:.1f} MB)')
+
+    try:
+        if not args.json_output:
+            print('Uploading bundle...', end=' ', flush=True)
+        url_resp = get(f'/api/orgs/{org}/dbs/{db}/upload-url')
+        presigned_url = url_resp['presigned_url']
+        bundle_s3_key = url_resp['bundle_s3_key']
+
+        data = bundle_path.read_bytes()  # urllib wants a bytes-like body; the bundle is a small project tarball
+        req = urllib.request.Request(presigned_url, data=data, method='PUT')
+        req.add_header('Content-Type', 'application/octet-stream')
+        req.add_header('Content-Length', str(len(data)))
+        with urllib.request.urlopen(req, timeout=300) as r:
+            if r.status >= 400:
+                raise RuntimeError(f'Bundle upload failed: HTTP {r.status}')
+        if not args.json_output:
+            print('done')
+    finally:
+        bundle_path.unlink(missing_ok=True)
+
+    post(f'/api/orgs/{org}/dbs/{db}/update-runtime', {'bundle_s3_key': bundle_s3_key})
+
+    # Poll until the state leaves UPDATING.
+    result: dict[str, Any] = {}
+    deadline = time.monotonic() + _RUNTIME_POLL_TIMEOUT
+    if not args.json_output:
+        print('Waiting for runtime build', end='', flush=True)
+    while time.monotonic() < deadline:
+        time.sleep(_RUNTIME_POLL_INTERVAL)
+        try:
+            resp = get(f'/api/orgs/{org}/dbs/{db}')
+            result = resp.get('database', resp) if isinstance(resp, dict) else {}
+        except SystemExit:
+            break
+        except Exception:
+            pass
+        if not args.json_output:
+            print('.', end='', flush=True)
+        if result.get('state') != 'UPDATING':
+            break
+
+    build_failed = result.get('last_build_state') == 'FAILED'
+    build_error = result.get('last_build_error') or ''
+    if not args.json_output:
+        print()
+        final_state = result.get('state', '')
+        if build_failed:
+            print(f'Runtime build failed: {build_error}', file=sys.stderr)
+        elif final_state:
+            print(f'Runtime build {final_state.lower()}.')
+        else:
+            print('Timed out waiting for runtime build.')
+
+    if args.json_output:
+        print(json.dumps(result))
+    if build_failed:
+        sys.exit(1)

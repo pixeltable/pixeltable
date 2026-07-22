@@ -288,7 +288,7 @@ class ObjectPath:
                 raise ValueError(
                     f"Invalid pxtfs:// store URI '{parsed.geturl()}': netloc must be 'org:db', got '{src_addr}'"
                 )
-            account_name, account_extension = netloc_parts  # org slug, db slug
+            account_name, account_extension = netloc_parts  # org, db
             raw_path = parsed.path.lstrip('/')
             path_parts = raw_path.split('/', 1)
             container = path_parts[0]

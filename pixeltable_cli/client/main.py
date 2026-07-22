@@ -30,9 +30,9 @@ COMMANDS: dict[str, str] = {
     'daemon': 'control the daemon (start/stop/restart/status)',
     'localproxy': 'manage local proxy daemons (create/start/stop/delete)',
     'dashboard': 'print and open the dashboard URL',
-    'db': 'manage hosted databases (create/list/start/stop/delete/update-runtime)',
-    'service': 'manage hosted services (create/list/start/stop/delete)',
-    'org': 'manage organizations (list)',
+    'db': 'manage hosted databases (create/list/status/start/stop/update/update-runtime/delete)',
+    'service': 'manage hosted services (create/update/list/status/start/stop/delete)',
+    'org': 'manage organizations (list/status)',
 }
 
 

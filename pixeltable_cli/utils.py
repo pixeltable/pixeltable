@@ -165,7 +165,7 @@ def _split_pxt_uri(uri: str) -> tuple[str | None, str | None, str | None]:
 
 
 def parse_db_uri(uri: str, prog: str = 'pxt') -> tuple[str, str]:
-    """Parse pxt://org:db and return (org_slug, db_slug). Exits on error."""
+    """Parse pxt://org:db and return (org, db). Exits on error."""
     org, db, path = _split_pxt_uri(uri)
     if not org or not db or path is not None:
         print(f'{prog}: error: URI must be pxt://org:db, got {uri!r}', file=sys.stderr)
@@ -174,7 +174,7 @@ def parse_db_uri(uri: str, prog: str = 'pxt') -> tuple[str, str]:
 
 
 def parse_org_uri(uri: str, prog: str = 'pxt') -> str:
-    """Parse pxt://org and return org_slug. Exits on error."""
+    """Parse pxt://org and return org. Exits on error."""
     org, db, path = _split_pxt_uri(uri)
     if not org or db is not None or path is not None:
         print(f'{prog}: error: URI must be pxt://org, got {uri!r}', file=sys.stderr)
@@ -279,14 +279,14 @@ def print_org(org: dict[str, Any]) -> None:
     print(line)
 
 
-def poll_db(org_slug: str, db_slug: str, pending_states: frozenset[str], label: str) -> dict[str, Any]:
-    """Poll daemon GET .../dbs/{db_slug} until state leaves pending_states."""
+def poll_db(org: str, db: str, pending_states: frozenset[str], label: str) -> dict[str, Any]:
+    """Poll daemon GET .../dbs/{db} until state leaves pending_states."""
     # imported lazily: rich is heavy, and importing http at module scope would create a utils<->http cycle
     from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
     from pixeltable_cli.client.http import get
 
-    db: dict[str, Any] = {}
+    result: dict[str, Any] = {}
     deadline = time.monotonic() + _DB_POLL_TIMEOUT
     with Progress(
         SpinnerColumn(),
@@ -300,18 +300,18 @@ def poll_db(org_slug: str, db_slug: str, pending_states: frozenset[str], label: 
         while time.monotonic() < deadline:
             time.sleep(_DB_POLL_INTERVAL)
             try:
-                resp = get(f'/api/orgs/{org_slug}/dbs/{db_slug}')
-                db = resp.get('database', resp) if isinstance(resp, dict) else {}
+                resp = get(f'/api/orgs/{org}/dbs/{db}')
+                result = resp.get('database', resp) if isinstance(resp, dict) else {}
             except SystemExit:
                 raise
             except Exception:
                 pass
-            if db.get('state') not in pending_states:
+            if result.get('state') not in pending_states:
                 break
-    return db
+    return result
 
 
-def poll_svc(org_slug: str, db_slug: str, svc_name: str, pending_states: frozenset[str], label: str) -> dict[str, Any]:
+def poll_svc(org: str, db: str, svc_name: str, pending_states: frozenset[str], label: str) -> dict[str, Any]:
     """Poll daemon GET .../services/{svc_name} until state leaves pending_states."""
     from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
@@ -331,7 +331,7 @@ def poll_svc(org_slug: str, db_slug: str, svc_name: str, pending_states: frozens
         while time.monotonic() < deadline:
             time.sleep(_SVC_POLL_INTERVAL)
             try:
-                resp = get(f'/api/orgs/{org_slug}/dbs/{db_slug}/services/{svc_name}')
+                resp = get(f'/api/orgs/{org}/dbs/{db}/services/{svc_name}')
                 svc = resp.get('service', resp) if isinstance(resp, dict) else {}
             except SystemExit:
                 raise

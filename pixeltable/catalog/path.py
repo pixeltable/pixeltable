@@ -31,7 +31,7 @@ class Path:
     Construct via parse() or from_components(), which apply context-specific rules.
     """
 
-    org: str | None = None  # None => in-process catalog (catalog_uri ''); a slug => remote/proxied catalog
+    org: str | None = None  # None: in-process catalog (catalog_uri ''); otherwise: hosted catalog
     db: str | None = None  # database within the org; always None when org is None, optional otherwise
     components: tuple[str, ...] = ()  # the empty tuple denotes the catalog root
     version: int | None = None
@@ -102,11 +102,6 @@ class Path:
         cls, components: tuple[str, ...], *, version: int | None = None, org: str | None = None, db: str | None = None
     ) -> Path:
         return cls(org=org, db=db, components=tuple(components), version=version)
-
-    @classmethod
-    def is_pxt_uri(cls, s: str) -> bool:
-        """Return True if the string is a pxt:// URI or a recognized Pixeltable web URL."""
-        return s.startswith('pxt://') or any(s.startswith(p) for p in _URL_PREFIXES)
 
     @classmethod
     def _normalize(cls, s: str) -> str:

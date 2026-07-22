@@ -1,31 +1,58 @@
+"""`pxt org {list,status} [<uri>]` - manage organizations."""
+
 from __future__ import annotations
 
-import importlib
-import sys
+import argparse
+import json
 
-ORG_SUBCOMMANDS: dict[str, tuple[str, str]] = {
-    'list': ('list_orgs', 'list organizations accessible to the current API key'),
-    'status': ('org_status', 'show status of an organization'),
-}
+from pixeltable_cli.utils import parse_org_uri, print_org
 
+from ..http import get
+from ..parser import Parser
 
-def _print_help() -> None:
-    sys.stdout.write('usage: pxt org <subcommand> [args...]\n\nsubcommands:\n')
-    width = max(len(k) for k in ORG_SUBCOMMANDS)
-    for sub, (_, help_text) in ORG_SUBCOMMANDS.items():
-        sys.stdout.write(f'  {sub.ljust(width)}  {help_text}\n')
-    sys.stdout.write("\nUse 'pxt org <subcommand> --help' for subcommand options.\n")
+EPILOG = """\
+Examples:
+  pxt org list
+  pxt org status pxt://org
+"""
 
 
 def run(argv: list[str]) -> None:
-    if not argv or argv[0] in ('-h', '--help'):
-        _print_help()
-        sys.exit(0)
-    subcmd = argv[0]
-    if subcmd not in ORG_SUBCOMMANDS:
-        print(f'pxt org: unknown subcommand: {subcmd!r}', file=sys.stderr)
-        print("Use 'pxt org --help' for a list of subcommands.", file=sys.stderr)
-        sys.exit(2)
-    module_name, _ = ORG_SUBCOMMANDS[subcmd]
-    mod = importlib.import_module(f'pixeltable_cli.client.commands.{module_name}')
-    mod.run(argv[1:])
+    parser = Parser(prog='pxt org', description='manage organizations', epilog=EPILOG)
+    sub = parser.add_subparsers(dest='action', required=True)
+
+    p = sub.add_parser('list', help='list organizations accessible to the current API key')
+    p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
+
+    p = sub.add_parser('status', help='show status of an organization')
+    p.add_argument('org_uri', help='Org URI: pxt://org')
+    p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
+
+    args = parser.parse_args(argv)
+
+    if args.action == 'list':
+        _do_list(args)
+    elif args.action == 'status':
+        _do_status(args)
+
+
+def _do_list(args: argparse.Namespace) -> None:
+    resp = get('/api/orgs')
+    orgs = resp.get('orgs', []) if isinstance(resp, dict) else []
+    if args.json_output:
+        print(json.dumps(orgs))
+    elif not orgs:
+        print('No orgs.')
+    else:
+        for org in orgs:
+            print_org(org)
+
+
+def _do_status(args: argparse.Namespace) -> None:
+    org = parse_org_uri(args.org_uri, prog='pxt org status')
+    resp = get(f'/api/orgs/{org}')
+    result = resp.get('org', resp) if isinstance(resp, dict) else {}
+    if args.json_output:
+        print(json.dumps(result))
+    else:
+        print_org(result)

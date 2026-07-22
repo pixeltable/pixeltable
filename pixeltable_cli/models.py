@@ -180,7 +180,7 @@ class RevertResponse(BaseModel):
 
 
 class CreateDbBody(BaseModel):
-    db_slug: str
+    db: str
     location: str = 'aws'
     region: str = 'us-east-1'
 
