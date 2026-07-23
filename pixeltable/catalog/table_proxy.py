@@ -190,6 +190,7 @@ class TableProxy(Table):
         self,
         schema: Mapping[str, type | ColumnSpec],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
+        create_default_idxs: bool = False,
     ) -> UpdateStatus:
         bound_args = self._dispatch_args(locals())
         self._check_mutable('add columns to')
@@ -201,6 +202,7 @@ class TableProxy(Table):
         self,
         *,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
+        create_default_idx: bool = False,
         **kwargs: type | ColumnSpec,
     ) -> UpdateStatus:
         self._check_single_column_kwarg('add_column', '`col_name=col_type`', kwargs)
@@ -220,6 +222,7 @@ class TableProxy(Table):
         print_stats: bool = False,
         on_error: Literal['abort', 'ignore'] = 'abort',
         if_exists: Literal['error', 'ignore', 'replace'] = 'error',
+        create_default_idx: bool = False,
         **kwargs: exprs.Expr,
     ) -> UpdateStatus:
         bound_args = self._dispatch_args(locals())
@@ -245,6 +248,13 @@ class TableProxy(Table):
         # normalize type_ to a ColumnType so that it can be serialized
         bound_args['type_'] = ts.ColumnType.normalize_type(type_, nullable_default=True, allow_builtin_types=False)
         self._dispatch('alter_column', bound_args)
+
+    def add_btree_index(
+        self, column: str | ColumnRef, *, idx_name: str | None = None, if_exists: Literal['error', 'ignore'] = 'error'
+    ) -> None:
+        bound_args = self._dispatch_args(locals())
+        self._check_mutable('add an index to')
+        self._dispatch('add_btree_index', bound_args)
 
     def add_embedding_index(
         self,

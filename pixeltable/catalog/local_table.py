@@ -418,6 +418,7 @@ class LocalTable(Table):
         self,
         schema: Mapping[str, type | ColumnSpec],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
+        create_default_idxs: bool = False,
     ) -> UpdateStatus:
         from pixeltable.catalog import retry_loop
 
@@ -453,7 +454,7 @@ class LocalTable(Table):
             return UpdateStatus()
 
         assert self._tbl_version is not None
-        get_runtime().catalog.add_columns(self._tbl_version_path, new_cols)
+        get_runtime().catalog.add_columns(self._tbl_version_path, new_cols, create_default_idxs=create_default_idxs)
         FileCache.get().emit_eviction_warnings()
         # TODO: return the row count here?
         return UpdateStatus()
@@ -462,6 +463,7 @@ class LocalTable(Table):
         self,
         *,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
+        create_default_idx: bool = False,
         **kwargs: type | ColumnSpec,
     ) -> UpdateStatus:
         # verify kwargs and construct column schema dict
@@ -472,7 +474,7 @@ class LocalTable(Table):
                 excs.ErrorCode.INVALID_ARGUMENT,
                 'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?',
             )
-        return self.add_columns(kwargs, if_exists=if_exists)
+        return self.add_columns(kwargs, if_exists=if_exists, create_default_idxs=create_default_idx)
 
     def add_computed_column(
         self,
@@ -484,6 +486,7 @@ class LocalTable(Table):
         print_stats: bool = False,
         on_error: Literal['abort', 'ignore'] = 'abort',
         if_exists: Literal['error', 'ignore', 'replace'] = 'error',
+        create_default_idx: bool = False,
         **kwargs: exprs.Expr,
     ) -> UpdateStatus:
         from pixeltable.catalog import retry_loop
@@ -531,7 +534,9 @@ class LocalTable(Table):
             new_col = Column.create(col_name, col_schema)
             self._verify_column(new_col)
             assert self._tbl_version is not None
-            result += self._tbl_version.get().add_columns([new_col], print_stats=print_stats, on_error=on_error)
+            result += self._tbl_version.get().add_columns(
+                [new_col], print_stats=print_stats, on_error=on_error, create_default_idxs=create_default_idx
+            )
             FileCache.get().emit_eviction_warnings()
             return result
 
@@ -680,6 +685,85 @@ class LocalTable(Table):
             self._tbl_version.get().alter_column(col, new_col_type)
 
         do_alter_column()
+
+    def add_btree_index(
+        self, column: str | ColumnRef, *, idx_name: str | None = None, if_exists: Literal['error', 'ignore'] = 'error'
+    ) -> None:
+        assert self._tbl_version is None or self._tbl_version.get().is_versioned, (
+            'TODO: implement for unversioned tables [PXT-1101]'
+        )
+
+        # A B-tree index is parameterless, so replacing one with another achieves nothing; only 'error' and
+        # 'ignore' are meaningful.
+        if if_exists not in ('error', 'ignore'):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, f"if_exists must be one of: ['error', 'ignore']; got {if_exists!r}"
+            )
+        if_exists_ = IfExistsParam.validated(if_exists, 'if_exists')
+
+        if idx_name is not None:
+            # Index name must be a valid pixeltable column name
+            Column.validate_name(idx_name)
+
+        with get_runtime().catalog.begin_xact(
+            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+        ):
+            self._check_mutable('add an index to')
+            col = self._resolve_column_parameter(column)
+
+            if col.tbl_handle.id != self._tbl_version.get().id:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot create a B-tree index on column {col.name!r}: it belongs to a base table. '
+                    'Add the index to the base table instead.',
+                )
+
+            err = self._tbl_version.get()._btree_index_error(col)
+            if err is not None:
+                raise err
+
+            if idx_name is not None and self._resolve_btree_index_name_collision(idx_name, if_exists_):
+                return
+
+            matches = self._find_matching_btree_idxs(col)
+            assert len(matches) <= 1, repr(col)
+            if len(matches) > 0:
+                if if_exists_ == IfExistsParam.ERROR:
+                    raise excs.AlreadyExistsError(
+                        excs.ErrorCode.INDEX_ALREADY_EXISTS,
+                        f'A B-tree index already exists on column {col.name!r} (index {matches[0].name!r}).',
+                    )
+                assert if_exists_ == IfExistsParam.IGNORE
+                return
+            idx = index.BtreeIndex()
+            _ = idx.create_value_expr(col)  # validate column type
+
+            _ = self._tbl_version.get().add_index(col, idx_name=idx_name, idx=idx)
+            FileCache.get().emit_eviction_warnings()
+
+    def _resolve_btree_index_name_collision(self, idx_name: str, if_exists: IfExistsParam) -> bool:
+        """Returns True if a B-tree addition is a no-op based on if_exists and another b-tree index with the same name
+        existing.
+        """
+        tv = self._tbl_version.get()
+        if idx_name not in tv.idxs_by_name:
+            return False
+        if if_exists == IfExistsParam.ERROR:
+            raise excs.AlreadyExistsError(excs.ErrorCode.INDEX_ALREADY_EXISTS, f'Duplicate index name: {idx_name}')
+        assert if_exists == IfExistsParam.IGNORE
+        if not isinstance(tv.idxs_by_name[idx_name].idx, index.BtreeIndex):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Index {idx_name!r} already exists, but is not a B-tree index.'
+            )
+        return True
+
+    def _find_matching_btree_idxs(self, col: Column) -> list[TableVersion.IndexInfo]:
+        """Return existing B-tree indices on col."""
+        return [
+            info
+            for info in self._tbl_version.get().idxs_by_col.get(col.qid, [])
+            if isinstance(info.idx, index.BtreeIndex)
+        ]
 
     def add_embedding_index(
         self,

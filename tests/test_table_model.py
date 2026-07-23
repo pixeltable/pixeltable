@@ -11,7 +11,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import exceptions as excs
-from pixeltable.catalog.model import Column, EmbeddingIndex
+from pixeltable.catalog.model import BtreeIndex, Column, EmbeddingIndex
 
 from .utils import (
     assert_resultset_eq,
@@ -260,18 +260,6 @@ class TestTableModel:
                     },
                 },
                 'indices': {
-                    'idx0': {'name': 'idx0', 'columns': ['id'], 'index_type': 'btree', 'parameters': None},
-                    'idx1': {'name': 'idx1', 'columns': ['name'], 'index_type': 'btree', 'parameters': None},
-                    'idx2': {'name': 'idx2', 'columns': ['value'], 'index_type': 'btree', 'parameters': None},
-                    'idx3': {'name': 'idx3', 'columns': ['img'], 'index_type': 'btree', 'parameters': None},
-                    'idx4': {'name': 'idx4', 'columns': ['incr'], 'index_type': 'btree', 'parameters': None},
-                    'idx5': {'name': 'idx5', 'columns': ['descr'], 'index_type': 'btree', 'parameters': None},
-                    'idx6': {
-                        'name': 'idx6',
-                        'columns': ['column_with_special_props'],
-                        'index_type': 'btree',
-                        'parameters': None,
-                    },
                     'clip_idx': {
                         'name': 'clip_idx',
                         'columns': ['img'],
@@ -281,7 +269,7 @@ class TestTableModel:
                             'embedding': 'dummy_embedding(img, n=768)',
                             'embedding_functions': ['dummy_embedding(text, n=768)', 'dummy_embedding(img, n=768)'],
                         },
-                    },
+                    }
                 },
                 'is_versioned': True,
                 'is_view': False,
@@ -298,6 +286,31 @@ class TestTableModel:
             },
             tbl.get_metadata(),
         )
+
+    def test_btree_index_declaration(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        TableModel = pxt.model_base()
+
+        class ExampleTableModel(TableModel, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            name: pxt.String
+            img: pxt.Image
+
+            name_idx = BtreeIndex(name)  # column referenced directly
+            img_idx = BtreeIndex(img)
+
+        TableModel.create_all(p(''))
+        tbl = ExampleTableModel.table
+
+        # Verify both the model-based table and an analogous manually built one carry the same indices.
+        indices = tbl.get_metadata()['indices']
+        assert indices['name_idx']['index_type'] == 'btree' and indices['name_idx']['columns'] == ['name']
+        assert indices['img_idx']['index_type'] == 'btree' and indices['img_idx']['columns'] == ['img']
+
+        tbl2 = pxt.create_table(p('test_table_2'), {'id': pxt.Required[pxt.Int], 'name': pxt.String, 'img': pxt.Image})
+        tbl2.add_btree_index('name', idx_name='name_idx')
+        tbl2.add_btree_index('img', idx_name='img_idx')
+        assert schema_from_tbl_md(tbl.get_metadata()) == schema_from_tbl_md(tbl2.get_metadata())
 
     def test_all_table_exprs(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
@@ -380,7 +393,7 @@ class TestTableModel:
         p = make_catalog_path
         TableModel = pxt.model_base()
 
-        class ExampleTableModel(TableModel, name='test_table'):
+        class ExampleTableModel(TableModel, name='test_table', create_default_idxs=True):
             id: pxt.Required[pxt.Int]
             name: pxt.String
             value: pxt.Float
@@ -390,7 +403,7 @@ class TestTableModel:
 
             clip_idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
 
-        class ExampleViewModel(TableModel, name='test_view', base=ExampleTableModel):
+        class ExampleViewModel(TableModel, name='test_view', base=ExampleTableModel, create_default_idxs=True):
             view_col_1: pxt.Image
             view_col_2 = view_col_1.rotate(90)
             view_col_3 = ExampleTableModel.img.rotate(90)  # Also try dereferencing a base table column
@@ -398,7 +411,7 @@ class TestTableModel:
             view_idx = EmbeddingIndex(view_col_2, embedding=dummy_embedding.using(n=768))
             view_idx_on_base_tbl_col = EmbeddingIndex(ExampleTableModel.img, embedding=dummy_embedding.using(n=768))
 
-        class ExampleSubviewModel(TableModel, name='test_subview', base=ExampleViewModel):
+        class ExampleSubviewModel(TableModel, name='test_subview', base=ExampleViewModel, create_default_idxs=True):
             subview_col_1 = ExampleTableModel.img.rotate(180)
             subview_col_2 = ExampleViewModel.view_col_1.rotate(270)
             subview_col_3 = subview_col_2.rotate(30)
@@ -412,6 +425,7 @@ class TestTableModel:
                 ExampleTableModel.value + 1,
                 plusone=(ExampleTableModel.value + 1),
             ).where(ExampleTableModel.value > 0.5),
+            create_default_idxs=True,
         ):
             view_col_1: pxt.Image
             view_col_2 = view_col_1.rotate(90)
@@ -425,6 +439,7 @@ class TestTableModel:
             TableModel,
             name='test_subview_from_query',
             base=ExampleViewModelFromQuery.where(ExampleTableModel.value > 1.0),
+            create_default_idxs=True,
         ):
             subview_col_1 = ExampleTableModel.img.rotate(180)
             subview_col_2 = ExampleViewModel.view_col_1.rotate(270)
@@ -444,28 +459,30 @@ class TestTableModel:
             TableModel.create_all(p(root))
 
         # Create analogous tables/views using the "direct construction" method and verify that the schemas (columns
-        # and indices) align with the model-based ones. (The models default to `create_default_idxs=True`, including
-        # for views, whereas `pxt.create_view()` defaults to `False`; pass it explicitly to match.)
+        # and indices) align with the model-based ones. The models above declare `create_default_idxs=True`, so pass
+        # it explicitly on each `create_table()`/`create_view()` call to get the matching default B-tree indices
+        # (in addition to the explicitly declared embedding indices).
         tbl2 = pxt.create_table(
             p(f'{prefix}test_table_2'),
             {'id': pxt.Required[pxt.Int], 'name': pxt.String, 'value': pxt.Float, 'img': pxt.Image},
+            create_default_idxs=True,
         )
-        tbl2.add_computed_column(incr=tbl2.value + 1)
-        tbl2.add_computed_column(descr=pxtf.string.format('Name: {name}', name=tbl2.name))
+        tbl2.add_computed_column(incr=tbl2.value + 1, create_default_idx=True)
+        tbl2.add_computed_column(descr=pxtf.string.format('Name: {name}', name=tbl2.name), create_default_idx=True)
         tbl2.add_embedding_index('img', idx_name='clip_idx', embedding=dummy_embedding.using(n=768))
 
         view2 = pxt.create_view(
             p(f'{prefix}test_view_2'), tbl2, additional_columns={'view_col_1': pxt.Image}, create_default_idxs=True
         )
-        view2.add_computed_column(view_col_2=view2.view_col_1.rotate(90))
-        view2.add_computed_column(view_col_3=view2.img.rotate(90))
+        view2.add_computed_column(view_col_2=view2.view_col_1.rotate(90), create_default_idx=True)
+        view2.add_computed_column(view_col_3=view2.img.rotate(90), create_default_idx=True)
         view2.add_embedding_index('view_col_2', idx_name='view_idx', embedding=dummy_embedding.using(n=768))
         view2.add_embedding_index('img', idx_name='view_idx_on_base_tbl_col', embedding=dummy_embedding.using(n=768))
 
         subview2 = pxt.create_view(p(f'{prefix}test_subview_2'), view2, create_default_idxs=True)
-        subview2.add_computed_column(subview_col_1=subview2.img.rotate(180))
-        subview2.add_computed_column(subview_col_2=subview2.view_col_1.rotate(270))
-        subview2.add_computed_column(subview_col_3=subview2.subview_col_2.rotate(30))
+        subview2.add_computed_column(subview_col_1=subview2.img.rotate(180), create_default_idx=True)
+        subview2.add_computed_column(subview_col_2=subview2.view_col_1.rotate(270), create_default_idx=True)
+        subview2.add_computed_column(subview_col_3=subview2.subview_col_2.rotate(30), create_default_idx=True)
 
         view_from_query2 = pxt.create_view(
             p(f'{prefix}test_view_from_query_2'),
@@ -473,9 +490,9 @@ class TestTableModel:
             additional_columns={'view_col_1': pxt.Image},
             create_default_idxs=True,
         )
-        view_from_query2.add_computed_column(view_col_2=view_from_query2.view_col_1.rotate(90))
-        view_from_query2.add_computed_column(view_col_3=view_from_query2.img.rotate(90))
-        view_from_query2.add_computed_column(view_col_4=view_from_query2.plusone + 5)
+        view_from_query2.add_computed_column(view_col_2=view_from_query2.view_col_1.rotate(90), create_default_idx=True)
+        view_from_query2.add_computed_column(view_col_3=view_from_query2.img.rotate(90), create_default_idx=True)
+        view_from_query2.add_computed_column(view_col_4=view_from_query2.plusone + 5, create_default_idx=True)
         view_from_query2.add_embedding_index('view_col_2', idx_name='view_idx', embedding=dummy_embedding.using(n=768))
         view_from_query2.add_embedding_index(
             'img', idx_name='view_idx_on_base_tbl_col', embedding=dummy_embedding.using(n=768)
@@ -486,9 +503,15 @@ class TestTableModel:
             view_from_query2.where(view_from_query2.value > 1.0),
             create_default_idxs=True,
         )
-        subview_from_query2.add_computed_column(subview_col_1=subview_from_query2.img.rotate(180))
-        subview_from_query2.add_computed_column(subview_col_2=subview_from_query2.view_col_1.rotate(270))
-        subview_from_query2.add_computed_column(subview_col_3=subview_from_query2.subview_col_2.rotate(30))
+        subview_from_query2.add_computed_column(
+            subview_col_1=subview_from_query2.img.rotate(180), create_default_idx=True
+        )
+        subview_from_query2.add_computed_column(
+            subview_col_2=subview_from_query2.view_col_1.rotate(270), create_default_idx=True
+        )
+        subview_from_query2.add_computed_column(
+            subview_col_3=subview_from_query2.subview_col_2.rotate(30), create_default_idx=True
+        )
 
         images = get_image_files()
         rows = [
@@ -545,15 +568,13 @@ class TestTableModel:
         view_from_query = ExampleViewModelFromQuery.table
 
         # Create analogous tables/views using the "direct construction" method and verify that the schemas (columns
-        # and indices) align with the model-based ones. (The models default to `create_default_idxs=True`, including
-        # for views, whereas `pxt.create_view()` defaults to `False`; pass it explicitly to match.)
+        # and indices) align with the model-based ones. Both paths default to `create_default_idxs=False`, so neither
+        # side gets default B-tree indices; only the explicitly declared embedding indices should appear.
         tbl2 = pxt.create_table(
             p('test_table_2'), {'id': pxt.Required[pxt.Int], 'name': pxt.String, 'value': pxt.Float, 'image': pxt.Image}
         )
 
-        view2 = pxt.create_view(
-            p('test_view_2'), tbl2, iterator=pxtf.image.tile_iterator(tbl2.image, (256, 256)), create_default_idxs=True
-        )
+        view2 = pxt.create_view(p('test_view_2'), tbl2, iterator=pxtf.image.tile_iterator(tbl2.image, (256, 256)))
         view2.add_computed_column(view_col_1=(tbl2.value + 1))
         view2.add_computed_column(view_col_2=view2.tile.rotate(90))
 
@@ -561,7 +582,6 @@ class TestTableModel:
             p('test_view_from_query_2'),
             tbl2.select(tbl2.id, tbl2.image, rot=tbl2.image.rotate(90)),
             iterator=pxtf.image.tile_iterator(tbl2.image, (256, 256)),
-            create_default_idxs=True,
         )
         view_from_query2.add_computed_column(view_col_1=view_from_query2.tile.rotate(90))
 
@@ -676,6 +696,50 @@ class TestTableModel:
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"references columns that are not in the model's scope"):
             RefsOutOfScope._create(p(''))
+
+        # Two B-tree indexes declared on the same column is an error
+        with pxt_raises(excs.ErrorCode.INDEX_ALREADY_EXISTS, match=r'More than one B-tree index'):
+
+            class DupBtree(TableModel, name='dup_btree_table'):
+                id: pxt.Required[pxt.Int]
+                name: pxt.String
+                name_idx = BtreeIndex(name)
+                name_idx2 = BtreeIndex(name)
+
+            DupBtree._create(p(''))
+
+        # Combining create_default_idxs=True with an explicitly declared B-tree index is an error
+        with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r'Cannot combine create_default_idxs'):
+
+            class DefaultsPlusBtree(TableModel, name='defaults_plus_btree_table', create_default_idxs=True):
+                id: pxt.Required[pxt.Int]
+                name: pxt.String
+                name_idx = BtreeIndex(name)
+
+            DefaultsPlusBtree._create(p(''))
+
+        # A B-tree index can only be declared on a column that supports one
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match='boolean column'):
+
+            class BadBtree(TableModel, name='bad_btree_table'):
+                id: pxt.Required[pxt.Int]
+                flag: pxt.Bool
+                flag_idx = BtreeIndex(flag)
+
+            BadBtree._create(p(''))
+
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match='belongs to a base table'):
+            InheritModel = pxt.model_base()
+
+            class BtreeIdxBase(InheritModel, name='btree_idx_base'):
+                id: pxt.Required[pxt.Int]
+                name: pxt.String
+
+            class BtreeInheritedView(InheritModel, name='btree_inherited_view', base=BtreeIdxBase):
+                doubled = BtreeIdxBase.id * 2
+                name_idx = BtreeIndex(BtreeIdxBase.name)
+
+            InheritModel.create_all(p(''))
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"Column 'plus': duplicate definition"):
 

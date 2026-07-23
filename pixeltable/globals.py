@@ -60,7 +60,7 @@ def create_table(
     source: TableDataSource | None = None,
     source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
     schema_overrides: dict[str, Any] | None = None,
-    create_default_idxs: bool = True,
+    create_default_idxs: bool = False,
     on_error: Literal['abort', 'ignore'] = 'abort',
     primary_key: str | list[str] | None = None,
     comment: str | None = None,
@@ -88,8 +88,9 @@ def create_table(
         schema_overrides: Must be used in conjunction with a `source`.
             If specified, then columns in `schema_overrides` will be given the specified types.
             (Pixeltable will attempt to infer the types of any columns not specified.)
-        create_default_idxs: If True, creates a B-tree index on every scalar and media column that is not computed,
-            except for boolean columns.
+        create_default_idxs: If `True`, creates a B-tree index on every scalar and media column that is not computed,
+            except for boolean columns. Defaults to `False`; use `Table.add_btree_index()` to create an index
+            explicitly.
         on_error: Determines the behavior if an error occurs while evaluating a computed column or detecting an
             invalid media file (such as a corrupt image) for one of the inserted rows.
 

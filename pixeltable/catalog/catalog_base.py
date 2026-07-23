@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
     from .dir import Dir
     from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation
-    from .model import EmbeddingIndex
+    from .model import IndexSpec
     from .path import Path
     from .table import Table
     from .table_path import TablePath
@@ -68,7 +68,7 @@ class CatalogBase(abc.ABC):
         custom_metadata: Any,
         iterator: func.GeneratingFunctionCall | None,
         base: 'Query | None',
-        embedding_idxs: dict[str, 'EmbeddingIndex'],
+        idxs: dict[str, 'IndexSpec'],
     ) -> tuple[Table, bool]: ...
 
     @abc.abstractmethod
