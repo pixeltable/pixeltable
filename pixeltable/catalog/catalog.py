@@ -1798,7 +1798,7 @@ class Catalog(CatalogBase):
             # Now add any new columns or indices, in forward order (base tables first).
             for tvp, tv, update in tbl_info:
                 resolved_cols, resolved_idxs = model.prepare_model_updates(
-                    tvp, tv.display_str(), update['new_columns'], update['base_query_columns'], update['new_idxs']
+                    tvp, tv.display_str(), update['new_columns'], update['new_idxs']
                 )
                 tv.add_columns(resolved_cols, print_stats=False, on_error='abort')
                 for col, idx_name, idx_base in resolved_idxs:

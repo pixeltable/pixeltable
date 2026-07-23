@@ -935,10 +935,9 @@ class CatalogUpdates(TypedDict):
     """Used for proxy communication of changes that need to be applied to a catalog table during update_all()."""
 
     path: catalog.Path
-    new_columns: dict[str, ColumnSpec]
-    # Subset of `new_columns` whose values come from the base query's `select()` list (rather than the model body).
-    # These resolve against the base table's columns instead of the view's own visible columns.
-    base_query_columns: list[str]
+    # name -> (spec, origin). A 'base_query' column comes from the view's base query `select()` list and resolves
+    # against the base table's columns; a 'model_body' column resolves against the view's own visible columns.
+    new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]]
     dropped_columns: list[str]
     new_idxs: dict[str, EmbeddingIndex]
     dropped_idxs: list[str]
@@ -947,17 +946,16 @@ class CatalogUpdates(TypedDict):
 def prepare_model_updates(
     tvp: catalog.TableVersionPath,
     display_name: str,
-    new_columns: dict[str, ColumnSpec],
-    base_query_columns: list[str],
+    new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]],
     new_idxs: dict[str, EmbeddingIndex],
 ) -> tuple[list[catalog.Column], list[tuple[catalog.Column, str | None, index.IndexBase]]]:
     """
     Given `new_columns` and `new_idxs` as declared by a model, resolves them into proper catalog abstractions
     in preparation for catalog changes. This is the analog of `prepare_model()` for `update_all()`.
 
-    Columns named in `base_query_columns` come from the view's base query `select()` list and are resolved against
-    the base table's columns; all other columns are model-body columns, resolved against the view's own visible
-    columns.
+    Each column in `new_columns` is a (spec, origin) pair. A 'base_query' column comes from the view's base query
+    `select()` list and is resolved against the base table's columns; a 'model_body' column is resolved against the
+    view's own visible columns.
     """
 
     user_cols: dict[str, catalog.Column] = {}
@@ -973,8 +971,10 @@ def prepare_model_updates(
 
     # Base-query columns are projections of the base query and resolve against the base table's columns (which,
     # for a `select()` view, are not among the view's own visible columns above).
+    has_base_query_cols = any(origin == 'base_query' for _, origin in new_columns.values())
     base_subst_dict: dict[exprs.Expr, exprs.Expr] = {}
-    if len(base_query_columns) > 0 and tvp.base is not None:
+    if has_base_query_cols:
+        assert tvp.base is not None
         for col in tvp.base.columns():
             base_subst_dict[ModelColumnRef(col.name)] = exprs.ColumnRef(
                 col.column_version_md(), perform_validation=(col.media_validation == MediaValidation.ON_READ)
@@ -984,16 +984,16 @@ def prepare_model_updates(
     next_col_id = itertools.count(start=tvp.tbl_version.get().next_col_id())
 
     # Process base-query columns first, so a model-body column may reference a newly-projected base-query column.
-    base_query_set = set(base_query_columns)
-    ordered_names = [n for n in new_columns if n in base_query_set] + [
-        n for n in new_columns if n not in base_query_set
+    ordered_names = [n for n, (_, origin) in new_columns.items() if origin == 'base_query'] + [
+        n for n, (_, origin) in new_columns.items() if origin != 'base_query'
     ]
 
     resolved_cols: list[catalog.Column] = []
     for name in ordered_names:
-        resolved_spec = new_columns[name].copy()
+        spec, origin = new_columns[name]
+        resolved_spec = spec.copy()
         if 'value' in resolved_spec:
-            resolve_against = base_subst_dict if name in base_query_set else subst_dict
+            resolve_against = base_subst_dict if origin == 'base_query' else subst_dict
             resolved_spec['value'] = resolved_spec['value'].substitute(resolve_against)
             residual_placeholders = list(resolved_spec['value'].subexprs(ModelColumnRef))
             if len(residual_placeholders) > 0:
@@ -1551,22 +1551,24 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                 dropped_col_names = [c['name'] for c in d['changes'] if c['target'] == 'column' and c['op'] == 'drop']
                 new_idx_names = [c['name'] for c in d['changes'] if c['target'] == 'index' and c['op'] == 'add']
                 dropped_idx_names = [c['name'] for c in d['changes'] if c['target'] == 'index' and c['op'] == 'drop']
-                # Resolve `type` annotations to ColumnTypes, mirroring `_create()`.
+                # Resolve `type` annotations to ColumnTypes, mirroring `_create()`, and tag each column's origin.
                 visible_columns = _visible_columns(model)
-                new_columns: dict[str, ColumnSpec] = {}
+                base_query_cols = _base_query_columns(model)
+                new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]] = {}
                 for col_name in new_col_names:
                     spec = visible_columns[col_name].copy()
                     if 'type' in spec:
                         spec['type'] = ts.ColumnType.normalize_type(  # type: ignore[typeddict-item]
                             spec['type'], nullable_default=True, allow_builtin_types=False
                         )
-                    new_columns[col_name] = spec
-                base_query_cols = _base_query_columns(model)
+                    origin: Literal['base_query', 'model_body'] = (
+                        'base_query' if col_name in base_query_cols else 'model_body'
+                    )
+                    new_columns[col_name] = (spec, origin)
                 updates.append(
                     CatalogUpdates(
                         path=catalog.Path.parse(f'{binding_root}{name}'),
                         new_columns=new_columns,
-                        base_query_columns=[c for c in new_col_names if c in base_query_cols],
                         dropped_columns=dropped_col_names,
                         new_idxs={idx_name: model.__indexes__[idx_name] for idx_name in new_idx_names},
                         dropped_idxs=dropped_idx_names,
