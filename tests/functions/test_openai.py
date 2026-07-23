@@ -15,6 +15,7 @@ from ..utils import (
     SAMPLE_IMAGE_URL,
     pxt_raises,
     rerun,
+    rerun_on_network_error,
     skip_test_if_no_client,
     skip_test_if_not_installed,
     validate_update_status,
@@ -27,7 +28,7 @@ _logger = logging.getLogger('pixeltable_test')
 
 
 @pytest.mark.remote_api
-@rerun(reruns=3, reruns_delay=8)
+@rerun_on_network_error()
 class TestOpenai:
     @pytest.mark.expensive
     def test_audio(self, uses_db: None) -> None:
@@ -702,6 +703,7 @@ class TestOpenai:
         assert len(r2) == 2
         assert any('Apple' in answer for answer in r2['answer'])
 
+    @rerun(reruns=3, reruns_delay=8)
     def test_azure_openai(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
         if not os.environ.get('AZURE_OPENAI_API_KEY'):

@@ -993,15 +993,15 @@ class TestQuery:
         results = t.select().distinct().collect()
         assert len(results) == 6
 
-        # Test column refs
-        assert len(t.c1.distinct().collect()) == 2
-        assert len(t.c2.distinct().collect()) == 3
-        assert len(t.c3.distinct().collect()) == 4
-        assert len(t.c4.distinct().collect()) == 5
+        # Test single-column selects
+        assert len(t.select(t.c1).distinct().collect()) == 2
+        assert len(t.select(t.c2).distinct().collect()) == 3
+        assert len(t.select(t.c3).distinct().collect()) == 4
+        assert len(t.select(t.c4).distinct().collect()) == 5
         # TODO: fix grouping by json columns; this is currently broken due to CellReconstructionNodes getting
         # inserted into the plan in the wrong place
         # TODO: the same is true for grouping by media columns
-        # assert len(t.c5.distinct().collect()) == 3
+        # assert len(t.select(t.c5).distinct().collect()) == 3
 
         # Test select columns clauses
         assert len(t.select(t.c1, t.c3).distinct().collect()) == 4

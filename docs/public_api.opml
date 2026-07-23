@@ -137,7 +137,9 @@
       <!-- Built-in Functions and Operators group -->
       <outline text="group|Built-in Functions and Operators">
         <outline text="module|pixeltable.functions">
+          <outline text="func|pixeltable.functions.filter" />
           <outline text="func|pixeltable.functions.map" />
+          <outline text="func|pixeltable.functions.sort" />
           <outline text="uda|pixeltable.functions.count" />
           <outline text="uda|pixeltable.functions.max" />
           <outline text="uda|pixeltable.functions.mean" />
@@ -204,6 +206,21 @@
         <outline text="module|pixeltable.functions.json">
           <outline text="iter|pixeltable.functions.json.list_iterator" />
           <outline text="udf|pixeltable.functions.json.dumps" />
+          <outline text="udf|pixeltable.functions.json.len" />
+          <outline text="udf|pixeltable.functions.json.is_empty" />
+          <outline text="udf|pixeltable.functions.json.contains" />
+          <outline text="udf|pixeltable.functions.json.get" />
+          <outline text="udf|pixeltable.functions.json.sum" />
+          <outline text="udf|pixeltable.functions.json.min" />
+          <outline text="udf|pixeltable.functions.json.max" />
+          <outline text="udf|pixeltable.functions.json.mean" />
+          <outline text="udf|pixeltable.functions.json.count" />
+          <outline text="udf|pixeltable.functions.json.keys" />
+          <outline text="udf|pixeltable.functions.json.values" />
+          <outline text="udf|pixeltable.functions.json.items" />
+          <outline text="udf|pixeltable.functions.json.flatten" />
+          <outline text="udf|pixeltable.functions.json.concat" />
+          <outline text="udf|pixeltable.functions.json.merge" />
           <outline text="uda|pixeltable.functions.json.make_list" />
         </outline>
         <outline text="module|pixeltable.functions.math">
@@ -415,6 +432,10 @@
           <outline text="udf|pixeltable.functions.mistralai.fim_completions" />
           <outline text="udf|pixeltable.functions.mistralai.embeddings" />
         </outline>
+        <outline text="module|pixeltable.functions.nebius">
+          <outline text="udf|pixeltable.functions.nebius.chat_completions" />
+          <outline text="udf|pixeltable.functions.nebius.embeddings" />
+        </outline>
         <outline text="module|pixeltable.functions.ollama">
           <outline text="udf|pixeltable.functions.ollama.generate" />
           <outline text="udf|pixeltable.functions.ollama.chat" />
@@ -441,8 +462,6 @@
         </outline>
         <outline text="module|pixeltable.functions.reve">
           <outline text="udf|pixeltable.functions.reve.create" />
-          <outline text="udf|pixeltable.functions.reve.edit" />
-          <outline text="udf|pixeltable.functions.reve.remix" />
         </outline>
         <outline text="module|pixeltable.functions.runwayml">
           <outline text="udf|pixeltable.functions.runwayml.text_to_image" />
@@ -513,6 +532,26 @@
           <outline text="func|pixeltable.io.export_sql" />
           <outline text="func|pixeltable.io.export_lancedb" />
           <outline text="func|pixeltable.io.export_images_as_fo_dataset" />
+        </outline>
+      </outline>
+
+      <!-- Observability group -->
+      <outline text="group|Observability">
+        <outline text="module|pixeltable.telemetry">
+          <outline text="func|pixeltable.telemetry.span_start" />
+          <outline text="func|pixeltable.telemetry.span_end" />
+          <outline text="func|pixeltable.telemetry.span" />
+          <outline text="func|pixeltable.telemetry.emit" />
+        </outline>
+        <outline text="module|opentelemetry.instrumentation.pixeltable">
+          <outline text="func|opentelemetry.instrumentation.pixeltable.init" />
+          <outline text="class|opentelemetry.instrumentation.pixeltable.PixeltableInstrumentor">
+            <outline text="method|opentelemetry.instrumentation.pixeltable.PixeltableInstrumentor.instrument" />
+            <outline text="method|opentelemetry.instrumentation.pixeltable.PixeltableInstrumentor.uninstrument" />
+          </outline>
+        </outline>
+        <outline text="group|Application Instrumentation">
+            <outline text="func|opentelemetry.instrumentation.pixeltable.instrument_fastapi" />
         </outline>
       </outline>
 

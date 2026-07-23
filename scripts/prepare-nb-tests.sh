@@ -7,7 +7,6 @@ SKIP_NOTEBOOKS=(
     working-with-fabric             # [PXT-1113] Requires Microsoft Fabric environment
     working-with-fiftyone           # [PXT-1117] Voxel51 is currently omitted from our dev env for security reasons
     working-with-tigris             # [PXT-1122] Hard-codes getpass() calls for credentials and bucket
-    working-with-reve               # [PXT-1116] Out of credits
     working-with-runwayml           # [PXT-1120] RunwayML integration is very broken
     working-with-twelvelabs         # [PXT-1119] Exceeds rate limit
 )
@@ -28,7 +27,9 @@ VERY_EXPENSIVE_NOTEBOOKS=(
     video-generate-ai               # High dollar cost
     working-with-gemini             # High dollar cost
     working-with-fal                # [PXT-1233] fal.ai integration failing on CI
+    working-with-reve
     working-with-together           # Poor reliability
+    working-with-replicate          # Unreliable
 )
 
 # Notebooks that are skipped unless --include-expensive is passed: all notebooks that use HF models.
@@ -50,6 +51,7 @@ EXPENSIVE_NOTEBOOKS=(
     video-image-slideshow
     working-with-hugging-face
     working-with-llama-cpp
+    working-with-ollama             # [PXT-1246] Unreliable
 )
 
 IFS=$'\n'

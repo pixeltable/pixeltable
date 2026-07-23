@@ -330,7 +330,7 @@ class TestTableModel:
             string_radd = 'prefix ' + name
             string_mul = name * 3
             string_rmul = 3 * name
-            type_cast = arr.astype(pxt.Array[(2, 3), np.float32])  # type: ignore[misc]
+            type_cast = arr.astype(pxt.Array[(2, 3), np.float32])
 
         expected_path = p('all_exprs_table')
         TableModel.create_all(p(''))
@@ -362,7 +362,7 @@ class TestTableModel:
         tbl2.add_computed_column(string_radd=('prefix ' + tbl2.name))
         tbl2.add_computed_column(string_mul=tbl2.name * 3)
         tbl2.add_computed_column(string_rmul=3 * tbl2.name)
-        tbl2.add_computed_column(type_cast=tbl2.arr.astype(pxt.Array[(2, 3), np.float32]))  # type: ignore[misc]
+        tbl2.add_computed_column(type_cast=tbl2.arr.astype(pxt.Array[(2, 3), np.float32]))
 
         assert schema_from_tbl_md(tbl.get_metadata()) == schema_from_tbl_md(tbl2.get_metadata())
 
