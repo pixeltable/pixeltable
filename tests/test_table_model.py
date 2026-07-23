@@ -459,9 +459,7 @@ class TestTableModel:
             TableModel.create_all(p(root))
 
         # Create analogous tables/views using the "direct construction" method and verify that the schemas (columns
-        # and indices) align with the model-based ones. The models above declare `create_default_idxs=True`, so pass
-        # it explicitly on each `create_table()`/`create_view()` call to get the matching default B-tree indices
-        # (in addition to the explicitly declared embedding indices).
+        # and indices) align with the model-based ones.
         tbl2 = pxt.create_table(
             p(f'{prefix}test_table_2'),
             {'id': pxt.Required[pxt.Int], 'name': pxt.String, 'value': pxt.Float, 'img': pxt.Image},
@@ -568,8 +566,7 @@ class TestTableModel:
         view_from_query = ExampleViewModelFromQuery.table
 
         # Create analogous tables/views using the "direct construction" method and verify that the schemas (columns
-        # and indices) align with the model-based ones. Both paths default to `create_default_idxs=False`, so neither
-        # side gets default B-tree indices; only the explicitly declared embedding indices should appear.
+        # and indices) align with the model-based ones.
         tbl2 = pxt.create_table(
             p('test_table_2'), {'id': pxt.Required[pxt.Int], 'name': pxt.String, 'value': pxt.Float, 'image': pxt.Image}
         )
@@ -697,7 +694,6 @@ class TestTableModel:
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"references columns that are not in the model's scope"):
             RefsOutOfScope._create(p(''))
 
-        # Two B-tree indexes declared on the same column is an error
         with pxt_raises(excs.ErrorCode.INDEX_ALREADY_EXISTS, match=r'More than one B-tree index'):
 
             class DupBtree(TableModel, name='dup_btree_table'):
@@ -708,7 +704,6 @@ class TestTableModel:
 
             DupBtree._create(p(''))
 
-        # Combining create_default_idxs=True with an explicitly declared B-tree index is an error
         with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r'Cannot combine create_default_idxs'):
 
             class DefaultsPlusBtree(TableModel, name='defaults_plus_btree_table', create_default_idxs=True):
@@ -718,7 +713,6 @@ class TestTableModel:
 
             DefaultsPlusBtree._create(p(''))
 
-        # A B-tree index can only be declared on a column that supports one
         with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match='boolean column'):
 
             class BadBtree(TableModel, name='bad_btree_table'):
