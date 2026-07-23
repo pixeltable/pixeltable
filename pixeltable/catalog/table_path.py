@@ -71,6 +71,12 @@ class TablePath(abc.ABC):
         else:
             return [self.tbl_id]
 
+    @property
+    def root(self) -> TablePath:
+        if self.base is None:
+            return self
+        return self.base.root
+
     @abc.abstractmethod
     def tbl_name(self) -> str: ...
 

@@ -26,6 +26,8 @@ from typing import (
     get_type_hints,
 )
 
+from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
+
 import fastapi
 import numpy as np
 import PIL.Image
@@ -159,6 +161,29 @@ def _resolve_type_hints(user_fn: Callable, fn_name: str, error_prefix: str) -> d
         ) from e
 
 
+def _validate_type_hint(
+    annot: type | _GenericAlias, col_type: ts.ColumnType, *, subject: str, error_prefix: str
+) -> None:
+    """Check that a type annotation is interpretable and compatible with a ColumnType."""
+    annot_col_type = ts.ColumnType.from_python_type(annot)
+    if annot_col_type is None:
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_TYPE,
+            f'{error_prefix}: {subject}: cannot interpret annotation {annot!r} as a Pixeltable type',
+        )
+
+    # media values are served as /media URL strings
+    expected_col_type = (
+        ts.StringType(nullable=col_type.nullable) if col_type.is_media_type() else col_type
+    )
+    if not annot_col_type.is_supertype_of(expected_col_type):
+        raise pxt.RequestError(
+            pxt.ErrorCode.TYPE_MISMATCH,
+            f'{error_prefix}: {subject} has annotation {annot!r} '
+            f'({annot_col_type}), which is incompatible with column type {expected_col_type}',
+        )
+
+
 def _validated_response_model(hints: dict[str, Any], fn_name: str, error_prefix: str) -> type[pydantic.BaseModel]:
     """The return annotation of a decorated route function, which must be a pydantic model."""
     return_annot = hints.get('return')
@@ -179,13 +204,6 @@ def _flush_image(val: Any) -> Any:
     dest = TempStore.create_path(extension=f'.{fmt}')
     val.save(dest, format=fmt)
     return dest.as_uri()
-
-
-def _insertable_root(path: catalog.TablePath) -> catalog.TablePath:
-    """The insertable root of a table path (the path itself for a base table)."""
-    while path.base is not None:
-        path = path.base
-    return path
 
 
 def _exactly_one_row(rows: Sequence[Mapping[str, Any]]) -> Mapping[str, Any]:
@@ -939,16 +957,18 @@ class FastAPIRouter(fastapi.APIRouter):
             output_schema = {col_name: cols_by_name[col_name].col_type for col_name in output_col_names}
             # a compute_route() function can take the entire batch of computed rows instead of per-column
             # values of a single row; the two forms are distinguished by the function signature
-            batch_form = (
-                self._validate_batch_decorated_fn(user_fn, output_schema=output_schema, error_prefix=error_prefix)
-                if route_type == 'compute'
-                else None
+            batch_row_model = (
+                self._batch_row_model(user_fn, error_prefix=error_prefix) if route_type == 'compute' else None
             )
-            response_model = (
-                batch_form[2]
-                if batch_form is not None
-                else self._validate_decorated_fn(user_fn, output_schema=output_schema, error_prefix=error_prefix)
-            )
+            batch_param_name: str | None = None
+            if batch_row_model is not None:
+                batch_param_name, response_model = self._validate_batch_fn(
+                    user_fn, batch_row_model, output_schema=output_schema, error_prefix=error_prefix
+                )
+            else:
+                response_model = self._validate_per_column_fn(
+                    user_fn, output_schema=output_schema, error_prefix=error_prefix
+                )
 
             sql_exporter = self._make_model_sql_exporter(
                 export_sql, response_model=response_model, error_prefix=error_prefix
@@ -963,8 +983,8 @@ class FastAPIRouter(fastapi.APIRouter):
                     }
 
                 result: Any
-                if batch_form is not None:
-                    batch_param_name, batch_row_model, _ = batch_form
+                if batch_row_model is not None:
+                    assert batch_param_name is not None  # set together with batch_row_model above
                     result = user_fn(**{batch_param_name: [batch_row_model(**output_vals(row)) for row in rows]})
                 else:
                     # the per-column form consumes a single row
@@ -1263,7 +1283,7 @@ class FastAPIRouter(fastapi.APIRouter):
         )
 
         def decorator(user_fn: Callable[..., pydantic.BaseModel]) -> Callable[..., pydantic.BaseModel]:
-            response_model = self._validate_decorated_fn(
+            response_model = self._validate_per_column_fn(
                 user_fn,
                 output_schema={col_name: cols_by_name[col_name].col_type for col_name in output_col_names},
                 error_prefix='update_route()',
@@ -1721,7 +1741,7 @@ class FastAPIRouter(fastapi.APIRouter):
         pk_cols = [cols_by_name[name] for name in pk_col_names]
         # compute-route inputs conform to the insertable base's schema (see _validate_dml_args)
         input_cols_by_name = (
-            {col.name: col for col in _insertable_root(t._tbl_path).column_md() if col.name is not None}
+            {col.name: col for col in t._tbl_path.root.column_md() if col.name is not None}
             if route_type == 'compute'
             else cols_by_name
         )
@@ -1765,7 +1785,7 @@ class FastAPIRouter(fastapi.APIRouter):
 
         self.add_api_route(path, endpoint, **api_kwargs)
 
-    def _validate_decorated_fn(
+    def _validate_per_column_fn(
         self, user_fn: Callable, *, output_schema: dict[str, ts.ColumnType], error_prefix: str
     ) -> type[pydantic.BaseModel]:
         """Validate the per-column form of a decorated route function; return the resolved response model."""
@@ -1796,7 +1816,7 @@ class FastAPIRouter(fastapi.APIRouter):
                     f'{error_prefix}: {fn_name!r} parameter {p.name!r} has no type annotation',
                 )
 
-            self._check_output_annotation(
+            _validate_type_hint(
                 hints[p.name],
                 output_schema[p.name],
                 subject=f'{fn_name!r} parameter {p.name!r}',
@@ -1814,47 +1834,19 @@ class FastAPIRouter(fastapi.APIRouter):
 
         return _validated_response_model(hints, fn_name, error_prefix)
 
-    def _check_output_annotation(
-        self, annot: Any, output_col_type: ts.ColumnType, *, subject: str, error_prefix: str
-    ) -> None:
-        """Check that a handler annotation is interpretable and compatible with the output column's served type."""
-        annot_col_type = ts.ColumnType.from_python_type(annot)
-        if annot_col_type is None:
-            raise pxt.RequestError(
-                pxt.ErrorCode.INVALID_TYPE,
-                f'{error_prefix}: {subject}: cannot interpret annotation {annot!r} as a Pixeltable type',
-            )
-
-        # media values are served as /media URL strings
-        expected_col_type = (
-            ts.StringType(nullable=output_col_type.nullable) if output_col_type.is_media_type() else output_col_type
-        )
-        if not annot_col_type.is_supertype_of(expected_col_type):
-            raise pxt.RequestError(
-                pxt.ErrorCode.TYPE_MISMATCH,
-                f'{error_prefix}: {subject} has annotation {annot!r} '
-                f'({annot_col_type}), which is incompatible with column type {expected_col_type}',
-            )
-
-    def _validate_batch_decorated_fn(
-        self, user_fn: Callable, *, output_schema: dict[str, ts.ColumnType], error_prefix: str
-    ) -> tuple[str, type[pydantic.BaseModel], type[pydantic.BaseModel]] | None:
-        """Detect and validate the batch form of a compute_route() function.
-
-        A batch-form function has a single parameter annotated list[M], with M a pydantic model whose fields
-        cover the declared outputs. Returns (parameter name, row model, response model), or None if the
-        signature isn't batch-shaped (the caller then validates it as a per-column function).
+    def _batch_row_model(self, user_fn: Callable, *, error_prefix: str) -> type[pydantic.BaseModel] | None:
+        """The row model M if user_fn has the batch form (a single parameter annotated list[M], with M a pydantic
+        model), otherwise None. Detection only: it does not check M's fields against the declared outputs.
         """
         sig = inspect.signature(user_fn)
-        fn_name = getattr(user_fn, '__name__', repr(user_fn))
         params = list(sig.parameters.values())
         if len(params) != 1 or params[0].kind not in (
             inspect.Parameter.POSITIONAL_OR_KEYWORD,
             inspect.Parameter.KEYWORD_ONLY,
         ):
             return None
-        hints = _resolve_type_hints(user_fn, fn_name, error_prefix)
-        annot = hints.get(params[0].name)
+        fn_name = getattr(user_fn, '__name__', repr(user_fn))
+        annot = _resolve_type_hints(user_fn, fn_name, error_prefix).get(params[0].name)
         if get_origin(annot) is not list:
             return None
         annot_args = get_args(annot)
@@ -1862,9 +1854,26 @@ class FastAPIRouter(fastapi.APIRouter):
             isinstance(annot_args[0], type) and issubclass(annot_args[0], pydantic.BaseModel)
         ):
             return None
-        row_model = annot_args[0]
+        return annot_args[0]
 
-        param_name = params[0].name
+    def _validate_batch_fn(
+        self,
+        user_fn: Callable,
+        row_model: type[pydantic.BaseModel],
+        *,
+        output_schema: dict[str, ts.ColumnType],
+        error_prefix: str,
+    ) -> tuple[str, type[pydantic.BaseModel]]:
+        """Validate the batch form of a compute_route() function and return (parameter name, response model).
+
+        The sole parameter's name must not collide with an output column, and row_model's fields must cover the
+        declared outputs with compatible types.
+        """
+        sig = inspect.signature(user_fn)
+        fn_name = getattr(user_fn, '__name__', repr(user_fn))
+        hints = _resolve_type_hints(user_fn, fn_name, error_prefix)
+        param_name = next(iter(sig.parameters))
+
         if param_name in output_schema:
             raise pxt.RequestError(
                 pxt.ErrorCode.INVALID_ARGUMENT,
@@ -1880,7 +1889,12 @@ class FastAPIRouter(fastapi.APIRouter):
                     f'{error_prefix}: {fn_name!r} row model field {field_name!r} is not in the declared outputs '
                     f'{list(output_schema.keys())}',
                 )
-            self._check_output_annotation(
+            if field.annotation is None:
+                raise pxt.RequestError(
+                    pxt.ErrorCode.INVALID_ARGUMENT,
+                    f'{error_prefix}: {fn_name!r} row model field {field_name!r} has no type annotation',
+                )
+            _validate_type_hint(
                 field.annotation,
                 output_schema[field_name],
                 subject=f'{fn_name!r} row model field {field_name!r}',
@@ -1894,7 +1908,7 @@ class FastAPIRouter(fastapi.APIRouter):
                 'output must appear as a row model field',
             )
 
-        return param_name, row_model, _validated_response_model(hints, fn_name, error_prefix)
+        return param_name, _validated_response_model(hints, fn_name, error_prefix)
 
     class DmlArgsValidationResult(NamedTuple):
         pk_col_names: list[str]
@@ -1947,12 +1961,11 @@ class FastAPIRouter(fastapi.APIRouter):
         if route_type == 'update' and not pk_col_names:
             raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'{error_prefix}: table has no primary key')
 
-        # use the metadata path (works for both local and hosted tables); skip system columns (name is None)
+        # skip system columns (name is None)
         cols_by_name = {col.name: col for col in t._tbl_path.column_md() if col.name is not None}
-        # compute() takes rows conforming to the insertable base table's schema, which may contain columns that
-        # aren't visible in a view (e.g. under a select list); inputs are validated against that schema
+        # compute() takes rows conforming to the insertable base table's schema, instead of the view schema
         input_cols_by_name = (
-            {col.name: col for col in _insertable_root(t._tbl_path).column_md() if col.name is not None}
+            {col.name: col for col in t._tbl_path.root.column_md() if col.name is not None}
             if route_type == 'compute'
             else cols_by_name
         )
