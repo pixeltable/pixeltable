@@ -1763,25 +1763,11 @@ class Catalog(CatalogBase):
                 zip((tbl._tbl_version_path for tbl in tbls), (tbl._tbl_version.get() for tbl in tbls), updates)
             )
 
-            # First drop any columns or indices that are being removed. Do this in *inverse* declaration order so that
-            # dependent columns or indices are dropped first.
+            # Drop removed columns/indices leaf-first (`[::-1]`), and within a table in descending-id order, so a
+            # column is dropped after any dependent (which has a higher id).
             for _, tbl_version, update in tbl_info[::-1]:
-                for col_name in update['dropped_columns']:
-                    col = tbl_version.cols_by_name[col_name]
-                    # Sanity check that the column has no dependents. This could happen in theory if the user does a
-                    # create_view() to manually add a view on top of a model. In such a case, model validation alone
-                    # would be insufficient to catch the dependent column, and dropping it directly would introduce
-                    # catalog corruption.
-                    col_dependents = self.get_column_dependents(tbl_version.id, col.id)
-                    dependent_user_cols = [c for c in col_dependents if c.name is not None]
-                    if len(dependent_user_cols) > 0:
-                        raise excs.RequestError(
-                            excs.ErrorCode.UNSUPPORTED_OPERATION,
-                            f'Cannot drop column {col.name!r} because the following columns depend on it:\n'
-                            f'{", ".join(c.name for c in dependent_user_cols)}',
-                        )
-                    tbl_version.drop_column(col)
-
+                # Drop indexes first, because dropping a column will also drop any indexes on that column
+                # (leading to a not-found error when we later try to drop the index).)
                 for idx_name in update['dropped_idxs']:
                     idx_info = tbl_version.idxs_by_name[idx_name]
                     val_col = idx_info.val_col
@@ -1794,6 +1780,21 @@ class Catalog(CatalogBase):
                             f'{", ".join(c.name for c in dependent_user_cols)}',
                         )
                     tbl_version.drop_index(idx_info.id)
+
+                dropped_cols = sorted(
+                    (tbl_version.cols_by_name[name] for name in update['dropped_columns']), key=lambda c: -c.id
+                )
+                for col in dropped_cols:
+                    # A dependent not itself being dropped (e.g. a manually-created view on the model) blocks the drop.
+                    col_dependents = self.get_column_dependents(tbl_version.id, col.id)
+                    dependent_user_cols = [c for c in col_dependents if c.name is not None]
+                    if len(dependent_user_cols) > 0:
+                        raise excs.RequestError(
+                            excs.ErrorCode.UNSUPPORTED_OPERATION,
+                            f'Cannot drop column {col.name!r} because the following columns depend on it:\n'
+                            f'{", ".join(c.name for c in dependent_user_cols)}',
+                        )
+                    tbl_version.drop_column(col)
 
             # Now add any new columns or indices, in forward order (base tables first).
             for tvp, tv, update in tbl_info:

@@ -981,7 +981,7 @@ def prepare_model_updates(
             )
 
     tbl_handle = tvp.tbl_version
-    next_col_id = itertools.count(start=tvp.tbl_version.get().next_col_id())
+    tbl_version = tvp.tbl_version.get()
 
     # Process base-query columns first, so a model-body column may reference a newly-projected base-query column.
     ordered_names = [n for n, (_, origin) in new_columns.items() if origin == 'base_query'] + [
@@ -1004,7 +1004,7 @@ def prepare_model_updates(
                 )
         catalog_col = catalog.Column.create(name, resolved_spec)
         catalog_col.tbl_handle = tbl_handle
-        catalog_col.id = next(next_col_id)
+        catalog_col.id = tbl_version.next_col_id()
         resolved_cols.append(catalog_col)
         user_cols[name] = catalog_col
         # Make the new column referenceable by subsequent model-body columns.
@@ -1547,16 +1547,20 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
             updates: list[CatalogUpdates] = []
             for name, d in to_update:
                 model = registered_models[name]
-                new_col_names = [c['name'] for c in d['changes'] if c['target'] == 'column' and c['op'] == 'add']
+                new_col_names = {c['name'] for c in d['changes'] if c['target'] == 'column' and c['op'] == 'add'}
                 dropped_col_names = [c['name'] for c in d['changes'] if c['target'] == 'column' and c['op'] == 'drop']
                 new_idx_names = [c['name'] for c in d['changes'] if c['target'] == 'index' and c['op'] == 'add']
                 dropped_idx_names = [c['name'] for c in d['changes'] if c['target'] == 'index' and c['op'] == 'drop']
                 # Resolve `type` annotations to ColumnTypes, mirroring `_create()`, and tag each column's origin.
+                # Iterate in declaration order (not the diff's sorted order), so a new column may depend on an
+                # earlier new column, as it can at create time.
                 visible_columns = _visible_columns(model)
                 base_query_cols = _base_query_columns(model)
                 new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]] = {}
-                for col_name in new_col_names:
-                    spec = visible_columns[col_name].copy()
+                for col_name, col_spec in visible_columns.items():
+                    if col_name not in new_col_names:
+                        continue
+                    spec = col_spec.copy()
                     if 'type' in spec:
                         spec['type'] = ts.ColumnType.normalize_type(  # type: ignore[typeddict-item]
                             spec['type'], nullable_default=True, allow_builtin_types=False

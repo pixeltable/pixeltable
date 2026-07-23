@@ -1099,9 +1099,14 @@ class TestTableModel:
             value: pxt.Float
             image: pxt.Image
             plus_ten = value + 10  # new computed column
+            plus_fifteen = plus_ten + 5  # new computed column that depends on a new column
+            plus_sixty = plus_fifteen + 45
             note: pxt.String  # new (plain) column
+            new_image: pxt.Image
+
             embed_a = EmbeddingIndex(image, embedding=dummy_embedding.using(n=768))
             embed_b = EmbeddingIndex(image, embedding=dummy_embedding.using(n=512))  # new index
+            embed_c = EmbeddingIndex(new_image, embedding=dummy_embedding.using(n=256))  # new index on new column
 
         class ExampleViewV2(TableModelV2, name='test_view', base=ExampleTableV2):
             vc1 = ExampleTableV2.value + 1
@@ -1139,7 +1144,7 @@ class TestTableModel:
         assert res['plus_ten'] == [11.0, 12.0]
 
         # A third base that both drops and adds columns, on the table and the view. The dropped columns
-        # (`plus_ten`, `note`, `vc1`) have no dependents, so the only obstacle is that dropping is destructive.
+        # (`plus_*`, `note`, `vc1`) have no dependents, so the only obstacle is that dropping is destructive.
         TableModelV3 = pxt.model_base()
 
         class ExampleTableV3(TableModelV3, name='test_table'):
@@ -1148,9 +1153,10 @@ class TestTableModel:
             image: pxt.Image
             doubled = value * 2  # added
             label: pxt.String  # added
-            # 'plus_ten' and 'note' dropped
-            embed_a = EmbeddingIndex(image, embedding=dummy_embedding.using(n=768))
+            # 'plus_ten', 'plus_fifteen', and 'note' dropped
+
             embed_b = EmbeddingIndex(image, embedding=dummy_embedding.using(n=512))
+            # embed_a and embed_c dropped
 
         class ExampleViewV3(TableModelV3, name='test_view', base=ExampleTableV3):
             vc2 = ExampleTableV3.value + 2  # kept
@@ -1179,6 +1185,18 @@ class TestTableModel:
         assert not ({'plus_ten', 'note'} & set(tbl_md['columns'].keys()))
         view_md = ExampleViewV3.get_metadata()
         assert 'vc3' in view_md['columns'] and 'vc1' not in view_md['columns']
+
+        # Try inserting something at the end of all the updates.
+        images = get_image_files()
+        rows = [
+            {'id': 3, 'value': 3.0, 'image': images[2], 'label': 'three'},
+            {'id': 4, 'value': 4.0, 'image': images[3], 'label': 'four'},
+        ]
+        ExampleTableV3.insert(rows)
+
+        res = ExampleQueryViewV3.select().collect()
+        assert res['plustwo'] == [3.0, 4.0, 5.0, 6.0]
+
 
     def test_update_all_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """`update_all()` raises an error if a model's schema is inconsistent with the existing table."""

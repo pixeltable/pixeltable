@@ -742,7 +742,10 @@ class TableVersion:
             if col.is_computed:
                 col.check_value_expr()
             col.tbl_handle = self.handle
-            col.id = self.next_col_id()
+            # Preserve an id already assigned by the caller (e.g. `prepare_model_updates`, which needs the ids up
+            # front to build value-expression references between columns added in the same batch); otherwise assign.
+            if col.id is None:
+                col.id = self.next_col_id()
 
         # we're creating a new schema version
         start_ts = time.perf_counter()
