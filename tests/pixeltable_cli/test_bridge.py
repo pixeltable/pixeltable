@@ -91,7 +91,7 @@ class TestBridge:
 
     def test_table_data_order_by(self, uses_db: None) -> None:
         pxt.create_dir('td')
-        t = pxt.create_table('td/t', {'c1': pxt.Int})
+        t = pxt.create_table('td/t', {'c1': pxt.Int}, create_default_idxs=True)
         t.insert([{'c1': 3}, {'c1': 1}, {'c1': 2}])
         asc = bridge.get_table_data('td/t', order_by='c1', order_desc=False)
         assert [r['c1'] for r in asc['rows']] == [1, 2, 3]
@@ -312,7 +312,7 @@ class TestBridge:
         # Only stored, B-tree-indexed columns should be reported as sortable. Postgres has no
         # cheap ordering for bool / json / unstored columns, so the bridge skips them.
         pxt.create_dir('s')
-        t = pxt.create_table('s/t', {'name': pxt.String, 'flag': pxt.Bool, 'meta': pxt.Json})
+        t = pxt.create_table('s/t', {'name': pxt.String, 'flag': pxt.Bool, 'meta': pxt.Json}, create_default_idxs=True)
         t.add_computed_column(boom=fail_on_neg(t.name.len()), stored=False)
         t.insert([{'name': 'b', 'flag': True, 'meta': {}}, {'name': 'a', 'flag': False, 'meta': {}}])
 

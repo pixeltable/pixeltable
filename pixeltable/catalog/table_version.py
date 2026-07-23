@@ -265,7 +265,33 @@ class TableVersion:
             schema_col_md[col.id] = col_schema_md
 
         # Merge default indexes and additional indexes into a manifest of indexes to create.
+        # Explicit B-tree indexes are not allowed when create_default_idxs is True.
         index_md: dict[int, schema.IndexMd] = {}
+        explicit_btree_col_qids: set[QColumnId] = set()
+        for idx_col, _, idx in additional_idxs:
+            if isinstance(idx, index.BtreeIndex):
+                if idx_col.tbl_handle.id != tbl_id:
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'Cannot create a B-tree index on column {idx_col.name!r}: it belongs to a base table. '
+                        'Add the index to the base table instead.',
+                    )
+                err = cls._btree_index_error(idx_col)
+                if err is not None:
+                    raise err
+                if idx_col.qid in explicit_btree_col_qids:
+                    raise excs.AlreadyExistsError(
+                        excs.ErrorCode.INDEX_ALREADY_EXISTS,
+                        f'More than one B-tree index declared on column {idx_col.name!r}.',
+                    )
+                explicit_btree_col_qids.add(idx_col.qid)
+
+        if create_default_idxs and len(explicit_btree_col_qids) > 0:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                'Cannot combine create_default_idxs=True with an explicitly declared B-tree index.',
+            )
+
         idxs_to_create: list[tuple[Column, str | None, index.IndexBase]] = []
         if create_default_idxs and (view_md is None or not view_md.is_snapshot):
             idxs_to_create.extend((col, None, index.BtreeIndex()) for col in cols if cls._is_btree_indexable(col))
@@ -546,27 +572,39 @@ class TableVersion:
         return status
 
     @classmethod
-    def _is_btree_indexable(cls, col: Column) -> bool:
+    def _btree_index_error(cls, col: Column) -> excs.RequestError | None:
+        """Returns None if col can have a B-tree index, based on its type and other properties, or an error explaining
+        why not."""
         if not col.stored:
             # if the column is intentionally not stored, we want to avoid the overhead of an index
-            return False
-        # Skip index for stored media columns produced by an iterator
+            return excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot create a B-tree index on unstored column {col.name!r}.'
+            )
         if col.col_type.is_media_type() and col.is_iterator_col:
-            return False
-        if not col.col_type.is_scalar_type() and not (col.col_type.is_media_type() and not col.is_computed):
-            # wrong type for a B-tree
-            return False
-        if col.col_type.is_bool_type():  # noqa : SIM103 Supress `Return the negated condition directly` check
+            return excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Cannot create a B-tree index on column {col.name!r}, which is produced by an iterator.',
+            )
+        if not col.col_type.is_scalar_type() and not col.col_type.is_media_type():
+            return excs.RequestError(
+                excs.ErrorCode.TYPE_MISMATCH,
+                f'Index on column {col.name}: B-tree index requires scalar or media type, got {col.col_type}',
+            )
+        if col.col_type.is_media_type() and col.is_computed:
+            return excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Cannot create a B-tree index on computed media column {col.name!r}.',
+            )
+        if col.col_type.is_bool_type():
             # B-trees on bools aren't useful
-            return False
-        return True
+            return excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'A B-tree index on boolean column {col.name!r} is not supported.'
+            )
+        return None
 
-    def _add_default_index(self, col: Column) -> UpdateStatus | None:
-        """Add a B-tree index on this column if it has a compatible type"""
-        if not self._is_btree_indexable(col):
-            return None
-        status = self._add_index(col, idx_name=None, idx=index.BtreeIndex())
-        return status
+    @classmethod
+    def _is_btree_indexable(cls, col: Column) -> bool:
+        return cls._btree_index_error(col) is None
 
     def _create_index_md(
         self, col: Column, val_col: Column, undo_col: Column, idx_name: str | None, idx: index.IndexBase
@@ -576,6 +614,8 @@ class TableVersion:
         self.next_idx_id += 1
         if idx_name is None:
             idx_name = f'idx{idx_id}'
+            while idx_name in self.idxs_by_name:
+                idx_name += '_'
         else:
             assert is_valid_identifier(idx_name)
             assert idx_name not in [i.name for i in self._tbl_md.index_md.values()]
@@ -649,8 +689,10 @@ class TableVersion:
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Dropped index {idx_md.name} on table {self.name}')
 
-    def add_columns_ops(self, cols: Iterable[Column]) -> tuple[TableVersionMd, list[TableOp]]:
-        """Adds columns to the table."""
+    def add_columns_ops(
+        self, cols: Iterable[Column], *, create_default_idxs: bool
+    ) -> tuple[TableVersionMd, list[TableOp]]:
+        """Applies the column-addition metadata changes and builds the TableOps to execute them in the store."""
         assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
         assert self.is_mutable
         assert all(is_valid_identifier(col.name) for col in cols if col.name is not None)
@@ -681,7 +723,7 @@ class TableVersion:
         all_cols: list[Column] = []
         for col in cols:
             all_cols.append(col)
-            if col.name is not None and self._is_btree_indexable(col):
+            if create_default_idxs and col.name is not None and self._is_btree_indexable(col):
                 idx = index.BtreeIndex()
 
                 val_col, undo_col = Column.create_index_columns(
@@ -725,7 +767,11 @@ class TableVersion:
         return TableVersionMd(self._tbl_md, self._version_md, self._schema_version_md), tbl_ops
 
     def add_columns(
-        self, cols: Iterable[Column], print_stats: bool, on_error: Literal['abort', 'ignore']
+        self,
+        cols: Iterable[Column],
+        print_stats: bool,
+        on_error: Literal['abort', 'ignore'],
+        create_default_idxs: bool = False,
     ) -> UpdateStatus:
         """Adds columns to the table."""
         assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
@@ -751,7 +797,7 @@ class TableVersion:
         all_cols: list[Column] = []
         for col in cols:
             all_cols.append(col)
-            if col.name is not None and self._is_btree_indexable(col):
+            if create_default_idxs and col.name is not None and self._is_btree_indexable(col):
                 idx = index.BtreeIndex()
 
                 val_col, undo_col = Column.create_index_columns(
@@ -1759,11 +1805,7 @@ class TableVersion:
     def get_idx(self, col: Column, idx_name: str | None, idx_cls: type[index.IndexBase]) -> TableVersion.IndexInfo:
         if not self.supports_idxs:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Snapshot does not support indices')
-        if col.qid not in self.idxs_by_col:
-            raise excs.NotFoundError(
-                excs.ErrorCode.INDEX_NOT_FOUND, f'Column {col.name!r} does not have a {idx_cls.display_name()} index'
-            )
-        candidates = [info for info in self.idxs_by_col[col.qid] if isinstance(info.idx, idx_cls)]
+        candidates = [info for info in self.idxs_by_col.get(col.qid, []) if isinstance(info.idx, idx_cls)]
         if len(candidates) == 0:
             raise excs.NotFoundError(
                 excs.ErrorCode.INDEX_NOT_FOUND, f'No {idx_cls.display_name()} index found for column {col.name!r}'

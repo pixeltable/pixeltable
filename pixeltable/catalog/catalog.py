@@ -32,7 +32,7 @@ from .dir import Dir
 from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation, QColumnId
 from .insertable_table import InsertableTable
 from .local_table import LocalTable
-from .model import EmbeddingIndex, prepare_model
+from .model import IndexSpec, prepare_model
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
 from .table_path import TablePath, TableVersionPath
@@ -1683,7 +1683,7 @@ class Catalog(CatalogBase):
         custom_metadata: Any,
         iterator: func.GeneratingFunctionCall | None,
         base: 'pxt.Query | None',
-        embedding_idxs: dict[str, EmbeddingIndex],
+        idxs: dict[str, IndexSpec],
     ) -> tuple[LocalTable, bool]:
         """Create a table or view from a declarative model.
 
@@ -1702,7 +1702,7 @@ class Catalog(CatalogBase):
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
 
         iterator, additional_cols, resolved_idxs = prepare_model(
-            tbl_handle, columns, display_name, media_validation, iterator, base, embedding_idxs
+            tbl_handle, columns, display_name, media_validation, iterator, base, idxs
         )
 
         # If the table already exists, validate the model against it and rebind (the server enforces its own
@@ -1776,11 +1776,11 @@ class Catalog(CatalogBase):
                 f'  Existing iterator: {existing_md["iterator_call"]}',
             )
 
-    def add_columns(self, tbl: TableVersionPath, cols: list[Column]) -> None:
+    def add_columns(self, tbl: TableVersionPath, cols: list[Column], create_default_idxs: bool = False) -> None:
         @retry_loop(for_write=True, write_tvps=[tbl], lock_mutable_tree=False)
         def add_fn() -> None:
             tv = self._get_tbl_version(TableVersionKey(tbl.tbl_id, None))
-            md, ops = tv.add_columns_ops(cols)
+            md, ops = tv.add_columns_ops(cols, create_default_idxs=create_default_idxs)
             md.tbl_md.pending_stmt = schema.TableStatement.ADD_COLUMNS
             self.write_tbl_md(
                 tbl.tbl_id,

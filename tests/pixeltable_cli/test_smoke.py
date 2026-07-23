@@ -227,7 +227,7 @@ class TestIdxs:
         """idxs runs against one table, a directory (recursively), or the whole catalog."""
         p = make_catalog_path
         pxt.create_dir(p('cli_idx'), if_exists='ignore')
-        pxt.create_table(p('cli_idx.t'), {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table(p('cli_idx.t'), {'a': pxt.Int}, if_exists='replace', create_default_idxs=True)
 
         # --json: no embedding idx exists on a plain table
         entries = cli('idxs', p('cli_idx/t'), '--json').json
@@ -236,10 +236,10 @@ class TestIdxs:
         # text: command runs cleanly regardless of catalog content
         assert cli('idxs', p('cli_idx/t')).returncode == 0
 
-        # a directory path walks every table beneath it, recursively; plain tables carry auto-created
-        # btree indexes, so both tables show up
+        # a directory path walks every table beneath it, recursively; both tables carry default btree indexes, so both
+        # of them show up
         pxt.create_dir(p('cli_idx.sub'), if_exists='ignore')
-        pxt.create_table(p('cli_idx.sub.t2'), {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table(p('cli_idx.sub.t2'), {'a': pxt.Int}, if_exists='replace', create_default_idxs=True)
         walked = {e['table'] for e in cli('idxs', p('cli_idx'), '--json').json}
         assert p('cli_idx/t') in walked
         assert p('cli_idx/sub/t2') in walked

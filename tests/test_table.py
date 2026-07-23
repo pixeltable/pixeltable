@@ -301,7 +301,12 @@ class TestTable:
         pxt.create_dir(p('dir/subdir'))
         for rel_tbl_path, media_val in (('test', 'on_read'), ('dir/test', 'on_write'), ('dir/subdir/test', 'on_read')):
             tbl_path = p(rel_tbl_path)
-            tbl = pxt.create_table(tbl_path, {'col': pxt.String}, media_validation=media_val)  # type: ignore[arg-type]
+            tbl = pxt.create_table(
+                tbl_path,
+                {'col': pxt.String},
+                media_validation=media_val,  # type: ignore[arg-type]
+                create_default_idxs=True,
+            )
             view_path = f'{tbl_path}_view'
             view = pxt.create_view(view_path, tbl, media_validation=media_val)  # type: ignore[arg-type]
             view.add_embedding_index('col', embedding=local_embed)
@@ -511,11 +516,11 @@ class TestTable:
         """Test all ColumnMetadata fields across tables and views with various column types."""
         p = make_catalog_path
         tbl_path = p('test')
-        t = pxt.create_table(tbl_path, {'c1': pxt.Int, 'c2': pxt.Int, 'img': pxt.Image})
+        t = pxt.create_table(tbl_path, {'c1': pxt.Int, 'c2': pxt.Int, 'img': pxt.Image}, create_default_idxs=True)
         # Builtin computed, single dependency
-        t.add_computed_column(plus1=t.c1 + 1)
+        t.add_computed_column(plus1=t.c1 + 1, create_default_idx=True)
         # Builtin computed, multiple dependencies
-        t.add_computed_column(sum12=t.c1 + t.c2)
+        t.add_computed_column(sum12=t.c1 + t.c2, create_default_idx=True)
         # Custom UDF computed
         t.add_computed_column(custom=TestTable.f1(t.c1))
 
@@ -638,7 +643,6 @@ class TestTable:
                     'idx2': {'name': 'idx2', 'columns': ['img'], 'index_type': 'btree', 'parameters': None},
                     'idx3': {'name': 'idx3', 'columns': ['plus1'], 'index_type': 'btree', 'parameters': None},
                     'idx4': {'name': 'idx4', 'columns': ['sum12'], 'index_type': 'btree', 'parameters': None},
-                    'idx5': {'name': 'idx5', 'columns': ['custom'], 'index_type': 'btree', 'parameters': None},
                 },
                 'is_view': False,
                 'is_snapshot': False,
@@ -658,7 +662,7 @@ class TestTable:
         # View: inherits columns from base, adds its own computed column
         view_path = p('test_view')
         v = pxt.create_view(view_path, t)
-        v.add_computed_column(derived=v.c1 * 2)
+        v.add_computed_column(derived=v.c1 * 2, create_default_idx=True)
 
         vmd = v.get_metadata()
         assert_table_metadata_eq(
@@ -812,7 +816,7 @@ class TestTable:
         t.insert(n=3)
         view_path = p('iter_view')
         iv = pxt.create_view(view_path, t, iterator=DummyIterator(t.n))
-        iv.add_computed_column(derived=iv.out2 + 1)
+        iv.add_computed_column(derived=iv.out2 + 1, create_default_idx=True)
 
         assert_table_metadata_eq(
             {
@@ -981,7 +985,7 @@ class TestTable:
 
         on_write_tbl = pxt.create_table(p('write_validated'), schema, media_validation='on_write')
         status = on_write_tbl.insert(rows, on_error='ignore')
-        assert status.num_excs == 2  # 1 row with exceptions in the media col and the index col
+        assert status.num_excs == 1  # 1 row with an exception in the media col (no index on it)
         on_write_path_cols = (
             [] if catalog_mode == 'proxy' else [on_write_tbl.media.localpath, on_write_tbl.media.errormsg]
         )
@@ -3374,7 +3378,7 @@ class TestTable:
     @pytest.mark.local('UDF reads client-process-local class attributes the daemon cannot see')
     def test_recompute_column(self, uses_db: None) -> None:
         t = pxt.create_table('recompute_test', schema={'i': pxt.Int, 's': pxt.String})
-        status = t.add_computed_column(i1=self.recompute_int_udf(t.i))
+        status = t.add_computed_column(i1=self.recompute_int_udf(t.i), create_default_idx=True)
         assert status.num_excs == 0
         status = t.add_computed_column(s1=self.recompute_str_udf(t.s))
         assert status.num_excs == 0
@@ -3439,7 +3443,7 @@ class TestTable:
         TestTable.recompute_udf_error_val = 10
         status = t.recompute_columns('i1')
         assert status.num_rows == 100 + 20
-        assert status.num_excs == 4 * 10  # i1 and i2 plus their index value cols
+        assert status.num_excs == 3 * 10  # i1 and its index value col, plus i2
         assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2', 'recompute_view.i3'}
         _ = t.select(t.i2.errormsg).where(t.i2.errormsg != None).collect()
         assert t.where(t.i1.errortype != None).count() == 10

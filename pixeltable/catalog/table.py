@@ -222,6 +222,7 @@ class Table(SchemaObject):
         self,
         schema: Mapping[str, type | ColumnSpec],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
+        create_default_idxs: bool = False,
     ) -> UpdateStatus:
         """
         Adds multiple columns to the table. The columns must be concrete (non-computed) columns; to add computed
@@ -241,6 +242,9 @@ class Table(SchemaObject):
                 Note that the `if_exists` parameter is applied to all columns in the schema.
                 To apply different behaviors to different columns, please use
                 [`add_column()`][pixeltable.Table.add_column] for each column.
+            create_default_idxs: If `True`, creates a default B-tree index on each newly added eligible column.
+                Defaults to `False`; see [`add_btree_index()`][pixeltable.Table.add_btree_index] for column
+                eligibility.
 
         Returns:
             Information about the execution status of the operation.
@@ -275,6 +279,7 @@ class Table(SchemaObject):
         self,
         *,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
+        create_default_idx: bool = False,
         **kwargs: type | ColumnSpec,
     ) -> UpdateStatus:
         """
@@ -289,6 +294,9 @@ class Table(SchemaObject):
                 - `'ignore'`: do nothing and return.
                 - `'replace'` or `'replace_force'`: drop the existing column and add the new column, if it has
                     no dependents.
+            create_default_idx: If `True`, creates a default B-tree index on the newly added column, if eligible.
+                Defaults to `False`; see [`add_btree_index()`][pixeltable.Table.add_btree_index] for column
+                eligibility.
 
         Returns:
             Information about the execution status of the operation.
@@ -340,6 +348,7 @@ class Table(SchemaObject):
         print_stats: bool = False,
         on_error: Literal['abort', 'ignore'] = 'abort',
         if_exists: Literal['error', 'ignore', 'replace'] = 'error',
+        create_default_idx: bool = False,
         **kwargs: exprs.Expr,
     ) -> UpdateStatus:
         """
@@ -353,6 +362,9 @@ class Table(SchemaObject):
                 JSON-serializable object.
             comment: An optional comment; its meaning is user-defined.
             print_stats: If `True`, print execution metrics during evaluation.
+            create_default_idx: If `True`, creates a default B-tree index on the newly added column, if eligible.
+                Defaults to `False`; see [`add_btree_index()`][pixeltable.Table.add_btree_index] for column
+                eligibility.
             on_error: Determines the behavior if an error occurs while evaluating the column expression for at least one
                 row.
 
@@ -565,6 +577,43 @@ class Table(SchemaObject):
             ...     string_embed=string_embedding_fn,
             ...     image_embed=image_embedding_fn,
             ... )
+        """
+
+    @abc.abstractmethod
+    def add_btree_index(
+        self, column: str | ColumnRef, *, idx_name: str | None = None, if_exists: Literal['error', 'ignore'] = 'error'
+    ) -> None:
+        """
+        Add a B-tree index to the table. Once the index is created, it will be automatically kept up-to-date as new
+        rows are inserted into and existing rows are updated in the table.
+
+        A B-tree index accelerates equality and range comparisons (used in `where` clauses) and `order_by` on the
+        indexed column. Any non-boolean scalar column (`String`, `Int`, `Float`, `Timestamp`, `Date`) or non-computed
+        media column (`Image`, `Video`, `Audio`, `Document`) is supported; the index on a media column is over the
+        file URL. The column must be stored and, if a media column, must not be produced by a view iterator.
+
+        Args:
+            column: The name of, or reference to, the column to be indexed; must be an indexable scalar or media
+                column (see above).
+            idx_name: An optional name for the index. If not specified, a name such as `'idx0'` will be generated
+                automatically. If specified, the name must be unique for this table and a valid pixeltable column name.
+            if_exists: Directive for handling an existing B-tree index on the same column, or an existing index with
+                the same name. Must be one of `'error'`, `'ignore'`.
+
+        Raises:
+            Error: If the column already has a B-tree index and `if_exists='error'`, if `idx_name` is already in use
+                by another index, if the specified column does not exist, or if the column has a type that does not
+                support a B-tree index.
+
+        Examples:
+            Add an index to the `name` column of the table `my_table`:
+
+            >>> tbl = pxt.get_table('my_table')
+            >>> tbl.add_btree_index('name')
+
+            The column may also be specified by reference, and the index may be given an explicit name:
+
+            >>> tbl.add_btree_index(tbl.name, idx_name='name_idx')
         """
 
     @abc.abstractmethod

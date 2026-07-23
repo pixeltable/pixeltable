@@ -105,6 +105,17 @@ class EmbeddingIndex:
     precision: Literal['fp16', 'fp32'] = 'fp16'
 
 
+@dataclass(frozen=True)
+class BtreeIndex:
+    """A B-tree index specification used in a TableModel or ViewModel definition."""
+
+    column: Any
+
+
+# An index specification declared as a class attribute in a TableModel or ViewModel definition.
+IndexSpec = EmbeddingIndex | BtreeIndex
+
+
 class TableSpec(TypedDict):
     """Table specification from a TableModel or ViewModel."""
 
@@ -347,13 +358,13 @@ class _AnnotationRecorder(dict):
 class _ModelNamespace(dict):
     """
     Class namespace that manages placeholder column references, ensuring that all declarations (bare annotations,
-    computed column expressions, Column and EmbeddingIndex specifications) are registered promptly and in the exact
+    computed column expressions, Column and index specifications) are registered promptly and in the exact
     order of declaration.
     """
 
     table_spec: TableSpec
     known_cols: dict[str, ColumnSpec]
-    known_idxs: dict[str, EmbeddingIndex]
+    known_idxs: dict[str, IndexSpec]
 
     # Names that are produced by the base query or iterator; these cannot be redefined in the model.
     reserved_cols: dict[str, Literal['base query', 'iterator']]
@@ -404,7 +415,7 @@ class _ModelNamespace(dict):
 
     def set_col_value(self, name: str, value: Any) -> None:
         self._check_reserved(name)
-        if isinstance(value, EmbeddingIndex):
+        if isinstance(value, (EmbeddingIndex, BtreeIndex)):
             if name in self.known_cols or name in self.known_idxs:
                 raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'Index {name!r}: duplicate definition.')
             self.known_idxs[name] = value
@@ -468,7 +479,7 @@ class TableModelMeta(type):
 
     __table_spec__: TableSpec
     __columns__: dict[str, ColumnSpec]
-    __indexes__: dict[str, EmbeddingIndex]
+    __indexes__: dict[str, IndexSpec]
     __bound_table__: Table | None
 
     _binding_root: str | None
@@ -482,7 +493,7 @@ class TableModelMeta(type):
         name: str,
         base: 'TableModelMeta | ModelQuery | None' = None,
         iterator: func.GeneratingFunctionCall | None = None,
-        create_default_idxs: bool = True,
+        create_default_idxs: bool = False,
         media_validation: Literal['on_read', 'on_write'] = 'on_write',
         comment: str | None = None,
         custom_metadata: Any = None,
@@ -718,7 +729,7 @@ class TableModelMeta(type):
             custom_metadata=table_spec['custom_metadata'],
             iterator=table_spec['iterator'],
             base=base,
-            embedding_idxs=cls.__indexes__,
+            idxs=cls.__indexes__,
         )
 
         if was_created:
@@ -757,14 +768,14 @@ def prepare_model(
     media_validation: MediaValidation,
     iterator: func.GeneratingFunctionCall | None,
     base: 'pxt.Query | None',
-    embedding_idxs: dict[str, EmbeddingIndex],
+    idxs: dict[str, IndexSpec],
 ) -> tuple[
     func.GeneratingFunctionCall | None, list[catalog.Column], list[tuple[catalog.Column, str | None, index.IndexBase]]
 ]:
     """
-    Given model declarations in the form of columns, base, iterator, and embedding_idx specifications, along with
+    Given model declarations in the form of columns, base, iterator, and index specifications, along with
     the relevant metadata, assembles lists of additional columns and additional indices to be created in the table.
-    The outputs will be fully resolved (ModelColumnRefs replaced with actual ColumnRefs and EmbeddingIndex
+    The outputs will be fully resolved (ModelColumnRefs replaced with actual ColumnRefs and the index-spec
     dataclass instances replaced with actual instances of index.IndexBase).
 
     Returns: a tuple of (rebound iterator, additional columns, additional idxs).
@@ -875,32 +886,37 @@ def prepare_model(
             perform_validation=subst_spec.get('media_validation', media_validation) == 'on_read',
         )
 
-    # Resolve each declared embedding index against the model's visible columns.
+    # Resolve each declared index against the model's visible columns.
     resolved_idxs: list[tuple[catalog.Column, str | None, index.IndexBase]] = []
-    for idx_name, idx_spec in embedding_idxs.items():
+    for idx_name, idx_spec in idxs.items():
         if not isinstance(idx_spec.column, ModelColumnRef):
             raise excs.RequestError(
-                excs.ErrorCode.INVALID_SCHEMA,
-                f'Embedding index {idx_name!r} in {display_name} has an invalid column reference.',
+                excs.ErrorCode.INVALID_SCHEMA, f'Index {idx_name!r} in {display_name} has an invalid column reference.'
             )
         col_name = idx_spec.column.name
         if col_name not in visible_cols:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA,
-                f'Embedding index {idx_name!r} in {display_name} references unknown column {col_name!r}.',
+                f'Index {idx_name!r} in {display_name} references unknown column {col_name!r}.',
             )
-        idx = index.EmbeddingIndex(
-            metric=idx_spec.metric,
-            precision=idx_spec.precision,
-            embed=idx_spec.embedding,
-            string_embed=idx_spec.string_embed,
-            image_embed=idx_spec.image_embed,
-            audio_embed=idx_spec.audio_embed,
-            video_embed=idx_spec.video_embed,
-            document_embed=idx_spec.document_embed,
-            column=visible_cols[col_name],
-        )
-        resolved_idxs.append((visible_cols[col_name], idx_name, idx))
+        col = visible_cols[col_name]
+        idx: index.IndexBase
+        if isinstance(idx_spec, EmbeddingIndex):
+            idx = index.EmbeddingIndex(
+                metric=idx_spec.metric,
+                precision=idx_spec.precision,
+                embed=idx_spec.embedding,
+                string_embed=idx_spec.string_embed,
+                image_embed=idx_spec.image_embed,
+                audio_embed=idx_spec.audio_embed,
+                video_embed=idx_spec.video_embed,
+                document_embed=idx_spec.document_embed,
+                column=col,
+            )
+        else:
+            assert isinstance(idx_spec, BtreeIndex)
+            idx = index.BtreeIndex()
+        resolved_idxs.append((col, idx_name, idx))
 
     return iterator, additional_cols, resolved_idxs
 

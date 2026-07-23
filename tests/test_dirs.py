@@ -105,11 +105,11 @@ class TestDirs:
     def test_get_dir_tree_error_count(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('errs'), {'x': pxt.Int})
-        t.add_computed_column(y=_fail_on_neg(t.x))
+        t.add_computed_column(y=_fail_on_neg(t.x), create_default_idx=True)
         t.insert([{'x': 1}, {'x': -1}, {'x': -2}, {'x': 3}], on_error='ignore')
 
         # Two failing rows; pixeltable counts each error per affected column slot, so the reported
-        # count is 4 (= 2 rows x 2 slots: the computed column 'y' plus the row-level error slot).
+        # count is 4 (= 2 rows x 2 slots: the computed column 'y' plus the index value column).
         tree = pxt.get_dir_tree(p(''))
         assert len(tree) == 1
         node = tree[0]
