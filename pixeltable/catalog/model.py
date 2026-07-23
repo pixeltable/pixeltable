@@ -931,7 +931,8 @@ def prepare_model(
     return iterator, additional_cols, resolved_idxs
 
 
-class Updates(TypedDict):
+class CatalogUpdates(TypedDict):
+    """Used for proxy communication of changes that need to be applied to a catalog table during update_all()."""
     path: catalog.Path
     new_columns: dict[str, ColumnSpec]
     dropped_columns: list[str]
@@ -945,13 +946,18 @@ def prepare_model_updates(
     new_columns: dict[str, ColumnSpec],
     new_idxs: dict[str, EmbeddingIndex],
 ) -> tuple[list[catalog.Column], list[tuple[catalog.Column, str | None, index.IndexBase]]]:
-    visible_cols: dict[str, catalog.Column] = {}
+    """
+    Given `new_columns` and `new_idxs` as declared by a model, resolves them into proper catalog abstractions
+    in preparation for catalog changes. This is the analog of `prepare_model()` for `update_all()`.
+    """
+
+    user_cols: dict[str, catalog.Column] = {}
     subst_dict: dict[exprs.Expr, exprs.Expr] = {}
 
     # Pre-populate the visible columns and substitution dict with the existing table's visible columns.
     # This includes iterator columns and base table columns.
     for col in tvp.columns():
-        visible_cols[col.name] = col
+        user_cols[col.name] = col
         subst_dict[ModelColumnRef(col.name)] = exprs.ColumnRef(
             col.column_version_md(), perform_validation=(col.media_validation == MediaValidation.ON_READ)
         )
@@ -959,27 +965,27 @@ def prepare_model_updates(
     tbl_handle = tvp.tbl_version
     next_col_id = itertools.count(start=tvp.tbl_version.get().next_col_id())
 
-    # Process any additional columns specified in the view model body.
-    additional_cols: list[catalog.Column] = []
+    # If this is a view, process any additional columns specified in the view model body.
+    resolved_cols: list[catalog.Column] = []
     for name, spec in new_columns.items():
-        subst_spec = spec.copy()
-        if 'value' in subst_spec:
-            subst_spec['value'] = subst_spec['value'].substitute(subst_dict)
-            residual_placeholders = list(subst_spec['value'].subexprs(ModelColumnRef))
+        resolved_spec = spec.copy()
+        if 'value' in resolved_spec:
+            resolved_spec['value'] = resolved_spec['value'].substitute(subst_dict)
+            residual_placeholders = list(resolved_spec['value'].subexprs(ModelColumnRef))
             if len(residual_placeholders) > 0:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
                     f'Column {name!r} in {display_name} references columns that are not in '
                     f"the model's scope: {[c.name for c in residual_placeholders]}",
                 )
-        catalog_col = catalog.Column.create(name, subst_spec)
+        catalog_col = catalog.Column.create(name, resolved_spec)
         catalog_col.tbl_handle = tbl_handle
         catalog_col.id = next(next_col_id)
-        additional_cols.append(catalog_col)
-        visible_cols[name] = catalog_col
+        resolved_cols.append(catalog_col)
+        user_cols[name] = catalog_col
         subst_dict[ModelColumnRef(name, catalog_col.col_type)] = exprs.ColumnRef(
             catalog_col.column_version_md(),
-            perform_validation=subst_spec.get('media_validation', tvp.media_validation().name.lower()) == 'on_read',
+            perform_validation=resolved_spec.get('media_validation', tvp.media_validation().name.lower()) == 'on_read',
         )
 
     # Resolve each declared embedding index against the model's visible columns.
@@ -991,7 +997,7 @@ def prepare_model_updates(
                 f'Embedding index {idx_name!r} in {display_name} has an invalid column reference.',
             )
         col_name = idx_spec.column.name
-        if col_name not in visible_cols:
+        if col_name not in user_cols:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA,
                 f'Embedding index {idx_name!r} in {display_name} references unknown column {col_name!r}.',
@@ -1005,11 +1011,11 @@ def prepare_model_updates(
             audio_embed=idx_spec.audio_embed,
             video_embed=idx_spec.video_embed,
             document_embed=idx_spec.document_embed,
-            column=visible_cols[col_name],
+            column=user_cols[col_name],
         )
-        resolved_idxs.append((visible_cols[col_name], idx_name, idx))
+        resolved_idxs.append((user_cols[col_name], idx_name, idx))
 
-    return additional_cols, resolved_idxs
+    return resolved_cols, resolved_idxs
 
 
 class SchemaChange(TypedDict):
@@ -1466,7 +1472,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
 
         else:
             binding_root = TableModelMeta._normalize_binding_root(binding_root)
-            updates: list[Updates] = []
+            updates: list[CatalogUpdates] = []
             for name, d in to_update:
                 model = registered_models[name]
                 new_col_names = [c['name'] for c in d['changes'] if c['target'] == 'column' and c['op'] == 'add']
@@ -1483,7 +1489,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                         )
                     new_columns[col_name] = spec
                 updates.append(
-                    Updates(
+                    CatalogUpdates(
                         path=catalog.Path.parse(f'{binding_root}{name}'),
                         new_columns=new_columns,
                         dropped_columns=dropped_col_names,
