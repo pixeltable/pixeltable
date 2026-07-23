@@ -327,6 +327,10 @@ def _free_disk_space() -> None:
     # In CI, we sometimes run into disk space issues. We try to mitigate this by clearing out various caches between
     # tests.
 
+    if Env._instance is None:
+        # Pixeltable was never initialized in this process, so there's nothing to clean up.
+        return
+
     # Clear the temp store and media dir
     try:
         TempStore.clear()
