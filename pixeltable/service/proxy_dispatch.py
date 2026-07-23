@@ -420,6 +420,11 @@ def _rename_column(request: ProxyRequest, tbl: LocalTable) -> None:
     tbl.rename_column(kwargs['old_name'], kwargs['new_name'])
 
 
+def _alter_column(request: ProxyRequest, tbl: LocalTable) -> None:
+    kwargs = _deserialize_args(request)
+    tbl.alter_column(kwargs['column'], type_=kwargs['type_'])
+
+
 def _add_embedding_index(request: ProxyRequest, tbl: LocalTable) -> None:
     kwargs = _deserialize_args(request)
     tbl.add_embedding_index(
@@ -548,6 +553,7 @@ _HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest], Any]] = {
 # snapshot_path_key is behind); reads run unconditionally.
 _MUTATION_METHODS: frozenset[str] = frozenset(
     {
+        'alter_column',
         'insert',
         'insert_source',
         'insert_hf_dataset',
@@ -571,6 +577,7 @@ _MUTATION_METHODS: frozenset[str] = frozenset(
 
 # Path-bearing Table methods: handler(request, tbl) -> result; handle() resolves tbl and sends current md back.
 _TABLE_HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest, 'LocalTable'], Any]] = {
+    ('Table', 'alter_column'): _alter_column,
     ('Table', 'get_metadata'): _get_metadata,
     ('Table', '_path'): _get_path,
     ('Table', 'describe'): _describe,
