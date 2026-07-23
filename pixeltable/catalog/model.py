@@ -4,7 +4,6 @@ import __future__
 import dataclasses
 import itertools
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, MutableMapping, TypedDict
 
@@ -57,7 +56,7 @@ for method in FORWARDED_TABLE_METHODS:
     assert hasattr(Table, method), method
 
 
-@dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class Column:
     """A column specification used in a TableModel or ViewModel definition."""
 
@@ -91,7 +90,7 @@ class Column:
         return column_spec
 
 
-@dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class EmbeddingIndex:
     """An embedding index specification used in a TableModel or ViewModel definition."""
 
@@ -1065,62 +1064,83 @@ def _resolution(
     return 'update_additive'
 
 
-def _model_column_properties(spec: ColumnSpec, default_media_validation: str) -> dict[str, Any]:
-    """The comparable properties of a column declared by `spec`, resolved to match a stored column's metadata.
+@dataclasses.dataclass
+class _ColumnProperties:
+    """The comparable properties of a column, either from a model or from an existing table."""
 
-    A computed column's value expression carries `ModelColumnRef` placeholders, but those render identically to the
-    `ColumnRef`s in the stored expression, so the display strings are directly comparable. Defaults mirror
-    `Column.create` (`stored=True`, `primary_key=False`) and a media column's `media_validation` falls back to the
-    table default, as it does on the stored column.
-    """
-    col_type = _col_type_from_spec(spec)
-    value = spec.get('value')
-    comment = spec.get('comment')
-    return {
-        'type': col_type._to_str(as_schema=True),
-        'value': exprs.Expr.from_object(value).display_str(inline=False) if value is not None else None,
-        'primary_key': spec.get('primary_key', False),
-        'stored': spec.get('stored', True),
-        'media_validation': (spec.get('media_validation') or default_media_validation)
-        if col_type.is_media_type()
-        else None,
-        'comment': comment if comment else None,
-        'custom_metadata': spec.get('custom_metadata'),
-        'destination': str(spec['destination']) if spec.get('destination') is not None else None,
-    }
+    type: str
+    value: str | None
+    primary_key: bool
+    stored: bool
+    media_validation: str | None  # None for non-media columns
+    comment: str | None
+    custom_metadata: Any
+    destination: str | None
+
+    @classmethod
+    def from_spec(cls, spec: ColumnSpec, default_media_validation: str) -> _ColumnProperties:
+        """The comparable properties of a column declared by `spec`, resolved to match a stored column's metadata.
+
+        A computed column's value expression carries `ModelColumnRef` placeholders, but those render identically to
+        the `ColumnRef`s in the stored expression, so the display strings are directly comparable. Defaults mirror
+        `Column.create` (`stored=True`, `primary_key=False`) and a media column's `media_validation` falls back to
+        the table default, as it does on the stored column.
+        """
+        col_type = _col_type_from_spec(spec)
+        value = spec.get('value')
+        comment = spec.get('comment')
+        return cls(
+            type=col_type._to_str(as_schema=True),
+            value=exprs.Expr.from_object(value).display_str(inline=False) if value is not None else None,
+            primary_key=spec.get('primary_key', False),
+            stored=spec.get('stored', True),
+            media_validation=(spec.get('media_validation') or default_media_validation)
+            if col_type.is_media_type()
+            else None,
+            comment=comment if comment else None,
+            custom_metadata=spec.get('custom_metadata'),
+            destination=str(spec['destination']) if spec.get('destination') is not None else None,
+        )
+
+    @classmethod
+    def from_metadata(cls, col_md: ColumnMetadata) -> _ColumnProperties:
+        """The comparable properties of an existing column, drawn from its `ColumnMetadata`."""
+        return cls(
+            type=col_md['type_'],
+            value=col_md['computed_with'],
+            primary_key=col_md['is_primary_key'],
+            stored=col_md['is_stored'],
+            media_validation=col_md['media_validation'],
+            comment=col_md['comment'],
+            custom_metadata=col_md['custom_metadata'],
+            destination=col_md['destination'],
+        )
 
 
-def _existing_column_properties(col_md: ColumnMetadata) -> dict[str, Any]:
-    """The comparable properties of an existing column, drawn from its `ColumnMetadata`."""
-    return {
-        'type': col_md['type_'],
-        'value': col_md['computed_with'],
-        'primary_key': col_md['is_primary_key'],
-        'stored': col_md['is_stored'],
-        'media_validation': col_md['media_validation'],
-        'comment': col_md['comment'],
-        'custom_metadata': col_md['custom_metadata'],
-        'destination': col_md['destination'],
-    }
+@dataclasses.dataclass
+class _TableProperties:
+    """The comparable properties of a table, either from a model or from an existing table."""
 
+    media_validation: str
+    comment: str | None
+    custom_metadata: Any
 
-def _model_table_properties(model: TableModelMeta) -> dict[str, Any]:
-    """The comparable table-level properties declared by a model."""
-    spec = model.__table_spec__
-    return {
-        'media_validation': spec['media_validation'].name.lower(),
-        'comment': spec['comment'],
-        'custom_metadata': spec['custom_metadata'],
-    }
+    @classmethod
+    def from_model(cls, model: TableModelMeta) -> _TableProperties:
+        """The comparable table-level properties declared by a model."""
+        spec = model.__table_spec__
+        return cls(
+            media_validation=spec['media_validation'].name.lower(),
+            comment=spec['comment'],
+            custom_metadata=spec['custom_metadata'],
+        )
 
-
-def _existing_table_properties(md: TableMetadata) -> dict[str, Any]:
-    """The comparable table-level properties of an existing table, drawn from its `TableMetadata`."""
-    return {
-        'media_validation': md['media_validation'],
-        'comment': md['comment'],
-        'custom_metadata': md['custom_metadata'],
-    }
+    @classmethod
+    def from_metadata(cls, md: TableMetadata) -> _TableProperties:
+        """The comparable table-level properties of an existing table, drawn from its `TableMetadata`."""
+        return cls(
+            media_validation=md['media_validation'], comment=md['comment'], custom_metadata=md['custom_metadata']
+        )
 
 
 def _visible_columns(model: TableModelMeta) -> dict[str, ColumnSpec]:
@@ -1246,9 +1266,11 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
                 )
 
         # Table-level properties that differ (media_validation/comment/custom_metadata); unsupported for now.
-        existing_table_props = _existing_table_properties(existing_md)
-        for prop, model_val in _model_table_properties(model).items():
-            existing_val = existing_table_props[prop]
+        model_table_props = _TableProperties.from_model(model)
+        existing_table_props = _TableProperties.from_metadata(existing_md)
+        for prop in model_table_props.__dataclass_fields__:
+            model_val = getattr(model_table_props, prop)
+            existing_val = getattr(existing_table_props, prop)
             if model_val != existing_val:
                 changes.append(
                     SchemaChange(
@@ -1266,9 +1288,13 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
         # applicable via `allow_destructive=True`).
         default_media_validation = model.__table_spec__['media_validation'].name.lower()
         for col_name in sorted(model_cols & existing_cols):
-            model_props = _model_column_properties(visible_columns[col_name], default_media_validation)
-            existing_props = _existing_column_properties(existing_md['columns'][col_name])
-            altered = {prop: mv for prop, mv in model_props.items() if mv != existing_props[prop]}
+            model_props = _ColumnProperties.from_spec(visible_columns[col_name], default_media_validation)
+            existing_props = _ColumnProperties.from_metadata(existing_md['columns'][col_name])
+            altered = [
+                prop
+                for prop in model_props.__dataclass_fields__
+                if getattr(model_props, prop) != getattr(existing_props, prop)
+            ]
             if len(altered) > 0:
                 changes.append(
                     SchemaChange(
@@ -1276,8 +1302,8 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
                         name=col_name,
                         op='alter',
                         severity='unsupported',
-                        model=altered,
-                        existing={prop: existing_props[prop] for prop in altered},
+                        model={prop: getattr(model_props, prop) for prop in altered},
+                        existing={prop: getattr(existing_props, prop) for prop in altered},
                         description=f'column {col_name!r} has altered properties: {", ".join(altered)}',
                     )
                 )
