@@ -173,9 +173,7 @@ def _validate_type_hint(
         )
 
     # media values are served as /media URL strings
-    expected_col_type = (
-        ts.StringType(nullable=col_type.nullable) if col_type.is_media_type() else col_type
-    )
+    expected_col_type = ts.StringType(nullable=col_type.nullable) if col_type.is_media_type() else col_type
     if not annot_col_type.is_supertype_of(expected_col_type):
         raise pxt.RequestError(
             pxt.ErrorCode.TYPE_MISMATCH,

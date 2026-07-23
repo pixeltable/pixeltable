@@ -9,14 +9,13 @@ from uuid import UUID
 import pydantic
 
 import pixeltable.exceptions as excs
-from pixeltable.utils import parse_local_file_path
 from pixeltable import type_system as ts
-
-from ..exprs import ColumnRef
+from pixeltable.utils import parse_local_file_path
 from .globals import normalize_schema
 from .path import Path as CatalogPath
 from .table import Table
 from .table_path import TableMdPath, TablePathKey, TableVersionKey
+from ..exprs import ColumnRef
 
 if TYPE_CHECKING:
     from pathlib import Path
