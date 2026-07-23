@@ -10,6 +10,7 @@ import pydantic
 
 import pixeltable.exceptions as excs
 from pixeltable.utils import parse_local_file_path
+from pixeltable import type_system as ts
 
 from ..exprs import ColumnRef
 from .globals import normalize_schema
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
 
     import torch.utils.data
 
-    from pixeltable import exprs, type_system as ts
+    from pixeltable import exprs
     from pixeltable.func.function import Function
     from pixeltable.row import RowBatch
     from pixeltable.service.proxy_client import ProxyClient
@@ -238,6 +239,14 @@ class TableProxy(Table):
         bound_args = self._dispatch_args(locals())
         self._check_mutable('rename columns of')
         self._dispatch('rename_column', bound_args)
+
+    def alter_column(self, column: str | ColumnRef, *, type_: type) -> None:
+        bound_args = self._dispatch_args(locals())
+        self._check_mutable('alter columns of')
+
+        # normalize type_ to a ColumnType so that it can be serialized
+        bound_args['type_'] = ts.ColumnType.normalize_type(type_, nullable_default=True, allow_builtin_types=False)
+        self._dispatch('alter_column', bound_args)
 
     def add_embedding_index(
         self,

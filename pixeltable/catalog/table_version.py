@@ -951,6 +951,34 @@ class TableVersion:
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Renamed column {old_name} to {new_name} in table {self.name}, new version: {self.version}')
 
+    def alter_column(self, col: Column, type_: ts.ColumnType) -> None:
+        """Alter the type of a column. Currently only supports widening a value column to nullable."""
+        assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
+        assert self.is_mutable
+        assert not col.is_computed
+        assert not col.is_pk
+        if type_ == col.col_type:
+            # no-op
+            return
+
+        valid_change = type_.matches(col.col_type) and not col.col_type.nullable and type_.nullable
+        if not valid_change:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Column {col.name!r} type cannot be changed from {col.col_type} to {type_}',
+            )
+
+        # alter column type from required to nullable
+        old_type = col.col_type
+        col.col_type = type_
+        self._schema_version_md.columns[col.id].col_type = type_.as_dict()
+        self.bump_version(bump_schema_version=True)
+        self._write_md(new_version=True, new_schema_version=True)
+        _logger.info(
+            f'Altered column {col.name!r} type from {old_type} to {type_} in table {self.name}, new version: '
+            f'{self.version}'
+        )
+
     def set_comment(self, new_comment: str | None) -> None:
         _logger.info(f'[{self.name}] Updating comment: {new_comment}')
         self.comment = new_comment

@@ -362,9 +362,12 @@ class ColumnType:
                     return underlying.copy(nullable=True)
         elif origin is Required:
             assert len(type_args) == 1
-            return cls.from_python_type(
+            underlying = cls.from_python_type(
                 type_args[0], nullable_default=False, allow_builtin_types=allow_builtin_types
-            ).copy(nullable=False)
+            )
+            if underlying is None:
+                return None
+            return underlying.copy(nullable=False)
         elif origin in _TYPED_DICT_FIELD_MARKERS:
             # Required[T]/NotRequired[T] mark a TypedDict field's key presence (recorded in __optional_keys__), so
             # the field's value type is simply T
