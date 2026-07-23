@@ -1151,6 +1151,11 @@ class Catalog(CatalogBase):
             # `_column_dependents` is a transaction-start snapshot; a dependent may already have been dropped earlier
             # in this transaction (e.g. a view column dropped before its base dependency), in which case it is no
             # longer a live dependent.
+            # TODO: This is a band-aid for the fact that TableModel.update_all() mutates multiple TableVersions
+            #     in-place during a single transaction. If we reimplement the TableModel.update_all() commit logic
+            #     to instead operate directly on table metadata, then it can be reverted to the original code:
+            #     col = tv.cols_by_id[dependent.col_id]
+            #     result.add(col)
             col = tv.cols_by_id.get(dependent.col_id)
             if col is not None:
                 result.add(col)
