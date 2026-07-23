@@ -1148,8 +1148,12 @@ class Catalog(CatalogBase):
         result: set[Column] = set()
         for dependent in dependents:
             tv = self._get_tbl_version(TableVersionKey(dependent.tbl_id, None))
-            col = tv.cols_by_id[dependent.col_id]
-            result.add(col)
+            # `_column_dependents` is a transaction-start snapshot; a dependent may already have been dropped earlier
+            # in this transaction (e.g. a view column dropped before its base dependency), in which case it is no
+            # longer a live dependent.
+            col = tv.cols_by_id.get(dependent.col_id)
+            if col is not None:
+                result.add(col)
         return result
 
     def _acquire_dir_xlock(
@@ -1794,7 +1798,7 @@ class Catalog(CatalogBase):
             # Now add any new columns or indices, in forward order (base tables first).
             for tvp, tv, update in tbl_info:
                 resolved_cols, resolved_idxs = model.prepare_model_updates(
-                    tvp, tv.display_str(), update['new_columns'], update['new_idxs']
+                    tvp, tv.display_str(), update['new_columns'], update['base_query_columns'], update['new_idxs']
                 )
                 tv.add_columns(resolved_cols, print_stats=False, on_error='abort')
                 for col, idx_name, idx_base in resolved_idxs:

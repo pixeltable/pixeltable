@@ -738,6 +738,9 @@ class TestTableModel:
               sample mismatch (FATAL):
                 model sample   : sample(n=20, n_per_stratum=None, fraction=None, seed=2, [])
                 existing sample: sample(n=10, n_per_stratum=None, fraction=None, seed=1, [])
+              the following columns are new to the model, and will be ADDED:
+                'extra1' = {'value': extra1, 'stored': False}
+                'plustwo' = {'value': id + 2, 'stored': True}
               the following columns are no longer in the model, and will be DROPPED:
                 'plusone'
             Table 'test_kind' (from model `ExampleKindV2`) has differences:
@@ -952,6 +955,24 @@ class TestTableModel:
                         'description': 'view_sample mismatch: '
                         "model='sample(n=20, n_per_stratum=None, fraction=None, seed=2, [])', "
                         "existing='sample(n=10, n_per_stratum=None, fraction=None, seed=1, [])'",
+                    },
+                    {
+                        'target': 'column',
+                        'name': 'extra1',
+                        'op': 'add',
+                        'severity': 'additive',
+                        'model': "{'value': extra1, 'stored': False}",
+                        'existing': None,
+                        'description': "column 'extra1' will be added",
+                    },
+                    {
+                        'target': 'column',
+                        'name': 'plustwo',
+                        'op': 'add',
+                        'severity': 'additive',
+                        'model': "{'value': id + 2, 'stored': True}",
+                        'existing': None,
+                        'description': "column 'plustwo' will be added",
                     },
                     {
                         'target': 'column',

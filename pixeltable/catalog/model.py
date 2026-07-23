@@ -874,7 +874,8 @@ def prepare_model(
                     catalog_col.tbl_handle = tbl_handle
                     visible_cols[col_name] = catalog_col
                     subst_dict[ModelColumnRef(col_name)] = exprs.ColumnRef(
-                        catalog_col.column_version_md(), perform_validation=(media_validation == MediaValidation.ON_READ)
+                        catalog_col.column_version_md(),
+                        perform_validation=(media_validation == MediaValidation.ON_READ),
                     )
 
     # Process any additional columns specified in the view model body.
@@ -935,6 +936,9 @@ class CatalogUpdates(TypedDict):
 
     path: catalog.Path
     new_columns: dict[str, ColumnSpec]
+    # Subset of `new_columns` whose values come from the base query's `select()` list (rather than the model body).
+    # These resolve against the base table's columns instead of the view's own visible columns.
+    base_query_columns: list[str]
     dropped_columns: list[str]
     new_idxs: dict[str, EmbeddingIndex]
     dropped_idxs: list[str]
@@ -944,11 +948,16 @@ def prepare_model_updates(
     tvp: catalog.TableVersionPath,
     display_name: str,
     new_columns: dict[str, ColumnSpec],
+    base_query_columns: list[str],
     new_idxs: dict[str, EmbeddingIndex],
 ) -> tuple[list[catalog.Column], list[tuple[catalog.Column, str | None, index.IndexBase]]]:
     """
     Given `new_columns` and `new_idxs` as declared by a model, resolves them into proper catalog abstractions
     in preparation for catalog changes. This is the analog of `prepare_model()` for `update_all()`.
+
+    Columns named in `base_query_columns` come from the view's base query `select()` list and are resolved against
+    the base table's columns; all other columns are model-body columns, resolved against the view's own visible
+    columns.
     """
 
     user_cols: dict[str, catalog.Column] = {}
@@ -962,15 +971,30 @@ def prepare_model_updates(
             col.column_version_md(), perform_validation=(col.media_validation == MediaValidation.ON_READ)
         )
 
+    # Base-query columns are projections of the base query and resolve against the base table's columns (which,
+    # for a `select()` view, are not among the view's own visible columns above).
+    base_subst_dict: dict[exprs.Expr, exprs.Expr] = {}
+    if len(base_query_columns) > 0 and tvp.base is not None:
+        for col in tvp.base.columns():
+            base_subst_dict[ModelColumnRef(col.name)] = exprs.ColumnRef(
+                col.column_version_md(), perform_validation=(col.media_validation == MediaValidation.ON_READ)
+            )
+
     tbl_handle = tvp.tbl_version
     next_col_id = itertools.count(start=tvp.tbl_version.get().next_col_id())
 
-    # If this is a view, process any additional columns specified in the view model body.
+    # Process base-query columns first, so a model-body column may reference a newly-projected base-query column.
+    base_query_set = set(base_query_columns)
+    ordered_names = [n for n in new_columns if n in base_query_set] + [
+        n for n in new_columns if n not in base_query_set
+    ]
+
     resolved_cols: list[catalog.Column] = []
-    for name, spec in new_columns.items():
-        resolved_spec = spec.copy()
+    for name in ordered_names:
+        resolved_spec = new_columns[name].copy()
         if 'value' in resolved_spec:
-            resolved_spec['value'] = resolved_spec['value'].substitute(subst_dict)
+            resolve_against = base_subst_dict if name in base_query_set else subst_dict
+            resolved_spec['value'] = resolved_spec['value'].substitute(resolve_against)
             residual_placeholders = list(resolved_spec['value'].subexprs(ModelColumnRef))
             if len(residual_placeholders) > 0:
                 raise excs.RequestError(
@@ -983,6 +1007,7 @@ def prepare_model_updates(
         catalog_col.id = next(next_col_id)
         resolved_cols.append(catalog_col)
         user_cols[name] = catalog_col
+        # Make the new column referenceable by subsequent model-body columns.
         subst_dict[ModelColumnRef(name, catalog_col.col_type)] = exprs.ColumnRef(
             catalog_col.column_version_md(),
             perform_validation=resolved_spec.get('media_validation', tvp.media_validation().name.lower()) == 'on_read',
@@ -1157,13 +1182,33 @@ def _visible_columns(model: TableModelMeta) -> dict[str, ColumnSpec]:
     return specs
 
 
+def _base_query_columns(model: TableModelMeta) -> set[str]:
+    """Names of the columns a model's base query projects via its `select()` clause (empty if there is none)."""
+    base = model.__table_spec__['base']
+    if base is None or base.select_clause is None:
+        return set()
+    items, named_items = base.select_clause
+    return {item.name for item in items} | set(named_items.keys())
+
+
+def _format_column_spec(spec: ColumnSpec) -> str:
+    """A display string for a column spec. The `value` expression is rendered via `str()` (not `repr()`), so a bare
+    `ModelColumnRef` placeholder shows as its column name (e.g. `extra1`) rather than `ModelColumnRef('extra1')`,
+    matching how it renders inside a compound expression and how the stored value expression renders."""
+    parts = []
+    for key, val in spec.items():
+        rendered = str(val) if key == 'value' else repr(val)
+        parts.append(f'{key!r}: {rendered}')
+    return '{' + ', '.join(parts) + '}'
+
+
 def _add_column_change(col_name: str, spec: ColumnSpec) -> SchemaChange:
     return SchemaChange(
         target='column',
         name=col_name,
         op='add',
         severity='additive',
-        model=str(spec),
+        model=_format_column_spec(spec),
         existing=None,
         description=f'column {col_name!r} will be added',
     )
@@ -1516,10 +1561,12 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                             spec['type'], nullable_default=True, allow_builtin_types=False
                         )
                     new_columns[col_name] = spec
+                base_query_cols = _base_query_columns(model)
                 updates.append(
                     CatalogUpdates(
                         path=catalog.Path.parse(f'{binding_root}{name}'),
                         new_columns=new_columns,
+                        base_query_columns=[c for c in new_col_names if c in base_query_cols],
                         dropped_columns=dropped_col_names,
                         new_idxs={idx_name: model.__indexes__[idx_name] for idx_name in new_idx_names},
                         dropped_idxs=dropped_idx_names,
