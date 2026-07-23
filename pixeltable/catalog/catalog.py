@@ -1744,7 +1744,7 @@ class Catalog(CatalogBase):
                 explicit_tbl_id=tbl_id,
             )
 
-    def update_from_model(self, updates: list[model.Updates]) -> None:
+    def update_from_model(self, updates: list[model.CatalogUpdates]) -> None:
         """Update a table or view from a declarative model.
 
         If the table does not exist, raises NotFoundError. If the model is incompatible with the existing table,

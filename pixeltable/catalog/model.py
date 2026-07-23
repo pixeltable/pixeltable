@@ -933,6 +933,7 @@ def prepare_model(
 
 class CatalogUpdates(TypedDict):
     """Used for proxy communication of changes that need to be applied to a catalog table during update_all()."""
+
     path: catalog.Path
     new_columns: dict[str, ColumnSpec]
     dropped_columns: list[str]
