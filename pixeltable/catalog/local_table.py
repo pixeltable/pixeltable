@@ -701,6 +701,8 @@ class LocalTable(Table):
             )
         if_exists_ = IfExistsParam.validated(if_exists, 'if_exists')
 
+        self._check_mutable('add an index to')
+
         if idx_name is not None:
             # Index name must be a valid pixeltable column name
             Column.validate_name(idx_name)
@@ -708,7 +710,6 @@ class LocalTable(Table):
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
-            self._check_mutable('add an index to')
             col = self._resolve_column_parameter(column)
 
             if col.tbl_handle.id != self._tbl_version.get().id:
@@ -739,7 +740,7 @@ class LocalTable(Table):
             idx = index.BtreeIndex()
             _ = self._tbl_version.get().add_index(col, idx_name=idx_name, idx=idx)
 
-            FileCache.get().emit_eviction_warnings()
+        FileCache.get().emit_eviction_warnings()
 
     def _resolve_btree_index_name_collision(self, idx_name: str, if_exists: IfExistsParam) -> bool:
         """Returns True if a B-tree addition is a no-op based on if_exists and another b-tree index with the same name
