@@ -32,6 +32,7 @@ def udf(
     is_property: bool = False,
     is_deterministic: bool = True,
     resource_pool: str | None = None,
+    run_in_thread: bool = False,
     type_substitutions: Sequence[dict] | None = None,
     display_name: str | None = None,
     _force_stored: bool = False,
@@ -77,6 +78,7 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
         is_property = kwargs.pop('is_property', None)
         is_deterministic = kwargs.pop('is_deterministic', None)
         resource_pool = kwargs.pop('resource_pool', None)
+        run_in_thread = kwargs.pop('run_in_thread', False)
         type_substitutions = kwargs.pop('type_substitutions', None)
         display_name = kwargs.pop('display_name', None)
         force_stored = kwargs.pop('_force_stored', False)
@@ -96,6 +98,7 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
                 is_property=is_property,
                 is_deterministic=is_deterministic,
                 resource_pool=resource_pool,
+                run_in_thread=run_in_thread,
                 type_substitutions=type_substitutions,
                 display_name=display_name,
                 force_stored=force_stored,
@@ -115,6 +118,7 @@ def make_function(
     is_property: bool = False,
     is_deterministic: bool = True,
     resource_pool: str | None = None,
+    run_in_thread: bool = False,
     type_substitutions: Sequence[dict] | None = None,
     function_name: str | None = None,
     display_name: str | None = None,
@@ -236,6 +240,22 @@ def make_function(
             )
         py_fn = substitute_fn
 
+    if run_in_thread:
+        if batch_size is not None:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{errmsg_name}(): run_in_thread cannot be combined with batch_size',
+            )
+        if resource_pool is not None:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'{errmsg_name}(): run_in_thread cannot be combined with resource_pool',
+            )
+        if inspect.iscoroutinefunction(py_fn):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION, f'{errmsg_name}(): run_in_thread requires a synchronous function'
+            )
+
     result = CallableFunction(
         signatures=signatures,
         py_fns=[py_fn] * len(signatures),  # All signatures share the same Python function
@@ -246,6 +266,7 @@ def make_function(
         is_method=is_method,
         is_property=is_property,
         is_deterministic=is_deterministic,
+        run_in_thread=run_in_thread,
     )
     if resource_pool is not None:
         result.resource_pool(lambda: resource_pool)
