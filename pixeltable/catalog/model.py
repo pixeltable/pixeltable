@@ -806,7 +806,7 @@ def prepare_model(
 
     # A registry of visible columns of the table (base table/query columns, iterator columns,
     # and additional columns).
-    visible_cols: dict[str, catalog.Column] = {}
+    user_cols: dict[str, catalog.Column] = {}
 
     # A substitution dictionary resolving ModelColumnRefs to actual ColumnRefs; we'll build this up incrementally
     # as we process the model's columns.
@@ -830,7 +830,7 @@ def prepare_model(
             catalog_col = catalog.Column.create(name, {'type': output.col_type, 'stored': output.is_stored})  # type: ignore[arg-type]
             catalog_col.id = next(next_col_id)
             catalog_col.tbl_handle = tbl_handle
-            visible_cols[name] = catalog_col
+            user_cols[name] = catalog_col
             subst_dict[ModelColumnRef(name)] = exprs.ColumnRef(
                 catalog_col.column_version_md(), perform_validation=(media_validation == MediaValidation.ON_READ)
             )
@@ -842,8 +842,8 @@ def prepare_model(
             for col in base._first_tbl.columns():
                 # Iterator column names take precedence over base table column names in the model namespace, so
                 # only update the substitution dicts if the name isn't already present.
-                if col.name not in visible_cols:
-                    visible_cols[col.name] = col
+                if col.name not in user_cols:
+                    user_cols[col.name] = col
                     ref = exprs.ColumnRef(col.column_version_md())
                     subst_dict[ModelColumnRef(col.name)] = ref
         else:
@@ -872,7 +872,7 @@ def prepare_model(
                     catalog_col = catalog.Column.create(col_name, expr.col_type)
                     catalog_col.id = id
                     catalog_col.tbl_handle = tbl_handle
-                    visible_cols[col_name] = catalog_col
+                    user_cols[col_name] = catalog_col
                     subst_dict[ModelColumnRef(col_name)] = exprs.ColumnRef(
                         catalog_col.column_version_md(),
                         perform_validation=(media_validation == MediaValidation.ON_READ),
@@ -895,7 +895,7 @@ def prepare_model(
         catalog_col.tbl_handle = tbl_handle
         catalog_col.id = next(next_col_id)
         additional_cols.append(catalog_col)
-        visible_cols[name] = catalog_col
+        user_cols[name] = catalog_col
         subst_dict[ModelColumnRef(name, catalog_col.col_type)] = exprs.ColumnRef(
             catalog_col.column_version_md(),
             perform_validation=subst_spec.get('media_validation', media_validation.name.lower()) == 'on_read',
@@ -910,7 +910,7 @@ def prepare_model(
                 f'Embedding index {idx_name!r} in {display_name} has an invalid column reference.',
             )
         col_name = idx_spec.column.name
-        if col_name not in visible_cols:
+        if col_name not in user_cols:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA,
                 f'Embedding index {idx_name!r} in {display_name} references unknown column {col_name!r}.',
@@ -924,9 +924,9 @@ def prepare_model(
             audio_embed=idx_spec.audio_embed,
             video_embed=idx_spec.video_embed,
             document_embed=idx_spec.document_embed,
-            column=visible_cols[col_name],
+            column=user_cols[col_name],
         )
-        resolved_idxs.append((visible_cols[col_name], idx_name, idx))
+        resolved_idxs.append((user_cols[col_name], idx_name, idx))
 
     return iterator, additional_cols, resolved_idxs
 
@@ -1057,6 +1057,9 @@ class SchemaChange(TypedDict):
     description: str
 
 
+DiffResolution = Literal['up_to_date', 'create', 'update_additive', 'update_destructive', 'unsupported']
+
+
 class TableDiff(TypedDict):
     """How one model differs from its catalog table."""
 
@@ -1064,7 +1067,7 @@ class TableDiff(TypedDict):
     model_cls: str  # model class name, so an agent can map back to code
     kind: Literal['table', 'view']
     exists: bool
-    resolution: Literal['up_to_date', 'create', 'update_additive', 'update_destructive', 'unsupported']
+    resolution: DiffResolution
     changes: list[SchemaChange]
 
 
@@ -1073,9 +1076,7 @@ class TableDiff(TypedDict):
 _TABLE_PROP_NAMES: tuple[str, ...] = ('media_validation', 'comment', 'custom_metadata')
 
 
-def _resolution(
-    exists: bool, changes: list[SchemaChange]
-) -> Literal['up_to_date', 'create', 'update_additive', 'update_destructive', 'unsupported']:
+def _resolution(exists: bool, changes: list[SchemaChange]) -> DiffResolution:
     """Reduce a table's list of changes to the single action `update_all()` would take."""
     if not exists:
         return 'create'
@@ -1168,7 +1169,7 @@ class _TableProperties:
         )
 
 
-def _visible_columns(model: TableModelMeta) -> dict[str, ColumnSpec]:
+def _user_columns(model: TableModelMeta) -> dict[str, ColumnSpec]:
     """The model's declared columns, plus any its base query projects via a `select()` clause."""
     specs: dict[str, ColumnSpec] = dict(model.__columns__)
     base = model.__table_spec__['base']
@@ -1236,8 +1237,8 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
     results: dict[str, TableDiff] = {}
 
     for name, model in registered_models.items():
-        visible_columns = _visible_columns(model)
-        model_cols = set(visible_columns.keys())
+        user_cols = _user_columns(model)
+        model_cols = set(user_cols.keys())
         model_idxs = set(model.__indexes__.keys())
         base = model.__table_spec__['base']
         model_kind: Literal['table', 'view'] = 'table' if base is None else 'view'
@@ -1249,11 +1250,11 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
         bound_path = f'{binding_root}{name}'
         existing = model._resolve_tbl(binding_root, if_not_exists='ignore')
 
+        changes: list[SchemaChange]
+
         if existing is None:
             # The table does not yet exist; every column and index is an addition.
-            changes: list[SchemaChange] = [
-                _add_column_change(col_name, visible_columns[col_name]) for col_name in sorted(model_cols)
-            ]
+            changes = [_add_column_change(col_name, user_cols[col_name]) for col_name in sorted(model_cols)]
             changes += [_add_index_change(idx_name, model.__indexes__[idx_name]) for idx_name in sorted(model_idxs)]
             results[name] = TableDiff(
                 path=bound_path,
@@ -1333,7 +1334,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
         # applicable via `allow_destructive=True`).
         default_media_validation = model.__table_spec__['media_validation'].name.lower()
         for col_name in sorted(model_cols & existing_cols):
-            model_props = _ColumnProperties.from_spec(visible_columns[col_name], default_media_validation)
+            model_props = _ColumnProperties.from_spec(user_cols[col_name], default_media_validation)
             existing_props = _ColumnProperties.from_metadata(existing_md['columns'][col_name])
             altered = [
                 prop
@@ -1355,7 +1356,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
 
         # Additive/destructive column and index changes.
         for col_name in sorted(model_cols - existing_cols):
-            changes.append(_add_column_change(col_name, visible_columns[col_name]))
+            changes.append(_add_column_change(col_name, user_cols[col_name]))
         for col_name in sorted(existing_cols - model_cols):
             changes.append(
                 SchemaChange(
@@ -1554,10 +1555,10 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                 # Resolve `type` annotations to ColumnTypes, mirroring `_create()`, and tag each column's origin.
                 # Iterate in declaration order (not the diff's sorted order), so a new column may depend on an
                 # earlier new column, as it can at create time.
-                visible_columns = _visible_columns(model)
+                user_cols = _user_columns(model)
                 base_query_cols = _base_query_columns(model)
                 new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]] = {}
-                for col_name, col_spec in visible_columns.items():
+                for col_name, col_spec in user_cols.items():
                     if col_name not in new_col_names:
                         continue
                     spec = col_spec.copy()

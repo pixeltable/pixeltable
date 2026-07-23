@@ -638,6 +638,7 @@ class TestTableModel:
         TableModel.create_all(root)
 
         # Re-diffing the original models reports no differences (in particular, the view's iterator round-trips).
+        assert all(d['resolution'] == 'up_to_date' for d in TableModel.get_model_diff(root).values())
         with capture_console_output() as out:
             TableModel.diff_all(root)
         assert out.getvalue().strip() == 'Catalog is up to date.'
@@ -1196,7 +1197,6 @@ class TestTableModel:
 
         res = ExampleQueryViewV3.select().collect()
         assert res['plustwo'] == [3.0, 4.0, 5.0, 6.0]
-
 
     def test_update_all_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """`update_all()` raises an error if a model's schema is inconsistent with the existing table."""
