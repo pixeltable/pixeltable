@@ -242,8 +242,9 @@ class Table(SchemaObject):
                 Note that the `if_exists` parameter is applied to all columns in the schema.
                 To apply different behaviors to different columns, please use
                 [`add_column()`][pixeltable.Table.add_column] for each column.
-            create_default_idxs: If `True`, creates a B-tree index on each newly added scalar or media column
-                (excluding boolean columns). Defaults to `False`; use `add_btree_index()` to create an index explicitly.
+            create_default_idxs: If `True`, creates a default B-tree index on each newly added eligible column.
+                Defaults to `False`; see [`add_btree_index()`][pixeltable.Table.add_btree_index] for column
+                eligibility.
 
         Returns:
             Information about the execution status of the operation.
@@ -293,9 +294,9 @@ class Table(SchemaObject):
                 - `'ignore'`: do nothing and return.
                 - `'replace'` or `'replace_force'`: drop the existing column and add the new column, if it has
                     no dependents.
-            create_default_idx: If `True`, creates a B-tree index on the newly added column when it is a scalar
-                or media column (excluding boolean columns). Defaults to `False`; use `add_btree_index()` to create an
-                index explicitly.
+            create_default_idx: If `True`, creates a default B-tree index on the newly added column, if eligible.
+                Defaults to `False`; see [`add_btree_index()`][pixeltable.Table.add_btree_index] for column
+                eligibility.
 
         Returns:
             Information about the execution status of the operation.
@@ -361,9 +362,9 @@ class Table(SchemaObject):
                 JSON-serializable object.
             comment: An optional comment; its meaning is user-defined.
             print_stats: If `True`, print execution metrics during evaluation.
-            create_default_idx: If `True`, creates a B-tree index on the newly added column when it is a scalar
-                or media column (excluding boolean columns). Defaults to `False`; use `add_btree_index()` to create an
-                index explicitly.
+            create_default_idx: If `True`, creates a default B-tree index on the newly added column, if eligible.
+                Defaults to `False`; see [`add_btree_index()`][pixeltable.Table.add_btree_index] for column
+                eligibility.
             on_error: Determines the behavior if an error occurs while evaluating the column expression for at least one
                 row.
 

@@ -88,9 +88,9 @@ def create_table(
         schema_overrides: Must be used in conjunction with a `source`.
             If specified, then columns in `schema_overrides` will be given the specified types.
             (Pixeltable will attempt to infer the types of any columns not specified.)
-        create_default_idxs: If `True`, creates a B-tree index on every scalar and media column that is not computed,
-            except for boolean columns. Defaults to `False`; use `Table.add_btree_index()` to create an index
-            explicitly.
+        create_default_idxs: If `True`, creates a default B-tree index on each eligible column. Defaults to `False`;
+            see [`Table.add_btree_index()`][pixeltable.Table.add_btree_index] for column eligibility and for adding
+            an index explicitly.
         on_error: Determines the behavior if an error occurs while evaluating a computed column or detecting an
             invalid media file (such as a corrupt image) for one of the inserted rows.
 
@@ -309,8 +309,9 @@ def create_view(
             [`create_table`][pixeltable.create_table].
         is_snapshot: Whether the view is a snapshot. Setting this to `True` is equivalent to calling
             [`create_snapshot`][pixeltable.create_snapshot].
-        create_default_idxs: Whether to create default indexes on the view's columns (the base's columns are excluded).
-            Cannot be `True` for snapshots.
+        create_default_idxs: If `True`, creates a default B-tree index on each eligible column of the view (the base's
+            columns are excluded). Cannot be `True` for snapshots. Defaults to `False`; see
+            [`Table.add_btree_index()`][pixeltable.Table.add_btree_index] for column eligibility.
         iterator: The iterator to use for this view. If specified, then this view will be a one-to-many view of
             the base table.
         comment: Optional comment for the view.

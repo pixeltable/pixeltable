@@ -735,10 +735,10 @@ class LocalTable(Table):
                     )
                 assert if_exists_ == IfExistsParam.IGNORE
                 return
-            idx = index.BtreeIndex()
-            _ = idx.create_value_expr(col)  # validate column type
 
+            idx = index.BtreeIndex()
             _ = self._tbl_version.get().add_index(col, idx_name=idx_name, idx=idx)
+
             FileCache.get().emit_eviction_warnings()
 
     def _resolve_btree_index_name_collision(self, idx_name: str, if_exists: IfExistsParam) -> bool:
