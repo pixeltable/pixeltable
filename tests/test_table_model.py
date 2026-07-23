@@ -678,7 +678,9 @@ class TestTableModel:
         class ExampleQueryViewV2(
             TableModelV2,
             name='test_query_view',
-            base=ExampleTableV2.select(ExampleTableV2.id).where(ExampleTableV2.id > 5).sample(n=20, seed=2),
+            base=ExampleTableV2.select(ExampleTableV2.id, ExampleTableV2.extra1, plustwo=(ExampleTableV2.id + 2))
+            .where(ExampleTableV2.id > 5)
+            .sample(n=20, seed=2),
         ):
             id_copy = Column(value=ExampleTableV2.id, stored=False)
             fc1 = ExampleTableV2.id + 1
@@ -1053,6 +1055,15 @@ class TestTableModel:
         class ExampleView(TableModel, name='test_view', base=ExampleTable):
             vc1 = ExampleTable.value + 1
 
+        class ExampleQueryView(
+            TableModel,
+            name='test_query_view',
+            base=ExampleTable.select(ExampleTable.id, ExampleTable.value, plusone=(ExampleTable.value + 1))
+            .where(ExampleTable.value > 0.5)
+            .sample(n=10, seed=1),
+        ):
+            fc1 = ExampleTable.id + 1
+
         TableModel.create_all(root)
 
         images = get_image_files()
@@ -1074,6 +1085,22 @@ class TestTableModel:
         class ExampleViewV2(TableModelV2, name='test_view', base=ExampleTableV2):
             vc1 = ExampleTableV2.value + 1
             vc2 = ExampleTableV2.value + 2  # new column
+            plus_twenty = ExampleTableV2.plus_ten + 10  # new column that depends on a new column of the base table
+
+        class ExampleQueryViewV2(
+            TableModelV2,
+            name='test_query_view',
+            base=ExampleTableV2.select(
+                ExampleTableV2.id,
+                ExampleTableV2.value,
+                ExampleTableV2.note,
+                plusone=(ExampleTableV2.value + 1),
+                plustwo=(ExampleTableV2.value + 2),
+            )
+            .where(ExampleTableV2.value > 0.5)
+            .sample(n=10, seed=1),
+        ):
+            fc1 = ExampleTableV2.id + 1
 
         # Purely additive, so no `allow_destructive` needed.
         TableModelV2.update_all(root)
@@ -1108,6 +1135,16 @@ class TestTableModel:
             vc2 = ExampleTableV3.value + 2  # kept
             vc3 = ExampleTableV3.value + 3  # added
             # 'vc1' dropped
+
+        class ExampleQueryViewV3(
+            TableModelV3,
+            name='test_query_view',
+            # 'note' and 'plusone' dropped from the query
+            base=ExampleTableV3.select(ExampleTableV3.id, ExampleTableV3.value, plustwo=(ExampleTableV3.value + 2))
+            .where(ExampleTableV3.value > 0.5)
+            .sample(n=10, seed=1),
+        ):
+            fc1 = ExampleTableV3.id + 1
 
         # Refuses without opt-in, since columns are being dropped.
         with pxt_raises(excs.ErrorCode.SCHEMA_MISMATCH, match='destructive'):

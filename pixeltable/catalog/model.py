@@ -832,7 +832,7 @@ def prepare_model(
             catalog_col.tbl_handle = tbl_handle
             visible_cols[name] = catalog_col
             subst_dict[ModelColumnRef(name)] = exprs.ColumnRef(
-                catalog_col.column_version_md(), perform_validation=(media_validation == 'on_read')
+                catalog_col.column_version_md(), perform_validation=(media_validation == MediaValidation.ON_READ)
             )
 
     if base is not None:
@@ -874,7 +874,7 @@ def prepare_model(
                     catalog_col.tbl_handle = tbl_handle
                     visible_cols[col_name] = catalog_col
                     subst_dict[ModelColumnRef(col_name)] = exprs.ColumnRef(
-                        catalog_col.column_version_md(), perform_validation=(media_validation == 'on_read')
+                        catalog_col.column_version_md(), perform_validation=(media_validation == MediaValidation.ON_READ)
                     )
 
     # Process any additional columns specified in the view model body.
@@ -1507,9 +1507,10 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                 new_idx_names = [c['name'] for c in d['changes'] if c['target'] == 'index' and c['op'] == 'add']
                 dropped_idx_names = [c['name'] for c in d['changes'] if c['target'] == 'index' and c['op'] == 'drop']
                 # Resolve `type` annotations to ColumnTypes, mirroring `_create()`.
+                visible_columns = _visible_columns(model)
                 new_columns: dict[str, ColumnSpec] = {}
                 for col_name in new_col_names:
-                    spec = model.__columns__[col_name].copy()
+                    spec = visible_columns[col_name].copy()
                     if 'type' in spec:
                         spec['type'] = ts.ColumnType.normalize_type(  # type: ignore[typeddict-item]
                             spec['type'], nullable_default=True, allow_builtin_types=False
