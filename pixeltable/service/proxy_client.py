@@ -7,6 +7,7 @@ the identical pixeltable exception. Requests are POSTed to a proxy daemon's /rpc
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 from uuid import UUID
 
@@ -57,12 +58,20 @@ class ProxyClient:
         self._http = httpx.Client(base_url=endpoint, timeout=httpx.Timeout(120.0))
 
     def _send(self, request_json: str, parts: list[bytes]) -> tuple[str, list[bytes]]:
-        """Transport: POST the request (json head + binary parts) to /rpc, return the response (head + parts)."""
+        """Encode the request (json head + binary parts), POST it to /rpc, and decode the response."""
         body = encode_body(request_json.encode(), parts)
+        head, response_parts = decode_body(self._post(body))
+        return head.decode(), response_parts
+
+    def _post(self, body: bytes) -> bytes:
+        """Transport seam: POST the encoded octet-stream body to /rpc and return the raw response bytes.
+
+        Subclasses override this alone to change the transport (e.g. a TLS tunnel); the wire protocol
+        (encode_body/decode_body) stays in _send and is never reimplemented by subclasses.
+        """
         response = self._http.post('/rpc', content=body, headers={'Content-Type': 'application/octet-stream'})
         response.raise_for_status()
-        head, response_parts = decode_body(response.content)
-        return head.decode(), response_parts
+        return response.content
 
     def send(
         self,
@@ -126,6 +135,15 @@ class ProxyClient:
         """Resolve any MediaPath in the result to a fetchable daemon URL."""
         return _replace_media_paths(result, self._media_url)
 
+    def _fetch_url(self, url: str) -> Path:
+        """Transport seam: download one media URL to a temp file.
+
+        Defaults to the shared fetch_url (handles the daemon's http media URLs plus external s3/http).
+        Subclasses override to change the transport (e.g. pull daemon media over a TLS tunnel); all
+        FileCache/dedup bookkeeping stays in fetch_media.
+        """
+        return fetch_url(url)
+
     def fetch_media(self, urls: list[str]) -> dict[str, str]:
         """Fetch each daemon/remote media URL into the local store, returning {url: local_path}."""
         cache = FileCache.get()
@@ -142,7 +160,7 @@ class ProxyClient:
             # fetch_url() handles every supported scheme (the daemon's http media URLs as well as external s3/http
             # media); fetch concurrently, but keep FileCache bookkeeping on this thread (not thread-safe)
             with ThreadPoolExecutor(max_workers=min(16, len(to_fetch))) as executor:
-                tmp_paths = list(executor.map(fetch_url, to_fetch))
+                tmp_paths = list(executor.map(self._fetch_url, to_fetch))
             for url, tmp in zip(to_fetch, tmp_paths):
                 resolved[url] = str(cache.add(_PROXY_MEDIA_TBL_ID, _PROXY_MEDIA_COL_ID, url, tmp))
 

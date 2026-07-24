@@ -11,6 +11,7 @@ import logging
 import os
 import pathlib
 import shutil
+import time
 import traceback
 from typing import TYPE_CHECKING, Any, Callable, cast
 from uuid import UUID, uuid4
@@ -42,6 +43,9 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
     """Entry point for an incoming proxy request; always returns a ProxyResponse as (JSON head, binary parts)."""
     request = ProxyRequest.model_validate_json(request_json)
     request._binary_parts = request_parts
+    path_label = request.path_key.get('tbl_key', request.path_key) if request.path_key else ''
+    _logger.debug('%s.%s %s', request.class_name, request.method, path_label)
+    t0 = time.monotonic()
     try:
         if request.protocol_version != PROTOCOL_VERSION:
             raise excs.RequestError(
@@ -73,6 +77,7 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
             # a mutation bumps the table version; return the new md so the client's path refreshes
             with cat.begin_xact(for_write=False):
                 md = cat.read_md_for_export(tbl)
+            _logger.debug('%s.%s %s (%.2fs)', request.class_name, request.method, path_label, time.monotonic() - t0)
             return _encode_response(ProxyResponse(result=result, current_md=md))
 
         handler = _HANDLERS.get(key)
@@ -80,13 +85,16 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, f'Unsupported proxy method: {request.class_name}.{request.method}'
             )
-        return _encode_response(ProxyResponse(result=_convert_result(key, handler(request))))
+        result = _convert_result(key, handler(request))
+        _logger.debug('%s.%s (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
+        return _encode_response(ProxyResponse(result=result))
 
     except excs.Error as e:
         if e.detail is not None:
             # the client only gets the message; keep the diagnostic detail (e.g. an evaluation stack trace)
             # for whoever reads the server logs
             _logger.info('Error detail handling %s.%s:\n%s', request.class_name, request.method, e.detail)
+        _logger.info('%s.%s error (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
         error_dict = e.to_dict()
         error_dict['message'] = _restore_upload_names(error_dict['message'], request._uploaded_names)
         if 'cause' in error_dict:
@@ -98,7 +106,14 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
         # reference id to the client: server internals (stack frames, filesystem paths) must not cross the wire.
         ref = uuid4().hex
         tb = traceback.format_exc()
-        _logger.error('Internal error (ref %s) handling %s.%s:\n%s', ref, request.class_name, request.method, tb)
+        _logger.error(
+            'Internal error (ref %s) handling %s.%s (%.2fs):\n%s',
+            ref,
+            request.class_name,
+            request.method,
+            time.monotonic() - t0,
+            tb,
+        )
         err = excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'Internal proxy error (ref: {ref})')
         error_dict = err.to_dict()
         if os.environ.get('PXTTEST_IN_CI'):
@@ -191,7 +206,6 @@ def _create_view(request: ProxyRequest) -> tuple[list, bool]:
 
 def _create_from_model(request: ProxyRequest) -> tuple[list, bool]:
     kwargs = _deserialize_args(request)
-    # `base` arrives as a Query dict; rebuild it here.
     base_dict = kwargs.pop('base')
 
     @retry_loop(for_write=False)

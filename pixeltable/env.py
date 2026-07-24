@@ -400,15 +400,20 @@ class Env:
                 'Reinitializing pixeltable database is not supported when running in non-local environment',
             )
 
-        if reinit_db and self._store_db_exists():
-            self._drop_store_db()
+        if self.is_local:
+            # Embedded postmaster: create or reset the database as needed.
+            if reinit_db and self._store_db_exists():
+                self._drop_store_db()
 
-        create_db = not self._store_db_exists()
-        if create_db:
-            _logger.info(f'creating database at: {self.db_url}')
-            self._create_store_db()
+            create_db = not self._store_db_exists()
+            if create_db:
+                _logger.info(f'creating database at: {self.db_url}')
+                self._create_store_db()
+            else:
+                _logger.info(f'found database at: {self.db_url}')
         else:
-            _logger.info(f'found database at: {self.db_url}')
+            # External DB: pre-provisioned; no local setup needed.
+            _logger.info(f'Using external database at: {self.db_url}')
 
         # Create the SQLAlchemy engine. This will also set the default time zone.
         self._create_engine(time_zone_name=tz_name, echo=echo)
@@ -438,13 +443,20 @@ class Env:
             dialect = db_url.get_dialect().name
             if dialect == 'cockroachdb':
                 self._dbms = CockroachDbms(db_url)
+                # Check if database exists (CockroachDB exposes pg_database via the system DB)
+                if not self._store_db_exists():
+                    error = f'Database {self._db_name!r} does not exist'
+                    _logger.error(error)
+                    raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, error)
+            elif dialect == 'postgresql':
+                # Ensure psycopg v3 driver is used; the default postgresql:// scheme may resolve to psycopg2.
+                if db_url.drivername == 'postgresql':
+                    db_url = db_url.set(drivername='postgresql+psycopg')
+                    self._db_url = db_url.render_as_string(hide_password=False)
+                self._dbms = PostgresqlDbms(db_url)
+                # External PostgreSQL: database is pre-provisioned. Connect directly — no existence check needed.
             else:
                 raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Unsupported DBMS {dialect}')
-            # Check if database exists
-            if not self._store_db_exists():
-                error = f'Database {self._db_name!r} does not exist'
-                _logger.error(error)
-                raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, error)
             _logger.info(f'Using database at: {self.db_url}')
         else:
             self._db_name = config.get_string_value('db') or 'pixeltable'

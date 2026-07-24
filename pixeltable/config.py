@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import threading
 import typing
@@ -138,24 +139,58 @@ class ServiceConfig(pydantic.BaseModel):
         return v
 
 
-class DeploymentConfig(pydantic.BaseModel):
+class PixeltableSource(pydantic.BaseModel):
+    """Git source for pixeltable to install in the container runtime image.
+
+    Provide git alongside at most one of branch, rev (commit SHA), or tag.
+    If multiple are set, the server resolves them in priority order: rev > tag > branch.
+    Used by pip/poetry/none bundle types; uv bundles use pyproject.toml [tool.uv.sources] instead.
+
+    Example in pixeltable.toml:
+        [pixeltable.database.pixeltable_source]
+        git = "https://github.com/myorg/pixeltable.git"
+        branch = "my-feature-branch"
+    """
+
     model_config = pydantic.ConfigDict(extra='forbid')
 
-    name: str
-    service: str
-    env: str
+    git: str
+    branch: str | None = None
+    rev: str | None = None
+    tag: str | None = None
+
+
+class DatabaseRuntimeConfig(pydantic.BaseModel):
+    model_config = pydantic.ConfigDict(extra='forbid')
+
     include: list[str] | None = None
     exclude: list[str] | None = None
-    env_dependencies: list[str] = pydantic.Field(default_factory=list)
-    python_dependencies: list[str] = pydantic.Field(default_factory=list)
+    system_dependencies: list[str] | None = None
+    # Override the runtime Python version.
+    python_version: str | None = None
+    pixeltable_source: PixeltableSource | None = None
 
-    @pydantic.field_validator('name')
+    @pydantic.field_validator('system_dependencies')
     @classmethod
-    def _validate_name(cls, v: str) -> str:
-        from pixeltable.catalog import is_valid_identifier
+    def _check_system_dependencies(cls, v: list[str] | None) -> list[str] | None:
+        # Each entry is a conda/micromamba MatchSpec installed from conda-forge. Resolvability can only be
+        # checked by conda at build time, so validate just the obvious mistakes here — before the bundle is
+        # built and shipped — leaving version-constraint operators (<,>,,) alone as they're valid MatchSpec.
+        for spec in v or []:
+            if not spec.strip():
+                raise ValueError('system_dependencies entries must be non-empty conda package specs')
+            if any(c in spec for c in ';&$`\n\\'):
+                raise ValueError(f'invalid character in system dependency spec {spec!r}')
+        return v
 
-        if not is_valid_identifier(v, allow_hyphens=True):
-            raise ValueError(f'{v!r} is not a valid Pixeltable identifier')
+    @pydantic.field_validator('python_version')
+    @classmethod
+    def _check_python_version(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        v = v.strip()
+        if not re.fullmatch(r'\d+\.\d+(\.\d+)?', v):
+            raise ValueError(f'python_version must be a version like "3.12" or "3.12.8", got {v!r}')
         return v
 
 
@@ -538,7 +573,10 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'b2_profile': 'AWS config profile name used to access Backblaze B2 storage',
         'tigris_profile': 'AWS config profile name used to access Tigris object storage',
         'service': ('Service configurations', list[ServiceConfig]),
-        'deployment': ('Deployment configurations', list[DeploymentConfig]),
+        'database': 'Database runtime configuration',
+        'daemon_host': 'Listen address for the proxy daemon in fixed-address mode (e.g. 0.0.0.0)',
+        'daemon_port': ('Listen port for the proxy daemon in fixed-address mode (e.g. 8000)', int),
+        'db_uri': 'Base pxt:// URI for remote catalog access (e.g. pxt://myorg:mydb)',
     },
     'anthropic': {'api_key': 'Anthropic API key'},
     'azure': {'storage_account_name': 'Azure storage account name', 'storage_account_key': 'Azure storage account key'},

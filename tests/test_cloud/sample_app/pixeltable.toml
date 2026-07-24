@@ -1,0 +1,34 @@
+# Each entry is a conda/micromamba MatchSpec (name, optional version constraints), installed from
+# conda-forge into the runtime env — same syntax as a conda install line, including comma-separated ranges.
+[pixeltable.database]
+system_dependencies = ["ffmpeg", "jq>=1.6", "ripgrep>=13,<15"]
+
+[[pixeltable.service]]
+name = "e2e-svc"
+
+[[pixeltable.service.routes]]
+type    = "insert"
+path    = "/insert"
+table   = "e2e_items"
+inputs  = ["id", "name"]
+outputs = ["id", "name", "name_upper"]
+
+[[pixeltable.service.routes]]
+type    = "compute"
+path    = "/compute"
+table   = "e2e_items"
+inputs  = ["id", "name"]
+outputs = ["name_upper"]
+
+[[pixeltable.service.routes]]
+type    = "update"
+path    = "/update"
+table   = "e2e_items"
+inputs  = ["name"]
+outputs = ["id", "name", "name_upper"]
+
+[[pixeltable.service.routes]]
+type          = "delete"
+path          = "/delete"
+table         = "e2e_items"
+match_columns = ["id"]

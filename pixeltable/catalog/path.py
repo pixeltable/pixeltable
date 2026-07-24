@@ -79,12 +79,13 @@ class Path:
             except ValueError:
                 raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path: {path}') from None
 
-        # Split the in-db path part into components (dotted form accepted for backward compatibility).
+        # Split the in-db path part into components. Slash-separated is canonical;
+        # dotted form is accepted only when no slashes are present (backward compatibility).
         components: tuple[str, ...]
-        if '.' in path_part:
-            components = tuple(path_part.split('.'))
-        elif '/' in path_part:
+        if '/' in path_part:
             components = tuple(path_part.split('/'))
+        elif '.' in path_part:
+            components = tuple(path_part.split('.'))
         else:
             components = (path_part,) if path_part else ()
 

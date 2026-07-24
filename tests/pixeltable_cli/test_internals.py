@@ -18,14 +18,17 @@ import socket
 import subprocess
 import sys
 import urllib.error
+import uuid
 from collections.abc import Callable, Iterator
 from email.message import Message
 from typing import Any
 
+import pydantic
 import pytest
 from typing_extensions import Self
 
 from pixeltable import exceptions as excs
+from pixeltable.service.utils import PxtUri
 from pixeltable_cli import utils
 from pixeltable_cli.client import confirm, http, main as client_main, parser as client_parser, utils as client_utils
 from pixeltable_cli.client.commands import daemon as daemon_cmd, shell as shell_cmd, status as status_cmd
@@ -1373,32 +1376,6 @@ class TestDashboardCommand:
         assert 'cannot reach daemon' in capsys.readouterr().err
 
 
-class TestDeployCommand:
-    """`pxt deploy` build-bundle error handling."""
-
-    def _run_with_error(self, args: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
-        import pixeltable as pxt
-        from pixeltable_cli.client.commands import deploy as deploy_cmd
-
-        def boom(_name: str) -> None:
-            raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, 'no such deployment')
-
-        monkeypatch.setattr(deploy_cmd.deploy, 'build_deploy_bundle', boom)
-        with pytest.raises(SystemExit) as info:
-            deploy_cmd.run(args)
-        assert info.value.code == 1
-
-    def test_deploy_failure_human(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        self._run_with_error(['prod'], monkeypatch)
-        assert 'no such deployment' in capsys.readouterr().err
-
-    def test_deploy_failure_json(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        self._run_with_error(['prod', '--json'], monkeypatch)
-        payload = json.loads(capsys.readouterr().err)
-        assert payload['status'] == 'error'
-        assert 'no such deployment' in payload['message']
-
-
 class TestBadPathArgRejection:
     """Each path-taking command rejects malformed paths client-side with argparse exit 2."""
 
@@ -1515,3 +1492,182 @@ class TestPerPortPaths:
         assert p1 != p2, f'log path collides across ports: {p1} == {p2}'
         assert '12345' in p1
         assert '54321' in p2
+
+
+class TestPxtUri:
+    """PxtUri Pydantic model: parsing, field extraction, and the service property."""
+
+    def test_parsing(self) -> None:
+        p = PxtUri('pxt://myorg')
+        assert p.org == 'myorg' and p.db is None and p.path == '' and p.id is None and p.version is None
+
+        p = PxtUri('pxt://myorg:mydb')
+        assert p.org == 'myorg' and p.db == 'mydb' and p.path == ''
+
+        p = PxtUri('pxt://myorg:mydb/some/table')
+        assert p.org == 'myorg' and p.db == 'mydb' and p.path == 'some/table' and p.id is None
+
+        assert str(PxtUri('pxt://myorg:mydb/path')) == 'pxt://myorg:mydb/path'
+
+    def test_service_property(self) -> None:
+        assert PxtUri('pxt://myorg:mydb/services/my-service').service == 'my-service'
+        assert PxtUri('pxt://myorg:mydb/tables/my_table').service is None
+        assert PxtUri('pxt://myorg:mydb').service is None
+        assert PxtUri('pxt://myorg').service is None
+        assert PxtUri('pxt://myorg:mydb/services').service is None  # no slash after services
+
+    def test_uuid_path(self) -> None:
+        uid = '12345678-1234-5678-1234-567812345678'
+        p = PxtUri(f'pxt://myorg:mydb/{uid}')
+        assert p.id is not None and str(p.id) == uid and p.path is None
+
+    def test_version_parsing(self) -> None:
+        p = PxtUri('pxt://myorg:mydb/my_table:5')
+        assert p.path == 'my_table' and p.version == 5
+        assert PxtUri('pxt://myorg:mydb/my_table:0').version == 0
+
+    def test_version_errors(self) -> None:
+        for bad in ('pxt://myorg:mydb/my_table:-1', 'pxt://myorg:mydb/my_table:abc'):
+            with pytest.raises(pydantic.ValidationError):
+                PxtUri(bad)
+
+    @pytest.mark.parametrize(
+        'url',
+        [
+            'https://pixeltable.com/t/myorg:mydb/path',
+            'http://pixeltable.com/t/myorg:mydb/path',
+            'https://www.pixeltable.com/t/myorg:mydb/path',
+            'http://www.pixeltable.com/t/myorg:mydb/path',
+        ],
+    )
+    def test_pixeltable_url_normalized(self, url: str) -> None:
+        p = PxtUri(url)
+        assert p.org == 'myorg' and p.db == 'mydb' and p.path == 'path' and p.uri.startswith('pxt://')
+
+    def test_from_components(self) -> None:
+        p = PxtUri.from_components(org='myorg', db='mydb', path='some/table')
+        assert p.org == 'myorg' and p.db == 'mydb' and p.path == 'some/table'
+
+        uid = uuid.UUID('12345678-1234-5678-1234-567812345678')
+        p = PxtUri.from_components(org='myorg', id=uid)
+        assert p.id == uid and p.path is None
+
+    def test_from_components_errors(self) -> None:
+        with pytest.raises(ValueError, match='Either path or id must be provided'):
+            PxtUri.from_components(org='myorg')
+        with pytest.raises(ValueError, match='Cannot specify both'):
+            PxtUri.from_components(org='myorg', path='t', id=uuid.uuid4())
+
+    def test_is_pxt_uri(self) -> None:
+        assert PxtUri.is_pxt_uri('pxt://org:db/path') is True
+        assert PxtUri.is_pxt_uri('https://pixeltable.com/t/org:db/path') is True
+        assert PxtUri.is_pxt_uri('https://example.com/path') is False
+        assert PxtUri.is_pxt_uri('my_table') is False
+
+    def test_invalid_uris_raise(self) -> None:
+        for bad in ('http://example.com/path', 'pxt://', 'not_a_uri'):
+            with pytest.raises(pydantic.ValidationError):
+                PxtUri(bad)
+
+    def test_wrong_input_type_raises(self) -> None:
+        with pytest.raises((pydantic.ValidationError, ValueError)):
+            PxtUri(12345)  # type: ignore[arg-type]
+
+
+class TestHostedUriHelpers:
+    """URI parsing / printing helpers merged from the hosted-CLI commands into utils.py."""
+
+    def test_split_pxt_uri(self) -> None:
+        assert utils._split_pxt_uri('pxt://acme') == ('acme', None, None)
+        assert utils._split_pxt_uri('pxt://acme:main') == ('acme', 'main', None)
+        assert utils._split_pxt_uri('pxt://acme:main/services/foo') == ('acme', 'main', 'services/foo')
+        assert utils._split_pxt_uri('pxt://acme:main/') == ('acme', 'main', None)  # trailing slash → no path
+        assert utils._split_pxt_uri('not-a-uri') == (None, None, None)
+
+    def test_parse_db_uri(self) -> None:
+        assert utils.parse_db_uri('pxt://acme:main') == ('acme', 'main')
+
+    @pytest.mark.parametrize('bad', ['pxt://acme', 'pxt://acme:main/tbl', 'nope'])
+    def test_parse_db_uri_rejects(self, bad: str, capsys: pytest.CaptureFixture) -> None:
+        with pytest.raises(SystemExit) as info:
+            utils.parse_db_uri(bad)
+        assert info.value.code == 2
+        assert 'pxt://org:db' in capsys.readouterr().err
+
+    def test_parse_org_uri(self) -> None:
+        assert utils.parse_org_uri('pxt://acme') == 'acme'
+
+    @pytest.mark.parametrize('bad', ['pxt://acme:main', 'pxt://acme:main/x', 'nope'])
+    def test_parse_org_uri_rejects(self, bad: str) -> None:
+        with pytest.raises(SystemExit) as info:
+            utils.parse_org_uri(bad)
+        assert info.value.code == 2
+
+    def test_parse_base_uri(self) -> None:
+        assert utils.parse_base_uri('pxt://acme:main') == ('acme', 'main', '')
+        assert utils.parse_base_uri('pxt://acme:main/dir/sub') == ('acme', 'main', 'dir/sub')
+
+    @pytest.mark.parametrize('bad', ['pxt://acme', 'nope'])
+    def test_parse_base_uri_rejects(self, bad: str) -> None:
+        with pytest.raises(SystemExit) as info:
+            utils.parse_base_uri(bad)
+        assert info.value.code == 2
+
+    def test_parse_service_uri(self) -> None:
+        assert utils.parse_service_uri('pxt://acme:main/services/foo') == ('acme', 'main', 'foo')
+
+    @pytest.mark.parametrize(
+        'bad',
+        [
+            'pxt://acme:main/tables/foo',
+            'pxt://acme:main/services/',
+            'pxt://acme:main/services/foo/bar',  # extra path component rejected
+            'pxt://acme:main',
+            'pxt://acme',
+        ],
+    )
+    def test_parse_service_uri_rejects(self, bad: str) -> None:
+        with pytest.raises(SystemExit) as info:
+            utils.parse_service_uri(bad)
+        assert info.value.code == 2
+
+    @pytest.mark.parametrize(
+        ('age_s', 'expected'),
+        [(0, '0s'), (45, '45s'), (90, '1m'), (3600, '1h'), (3660, '1h1m'), (86400, '1d'), (90000, '1d1h')],
+    )
+    def test_fmt_age(self, age_s: int, expected: str) -> None:
+        assert utils._fmt_age(age_s) == expected
+
+    def test_print_org(self, capsys: pytest.CaptureFixture) -> None:
+        utils.print_org({'org_slug': 'acme', 'org_id': 'o1', 'default_db_slug': 'main'})
+        out = capsys.readouterr().out
+        assert 'acme' in out and 'id=o1' in out and 'default_db=main' in out
+
+    def test_print_db(self, capsys: pytest.CaptureFixture) -> None:
+        utils.print_db({'db_slug': 'main', 'state': 'AVAILABLE', 'location': 'aws', 'region': 'us-east-1'})
+        out = capsys.readouterr().out
+        assert 'main' in out and 'state=AVAILABLE' in out and 'aws/us-east-1' in out
+
+    def test_print_service_prints_routes(self, capsys: pytest.CaptureFixture) -> None:
+        utils.print_service(
+            {
+                'service_name': 'svc',
+                'state': 'AVAILABLE',
+                'base_path': 'main',
+                'workers_min': 1,
+                'endpoint': 'https://svc.example',
+                'service_config': json.dumps({'prefix': '/v1', 'routes': [{'method': 'post', 'path': '/insert'}]}),
+            }
+        )
+        out = capsys.readouterr().out
+        assert 'svc' in out and 'state=AVAILABLE' in out
+        assert 'POST  https://svc.example/v1/insert' in out
+
+    def test_print_workers(self, capsys: pytest.CaptureFixture) -> None:
+        utils._print_workers(
+            [{'pod_id': 'pod-1', 'status': 'Running', 'ready': 1, 'total': 1, 'restarts': 0, 'age_s': 45}]
+        )
+        out = capsys.readouterr().out
+        assert 'POD ID' in out and 'pod-1' in out and 'Running' in out
+        utils._print_workers([])  # empty → prints nothing
+        assert capsys.readouterr().out == ''
