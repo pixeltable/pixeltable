@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Mapping
 from uuid import UUID
 
+from pixeltable.catalog import model
 from pixeltable.env import Env
 
 from .catalog_base import CatalogBase
@@ -136,6 +137,9 @@ class CatalogProxy(CatalogBase):
         }
         md, was_created = self.client.send_request('CatalogBase', 'create_from_model', args)
         return self._make_table(md, is_anon_snapshot=False), was_created
+
+    def update_from_model(self, updates: list[model.CatalogUpdates]) -> None:
+        self.client.send_request('CatalogBase', 'update_from_model', {'updates': updates})
 
     def get_table(self, path: Path, if_not_exists: IfNotExistsParam) -> Table | None:
         md = self.client.send_request('CatalogBase', 'get_table', {'path': path, 'if_not_exists': if_not_exists})
