@@ -482,6 +482,13 @@
           <outline text="udf|pixeltable.functions.vllm.chat_completions" />
           <outline text="udf|pixeltable.functions.vllm.generate" />
         </outline>
+        <outline text="module|pixeltable.functions.vlmrun">
+          <outline text="udf|pixeltable.functions.vlmrun.chat_completions" />
+          <outline text="udf|pixeltable.functions.vlmrun.generate_image" />
+          <outline text="udf|pixeltable.functions.vlmrun.annotate_image" />
+          <outline text="udf|pixeltable.functions.vlmrun.generate_video" />
+          <outline text="udf|pixeltable.functions.vlmrun.generate_document" />
+        </outline>
         <outline text="module|pixeltable.functions.voyageai">
           <outline text="udf|pixeltable.functions.voyageai.embeddings" />
           <outline text="udf|pixeltable.functions.voyageai.rerank" />
