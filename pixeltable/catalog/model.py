@@ -1512,6 +1512,11 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
     def _update_all(binding_root: str = '', *, allow_destructive: bool = False) -> None:
         diffs = validate_models(registered_models, binding_root)
 
+        if len(diffs) == 0:
+            # No updates *or* create statements.
+            Env.get().console_logger.info('Catalog is up to date.')
+            return
+
         fatal = [(name, d) for name, d in diffs.items() if d['resolution'] == 'unsupported']
         if len(fatal) > 0:
             detail = '\n'.join(line for name, d in fatal for line in _format_diff(name, d))
@@ -1536,17 +1541,14 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
             )
 
         # Apply column/index changes to existing tables. Brand-new tables are handled by `_create_all()` below.
-        to_update = [
+        update_diffs = [
             (name, d) for name, d in diffs.items() if d['resolution'] in ('update_additive', 'update_destructive')
         ]
 
-        if len(to_update) == 0:
-            Env.get().console_logger.info('Catalog is up to date.')
-
-        else:
+        if len(update_diffs) > 0:
             binding_root = TableModelMeta._normalize_binding_root(binding_root)
             updates: list[CatalogUpdates] = []
-            for name, d in to_update:
+            for name, d in update_diffs:
                 model = registered_models[name]
                 new_col_names = {c['name'] for c in d['changes'] if c['target'] == 'column' and c['op'] == 'add'}
                 dropped_col_names = [c['name'] for c in d['changes'] if c['target'] == 'column' and c['op'] == 'drop']
