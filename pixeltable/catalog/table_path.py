@@ -102,6 +102,10 @@ class TablePath(abc.ABC):
         """True if this table or one of its ancestors is a snapshot."""
         return self.is_snapshot() or (self.base is not None and self.base.has_snapshot())
 
+    def has_iterator(self) -> bool:
+        """True if this table or one of its ancestors is a view created with an iterator."""
+        return self.is_component_view() or (self.base is not None and self.base.has_iterator())
+
     @abc.abstractmethod
     def has_sample_clause(self) -> bool:
         """True if this table or one of its ancestors is defined with a sample clause."""

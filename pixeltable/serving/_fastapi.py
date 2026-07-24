@@ -215,6 +215,15 @@ def _single_row(rows: Sequence[Mapping[str, Any]], raise_not_found: bool = False
     return rows[0]
 
 
+def _at_most_one_row(rows: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """Return rows (expected to hold at most one element) as a list ([] or [row]); error if it holds more."""
+    if len(rows) > 1:
+        raise HTTPException(
+            status_code=500, detail=f'operation returned unexpected row count ({len(rows)}), expected at most 1'
+        )
+    return list(rows)
+
+
 # ColumnType.Type -> json-Schema contentMediaType
 # .../*: tell OpenAPI tooling to render the URL as a media link without committing to a specific subtype
 _MEDIA_CONTENT_TYPES: dict[ts.ColumnType.Type, str] = {
@@ -383,18 +392,20 @@ class FastAPIRouter(fastapi.APIRouter):
         background: bool = False,
     ) -> None:
         """
-        Add a POST endpoint that materializes the computed columns of `t` and returns the resulting rows.
+        Add a POST endpoint that materializes the computed columns of `t` and returns the result.
 
-        The endpoint runs [`Table.compute()`][pixeltable.Table.compute] on the request body
-        and returns the materialized rows as a JSON array, without persisting them. This is
-        identical to [`add_insert_route()`][pixeltable.serving.FastAPIRouter.add_insert_route],
-        except that no data is actually inserted into the table.
+        The endpoint runs [`Table.compute()`][pixeltable.Table.compute] on the request body without
+        persisting anything. This is identical to
+        [`add_insert_route()`][pixeltable.serving.FastAPIRouter.add_insert_route], except that no data
+        is actually inserted into the table. `t` may be a view; the request body then carries a row for
+        the view's base table.
 
-        `t` may be a view; the request body then carries a row for the view's base table, and the
-        response contains the view's output rows for that input row:
+        The response shape follows the target:
 
-        - an input row that doesn't satisfy the view's filter produces an empty array
-        - an iterator view can produce multiple output rows per input row
+        - a base table, or a view whose path has no iterator, produces at most one output row: the
+          response is that row as a JSON object, or `null` when a view filter drops the input row
+        - a view whose path contains an iterator can produce several rows per input row: the response
+          is a JSON array (empty when a filter drops the input row)
 
         Args:
             t: The table or view over which to compute rows.
@@ -666,15 +677,20 @@ class FastAPIRouter(fastapi.APIRouter):
         )
 
         path_str = ''.join(el.capitalize() for el in path.split('/') if len(el) > 0)
-        response_model = self._create_model(f'{path_str}Response', output_cols=output_cols)
+        output_model = self._create_model(f'{path_str}Response', output_cols=output_cols)
+
+        # a compute route for a view whose path contains an iterator can produce multiple rows
+        array_response = route_type == 'compute' and not return_fileresponse and t._tbl_path.has_iterator()
 
         def rows_processor(rows: Sequence[Mapping[str, Any]], url_for_media: Callable[[str], str]) -> Any:
-            if route_type == 'insert' or return_fileresponse:
+            if return_fileresponse or route_type == 'insert':
                 rows = [_single_row(rows, raise_not_found=route_type == 'compute')]
+            elif not array_response:
+                rows = _at_most_one_row(rows)
             for row in rows:
                 for name in json_output_col_names:
                     _check_json_value_servable(row.get(name), name)
-            output = self._create_output(rows, output_col_names, response_model, return_fileresponse, url_for_media)
+            output = self._create_output(rows, output_col_names, output_model, return_fileresponse, url_for_media)
             if return_fileresponse:
                 return output
             assert isinstance(output, list)
@@ -682,8 +698,19 @@ class FastAPIRouter(fastapi.APIRouter):
                 for result in output:
                     assert isinstance(result, pydantic.BaseModel)
                     sql_exporter.export_row(result)
-            # a compute response is an array: a view can produce zero or multiple output rows per input row
-            return output if route_type == 'compute' else output[0]
+            if array_response:
+                return output
+            # single object: the one row, or null when a view filter dropped the input row
+            return output[0] if len(output) > 0 else None
+
+        response_model: Any
+        if array_response:
+            response_model = list[output_model]  # type: ignore[valid-type]
+        elif route_type == 'compute':
+            # a non-iterator compute can return null when a filter drops the row
+            response_model = Optional[output_model]
+        else:
+            response_model = output_model
 
         self._add_dml_route(
             t,
@@ -695,7 +722,7 @@ class FastAPIRouter(fastapi.APIRouter):
             background=background,
             endpoint_name=f'{route_type}_{path.strip("/").replace("/", "_") or "root"}',
             rows_processor=rows_processor,
-            response_model=list[response_model] if route_type == 'compute' else response_model,  # type: ignore[valid-type]
+            response_model=response_model,
             route_type=route_type,
         )
 
@@ -732,6 +759,8 @@ class FastAPIRouter(fastapi.APIRouter):
         - Batch: a single parameter annotated `list[M]`, with `M` a pydantic model that has one
           field per output column (`def fn(rows: list[FrameRow])`). The function is called with all
           output rows -- including an empty list -- and can aggregate them into a single response.
+          Only allowed when `t`'s path contains an iterator (the only case that can produce multiple
+          rows); on a base table or a non-iterator view, use the per-column form.
 
         In both forms, media-typed outputs (image, video, audio, document) are delivered as `/media/`
         URL strings -- annotate them as `str` (or `str | None` if the column is nullable).
@@ -950,6 +979,13 @@ class FastAPIRouter(fastapi.APIRouter):
             )
             batch_param_name: str | None = None
             if batch_row_model is not None:
+                if not t._tbl_path.has_iterator():
+                    raise pxt.RequestError(
+                        pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'{error_prefix}: the batch form (a single list[M] parameter) requires a view whose path '
+                        'contains an iterator; this target produces at most one row, so use one keyword-only '
+                        'parameter per output column',
+                    )
                 batch_param_name, response_model = self._validate_batch_fn(
                     user_fn, batch_row_model, output_schema=output_schema, error_prefix=error_prefix
                 )

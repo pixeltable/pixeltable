@@ -70,10 +70,8 @@ def dml_decorator(route_type: str, router: Any) -> Any:
 
 
 def single_row(resp_body: Any, route_type: str) -> Any:
-    """Unwrap a compute route's single-row array response; insert/update responses pass through."""
-    if route_type.startswith('compute'):
-        assert isinstance(resp_body, list) and len(resp_body) == 1, resp_body
-        return resp_body[0]
+    """insert/update, base-table compute, and no-iterator-view compute all return a single JSON object."""
+    assert isinstance(resp_body, dict), resp_body
     return resp_body
 
 
@@ -1647,6 +1645,13 @@ class TestFastAPI:
         def multi_dec(*, id: int | None) -> SingleResp:  # pragma: no cover - fan-out errors before the call
             return SingleResp(key=id or 0)
 
+        # the batch form (list[M]) requires an iterator in the path; the filter view v has none
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='iterator'):
+
+            @router.compute_route(v, path='/batch-filter', outputs=['id'])
+            def _batch_on_filter(rows: list[SingleResp]) -> SingleResp:  # pragma: no cover - rejected at registration
+                return rows[0]
+
         client = make_test_client(router)
 
         # /frames: one output row per extracted frame, in iteration order
@@ -1704,14 +1709,14 @@ class TestFastAPI:
         assert len(upload_rows) == len(rows)
         assert all('/media/' in r['video'] for r in upload_rows)
 
-        # /single: the filter view yields one row for a passing input, none for a filtered one
+        # /single: the filter view has no iterator, so the response is a single object for a passing
+        # input, and null when the filter drops the input row
         resp = client.post('/single', json={'id': 5, 'video': video_path})
         assert resp.status_code == 200, resp.text
-        single = resp.json()
-        assert len(single) == 1 and single[0]['id'] == 5
+        assert resp.json()['id'] == 5
         resp = client.post('/single', json={'id': 0, 'video': video_path})
         assert resp.status_code == 200, resp.text
-        assert resp.json() == []
+        assert resp.json() is None
 
         # /single-file: FileResponse works on a single-row view; a filtered input row is a 404
         resp = client.post('/single-file', json={'id': 6, 'video': video_path})
@@ -2134,7 +2139,10 @@ class TestFastAPI:
             router.update_route(t, path='/upd', inputs=['text'], outputs=['id', 'text_upper'])(user_mod.fmt_update)
             # per-column and batch compute forms; batch detection must resolve the string 'list[BatchRow]'
             router.compute_route(t, path='/cmp', outputs=['text_upper'])(user_mod.fmt_insert)
-            router.compute_route(t, path='/cmp-batch', outputs=['text_upper'])(user_mod.fmt_batch)
+            # batch is rejected on a base table (no iterator); reaching that error means the string
+            # 'list[BatchRow]' resolved to a batch form under PEP 563
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='iterator'):
+                router.compute_route(t, path='/cmp-batch', outputs=['text_upper'])(user_mod.fmt_batch)
             client = make_test_client(router)
 
             resp = client.post('/ins', json={'id': 2, 'text': 'world'})
@@ -2148,10 +2156,6 @@ class TestFastAPI:
             resp = client.post('/cmp', json={'id': 3, 'text': 'abc'})
             assert resp.status_code == 200, resp.text
             assert resp.json() == {'tag': 'ABC'}
-
-            resp = client.post('/cmp-batch', json={'id': 4, 'text': 'def'})
-            assert resp.status_code == 200, resp.text
-            assert resp.json() == {'tags': ['DEF']}
         finally:
             del sys.modules['_test_future_ann_mod']
 
@@ -2363,17 +2367,20 @@ class TestFastAPI:
                 return {'x': id}
 
     def test_compute_route_batch(self, make_catalog_path: Callable[[str], str]) -> None:
-        """compute_route() batch form on a table: the fn takes list[RowModel] and is called once per request."""
+        """compute_route() batch form on an iterator view: the fn takes list[RowModel] of all fanned-out rows."""
         p = make_catalog_path
         skip_test_if_not_installed('fastapi')
         import pydantic
 
+        from pixeltable.functions.video import frame_iterator
         from pixeltable.serving import FastAPIRouter
 
+        video_path = next(f for f in get_video_files() if f.endswith('v_shooting_01_01.mpg'))
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.batch_dec'), {'id': pxt.Int, 'prompt': pxt.String, 'image': pxt.Image})
-        t.add_computed_column(greeting='hello, ' + t.prompt)
-        t.add_computed_column(thumb=t.image.resize([16, 16]))
+        t = pxt.create_table(p('test_serve.batch_dec'), {'id': pxt.Int, 'prompt': pxt.String, 'video': pxt.Video})
+        vv = pxt.create_view(p('test_serve.batch_dec_frames'), t, iterator=frame_iterator(t.video, fps=1.0))
+        vv.add_computed_column(greeting='hello, ' + vv.prompt)
+        vv.add_computed_column(thumb=vv.frame.resize([16, 16]))
 
         router = FastAPIRouter()
 
@@ -2386,7 +2393,7 @@ class TestFastAPI:
             greetings: list[str]
             thumbs_are_media_urls: bool
 
-        @router.compute_route(t, path='/batch', outputs=['greeting', 'thumb'])
+        @router.compute_route(vv, path='/batch', outputs=['greeting', 'thumb'])
         def handle(rows: list[RowM]) -> BatchResp:
             return BatchResp(
                 n=len(rows),
@@ -2401,26 +2408,38 @@ class TestFastAPI:
             first: str
 
         # a keyword-only batch parameter is accepted as well
-        @router.compute_route(t, path='/batch-kw', outputs=['greeting'])
+        @router.compute_route(vv, path='/batch-kw', outputs=['greeting'])
         def handle_kw(*, rows: list[KwRow]) -> KwResp:
             return KwResp(first=rows[0].greeting or '')
 
         client = make_test_client(router)
-        image_path = get_image_files()[0]
 
-        # a table compute produces exactly one row; the batch fn still receives it as a list
-        resp = client.post('/batch', json={'id': 1, 'prompt': 'world', 'image': image_path})
+        # the iterator view fans a base-table row out to several frame rows; the batch fn receives them all
+        resp = client.post('/batch', json={'id': 1, 'prompt': 'world', 'video': video_path})
         assert resp.status_code == 200, resp.text
-        assert resp.json() == {'n': 1, 'greetings': ['hello, world'], 'thumbs_are_media_urls': True}
-        assert t.count() == 0
+        body = resp.json()
+        assert body['n'] > 1
+        assert body['greetings'] == ['hello, world'] * body['n']
+        assert body['thumbs_are_media_urls'] is True
+        assert t.count() == 0  # compute doesn't persist into the base table
 
-        resp = client.post('/batch-kw', json={'id': 2, 'prompt': 'abc', 'image': image_path})
+        resp = client.post('/batch-kw', json={'id': 2, 'prompt': 'abc', 'video': video_path})
         assert resp.status_code == 200, resp.text
         assert resp.json() == {'first': 'hello, abc'}
 
         # the decorator returns the function unchanged
         direct = handle([RowM(greeting='hi', thumb=None)])
         assert isinstance(direct, BatchResp) and direct.n == 1
+
+        # the batch form requires an iterator in the path; on a base table it is rejected at registration
+        class TableRow(pydantic.BaseModel):
+            prompt: str | None
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='iterator'):
+
+            @router.compute_route(t, path='/batch-table', outputs=['prompt'])
+            def _(rows: list[TableRow]) -> KwResp:  # pragma: no cover - rejected at registration
+                raise AssertionError
 
         # batch-form registration errors:
         class Resp(pydantic.BaseModel):
@@ -2429,7 +2448,7 @@ class TestFastAPI:
         # list of a non-model type is not batch-shaped; the fn falls through to per-column validation
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='must be keyword-only'):
 
-            @router.compute_route(t, path='/e1', outputs=['greeting'])
+            @router.compute_route(vv, path='/e1', outputs=['greeting'])
             def _(rows: list[str]) -> Resp:  # pragma: no cover - never registered
                 raise AssertionError
 
@@ -2440,14 +2459,14 @@ class TestFastAPI:
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="row model field 'doesnotexist' is not in"):
 
-            @router.compute_route(t, path='/e2', outputs=['greeting'])
+            @router.compute_route(vv, path='/e2', outputs=['greeting'])
             def _(rows: list[ExtraFieldRow]) -> Resp:  # pragma: no cover
                 raise AssertionError
 
         # row model missing a declared output
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='row model is missing fields for outputs'):
 
-            @router.compute_route(t, path='/e3', outputs=['greeting', 'thumb'])
+            @router.compute_route(vv, path='/e3', outputs=['greeting', 'thumb'])
             def _(rows: list[KwRow]) -> Resp:  # pragma: no cover
                 raise AssertionError
 
@@ -2457,28 +2476,28 @@ class TestFastAPI:
 
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match="row model field 'greeting' has annotation"):
 
-            @router.compute_route(t, path='/e4', outputs=['greeting'])
+            @router.compute_route(vv, path='/e4', outputs=['greeting'])
             def _(rows: list[WrongTypeRow]) -> Resp:  # pragma: no cover
                 raise AssertionError
 
         # a batch parameter named like an output column is ambiguous
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='matches an output column name'):
 
-            @router.compute_route(t, path='/e5', outputs=['greeting'])
+            @router.compute_route(vv, path='/e5', outputs=['greeting'])
             def _(greeting: list[KwRow]) -> Resp:  # pragma: no cover
                 raise AssertionError
 
         # missing return annotation on a batch-shaped fn
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'pydantic\.BaseModel subclass'):
 
-            @router.compute_route(t, path='/e6', outputs=['greeting'])
+            @router.compute_route(vv, path='/e6', outputs=['greeting'])
             def _(rows: list[KwRow]):  # type: ignore[no-untyped-def]  # pragma: no cover
                 raise AssertionError
 
         # the batch form is compute-only: for insert_route the same shape fails per-column validation
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='must be keyword-only'):
 
-            @router.insert_route(t, path='/e7', outputs=['greeting'])
+            @router.insert_route(t, path='/e7', outputs=['prompt'])
             def _(rows: list[KwRow]) -> Resp:  # pragma: no cover
                 raise AssertionError
 
