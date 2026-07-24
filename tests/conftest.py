@@ -116,6 +116,7 @@ def _set_up_external_db_schema(worker_id: int | str) -> str:
 
 
 def _worker_db_name(worker_id: int | str) -> str:
+    """The db name used by both the pytest process and its proxy daemon."""
     return f'test_{worker_id}'
 
 
@@ -250,6 +251,9 @@ def uses_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
 @pytest.fixture(scope='session')
 def proxy_daemon_db(init_env: None, worker_id: str) -> Iterator[str]:
     """A per-worker local proxy daemon, started once for the session and reused across tests.
+
+    The daemon deliberately runs against the same database as the pytest process (_worker_db_name). This way, the
+    post-test _validate_catalog_state() actually validates the store state at the end of the test.
 
     The db name is worker-scoped so parallel xdist workers don't share a catalog. start() is idempotent,
     so the per-test make_catalog_path fixture only resets the daemon's catalog rather than restarting the process.
