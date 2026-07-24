@@ -6,7 +6,8 @@ Examples:
   pxt pwd                          # print the working directory, or '(no working directory)' when unset
 
 Notes:
-  Set or clear the working directory with 'pxt cwd'."""
+  Prints the working directory for the invoking terminal; each terminal session has its own.
+  Set or clear it with 'pxt cwd'."""
 
 
 def run(argv: list[str]) -> None:

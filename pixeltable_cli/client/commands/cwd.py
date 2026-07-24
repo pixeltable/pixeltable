@@ -9,8 +9,11 @@ Examples:
   pxt cwd                          # clear the working directory
 
 Notes:
-  The working directory is prepended to relative paths in subsequent commands (it is per-terminal).
-  A pxt:// URI or a leading '/' is absolute and ignores the current working directory."""
+  The working directory is prepended to relative paths in subsequent commands; a pxt:// URI or a
+  leading '/' is absolute and ignores it.
+  It is scoped to the invoking terminal (keyed by the shell's session), so separate terminals don't
+  share it and it does not leak into subprocesses or agents you launch -- those run under their own
+  session with no working directory. Scripts and agents should use absolute paths and ignore it."""
 
 
 def run(argv: list[str]) -> None:

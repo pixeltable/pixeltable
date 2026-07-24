@@ -33,6 +33,7 @@ Use `pxt <command> --help` for per-subcommand flags and examples.
 | Category | Commands |
 |---|---|
 | **Inspection** | `ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config` |
+| **Navigation** | `cwd`, `pwd` |
 | **Query** | `rows`, `get`, `count`, `errors` |
 | **Mutation** | `drop`, `rm`, `rename`, `mv`, `revert` |
 | **Interactive** | `shell` |
@@ -46,9 +47,26 @@ These flags work the same way across the catalog commands that support them and 
 | Flag | Available on | Description |
 |---|---|---|
 | `-h`, `--help` | Every command | Print the command's usage and examples |
-| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `rm`, `rename`, `mv`, `revert`), plus `serve`, `deploy`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), or the lifecycle subcommands that print plain status lines (`daemon start`/`stop`). |
+| `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `rm`, `rename`, `mv`, `revert`), plus `serve`, `deploy`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cwd`, `pwd`), or the lifecycle subcommands that print plain status lines (`daemon start`/`stop`). |
 | `-n`, `--dry-run` | Every catalog mutation (`drop`, `rm`, `rename`, `mv`, `revert`) | Print the intended action; don't execute. `pxt serve` accepts the long form `--dry-run` only. |
 | `-f`, `--force` | Mutations that prompt for confirmation (`drop`, `rm`, `revert`) | Skip the `[y/N]` prompt. Required in non-interactive contexts. `rename` and `mv` don't prompt and don't accept `-f`. |
+
+### Working directory
+
+`pxt cwd` sets a working directory that is prepended to *relative* paths in later commands, and `pxt pwd` prints it -- the catalog analogue of a shell's `cd`/`pwd`.
+
+```bash
+pxt cwd my_dir                     # relative paths now resolve under my_dir
+pxt pwd                            # print the current working directory
+pxt ls sub                         # lists my_dir/sub
+pxt cwd                            # clear it
+```
+
+Absolute paths ignore the working directory: a leading `/` (e.g. `pxt ls /other_dir`) resolves from the catalog root, and a `pxt://org:db/...` URI addresses a hosted catalog.
+
+The working directory is scoped to the **invoking terminal**, not the daemon globally -- it is keyed by the shell's session, sent with every command. So separate terminals have independent working directories, and, crucially, it does **not** leak into subprocesses or agents you launch: a spawned process runs under its own session with no working directory, so its `pxt` commands resolve relative paths from the catalog root regardless of what you set interactively.
+
+Because of that isolation, scripts and agents should address the catalog with absolute paths (`/...` or `pxt://...`) and ignore the working directory; it is a convenience for interactive terminal use.
 
 ## Quick reference
 
@@ -68,6 +86,10 @@ pxt errors my_dir/my_table         # rows where a computed column failed
 pxt drop my_dir/my_table -f
 pxt mv my_dir/my_table other_dir
 pxt revert my_dir/my_table --steps 3 -f
+
+# navigate
+pxt cwd my_dir                     # set the working directory (this terminal)
+pxt pwd                            # print it
 
 # interactive
 pxt shell
