@@ -81,6 +81,18 @@ _MAX_RETRIES = -1
 T = TypeVar('T')
 
 
+def _is_retryable_exc(e: BaseException) -> bool:
+    """True if e is a transient database failure that can be retried."""
+    if not isinstance(e, sql_exc.DBAPIError):
+        return False
+    # connection_invalidated: the connection was terminated by the server (eg, by pg_terminate_backend)
+    # TODO: Investigate whether DeadlockDetected points to a bug in our locking protocol, which is
+    # supposed to be deadlock-free.
+    return e.connection_invalidated or isinstance(
+        e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable, psycopg.errors.DeadlockDetected)
+    )
+
+
 def retry_loop(
     *,
     for_write: bool = False,
@@ -125,18 +137,8 @@ def retry_loop(
                 except PendingTableOpsError as e:
                     Env.get().console_logger.debug(f'retry_loop(): finalizing pending ops for {e.tbl_id}')
                     cat._finalize_pending_ops(e.tbl_id)
-                except (sql_exc.DBAPIError, sql_exc.OperationalError) as e:
-                    # TODO: what other exceptions should we be looking for?
-                    if isinstance(
-                        # TODO: Investigate whether DeadlockDetected points to a bug in our locking protocol,
-                        #     which is supposed to be deadlock-free.
-                        e.orig,
-                        (
-                            psycopg.errors.SerializationFailure,
-                            psycopg.errors.LockNotAvailable,
-                            psycopg.errors.DeadlockDetected,
-                        ),
-                    ):
+                except sql_exc.DBAPIError as e:
+                    if _is_retryable_exc(e):
                         if num_retries < _MAX_RETRIES or _MAX_RETRIES == -1:
                             num_retries += 1
                             _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
@@ -265,15 +267,22 @@ class Catalog(CatalogBase):
             clause = sql.and_(schema.Table.md['name'].astext == tbl_name, clause)
         return clause
 
+    def _validate_tbls_exist(self, tbl_ids: Collection[UUID]) -> None:
+        conn = get_runtime().conn
+        assert conn is not None
+        for tbl_id in tbl_ids:
+            q = sql.select(sql.func.count()).select_from(schema.Table).where(self._active_tbl_clause(tbl_id=tbl_id))
+            if conn.execute(q).scalar() == 0:
+                raise excs.table_was_dropped(tbl_id)
+
     def validate_tbls_exist(self, tbl_ids: Collection[UUID]) -> None:
         """Raises TABLE_NOT_FOUND if any id is not a live (not dropped or being dropped) table."""
-        with self.begin_xact():
-            conn = get_runtime().conn
-            assert conn is not None
-            for tbl_id in tbl_ids:
-                q = sql.select(sql.func.count()).select_from(schema.Table).where(self._active_tbl_clause(tbl_id=tbl_id))
-                if conn.execute(q).scalar() == 0:
-                    raise excs.table_was_dropped(tbl_id)
+        # Only retry when this call opens the outermost transaction; when it runs nested inside an existing transaction,
+        # the outer transaction handles recovery.
+        if get_runtime().in_xact:
+            self._validate_tbls_exist(tbl_ids)
+        else:
+            retry_loop(for_write=False)(self._validate_tbls_exist)(tbl_ids)
 
     def validate(self) -> None:
         """Validate structural consistency of cached metadata"""
@@ -415,14 +424,12 @@ class Catalog(CatalogBase):
                         except sql_exc.DBAPIError as e:
                             # Handle retriable errors
                             has_exc = True
-                            if isinstance(
-                                e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)
-                            ) and (num_retries < _MAX_RETRIES or _MAX_RETRIES == -1):
+                            if _is_retryable_exc(e) and (num_retries < _MAX_RETRIES or _MAX_RETRIES == -1):
                                 _logger.debug(f'Retriable error {type(e.orig)} on attempt {num_retries}')
                                 num_retries += 1
                                 time.sleep(random.uniform(0.1, 0.5))
                                 # attempt failed -- don't try to commit the transaction before retrying
-                                conn.rollback()
+                                self._try_rollback(conn)
                                 assert not self._undo_actions  # We should not have any undo actions at this point
                                 continue
                             raise
@@ -492,6 +499,13 @@ class Catalog(CatalogBase):
 
                 self._undo_actions.clear()
                 self._modified_tvs.clear()
+
+    def _try_rollback(self, conn: sql.Connection) -> None:
+        """Initiate rollback, ignoring the failure resulting from a possibly already-dead connection."""
+        try:
+            conn.rollback()
+        except sql_exc.DBAPIError:
+            pass
 
     def _acquire_locks(
         self,
@@ -918,17 +932,12 @@ class Catalog(CatalogBase):
                     return other_exc
                 continue
 
-            except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
+            except sql_exc.DBAPIError as e:
                 # TODO: why are we still seeing these here, instead of them getting taken care of by the retry
                 # logic of begin_xact()?
-                if isinstance(
-                    e.orig,
-                    (
-                        psycopg.errors.SerializationFailure,
-                        psycopg.errors.LockNotAvailable,
-                        psycopg.errors.InFailedSqlTransaction,
-                    ),
-                ):
+                # InFailedSqlTransaction is specific to finalizing a multi-op statement: an earlier op in the
+                # same transaction failed and poisoned it, so the current op needs a fresh transaction.
+                if _is_retryable_exc(e) or isinstance(e.orig, psycopg.errors.InFailedSqlTransaction):
                     num_retries += 1
                     _logger.debug(f'Finalize pending ops({tbl_id}): retriable error: {e.orig} of type {type(e.orig)}')
                     log_msg: str
@@ -2849,15 +2858,8 @@ class Catalog(CatalogBase):
                     session.flush()
                     _logger.info(f'Added root directory record for user: {user!r}')
                     return
-            except (sql_exc.DBAPIError, sql_exc.OperationalError) as e:
-                if not isinstance(
-                    e.orig,
-                    (
-                        psycopg.errors.SerializationFailure,
-                        psycopg.errors.LockNotAvailable,
-                        psycopg.errors.DeadlockDetected,
-                    ),
-                ):
+            except sql_exc.DBAPIError as e:
+                if not _is_retryable_exc(e):
                     raise
                 if _MAX_RETRIES != -1 and num_retries >= _MAX_RETRIES:
                     raise excs.ConcurrencyError(
