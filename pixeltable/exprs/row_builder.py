@@ -348,11 +348,54 @@ class RowBuilder:
         if recursive:
             for i, c in enumerate(expr.components):
                 # make sure we only refer to components that have themselves been recorded
-                expr.components[i] = self._record_unique_expr(c, True)
+                recorded = self._record_unique_expr(c, True)
+                if self._consumes_image_value(expr, i, recorded):
+                    # equal parents mutate identically (they wrap before recording, and duplicates are
+                    # resolved above before recursing), so ExprSet dedup stays consistent
+                    recorded = self._record_unique_expr(self._make_image_load_call(recorded), recursive=True)
+                expr.components[i] = recorded
         assert expr.slot_idx is None, expr
         expr.slot_idx = self._next_slot_idx()
         self.unique_exprs.add(expr)
         return expr
+
+    def _consumes_image_value(self, parent: Expr, component_idx: int, component: Expr) -> bool:
+        """True if parent is a UDF call that consumes component's in-memory image value as an argument."""
+        from pixeltable import func
+
+        from .column_ref import ColumnRef
+        from .function_call import FunctionCall
+
+        if not isinstance(component, ColumnRef) or not component.col_type.is_image_type():
+            return False
+        if component.needs_iterator_evaluation:
+            # iterator-produced image columns hold in-memory images with no backing file
+            return False
+        if component.perform_validation:
+            # validating image ColumnRefs decode on the cpu pool themselves (ThreadPoolExprEvaluator's
+            # media-load path); wrapping their consumers would decode the file a second time
+            return False
+        if not isinstance(parent, FunctionCall) or not isinstance(parent.fn, func.CallableFunction):
+            # non-UDF parents (eg, ColumnPropertyRef, validating ColumnRef) read the slot's file state,
+            # and ExprTemplateFunction calls evaluate their instantiated template, not the arg components
+            return False
+        return component_idx in parent.arg_idxs or component_idx in parent.kwarg_idxs.values()
+
+    def _make_image_load_call(self, col_ref: Expr) -> Expr:
+        """Returns a _load_image call over col_ref's localpath.
+
+        Image decode is bootstrapped as a run_in_thread UDF, so it executes on the cpu pool instead of
+        lazily on the event loop (DataRow.__getitem__, which remains the fallback for unwrapped
+        consumers). The encode on save is not an expr: it stays in ObjectStoreSaveNode (the single node
+        every persisting plan ends with), which submits it to the same cpu pool.
+        """
+        from pixeltable.functions.image import _load_image
+
+        from .column_property_ref import ColumnPropertyRef
+        from .column_ref import ColumnRef
+
+        assert isinstance(col_ref, ColumnRef)
+        return _load_image(ColumnPropertyRef(col_ref, ColumnPropertyRef.Property.LOCALPATH))
 
     def _record_output_expr_id(self, e: Expr, output_expr_id: int) -> None:
         assert e.slot_idx is not None

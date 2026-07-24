@@ -228,6 +228,10 @@ class FunctionCall(Expr):
         return self.fn.is_async
 
     @property
+    def runs_in_thread(self) -> bool:
+        return isinstance(self.fn, func.CallableFunction) and self.fn.run_in_thread
+
+    @property
     def group_by(self) -> list[Expr]:
         return self.components[self.group_by_start_idx : self.group_by_stop_idx]
 

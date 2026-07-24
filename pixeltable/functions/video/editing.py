@@ -199,7 +199,7 @@ def get_duration(video: pxt.Video) -> float | None:
     return av_utils.get_video_duration(video)
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def extract_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image | None:
     """
     Extract a single frame from a video at a specific timestamp.
@@ -263,7 +263,7 @@ def extract_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image | No
         ) from e
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def clip(
     video: pxt.Video,
     *,
@@ -340,7 +340,7 @@ def clip(
     return av_utils.run_ffmpeg_cmdline(ffmpeg_args, output_path)
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def segment_video(
     video: pxt.Video,
     *,
@@ -628,7 +628,7 @@ def _concat_videos(
         filelist_path.unlink()
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def concat_videos(
     videos: list[pxt.Video], *, video_encoder: str | None = None, video_encoder_args: dict[str, Any] | None = None
 ) -> pxt.Video | None:
@@ -700,7 +700,7 @@ class concat_videos_agg(pxt.Aggregator):
         )
 
 
-@pxt.udf
+@pxt.udf(run_in_thread=True)
 def with_audio(
     video: pxt.Video,
     audio: pxt.Audio,
@@ -807,7 +807,7 @@ def with_audio(
     return av_utils.run_ffmpeg_cmdline(cmd, output_path)
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def mix_audio(
     video: pxt.Video,
     audio: pxt.Audio,
