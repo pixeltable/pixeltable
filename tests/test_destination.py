@@ -17,6 +17,7 @@ from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
 from .utils import CatalogMode, MediaStore, pxt_raises, rerun_on_network_error, skip_test_if_not_installed
 
 
+@rerun_on_network_error()
 class TestDestination:
     TESTED_DESTINATIONS = (
         StorageTarget.AZURE_STORE,
@@ -208,7 +209,6 @@ class TestDestination:
         with pytest.raises(ValueError, match='Invalid pxtfs:// store URI'):
             ObjectPath.parse_object_storage_addr('pxtfs://org:db/homebucket', allow_obj_name=False)
 
-    @rerun_on_network_error()
     @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS)
     def test_destination(
         self, make_catalog_path: Callable[[str], str], dest_id: StorageTarget, catalog_mode: CatalogMode
@@ -439,7 +439,6 @@ class TestDestination:
             assert ObjectOps.count(t._id, dest=uri) == 0
 
     @pytest.mark.local('media destination/object-store internals')
-    @rerun_on_network_error()
     def test_presigned_url_all_destinations(self, uses_db: None) -> None:
         """Test presigned_url UDF for all cloud storage destinations"""
         # Exclude LOCAL_STORE as it doesn't support presigned URLs

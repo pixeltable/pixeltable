@@ -312,6 +312,10 @@ class View(LocalTable):
             md['base'] = base_path if base_version is None else f'{base_path}:{base_version}'
 
         tv = self._tbl_version_path.tbl_version.get()
+        if tv.predicate is not None:
+            md['view_filter'] = str(tv.predicate)
+        if tv.sample_clause is not None:
+            md['view_sample'] = str(tv.sample_clause)
         if tv.iterator_call is not None:
             # Mark iterator-produced columns
             columns = self._tbl_version_path.columns()

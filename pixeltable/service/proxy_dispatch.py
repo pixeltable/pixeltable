@@ -205,6 +205,12 @@ def _create_from_model(request: ProxyRequest) -> tuple[list, bool]:
     return md, was_created
 
 
+def _update_from_model(request: ProxyRequest) -> None:
+    # Deserialize through the read-transaction path, since each Updates carries Exprs (column value expressions).
+    kwargs = _deserialize_args(request)
+    get_runtime().catalog.update_from_model(kwargs['updates'])
+
+
 def _get_table(request: ProxyRequest) -> list | None:
     kwargs = _deserialize_args(request)
     cat = get_runtime().catalog
@@ -420,6 +426,11 @@ def _rename_column(request: ProxyRequest, tbl: LocalTable) -> None:
     tbl.rename_column(kwargs['old_name'], kwargs['new_name'])
 
 
+def _alter_column(request: ProxyRequest, tbl: LocalTable) -> None:
+    kwargs = _deserialize_args(request)
+    tbl.alter_column(kwargs['column'], type_=kwargs['type_'])
+
+
 def _add_embedding_index(request: ProxyRequest, tbl: LocalTable) -> None:
     kwargs = _deserialize_args(request)
     tbl.add_embedding_index(
@@ -531,6 +542,7 @@ _HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest], Any]] = {
     ('CatalogBase', 'create_table'): _create_table,
     ('CatalogBase', 'create_view'): _create_view,
     ('CatalogBase', 'create_from_model'): _create_from_model,
+    ('CatalogBase', 'update_from_model'): _update_from_model,
     ('CatalogBase', 'get_table'): _get_table,
     ('CatalogBase', 'get_table_by_id'): _get_table_by_id,
     ('CatalogBase', 'move'): _catalog_method,
@@ -548,6 +560,7 @@ _HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest], Any]] = {
 # snapshot_path_key is behind); reads run unconditionally.
 _MUTATION_METHODS: frozenset[str] = frozenset(
     {
+        'alter_column',
         'insert',
         'insert_source',
         'insert_hf_dataset',
@@ -571,6 +584,7 @@ _MUTATION_METHODS: frozenset[str] = frozenset(
 
 # Path-bearing Table methods: handler(request, tbl) -> result; handle() resolves tbl and sends current md back.
 _TABLE_HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest, 'LocalTable'], Any]] = {
+    ('Table', 'alter_column'): _alter_column,
     ('Table', 'get_metadata'): _get_metadata,
     ('Table', '_path'): _get_path,
     ('Table', 'describe'): _describe,

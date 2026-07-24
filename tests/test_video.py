@@ -27,6 +27,7 @@ from .utils import (
     get_video_files,
     pxt_raises,
     reload_catalog,
+    rerun_on_network_error,
     skip_test_if_not_installed,
     validate_update_status,
 )
@@ -98,6 +99,7 @@ class TestVideo:
         assert MediaStore.count(view, default_output_dest=True) == view.count()
 
     @pytest.mark.local('TODO: convert; frame-iterator view')
+    @rerun_on_network_error()
     def test_query(self, uses_db: None) -> None:
         skip_test_if_not_installed('boto3')
         video_filepaths = get_video_files()

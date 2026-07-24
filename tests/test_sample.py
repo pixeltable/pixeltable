@@ -129,11 +129,11 @@ class TestSample:
         query = t.select(t.c1).sample(n=10, seed=27, stratify_by=[t.c1, t.c2, t.c4])
         s = repr(query)
         print(s)
-        assert 'sample_1(n=10, n_per_stratum=None, fraction=' in s
+        assert 'sample(n=10, n_per_stratum=None, fraction=' in s
 
         s = query._repr_html_()
         print(s)
-        assert 'sample_1(n=10, n_per_stratum=None, fraction=' in s
+        assert 'sample(n=10, n_per_stratum=None, fraction=' in s
 
     @classmethod
     def _check_sample_count(cls, expected: int | float, actual: int) -> None:

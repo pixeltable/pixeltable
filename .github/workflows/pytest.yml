@@ -262,7 +262,7 @@ jobs:
         if: ${{ matrix.test-category == 'lint' }}
         run: |
           python tool/generate_type_stubs.py
-          mypy pixeltable tests tool
+          mypy pixeltable pixeltable_cli tests tool
           mypy pixeltable/catalog/model.py
           # The instrumentation package is a src-layout PEP 420 namespace package and needs explicit base/namespace flags.
           MYPYPATH=packages/opentelemetry-instrumentation-pixeltable/src mypy --explicit-package-bases --namespace-packages \
@@ -278,7 +278,7 @@ jobs:
           cd target/docs && mint broken-links
       - name: Lint
         if: ${{ matrix.test-category == 'lint' }}
-        run: ruff check pixeltable tests tool packages/**/src packages/**/tests
+        run: ruff check pixeltable pixeltable_cli tests tool packages/**/src packages/**/tests
       - name: Formatter check
         if: ${{ matrix.test-category == 'lint' }}
         run: |
