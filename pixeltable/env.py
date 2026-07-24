@@ -438,6 +438,8 @@ class Env:
             dialect = db_url.get_dialect().name
             if dialect == 'cockroachdb':
                 self._dbms = CockroachDbms(db_url)
+            elif dialect == 'postgresql':
+                self._dbms = PostgresqlDbms(db_url)
             else:
                 raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Unsupported DBMS {dialect}')
             # Check if database exists
