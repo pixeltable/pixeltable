@@ -24,7 +24,7 @@ from pixeltable.utils.local_store import TempStore
 from . import util
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def b64_encode(img: PIL.Image.Image, image_format: str = 'png') -> str:
     """
     Convert image to a base64-encoded string.
@@ -56,7 +56,7 @@ def blend(im1: PIL.Image.Image, im2: PIL.Image.Image, alpha: float) -> PIL.Image
     return PIL.Image.blend(im1, im2, alpha)
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def composite(image1: PIL.Image.Image, image2: PIL.Image.Image, mask: PIL.Image.Image) -> PIL.Image.Image:
     """
     Return a composite image by blending two images using a mask.
@@ -152,7 +152,7 @@ def get_metadata(self: PIL.Image.Image) -> util.ImageMetadata:
 
 
 # Image.point()
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def point(self: PIL.Image.Image, lut: list[int], mode: str | None = None) -> PIL.Image.Image:
     """
     Map image pixels through a lookup table.
@@ -167,7 +167,7 @@ def point(self: PIL.Image.Image, lut: list[int], mode: str | None = None) -> PIL
 
 
 # Image.resize()
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def resize(self: PIL.Image.Image, size: tuple[int, int]) -> PIL.Image.Image:
     """
     Return a resized copy of the image. The size parameter is a tuple containing the width and height of the new image.
@@ -186,7 +186,7 @@ def _(self: Expr, size: tuple[int, int]) -> ts.ColumnType:
 
 
 # Image.rotate()
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def rotate(self: PIL.Image.Image, angle: int) -> PIL.Image.Image:
     """
     Return a copy of the image rotated by the given angle.
@@ -214,7 +214,7 @@ def effect_spread(self: PIL.Image.Image, distance: int) -> PIL.Image.Image:
     return self.effect_spread(distance)
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def transpose(self: PIL.Image.Image, method: Literal[0, 1, 2, 3, 4, 5, 6]) -> PIL.Image.Image:
     """
     Transpose the image.
@@ -237,7 +237,7 @@ def _(self: Expr) -> ts.ColumnType:
     return self.col_type
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def entropy(self: PIL.Image.Image, mask: PIL.Image.Image | None = None, extrema: list | None = None) -> float:
     """
     Returns the entropy of the image, optionally using a mask and extrema.
@@ -342,7 +342,7 @@ def getprojection(self: PIL.Image.Image) -> tuple[list[int], list[int]]:
     return self.getprojection()
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def histogram(self: PIL.Image.Image, mask: PIL.Image.Image | None = None, extrema: list | None = None) -> list[int]:
     """
     Return a histogram for the image.
@@ -357,7 +357,7 @@ def histogram(self: PIL.Image.Image, mask: PIL.Image.Image | None = None, extrem
     return self.histogram(mask, extrema)  # type: ignore[arg-type]
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def quantize(
     self: PIL.Image.Image,
     colors: int = 256,
@@ -386,7 +386,7 @@ def quantize(
     return self.quantize(colors, method, kmeans, palette, dither)
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def reduce(self: PIL.Image.Image, factor: int, box: tuple[int, int, int, int] | None = None) -> PIL.Image.Image:
     """
     Reduce the image by the given factor.
@@ -402,7 +402,7 @@ def reduce(self: PIL.Image.Image, factor: int, box: tuple[int, int, int, int] | 
     return self.reduce(factor, box)
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def thumbnail(
     self: PIL.Image.Image,
     size: tuple[int, int],
@@ -652,7 +652,7 @@ class stitch_tiles(pxt.Aggregator):
         return self.canvas
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def to_video(
     image: pxt.Image,
     *,
