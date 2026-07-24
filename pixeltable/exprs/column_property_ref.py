@@ -50,7 +50,10 @@ class ColumnPropertyRef(Expr):
         return col_ref
 
     def __repr__(self) -> str:
-        return f'{self.col_ref}.{self.prop.name.lower()}'
+        # Render from the component directly (not `self.col_ref`, which requires a real `ColumnRef`): a pre-
+        # substitution model value expression may carry a placeholder `ModelColumnRef` here, which renders as its
+        # bare column name, identically to the `ColumnRef` it stands in for.
+        return f'{self.components[0]}.{self.prop.name.lower()}'
 
     def is_cellmd_prop(self) -> bool:
         return self.prop in (self.Property.ERRORTYPE, self.Property.ERRORMSG, self.Property.CELLMD)
@@ -116,7 +119,4 @@ class ColumnPropertyRef(Expr):
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr], tbl_versions: Any = None) -> ColumnPropertyRef:
         assert 'prop' in d
-        # components[0] is normally a ColumnRef, but a TableModel/ViewModel can ship a pre-substitution value
-        # expression in which it is a placeholder column reference; the owning catalog substitutes it with a real
-        # ColumnRef immediately after deserialization.
         return cls(components[0], cls.Property(d['prop']))  # type: ignore[arg-type]

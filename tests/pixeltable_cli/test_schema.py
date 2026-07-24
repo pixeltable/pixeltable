@@ -73,7 +73,7 @@ class TestSchema:
         )
         r = cli('schema', 'update', str(schema_file), target, check=False)
         assert r.returncode == 1
-        assert 'is defined as a table' in r.stderr
+        assert "specifies a table, but 'titled_docs' is a view" in r.stderr
 
     def test_update_errors(
         self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
