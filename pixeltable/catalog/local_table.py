@@ -190,6 +190,8 @@ class LocalTable(Table):
             primary_key=primary_key,
             kind=self._display_name(),  # type: ignore[typeddict-item]
             base=None,
+            view_filter=None,
+            view_sample=None,
             iterator_call=None,
         )
 
