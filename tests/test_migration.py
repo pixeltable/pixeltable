@@ -194,6 +194,8 @@ class TestMigration:
                         self._verify_v49()
                     if old_version >= 50:
                         self._verify_v49_query_scalar()
+                    if old_version >= 55:
+                        self._verify_c7_null()
 
                     pxt.drop_table('sample_table', force=True)
 
@@ -463,3 +465,11 @@ class TestMigration:
             assert result.fetchone() is not None, f'Expected pk index {good_idx_name} to exist for pk_test_good'
             result = conn.execute(sql.text('SELECT 1 FROM pg_indexes WHERE indexname = :idx'), {'idx': bad_idx_name})
             assert result.fetchone() is None, f'Expected pk index {bad_idx_name} to NOT exist for pk_test_bad'
+
+    @classmethod
+    def _verify_c7_null(cls) -> None:
+        """Alter column check: verify that None values in c7 can be properly selected"""
+        t = pxt.get_table('base_table')
+        rows = t.select(t.c7).where(t.c7 == None).limit(1).collect()
+        assert len(rows) == 1
+        assert rows[0]['c7'] is None

@@ -99,6 +99,10 @@ class TableMetadata(TypedDict):
     """List of primary key column names, or `None` if this table has no primary key."""
     base: str | None
     """If this table is a view or snapshot, the full path of its base table; otherwise `None`."""
+    view_filter: str | None
+    """A display string of a view's filter (`where`) predicate; `None` if this is not a view or has no filter."""
+    view_sample: str | None
+    """A display string of a view's `sample` clause; `None` if this is not a view or has no sample clause."""
     iterator_call: str | None
     """The iterator call for views that use an iterator; otherwise `None`."""
 

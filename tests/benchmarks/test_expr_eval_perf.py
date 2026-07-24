@@ -7,7 +7,7 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.env import Env
 
-from ..utils import SAMPLE_IMAGE_URL, get_audio_files, get_video_files
+from ..utils import SAMPLE_IMAGE_URL, get_audio_files, get_video_files, rerun_on_network_error
 
 pytestmark = pytest.mark.local('expr-eval/insert performance benchmark')
 
@@ -94,6 +94,7 @@ class TestExprEvalPerformance:
                 conn.execute(sa.text(f'DROP TABLE IF EXISTS {table_name}'))
 
     @pytest.mark.benchmark(group='image_transform')
+    @rerun_on_network_error()
     def test_insert_image_resize(self, uses_db: None, benchmark: BenchmarkFixture) -> None:
         """Benchmark image resize operations."""
         row_count = 200

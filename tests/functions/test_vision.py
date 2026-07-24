@@ -21,13 +21,21 @@ from pixeltable.functions.vision import (
     overlay_segmentation,
 )
 
-from ..utils import get_image_files, get_video_files, pxt_raises, skip_test_if_not_installed, validate_update_status
+from ..utils import (
+    get_image_files,
+    get_video_files,
+    pxt_raises,
+    rerun_on_network_error,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 
 pytestmark = pytest.mark.local('UDF/integration test')
 
 
 class TestVision:
     @pytest.mark.very_expensive
+    @rerun_on_network_error()
     def test_eval(self, uses_db: None) -> None:
         skip_test_if_not_installed('yolox')
         from pixeltable.functions.yolox import yolox
@@ -71,6 +79,7 @@ class TestVision:
         ).collect()
 
     @pytest.mark.very_expensive
+    @rerun_on_network_error()
     def test_bboxes_draw(self, uses_db: None) -> None:
         skip_test_if_not_installed('yolox')
         from pixeltable.functions.yolox import yolox

@@ -44,6 +44,7 @@ _EXPECTED_ERROR_PATTERNS = (
     re.compile(r'Table was dropped'),
     re.compile(r'Column was dropped'),
     re.compile(r"Cannot use if_exists=.+ with the same name as one of the view's own ancestors"),
+    re.compile(r'Cannot alter column .+ because the following columns depend on it.+'),
 )
 
 
@@ -75,6 +76,7 @@ TABLE_OPS = (
     ('drop_column', 3, False),
     ('create_view', 5, False),
     ('rename_view', 5, False),
+    ('alter_column_nullable', 1, False),
     ('drop_view', 1, False),
     ('drop_table', 0.25, False),
 )
@@ -83,13 +85,14 @@ OP_NAMES = {name for name, _, _ in TABLE_OPS}
 
 # Basic schema for all tables created by RandomTableOps. Additional columns may be added or removed as the script
 # progresses, but the basic columns (bc_*) will always be present.
-BASIC_SCHEMA: dict[str, type] = {
-    'bc_string': pxt.String,
-    'bc_int': pxt.Int,
-    'bc_float': pxt.Float,
-    'bc_bool': pxt.Bool,
-    'bc_timestamp': pxt.Timestamp,
-    'bc_date': pxt.Date,
+# For each Required column, the script randomly decides to keep or drop Required.
+BASIC_SCHEMA: dict[str, Any] = {
+    'bc_string': pxt.Required[pxt.String],
+    'bc_int': pxt.Required[pxt.Int],
+    'bc_float': pxt.Required[pxt.Float],
+    'bc_bool': pxt.Required[pxt.Bool],
+    'bc_timestamp': pxt.Required[pxt.Timestamp],
+    'bc_date': pxt.Required[pxt.Date],
     'bc_array': pxt.Array,
     'bc_json': pxt.Json,
     'bc_image': pxt.Image,
@@ -241,6 +244,17 @@ class RandomTableOps:
     def tbl_descr(cls, t: pxt.Table) -> str:
         return f'{t._name()!r} ({t._id.hex[:6]}...)'
 
+    @staticmethod
+    def make_schema() -> dict[str, Any]:
+        """Generates a schema for the new table based on BASIC_SCHEMA."""
+        schema: dict[str, type] = {}
+        for col_name, col_type in BASIC_SCHEMA.items():
+            schema[col_name] = col_type
+            # Randomly drop Required type wrapper if present
+            if random.random() < 0.2 and hasattr(col_type, '__origin__') and col_type.__origin__ is pxt.Required:
+                schema[col_name] = col_type.__args__[0]
+        return schema
+
     def get_random_tbl(self, allow_base_tbl: bool = True, allow_view: bool = True) -> pxt.Table | None:
         # Occasionally it happens that we get a list of views, but by the time we try to get one of them, it has been
         # dropped by another process. So we wrap the whole operation in a while loop and keep trying until it succeeds.
@@ -248,7 +262,7 @@ class RandomTableOps:
         while True:
             name = random.choice(self.base_table_names)
             # If the table does not already exist, create it and populate with some initial data
-            t = pxt.create_table(name, source=INITIAL_ROWS, schema_overrides=BASIC_SCHEMA, if_exists='ignore')
+            t = pxt.create_table(name, source=INITIAL_ROWS, schema_overrides=self.make_schema(), if_exists='ignore')
             if not allow_view:
                 return t  # View not allowed
             if allow_base_tbl and random.uniform(0, 1) < 0.5:
@@ -407,6 +421,16 @@ class RandomTableOps:
         t = self.get_random_tbl(allow_view=False)
         pxt.drop_table(t, force=True, if_not_exists='ignore')
         return success(f'Dropped table {self.tbl_descr(t)}.')
+
+    def alter_column_nullable(self) -> OpResult:
+        t = self.get_random_tbl(allow_view=False)
+        required_cols = [col_name for col_name in BASIC_SCHEMA if not getattr(t, col_name).col_type.nullable]
+        if not required_cols:
+            return success(f'No Required columns to alter in {self.tbl_descr(t)}.')
+        col_name = random.choice(required_cols)
+        col_ref = getattr(t, col_name)
+        t.alter_column(col_name, type_=col_ref.col_type.copy(nullable=True))
+        return success(f'Altered column {col_name!r} to nullable in {self.tbl_descr(t)}.')
 
     def run_op(self, op: Callable) -> None:
         """Run the given operation once. Capture any "expected" errors and fail fatally on unexpected ones."""

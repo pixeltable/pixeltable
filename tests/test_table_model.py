@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import textwrap
 from typing import Callable
 
 import numpy as np
@@ -294,6 +295,8 @@ class TestTableModel:
                 'primary_key': None,
                 'kind': 'table',
                 'base': None,
+                'view_filter': None,
+                'view_sample': None,
                 'iterator_call': None,
             },
             tbl.get_metadata(),
@@ -407,10 +410,7 @@ class TestTableModel:
             TableModel,
             name='test_view_from_query',
             base=ExampleTableModel.select(
-                ExampleTableModel.value,
-                ExampleTableModel.img,
-                ExampleTableModel.value + 1,
-                plusone=(ExampleTableModel.value + 1),
+                ExampleTableModel.value, ExampleTableModel.img, plusone=(ExampleTableModel.value + 1)
             ).where(ExampleTableModel.value > 0.5),
         ):
             view_col_1: pxt.Image
@@ -469,7 +469,7 @@ class TestTableModel:
 
         view_from_query2 = pxt.create_view(
             p(f'{prefix}test_view_from_query_2'),
-            tbl2.select(tbl2.value, tbl2.img, tbl2.value + 1, plusone=tbl2.value + 1).where(tbl2.value > 0.5),
+            tbl2.select(tbl2.value, tbl2.img, plusone=tbl2.value + 1).where(tbl2.value > 0.5),
             additional_columns={'view_col_1': pxt.Image},
             create_default_idxs=True,
         )
@@ -584,6 +584,668 @@ class TestTableModel:
             view_from_query2.order_by(view_from_query2.id, view_from_query2.pos).collect(),
         )
 
+    def test_diff_all(self, make_catalog_path: Callable[[str], str]) -> None:
+        """`diff_all()` reports added/dropped columns and an iterator mismatch against already-created tables."""
+        skip_test_if_not_installed('imagehash')
+
+        p = make_catalog_path
+        root = p('')
+
+        # A base with a table model and a view model, 4 columns each. `create_default_idxs=False` keeps the diff
+        # focused on columns and the iterator (default indexes are not part of a model's declared `__indexes__`).
+        TableModel = pxt.model_base()
+
+        # In V2, `test_table` exercises every alterable column property across a few kept columns: `score` (type),
+        # `image` (media_validation), and the computed `derived` (value expression, stored, comment, custom_metadata).
+        # It also changes table-level properties (comment, custom_metadata).
+        class ExampleTable(
+            TableModel, name='test_table', create_default_idxs=False, comment='before', custom_metadata={'origin': 'v1'}
+        ):
+            id: pxt.Required[pxt.Int]
+            name: pxt.String
+            value: pxt.Float
+            image: pxt.Image
+            score: pxt.Float
+            derived = Column(value=id + 1, comment='before', custom_metadata={'v': 1})
+            idx1 = EmbeddingIndex(image, embedding=dummy_embedding.using(n=768))
+            idx2 = EmbeddingIndex(image, embedding=dummy_embedding.using(n=512))
+
+        class ExampleView(
+            TableModel,
+            name='test_view',
+            base=ExampleTable,
+            iterator=pxtf.image.tile_iterator(ExampleTable.image, (256, 256)),
+        ):
+            vc1 = ExampleTable.id + 1
+            vc2 = ExampleTable.id + 2
+            vc3 = ExampleTable.id + 3
+            vc4 = ExampleTable.id + 4
+
+        class ExampleQueryView(
+            TableModel,
+            name='test_query_view',
+            base=ExampleTable.select(ExampleTable.id, id_copy=ExampleTable.id, plusone=(ExampleTable.value + 1))
+            .where(ExampleTable.id > 0)
+            .sample(n=10, seed=1),
+        ):
+            fc1 = ExampleTable.id + 1
+
+        # Created as a view; V2 redeclares it as a table, producing a kind mismatch.
+        class ExampleKind(TableModel, name='test_kind', base=ExampleTable):
+            kc1 = ExampleTable.value + 1
+            kc2 = ExampleTable.value + 2
+
+        TableModel.create_all(root)
+
+        # Re-diffing the original models reports no differences (in particular, the view's iterator round-trips).
+        assert all(d['resolution'] == 'up_to_date' for d in TableModel.get_model_diff(root).values())
+        with capture_console_output() as out:
+            TableModel.diff_all(root)
+        assert out.getvalue().strip() == 'Catalog is up to date.'
+
+        # A fresh base whose models correspond to the created tables (same names), but with: two columns added and
+        # two dropped in the table, and a mismatched iterator (128 vs. 256) in the view.
+        TableModelV2 = pxt.model_base()
+
+        class ExampleTableV2(
+            TableModelV2,
+            name='test_table',
+            create_default_idxs=False,
+            comment='after',
+            custom_metadata={'origin': 'v2'},
+        ):
+            id: pxt.Required[pxt.Int]
+            image = Column(type=pxt.Image, media_validation='on_read')  # kept, media_validation changed
+            score: pxt.Int  # kept, but its type changed (Float -> Int)
+            derived = Column(value=id + 100, stored=False, comment='after', custom_metadata={'v': 2})  # 4 props changed
+            extra1: pxt.Int  # added
+            extra2: pxt.String  # added
+            # 'name' and 'value' dropped
+            idx1 = EmbeddingIndex(image, embedding=dummy_embedding.using(n=768))  # kept
+            idx3 = EmbeddingIndex(image, embedding=dummy_embedding.using(n=256))  # added
+            # 'idx2' dropped
+
+        class ExampleViewV2(
+            TableModelV2,
+            name='test_view',
+            base=ExampleTableV2,
+            iterator=pxtf.image.tile_iterator(ExampleTableV2.image, (128, 128)),  # mismatched tile size
+        ):
+            vc1 = ExampleTableV2.id + 1
+            vc2 = ExampleTableV2.id + 2
+            vextra1: pxt.Int
+            vextra2: pxt.String
+
+        class ExampleQueryViewV2(
+            TableModelV2,
+            name='test_query_view',
+            base=ExampleTableV2.select(ExampleTableV2.id, ExampleTableV2.extra1, plustwo=(ExampleTableV2.id + 2))
+            .where(ExampleTableV2.id > 5)
+            .sample(n=20, seed=2),
+        ):
+            id_copy = Column(value=ExampleTableV2.id, stored=False)
+            fc1 = ExampleTableV2.id + 1
+
+        # Redeclares 'test_kind' (created above as a view) as a table, with the same columns; only the kind differs.
+        class ExampleKindV2(TableModelV2, name='test_kind'):
+            kc1: pxt.Float
+            kc2: pxt.Float
+
+        # A model with no corresponding table in the catalog; it would be created.
+        class ExampleNewV2(TableModelV2, name='test_new'):
+            id: pxt.Required[pxt.Int]
+            data: pxt.String
+
+        with capture_console_output() as out:
+            TableModelV2.diff_all(root)
+        assert (
+            out.getvalue().strip()
+            == textwrap.dedent("""
+            Table 'test_table' (from model `ExampleTableV2`) has differences:
+              the following table properties have changed (FATAL):
+                comment: model='after', existing='before'
+                custom_metadata: model={'origin': 'v2'}, existing={'origin': 'v1'}
+              the following columns have altered properties (FATAL):
+                'derived' value: model='id + 100', existing='id + 1'
+                'derived' stored: model=False, existing=True
+                'derived' comment: model='after', existing='before'
+                'derived' custom_metadata: model={'v': 2}, existing={'v': 1}
+                'image' media_validation: model='on_read', existing='on_write'
+                'score' type: model='Int', existing='Float'
+              the following columns are new to the model, and will be ADDED:
+                'extra1' = {'type': Int | None}
+                'extra2' = {'type': String | None}
+              the following columns are no longer in the model, and will be DROPPED:
+                'name'
+                'value'
+              the following indexes are new to the model, and will be ADDED:
+                'idx3' = EmbeddingIndex(column=image, embedding=dummy_embedding(text, n=256))
+              the following indexes are no longer in the model, and will be DROPPED:
+                'idx2'
+            View 'test_view' (from model `ExampleViewV2`) has differences:
+              iterator mismatch (FATAL):
+                model iterator   : tile_iterator(image, [128, 128])
+                existing iterator: tile_iterator(image, [256, 256])
+              the following columns are new to the model, and will be ADDED:
+                'vextra1' = {'type': Int | None}
+                'vextra2' = {'type': String | None}
+              the following columns are no longer in the model, and will be DROPPED:
+                'vc3'
+                'vc4'
+            View 'test_query_view' (from model `ExampleQueryViewV2`) has differences:
+              filter mismatch (FATAL):
+                model filter   : id > 5
+                existing filter: id > 0
+              sample mismatch (FATAL):
+                model sample   : sample(n=20, n_per_stratum=None, fraction=None, seed=2, [])
+                existing sample: sample(n=10, n_per_stratum=None, fraction=None, seed=1, [])
+              the following columns are new to the model, and will be ADDED:
+                'extra1' = {'value': extra1, 'stored': False}
+                'plustwo' = {'value': id + 2, 'stored': True}
+              the following columns are no longer in the model, and will be DROPPED:
+                'plusone'
+            Table 'test_kind' (from model `ExampleKindV2`) has differences:
+              kind mismatch (FATAL): `ExampleKindV2` specifies a table, but 'test_kind' is a view
+              the following columns have altered properties (FATAL):
+                'kc1' value: model=None, existing='value + 1'
+                'kc2' value: model=None, existing='value + 2'
+            Table 'test_new' (from model `ExampleNewV2`) does not yet exist, and will be CREATED.
+            """).strip()
+        )
+
+        # `get_model_diff()` returns the same information in structured form (the source of the report above).
+        assert TableModelV2.get_model_diff(root) == {
+            'test_table': {
+                'path': p('test_table'),
+                'model_cls': 'ExampleTableV2',
+                'kind': 'table',
+                'exists': True,
+                'resolution': 'unsupported',
+                'changes': [
+                    {
+                        'target': 'table',
+                        'name': 'comment',
+                        'op': 'alter',
+                        'severity': 'unsupported',
+                        'model': 'after',
+                        'existing': 'before',
+                        'description': "table property 'comment': model='after', existing='before'",
+                    },
+                    {
+                        'target': 'table',
+                        'name': 'custom_metadata',
+                        'op': 'alter',
+                        'severity': 'unsupported',
+                        'model': {'origin': 'v2'},
+                        'existing': {'origin': 'v1'},
+                        'description': "table property 'custom_metadata': "
+                        "model={'origin': 'v2'}, existing={'origin': 'v1'}",
+                    },
+                    {
+                        'target': 'column',
+                        'name': 'derived',
+                        'op': 'alter',
+                        'severity': 'unsupported',
+                        'model': {
+                            'value': 'id + 100',
+                            'stored': False,
+                            'comment': 'after',
+                            'custom_metadata': {'v': 2},
+                        },
+                        'existing': {
+                            'value': 'id + 1',
+                            'stored': True,
+                            'comment': 'before',
+                            'custom_metadata': {'v': 1},
+                        },
+                        'description': "column 'derived' has altered properties: "
+                        'value, stored, comment, custom_metadata',
+                    },
+                    {
+                        'target': 'column',
+                        'name': 'image',
+                        'op': 'alter',
+                        'severity': 'unsupported',
+                        'model': {'media_validation': 'on_read'},
+                        'existing': {'media_validation': 'on_write'},
+                        'description': "column 'image' has altered properties: media_validation",
+                    },
+                    {
+                        'target': 'column',
+                        'name': 'score',
+                        'op': 'alter',
+                        'severity': 'unsupported',
+                        'model': {'type': 'Int'},
+                        'existing': {'type': 'Float'},
+                        'description': "column 'score' has altered properties: type",
+                    },
+                    {
+                        'target': 'column',
+                        'name': 'extra1',
+                        'op': 'add',
+                        'severity': 'additive',
+                        'model': "{'type': Int | None}",
+                        'existing': None,
+                        'description': "column 'extra1' will be added",
+                    },
+                    {
+                        'target': 'column',
+                        'name': 'extra2',
+                        'op': 'add',
+                        'severity': 'additive',
+                        'model': "{'type': String | None}",
+                        'existing': None,
+                        'description': "column 'extra2' will be added",
+                    },
+                    {
+                        'target': 'column',
+                        'name': 'name',
+                        'op': 'drop',
+                        'severity': 'destructive',
+                        'model': None,
+                        'existing': None,
+                        'description': "column 'name' will be dropped",
+                    },
+                    {
+                        'target': 'column',
+                        'name': 'value',
+                        'op': 'drop',
+                        'severity': 'destructive',
+                        'model': None,
+                        'existing': None,
+                        'description': "column 'value' will be dropped",
+                    },
+                    {
+                        'target': 'index',
+                        'name': 'idx3',
+                        'op': 'add',
+                        'severity': 'additive',
+                        'model': 'EmbeddingIndex(column=image, embedding=dummy_embedding(text, n=256))',
+                        'existing': None,
+                        'description': "index 'idx3' will be added",
+                    },
+                    {
+                        'target': 'index',
+                        'name': 'idx2',
+                        'op': 'drop',
+                        'severity': 'destructive',
+                        'model': None,
+                        'existing': None,
+                        'description': "index 'idx2' will be dropped",
+                    },
+                ],
+            },
+            'test_view': {
+                'path': p('test_view'),
+                'model_cls': 'ExampleViewV2',
+                'kind': 'view',
+                'exists': True,
+                'resolution': 'unsupported',
+                'changes': [
+                    {
+                        'target': 'table',
+                        'name': 'iterator',
+                        'op': 'alter',
+                        'severity': 'unsupported',
+                        'model': 'tile_iterator(image, [128, 128])',
+                        'existing': 'tile_iterator(image, [256, 256])',
+                        'description': "iterator mismatch: model='tile_iterator(image, [128, 128])', "
+                        "existing='tile_iterator(image, [256, 256])'",
+                    },
+                    {
+                        'target': 'column',
+                        'name': 'vextra1',
+                        'op': 'add',
+                        'severity': 'additive',
+                        'model': "{'type': Int | None}",
+                        'existing': None,
+                        'description': "column 'vextra1' will be added",
+                    },
+                    {
+                        'target': 'column',
+                        'name': 'vextra2',
+                        'op': 'add',
+                        'severity': 'additive',
+                        'model': "{'type': String | None}",
+                        'existing': None,
+                        'description': "column 'vextra2' will be added",
+                    },
+                    {
+                        'target': 'column',
+                        'name': 'vc3',
+                        'op': 'drop',
+                        'severity': 'destructive',
+                        'model': None,
+                        'existing': None,
+                        'description': "column 'vc3' will be dropped",
+                    },
+                    {
+                        'target': 'column',
+                        'name': 'vc4',
+                        'op': 'drop',
+                        'severity': 'destructive',
+                        'model': None,
+                        'existing': None,
+                        'description': "column 'vc4' will be dropped",
+                    },
+                ],
+            },
+            'test_query_view': {
+                'path': p('test_query_view'),
+                'model_cls': 'ExampleQueryViewV2',
+                'kind': 'view',
+                'exists': True,
+                'resolution': 'unsupported',
+                'changes': [
+                    {
+                        'target': 'table',
+                        'name': 'view_filter',
+                        'op': 'alter',
+                        'severity': 'unsupported',
+                        'model': 'id > 5',
+                        'existing': 'id > 0',
+                        'description': "view_filter mismatch: model='id > 5', existing='id > 0'",
+                    },
+                    {
+                        'target': 'table',
+                        'name': 'view_sample',
+                        'op': 'alter',
+                        'severity': 'unsupported',
+                        'model': 'sample(n=20, n_per_stratum=None, fraction=None, seed=2, [])',
+                        'existing': 'sample(n=10, n_per_stratum=None, fraction=None, seed=1, [])',
+                        'description': 'view_sample mismatch: '
+                        "model='sample(n=20, n_per_stratum=None, fraction=None, seed=2, [])', "
+                        "existing='sample(n=10, n_per_stratum=None, fraction=None, seed=1, [])'",
+                    },
+                    {
+                        'target': 'column',
+                        'name': 'extra1',
+                        'op': 'add',
+                        'severity': 'additive',
+                        'model': "{'value': extra1, 'stored': False}",
+                        'existing': None,
+                        'description': "column 'extra1' will be added",
+                    },
+                    {
+                        'target': 'column',
+                        'name': 'plustwo',
+                        'op': 'add',
+                        'severity': 'additive',
+                        'model': "{'value': id + 2, 'stored': True}",
+                        'existing': None,
+                        'description': "column 'plustwo' will be added",
+                    },
+                    {
+                        'target': 'column',
+                        'name': 'plusone',
+                        'op': 'drop',
+                        'severity': 'destructive',
+                        'model': None,
+                        'existing': None,
+                        'description': "column 'plusone' will be dropped",
+                    },
+                ],
+            },
+            'test_kind': {
+                'path': p('test_kind'),
+                'model_cls': 'ExampleKindV2',
+                'kind': 'table',
+                'exists': True,
+                'resolution': 'unsupported',
+                'changes': [
+                    {
+                        'target': 'table',
+                        'name': 'kind',
+                        'op': 'alter',
+                        'severity': 'unsupported',
+                        'model': 'table',
+                        'existing': 'view',
+                        'description': "`ExampleKindV2` specifies a table, but 'test_kind' is a view",
+                    },
+                    {
+                        'target': 'column',
+                        'name': 'kc1',
+                        'op': 'alter',
+                        'severity': 'unsupported',
+                        'model': {'value': None},
+                        'existing': {'value': 'value + 1'},
+                        'description': "column 'kc1' has altered properties: value",
+                    },
+                    {
+                        'target': 'column',
+                        'name': 'kc2',
+                        'op': 'alter',
+                        'severity': 'unsupported',
+                        'model': {'value': None},
+                        'existing': {'value': 'value + 2'},
+                        'description': "column 'kc2' has altered properties: value",
+                    },
+                ],
+            },
+            'test_new': {
+                'path': p('test_new'),
+                'model_cls': 'ExampleNewV2',
+                'kind': 'table',
+                'exists': False,
+                'resolution': 'create',
+                'changes': [
+                    {
+                        'target': 'column',
+                        'name': 'data',
+                        'op': 'add',
+                        'severity': 'additive',
+                        'model': "{'type': String | None}",
+                        'existing': None,
+                        'description': "column 'data' will be added",
+                    },
+                    {
+                        'target': 'column',
+                        'name': 'id',
+                        'op': 'add',
+                        'severity': 'additive',
+                        'model': "{'type': Int}",
+                        'existing': None,
+                        'description': "column 'id' will be added",
+                    },
+                ],
+            },
+        }
+
+        with pxt_raises(
+            excs.ErrorCode.SCHEMA_MISMATCH,
+            match=r'One or more tables cannot be updated, because their models are inconsistent with the existing',
+        ):
+            TableModelV2.update_all(root)
+
+    def test_update_all(self, make_catalog_path: Callable[[str], str]) -> None:
+        """`update_all()` applies purely additive changes (new columns and indexes) to existing tables."""
+        skip_test_if_not_installed('imagehash')
+
+        p = make_catalog_path
+        root = p('')
+
+        TableModel = pxt.model_base()
+
+        # Index names are deliberately not of the form `idx<n>`, to avoid colliding with the default b-tree indexes
+        # that are auto-named `idx<n>` (created because `create_default_idxs` defaults to `True`).
+        class ExampleTable(TableModel, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            value: pxt.Float
+            image: pxt.Image
+            embed_a = EmbeddingIndex(image, embedding=dummy_embedding.using(n=768))
+
+        class ExampleView(TableModel, name='test_view', base=ExampleTable):
+            vc1 = ExampleTable.value + 1
+
+        class ExampleQueryView(
+            TableModel,
+            name='test_query_view',
+            base=ExampleTable.select(ExampleTable.id, ExampleTable.value, plusone=(ExampleTable.value + 1))
+            .where(ExampleTable.value > 0.5)
+            .sample(n=10, seed=1),
+        ):
+            fc1 = ExampleTable.id + 1
+
+        TableModel.create_all(root)
+
+        images = get_image_files()
+        ExampleTable.insert([{'id': 1, 'value': 1.0, 'image': images[0]}, {'id': 2, 'value': 2.0, 'image': images[1]}])
+
+        # A fresh base whose models match the created tables plus purely additive changes: two new columns and a new
+        # index on the table, and a new column on the view. No drops, no kind/iterator mismatch.
+        TableModelV2 = pxt.model_base()
+
+        class ExampleTableV2(TableModelV2, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            value: pxt.Float
+            image: pxt.Image
+            plus_ten = value + 10  # new computed column
+            plus_fifteen = plus_ten + 5  # new computed column that depends on a new column
+            plus_sixty = plus_fifteen + 45
+            note: pxt.String  # new (plain) column
+            new_image: pxt.Image
+
+            embed_a = EmbeddingIndex(image, embedding=dummy_embedding.using(n=768))
+            embed_b = EmbeddingIndex(image, embedding=dummy_embedding.using(n=512))  # new index
+            embed_c = EmbeddingIndex(new_image, embedding=dummy_embedding.using(n=256))  # new index on new column
+
+        class ExampleViewV2(TableModelV2, name='test_view', base=ExampleTableV2):
+            vc1 = ExampleTableV2.value + 1
+            vc2 = ExampleTableV2.value + 2  # new column
+            plus_twenty = ExampleTableV2.plus_ten + 10  # new column that depends on a new column of the base table
+
+        class ExampleQueryViewV2(
+            TableModelV2,
+            name='test_query_view',
+            base=ExampleTableV2.select(
+                ExampleTableV2.id,
+                ExampleTableV2.value,
+                ExampleTableV2.note,
+                plusone=(ExampleTableV2.value + 1),
+                plustwo=(ExampleTableV2.value + 2),
+            )
+            .where(ExampleTableV2.value > 0.5)
+            .sample(n=10, seed=1),
+        ):
+            fc1 = ExampleTableV2.id + 1
+
+        # Purely additive, so no `allow_destructive` needed.
+        TableModelV2.update_all(root)
+
+        # The new columns and index are present on the table; the new column is present on the view.
+        tbl_md = ExampleTableV2.get_metadata()
+        assert 'plus_ten' in tbl_md['columns']
+        assert 'note' in tbl_md['columns']
+        assert {'embed_a', 'embed_b'} <= set(tbl_md['indices'].keys())
+        assert 'vc2' in ExampleViewV2.get_metadata()['columns']
+
+        # The new computed column is backfilled for the existing rows.
+        tbl = ExampleTableV2.table
+        res = tbl.order_by(tbl.id).select(tbl.id, tbl.plus_ten).collect()
+        assert res['plus_ten'] == [11.0, 12.0]
+
+        # A third base that both drops and adds columns, on the table and the view. The dropped columns
+        # (`plus_*`, `note`, `vc1`) have no dependents, so the only obstacle is that dropping is destructive.
+        TableModelV3 = pxt.model_base()
+
+        class ExampleTableV3(TableModelV3, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            value: pxt.Float
+            image: pxt.Image
+            doubled = value * 2  # added
+            label: pxt.String  # added
+            # 'plus_ten', 'plus_fifteen', and 'note' dropped
+
+            embed_b = EmbeddingIndex(image, embedding=dummy_embedding.using(n=512))
+            # embed_a and embed_c dropped
+
+        class ExampleViewV3(TableModelV3, name='test_view', base=ExampleTableV3):
+            vc2 = ExampleTableV3.value + 2  # kept
+            vc3 = ExampleTableV3.value + 3  # added
+            # 'vc1' dropped
+
+        class ExampleQueryViewV3(
+            TableModelV3,
+            name='test_query_view',
+            # 'note' and 'plusone' dropped from the query
+            base=ExampleTableV3.select(ExampleTableV3.id, ExampleTableV3.value, plustwo=(ExampleTableV3.value + 2))
+            .where(ExampleTableV3.value > 0.5)
+            .sample(n=10, seed=1),
+        ):
+            fc1 = ExampleTableV3.id + 1
+
+        # Refuses without opt-in, since columns are being dropped.
+        with pxt_raises(excs.ErrorCode.SCHEMA_MISMATCH, match='destructive'):
+            TableModelV3.update_all(root)
+
+        # Succeeds with the opt-in.
+        TableModelV3.update_all(root, allow_destructive=True)
+
+        tbl_md = ExampleTableV3.get_metadata()
+        assert {'doubled', 'label'} <= set(tbl_md['columns'].keys())
+        assert not ({'plus_ten', 'note'} & set(tbl_md['columns'].keys()))
+        view_md = ExampleViewV3.get_metadata()
+        assert 'vc3' in view_md['columns'] and 'vc1' not in view_md['columns']
+
+        # Try inserting something at the end of all the updates.
+        images = get_image_files()
+        rows = [
+            {'id': 3, 'value': 3.0, 'image': images[2], 'label': 'three'},
+            {'id': 4, 'value': 4.0, 'image': images[3], 'label': 'four'},
+        ]
+        ExampleTableV3.insert(rows)
+
+        res = ExampleQueryViewV3.select().collect()
+        assert res['plustwo'] == [3.0, 4.0, 5.0, 6.0]
+
+    def test_update_all_errors(self, make_catalog_path: Callable[[str], str]) -> None:
+        """`update_all()` raises an error if a model's schema is inconsistent with the existing table."""
+        p = make_catalog_path
+        TableModel = pxt.model_base()
+
+        class ExampleTable(TableModel, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            value: pxt.Float
+            img: pxt.Image
+
+            idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
+
+        TableModel.create_all(p(''))
+
+        # Add a view manually, not visible to the model_base
+        v = pxt.create_view(p('test_view'), ExampleTable.table)
+        v.add_computed_column(vc1=(ExampleTable.value + 1))
+        v.add_computed_column(vc2=(ExampleTable.img.embedding()))  # type: ignore[attr-defined]
+
+        TableModelV2 = pxt.model_base()
+
+        # Drop the `value` column, but without dropping the dependent column `vc1` in the manually added view
+        class ExampleTableV2(TableModelV2, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            img: pxt.Image
+
+            idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
+
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r"Cannot drop column 'value' because the following columns depend on it:\nvc1",
+        ):
+            TableModelV2.update_all(p(''), allow_destructive=True)
+
+        TableModelV3 = pxt.model_base()
+
+        # Drop the `idx` index, but without dropping the dependent column `vc1` in the manually added view
+        class ExampleTableV3(TableModelV3, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            value: pxt.Float
+            img: pxt.Image
+
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r"Cannot drop index 'idx' because the following columns depend on it:\nvc2",
+        ):
+            TableModelV3.update_all(p(''), allow_destructive=True)
+
     def test_table_model_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """Reproduce each error condition raised by `pixeltable.catalog.model`."""
         p = make_catalog_path
@@ -634,6 +1296,17 @@ class TestTableModel:
         ):
 
             class InvalidBase(TableModel, name='invalid_base', base=42):
+                pass
+
+        with pxt_raises(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            match=r'`base` select\(\) list may contain only direct column references or named expressions, '
+            r'but contains an anonymous compound expression: id \+ 1',
+        ):
+
+            class InvalidBaseQuery(
+                TableModel, name='invalid_base_query', base=ValidTableModel.select(ValidTableModel.id + 1)
+            ):
                 pass
 
         with pxt_raises(
@@ -804,44 +1477,25 @@ class TestTableModel:
         ):
             pass
 
-        ExampleTableModel._create(p(''))  # should succeed; schema matches existing table
+        # `diff_all()` reports every mismatch between a model and its existing table at once.
+        with capture_console_output() as out:
+            TableModel.diff_all(p(''))
+        report = out.getvalue()
 
-        # The validation errors below are raised by `Catalog.create_from_model` in the catalog that owns the
-        # table, so the paths they report are in-db paths (no proxy prefix) — identical in local and proxy modes.
-        with pxt_raises(
-            excs.ErrorCode.SCHEMA_MISMATCH,
-            match=r"model `BadTableModel` is defined as a table, but the existing 'test_view' is a view.",
-        ):
-            BadTableModel._create(p(''))
+        # Kind mismatches: table-vs-view, view-vs-table, view-vs-snapshot.
+        assert "kind mismatch (FATAL): `BadTableModel` specifies a table, but 'test_view' is a view" in report
+        assert "kind mismatch (FATAL): `BadViewModel` specifies a view, but 'test_table' is a table" in report
+        assert "kind mismatch (FATAL): `BadViewModel2` specifies a view, but 'test_snapshot' is a snapshot" in report
 
-        with pxt_raises(
-            excs.ErrorCode.SCHEMA_MISMATCH,
-            match=r"model `BadViewModel` is defined as a view, but the existing 'test_table' is a table.",
-        ):
-            BadViewModel._create(p(''))
+        # Iterator mismatches: a differing iterator, a missing one, and an extraneous one.
+        assert 'tile_iterator(img, [128, 128])' in report  # IteratorMismatch: model's iterator
+        assert 'model iterator   : None' in report  # MissingIterator: model has no iterator
+        assert 'existing iterator: None' in report  # ExtraneousIterator: existing view has no iterator
 
-        with pxt_raises(
-            excs.ErrorCode.SCHEMA_MISMATCH,
-            match=r"model `BadViewModel2` is defined as a view, but the existing 'test_snapshot' is a snapshot.",
-        ):
-            BadViewModel2._create(p(''))
+        # Models that match their existing tables produce no differences.
+        assert '`ExampleTableModel`' not in report
+        assert '`GoodIterViewModel`' not in report
 
-        GoodIterViewModel._create(p(''))
-
-        with pxt_raises(
-            excs.ErrorCode.SCHEMA_MISMATCH,
-            match=r"Iterator for model `IteratorMismatch` does not match the existing table 'test_iter_view_2'.",
-        ):
-            IteratorMismatch._create(p(''))
-
-        with pxt_raises(
-            excs.ErrorCode.SCHEMA_MISMATCH,
-            match=r"Iterator for model `MissingIterator` does not match the existing table 'test_iter_view_3'.",
-        ):
-            MissingIterator._create(p(''))
-
-        with pxt_raises(
-            excs.ErrorCode.SCHEMA_MISMATCH,
-            match=r"Iterator for model `ExtraneousIterator` does not match the existing table 'test_view_2'.",
-        ):
-            ExtraneousIterator._create(p(''))
+        # `create_all()` only creates; it refuses to run when any existing table differs from its model.
+        with pxt_raises(excs.ErrorCode.SCHEMA_MISMATCH, match=r'Call `update_all\(\)` instead'):
+            TableModel.create_all(p(''))
