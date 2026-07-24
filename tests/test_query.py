@@ -934,6 +934,7 @@ class TestQuery:
         assert ds4.path != ds3.path, 'different select list, hence different path should be used'
 
     @pytest.mark.local('exports a COCO dataset to the local filesystem')
+    @pytest.mark.xdist_group('yolox')
     def test_to_coco(self, uses_db: None) -> None:
         skip_test_if_not_installed('yolox')
         from pycocotools.coco import COCO

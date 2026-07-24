@@ -5,6 +5,7 @@ from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import reset_runtime
+from pixeltable.utils.filecache import FileCache
 
 from .utils import pxt_raises, skip_test_if_not_local
 
@@ -17,6 +18,7 @@ def _reset_env(reinit: bool, db_name: str) -> None:
     # Reload configs
     Config.init(config_overrides={'pixeltable.db': db_name}, reinit=True)
     Env._init_env(reinit_db=reinit)
+    FileCache.init()
 
 
 class TestEnvReset:
