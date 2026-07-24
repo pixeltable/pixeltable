@@ -534,24 +534,13 @@ class Env:
         finally:
             engine.dispose()
 
-    def _pgserver_terminate_connections_stmt(self) -> str:
-        return f"""
-                SELECT pg_terminate_backend(pg_stat_activity.pid)
-                FROM pg_stat_activity
-                WHERE pg_stat_activity.datname = '{self._db_name}'
-                AND pid <> pg_backend_pid()
-            """
-
     def _drop_store_db(self) -> None:
         assert self._db_name is not None
         engine = sql.create_engine(self._dbms.default_system_db_url(), future=True, isolation_level='AUTOCOMMIT')
         preparer = engine.dialect.identifier_preparer
         try:
             with engine.begin() as conn:
-                # terminate active connections
-                if self._db_server is not None:
-                    conn.execute(sql.text(self._pgserver_terminate_connections_stmt()))
-                # drop db
+                # drop db; the statement force-terminates any active connections to it
                 stmt = self._dbms.drop_db_stmt(preparer.quote(self._db_name))
                 conn.execute(sql.text(stmt))
         finally:
@@ -885,24 +874,7 @@ class Env:
             except Exception as e:
                 _logger.warning(f'Error stopping HTTP server: {e}')
 
-        # First terminate all connections to the database
-        if self._db_server is not None:
-            assert self._dbms is not None
-            assert self._db_name is not None
-            try:
-                temp_engine = sql.create_engine(self._dbms.default_system_db_url(), isolation_level='AUTOCOMMIT')
-                try:
-                    with temp_engine.begin() as conn:
-                        conn.execute(sql.text(self._pgserver_terminate_connections_stmt()))
-                        _logger.info(f"Terminated all connections to database '{self._db_name}'")
-                except Exception as e:
-                    _logger.warning(f'Error terminating database connections: {e}')
-                finally:
-                    temp_engine.dispose()
-            except Exception as e:
-                _logger.warning(f'Error stopping database server: {e}')
-
-        # Dispose of SQLAlchemy engine (after stopping db server)
+        # Dispose of SQLAlchemy engine
         if self._sa_engine is not None:
             try:
                 self._sa_engine.dispose()
