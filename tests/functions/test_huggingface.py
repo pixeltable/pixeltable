@@ -300,6 +300,7 @@ class TestHuggingface:
                 seg=sam3_for_segmentation(t.img, input_boxes=[[1.0, 2.0, 3.0, 4.0]], input_boxes_labels=[1, 0])
             )
 
+    @pytest.mark.xdist_group('huggingface')
     def test_sam3_for_video_segmentation(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from huggingface_hub import get_token
@@ -404,6 +405,7 @@ class TestHuggingface:
         assert 'administration' in result['transcription'][0]
         assert 'construire' in result['translation'][0]
 
+    @pytest.mark.xdist_group('huggingface')
     def test_text_generation(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
@@ -639,6 +641,7 @@ class TestHuggingface:
         assert result['image'] is not None
 
     @pytest.mark.very_expensive  # Large model
+    @pytest.mark.xdist_group('huggingface')
     def test_image_to_image(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
@@ -665,6 +668,7 @@ class TestHuggingface:
         assert result['modified_image'] is not None
 
     @pytest.mark.very_expensive  # Large model
+    @pytest.mark.xdist_group('huggingface')
     def test_image_to_video(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')

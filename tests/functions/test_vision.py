@@ -1342,6 +1342,7 @@ class TestVision:
         assert not np.array_equal(viz_a[0, 0], viz_a[3, 5])
 
     @pytest.mark.very_expensive  # Downloads a Hugging Face model
+    @pytest.mark.xdist_group('huggingface')
     def test_overlay_segmentation(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import detr_for_segmentation

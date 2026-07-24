@@ -21,6 +21,7 @@ def cleanup_llama_cpp() -> Iterator[None]:
 @pytest.mark.very_expensive
 @rerun_on_network_error()
 class TestLlamaCpp:
+    @pytest.mark.xdist_group('huggingface')
     def test_create_chat_completions(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('llama_cpp')
