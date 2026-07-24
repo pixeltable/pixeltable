@@ -186,7 +186,12 @@ class TestCatalog:
             term_engine = sql.create_engine(Env.get().db_url, poolclass=sql.pool.NullPool)
             try:
                 with term_engine.connect() as term:
-                    term.execute(sql.text(Env.get()._pgserver_terminate_connections_stmt()))
+                    term.execute(
+                        sql.text(
+                            'SELECT pg_terminate_backend(pid) FROM pg_stat_activity '
+                            'WHERE datname = current_database() AND pid <> pg_backend_pid()'
+                        )
+                    )
                     term.commit()
             finally:
                 term_engine.dispose()
