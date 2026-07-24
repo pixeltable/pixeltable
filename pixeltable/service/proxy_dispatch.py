@@ -224,9 +224,13 @@ def _get_table(request: ProxyRequest) -> list | None:
 def _get_table_by_id(request: ProxyRequest) -> list | None:
     kwargs = _deserialize_args(request)
     cat = get_runtime().catalog
-    with cat.begin_xact(for_write=False):  # get_table_by_id must run inside a transaction
+
+    @retry_loop(for_write=False)
+    def load() -> list | None:
         tbl = cat.get_table_by_id(**kwargs)
         return None if tbl is None else cat.read_md_for_export(tbl)
+
+    return load()
 
 
 def _catalog_method(request: ProxyRequest) -> Any:
@@ -238,8 +242,12 @@ def _catalog_method(request: ProxyRequest) -> Any:
 def _resolve_tbl(path_key: TablePathKey) -> LocalTable:
     tbl_id, effective_version = path_key.keys[0].tbl_id, path_key.keys[0].effective_version
     cat = get_runtime().catalog
-    with cat.begin_xact(for_write=False):
-        tbl = cat.get_table_by_id(tbl_id, effective_version)
+
+    @retry_loop(for_write=False)
+    def resolve() -> LocalTable | None:
+        return cat.get_table_by_id(tbl_id, effective_version)
+
+    tbl = resolve()
     if tbl is None:
         raise excs.table_was_dropped(tbl_id)
     return tbl
