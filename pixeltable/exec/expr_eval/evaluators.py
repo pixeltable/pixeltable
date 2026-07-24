@@ -3,12 +3,16 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import datetime
+import functools
 import itertools
 import logging
 import sys
 from typing import Any, Callable, Iterator, cast
 
-from pixeltable import exceptions as excs, exprs, func, telemetry
+import PIL.Image
+
+import pixeltable.type_system as ts
+from pixeltable import env, exceptions as excs, exprs, func, telemetry
 
 from .globals import Dispatcher, Evaluator, ExprEvalCtx, FnCallArgs
 
@@ -280,6 +284,146 @@ class FnCallEvaluator(Evaluator):
         batched_call_args = self._create_batch_call_args(list(self._queued_call_args_iter()))
         task = asyncio.create_task(self.eval_batch(batched_call_args))
         self.dispatcher.register_task(task)
+
+
+class ThreadPoolExprEvaluator(Evaluator):
+    """
+    Evaluates slots whose per-row work runs on Env.cpu_pool: sync, non-batched function calls marked
+    run_in_thread, and validating image ColumnRefs (media validation plus decode, fused into one job).
+
+    Creates one task plus one executor job per row; each row dispatches individually on completion.
+    Rows with no thread work (Nones in non-nullable parameters, image cells without a backing file)
+    complete inline.
+    """
+
+    e: exprs.FunctionCall | exprs.ColumnRef
+    span_name: str
+
+    def __init__(self, e: exprs.FunctionCall | exprs.ColumnRef, dispatcher: Dispatcher, exec_ctx: ExprEvalCtx):
+        super().__init__(dispatcher, exec_ctx)
+        self.e = e
+        if isinstance(e, exprs.FunctionCall):
+            # declaration-time validation of run_in_thread guarantees a sync, non-batched function
+            # without a resource pool
+            assert isinstance(e.fn, func.CallableFunction)
+            assert e.fn.run_in_thread
+            assert not e.fn.is_async and not e.fn.is_batched
+            assert e.resource_pool is None
+            self.span_name = f'pixeltable.udf.{e.fn.display_name}'
+        else:
+            assert e.perform_validation and e.col_type.is_image_type()
+            self.span_name = 'pixeltable.media.load'
+
+    def _cell_span(self, row: exprs.DataRow) -> contextlib.AbstractContextManager[telemetry.SpanHandle | None]:
+        """Context manager, with telemetry.span() semantics, covering one row's cpu-pool job.
+
+        The span nests under the row's span; when the row has no span, returns a no-op nullcontext.
+        """
+        if row.span is None:
+            return contextlib.nullcontext()
+        # DEBUG so cell spans emit/suppress in lockstep with the row span they nest under.
+        # Set this span current only when an operation span is active. Each task copies the context at
+        # creation, so the ambient span is task-specific and concurrent jobs don't see each other's.
+        return telemetry.span(
+            self.span_name, level=telemetry.DEBUG, parent=row.span, set_current=telemetry.current_span() is not None
+        )
+
+    def _make_thread_fn(self, row: exprs.DataRow) -> Callable[[], Any] | None:
+        """Returns the closure to run on the cpu pool, or None if the slot was completed inline.
+
+        The closure captures only materialized values, so all DataRow access stays on the event loop.
+        """
+        if isinstance(self.e, exprs.ColumnRef):
+            return self._make_load_fn(row)
+        args_kwargs = self.e.make_args(row)
+        if args_kwargs is None:
+            # a None in a non-nullable parameter: the result is None, no call needed
+            row[self.e.slot_idx] = None
+            return None
+        args, kwargs = args_kwargs
+        py_fn = cast(func.CallableFunction, self.e.fn).py_fn
+        return functools.partial(py_fn, *args, **kwargs)
+
+    def _make_load_fn(self, row: exprs.DataRow) -> Callable[[], PIL.Image.Image] | None:
+        assert isinstance(self.e, exprs.ColumnRef)
+        unvalidated_slot_idx = self.e.components[0].slot_idx
+        path = row.file_paths[unvalidated_slot_idx]
+        if path is None:
+            # no media file to validate (eg, an iterator-produced in-memory image), we still need to
+            # replicate the value, mirroring ColumnRef.eval()'s no-file branch
+            assert row.file_urls[unvalidated_slot_idx] is None
+            row.vals[self.e.slot_idx] = row.vals[unvalidated_slot_idx]
+            row.has_val[self.e.slot_idx] = True
+            return None
+        return functools.partial(self._validate_and_load, self.e.col_type, path)
+
+    @staticmethod
+    def _validate_and_load(col_type: ts.ColumnType, path: str) -> PIL.Image.Image:
+        """Validate and decode one image file. Runs on a cpu pool worker; no catalog or DataRow access."""
+        col_type.validate_media(path)
+        img = PIL.Image.open(path)
+        # eager decode, so concurrent downstream readers see a fully materialized image
+        img.load()
+        return img
+
+    def _set_result(self, row: exprs.DataRow, result: Any) -> None:
+        if isinstance(self.e, exprs.ColumnRef):
+            # replicate the unvalidated slot's file state and publish the decoded image to both slots,
+            # so DataRow.__getitem__'s lazy decode never runs for this cell
+            unvalidated_slot_idx = self.e.components[0].slot_idx
+            row.vals[unvalidated_slot_idx] = result
+            row.vals[self.e.slot_idx] = result
+            row.has_val[self.e.slot_idx] = True
+            row.file_paths[self.e.slot_idx] = row.file_paths[unvalidated_slot_idx]
+            row.file_urls[self.e.slot_idx] = row.file_urls[unvalidated_slot_idx]
+        else:
+            row[self.e.slot_idx] = result
+
+    def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
+        assert self.e.slot_idx >= 0
+
+        inline_rows: list[exprs.DataRow] = []
+        for row in rows:
+            if self.dispatcher.exc_event.is_set():
+                return
+            try:
+                thread_fn = self._make_thread_fn(row)
+            except Exception as exc:
+                _, _, exc_tb = sys.exc_info()
+                row.set_exc(self.e.slot_idx, exc)
+                self.dispatcher.dispatch_exc([row], self.e.slot_idx, exc_tb, self.eval_ctx)
+                continue
+            if thread_fn is None:
+                inline_rows.append(row)
+            else:
+                task = asyncio.create_task(self.eval_in_thread(row, thread_fn))
+                self.dispatcher.register_task(task)
+
+        if len(inline_rows) > 0:
+            self.dispatcher.dispatch(inline_rows, self.eval_ctx)
+
+    async def eval_in_thread(self, row: exprs.DataRow, thread_fn: Callable[[], Any]) -> None:
+        assert not row.has_val[self.e.slot_idx]
+        assert not row.has_exc(self.e.slot_idx)
+        # check for cancellation before starting something potentially long-running
+        if asyncio.current_task().cancelled() or self.dispatcher.exc_event.is_set():
+            return
+        try:
+            loop = asyncio.get_running_loop()
+            with self._cell_span(row):
+                result = await loop.run_in_executor(env.Env.get().cpu_pool, thread_fn)
+            self._set_result(row, result)
+            self.dispatcher.dispatch([row], self.eval_ctx)
+        except Exception as exc:
+            if isinstance(self.e, exprs.ColumnRef) and isinstance(exc, excs.Error):
+                # media validation errors don't cause exceptions during query execution: recorded in
+                # the slot, but the row still dispatches normally, matching ColumnRef.eval()
+                self.dispatcher.row_builder.set_exc(row, self.e.slot_idx, exc)
+                self.dispatcher.dispatch([row], self.eval_ctx)
+                return
+            _, _, exc_tb = sys.exc_info()
+            row.set_exc(self.e.slot_idx, exc)
+            self.dispatcher.dispatch_exc([row], self.e.slot_idx, exc_tb, self.eval_ctx)
 
 
 class NestedRowList:

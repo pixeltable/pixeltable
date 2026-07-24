@@ -721,6 +721,15 @@ def to_video(
     )
 
 
+@pxt.udf(run_in_thread=True)
+def _load_image(path: str) -> PIL.Image.Image:
+    """Decodes the image file at `path`; RowBuilder injects calls to run decode on the cpu pool."""
+    img = PIL.Image.open(path)
+    # eager decode, so concurrent downstream readers see a fully materialized image
+    img.load()
+    return img
+
+
 __all__ = local_public_names(__name__)
 
 
