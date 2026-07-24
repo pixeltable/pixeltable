@@ -268,7 +268,9 @@ def proxy_daemon_db(init_env: None, worker_id: str) -> Iterator[str]:
     try:
         yield db
     finally:
-        proxy_daemon.delete(db)
+        # stop() rather than delete(): delete() would remove the daemon's logs, making it hard to debug CI failures.
+        # The database will be cleared before the next test run.
+        proxy_daemon.stop(db)
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
