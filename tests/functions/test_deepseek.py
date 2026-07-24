@@ -36,7 +36,7 @@ class TestDeepseek:
                 },
             )
         )
-        t.add_computed_column(reasoning_output=chat_completions(model='deepseek-reasoner', messages=t.input_msgs))
+        t.add_computed_column(reasoning_output=chat_completions(model='deepseek-v4-flash', messages=t.input_msgs))
 
         validate_update_status(t.insert(input='What is the capital of France?'), 1)
         result = t.collect()
