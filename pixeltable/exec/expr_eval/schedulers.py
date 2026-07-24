@@ -13,7 +13,7 @@ from pixeltable import env, exceptions as excs, func
 from pixeltable.config import Config
 from pixeltable.utils import fault_injection
 from pixeltable.utils.fault_injection import FaultLocation
-from pixeltable.utils.http import exponential_backoff, is_retriable_error
+from pixeltable.utils.http import exponential_backoff, is_retryable_error
 
 from .globals import Dispatcher, ExprEvalCtx, FnCallArgs, Scheduler
 
@@ -239,7 +239,7 @@ class RateLimitsScheduler(Scheduler):
                     if retry_delay is None:
                         # The resource pool did not recognize it as a retriable error. Try our generic best-effort logic
                         # before giving up.
-                        is_retriable, retry_delay = is_retriable_error(exc)
+                        is_retriable, retry_delay = is_retryable_error(exc)
                         if is_retriable:
                             retry_delay = retry_delay or exponential_backoff(num_retries)
                     if retry_delay is not None:
@@ -390,7 +390,7 @@ class RequestRateScheduler(Scheduler):
             _logger.exception(f'exception for {self.resource_pool}: type={type(exc)}\n{exc}')
             if hasattr(exc, 'response') and hasattr(exc.response, 'headers'):
                 _logger.debug(f'scheduler {self.resource_pool}: exception headers: {exc.response.headers}')
-            is_retriable, retry_after = is_retriable_error(exc)
+            is_retriable, retry_after = is_retryable_error(exc)
             if is_retriable and num_retries < self.MAX_RETRIES:
                 retry_delay = self._compute_retry_delay(num_retries, retry_after)
                 _logger.debug(f'scheduler {self.resource_pool}: retrying after {retry_delay}')
