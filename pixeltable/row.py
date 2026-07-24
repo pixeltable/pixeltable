@@ -65,7 +65,7 @@ class Row(Mapping[str, Any]):
         return len(self._columns)
 
     def __repr__(self) -> str:
-        return 'Row({' + ', '.join(f'{k!r}: {v!r}' for k, v in self.items()) + '})'
+        return f'Row({dict(self)})'
 
     @property
     def errors(self) -> dict[str, CellError]:

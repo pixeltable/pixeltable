@@ -13,7 +13,7 @@ from pandas.io.formats.style import Styler
 
 from pixeltable import Query, catalog, exceptions as excs, exprs, func, type_system as ts
 from pixeltable.catalog import DirEntry, TablePath
-from pixeltable.catalog.globals import OnErrorParameter
+from pixeltable.catalog.globals import OnErrorParam
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.table_data_conduit import QueryTableDataConduit, RowDataTableDataConduit, TableDataConduit
@@ -254,7 +254,7 @@ def create_table(
 
     # TODO: combine data loading with table creation into a single transaction
     if was_created and data_source is not None:
-        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
+        fail_on_exception = OnErrorParam.fail_on_exception(on_error)
         if isinstance(tbl, catalog.InsertableTable):
             if isinstance(data_source, QueryTableDataConduit):
                 query = data_source.pxt_query

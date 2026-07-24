@@ -11,7 +11,7 @@ from pixeltable.runtime import get_runtime
 from pixeltable.utils.filecache import FileCache
 
 from .column import Column
-from .globals import MediaValidation, OnErrorParameter
+from .globals import MediaValidation, OnErrorParam
 from .local_table import LocalTable
 from .table_path import TableVersionPath
 from .table_version import TableVersion, TableVersionMd
@@ -130,7 +130,7 @@ class InsertableTable(LocalTable):
         from pixeltable.io.table_data_conduit import TableDataConduit
 
         self._validate_insert_source(source)
-        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
+        fail_on_exception = OnErrorParam.fail_on_exception(on_error)
 
         if source is None:
             source = [kwargs]
@@ -205,7 +205,7 @@ class InsertableTable(LocalTable):
 
         Assumes the source's columns have already been validated against this table's schema.
         """
-        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
+        fail_on_exception = OnErrorParam.fail_on_exception(on_error)
         start_ts = time.perf_counter()
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True

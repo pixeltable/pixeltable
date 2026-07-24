@@ -184,7 +184,7 @@ class MediaValidation(enum.Enum):
             ) from None
 
 
-class OnErrorParameter(enum.Enum):
+class OnErrorParam(enum.Enum):
     """Supported values for the on_error parameter"""
 
     ABORT = 'abort'

@@ -711,12 +711,14 @@ class FastAPIRouter(fastapi.APIRouter):
         background: bool = False,
     ) -> Callable[[Callable[..., pydantic.BaseModel]], Callable[..., pydantic.BaseModel]]:
         """
-        Decorator that registers a POST endpoint computing the workflow given by `t` and post-processing the result.
+        Decorator that registers a POST endpoint that materializes the computed columns of `t` and
+        passes the resulting rows to the decorated function.
 
         The endpoint runs [`Table.compute()`][pixeltable.Table.compute] on the request body
         and passes the materialized rows to the decorated function, whose return value (a pydantic
-        model) is the HTTP response. No data is persisted; use this for
-        "what would an insert produce?" workflows.
+        model) is the HTTP response. This is identical to
+        [`insert_route()`][pixeltable.serving.FastAPIRouter.insert_route], except that no data is
+        actually inserted into the table.
 
         `t` may be a view; the request body then carries a row for the view's base table, and the
         decorated function receives the view's output rows for that input row (zero if the view's
@@ -735,7 +737,7 @@ class FastAPIRouter(fastapi.APIRouter):
         URL strings -- annotate them as `str` (or `str | None` if the column is nullable).
 
         Args:
-            t: The table or view to compute rows over.
+            t: The table or view over which to compute rows.
             path: The URL path for the endpoint.
             inputs: Columns to accept as request fields. Defaults to all non-computed columns
                 (of the base table, if `t` is a view).
@@ -744,7 +746,7 @@ class FastAPIRouter(fastapi.APIRouter):
                 (must be media-typed). These are sent as multipart form data; all other inputs
                 become [`Form`](https://fastapi.tiangolo.com/tutorial/request-forms/) fields.
             outputs: Columns from the computed rows to pass to the decorated function.
-                Defaults to all columns.
+                Defaults to all columns (including inputs).
             export_sql: If set, export the decorated function's return value into an external
                 RDBMS table after the computation succeeds. See
                 [`SqlExport`][pixeltable.serving.SqlExport] for the target specification and
@@ -961,21 +963,21 @@ class FastAPIRouter(fastapi.APIRouter):
             )
 
             def rows_processor(rows: Sequence[Mapping[str, Any]], url_for_media: Callable[[str], str]) -> Any:
-                def output_vals(row: Mapping[str, Any]) -> dict[str, Any]:
+                if batch_row_model is None:
+                    rows = [_single_row(rows, raise_not_found=route_type == 'compute')]
+                output_rows = [
                     # compute() returns image outputs in-memory; flush them so they convert to /media URLs
-                    return {
-                        name: self._convert_media_val(_flush_image(row[name]), url_for_media)
-                        for name in output_col_names
-                    }
+                    {name: self._convert_media_val(_flush_image(row[name]), url_for_media) for name in output_col_names}
+                    for row in rows
+                ]
 
                 result: Any
                 if batch_row_model is not None:
-                    assert batch_param_name is not None  # set together with batch_row_model above
-                    result = user_fn(**{batch_param_name: [batch_row_model(**output_vals(row)) for row in rows]})
+                    assert batch_param_name is not None
+                    result = user_fn(**{batch_param_name: [batch_row_model(**row) for row in output_rows]})
                 else:
-                    # the per-column form consumes a single row
-                    row = _single_row(rows, raise_not_found=route_type == 'compute')
-                    result = user_fn(**output_vals(row))
+                    assert len(output_rows) == 1
+                    result = user_fn(**output_rows[0])
                 if sql_exporter is not None:
                     sql_exporter.export_row(result)
                 return result

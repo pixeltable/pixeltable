@@ -1679,10 +1679,16 @@ class TestFastAPI:
         eng = sql.create_engine(db_connect)
         try:
             with eng.connect() as conn:
-                n_exported = conn.execute(sql.text('SELECT COUNT(*) FROM frames_out WHERE id = 2')).scalar()
+                exported = conn.execute(
+                    sql.text('SELECT id, pos, rotated FROM frames_out WHERE id = 2 ORDER BY pos')
+                ).all()
         finally:
             eng.dispose()
-        assert n_exported == len(sub_rows)
+        # the exported rows carry the same id/pos/rotated the endpoint returned, rotated being a served media URL
+        assert [tuple(r) for r in exported] == sorted(
+            ((row['id'], row['pos'], row['rotated']) for row in sub_rows), key=lambda t: t[1]
+        )
+        assert all(rotated is not None and '/media/' in rotated for _, _, rotated in exported)
 
         # /frames-bg: the job result is the array
         resp = client.post('/frames-bg', json={'id': 3, 'video': video_path})
@@ -1717,7 +1723,7 @@ class TestFastAPI:
         # /multi-file: FileResponse on the iterator view errors on a multi-frame input
         resp = client.post('/multi-file', json={'id': 7, 'video': video_path})
         assert resp.status_code == 500, resp.text
-        assert 'expected a single output row' in resp.json()['detail']
+        assert 'unexpected row count' in resp.json()['detail']
 
         # /summarize: the batch-form decorator aggregates the fan-out and sees an empty batch for a
         # filtered input
@@ -1738,7 +1744,7 @@ class TestFastAPI:
         # /multi-dec: per-column decorator on the iterator view errors on a multi-frame input
         resp = client.post('/multi-dec', json={'id': 10, 'video': video_path})
         assert resp.status_code == 500, resp.text
-        assert 'expected a single output row' in resp.json()['detail']
+        assert 'unexpected row count' in resp.json()['detail']
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     def test_add_insert_route_errors(
