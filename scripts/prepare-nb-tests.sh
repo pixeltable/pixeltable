@@ -2,6 +2,7 @@
 
 # Notebooks that are always skipped
 SKIP_NOTEBOOKS=(
+    audio-podcast-chapters          # Uses whisperx, which is disabled in our dev env (hard-pins torch 2.8)
     llm-tool-calling                # Relies on the user separately running an MCP server
     working-with-bfl                # [PXT-1111] Out of credits
     working-with-fabric             # [PXT-1113] Requires Microsoft Fabric environment
@@ -32,7 +33,6 @@ VERY_EXPENSIVE_NOTEBOOKS=(
 
 # Notebooks that are skipped unless --include-expensive is passed: all notebooks that use HF models.
 EXPENSIVE_NOTEBOOKS=(
-    audio-podcast-chapters
     audio-transcriptions
     computed-columns
     data-import-huggingface
