@@ -1,7 +1,7 @@
 import json
 
-from ..http import get, quote_path
 from ..parser import Parser
+from ..utils import get_request, validate_path_arg
 
 EPILOG = """\
 Examples:
@@ -15,7 +15,7 @@ def run(argv: list[str]) -> None:
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)
 
-    resp = get(f'/api/tables/{quote_path(args.path)}/count')
+    resp = get_request('/api/tables/count', params={'path': validate_path_arg(args.path)})
 
     if args.as_json:
         print(json.dumps(resp, indent=2))

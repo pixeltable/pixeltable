@@ -155,6 +155,109 @@ class TestLs:
         assert "'cli_ls_err/t' is a table, not a directory" in r.stderr
 
 
+class TestCwd:
+    """cwd/pwd: the per-session working directory the daemon prepends to relative paths."""
+
+    def test_working_directory(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        pxt.create_dir(p('cli_cwd'), if_exists='ignore')
+        pxt.create_dir(p('cli_cwd.sub'), if_exists='ignore')
+        pxt.create_table(p('cli_cwd.sub.t'), {'x': pxt.Int}, if_exists='replace')
+        try:
+            # start from a known-clear state (the session is shared across this worker's commands)
+            cli('cwd')
+            assert 'no working directory' in cli('pwd').stdout
+
+            # once set, relative paths resolve under the working directory
+            cli('cwd', p('cli_cwd/sub'))
+            assert p('cli_cwd/sub') in cli('pwd').stdout
+            assert 'x' in cli('describe', 't').stdout  # 't' -> cli_cwd/sub/t
+            assert cli('count', 't').returncode == 0
+
+            # a relative path with no match under the working directory fails as not-found
+            assert cli('describe', 'nope', check=False).returncode != 0
+
+            # clearing restores root-relative resolution
+            cli('cwd')
+            assert 'no working directory' in cli('pwd').stdout
+            assert cli('describe', 't', check=False).returncode != 0  # no wd -> 't' at root -> not found
+        finally:
+            cli('cwd')  # never leak the working directory into other tests sharing this session
+
+    @pytest.mark.local("a leading '/' absolute path is a local-catalog notion")
+    def test_absolute_path_ignores_wd(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        pxt.create_dir(p('cli_cwd_abs'), if_exists='ignore')
+        pxt.create_dir(p('cli_cwd_abs.sub'), if_exists='ignore')
+        pxt.create_table(p('cli_cwd_abs.sub.t'), {'x': pxt.Int}, if_exists='replace')
+        try:
+            cli('cwd', p('cli_cwd_abs/sub'))
+            assert 'x' in cli('describe', 't').stdout  # relative: resolves under the wd
+            assert 'x' in cli('describe', '/cli_cwd_abs/sub/t').stdout  # leading '/': absolute, wd ignored
+            # output uses the CLI absolute convention: local paths print with a leading '/'
+            assert cli('pwd').stdout.strip() == '/cli_cwd_abs/sub'
+            assert '/cli_cwd_abs/sub/t' in cli('ls').stdout
+        finally:
+            cli('cwd')
+
+    @pytest.mark.local('prompt renders the working directory in the CLI absolute convention')
+    def test_shell_prompt_shows_working_directory(
+        self, cli: PxtRunner, pxt_daemon: int, make_catalog_path: Callable[[str], str]
+    ) -> None:
+        p = make_catalog_path
+        pxt.create_dir(p('cli_cwd_shell'), if_exists='ignore')
+        env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
+
+        def shell_prompt() -> str:
+            # feed 'exit' so the REPL prints one prompt (to stdout) and returns
+            r = subprocess.run(
+                ['pxt', 'shell'], input='exit\n', capture_output=True, text=True, env=env, timeout=30, check=False
+            )
+            assert r.returncode == 0, r.stderr
+            return r.stdout
+
+        try:
+            # no working directory -> bare prompt
+            cli('cwd')
+            assert 'pxt> ' in shell_prompt()
+
+            # once set, the prompt shows the working directory with a leading '/'
+            cli('cwd', p('cli_cwd_shell'))
+            assert 'pxt /cli_cwd_shell> ' in shell_prompt()
+        finally:
+            cli('cwd')  # never leak the working directory into other tests sharing this session
+
+    @pytest.mark.local('daemon session store; independent of the catalog backend')
+    def test_rejects_nonexistent_and_isolates_sessions(
+        self, make_catalog_path: Callable[[str], str], pxt_daemon: int
+    ) -> None:
+        p = make_catalog_path
+        pxt.create_dir(p('cli_cwd_iso'), if_exists='ignore')
+        base = f'http://127.0.0.1:{pxt_daemon}'
+
+        def post_cwd(session: str, body: dict[str, str]) -> None:
+            req = urllib.request.Request(
+                f'{base}/api/cwd',
+                data=json.dumps(body).encode(),
+                headers={'Content-Type': 'application/json', 'X-Pxt-Session': session},
+                method='POST',
+            )
+            with urllib.request.urlopen(req) as r:
+                r.read()
+
+        # a non-existent target is rejected at set time
+        with pytest.raises(urllib.error.HTTPError) as ei:
+            post_cwd('sess-a', {'uri': p('cli_cwd_iso/nope')})
+        assert ei.value.code in (400, 404, 422)
+
+        # session A's working directory is invisible to session B
+        post_cwd('sess-a', {'uri': p('cli_cwd_iso')})
+        req_b = urllib.request.Request(f'{base}/api/cwd', headers={'X-Pxt-Session': 'sess-b'})
+        with urllib.request.urlopen(req_b) as r:
+            assert json.loads(r.read())['uri'] is None
+        post_cwd('sess-a', {'uri': '/'})  # cleanup: root resolves to a clear
+
+
 class TestDescribe:
     def test_basics(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
@@ -293,7 +396,7 @@ class TestHistory:
         # generic 500. The CLI client validates -n before sending, so this exercises the
         # programmatic-caller path.
         for bad, expected in (('abc', 'must be an integer'), ('0', 'must be >= 1'), ('-3', 'must be >= 1')):
-            req = urllib.request.Request(f'http://127.0.0.1:{pxt_daemon}/api/tables/cli_hist/t/history?n={bad}')
+            req = urllib.request.Request(f'http://127.0.0.1:{pxt_daemon}/api/tables/history?path=cli_hist/t&n={bad}')
             with pytest.raises(urllib.error.HTTPError) as ei:
                 urllib.request.urlopen(req)
             assert ei.value.code == 422
@@ -845,8 +948,8 @@ class TestRevert:
 
         # direct HTTP: server's own steps<1 check fires when the client preflight is bypassed
         req = urllib.request.Request(
-            f'http://127.0.0.1:{pxt_daemon}/api/tables/whatever/revert',
-            data=json.dumps({'steps': 0}).encode(),
+            f'http://127.0.0.1:{pxt_daemon}/api/tables/revert',
+            data=json.dumps({'path': 'whatever', 'steps': 0}).encode(),
             headers={'Content-Type': 'application/json'},
             method='POST',
         )
@@ -859,7 +962,7 @@ class TestRevert:
 
 @pytest.mark.local('client-side path-shape validator; the pxt:// prefix is validated elsewhere')
 class TestPathValidator:
-    """Client-side path validator (pixeltable_cli.client.http.quote_path). Catches every well-known
+    """Client-side path validator (pixeltable_cli.client.utils.validate_path_arg). Catches every well-known
     bad shape before the request reaches the server so the user gets a clear error message
     instead of a generic 'Invalid path' from pxt."""
 
@@ -868,10 +971,10 @@ class TestPathValidator:
         r = cli('describe', 'a.b', check=False)
         assert r.returncode != 0
         assert "'/'" in r.stderr or 'separator' in r.stderr
-        # leading '/' would create an empty leading component
+        # a leading '/' marks an absolute path from the catalog root, so it passes shape validation
+        # (it fails later as not-found, not as a shape error)
         r = cli('describe', '/x', check=False)
-        assert r.returncode != 0
-        assert 'relative' in r.stderr
+        assert 'relative' not in r.stderr
         # trailing '/' would create an empty trailing component
         r = cli('describe', 'x/', check=False)
         assert r.returncode != 0
@@ -882,14 +985,12 @@ class TestPathValidator:
         assert 'empty components' in r.stderr
 
     def test_server_rejects_control_chars(self, pxt_daemon: int) -> None:
-        # A control character in the URL-decoded path would otherwise be interpolated into
-        # response headers (eg the Content-Disposition emitted by dashboard_table_export),
-        # enabling header injection / response splitting. The server-side validator must
-        # reject every ASCII control character before the path reaches any downstream sink.
-        # LF (%0A) is filtered out earlier by the route-matching regex; the test covers the
-        # remaining control chars that do reach _validate_path.
-        for encoded in ('foo%0Dbar', 'foo%00bar', 'foo%7Fbar', 'foo%01bar'):
-            req = urllib.request.Request(f'http://127.0.0.1:{pxt_daemon}/api/tables/{encoded}')
+        # A control character in a path would otherwise be interpolated into response headers (eg the
+        # Content-Disposition emitted by dashboard_table_export), enabling header injection / response
+        # splitting. resolve_path must reject every ASCII control character before the path reaches any
+        # downstream sink. The path now travels in the query string, so even LF (%0A) reaches the validator.
+        for encoded in ('foo%0Abar', 'foo%0Dbar', 'foo%00bar', 'foo%7Fbar', 'foo%01bar'):
+            req = urllib.request.Request(f'http://127.0.0.1:{pxt_daemon}/api/tables/describe?path={encoded}')
             with pytest.raises(urllib.error.HTTPError) as ei:
                 urllib.request.urlopen(req)
             assert ei.value.code == 422
@@ -960,17 +1061,17 @@ class TestDashboard:
         t.insert([{'x': 1}, {'x': 2}, {'x': 3}])
 
         base = f'http://127.0.0.1:{pxt_daemon}'
-        with urllib.request.urlopen(f'{base}/api/dashboard/tables/cli_dash_t/t/meta', timeout=5) as r:
+        with urllib.request.urlopen(f'{base}/api/dashboard/tables/meta?path=cli_dash_t/t', timeout=5) as r:
             meta = json.loads(r.read())
         assert 'columns' in meta
         assert 'x' in meta['columns']
 
-        with urllib.request.urlopen(f'{base}/api/dashboard/tables/cli_dash_t/t/data?limit=10', timeout=5) as r:
+        with urllib.request.urlopen(f'{base}/api/dashboard/tables/data?path=cli_dash_t/t&limit=10', timeout=5) as r:
             data = json.loads(r.read())
         assert data['total_count'] == 3
         assert all('x' in row for row in data['rows'])
 
-        with urllib.request.urlopen(f'{base}/api/dashboard/tables/cli_dash_t/t/export?limit=10', timeout=5) as r:
+        with urllib.request.urlopen(f'{base}/api/dashboard/tables/export?path=cli_dash_t/t&limit=10', timeout=5) as r:
             csv_body = r.read().decode('utf-8')
             disp = r.headers.get('Content-Disposition', '')
         assert csv_body.splitlines()[0] == 'x'

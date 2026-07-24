@@ -1,7 +1,7 @@
 import json
 
-from ..http import get, quote_path
 from ..parser import Parser, parse_cols
+from ..utils import get_request, validate_path_arg
 
 EPILOG = """\
 Examples:
@@ -37,7 +37,9 @@ def run(argv: list[str]) -> None:
     cols_csv = ','.join(cols) if cols is not None else None
     # PK coercion (numeric strings -> int/float) happens on the server side; the URL only
     # carries strings.
-    resp = get(f'/api/tables/{quote_path(args.path)}/row', params={'pk': args.pk, 'cols': cols_csv})
+    resp = get_request(
+        '/api/tables/row', params={'path': validate_path_arg(args.path), 'pk': args.pk, 'cols': cols_csv}
+    )
 
     if args.as_json:
         print(json.dumps(resp, indent=2, default=str))

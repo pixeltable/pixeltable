@@ -4,7 +4,7 @@ Covers things that aren't reachable through the daemon smoke tests:
   - client_utils.py spawn / restart / kill safety paths (monkeypatched)
   - the confirm.py interactive prompt
   - parser.py / main.py error and help paths
-  - http.py client error branches
+  - the client HTTP get/post error branches
   - the interactive shell REPL (driven via subprocess.Popen)
 """
 
@@ -27,9 +27,9 @@ from typing_extensions import Self
 
 from pixeltable import exceptions as excs
 from pixeltable_cli import utils
-from pixeltable_cli.client import confirm, http, main as client_main, parser as client_parser, utils as client_utils
+from pixeltable_cli.client import confirm, main as client_main, parser as client_parser, utils as client_utils
 from pixeltable_cli.client.commands import daemon as daemon_cmd, shell as shell_cmd, status as status_cmd
-from pixeltable_cli.server import daemon as server_daemon, routes as server_routes
+from pixeltable_cli.server import daemon as server_daemon, router as server_router, routes as server_routes
 
 
 def _pick_port() -> int:
@@ -200,20 +200,20 @@ class TestProbe:
             client_utils.ensure_running()
             assert actions == ['spawn']
 
-    def test_identity_mismatch_refuses_unknown_pid(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Safety: if a responder reports a different identity AND its PID doesn't match
-        our pidfile, refuse to SIGTERM it. It might be an unrelated process on the same port."""
+    def test_identity_mismatch_restarts_without_pidfile(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Version drift restarts the daemon even when the pidfile is missing/corrupt: the health response
+        identifies the responder as ours, so its self-reported PID is the one terminated (no pidfile needed)."""
         _patch_identity(monkeypatch, {'pxt_version': 'NEW'})
-        foreign_responder = _health_payload(pxt_version='OLD', pid=99999)
-        monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: foreign_responder)
-        monkeypatch.setattr(client_utils, 'read_pidfile', lambda: 12345)
-        killed: list[int | str] = []
-        monkeypatch.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: killed.append(pid))
-        monkeypatch.setattr(client_utils, 'spawn_detached', lambda: killed.append('spawn'))
+        responses = iter([_health_payload(pxt_version='OLD', pid=99999), _health_payload(pxt_version='NEW', pid=200)])
+        monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: next(responses))
+        monkeypatch.setattr(client_utils, 'read_pidfile', lambda: None)  # pidfile lost/corrupt
+        actions: list[tuple[str, int] | tuple[str, ...]] = []
+        monkeypatch.setattr(client_utils, 'kill_and_wait', lambda pid, timeout=5.0: actions.append(('kill', pid)))
+        monkeypatch.setattr(client_utils, 'spawn_detached', lambda: actions.append(('spawn',)))
+        monkeypatch.setattr(client_utils, 'wait_for_health', lambda timeout=15.0: None)
 
-        with pytest.raises(RuntimeError, match='does not match our pidfile'):
-            client_utils.ensure_running()
-        assert killed == []
+        client_utils.ensure_running()
+        assert actions == [('kill', 99999), ('spawn',)]
 
     def test_identity_mismatch_restart_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Matching pidfile + identity drift: ensure_running kills the old daemon, spawns a
@@ -230,6 +230,22 @@ class TestProbe:
         url = client_utils.ensure_running()
         assert url.startswith('http://127.0.0.1:')
         assert actions == [('kill', 100), ('spawn',)]
+
+    def test_identity_mismatch_invalid_pid_refuses(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Identity drift but the responder reports a non-int pid: refuse to restart (no kill, no spawn)
+        rather than act on an untrustworthy pid."""
+        _patch_identity(monkeypatch, {'pxt_version': 'NEW'})
+        health = _health_payload(pxt_version='OLD')
+        health['pid'] = 'not-a-pid'
+        monkeypatch.setattr(client_utils, 'fetch_health', lambda *a, **kw: health)
+        monkeypatch.setattr(client_utils, 'read_pidfile', lambda: 100)
+        monkeypatch.setattr(
+            client_utils, 'kill_and_wait', lambda pid, timeout=5.0: pytest.fail('must not kill an invalid pid')
+        )
+        monkeypatch.setattr(client_utils, 'spawn_detached', lambda: pytest.fail('must not spawn'))
+
+        with pytest.raises(RuntimeError, match='invalid pid'):
+            client_utils.ensure_running()
 
     def test_cross_verify_kept_killed_pid(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Post-restart cross-verify: the new responder still reports the killed PID."""
@@ -323,7 +339,7 @@ class TestProbe:
 
     def test_pidfile_malformed(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(client_utils, 'pidfile_path', lambda: str(tmp_path / 'bogus.pid'))
-        with open(utils.pidfile_path(), 'w', encoding='utf-8') as f:
+        with open(client_utils.pidfile_path(), 'w', encoding='utf-8') as f:
             f.write('not-an-int')
         assert client_utils.read_pidfile() is None
 
@@ -834,52 +850,52 @@ class TestHttp:
         def boom() -> str:
             raise RuntimeError('cannot spawn daemon: simulated failure')
 
-        monkeypatch.setattr(http, 'ensure_running', boom)
+        monkeypatch.setattr(client_utils, 'ensure_running', boom)
         with pytest.raises(SystemExit) as ei:
-            http.get('/api/health')
+            client_utils.get_request('/api/health')
         assert ei.value.code == 1
         assert 'cannot spawn daemon' in capsys.readouterr().err
 
     def test_http_error_with_detail(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        monkeypatch.setattr(http, 'ensure_running', lambda: 'http://127.0.0.1:1')
+        monkeypatch.setattr(client_utils, 'ensure_running', lambda: 'http://127.0.0.1:1')
 
         def raise_http(*a: object, **kw: object) -> None:
             body = io.BytesIO(b'{"detail": "n must be > 0"}')
             raise urllib.error.HTTPError('http://x', 400, 'Bad Request', Message(), body)
 
-        monkeypatch.setattr(http.urllib.request, 'urlopen', raise_http)
+        monkeypatch.setattr(client_utils.urllib.request, 'urlopen', raise_http)
         with pytest.raises(SystemExit) as ei:
-            http.post('/api/tables/t/rows', {'n': 0, 'cols': None})
+            client_utils.post_request('/api/tables/t/rows', {'n': 0, 'cols': None})
         assert ei.value.code == 1
         err = capsys.readouterr().err
         assert '400' in err
         assert 'n must be > 0' in err
 
     def test_http_error_unparseable_body(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        monkeypatch.setattr(http, 'ensure_running', lambda: 'http://127.0.0.1:1')
+        monkeypatch.setattr(client_utils, 'ensure_running', lambda: 'http://127.0.0.1:1')
 
         def raise_http(*a: object, **kw: object) -> None:
             raise urllib.error.HTTPError(
                 'http://x', 500, 'Internal Server Error', Message(), io.BytesIO(b'<html>not json</html>')
             )
 
-        monkeypatch.setattr(http.urllib.request, 'urlopen', raise_http)
+        monkeypatch.setattr(client_utils.urllib.request, 'urlopen', raise_http)
         with pytest.raises(SystemExit) as ei:
-            http.get('/api/health')
+            client_utils.get_request('/api/health')
         assert ei.value.code == 1
         err = capsys.readouterr().err
         # falls back to e.reason when the body isn't JSON
         assert 'Internal Server Error' in err
 
     def test_url_error_unreachable(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        monkeypatch.setattr(http, 'ensure_running', lambda: 'http://127.0.0.1:1')
+        monkeypatch.setattr(client_utils, 'ensure_running', lambda: 'http://127.0.0.1:1')
 
         def boom(*a: object, **kw: object) -> None:
             raise urllib.error.URLError('connection refused')
 
-        monkeypatch.setattr(http.urllib.request, 'urlopen', boom)
+        monkeypatch.setattr(client_utils.urllib.request, 'urlopen', boom)
         with pytest.raises(SystemExit) as ei:
-            http.get('/api/health')
+            client_utils.get_request('/api/health')
         assert ei.value.code == 1
         assert 'cannot reach daemon' in capsys.readouterr().err
 
@@ -1137,17 +1153,18 @@ class TestServerRouteHelpers:
         monkeypatch.setattr(server_routes.pxt, 'get_table', lambda p: FakeT())
         assert server_routes._tbl_count('any/path') is None
 
-    def test_validate_path_rejects_control_chars(self) -> None:
+    def test_resolve_path_rejects_control_chars(self) -> None:
         # Defense in depth: every ASCII control character (including LF, which the
-        # route-matching regex already filters out) must be rejected at the validator level
+        # route-matching regex already filters out) must be rejected during path resolution
         # so future code paths that bypass the router can't smuggle them through.
+        req = server_router.Request(query={}, body_bytes=b'')
         for ch in ('\n', '\r', '\x00', '\x01', '\x1f', '\x7f'):
             with pytest.raises(excs.RequestError) as ei:
-                server_routes._validate_path(f'foo{ch}bar')
+                req.resolve_path(f'foo{ch}bar')
             assert 'control characters' in str(ei.value)
         # plain printable paths still pass through
-        assert server_routes._validate_path('foo/bar') == 'foo/bar'
-        assert server_routes._validate_path('') == ''
+        assert req.resolve_path('foo/bar') == 'foo/bar'
+        assert req.resolve_path('') == ''
 
 
 class TestDaemonCmd:
@@ -1352,7 +1369,7 @@ class TestPxtPathValidator:
         from pixeltable_cli.models import MoveBody
 
         with pytest.raises(pydantic.ValidationError):
-            MoveBody(path='/abs', new_path='c')
+            MoveBody(path='a.b', new_path='c')
         with pytest.raises(pydantic.ValidationError):
             MoveBody(path='a/b', new_path='trailing/')
 
@@ -1413,22 +1430,22 @@ class TestBadPathArgRejection:
     def test_columns_bad_path(self, capsys: pytest.CaptureFixture) -> None:
         from pixeltable_cli.client.commands import columns as columns_cmd
 
-        self._assert_arg_error(columns_cmd.run, ['/abs'], capsys)
+        self._assert_arg_error(columns_cmd.run, ['a.b'], capsys)
 
     def test_computed_bad_path(self, capsys: pytest.CaptureFixture) -> None:
         from pixeltable_cli.client.commands import computed as computed_cmd
 
-        self._assert_arg_error(computed_cmd.run, ['/abs'], capsys)
+        self._assert_arg_error(computed_cmd.run, ['a.b'], capsys)
 
     def test_idxs_bad_path(self, capsys: pytest.CaptureFixture) -> None:
         from pixeltable_cli.client.commands import idxs as idxs_cmd
 
-        self._assert_arg_error(idxs_cmd.run, ['/abs'], capsys)
+        self._assert_arg_error(idxs_cmd.run, ['a.b'], capsys)
 
     def test_mv_bad_source_path(self, capsys: pytest.CaptureFixture) -> None:
         from pixeltable_cli.client.commands import mv as mv_cmd
 
-        self._assert_arg_error(mv_cmd.run, ['/abs', 'dst'], capsys)
+        self._assert_arg_error(mv_cmd.run, ['a.b', 'dst'], capsys)
 
     def test_mv_bad_new_dir(self, capsys: pytest.CaptureFixture) -> None:
         from pixeltable_cli.client.commands import mv as mv_cmd
@@ -1438,7 +1455,7 @@ class TestBadPathArgRejection:
     def test_rename_bad_path(self, capsys: pytest.CaptureFixture) -> None:
         from pixeltable_cli.client.commands import rename as rename_cmd
 
-        self._assert_arg_error(rename_cmd.run, ['/abs', 'newname'], capsys)
+        self._assert_arg_error(rename_cmd.run, ['a.b', 'newname'], capsys)
 
 
 class TestIdxsEmbeddingDisplay:
@@ -1459,7 +1476,7 @@ class TestIdxsEmbeddingDisplay:
                 }
             ]
         }
-        monkeypatch.setattr(idxs_cmd, 'get', lambda *a, **kw: resp)
+        monkeypatch.setattr(idxs_cmd, 'get_request', lambda *a, **kw: resp)
         idxs_cmd.run([])
         out = capsys.readouterr().out
         assert 'cosine' in out
@@ -1486,7 +1503,7 @@ class TestConfigRouteWithGenericTypes:
         # The key signal: route returns a ConfigResponse rather than raising.
         from pixeltable_cli.server.router import Request
 
-        req = Request(path_params={}, query={}, body_bytes=b'')
+        req = Request(query={}, body_bytes=b'')
         resp = server_routes.config(req)
         # Spot-check: pixeltable.service entry is present (the generic-typed one).
         services = [e for e in resp.entries if e.section == 'pixeltable' and e.key == 'service']
@@ -1496,7 +1513,7 @@ class TestConfigRouteWithGenericTypes:
         from pixeltable_cli.server.router import Request
 
         monkeypatch.setenv('OTEL_EXPORTER_OTLP_HEADERS', 'Authorization=Bearer top-secret')
-        resp = server_routes.config(Request(path_params={}, query={}, body_bytes=b''))
+        resp = server_routes.config(Request(query={}, body_bytes=b''))
         headers = [e for e in resp.entries if e.section == 'otel' and e.key == 'exporter_otlp_headers']
         assert len(headers) == 1
         assert headers[0].value == '<redacted>'

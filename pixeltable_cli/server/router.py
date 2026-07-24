@@ -1,14 +1,11 @@
 """Tiny HTTP router used by the daemon's BaseHTTPRequestHandler dispatcher.
 
-Each route registers a regex (built from a FastAPI-style pattern) and a handler
-that takes a `Request`. Lookup walks the route list in registration order and
-returns the first match; this is what lets `/api/tables/{path:path}/rows` win over
-the catch-all `/api/tables/{path:path}` describe route.
+Each route registers a static path (eg `/api/tables/rows`) and a handler that takes a `Request`.
+Lookup is an exact (method, path) match; catalog paths travel in the query string or body, not the URL.
 """
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, TypeVar, overload
@@ -16,6 +13,7 @@ from typing import Any, TypeVar, overload
 import pydantic
 
 from pixeltable import exceptions as excs
+from pixeltable_cli.utils import validate_path_shape
 
 T = TypeVar('T', bound=pydantic.BaseModel)
 
@@ -44,11 +42,10 @@ class Request:
     doesn't repeat that work.
     """
 
-    path_params: dict[str, str]
     query: dict[str, list[str]]
     body_bytes: bytes
-
-    # --- query accessors --------------------------------------------------------------------
+    headers: dict[str, str] = field(default_factory=dict)
+    resolved_paths: list[str] = field(default_factory=list)  # catalog paths resolved this request, for logging
 
     def query_str(self, name: str, default: str | None = None) -> str | None:
         vals = self.query.get(name)
@@ -94,8 +91,6 @@ class Request:
     def query_list(self, name: str) -> list[str]:
         return list(self.query.get(name, []))
 
-    # --- body --------------------------------------------------------------------------------
-
     def body(self, model_cls: type[T]) -> T:
         if len(self.body_bytes) == 0:
             raise excs.RequestError(excs.ErrorCode.MISSING_REQUIRED, 'request body required')
@@ -106,66 +101,52 @@ class Request:
             detail = '; '.join(m for m in msgs if m != '') or 'invalid request body'
             raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, detail) from None
 
+    def resolve_path(self, path: str) -> str:
+        """Resolve a catalog path against this request's session working directory, then shape-validate it.
 
-@dataclass(frozen=True)
-class _Route:
-    method: str
-    pattern: re.Pattern[str]
-    handler: Handler
+        As a CLI convention:
+        - a pxt:// URI is an absolute hosted path, used as-is;
+        - a leading '/' marks an absolute path from the catalog root -- the '/' is stripped and any working
+          directory is ignored;
+        - anything else is relative and is taken under the session's working directory when one is set (the
+          empty path resolves to the working directory itself).
+        """
+        from . import daemon  # module-level import would be circular: daemon -> http_server -> router
+
+        if not path.startswith('pxt://'):
+            if path.startswith('/'):
+                path = path[1:]  # drop the leading '/'
+            else:
+                wd = daemon.get_wd(self.headers.get('x-pxt-session'))
+                if wd is not None:
+                    path = wd if path == '' else f'{wd}/{path}'
+        if path != '':
+            err = validate_path_shape(path)
+            if err is not None:
+                raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, err)
+        self.resolved_paths.append(path)
+        return path
 
 
 class Router:
-    """Decorator-based route table. Lookup walks routes in registration order."""
+    """Decorator-based route table keyed by (method, path) for exact-match lookup."""
 
     def __init__(self) -> None:
-        self._routes: list[_Route] = []
+        self._routes: dict[tuple[str, str], Handler] = {}
 
-    def get(self, pattern: str) -> Callable[[Handler], Handler]:
-        return self._register('GET', pattern)
+    def get(self, path: str) -> Callable[[Handler], Handler]:
+        return self._register('GET', path)
 
-    def post(self, pattern: str) -> Callable[[Handler], Handler]:
-        return self._register('POST', pattern)
+    def post(self, path: str) -> Callable[[Handler], Handler]:
+        return self._register('POST', path)
 
-    def _register(self, method: str, pattern: str) -> Callable[[Handler], Handler]:
-        regex = _compile_pattern(pattern)
-
+    def _register(self, method: str, path: str) -> Callable[[Handler], Handler]:
         def decorator(fn: Handler) -> Handler:
-            self._routes.append(_Route(method=method, pattern=regex, handler=fn))
+            assert (method, path) not in self._routes, f'duplicate route {method} {path}'
+            self._routes[method, path] = fn
             return fn
 
         return decorator
 
-    def match(self, method: str, url_path: str) -> tuple[Handler, dict[str, str]] | None:
-        for r in self._routes:
-            if r.method != method:
-                continue
-            m = r.pattern.fullmatch(url_path)
-            if m is not None:
-                return r.handler, m.groupdict()
-        return None
-
-
-def _compile_pattern(pattern: str) -> re.Pattern[str]:
-    """FastAPI-style `{name}` and `{name:path}` placeholders -> a regex.
-
-    `{name}` matches one URL segment (no slashes); `{name:path}` greedily matches any
-    non-empty run including slashes. fullmatch is used at lookup time so an explicit
-    trailing anchor isn't necessary in the output.
-    """
-    out_parts: list[str] = []
-    i = 0
-    while i < len(pattern):
-        if pattern[i] == '{':
-            close = pattern.index('}', i)
-            name, _, ptype = pattern[i + 1 : close].partition(':')
-            if ptype == 'path':
-                out_parts.append(f'(?P<{name}>.+)')
-            elif ptype == '':
-                out_parts.append(f'(?P<{name}>[^/]+)')
-            else:
-                raise ValueError(f'unknown path converter {ptype!r} in pattern {pattern!r}')
-            i = close + 1
-        else:
-            out_parts.append(re.escape(pattern[i]))
-            i += 1
-    return re.compile(''.join(out_parts))
+    def match(self, method: str, url_path: str) -> Handler | None:
+        return self._routes.get((method, url_path))

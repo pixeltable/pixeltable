@@ -64,7 +64,8 @@ def validate_path_shape(path: str) -> str | None:
     else:
         in_catalog = path
         if in_catalog.startswith('/'):
-            return f"pxt paths are relative; drop the leading '/' (use '' for root). Got {path!r}"
+            # a leading '/' marks an absolute path from the catalog root; accept it and validate the remainder
+            in_catalog = in_catalog[1:]
     if '.' in in_catalog:
         return f"pxt paths use '/' as the separator; got {path!r}"
     if in_catalog.endswith('/'):

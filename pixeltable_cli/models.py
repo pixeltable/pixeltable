@@ -151,6 +151,7 @@ class GetResponse(BaseModel):
 
 
 class DropBody(BaseModel):
+    path: PxtPath
     cascade: bool = False  # drop dependent views (tables) or recurse (dirs)
 
 
@@ -170,6 +171,7 @@ class MoveResponse(BaseModel):
 
 
 class RevertBody(BaseModel):
+    path: PxtPath
     steps: int = 1  # number of consecutive revert() calls
 
 
@@ -191,3 +193,11 @@ class SchemaUpdateEntry(BaseModel):
 
 class SchemaUpdateResponse(BaseModel):
     tables: list[SchemaUpdateEntry]
+
+
+class CwdBody(BaseModel):
+    uri: str
+
+
+class CwdResponse(BaseModel):
+    uri: str | None  # the session's working directory, or None when unset (catalog root)
