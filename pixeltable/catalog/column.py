@@ -163,7 +163,7 @@ class Column:
 
         This logic applies to regular user columns as well as iterator columns. Do not use it with index columns.
         """
-        return is_stored and (is_computed or col_type.is_media_type() or col_type.supports_file_offloading())
+        return is_stored and (is_computed or col_type.is_media_type() or col_type.needs_cell_materialization())
 
     @classmethod
     def create_index_columns(

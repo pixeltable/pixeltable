@@ -1,5 +1,6 @@
 import datetime
 import enum
+import json
 import math
 import os
 import random
@@ -1214,21 +1215,26 @@ class TestTable:
         p = make_catalog_path
         t = pxt.create_table(p('test_null_handling'), {'id': pxt.Int, 'data': pxt.Json})
         t.add_computed_column(inv=1 / t.id)
-        # unstored computed col: no persisted cellmd slot, but compute() must still emit :md on error
+        # unstored computed col: no persisted cellmd slot, but compute() must still report the error
         t.add_computed_column(inv2=2 / t.id, stored=False)
 
         # ZeroDivisionError for first row, ignored
         rows: list[dict[str, Any]] = [{'id': 0, 'data': None}, {'id': 2, 'data': {'k': 'v'}}]
         out = t.compute(rows, on_error='ignore')
-        assert out[0] == {
-            'id': 0,
-            'data': None,
-            'inv': None,
-            'inv:md': {'errortype': 'ZeroDivisionError', 'errormsg': 'division by zero'},
-            'inv2': None,
-            'inv2:md': {'errortype': 'ZeroDivisionError', 'errormsg': 'division by zero'},
+        assert isinstance(out, pxt.RowBatch)
+        assert out.schema == {'id': 'Int', 'data': 'Json', 'inv': 'Float', 'inv2': 'Float'}
+        assert out.column_names == ['id', 'data', 'inv', 'inv2']
+        assert out[0] == {'id': 0, 'data': None, 'inv': None, 'inv2': None}
+        assert out[0].errors == {
+            'inv': {'errortype': 'ZeroDivisionError', 'errormsg': 'division by zero'},
+            'inv2': {'errortype': 'ZeroDivisionError', 'errormsg': 'division by zero'},
         }
         assert out[1] == {'id': 2, 'data': {'k': 'v'}, 'inv': 0.5, 'inv2': 1.0}
+        assert out[1].errors == {}
+        assert out.to_json() == [
+            {'id': 0, 'data': None, 'inv': None, 'inv2': None},
+            {'id': 2, 'data': {'k': 'v'}, 'inv': 0.5, 'inv2': 1.0},
+        ]
 
         # same row with on_error='abort' raises
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='ZeroDivisionError'):
@@ -1242,15 +1248,16 @@ class TestTable:
         t = pxt.create_table(p('test_compute_media_errors'), {'media': pxt.Video}, media_validation='on_write')
         t.add_computed_column(md=t.media.get_metadata())
 
-        # on_error='ignore': bad row carries error info under 'media:md' (validation) and 'md:md' (computed col)
+        # on_error='ignore': the bad row carries error info for 'media' (validation) and 'md' (computed col)
         out = t.compute(rows, on_error='ignore')
         assert len(out) == len(rows)
         bad_idx = next(i for i, f in enumerate(files) if f.endswith('bad_video.mp4'))
         bad, good = out[bad_idx], [r for i, r in enumerate(out) if i != bad_idx]
         assert bad['media'] is None and bad['md'] is None
-        assert bad['media:md']['errortype'] == 'RequestError'
-        assert bad['md:md']['errortype'] == 'RequestError'
-        assert all(isinstance(r['md'], dict) and 'md:md' not in r for r in good)
+        assert bad.errors['media']['errortype'] == 'RequestError'
+        assert bad.errors['md']['errortype'] == 'RequestError'
+        assert all(isinstance(r['md'], dict) for r in good)
+        assert all(r.errors == {} for r in good)
 
         # on_error='abort': the bad row raises
         with pxt_raises(pxt.ErrorCode.INVALID_DATA_FORMAT, match='bad_video'):
@@ -1296,10 +1303,9 @@ class TestTable:
         assert isinstance(res['img'], PIL.Image.Image)
         assert isinstance(res['rotated'], PIL.Image.Image)
 
-        # compute() also runs over the proxy for an array/media table without persisting (it returns the array
-        # column in its stored byte form, which crosses the wire as bytes)
+        # compute() also runs over the proxy for an array/media table without persisting
         out = t.compute([{'id': 2, 'a': arr * 2, 'img': img_file}])[0]
-        assert isinstance(out['a'], bytes)
+        assert np.array_equal(out['a'], arr * 2)
         assert isinstance(out['rotated'], PIL.Image.Image)
 
     def test_compute_with_idx(self, make_catalog_path: Callable[[str], str], clip_embed: pxt.Function) -> None:
@@ -1311,12 +1317,149 @@ class TestTable:
         t.add_embedding_index('img', idx_name='img_idx1', metric='cosine', embedding=clip_embed)
 
         files = get_image_files()[:2]
+        imgs: list[PIL.Image.Image] = []
+        for f in files:
+            with PIL.Image.open(f) as img:
+                imgs.append(img)
         out = t.compute([{'img': f} for f in files])
-        assert all(set(row.keys()) == {'img', 'rotated', 'md', 'img:img_idx1'} for row in out)
+        assert out.column_names == ['img', 'rotated', 'md']
+        assert all(set(row.keys()) == {'img', 'rotated', 'md'} for row in out)
         assert all(isinstance(row['img'], str) for row in out)
         assert all(isinstance(row['rotated'], PIL.Image.Image) for row in out)
-        assert all(isinstance(row['md'], dict) for row in out)
-        assert all(isinstance(row['img:img_idx1'], np.ndarray) and row['img:img_idx1'].shape == (512,) for row in out)
+        assert all(row['rotated'].size == img.size for row, img in zip(out, imgs))
+        assert all(row['md']['width'] == img.width for row, img in zip(out, imgs))
+        assert all(row['md']['height'] == img.height for row, img in zip(out, imgs))
+        # index values aren't part of the output
+        assert all(row.index_values == {} for row in out)
+
+        # same for a view with its own embedding index
+        v = pxt.create_view(p('test_compute_with_idx_view'), t)
+        v.add_embedding_index('img', idx_name='img_idx2', metric='cosine', embedding=clip_embed)
+        view_out = v.compute([{'img': files[0]}])
+        assert view_out.column_names == ['img', 'rotated', 'md']
+        assert all(row.index_values == {} for row in view_out)
+
+    def test_compute_view(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('test_compute_view_base'), {'id': pxt.Int, 's': pxt.String})
+        t.add_computed_column(plus1=t.id + 1)
+        v = pxt.create_view(
+            p('test_compute_view_v'), t.where(t.id > 0), additional_columns={'double': t.id * 2, 'note': pxt.String}
+        )
+
+        # input rows that fail the view's filter are dropped; output rows contain base and view columns
+        input_rows: list[dict[str, Any]] = [{'id': 0, 's': 'a'}, {'id': 2, 's': 'b'}, {'id': 3, 's': 'c'}]
+        out = v.compute(input_rows)
+        assert isinstance(out, pxt.RowBatch)
+        assert out.column_names == ['id', 's', 'plus1', 'double', 'note']
+        assert out == [
+            {'id': 2, 's': 'b', 'plus1': 3, 'double': 4, 'note': None},
+            {'id': 3, 's': 'c', 'plus1': 4, 'double': 6, 'note': None},
+        ]
+
+        # the output matches what inserting the same rows into the base produces in the view
+        t.insert(input_rows)
+        assert out == [dict(r) for r in v.order_by(v.id).collect()]
+
+        # a predicate that rejects every input row yields an empty batch that still carries the view's schema
+        out = v.compute([{'id': 0, 's': 'x'}, {'id': -1, 's': 'y'}])
+        assert isinstance(out, pxt.RowBatch)
+        assert len(out) == 0
+        assert out == []
+        assert out.column_names == ['id', 's', 'plus1', 'double', 'note']
+
+        # pydantic input, validated against the base table's schema
+        class BaseRow(pydantic.BaseModel):
+            id: int
+            s: str
+
+        out = v.compute([BaseRow(id=2, s='b')])
+        assert out == [{'id': 2, 's': 'b', 'plus1': 3, 'double': 4, 'note': None}]
+
+        # input rows must conform to the base table's schema; view columns aren't valid input
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='Unknown column name'):
+            v.compute([{'id': 1, 'double': 5}])
+
+        # errors in view columns are reported per row under on_error='ignore' and raise under 'abort'
+        ev = pxt.create_view(p('test_compute_view_err'), t, additional_columns={'inv': 1 // t.id})
+        out = ev.compute([{'id': 0, 's': 'a'}, {'id': 2, 's': 'b'}], on_error='ignore')
+        assert out[0]['inv'] is None
+        assert out[0].errors['inv']['errortype'] == 'ZeroDivisionError'
+        assert out[1]['inv'] == 0
+        assert out[1].errors == {}
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='ZeroDivisionError'):
+            ev.compute([{'id': 0, 's': 'a'}], on_error='abort')
+
+        # view of a view: both levels' filters and columns apply
+        vv = pxt.create_view(
+            p('test_compute_view_vv'), v.where(v.double > 4), additional_columns={'quad': v.double * 2}
+        )
+        out = vv.compute([{'id': 0, 's': 'a'}, {'id': 2, 's': 'b'}, {'id': 3, 's': 'c'}])
+        assert out == [{'id': 3, 's': 'c', 'plus1': 4, 'double': 6, 'note': None, 'quad': 12}]
+
+        # select-list view: only the view's visible columns appear in the output, but hidden base columns
+        # still drive the computation
+        sl = pxt.create_view(p('test_compute_view_sl'), t.where(t.id > 0).select(t.s, double=t.id * 2))
+        out = sl.compute([{'id': 0, 's': 'a'}, {'id': 2, 's': 'b'}])
+        assert out.column_names == ['s', 'double']
+        assert out == [{'s': 'b', 'double': 4}]
+
+        # snapshots don't support compute()
+        snap = pxt.create_snapshot(p('test_compute_view_snap'), t)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not supported for snapshots'):
+            snap.compute([{'id': 1, 's': 'a'}])
+
+        # neither do views defined with a sample clause
+        sv = pxt.create_view(p('test_compute_view_sample'), t.sample(fraction=0.5, seed=1))
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='sample clause'):
+            sv.compute([{'id': 1, 's': 'a'}])
+
+    def test_compute_component_view(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('test_compute_cv_base'), {'id': pxt.Int})
+        t.add_computed_column(plus1=t.id + 1)
+        v = pxt.create_view(p('test_compute_cv'), t, iterator=DummyIterator(limit=t.id))
+        v.add_computed_column(o2x2=v.out2 * 2)
+
+        # each input row expands into one output row per iterator component, in input-then-iteration order
+        out = v.compute([{'id': 2}, {'id': 1}])
+        assert out.column_names == ['id', 'plus1', 'pos', 'out1', 'out2', 'o2x2']
+        assert out == [
+            {'id': 2, 'plus1': 3, 'pos': 0, 'out1': 'str0', 'out2': 0, 'o2x2': 0},
+            {'id': 2, 'plus1': 3, 'pos': 1, 'out1': 'str1', 'out2': 1, 'o2x2': 2},
+            {'id': 1, 'plus1': 2, 'pos': 0, 'out1': 'str0', 'out2': 0, 'o2x2': 0},
+        ]
+
+        # the output matches what inserting the same rows into the base produces in the view
+        t.insert([{'id': 2}, {'id': 1}])
+        assert sorted((dict(r) for r in out), key=lambda r: (r['id'], r['pos'])) == [
+            dict(r) for r in v.order_by(v.id, v.pos).collect()
+        ]
+
+        # stacked iterators; the filter between the levels applies to the first level's component rows, and
+        # the second level's conflicting output columns are renamed
+        vv = pxt.create_view(p('test_compute_cv2'), v.where(v.out2 == 1), iterator=DummyIterator2(limit=v.out2 + 1))
+        out = vv.compute([{'id': 2}, {'id': 3}])
+        assert out.column_names == ['id', 'plus1', 'pos', 'out1', 'out2', 'o2x2', 'pos_1', 'out1_1', 'out3']
+        expected_l1 = {'pos': 1, 'out1': 'str1', 'out2': 1, 'o2x2': 2}
+        assert out == [
+            {'id': 2, 'plus1': 3, **expected_l1, 'pos_1': 0, 'out1_1': 'str0', 'out3': 0},
+            {'id': 2, 'plus1': 3, **expected_l1, 'pos_1': 1, 'out1_1': 'str1', 'out3': 1},
+            {'id': 3, 'plus1': 4, **expected_l1, 'pos_1': 0, 'out1_1': 'str0', 'out3': 0},
+            {'id': 3, 'plus1': 4, **expected_l1, 'pos_1': 1, 'out1_1': 'str1', 'out3': 1},
+        ]
+
+        # the output matches the stored view rows: id 2 was loaded when vv was created, id 3 propagates
+        # from this insert
+        t.insert([{'id': 3}])
+        assert out == [dict(r) for r in vv.order_by(vv.id, vv.pos_1).collect()]
+
+        # id 1 expands to a single out2=0 component, so vv's out2==1 filter leaves no rows: an empty batch
+        # that still carries the full schema
+        out = vv.compute([{'id': 1}])
+        assert isinstance(out, pxt.RowBatch)
+        assert len(out) == 0
+        assert out.column_names == ['id', 'plus1', 'pos', 'out1', 'out2', 'o2x2', 'pos_1', 'out1_1', 'out3']
 
     def test_insert_return_rows_with_idx(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
@@ -1341,6 +1484,9 @@ class TestTable:
         output = t.compute(rows1)
         assert all(out['c1'] == out['i'] + 1 for out in output)
         assert all(TestModel1(**out) == row for out, row in zip(output, rows1))
+        as_json = output.to_json()
+        assert all(json_row['t'] == out['t'].isoformat() for json_row, out in zip(as_json, output))
+        _ = json.dumps(as_json)
 
         output = t.compute(rows2)
         assert all(out['c1'] == out['i'] + 1 for out in output)

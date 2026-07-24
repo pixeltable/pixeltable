@@ -1196,7 +1196,8 @@ class TestTableModel:
         ExampleTableV3.insert(rows)
 
         res = ExampleQueryViewV3.select().collect()
-        assert res['plustwo'] == [3.0, 4.0, 5.0, 6.0]
+        # the sample view guarantees no row order, so compare the backfilled values order-insensitively
+        assert sorted(res['plustwo']) == [3.0, 4.0, 5.0, 6.0]
 
     def test_update_all_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """`update_all()` raises an error if a model's schema is inconsistent with the existing table."""

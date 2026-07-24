@@ -14,6 +14,7 @@ import httpx
 
 from pixeltable import exceptions as excs
 from pixeltable.catalog.update_status import UpdateStatus
+from pixeltable.row import RowBatch
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.http import fetch_url
 
@@ -43,6 +44,8 @@ def _replace_media_paths(obj: Any, make_url: Callable[[str], str]) -> Any:
         if obj.rows is not None:
             obj.rows[:] = [_replace_media_paths(row, make_url) for row in obj.rows]
         return obj
+    if isinstance(obj, RowBatch):
+        return obj._map_values(lambda v: _replace_media_paths(v, make_url))
     return obj
 
 

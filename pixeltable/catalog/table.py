@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from pixeltable._query import Query, ResultCursor, ResultSet
     from pixeltable.func.function import Function
     from pixeltable.query_clauses import JoinType
+    from pixeltable.row import RowBatch
     from pixeltable.types import ColumnSpec
 
     from ..exprs import ColumnRef
@@ -809,39 +810,44 @@ class Table(SchemaObject):
         /,
         *,
         on_error: Literal['abort', 'ignore'] = 'abort',
-    ) -> list[dict[str, Any]]:
+    ) -> RowBatch:
         """
         Materialize the computed columns of this table for the given input rows and return the resulting rows
         without persisting them.
 
+        If this table is a view, the input rows are applied to the view's insertable base table (i.e., the root of the
+        view hierarchy) and the output rows are the resulting rows of the view, as if the input had been inserted into
+        the base:
+        - rows that don't satisfy the view's filter are dropped
+        - an iterator view can produce multiple output rows per input row
+
         Args:
-            source: Rows to compute, as a sequence of dictionaries or Pydantic model instances.
-                Each row must supply values for every required (non-nullable, non-computed)
-                column; the same rules as [`insert()`][pixeltable.Table.insert] apply.
+            source: Rows to compute, as a sequence of dictionaries or Pydantic model instances. Rows contain
+                values for the base table's columns (for a view) or this table's columns; each row must supply
+                values for every required (non-nullable, non-computed) column; the same rules as
+                [`insert()`][pixeltable.Table.insert] apply.
 
             on_error: Determines the behavior if an error occurs while evaluating a computed column or detecting an
-                invalid media file (such as a corrupt image) for one of the input rows.
+                invalid media file (such as a corrupt image).
 
                 - If `on_error='abort'`, an exception will be raised.
                 - If `on_error='ignore'`, execution will continue and the (possibly partially) completed rows will be
                     returned. Any cells with errors will have a `None` value for that cell, with information about the
-                    error stored in the corresponding `<col>:md` entry of the output row.
+                    error recorded in the row's [`errors`][pixeltable.Row]. A row whose view filter fails to
+                    evaluate is dropped.
 
         Returns:
-            A list of output rows, in the same order as `source`. Each row dict contains:
-
-            - `<col>` -> the column value, for each column in the table.
-            - `<col>:<idx>` -> the value of index `<idx>` defined on `<col>` (embedding indexes
-              only; b-tree indexes are omitted).
-            - `<col>:md` -> `{'errortype': ..., 'errormsg': ...}`, present only when
-              `on_error='ignore'` and the cell raised.
+            A [`RowBatch`][pixeltable.RowBatch] of output rows, in input row order (with an iterator's output
+            rows in iteration order). Each [`Row`][pixeltable.Row] contains a value for every column of the
+            table. [`Row.errors`][pixeltable.Row] holds `{'errortype': ..., 'errormsg': ...}` for each cell that raised,
+            keyed by column or index name (only with `on_error='ignore'`).
 
         Raises:
             Error: If one of the following conditions occurs:
 
-                - The table is a view or snapshot.
+                - The table is a snapshot, a view of a snapshot, or a view defined with a sample clause.
                 - The table has been dropped.
-                - One of the input rows does not conform to the table schema.
+                - One of the input rows does not conform to the base table schema.
                 - An error occurs during processing of computed columns, and `on_error='abort'`.
 
         Examples:
@@ -865,8 +871,15 @@ class Table(SchemaObject):
             >>> rows = tbl.compute(
             ...     [{'a': 0, 'b': 1}, {'a': 2, 'b': 2}], on_error='ignore'
             ... )
-            ... # If `c` raised on row 0, rows[0]['c'] is None and rows[0]['c:md']
+            ... # If `c` raised on row 0, rows[0]['c'] is None and rows[0].errors['c']
             ... # contains {'errortype': ..., 'errormsg': ...}.
+
+            Compute view rows from base table input, for a view `my_view` defined over `my_table` with a
+            filter `a > 0`:
+
+            >>> v = pxt.get_table('my_view')
+            ... rows = v.compute([{'a': 0, 'b': 1}, {'a': 2, 'b': 2}])
+            ... # only the second input row satisfies the filter; rows contains its view row
         """
 
     def _validate_update_value_spec(self, value_spec: dict[str, Any]) -> None:
@@ -907,6 +920,19 @@ class Table(SchemaObject):
     def _validate_insert_source(self, source: TableDataSource | None) -> None:
         if source is not None and isinstance(source, Sequence) and len(source) == 0:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot insert an empty sequence.')
+
+    def _validate_compute(self) -> None:
+        """Raises if compute() is not supported for this table's path."""
+        if self._tbl_path.has_snapshot():
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'{self._display_str()}: compute() is not supported for snapshots.',
+            )
+        if self._tbl_path.has_sample_clause():
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'{self._display_str()}: compute() is not supported for views defined with a sample clause.',
+            )
 
     def _validate_embedding_args(
         self, embedding: Function | None, string_embed: Function | None, image_embed: Function | None

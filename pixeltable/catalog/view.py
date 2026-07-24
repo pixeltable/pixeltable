@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import copy
 import dataclasses
-from typing import TYPE_CHECKING, Any, Literal, Sequence
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
-
-import pydantic
 
 import pixeltable.exceptions as excs
 import pixeltable.metadata.schema as md_schema
@@ -339,18 +337,6 @@ class View(LocalTable):
     ) -> UpdateStatus:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION, f'{self._display_str()}: Cannot insert into a {self._display_name()}.'
-        )
-
-    def compute(
-        self,
-        source: Sequence[dict[str, Any]] | Sequence[pydantic.BaseModel],
-        /,
-        *,
-        on_error: Literal['abort', 'ignore'] = 'abort',
-    ) -> list[dict[str, Any]]:
-        self._validate_thread()
-        raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION, f'{self._display_str()}: compute() is only supported for base tables.'
         )
 
     def delete(self, where: exprs.Expr | None = None) -> UpdateStatus:
