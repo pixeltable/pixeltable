@@ -125,7 +125,7 @@ def extract_audio(
             assert isinstance(output_stream, av.audio.stream.AudioStream)
             for packet in container.demux(audio_stream):
                 for frame in packet.decode():
-                    output_container.mux(output_stream.encode(frame))  # type: ignore[arg-type]
+                    output_container.mux(output_stream.encode(frame))
 
         return output_path
 
