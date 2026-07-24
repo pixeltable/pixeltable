@@ -57,6 +57,7 @@ class TestHuggingface:
         # TODO: is there some way to capture the output?
         t.describe()
 
+    @pytest.mark.xdist_group('large_model')
     def test_sentence_transformer(self, uses_db: None, reload_tester: ReloadTester) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('sentence_transformers')
@@ -385,6 +386,7 @@ class TestHuggingface:
         assert result['label_text'] == ['meat loaf, meatloaf', 'mashed potato', 'broccoli']
 
     @pytest.mark.skipif(sys.version_info >= (3, 13), reason='Not working on Python 3.13+')
+    @pytest.mark.xdist_group('large_model')
     def test_speech2text_for_conditional_generation(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('sentencepiece', 'transformers')
@@ -461,6 +463,7 @@ class TestHuggingface:
         assert results[1]['sentiment'][0]['label_text'] == 'negative'
 
     @pytest.mark.very_expensive  # Large model
+    @pytest.mark.xdist_group('large_model')
     def test_image_captioning(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
@@ -595,6 +598,7 @@ class TestHuggingface:
         assert isinstance(result['transcript'], str)
         assert len(result['transcript'].strip()) > 0
 
+    @pytest.mark.xdist_group('large_model')
     def test_text_to_speech(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers', 'datasets', 'soundfile')
