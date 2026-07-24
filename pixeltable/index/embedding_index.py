@@ -4,7 +4,7 @@ import enum
 from typing import Any, ClassVar, Literal
 
 import numpy as np
-import pgvector.sqlalchemy  # type: ignore[import-untyped]
+import pgvector.sqlalchemy
 import sqlalchemy as sql
 from sqlalchemy import cast
 
