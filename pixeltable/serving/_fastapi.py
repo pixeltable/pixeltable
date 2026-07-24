@@ -151,8 +151,8 @@ def _check_json_value_servable(val: Any, col_name: str) -> None:
         )
 
 
-def _resolve_type_hints(user_fn: Callable, fn_name: str, error_prefix: str) -> dict[str, Any]:
-    """Resolve PEP-563 string annotations (from __future__ import annotations) and forward refs."""
+def _get_type_hints(user_fn: Callable, fn_name: str, error_prefix: str) -> dict[str, Any]:
+    """Return type hints dict, if available."""
     try:
         return get_type_hints(user_fn)
     except NameError as e:
@@ -204,23 +204,14 @@ def _flush_image(val: Any) -> Any:
     return dest.as_uri()
 
 
-def _exactly_one_row(rows: Sequence[Mapping[str, Any]]) -> Mapping[str, Any]:
-    """The single row of an insert/update result; 500 on any other count."""
+def _single_row(rows: Sequence[Mapping[str, Any]], raise_not_found: bool = False) -> Mapping[str, Any]:
+    """The single row of a DML result; error on any other count."""
+    if len(rows) == 0 and raise_not_found:
+        raise HTTPException(status_code=404, detail='compute() produced no output row (dropped by a view filter)')
     if len(rows) != 1:
-        raise HTTPException(status_code=500, detail=f'operation returned unexpected row count ({len(rows)})')
-    return rows[0]
-
-
-def _single_computed_row(rows: Sequence[Mapping[str, Any]]) -> Mapping[str, Any]:
-    """The single row of a compute() result, for response shapes that require exactly one row.
-
-    404 on an empty result (the input row was dropped by a view's filter); 500 if the target view fans the
-    input row out to multiple rows.
-    """
-    if len(rows) == 0:
-        raise HTTPException(status_code=404, detail='compute produced no output row (dropped by a view filter)')
-    if len(rows) > 1:
-        raise HTTPException(status_code=500, detail=f'expected a single output row, got {len(rows)}')
+        raise HTTPException(
+            status_code=500, detail=f'operation returned unexpected row count ({len(rows)}), expected 1'
+        )
     return rows[0]
 
 
@@ -406,7 +397,7 @@ class FastAPIRouter(fastapi.APIRouter):
         - an iterator view can produce multiple output rows per input row
 
         Args:
-            t: The table or view to compute rows over.
+            t: The table or view over which to compute rows.
             path: The URL path for the endpoint.
             inputs: Columns to accept as request fields. Defaults to all non-computed columns
                 (of the base table, if `t` is a view).
@@ -419,7 +410,7 @@ class FastAPIRouter(fastapi.APIRouter):
                 [`FileResponse`](https://fastapi.tiangolo.com/advanced/custom-response/#fileresponse).
                 Requires exactly one media-typed output column, and the computation must produce
                 exactly one row: the endpoint returns 404 if the input row is dropped by a view's
-                filter, and an error if it fans out to multiple rows.
+                filter, and an error if it produces multiple rows.
             export_sql: If set, export each computed row into an external RDBMS table after the
                 computation succeeds. See [`SqlExport`][pixeltable.serving.SqlExport] for the
                 target specification and supported `method` values. The exported rows are the
@@ -678,11 +669,8 @@ class FastAPIRouter(fastapi.APIRouter):
         response_model = self._create_model(f'{path_str}Response', output_cols=output_cols)
 
         def rows_processor(rows: Sequence[Mapping[str, Any]], url_for_media: Callable[[str], str]) -> Any:
-            if route_type == 'insert':
-                rows = [_exactly_one_row(rows)]
-            elif return_fileresponse:
-                # a FileResponse is a single file; a view can drop the input row or fan it out
-                rows = [_single_computed_row(rows)]
+            if route_type == 'insert' or return_fileresponse:
+                rows = [_single_row(rows, raise_not_found=route_type == 'compute')]
             for row in rows:
                 for name in json_output_col_names:
                     _check_json_value_servable(row.get(name), name)
@@ -986,7 +974,7 @@ class FastAPIRouter(fastapi.APIRouter):
                     result = user_fn(**{batch_param_name: [batch_row_model(**output_vals(row)) for row in rows]})
                 else:
                     # the per-column form consumes a single row
-                    row = _single_computed_row(rows) if route_type == 'compute' else _exactly_one_row(rows)
+                    row = _single_row(rows, raise_not_found=route_type == 'compute')
                     result = user_fn(**output_vals(row))
                 if sql_exporter is not None:
                     sql_exporter.export_row(result)
@@ -1133,7 +1121,7 @@ class FastAPIRouter(fastapi.APIRouter):
         update_response_model = self._create_model(f'{path_str}Response', output_cols=output_cols)
 
         def rows_processor(rows: Sequence[Mapping[str, Any]], url_for_media: Callable[[str], str]) -> Any:
-            row = _exactly_one_row(rows)
+            row = _single_row(rows)
             for name in json_output_col_names:
                 _check_json_value_servable(row.get(name), name)
             output = self._create_output(
@@ -1292,7 +1280,7 @@ class FastAPIRouter(fastapi.APIRouter):
             )
 
             def rows_processor(rows: Sequence[Mapping[str, Any]], url_for_media: Callable[[str], str]) -> Any:
-                row = _exactly_one_row(rows)
+                row = _single_row(rows)
                 kwargs = {name: self._convert_media_val(row[name], url_for_media) for name in output_col_names}
                 result = user_fn(**kwargs)
                 if sql_exporter is not None:
@@ -1789,7 +1777,7 @@ class FastAPIRouter(fastapi.APIRouter):
         """Validate the per-column form of a decorated route function; return the resolved response model."""
         sig = inspect.signature(user_fn)
         fn_name = getattr(user_fn, '__name__', repr(user_fn))
-        hints = _resolve_type_hints(user_fn, fn_name, error_prefix)
+        hints = _get_type_hints(user_fn, fn_name, error_prefix)
 
         param_names: set[str] = set()
         output_col_names = list(output_schema.keys())
@@ -1844,7 +1832,7 @@ class FastAPIRouter(fastapi.APIRouter):
         ):
             return None
         fn_name = getattr(user_fn, '__name__', repr(user_fn))
-        annot = _resolve_type_hints(user_fn, fn_name, error_prefix).get(params[0].name)
+        annot = _get_type_hints(user_fn, fn_name, error_prefix).get(params[0].name)
         if get_origin(annot) is not list:
             return None
         annot_args = get_args(annot)
@@ -1869,7 +1857,7 @@ class FastAPIRouter(fastapi.APIRouter):
         """
         sig = inspect.signature(user_fn)
         fn_name = getattr(user_fn, '__name__', repr(user_fn))
-        hints = _resolve_type_hints(user_fn, fn_name, error_prefix)
+        hints = _get_type_hints(user_fn, fn_name, error_prefix)
         param_name = next(iter(sig.parameters))
 
         if param_name in output_schema:
