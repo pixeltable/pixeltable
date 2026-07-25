@@ -508,6 +508,150 @@ class TestTableModel:
             assert schema_from_tbl_md(mtbl.get_metadata()) == schema_from_tbl_md(atbl.get_metadata())
             assert_resultset_eq(mtbl.order_by(mtbl.value).collect(), atbl.order_by(atbl.value).collect())
 
+    def test_view_model_shadows_base_column(self, make_catalog_path: Callable[[str], str]) -> None:
+        """A view model column may shadow a base column; references to that name resolve to the shadowing column."""
+        p = make_catalog_path
+        TableModel = pxt.model_base()
+
+        class ExampleTableModel(TableModel, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            value: pxt.Float
+
+        class ExampleViewModel(TableModel, name='test_view', base=ExampleTableModel):
+            value = ExampleTableModel.value * 100.0
+            derived = value + 1.0
+
+        TableModel.create_all(p(''))
+        ExampleTableModel.insert([{'id': 1, 'value': 2.0}])
+
+        t = ExampleViewModel.table
+        res = t.select(t.value, t.derived).collect()
+        assert res['value'] == [200.0]
+        # `derived` reads the view's own `value` (200.0), not the base's (2.0)
+        assert res['derived'] == [201.0]
+
+    def test_update_all_adds_shadowing_column(self, make_catalog_path: Callable[[str], str]) -> None:
+        """update_all() can add a column that shadows a base column, and a sibling added alongside it resolves the
+        name to the shadowing column."""
+        p = make_catalog_path
+        TableModel = pxt.model_base()
+
+        class ExampleTableModel(TableModel, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            value: pxt.Float
+
+        class ExampleViewModel(TableModel, name='test_view', base=ExampleTableModel):
+            vc1 = ExampleTableModel.id + 1
+
+        TableModel.create_all(p(''))
+        ExampleTableModel.insert([{'id': 1, 'value': 2.0}])
+
+        TableModelV2 = pxt.model_base()
+
+        class ExampleTableModelV2(TableModelV2, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            value: pxt.Float
+
+        class ExampleViewModelV2(TableModelV2, name='test_view', base=ExampleTableModelV2):
+            vc1 = ExampleTableModelV2.id + 1
+            value = ExampleTableModelV2.value * 100.0
+            derived = value + 1.0
+
+        TableModelV2.update_all(p(''))
+
+        t = ExampleViewModelV2.table
+        res = t.select(t.value, t.derived).collect()
+        assert res['value'] == [200.0]
+        assert res['derived'] == [201.0]
+
+    def test_view_model_index_on_iterator_column(self, make_catalog_path: Callable[[str], str]) -> None:
+        """An embedding index in a view model can name a column produced by the view's iterator."""
+        p = make_catalog_path
+        TableModel = pxt.model_base()
+
+        class ExampleTableModel(TableModel, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            doc_text: pxt.String
+
+        class ExampleViewModel(
+            TableModel,
+            name='test_view',
+            base=ExampleTableModel,
+            iterator=pxtf.string.string_splitter(ExampleTableModel.doc_text, separators='sentence'),
+        ):
+            # text is an output column of the iterator, not one declared by this model
+            ix = EmbeddingIndex(text, embedding=dummy_embedding.using(n=32))  # type: ignore[name-defined]
+
+        TableModel.create_all(p(''))
+        ExampleTableModel.insert([{'id': 1, 'doc_text': 'One sentence. Two sentence.'}])
+
+        idx_md = ExampleViewModel.get_metadata()['indices']['ix']
+        assert idx_md['columns'] == ['text']
+        assert idx_md['index_type'] == 'embedding'
+        view = ExampleViewModel.table
+        sim = view.text.similarity(string='One sentence.')
+        assert len(view.order_by(sim, asc=False).limit(1).collect()) == 1
+
+    def test_view_model_iterator_column_shadows_base(self, make_catalog_path: Callable[[str], str]) -> None:
+        """An iterator output shadows a base column of the same name, so the model's `text` is the chunk text
+        throughout: the column, the index declared on it, and queries against it."""
+        p = make_catalog_path
+        TableModel = pxt.model_base()
+
+        class ExampleTableModel(TableModel, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            text: pxt.String  # the document text; shadowed in the view by the iterator's `text` output
+
+        class ExampleViewModel(
+            TableModel,
+            name='test_view',
+            base=ExampleTableModel,
+            iterator=pxtf.string.string_splitter(ExampleTableModel.text, separators='sentence'),
+        ):
+            ix = EmbeddingIndex(text, embedding=dummy_embedding.using(n=32))  # type: ignore[name-defined]
+
+        TableModel.create_all(p(''))
+        ExampleTableModel.insert([{'id': 1, 'text': 'One sentence. Two sentence.'}])
+
+        view = ExampleViewModel.table
+        assert view.columns() == ['pos', 'text', 'id']
+        assert [r['text'] for r in view.order_by(view.pos).collect()] == ['One sentence.', 'Two sentence.']
+        idx_md = ExampleViewModel.get_metadata()['indices']['ix']
+        assert idx_md['columns'] == ['text']
+        sim = view.text.similarity(string='One sentence.')
+        assert len(view.order_by(sim, asc=False).limit(1).collect()) == 1
+
+    def test_view_model_column_collides_with_iterator(self, make_catalog_path: Callable[[str], str]) -> None:
+        """A model column cannot reuse the name of one of the view's iterator outputs."""
+        p = make_catalog_path
+        TableModel = pxt.model_base()
+
+        class ExampleTableModel(TableModel, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            doc_text: pxt.String
+
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA, match=r"'text' is already defined by the iterator; it cannot be redeclared"
+        ):
+
+            class ExampleViewModel(
+                TableModel,
+                name='test_view',
+                base=ExampleTableModel,
+                iterator=pxtf.string.string_splitter(ExampleTableModel.doc_text, separators='sentence'),
+            ):
+                text = ExampleTableModel.doc_text + '!'
+
+        # the same collision through the non-model API
+        TableModel.create_all(p(''))
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"'text' .* produced by the iterator"):
+            pxt.create_view(
+                p('other_view'),
+                ExampleTableModel.table,
+                iterator=pxtf.string.string_splitter(ExampleTableModel.table.doc_text, separators='sentence'),
+                additional_columns={'text': pxt.String},
+            )
+
     def test_view_model_with_iterator(self, make_catalog_path: Callable[[str], str]) -> None:
         skip_test_if_not_installed('imagehash')
 
@@ -1195,7 +1339,8 @@ class TestTableModel:
         ]
         ExampleTableV3.insert(rows)
 
-        res = ExampleQueryViewV3.select().collect()
+        v = ExampleQueryViewV3
+        res = v.order_by(v.plustwo).collect()
         assert res['plustwo'] == [3.0, 4.0, 5.0, 6.0]
 
     def test_update_all_errors(self, make_catalog_path: Callable[[str], str]) -> None:
@@ -1245,6 +1390,37 @@ class TestTableModel:
             match=r"Cannot drop index 'idx' because the following columns depend on it:\nvc2",
         ):
             TableModelV3.update_all(p(''), allow_destructive=True)
+
+    def test_update_all_view_predicate(self, make_catalog_path: Callable[[str], str]) -> None:
+        """`update_all()` cannot drop a column that a view's predicate references."""
+        p = make_catalog_path
+        TableModel = pxt.model_base()
+
+        class ExampleTable(TableModel, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            value: pxt.Float
+
+        TableModel.create_all(p(''))
+        ExampleTable.insert([{'id': 1, 'value': 5.0}])
+
+        # Add a view manually, not visible to the model_base
+        t = ExampleTable.table
+        pxt.create_view(p('test_view'), t.where(t.value > 1.0))
+
+        TableModelV2 = pxt.model_base()
+
+        # Drop the value column that the view's predicate filters on
+        class ExampleTableV2(TableModelV2, name='test_table'):
+            id: pxt.Required[pxt.Int]
+
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r'Cannot drop the following columns, because view predicates depend on them:\n'
+            r'column: value, view: test_view, predicate: value > 1.0',
+        ):
+            TableModelV2.update_all(p(''), allow_destructive=True)
+
+        assert 'value' in ExampleTable.table.columns()
 
     def test_table_model_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """Reproduce each error condition raised by `pixeltable.catalog.model`."""

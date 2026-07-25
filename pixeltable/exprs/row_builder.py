@@ -15,6 +15,7 @@ from pixeltable.utils.misc import non_none_dict_factory
 
 from .data_row import DataRow
 from .expr import Expr, ExprScope
+from .expr_dict import ExprDict
 from .expr_set import ExprSet
 
 if TYPE_CHECKING:
@@ -167,7 +168,8 @@ class RowBuilder:
         self.tbl = tbl
         self.table_columns = {}
         self.input_exprs = ExprSet()
-        validating_colrefs: dict[Expr, Expr] = {}  # key: non-validating colref, value: corresp. validating colref
+        # key: non-validating colref, value: corresp. validating colref
+        validating_colrefs: ExprDict[Expr] = ExprDict()
 
         for col in columns:
             expr: Expr

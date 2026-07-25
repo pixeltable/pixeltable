@@ -9,6 +9,7 @@ import pixeltable.type_system as ts
 from pixeltable import catalog
 
 from .column_ref import ColumnRef
+from .column_ref_by_name import ColumnRefByName
 from .data_row import DataRow
 from .expr import Expr
 from .row_builder import RowBuilder
@@ -28,7 +29,7 @@ class ColumnPropertyRef(Expr):
         LOCALPATH = 3
         CELLMD = 4  # JSON metadata for the cell, e.g. errortype, errormsg for media columns
 
-    def __init__(self, col_ref: ColumnRef, prop: Property):
+    def __init__(self, col_ref: ColumnRef | ColumnRefByName, prop: Property):
         super().__init__(ts.StringType(nullable=True))
         self.components = [col_ref]
         self.prop = prop
@@ -51,7 +52,7 @@ class ColumnPropertyRef(Expr):
 
     def __repr__(self) -> str:
         # Render from the component directly (not `self.col_ref`, which requires a real `ColumnRef`): a pre-
-        # substitution model value expression may carry a placeholder `ModelColumnRef` here, which renders as its
+        # substitution model value expression may carry a placeholder `ColumnRefByName` here, which renders as its
         # bare column name, identically to the `ColumnRef` it stands in for.
         return f'{self.components[0]}.{self.prop.name.lower()}'
 

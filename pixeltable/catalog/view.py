@@ -12,7 +12,6 @@ import pixeltable.metadata.schema as md_schema
 import pixeltable.type_system as ts
 from pixeltable import exprs, func
 from pixeltable.catalog.globals import _POS_COLUMN_NAME
-from pixeltable.func.iterator import IteratorOutput
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 
@@ -92,41 +91,36 @@ class View(LocalTable):
         custom_metadata: Any,
         media_validation: MediaValidation,
         iterator_call: func.GeneratingFunctionCall | None,
-        additional_idxs: list[tuple[Column, str | None, index.IndexBase]],
+        additional_idxs: list[tuple[str, str | None, index.IndexBase]],
     ) -> tuple[TableVersionMd, list[TableOp] | None]:
         from pixeltable.exprs import InlineDict
 
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
 
         # Convert select_list to more additional_columns if present
-        initial_col_id = len(iterator_call.outputs) if iterator_call is not None else 0
         include_base_columns: bool = select_list is None
         select_list_columns: list[Column] = []
         if not include_base_columns:
-            for i, (col_name, spec) in enumerate(cls.select_list_to_additional_columns(select_list).items()):
+            for col_name, spec in cls.select_list_to_additional_columns(select_list).items():
                 col = Column.create(col_name, spec)
-                col.id = initial_col_id + i
                 col.tbl_handle = tbl_handle
                 select_list_columns.append(col)
 
         iterator_cols: list[Column] = []
         if iterator_call is not None:
             assert _POS_COLUMN_NAME in iterator_call.outputs
-            known_col_names = {col.name for col in select_list_columns + additional_columns}
-            if include_base_columns:
-                known_col_names.update(col.name for col in base.columns())
-            if any(name in known_col_names for name in iterator_call.outputs):
-                # One or more output column names from the iterator call conflict with existing column names.
-                # Rename the output column names as necessary to avoid conflicts.
-                updated_outputs: dict[str, IteratorOutput] = {}
-                for col_name, output_info in iterator_call.outputs.items():
-                    unique_name = cls.__get_unique_column_name(col_name, known_col_names)
-                    if unique_name != col_name:
-                        known_col_names.add(unique_name)
-                    updated_outputs[unique_name] = output_info
-                iterator_call = dataclasses.replace(iterator_call, outputs=updated_outputs)
+            # An iterator output shadows a base column of the same name. The view's own columns share one namespace
+            # with the outputs, though, so a collision there has no resolution.
+            declared_names = {col.name for col in select_list_columns + additional_columns}
+            duplicates = sorted(name for name in iterator_call.outputs if name in declared_names)
+            if len(duplicates) > 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'Column name(s) {", ".join(repr(name) for name in duplicates)} are produced by the iterator and '
+                    'also declared by the view; rename the declared column(s).',
+                )
 
-            for i, (col_name, output_info) in enumerate(iterator_call.outputs.items()):
+            for col_name, output_info in iterator_call.outputs.items():
                 stores_cellmd = Column.should_store_cellmd(
                     col_type=output_info.col_type, is_stored=output_info.is_stored, is_computed=False
                 )
@@ -138,12 +132,19 @@ class View(LocalTable):
                     stored=output_info.is_stored,
                     stores_cellmd=stores_cellmd,
                 )
-                col.id = i
                 col.tbl_handle = tbl_handle
                 iterator_cols.append(col)
 
         cls._verify_schema(select_list_columns + additional_columns)
         columns = iterator_cols + select_list_columns + additional_columns
+
+        # resolve the indexed column names against the view's visible columns, which shadow base columns of the same
+        # name; base columns are only visible with select(*)
+        cols_by_name = {col.name: col for col in columns if col.name is not None}
+        if include_base_columns:
+            for col in base.columns():
+                cols_by_name.setdefault(col.name, col)
+        resolved_idxs = [(cols_by_name[col_name], idx_name, idx) for col_name, idx_name, idx in additional_idxs]
 
         # verify that filters can be evaluated in the context of the base
         if predicate is not None:
@@ -225,7 +226,7 @@ class View(LocalTable):
             view_md=view_md,
             create_default_idxs=create_default_idxs,
             is_versioned=base.is_versioned(),
-            additional_idxs=additional_idxs,
+            additional_idxs=resolved_idxs,
         )
         if md.tbl_md.is_pure_snapshot:
             # this is purely a snapshot: no store table to create or load
@@ -242,20 +243,6 @@ class View(LocalTable):
                 .build()
             )
             return md, ops
-
-    @classmethod
-    def __get_unique_column_name(cls, base_name: str, existing_names: set[str]) -> str:
-        """Returns a unique column name based on the given base name and the set of existing names."""
-        if base_name not in existing_names:
-            return base_name
-
-        i = 1
-        new_name = f'{base_name}_{i}'
-        while new_name in existing_names:
-            i += 1
-            new_name = f'{base_name}_{i}'
-
-        return new_name
 
     @classmethod
     def _verify_column(cls, col: Column) -> None:

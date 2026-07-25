@@ -3911,14 +3911,12 @@ class TestTable:
 
                         Column Name                            Type           Source                       Computed With                      Comment
             -----------------------------------------------------------------------------------------------------------------------------------------
-                              pos_1                   Required[Int]  iterator_view_2                      DummyIterator2
-                             out1_1                Required[String]  iterator_view_2                      DummyIterator2
+                                pos                   Required[Int]  iterator_view_2                      DummyIterator2
+                               out1                Required[String]  iterator_view_2                      DummyIterator2
                                out3                   Required[Int]  iterator_view_2                      DummyIterator2
               iterator_view_2_col_1                Required[String]  iterator_view_2                  ('"' + out1) + '"'
               iterator_view_2_col_2                 Required[Float]  iterator_view_2  stock_price(iterator_view_2_col_1)
             .........................................................................................................................................
-                                pos                   Required[Int]  iterator_view_1                       DummyIterator
-                               out1                Required[String]  iterator_view_1                       DummyIterator
                                out2                   Required[Int]  iterator_view_1                       DummyIterator
             .........................................................................................................................................
                           computed1  Required[Array[(3, 4), int64]]     test_subview                        fill_3x4(c2)

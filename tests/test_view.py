@@ -34,6 +34,16 @@ def add_unstored_base_val(vals: Batch[int]) -> Batch[int]:
     return results
 
 
+tracked_calls: list[int] = []
+
+
+@pxt.udf
+def tracked(x: int) -> int:
+    """Records each invocation in tracked_calls, so a test can tell computation from carry-over."""
+    tracked_calls.append(x)
+    return x * 10
+
+
 class TestView:
     """
     TODO:
@@ -1356,6 +1366,59 @@ class TestView:
         # Should work
         v1.update({'v1': 101})
         v2.update({'v2': 102})
+
+    @pytest.mark.parametrize('with_computed_col', [False, True], ids=['plain', 'computed'])
+    def test_update_changes_view_membership(
+        self, with_computed_col: bool, make_catalog_path: Callable[[str], str]
+    ) -> None:
+        """A base update that changes whether a row satisfies a view's filter adds it to / removes it from the view."""
+        p = make_catalog_path
+        t = pxt.create_table(p('tbl'), {'n': pxt.Int})
+        t.insert([{'n': 1}, {'n': 2}, {'n': 3}])
+        if with_computed_col:
+            v = pxt.create_view(p('view'), t.where(t.n > 1), additional_columns={'doubled': t.n * 2})
+        else:
+            v = pxt.create_view(p('view'), t.where(t.n > 1))
+        assert sorted(r['n'] for r in v.collect()) == [2, 3]
+
+        # a row that stops satisfying the filter leaves the view
+        t.update({'n': 0}, where=t.n == 3)
+        assert sorted(r['n'] for r in v.collect()) == [2]
+
+        # a row that starts satisfying the filter enters the view
+        t.update({'n': 9}, where=t.n == 1)
+        assert sorted(r['n'] for r in v.collect()) == [2, 9]
+        if with_computed_col:
+            assert sorted(r['doubled'] for r in v.collect()) == [4, 18]
+
+    def test_update_preserves_unaffected_view_columns(self, make_catalog_path: Callable[[str], str]) -> None:
+        """A row that stays in a filtered view keeps the stored columns whose inputs didn't change, without
+        recomputing them."""
+        p = make_catalog_path
+        t = pxt.create_table(p('tbl'), {'n': pxt.Int, 'other': pxt.Int})
+        t.insert([{'n': 2, 'other': 1}, {'n': 3, 'other': 2}])
+        v = pxt.create_view(p('view'), t.where(t.n > 1), additional_columns={'exp': tracked(t.other)})
+        assert sorted(r['exp'] for r in v.collect()) == [10, 20]
+
+        tracked_calls.clear()
+        # `exp` is computed from `other`, which this update leaves alone
+        t.update({'n': 5}, where=t.n == 2)
+        assert len(tracked_calls) == 0
+        assert sorted(r['exp'] for r in v.collect()) == [10, 20]
+
+    def test_update_changes_view_membership_cascades(self, make_catalog_path: Callable[[str], str]) -> None:
+        """A row leaving a filtered view retires the rows a view on top of it derived from it."""
+        p = make_catalog_path
+        t = pxt.create_table(p('tbl'), {'n': pxt.Int})
+        t.insert([{'n': 1}, {'n': 2}, {'n': 3}])
+        v1 = pxt.create_view(p('view1'), t.where(t.n > 1))
+        v2 = pxt.create_view(p('view2'), v1, additional_columns={'own': v1.n * 10})
+        assert len(v2.collect()) == 2
+
+        t.update({'n': 0}, where=t.n == 3)
+        assert len(v2.collect()) == 1
+        # selecting only v2's own column references nothing in v1, so no join to v1 filters out stale rows
+        assert [r['own'] for r in v2.select(v2.own).collect()] == [20]
 
     def test_recompute_column(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path

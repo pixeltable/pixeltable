@@ -537,6 +537,16 @@ class Column:
         assert self.get_tbl() is not None
         return self.get_tbl().media_validation
 
+    def effective_media_validation(self, tbl_default: MediaValidation) -> MediaValidation:
+        """This column's media validation, falling back to tbl_default if the column doesn't specify one.
+
+        Unlike the media_validation property, this doesn't resolve the containing table, so it can be called before
+        that table exists.
+        """
+        if self._media_validation is not None:
+            return self._media_validation
+        return tbl_default
+
     @property
     def custom_metadata(self) -> Any:
         return self._custom_metadata

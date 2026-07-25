@@ -1215,6 +1215,10 @@ class TestFastAPI:
             return t.where(t.id == img_id).select(t.resized)
 
         @pxt.query
+        def one_image_delayed(img_id: int) -> pxt.Query:
+            return t.where(t.id == img_id).select(t.resized, delay=sleep(1.0))
+
+        @pxt.query
         def all_images() -> pxt.Query:
             return t.select(t.resized).order_by(t.id)
 
@@ -1226,7 +1230,7 @@ class TestFastAPI:
         # FileResponse variant with >1 row -> 409
         router.add_query_route(path='/all-file', query=all_images, return_fileresponse=True)
         # Background variant
-        router.add_query_route(path='/one-bg', query=one_image, background=True)
+        router.add_query_route(path='/one-bg', query=one_image_delayed, background=True)
         client = make_test_client(router)
 
         # JSON variant: wrapper with rows containing objects with 'resized' fields rewritten as media URLs

@@ -75,7 +75,7 @@ class InsertableTable(LocalTable):
         media_validation: MediaValidation,
         create_default_idxs: bool,
         is_versioned: bool,
-        additional_idxs: list[tuple[Column, str | None, index.IndexBase]],
+        additional_idxs: list[tuple[str, str | None, index.IndexBase]],
     ) -> tuple[TableVersionMd, list[TableOp]]:
         cls._verify_schema(columns)
         column_names = [col.name for col in columns]
@@ -93,6 +93,9 @@ class InsertableTable(LocalTable):
                 )
             col.is_pk = True
 
+        cols_by_name = {col.name: col for col in columns if col.name is not None}
+        resolved_idxs = [(cols_by_name[col_name], idx_name, idx) for col_name, idx_name, idx in additional_idxs]
+
         md = TableVersion.create_initial_md(
             tbl_id,
             name,
@@ -103,7 +106,7 @@ class InsertableTable(LocalTable):
             create_default_idxs=create_default_idxs,
             view_md=None,
             is_versioned=is_versioned,
-            additional_idxs=additional_idxs,
+            additional_idxs=resolved_idxs,
         )
 
         ops = (

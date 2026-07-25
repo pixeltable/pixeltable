@@ -35,10 +35,14 @@ class ComponentIterationNode(ExecNode):
         self.iterator_output_cols = {name: self.view.get().cols_by_name[name] for name in self.iterator_call.outputs}
 
         # referenced iterator output fields
+        # a ColumnRef to a base column can carry the same name as one of the iterator's outputs, which shadows it;
+        # only the view's own column is a destination for an output value
         self.refd_output_slot_idxs = {
             e.col.name: e.slot_idx
             for e in self.row_builder.unique_exprs
-            if isinstance(e, exprs.ColumnRef) and e.col.name in self.iterator_call.outputs
+            if isinstance(e, exprs.ColumnRef)
+            and e.col.name in self.iterator_output_cols
+            and e.col.qid == self.iterator_output_cols[e.col.name].qid
         }
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
