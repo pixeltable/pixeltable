@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import pgvector.sqlalchemy  # type: ignore[import-untyped]
+import pgvector.sqlalchemy
 import PIL.Image
 import sqlalchemy as sql
 

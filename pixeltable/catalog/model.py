@@ -4,9 +4,8 @@ import __future__
 import dataclasses
 import itertools
 import sys
-from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, MutableMapping, NamedTuple, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, MutableMapping, TypedDict
 
 from pixeltable import catalog, exceptions as excs, exprs, func, index, type_system as ts
 from pixeltable.env import Env
@@ -16,6 +15,7 @@ from pixeltable.types import ColumnSpec
 
 from .globals import MediaValidation, is_valid_identifier
 from .table import Table
+from .table_metadata import ColumnMetadata, TableMetadata
 from .table_version_handle import TableVersionHandle
 
 if TYPE_CHECKING:
@@ -56,7 +56,7 @@ for method in FORWARDED_TABLE_METHODS:
     assert hasattr(Table, method), method
 
 
-@dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class Column:
     """A column specification used in a TableModel or ViewModel definition."""
 
@@ -90,7 +90,7 @@ class Column:
         return column_spec
 
 
-@dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class EmbeddingIndex:
     """An embedding index specification used in a TableModel or ViewModel definition."""
 
@@ -103,6 +103,27 @@ class EmbeddingIndex:
     document_embed: func.Function | None = None
     metric: Literal['cosine', 'ip', 'l2'] = 'cosine'
     precision: Literal['fp16', 'fp32'] = 'fp16'
+
+    def __repr__(self) -> str:
+        embeds = [
+            f'{name}={fn}'
+            for name, fn in (
+                ('embedding', self.embedding),
+                ('string_embed', self.string_embed),
+                ('image_embed', self.image_embed),
+                ('audio_embed', self.audio_embed),
+                ('video_embed', self.video_embed),
+                ('document_embed', self.document_embed),
+            )
+            if fn is not None
+        ]
+        parts = [f'column={self.column}', *embeds]
+        # Only surface metric/precision when they deviate from their defaults.
+        if self.metric != 'cosine':
+            parts.append(f'metric={self.metric!r}')
+        if self.precision != 'fp16':
+            parts.append(f'precision={self.precision!r}')
+        return f'EmbeddingIndex({", ".join(parts)})'
 
 
 class TableSpec(TypedDict):
@@ -141,6 +162,10 @@ class ModelColumnRef(exprs.Expr):
 
     def __repr__(self) -> str:
         return f'ModelColumnRef({self.name!r})'
+
+    def __str__(self) -> str:
+        # Render as a bare column name, identically to the `ColumnRef` this placeholder stands in for.
+        return self.name
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('name', self.name)]
@@ -505,7 +530,7 @@ class TableModelMeta(type):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT, f'{display_name}: `name` must be a valid Pixeltable identifier.'
                 )
-            # It needs to be scoped to this model_base()
+
             base_models = bases[0].__registered_models__  # type: ignore[attr-defined]
             if tbl_name in base_models:
                 raise excs.RequestError(
@@ -527,6 +552,17 @@ class TableModelMeta(type):
                         f'(another Pixeltable model, or a query over a model).',
                     )
                 assert isinstance(base, ModelQuery)
+                if base.select_clause is not None:
+                    # Validate the select list.
+                    items, _ = base.select_clause
+                    for item in items:
+                        if not isinstance(item, ModelColumnRef):
+                            raise excs.RequestError(
+                                excs.ErrorCode.INVALID_ARGUMENT,
+                                f'{display_name}: `base` select() list may contain only direct column references '
+                                f'or named expressions, but contains an anonymous compound expression: {item}\n'
+                                f'Use kwargs syntax to give it an explicit name: select(my_name=...)',
+                            )
                 base_model = base.from_clause
                 if len(base_model.__bases__) == 0 or base_model.__bases__[0] is not bases[0]:
                     raise excs.RequestError(
@@ -636,17 +672,6 @@ class TableModelMeta(type):
     @property
     def is_bound(cls) -> bool:
         return cls._binding_root is not None
-
-    class ValidationResults(NamedTuple):
-        new_columns: list[str]
-        deleted_columns: list[str]
-        altered_columns: list[str]
-        new_indices: list[str]
-        deleted_indices: list[str]
-        altered_indices: list[str]
-
-        def has_changes(self) -> bool:
-            return len(self.new_columns) > 0 or len(self.deleted_columns) > 0 or len(self.altered_columns) > 0
 
     @classmethod
     def _normalize_binding_root(cls, binding_root: str) -> str:
@@ -781,7 +806,7 @@ def prepare_model(
 
     # A registry of visible columns of the table (base table/query columns, iterator columns,
     # and additional columns).
-    visible_cols: dict[str, catalog.Column] = {}
+    user_cols: dict[str, catalog.Column] = {}
 
     # A substitution dictionary resolving ModelColumnRefs to actual ColumnRefs; we'll build this up incrementally
     # as we process the model's columns.
@@ -805,9 +830,9 @@ def prepare_model(
             catalog_col = catalog.Column.create(name, {'type': output.col_type, 'stored': output.is_stored})  # type: ignore[arg-type]
             catalog_col.id = next(next_col_id)
             catalog_col.tbl_handle = tbl_handle
-            visible_cols[name] = catalog_col
+            user_cols[name] = catalog_col
             subst_dict[ModelColumnRef(name)] = exprs.ColumnRef(
-                catalog_col.column_version_md(), perform_validation=(media_validation == 'on_read')
+                catalog_col.column_version_md(), perform_validation=(media_validation == MediaValidation.ON_READ)
             )
 
     if base is not None:
@@ -817,8 +842,8 @@ def prepare_model(
             for col in base._first_tbl.columns():
                 # Iterator column names take precedence over base table column names in the model namespace, so
                 # only update the substitution dicts if the name isn't already present.
-                if col.name not in visible_cols:
-                    visible_cols[col.name] = col
+                if col.name not in user_cols:
+                    user_cols[col.name] = col
                     ref = exprs.ColumnRef(col.column_version_md())
                     subst_dict[ModelColumnRef(col.name)] = ref
         else:
@@ -847,9 +872,10 @@ def prepare_model(
                     catalog_col = catalog.Column.create(col_name, expr.col_type)
                     catalog_col.id = id
                     catalog_col.tbl_handle = tbl_handle
-                    visible_cols[col_name] = catalog_col
+                    user_cols[col_name] = catalog_col
                     subst_dict[ModelColumnRef(col_name)] = exprs.ColumnRef(
-                        catalog_col.column_version_md(), perform_validation=(media_validation == 'on_read')
+                        catalog_col.column_version_md(),
+                        perform_validation=(media_validation == MediaValidation.ON_READ),
                     )
 
     # Process any additional columns specified in the view model body.
@@ -869,10 +895,10 @@ def prepare_model(
         catalog_col.tbl_handle = tbl_handle
         catalog_col.id = next(next_col_id)
         additional_cols.append(catalog_col)
-        visible_cols[name] = catalog_col
+        user_cols[name] = catalog_col
         subst_dict[ModelColumnRef(name, catalog_col.col_type)] = exprs.ColumnRef(
             catalog_col.column_version_md(),
-            perform_validation=subst_spec.get('media_validation', media_validation) == 'on_read',
+            perform_validation=subst_spec.get('media_validation', media_validation.name.lower()) == 'on_read',
         )
 
     # Resolve each declared embedding index against the model's visible columns.
@@ -884,7 +910,7 @@ def prepare_model(
                 f'Embedding index {idx_name!r} in {display_name} has an invalid column reference.',
             )
         col_name = idx_spec.column.name
-        if col_name not in visible_cols:
+        if col_name not in user_cols:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA,
                 f'Embedding index {idx_name!r} in {display_name} references unknown column {col_name!r}.',
@@ -898,11 +924,545 @@ def prepare_model(
             audio_embed=idx_spec.audio_embed,
             video_embed=idx_spec.video_embed,
             document_embed=idx_spec.document_embed,
-            column=visible_cols[col_name],
+            column=user_cols[col_name],
         )
-        resolved_idxs.append((visible_cols[col_name], idx_name, idx))
+        resolved_idxs.append((user_cols[col_name], idx_name, idx))
 
     return iterator, additional_cols, resolved_idxs
+
+
+class CatalogUpdates(TypedDict):
+    """Used for proxy communication of changes that need to be applied to a catalog table during update_all()."""
+
+    path: catalog.Path
+    # name -> (spec, origin). A 'base_query' column comes from the view's base query `select()` list and resolves
+    # against the base table's columns; a 'model_body' column resolves against the view's own visible columns.
+    new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]]
+    dropped_columns: list[str]
+    new_idxs: dict[str, EmbeddingIndex]
+    dropped_idxs: list[str]
+
+
+def prepare_model_updates(
+    tvp: catalog.TableVersionPath,
+    display_name: str,
+    new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]],
+    new_idxs: dict[str, EmbeddingIndex],
+) -> tuple[list[catalog.Column], list[tuple[catalog.Column, str | None, index.IndexBase]]]:
+    """
+    Given `new_columns` and `new_idxs` as declared by a model, resolves them into proper catalog abstractions
+    in preparation for catalog changes. This is the analog of `prepare_model()` for `update_all()`.
+
+    Each column in `new_columns` is a (spec, origin) pair. A 'base_query' column comes from the view's base query
+    `select()` list and is resolved against the base table's columns; a 'model_body' column is resolved against the
+    view's own visible columns.
+    """
+
+    user_cols: dict[str, catalog.Column] = {}
+    subst_dict: dict[exprs.Expr, exprs.Expr] = {}
+
+    # Pre-populate the visible columns and substitution dict with the existing table's visible columns.
+    # This includes iterator columns and base table columns.
+    for col in tvp.columns():
+        user_cols[col.name] = col
+        subst_dict[ModelColumnRef(col.name)] = exprs.ColumnRef(
+            col.column_version_md(), perform_validation=(col.media_validation == MediaValidation.ON_READ)
+        )
+
+    # Base-query columns are projections of the base query and resolve against the base table's columns (which,
+    # for a `select()` view, are not among the view's own visible columns above).
+    has_base_query_cols = any(origin == 'base_query' for _, origin in new_columns.values())
+    base_subst_dict: dict[exprs.Expr, exprs.Expr] = {}
+    if has_base_query_cols:
+        assert tvp.base is not None
+        for col in tvp.base.columns():
+            base_subst_dict[ModelColumnRef(col.name)] = exprs.ColumnRef(
+                col.column_version_md(), perform_validation=(col.media_validation == MediaValidation.ON_READ)
+            )
+
+    tbl_handle = tvp.tbl_version
+    tbl_version = tvp.tbl_version.get()
+
+    # Process base-query columns first, so a model-body column may reference a newly-projected base-query column.
+    ordered_names = [n for n, (_, origin) in new_columns.items() if origin == 'base_query'] + [
+        n for n, (_, origin) in new_columns.items() if origin != 'base_query'
+    ]
+
+    resolved_cols: list[catalog.Column] = []
+    for name in ordered_names:
+        spec, origin = new_columns[name]
+        resolved_spec = spec.copy()
+        if 'value' in resolved_spec:
+            resolve_against = base_subst_dict if origin == 'base_query' else subst_dict
+            resolved_spec['value'] = resolved_spec['value'].substitute(resolve_against)
+            residual_placeholders = list(resolved_spec['value'].subexprs(ModelColumnRef))
+            if len(residual_placeholders) > 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'Column {name!r} in {display_name} references columns that are not in '
+                    f"the model's scope: {[c.name for c in residual_placeholders]}",
+                )
+        catalog_col = catalog.Column.create(name, resolved_spec)
+        catalog_col.tbl_handle = tbl_handle
+        catalog_col.id = tbl_version.next_col_id()
+        resolved_cols.append(catalog_col)
+        user_cols[name] = catalog_col
+        # Make the new column referenceable by subsequent model-body columns.
+        subst_dict[ModelColumnRef(name, catalog_col.col_type)] = exprs.ColumnRef(
+            catalog_col.column_version_md(),
+            perform_validation=resolved_spec.get('media_validation', tvp.media_validation().name.lower()) == 'on_read',
+        )
+
+    # Resolve each declared embedding index against the model's visible columns.
+    resolved_idxs: list[tuple[catalog.Column, str | None, index.IndexBase]] = []
+    for idx_name, idx_spec in new_idxs.items():
+        if not isinstance(idx_spec.column, ModelColumnRef):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'Embedding index {idx_name!r} in {display_name} has an invalid column reference.',
+            )
+        col_name = idx_spec.column.name
+        if col_name not in user_cols:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'Embedding index {idx_name!r} in {display_name} references unknown column {col_name!r}.',
+            )
+        idx = index.EmbeddingIndex(
+            metric=idx_spec.metric,
+            precision=idx_spec.precision,
+            embed=idx_spec.embedding,
+            string_embed=idx_spec.string_embed,
+            image_embed=idx_spec.image_embed,
+            audio_embed=idx_spec.audio_embed,
+            video_embed=idx_spec.video_embed,
+            document_embed=idx_spec.document_embed,
+            column=user_cols[col_name],
+        )
+        resolved_idxs.append((user_cols[col_name], idx_name, idx))
+
+    return resolved_cols, resolved_idxs
+
+
+class SchemaChange(TypedDict):
+    """One atomic difference between a model and the catalog."""
+
+    target: Literal['column', 'index', 'table']
+    # column name, index name, or for 'table', the differing attribute:
+    # 'kind' | 'iterator' | 'view_filter' | 'view_sample' | 'media_validation' | 'comment' | 'custom_metadata'
+    name: str
+    op: Literal['add', 'drop', 'alter']
+    severity: Literal['additive', 'destructive', 'unsupported']
+    model: Any | None  # model-side value; None for drops
+    existing: Any | None  # catalog-side value; None for adds
+    description: str
+
+
+DiffResolution = Literal['up_to_date', 'create', 'update_additive', 'update_destructive', 'unsupported']
+
+
+class TableDiff(TypedDict):
+    """How one model differs from its catalog table."""
+
+    path: str  # catalog path of the table
+    model_cls: str  # model class name, so an agent can map back to code
+    kind: Literal['table', 'view']
+    exists: bool
+    resolution: DiffResolution
+    changes: list[SchemaChange]
+
+
+# Table-level attribute names that are reported as a single grouped diff (as opposed to `kind`/`iterator`/`filter`/
+# `sample`, which each get their own diff line).
+_TABLE_PROP_NAMES: tuple[str, ...] = ('media_validation', 'comment', 'custom_metadata')
+
+
+def _resolution(exists: bool, changes: list[SchemaChange]) -> DiffResolution:
+    """Reduce a table's list of changes to the single action `update_all()` would take."""
+    if not exists:
+        return 'create'
+    if len(changes) == 0:
+        return 'up_to_date'
+    severities = {change['severity'] for change in changes}
+    if 'unsupported' in severities:
+        return 'unsupported'
+    if 'destructive' in severities:
+        return 'update_destructive'
+    return 'update_additive'
+
+
+@dataclasses.dataclass
+class _ColumnProperties:
+    """The comparable properties of a column, either from a model or from an existing table."""
+
+    type: str
+    value: str | None
+    primary_key: bool
+    stored: bool
+    media_validation: str | None  # None for non-media columns
+    comment: str | None
+    custom_metadata: Any
+    destination: str | None
+
+    @classmethod
+    def from_spec(cls, spec: ColumnSpec, default_media_validation: str) -> _ColumnProperties:
+        """The comparable properties of a column declared by `spec`, resolved to match a stored column's metadata.
+
+        A computed column's value expression carries `ModelColumnRef` placeholders, but those render identically to
+        the `ColumnRef`s in the stored expression, so the display strings are directly comparable. Defaults mirror
+        `Column.create` (`stored=True`, `primary_key=False`) and a media column's `media_validation` falls back to
+        the table default, as it does on the stored column.
+        """
+        col_type = _col_type_from_spec(spec)
+        value = spec.get('value')
+        comment = spec.get('comment')
+        return cls(
+            type=col_type._to_str(as_schema=True),
+            value=exprs.Expr.from_object(value).display_str(inline=False) if value is not None else None,
+            primary_key=spec.get('primary_key', False),
+            stored=spec.get('stored', True),
+            media_validation=(spec.get('media_validation') or default_media_validation)
+            if col_type.is_media_type()
+            else None,
+            comment=comment if comment else None,
+            custom_metadata=spec.get('custom_metadata'),
+            destination=str(spec['destination']) if spec.get('destination') is not None else None,
+        )
+
+    @classmethod
+    def from_metadata(cls, col_md: ColumnMetadata) -> _ColumnProperties:
+        """The comparable properties of an existing column, drawn from its `ColumnMetadata`."""
+        return cls(
+            type=col_md['type_'],
+            value=col_md['computed_with'],
+            primary_key=col_md['is_primary_key'],
+            stored=col_md['is_stored'],
+            media_validation=col_md['media_validation'],
+            comment=col_md['comment'],
+            custom_metadata=col_md['custom_metadata'],
+            destination=col_md['destination'],
+        )
+
+
+@dataclasses.dataclass
+class _TableProperties:
+    """The comparable properties of a table, either from a model or from an existing table."""
+
+    media_validation: str
+    comment: str | None
+    custom_metadata: Any
+
+    @classmethod
+    def from_model(cls, model: TableModelMeta) -> _TableProperties:
+        """The comparable table-level properties declared by a model."""
+        spec = model.__table_spec__
+        return cls(
+            media_validation=spec['media_validation'].name.lower(),
+            comment=spec['comment'],
+            custom_metadata=spec['custom_metadata'],
+        )
+
+    @classmethod
+    def from_metadata(cls, md: TableMetadata) -> _TableProperties:
+        """The comparable table-level properties of an existing table, drawn from its `TableMetadata`."""
+        return cls(
+            media_validation=md['media_validation'], comment=md['comment'], custom_metadata=md['custom_metadata']
+        )
+
+
+def _user_columns(model: TableModelMeta) -> dict[str, ColumnSpec]:
+    """The model's declared columns, plus any its base query projects via a `select()` clause."""
+    specs: dict[str, ColumnSpec] = dict(model.__columns__)
+    base = model.__table_spec__['base']
+    if base is not None and base.select_clause is not None:
+        items, named_items = base.select_clause
+        for item in items:
+            assert isinstance(item, ModelColumnRef)  # "anonymous" compound expressions are not allowed here
+            specs[item.name] = {'value': item, 'stored': False}
+        for col_name, expr in named_items.items():
+            specs[col_name] = {'value': expr, 'stored': not isinstance(expr, ModelColumnRef)}
+    return specs
+
+
+def _base_query_columns(model: TableModelMeta) -> set[str]:
+    """Names of the columns a model's base query projects via its `select()` clause (empty if there is none)."""
+    base = model.__table_spec__['base']
+    if base is None or base.select_clause is None:
+        return set()
+    items, named_items = base.select_clause
+    return {item.name for item in items} | set(named_items.keys())
+
+
+def _format_column_spec(spec: ColumnSpec) -> str:
+    """A display string for a column spec. The `value` expression is rendered via `str()` (not `repr()`), so a bare
+    `ModelColumnRef` placeholder shows as its column name (e.g. `extra1`) rather than `ModelColumnRef('extra1')`,
+    matching how it renders inside a compound expression and how the stored value expression renders."""
+    parts = []
+    for key, val in spec.items():
+        rendered = str(val) if key == 'value' else repr(val)
+        parts.append(f'{key!r}: {rendered}')
+    return '{' + ', '.join(parts) + '}'
+
+
+def _add_column_change(col_name: str, spec: ColumnSpec) -> SchemaChange:
+    return SchemaChange(
+        target='column',
+        name=col_name,
+        op='add',
+        severity='additive',
+        model=_format_column_spec(spec),
+        existing=None,
+        description=f'column {col_name!r} will be added',
+    )
+
+
+def _add_index_change(idx_name: str, idx: EmbeddingIndex) -> SchemaChange:
+    return SchemaChange(
+        target='index',
+        name=idx_name,
+        op='add',
+        severity='additive',
+        model=str(idx),
+        existing=None,
+        description=f'index {idx_name!r} will be added',
+    )
+
+
+def validate_models(registered_models: dict[str, TableModelMeta], binding_root: str) -> dict[str, TableDiff]:
+    """
+    Analyze each registered model against the current catalog state, summarizing the schema changes that creating
+    the models would entail, along with any incompatibilities with an already-existing table of the same name.
+    This is purely informational: it neither modifies the catalog nor raises on incompatibilities.
+    """
+    binding_root = TableModelMeta._normalize_binding_root(binding_root)
+    results: dict[str, TableDiff] = {}
+
+    for name, model in registered_models.items():
+        user_cols = _user_columns(model)
+        model_cols = set(user_cols.keys())
+        model_idxs = set(model.__indexes__.keys())
+        base = model.__table_spec__['base']
+        model_kind: Literal['table', 'view'] = 'table' if base is None else 'view'
+        iterator = model.__table_spec__['iterator']
+        model_iterator = None if iterator is None else iterator.display_str()
+        model_filter = None if base is None or base.where_clause is None else str(base.where_clause)
+        model_sample = None if base is None or base.sample_clause is None else str(base.sample_clause)
+
+        bound_path = f'{binding_root}{name}'
+        existing = model._resolve_tbl(binding_root, if_not_exists='ignore')
+
+        changes: list[SchemaChange]
+
+        if existing is None:
+            # The table does not yet exist; every column and index is an addition.
+            changes = [_add_column_change(col_name, user_cols[col_name]) for col_name in sorted(model_cols)]
+            changes += [_add_index_change(idx_name, model.__indexes__[idx_name]) for idx_name in sorted(model_idxs)]
+            results[name] = TableDiff(
+                path=bound_path,
+                model_cls=model.__name__,
+                kind=model_kind,
+                exists=False,
+                resolution=_resolution(False, changes),
+                changes=changes,
+            )
+            continue
+
+        existing_md = existing.get_metadata()
+        # Restrict the existing columns to those defined in this table (i.e. not inherited from a base) and not
+        # produced by an iterator, so that they line up with the model's own declared columns.
+        existing_cols = {
+            col_name
+            for col_name, col_md in existing_md['columns'].items()
+            if col_md['defined_in'] == existing_md['name'] and not col_md['is_iterator_col']
+        }
+        existing_idxs = {
+            idx_name for idx_name, info in existing_md['indices'].items() if info['index_type'] == 'embedding'
+        }
+
+        changes = []
+
+        # Structural mismatches (kind/iterator/filter/sample); each is unsupported (requires a manual migration).
+        if model_kind != existing_md['kind']:
+            changes.append(
+                SchemaChange(
+                    target='table',
+                    name='kind',
+                    op='alter',
+                    severity='unsupported',
+                    model=model_kind,
+                    existing=existing_md['kind'],
+                    description=f'`{model.__name__}` specifies a {model_kind}, but {name!r} is a {existing_md["kind"]}',
+                )
+            )
+        for attr, model_val, existing_val in (
+            ('iterator', model_iterator, existing_md['iterator_call']),
+            ('view_filter', model_filter, existing_md['view_filter']),
+            ('view_sample', model_sample, existing_md['view_sample']),
+        ):
+            if model_val != existing_val:
+                changes.append(
+                    SchemaChange(
+                        target='table',
+                        name=attr,
+                        op='alter',
+                        severity='unsupported',
+                        model=model_val,
+                        existing=existing_val,
+                        description=f'{attr} mismatch: model={model_val!r}, existing={existing_val!r}',
+                    )
+                )
+
+        # Table-level properties that differ (media_validation/comment/custom_metadata); unsupported for now.
+        model_table_props = _TableProperties.from_model(model)
+        existing_table_props = _TableProperties.from_metadata(existing_md)
+        for prop in model_table_props.__dataclass_fields__:
+            model_val = getattr(model_table_props, prop)
+            existing_val = getattr(existing_table_props, prop)
+            if model_val != existing_val:
+                changes.append(
+                    SchemaChange(
+                        target='table',
+                        name=prop,
+                        op='alter',
+                        severity='unsupported',
+                        model=model_val,
+                        existing=existing_val,
+                        description=f'table property {prop!r}: model={model_val!r}, existing={existing_val!r}',
+                    )
+                )
+
+        # Columns present in both, whose properties differ; unsupported for now (some alterations will later be
+        # applicable via `allow_destructive=True`).
+        default_media_validation = model.__table_spec__['media_validation'].name.lower()
+        for col_name in sorted(model_cols & existing_cols):
+            model_props = _ColumnProperties.from_spec(user_cols[col_name], default_media_validation)
+            existing_props = _ColumnProperties.from_metadata(existing_md['columns'][col_name])
+            altered = [
+                prop
+                for prop in model_props.__dataclass_fields__
+                if getattr(model_props, prop) != getattr(existing_props, prop)
+            ]
+            if len(altered) > 0:
+                changes.append(
+                    SchemaChange(
+                        target='column',
+                        name=col_name,
+                        op='alter',
+                        severity='unsupported',
+                        model={prop: getattr(model_props, prop) for prop in altered},
+                        existing={prop: getattr(existing_props, prop) for prop in altered},
+                        description=f'column {col_name!r} has altered properties: {", ".join(altered)}',
+                    )
+                )
+
+        # Additive/destructive column and index changes.
+        for col_name in sorted(model_cols - existing_cols):
+            changes.append(_add_column_change(col_name, user_cols[col_name]))
+        for col_name in sorted(existing_cols - model_cols):
+            changes.append(
+                SchemaChange(
+                    target='column',
+                    name=col_name,
+                    op='drop',
+                    severity='destructive',
+                    model=None,
+                    existing=None,
+                    description=f'column {col_name!r} will be dropped',
+                )
+            )
+        for idx_name in sorted(model_idxs - existing_idxs):
+            changes.append(_add_index_change(idx_name, model.__indexes__[idx_name]))
+        for idx_name in sorted(existing_idxs - model_idxs):
+            changes.append(
+                SchemaChange(
+                    target='index',
+                    name=idx_name,
+                    op='drop',
+                    severity='destructive',
+                    model=None,
+                    existing=None,
+                    description=f'index {idx_name!r} will be dropped',
+                )
+            )
+
+        results[name] = TableDiff(
+            path=bound_path,
+            model_cls=model.__name__,
+            kind=model_kind,
+            exists=True,
+            resolution=_resolution(True, changes),
+            changes=changes,
+        )
+
+    return results
+
+
+def _format_diff(name: str, diff: TableDiff) -> list[str]:
+    """Human-readable lines describing how the model named `name` differs from the current catalog state."""
+    kind = diff['kind']
+    if not diff['exists']:
+        return [
+            f'{kind.capitalize()} {name!r} (from model `{diff["model_cls"]}`) does not yet exist, and will be CREATED.'
+        ]
+
+    changes = diff['changes']
+    if len(changes) == 0:
+        return []
+
+    def by(target: str, op: str | None = None, names: tuple[str, ...] | None = None) -> list[SchemaChange]:
+        return [
+            c
+            for c in changes
+            if c['target'] == target and (op is None or c['op'] == op) and (names is None or c['name'] in names)
+        ]
+
+    detail: list[str] = []
+
+    for c in by('table', names=('kind',)):
+        detail.append(f'  kind mismatch (FATAL): {c["description"]}')
+    for attr, label in (('iterator', 'iterator'), ('view_filter', 'filter'), ('view_sample', 'sample')):
+        for c in by('table', names=(attr,)):
+            detail.append(f'  {label} mismatch (FATAL):')
+            detail.append(f'    model {label}   : {c["model"]}')
+            detail.append(f'    existing {label}: {c["existing"]}')
+
+    table_props = by('table', names=_TABLE_PROP_NAMES)
+    if len(table_props) > 0:
+        detail.append('  the following table properties have changed (FATAL):')
+        for c in table_props:
+            detail.append(f'    {c["name"]}: model={c["model"]!r}, existing={c["existing"]!r}')
+
+    altered_cols = by('column', op='alter')
+    if len(altered_cols) > 0:
+        detail.append('  the following columns have altered properties (FATAL):')
+        for c in altered_cols:
+            for prop, model_val in c['model'].items():
+                detail.append(f'    {c["name"]!r} {prop}: model={model_val!r}, existing={c["existing"][prop]!r}')
+
+    new_cols = by('column', op='add')
+    if len(new_cols) > 0:
+        detail.append('  the following columns are new to the model, and will be ADDED:')
+        for c in new_cols:
+            detail.append(f'    {c["name"]!r} = {c["model"]}')
+
+    dropped_cols = by('column', op='drop')
+    if len(dropped_cols) > 0:
+        detail.append('  the following columns are no longer in the model, and will be DROPPED:')
+        for c in dropped_cols:
+            detail.append(f'    {c["name"]!r}')
+
+    new_idxs = by('index', op='add')
+    if len(new_idxs) > 0:
+        detail.append('  the following indexes are new to the model, and will be ADDED:')
+        for c in new_idxs:
+            detail.append(f'    {c["name"]!r} = {c["model"]}')
+
+    dropped_idxs = by('index', op='drop')
+    if len(dropped_idxs) > 0:
+        detail.append('  the following indexes are no longer in the model, and will be DROPPED:')
+        for c in dropped_idxs:
+            detail.append(f'    {c["name"]!r}')
+
+    return [f'{kind.capitalize()} {name!r} (from model `{diff["model_cls"]}`) has differences:', *detail]
 
 
 def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
@@ -919,12 +1479,120 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         """Returns (created, existing): absolute paths of tables created now and those that already exist."""
         created: list[str] = []
         existed: list[str] = []
+
+        # `create_all()` only creates tables; it never mutates an existing one. If any existing table differs from
+        # its model, refuse and point the user at `update_all()`.
+        diffs = validate_models(registered_models, binding_root)
+        changed = [(name, d) for name, d in diffs.items() if d['exists'] and d['resolution'] != 'up_to_date']
+        if len(changed) > 0:
+            detail = '\n'.join(line for name, d in changed for line in _format_diff(name, d))
+            raise excs.RequestError(
+                excs.ErrorCode.SCHEMA_MISMATCH,
+                'One or more existing tables differ from their models.\n'
+                f'{detail}\n'
+                'Call `update_all()` instead if you intended to also modify existing tables.',
+            )
+
         for model in registered_models.values():
             tbl, was_created = model._create(binding_root)
             (created if was_created else existed).append(str(tbl._path()))
+
         return created, existed
+
+    def _get_model_diff(binding_root: str = '') -> dict[str, TableDiff]:
+        return validate_models(registered_models, binding_root)
+
+    def _diff_all(binding_root: str = '') -> None:
+        diffs = _get_model_diff(binding_root)
+        lines: list[str] = []
+        for name, d in diffs.items():
+            lines.extend(_format_diff(name, d))
+        Env.get().console_logger.info('\n'.join(lines) if len(lines) > 0 else 'Catalog is up to date.')
+
+    def _update_all(binding_root: str = '', *, allow_destructive: bool = False) -> None:
+        diffs = validate_models(registered_models, binding_root)
+
+        if len(diffs) == 0:
+            # No updates *or* create statements.
+            Env.get().console_logger.info('Catalog is up to date.')
+            return
+
+        fatal = [(name, d) for name, d in diffs.items() if d['resolution'] == 'unsupported']
+        if len(fatal) > 0:
+            detail = '\n'.join(line for name, d in fatal for line in _format_diff(name, d))
+            raise excs.RequestError(
+                excs.ErrorCode.SCHEMA_MISMATCH,
+                'One or more tables cannot be updated, because their models are inconsistent '
+                'with the existing table(s) in the catalog.\n'
+                f'{detail}\n'
+                'Adjust the existing table(s) manually, or adjust the models to be consistent with the catalog.',
+            )
+
+        destructive = [(name, d) for name, d in diffs.items() if d['resolution'] == 'update_destructive']
+        if len(destructive) > 0 and not allow_destructive:
+            detail = '\n'.join(line for name, d in destructive for line in _format_diff(name, d))
+            raise excs.RequestError(
+                excs.ErrorCode.SCHEMA_MISMATCH,
+                f'The following updates would result in destructive catalog changes.\n'
+                f'{detail}\n'
+                'If you wish to apply these changes, re-run `update_all()` with `allow_destructive=True`.\n'
+                'If you intended to rename columns or indexes instead of dropping them, apply those changes '
+                'directly with `pxt.move()`.',
+            )
+
+        # Apply column/index changes to existing tables. Brand-new tables are handled by `_create_all()` below.
+        update_diffs = [
+            (name, d) for name, d in diffs.items() if d['resolution'] in ('update_additive', 'update_destructive')
+        ]
+
+        if len(update_diffs) > 0:
+            binding_root = TableModelMeta._normalize_binding_root(binding_root)
+            updates: list[CatalogUpdates] = []
+            for name, d in update_diffs:
+                model = registered_models[name]
+                new_col_names = {c['name'] for c in d['changes'] if c['target'] == 'column' and c['op'] == 'add'}
+                dropped_col_names = [c['name'] for c in d['changes'] if c['target'] == 'column' and c['op'] == 'drop']
+                new_idx_names = [c['name'] for c in d['changes'] if c['target'] == 'index' and c['op'] == 'add']
+                dropped_idx_names = [c['name'] for c in d['changes'] if c['target'] == 'index' and c['op'] == 'drop']
+                # Resolve `type` annotations to ColumnTypes, mirroring `_create()`, and tag each column's origin.
+                # Iterate in declaration order (not the diff's sorted order), so a new column may depend on an
+                # earlier new column, as it can at create time.
+                user_cols = _user_columns(model)
+                base_query_cols = _base_query_columns(model)
+                new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]] = {}
+                for col_name, col_spec in user_cols.items():
+                    if col_name not in new_col_names:
+                        continue
+                    spec = col_spec.copy()
+                    if 'type' in spec:
+                        spec['type'] = ts.ColumnType.normalize_type(  # type: ignore[typeddict-item]
+                            spec['type'], nullable_default=True, allow_builtin_types=False
+                        )
+                    origin: Literal['base_query', 'model_body'] = (
+                        'base_query' if col_name in base_query_cols else 'model_body'
+                    )
+                    new_columns[col_name] = (spec, origin)
+                updates.append(
+                    CatalogUpdates(
+                        path=catalog.Path.parse(f'{binding_root}{name}'),
+                        new_columns=new_columns,
+                        dropped_columns=dropped_col_names,
+                        new_idxs={idx_name: model.__indexes__[idx_name] for idx_name in new_idx_names},
+                        dropped_idxs=dropped_idx_names,
+                    )
+                )
+
+            # All models share `binding_root`, hence a single catalog; apply every table's changes in one transaction.
+            cat = get_runtime().get_catalog(updates[0]['path'])
+            cat.update_from_model(updates)
+
+        # Now create any new tables.
+        _create_all(binding_root)
 
     cls.bind_all = _bind_all  # type: ignore[attr-defined]
     cls.create_all = _create_all  # type: ignore[attr-defined]
+    cls.get_model_diff = _get_model_diff  # type: ignore[attr-defined]
+    cls.diff_all = _diff_all  # type: ignore[attr-defined]
+    cls.update_all = _update_all  # type: ignore[attr-defined]
 
     return cls  # type: ignore[return-value]

@@ -187,6 +187,8 @@ class LocalTable(Table):
             primary_key=primary_key,
             kind=self._display_name(),  # type: ignore[typeddict-item]
             base=None,
+            view_filter=None,
+            view_sample=None,
             iterator_call=None,
         )
 
@@ -371,12 +373,10 @@ class LocalTable(Table):
     def to_coco_dataset(self) -> Path:
         return self.select().to_coco_dataset()
 
-    def _column_has_dependents(self, col: Column) -> bool:
-        """Returns True if the column has dependents, False otherwise."""
-        assert col is not None
-        assert col.name in self._get_schema()
+    def _get_dependent_user_cols(self, col: Column) -> list[Column]:
+        """Returns the named (user-visible) columns that depend on `col`."""
         cat = get_runtime().catalog
-        return any(c.name is not None for c in cat.get_column_dependents(col.get_tbl().id, col.id))
+        return [c for c in cat.get_column_dependents(col.get_tbl().id, col.id) if c.name is not None]
 
     def _ignore_or_drop_existing_columns(self, new_col_names: list[str], if_exists: IfExistsParam) -> list[str]:
         """Check and handle existing columns in the new column specification based on the if_exists parameter.
@@ -406,7 +406,7 @@ class LocalTable(Table):
                     col = self._tbl_version.get().cols_by_name[new_col_name]
                     # cannot drop a column with dependents; so reject
                     # replace directive if column has dependents.
-                    if self._column_has_dependents(col):
+                    if len(self._get_dependent_user_cols(col)) > 0:
                         raise excs.AlreadyExistsError(
                             excs.ErrorCode.COLUMN_ALREADY_EXISTS,
                             f'Column {new_col_name!r} already exists and has dependents. '
@@ -553,8 +553,6 @@ class LocalTable(Table):
     def drop_column(self, column: str | ColumnRef, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
         from pixeltable.catalog import retry_loop
 
-        cat = get_runtime().catalog
-
         # Retry loop is necessary because table metadata is loaded inside.
         # Note: the provided ColumnRef may belong to a different table.
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
@@ -591,7 +589,7 @@ class LocalTable(Table):
                         excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot drop base table column {col.name!r}'
                     )
 
-            dependent_user_cols = [c for c in cat.get_column_dependents(col.get_tbl().id, col.id) if c.name is not None]
+            dependent_user_cols = self._get_dependent_user_cols(col)
             if len(dependent_user_cols) > 0:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -638,6 +636,52 @@ class LocalTable(Table):
         ):
             self._check_mutable('rename columns of')
             self._tbl_version.get().rename_column(old_name, new_name)
+
+    def alter_column(self, column: str | ColumnRef, *, type_: type) -> None:
+        from pixeltable.catalog import retry_loop
+
+        new_col_type = ts.ColumnType.normalize_type(type_, nullable_default=True, allow_builtin_types=False)
+
+        @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)
+        def do_alter_column() -> None:
+            self._check_mutable('alter columns of')
+
+            if isinstance(column, str):
+                col = self._tbl_version_path.get_column(column)
+                if col is None:
+                    raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {column}')
+            else:
+                if not self._tbl_version_path.has_column(column.col_md.qcolid):
+                    raise excs.NotFoundError(
+                        excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {column.col.qualified_name}'
+                    )
+                col = column.col
+            if col.get_tbl().id != self._tbl_version_path.tbl_id:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot alter base table column {col.name!r}'
+                )
+            if col.is_computed:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot alter the type of computed column {col.name!r}'
+                )
+            if col.is_pk:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot alter the type of primary key column {col.name!r}'
+                )
+
+            # TODO(PXT-960): follow up: allow alteration if it doesn't invalidate any dependents, and doesn't change
+            # their column types.
+            dependent_user_cols = self._get_dependent_user_cols(col)
+            if len(dependent_user_cols) > 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot alter column {col.name!r} because the following columns depend on it: '
+                    f'{", ".join(c.qualified_name for c in dependent_user_cols)}',
+                )
+
+            self._tbl_version.get().alter_column(col, new_col_type)
+
+        do_alter_column()
 
     def add_embedding_index(
         self,
@@ -843,9 +887,7 @@ class LocalTable(Table):
             idx_info = idx_info_list[0]
 
         # Find out if anything depends on this index
-        val_col = idx_info.val_col
-        col_dependents = get_runtime().catalog.get_column_dependents(val_col.get_tbl().id, val_col.id)
-        dependent_user_cols = [c for c in col_dependents if c.name is not None]
+        dependent_user_cols = self._get_dependent_user_cols(idx_info.val_col)
         if len(dependent_user_cols) > 0:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,

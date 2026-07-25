@@ -52,7 +52,7 @@ dependencies = [
     "fasteners>=0.19",
     "psycopg[binary]>=3.1.18",
     "sqlalchemy>=2.0.23",
-    "pgvector>=0.4.0,<0.5.0",
+    "pgvector>=0.4.0",
     "av>=10.0.0",
     "beautifulsoup4>=4.10",
     "lxml>=5.1",
@@ -218,7 +218,7 @@ test = [
     "pytest-xdist[psutil]>=3.8",
     "pytest-rerunfailures>=15.1",
     "pytest-benchmark>=5.1",
-    "coverage>=7.9",
+    "pytest-cov>=7",
     "filelock>=3.20.3",
 ]
 extra-dev = [

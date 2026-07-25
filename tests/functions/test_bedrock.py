@@ -12,6 +12,7 @@ from ..utils import (
     get_audio_files,
     get_image_files,
     get_video_files,
+    rerun,
     rerun_on_network_error,
     skip_test_if_no_aws_credentials,
     validate_update_status,
@@ -268,6 +269,7 @@ class TestBedrock:
         validate_update_status(t.insert(input='What is the capital of France?'), expected_rows=1)
         assert 'Paris' in t.collect()[0]['response']
 
+    @rerun(reruns=3, reruns_delay=8)
     def test_converse_tool_invocations(self, uses_db: None) -> None:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions import bedrock
