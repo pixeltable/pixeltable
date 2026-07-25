@@ -57,6 +57,7 @@ class TestHuggingface:
         # TODO: is there some way to capture the output?
         t.describe()
 
+    @pytest.mark.xdist_group('large_model')
     def test_sentence_transformer(self, uses_db: None, reload_tester: ReloadTester) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('sentence_transformers')
@@ -212,6 +213,7 @@ class TestHuggingface:
         assert len(result['segments_info']) > 0
         assert 'label_text' in result['segments_info'][0]
 
+    @pytest.mark.xdist_group('large_model')
     def test_sam3_for_segmentation(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from huggingface_hub import get_token
@@ -249,6 +251,7 @@ class TestHuggingface:
         for score in result['scores']:
             assert 0.0 <= score <= 1.0
 
+    @pytest.mark.xdist_group('large_model')
     def test_sam_automatic_mask_generation(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from huggingface_hub import get_token
@@ -300,6 +303,7 @@ class TestHuggingface:
                 seg=sam3_for_segmentation(t.img, input_boxes=[[1.0, 2.0, 3.0, 4.0]], input_boxes_labels=[1, 0])
             )
 
+    @pytest.mark.xdist_group('large_model')
     def test_sam3_for_video_segmentation(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from huggingface_hub import get_token
@@ -343,6 +347,7 @@ class TestHuggingface:
         )
         assert v_fps.count() == 4
 
+    @pytest.mark.xdist_group('large_model')
     def test_sam3_for_segmentation_no_detections(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from huggingface_hub import get_token
@@ -381,6 +386,7 @@ class TestHuggingface:
         assert result['label_text'] == ['meat loaf, meatloaf', 'mashed potato', 'broccoli']
 
     @pytest.mark.skipif(sys.version_info >= (3, 13), reason='Not working on Python 3.13+')
+    @pytest.mark.xdist_group('large_model')
     def test_speech2text_for_conditional_generation(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('sentencepiece', 'transformers')
@@ -404,6 +410,7 @@ class TestHuggingface:
         assert 'administration' in result['transcription'][0]
         assert 'construire' in result['translation'][0]
 
+    @pytest.mark.xdist_group('large_model')
     def test_text_generation(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
@@ -456,6 +463,7 @@ class TestHuggingface:
         assert results[1]['sentiment'][0]['label_text'] == 'negative'
 
     @pytest.mark.very_expensive  # Large model
+    @pytest.mark.xdist_group('large_model')
     def test_image_captioning(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
@@ -590,6 +598,7 @@ class TestHuggingface:
         assert isinstance(result['transcript'], str)
         assert len(result['transcript'].strip()) > 0
 
+    @pytest.mark.xdist_group('large_model')
     def test_text_to_speech(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers', 'datasets', 'soundfile')
@@ -611,6 +620,7 @@ class TestHuggingface:
         # Audio should be pxt.Audio type - basic check that it's not empty
 
     @pytest.mark.very_expensive  # Large model
+    @pytest.mark.xdist_group('large_model')
     def test_text_to_image(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
@@ -639,6 +649,7 @@ class TestHuggingface:
         assert result['image'] is not None
 
     @pytest.mark.very_expensive  # Large model
+    @pytest.mark.xdist_group('large_model')
     def test_image_to_image(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
@@ -665,6 +676,7 @@ class TestHuggingface:
         assert result['modified_image'] is not None
 
     @pytest.mark.very_expensive  # Large model
+    @pytest.mark.xdist_group('large_model')
     def test_image_to_video(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')

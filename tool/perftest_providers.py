@@ -91,7 +91,7 @@ def create_provider_configs(max_tokens: int) -> dict[str, ProviderConfig]:
         'deepseek': ProviderConfig(
             prompt_udf=create_chatgpt_prompt,
             udf=pxtf.deepseek.chat_completions,
-            default_model='deepseek-chat',
+            default_model='deepseek-v4-flash',
             kwargs={'model_kwargs': {'max_tokens': max_tokens, 'temperature': 0.7}},
         ),
         'bedrock': ProviderConfig(
