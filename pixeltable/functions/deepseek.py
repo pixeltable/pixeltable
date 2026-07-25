@@ -71,7 +71,7 @@ async def chat_completions(
         A dictionary containing the response and other metadata.
 
     Examples:
-        Add a computed column that applies the model `deepseek-chat` to an existing Pixeltable column `tbl.prompt`
+        Add a computed column that applies the model `deepseek-v4-flash` to an existing Pixeltable column `tbl.prompt`
         of the table `tbl`:
 
         >>> messages = [
@@ -79,7 +79,7 @@ async def chat_completions(
         ...     {'role': 'user', 'content': tbl.prompt},
         ... ]
         >>> tbl.add_computed_column(
-        ...     response=chat_completions(messages, model='deepseek-chat')
+        ...     response=chat_completions(messages, model='deepseek-v4-flash')
         ... )
     """
     if model_kwargs is None:
