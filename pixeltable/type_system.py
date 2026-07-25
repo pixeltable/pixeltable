@@ -14,7 +14,7 @@ import uuid
 from pathlib import Path
 from typing import Any, ClassVar, Iterable, Literal, Mapping, Sequence, Union
 
-import pgvector.sqlalchemy  # type: ignore[import-untyped]
+import pgvector.sqlalchemy
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
@@ -2044,7 +2044,7 @@ _SA_TYPE_BY_NAME: dict[str, type] = {name: t for t, name in _SA_TYPE_NAMES.items
 
 
 def sa_type_as_dict(t: sql.types.TypeEngine) -> dict:
-    d = {'type': _SA_TYPE_NAMES[type(t)]}
+    d: dict[str, int | str] = {'type': _SA_TYPE_NAMES[type(t)]}
     if isinstance(t, sql.types.String):
         assert t.length is None
     if isinstance(t, sql.types.TIMESTAMP):

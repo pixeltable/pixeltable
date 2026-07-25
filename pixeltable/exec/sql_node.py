@@ -8,7 +8,7 @@ from uuid import UUID
 
 import numpy as np
 import sqlalchemy as sql
-from pgvector.sqlalchemy import HalfVector  # type: ignore[import-untyped]
+from pgvector import HalfVector
 
 from pixeltable import catalog, exprs
 from pixeltable.env import Env
@@ -474,9 +474,11 @@ class SqlNode(ExecNode):
                             output_row[slot_idx] = sql_row[i]
                     else:
                         raise RuntimeError(f'Unexpected datetime value for {e}')
-                elif isinstance(sql_row[i], HalfVector):
-                    # All array data needs to be materialized as ndarrays
-                    output_row[slot_idx] = sql_row[i].to_numpy().astype(np.float32)
+                elif e.col_type.is_array_type() and isinstance(sql_row[i], (list, HalfVector)):
+                    # pgvector decodes VECTOR/HALFVEC values to lists of floats (>= 0.5) or HalfVector
+                    # objects (< 0.5); all array data needs to be materialized as ndarrays
+                    value = sql_row[i].to_numpy() if isinstance(sql_row[i], HalfVector) else sql_row[i]
+                    output_row[slot_idx] = np.asarray(value, dtype=np.float32)
                 else:
                     output_row[slot_idx] = sql_row[i]
 
