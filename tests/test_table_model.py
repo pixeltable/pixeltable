@@ -566,6 +566,7 @@ class TestTableModel:
 
     def test_view_model_index_on_iterator_column(self, make_catalog_path: Callable[[str], str]) -> None:
         """An embedding index in a view model can name a column produced by the view's iterator."""
+        skip_test_if_not_installed('spacy')
         p = make_catalog_path
         TableModel = pxt.model_base()
 
@@ -595,6 +596,7 @@ class TestTableModel:
     def test_view_model_iterator_column_shadows_base(self, make_catalog_path: Callable[[str], str]) -> None:
         """An iterator output shadows a base column of the same name, so the model's `text` is the chunk text
         throughout: the column, the index declared on it, and queries against it."""
+        skip_test_if_not_installed('spacy')
         p = make_catalog_path
         TableModel = pxt.model_base()
 
