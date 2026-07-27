@@ -91,14 +91,16 @@ class LocalTable(Table):
         return self
 
     def _name(self) -> str:
-        cat = get_runtime().catalog
-        with cat.begin_xact(for_write=False):
-            return cat.read_tbl_record(self._id).md['name']
+        from pixeltable.catalog import retrying_read
+
+        # retrying_read(), not begin_xact(): this is also called as a top-level statement (eg while preparing an
+        # insert), where a dropped connection has to be retried rather than raised
+        return retrying_read(lambda: get_runtime().catalog.read_tbl_record(self._id).md['name'])
 
     def _dir_id(self) -> UUID | None:
-        cat = get_runtime().catalog
-        with cat.begin_xact(for_write=False):
-            return cat.read_tbl_record(self._id).dir_id
+        from pixeltable.catalog import retrying_read
+
+        return retrying_read(lambda: get_runtime().catalog.read_tbl_record(self._id).dir_id)
 
     def get_metadata(self) -> 'TableMetadata':
         from pixeltable.catalog import retry_loop
@@ -338,7 +340,9 @@ class LocalTable(Table):
         pxt:// path of a hosted table); when None the local in-catalog path is shown.
         """
 
-        with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
+        from pixeltable.catalog import retrying_read
+
+        def op() -> DescriptionHelper:
             helper = DescriptionHelper()
             helper.append(self._table_descriptor(path))
             col_df, separator_idxs = self._col_descriptor()
@@ -351,6 +355,8 @@ class LocalTable(Table):
             if self._get_custom_metadata():
                 helper.append(f'Custom Metadata: {Formatter.summarize_json(self._get_custom_metadata())}')
             return helper
+
+        return retrying_read(op, read_tvps=[self._tbl_version_path])
 
     def _col_descriptor(self, columns: list[str] | None = None) -> tuple[pd.DataFrame, list[int] | None]:
         """Generates column descriptor DataFrame and a list of vertical separators.
