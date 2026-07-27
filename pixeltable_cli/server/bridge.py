@@ -572,10 +572,10 @@ def get_status() -> dict[str, Any]:
     }
 
 
-def schema_update(schema_path: str, target: str) -> tuple[list[str], list[str]]:
-    """Create the tables defined by a class-based schema file under target (idempotent).
+def _load_model_bases(schema_path: str) -> list[TableModelMeta]:
+    """The model bases declared by a class-based schema file.
 
-    Returns (created, existing): absolute paths of the tables created now and those that already exist.
+    Raises RequestError if the file is missing, fails to import, or declares no model base.
     """
     path = Path(schema_path)
     if not path.is_file():
@@ -610,16 +610,171 @@ def schema_update(schema_path: str, target: str) -> tuple[list[str], list[str]]:
     ]
     if len(bases) == 0:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'no model_base() found in {schema_path}')
+    return bases
+
+
+# the plan's operation kind for a SchemaChange, keyed by its (target, op)
+_OP_KINDS: dict[tuple[str, str], str] = {
+    ('column', 'add'): 'add_column',
+    ('column', 'drop'): 'drop_column',
+    ('column', 'alter'): 'alter_column',
+    ('index', 'add'): 'add_index',
+    ('index', 'drop'): 'drop_index',
+    ('table', 'alter'): 'alter_table',
+}
+
+# the plan's per-table action for a DiffResolution
+_ACTIONS: dict[str, str] = {
+    'create': 'create',
+    'up_to_date': 'noop',
+    'update_additive': 'update',
+    'update_destructive': 'update',
+    'unsupported': 'unsupported',
+}
+
+
+def _tables_under(target: str) -> list[str]:
+    """Paths of the tables under `target`, or [] if `target` does not exist."""
+    try:
+        return pxt.list_tables(target, recursive=True)
+    except excs.NotFoundError:
+        return []
+
+
+def schema_diff(schema_path: str, target: str) -> dict[str, Any]:
+    """The changes that schema_update() would make to reconcile `target` with the schema file.
+
+    Read-only: never creates the target directory, and never touches an existing table.
+    """
+    return _schema_plan(_load_model_bases(schema_path), schema_path, target)
+
+
+def _schema_plan(bases: list[TableModelMeta], schema_path: str, target: str) -> dict[str, Any]:
+    """The plan for reconciling `target` with the models declared by `bases`."""
+    tables: list[dict[str, Any]] = []
+    for base in bases:
+        for diff in base.get_model_diff(target).values():
+            action = _ACTIONS[diff['resolution']]
+            # a create subsumes the additions that constitute it, so only a migration enumerates operations
+            changes = diff['changes'] if action in ('update', 'unsupported') else []
+            ops: list[dict[str, Any]] = []
+            for c in changes:
+                # 'table' names the differing attribute (eg 'kind'), not a table, so it reads as 'attribute'
+                name_key = 'attribute' if c['target'] == 'table' else c['target']
+                ops.append(
+                    {
+                        'kind': _OP_KINDS[c['target'], c['op']],
+                        name_key: c['name'],
+                        'severity': c['severity'],
+                        'destructive': c['severity'] == 'destructive',
+                        'description': c['description'],
+                        **c['details'],
+                    }
+                )
+            tables.append(
+                {
+                    'path': diff['path'],
+                    'model_cls': diff['model_cls'],
+                    'kind': diff['kind'],
+                    'action': action,
+                    'destructive': any(op['destructive'] for op in ops),
+                    'ops': ops,
+                }
+            )
+
+    declared = {_catalog_key(t['path']) for t in tables}
+    extras = sorted(p for p in _tables_under(target) if _catalog_key(p) not in declared)
+    summary = {
+        'create': sum(1 for t in tables if t['action'] == 'create'),
+        'update': sum(1 for t in tables if t['action'] == 'update'),
+        'noop': sum(1 for t in tables if t['action'] == 'noop'),
+        'unsupported': sum(1 for t in tables if t['action'] == 'unsupported'),
+        'extras': len(extras),
+        'destructive': sum(1 for t in tables for op in t['ops'] if op['destructive']),
+    }
+    return {
+        'schema_path': schema_path,
+        'target': target,
+        # extras are excluded: update() never removes them, so their presence is not something it could reconcile
+        'in_agreement': all(t['action'] == 'noop' for t in tables),
+        'tables': tables,
+        'extras': extras,
+        'summary': summary,
+    }
+
+
+# close the refusals raised while reconciling, in place of the Python API's wording
+_MISMATCH_HINT = "Run 'pxt schema diff' to see the differences."
+_DESTRUCTIVE_HINT = (
+    "Re-run 'pxt schema update' with --allow-destructive to apply these changes. To rename a column or index "
+    "instead of dropping and re-adding it, use 'pxt rename'."
+)
+
+
+def schema_prune(schema_path: str, target: str) -> dict[str, Any]:
+    """Drop the tables under `target` that no model in the schema file declares.
+
+    Returns the plan, with one drop_table operation per dropped table. A view is dropped before its base, so that
+    pruning a group of related tables does not depend on the order they are listed in. Nothing is force-dropped:
+    a table that something outside the pruned set depends on is left in place and its error is raised.
+    """
+    plan = _schema_plan(_load_model_bases(schema_path), schema_path, target)
+    remaining = list(plan['extras'])
+    dropped: list[str] = []
+    while len(remaining) > 0:
+        deferred: list[str] = []
+        blocked_by: excs.Error | None = None
+        for path in remaining:
+            try:
+                pxt.drop_table(path, if_not_exists='ignore')
+            except excs.Error as e:
+                blocked_by = e
+                deferred.append(path)
+                continue
+            dropped.append(path)
+        if len(deferred) == len(remaining):
+            assert blocked_by is not None
+            raise blocked_by
+        remaining = deferred
+
+    plan['ops'] = [drop_table_op(path, 'applied') for path in dropped]
+    return plan
+
+
+def drop_table_op(path: str, status: str) -> dict[str, Any]:
+    """The plan operation for dropping the table at `path`, in the state given by `status`."""
+    return {'kind': 'drop_table', 'path': path, 'severity': 'destructive', 'destructive': True, 'status': status}
+
+
+def _catalog_key(path: str) -> tuple[str, ...]:
+    """A comparable identity for a table path, so that a `pxt://` URI and a bare path denote the same table."""
+    return tuple(CatalogPath.parse(path, allow_empty_path=True).components)
+
+
+def schema_update(schema_path: str, target: str, *, allow_destructive: bool = False) -> dict[str, Any]:
+    """Reconcile `target` with the schema file: create missing tables and migrate existing ones.
+
+    Returns the plan that was applied, each operation annotated with its status. Applying is all-or-nothing, so a
+    failure raises rather than reporting a partially applied plan.
+    """
+    bases = _load_model_bases(schema_path)
+    plan = _schema_plan(bases, schema_path, target)
 
     # only create the target directory when it names an in-catalog path; a bare catalog root (eg '' or
     # 'pxt://org:db') has no directory to create
     if len(CatalogPath.parse(target, allow_empty_path=True).components) > 0:
         pxt.create_dir(target, parents=True, if_exists='ignore')
 
-    created: list[str] = []
-    existed: list[str] = []
     for base in bases:
-        base_created, base_existed = base.create_all(target)
-        created.extend(base_created)
-        existed.extend(base_existed)
-    return created, existed
+        base.update_all(
+            target,
+            allow_destructive=allow_destructive,
+            mismatch_hint=_MISMATCH_HINT,
+            destructive_hint=_DESTRUCTIVE_HINT,
+        )
+
+    for tbl in plan['tables']:
+        tbl['status'] = 'skipped' if tbl['action'] == 'noop' else 'applied'
+        for op in tbl['ops']:
+            op['status'] = 'applied'
+    return plan

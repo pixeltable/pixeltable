@@ -202,7 +202,7 @@ class TestView:
         assert p('test_view_on_view') in pxt.list_tables(p(''))
         # if_exists='replace' cannot drop a view with a dependent view.
         # it should raise an error and recommend using 'replace_force'
-        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='has dependents'):
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match="the following depend on it: 'test_view_on_view'"):
             v3 = pxt.create_view(p('test_view'), t, if_exists='replace')
         assert p('test_view_on_view') in pxt.list_tables(p(''))
         # if_exists='replace_force' should drop the existing view and
@@ -354,7 +354,9 @@ class TestView:
             col_ref = getattr(v, col_name)
             v.add_computed_column(**{non_existing_col5: col_ref + 12.3})
             assert v.order_by(v.c1).collect()[0][non_existing_col5] == row0[col_name] + 12.3
-            expected_err = f'Column {col_name!r} already exists and has dependents.'
+            expected_err = (
+                f'Column {col_name!r} already exists and the following columns depend on it: {non_existing_col5}'
+            )
             with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=expected_err):
                 v.add_computed_column(**{col_name: 'bbb'}, if_exists='replace')
 

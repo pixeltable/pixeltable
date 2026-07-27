@@ -1044,7 +1044,12 @@ def prepare_model_updates(
 
 
 class SchemaChange(TypedDict):
-    """One atomic difference between a model and the catalog."""
+    """One atomic difference between a model and the catalog.
+
+    `target`, `op` and `severity` are also part of the CLI's wire format: pixeltable_cli.server.bridge maps them
+    to the operation kinds of a schema plan, and pixeltable_cli.models types the result. Adding a value to any of
+    them means updating those two files as well; see the note above SchemaDiffTable.
+    """
 
     target: Literal['column', 'index', 'table']
     # column name, index name, or for 'table', the differing attribute:
@@ -1055,8 +1060,13 @@ class SchemaChange(TypedDict):
     model: Any | None  # model-side value; None for drops
     existing: Any | None  # catalog-side value; None for adds
     description: str
+    # the change's operands, rendered as strings so they survive serialization: 'type' or 'value' for a column add,
+    # 'on' for an index add. Empty when the change has no operand beyond name.
+    details: dict[str, str]
 
 
+# also mapped to a schema plan's per-table action by pixeltable_cli.server.bridge; a new value needs a mapping
+# there and in pixeltable_cli.models
 DiffResolution = Literal['up_to_date', 'create', 'update_additive', 'update_destructive', 'unsupported']
 
 
@@ -1204,6 +1214,10 @@ def _format_column_spec(spec: ColumnSpec) -> str:
 
 
 def _add_column_change(col_name: str, spec: ColumnSpec) -> SchemaChange:
+    details = {'type': _col_type_from_spec(spec)._to_str(as_schema=True)}
+    value = spec.get('value')
+    if value is not None:
+        details['value'] = exprs.Expr.from_object(value).display_str(inline=False)
     return SchemaChange(
         target='column',
         name=col_name,
@@ -1212,10 +1226,12 @@ def _add_column_change(col_name: str, spec: ColumnSpec) -> SchemaChange:
         model=_format_column_spec(spec),
         existing=None,
         description=f'column {col_name!r} will be added',
+        details=details,
     )
 
 
 def _add_index_change(idx_name: str, idx: EmbeddingIndex) -> SchemaChange:
+    details = {'on': idx.column.name} if isinstance(idx.column, ModelColumnRef) else {}
     return SchemaChange(
         target='index',
         name=idx_name,
@@ -1224,6 +1240,7 @@ def _add_index_change(idx_name: str, idx: EmbeddingIndex) -> SchemaChange:
         model=str(idx),
         existing=None,
         description=f'index {idx_name!r} will be added',
+        details=details,
     )
 
 
@@ -1291,6 +1308,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
                     model=model_kind,
                     existing=existing_md['kind'],
                     description=f'`{model.__name__}` specifies a {model_kind}, but {name!r} is a {existing_md["kind"]}',
+                    details={},
                 )
             )
         for attr, model_val, existing_val in (
@@ -1308,6 +1326,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
                         model=model_val,
                         existing=existing_val,
                         description=f'{attr} mismatch: model={model_val!r}, existing={existing_val!r}',
+                        details={},
                     )
                 )
 
@@ -1327,6 +1346,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
                         model=model_val,
                         existing=existing_val,
                         description=f'table property {prop!r}: model={model_val!r}, existing={existing_val!r}',
+                        details={},
                     )
                 )
 
@@ -1351,6 +1371,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
                         model={prop: getattr(model_props, prop) for prop in altered},
                         existing={prop: getattr(existing_props, prop) for prop in altered},
                         description=f'column {col_name!r} has altered properties: {", ".join(altered)}',
+                        details={},
                     )
                 )
 
@@ -1367,6 +1388,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
                     model=None,
                     existing=None,
                     description=f'column {col_name!r} will be dropped',
+                    details={},
                 )
             )
         for idx_name in sorted(model_idxs - existing_idxs):
@@ -1381,6 +1403,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
                     model=None,
                     existing=None,
                     description=f'index {idx_name!r} will be dropped',
+                    details={},
                 )
             )
 
@@ -1465,6 +1488,16 @@ def _format_diff(name: str, diff: TableDiff) -> list[str]:
     return [f'{kind.capitalize()} {name!r} (from model `{diff["model_cls"]}`) has differences:', *detail]
 
 
+# closing lines of the refusals raised by create_all()/update_all(), phrased for the Python API. A caller driving
+# them from a different surface passes its own.
+_PY_MISMATCH_HINT = 'Call `update_all()` instead if you intended to also modify existing tables.'
+_PY_DESTRUCTIVE_HINT = (
+    'If you wish to apply these changes, re-run `update_all()` with `allow_destructive=True`.\n'
+    'If you intended to rename columns or indexes instead of dropping them, apply those changes '
+    'directly with `pxt.move()`.'
+)
+
+
 def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
     # mypy fundamentally does not understand metaclasses.
     cls = TableModelMeta(cls_name, (), {}, name='')
@@ -1475,22 +1508,24 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         for model in registered_models.values():
             model._bind(binding_root)
 
-    def _create_all(binding_root: str = '') -> tuple[list[str], list[str]]:
-        """Returns (created, existing): absolute paths of tables created now and those that already exist."""
+    def _create_all(binding_root: str = '', *, mismatch_hint: str = _PY_MISMATCH_HINT) -> tuple[list[str], list[str]]:
+        """Returns (created, existing): absolute paths of tables created now and those that already exist.
+
+        mismatch_hint closes the error raised when an existing table differs from its model; it names the way to
+        proceed, which differs between the Python API and the CLI.
+        """
         created: list[str] = []
         existed: list[str] = []
 
         # `create_all()` only creates tables; it never mutates an existing one. If any existing table differs from
-        # its model, refuse and point the user at `update_all()`.
+        # its model, refuse.
         diffs = validate_models(registered_models, binding_root)
         changed = [(name, d) for name, d in diffs.items() if d['exists'] and d['resolution'] != 'up_to_date']
         if len(changed) > 0:
             detail = '\n'.join(line for name, d in changed for line in _format_diff(name, d))
             raise excs.RequestError(
                 excs.ErrorCode.SCHEMA_MISMATCH,
-                'One or more existing tables differ from their models.\n'
-                f'{detail}\n'
-                'Call `update_all()` instead if you intended to also modify existing tables.',
+                f'One or more existing tables differ from their models.\n{detail}\n{mismatch_hint}',
             )
 
         for model in registered_models.values():
@@ -1509,7 +1544,19 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
             lines.extend(_format_diff(name, d))
         Env.get().console_logger.info('\n'.join(lines) if len(lines) > 0 else 'Catalog is up to date.')
 
-    def _update_all(binding_root: str = '', *, allow_destructive: bool = False) -> None:
+    def _update_all(
+        binding_root: str = '',
+        *,
+        allow_destructive: bool = False,
+        mismatch_hint: str = _PY_MISMATCH_HINT,
+        destructive_hint: str = _PY_DESTRUCTIVE_HINT,
+    ) -> None:
+        """Reconcile every registered model with the catalog.
+
+        mismatch_hint and destructive_hint close the errors raised when a table cannot be reconciled and when the
+        changes would be destructive without allow_destructive; each names the way to proceed, which differs
+        between the Python API and the CLI.
+        """
         diffs = validate_models(registered_models, binding_root)
 
         if len(diffs) == 0:
@@ -1533,11 +1580,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
             detail = '\n'.join(line for name, d in destructive for line in _format_diff(name, d))
             raise excs.RequestError(
                 excs.ErrorCode.SCHEMA_MISMATCH,
-                f'The following updates would result in destructive catalog changes.\n'
-                f'{detail}\n'
-                'If you wish to apply these changes, re-run `update_all()` with `allow_destructive=True`.\n'
-                'If you intended to rename columns or indexes instead of dropping them, apply those changes '
-                'directly with `pxt.move()`.',
+                f'The following updates would result in destructive catalog changes.\n{detail}\n{destructive_hint}',
             )
 
         # Apply column/index changes to existing tables. Brand-new tables are handled by `_create_all()` below.
@@ -1587,7 +1630,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
             cat.update_from_model(updates)
 
         # Now create any new tables.
-        _create_all(binding_root)
+        _create_all(binding_root, mismatch_hint=mismatch_hint)
 
     cls.bind_all = _bind_all  # type: ignore[attr-defined]
     cls.create_all = _create_all  # type: ignore[attr-defined]

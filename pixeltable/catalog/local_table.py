@@ -406,10 +406,12 @@ class LocalTable(Table):
                     col = self._tbl_version.get().cols_by_name[new_col_name]
                     # cannot drop a column with dependents; so reject
                     # replace directive if column has dependents.
-                    if len(self._get_dependent_user_cols(col)) > 0:
+                    dependent_user_cols = self._get_dependent_user_cols(col)
+                    if len(dependent_user_cols) > 0:
                         raise excs.AlreadyExistsError(
                             excs.ErrorCode.COLUMN_ALREADY_EXISTS,
-                            f'Column {new_col_name!r} already exists and has dependents. '
+                            f'Column {new_col_name!r} already exists and the following columns depend on it: '
+                            f'{", ".join(c.name for c in dependent_user_cols)}. '
                             f'Cannot {if_exists.name.lower()} it.',
                         )
                     self.drop_column(new_col_name)

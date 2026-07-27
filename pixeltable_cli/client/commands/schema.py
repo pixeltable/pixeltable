@@ -1,8 +1,15 @@
-"""Create/update tables from a class-based schema file.
+"""Reconcile a catalog directory with a class-based schema file.
 
-Only the safe subset of the `pxt schema update` spec is implemented: missing tables are created and
-existing ones are validated against their model (via the model machinery's idempotent create). There is
-no diffing, in-place migration, or dry-run yet; a model that doesn't match its existing table is an error.
+`diff` previews the changes, `update` applies them, and `prune` drops the tables the schema does not declare.
+A difference that cannot be applied in place -- a kind or iterator mismatch, or a changed column type or
+property -- is reported as unsupported and nothing is applied.
+
+Each verb reports its outcome in the exit status as well as its output, and `--json` returns the plan: for
+`update` and `prune`, with a status on every table and operation, including on the paths that refuse before
+reaching the daemon.
+
+`_SCHEMA_FILE` is appended to every verb's epilog: the shape of a model file is the first thing a caller
+writing one needs, and it is the same for all of them.
 
 The work runs on the daemon (which already has pixeltable loaded); the client stays import-light and only
 forwards the schema file's absolute path.
@@ -11,45 +18,303 @@ forwards the schema file's absolute path.
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
+from ..confirm import confirm_or_exit, stdin_is_a_tty
 from ..http import post
 from ..parser import Parser
 
-EPILOG = """\
-Examples:
-  pxt schema update schema.py my_app"""
+# the schema-file skeleton, shown by every verb: without it, the shape of a model file has to be guessed
+_SCHEMA_FILE = """\
+Schema file:
+  A Python module defining one or more models on a pxt.model_base():
 
-VERBS = ['update']
+    import pixeltable as pxt
+    import pixeltable.functions as pxtf
+
+    TableModel = pxt.model_base()
+
+    class Docs(TableModel, name='docs'):
+        title: pxt.Required[pxt.String]           # a stored column; without Required it is nullable
+        body: pxt.String
+        title_upper = pxtf.string.upper(title)    # a computed column: an assignment, not an annotation
+
+    class Titled(TableModel, name='titled', base=Docs.where(Docs.title != '')):
+        headline = Docs.title_upper + '!'         # a view of Docs, filtered by its base= query
+
+  Each model becomes one table under TARGET, named by name=."""
+
+DIFF_EPILOG = f"""\
+Examples:
+  pxt schema diff schema.py my_app                 # what 'schema update' would change
+  pxt schema diff schema.py my_app --json          # the same plan, machine-readable
+  pxt schema diff schema.py pxt://org:db/prod      # against a hosted database
+
+Output:
+  + <path>      table will be created        + <column>   will be added
+  ~ <path>      table will be migrated       - <column>   will be dropped
+  = <path>      already matches its model
+  ! <path>      cannot be migrated in place, or is not declared by the schema
+  Each operation is marked safe, DESTRUCTIVE, or UNSUPPORTED.
+
+Exit codes:
+  0  the target matches the schema
+  2  changes are pending
+  1  error: bad arguments, the schema file failed to import, or the daemon is unreachable
+
+Notes:
+  Read-only: never creates TARGET, never touches a table.
+  Tables under TARGET that no model declares are reported as extras. 'schema update' never
+  removes them, so they do not count as pending changes and do not affect the exit code.
+
+{_SCHEMA_FILE}"""
+
+UPDATE_EPILOG = f"""\
+Examples:
+  pxt schema diff   schema.py my_app                  # review first
+  pxt schema update schema.py my_app                  # then apply
+  pxt schema update schema.py my_app -n               # dry-run: the plan, applying nothing
+  pxt schema update schema.py my_app --allow-destructive -f
+  pxt schema update schema.py my_app --json
+
+Exit codes:
+  0  the target now matches the schema (including when there was nothing to do)
+  2  with -n, changes are pending
+  3  refused: the plan is destructive and --allow-destructive was not given, or -f was needed
+  1  error: bad arguments, the schema file failed to import, or a table cannot be reconciled
+
+Notes:
+  Creates TARGET and any missing tables, and migrates existing ones (adding and dropping columns
+  and indexes). Re-running against an unchanged schema does nothing.
+  A change that cannot be applied in place -- a kind or iterator mismatch, or a column whose type
+  or properties changed -- is reported as UNSUPPORTED and nothing is applied. Adjust the schema
+  or the table by hand.
+  Dropping a column or an index destroys its data and needs --allow-destructive. Applying is
+  all-or-nothing: without that flag a destructive plan applies nothing at all.
+  Tables under TARGET that no model declares are left alone; 'schema prune' removes them.
+  The daemon imports the schema file, so it must be readable there; the file's own directory is
+  added to sys.path, so it can import modules sitting next to it.
+
+{_SCHEMA_FILE}"""
+
+PRUNE_EPILOG = f"""\
+Examples:
+  pxt schema prune schema.py my_app -n     # list what would be dropped
+  pxt schema prune schema.py my_app -f     # drop it
+  pxt schema prune schema.py my_app --json
+
+Exit codes:
+  0  nothing left to prune
+  2  with -n, tables would be dropped
+  3  drops were refused: -f is required when there is no terminal to confirm at
+  1  error: bad arguments, the schema file failed to import, or a drop failed
+
+Notes:
+  Drops every table under TARGET that no model declares. This is irreversible.
+  Only tables under TARGET are considered, so nothing elsewhere in the catalog is affected.
+  Declared tables are never dropped, and never modified: a full reconcile is 'update' then 'prune'.
+  A view is dropped before its base. Prune never force-drops, so a table that something outside the
+  pruned set depends on is left in place and the drop fails, naming what depends on it.
+  Without -f, confirmation is read from the terminal; non-interactive callers must pass -f.
+
+{_SCHEMA_FILE}"""
+
+VERBS = ['diff', 'update', 'prune']
+
+# exit status: whether the target already matches the schema is reported here, not only in the output
+EXIT_IN_AGREEMENT = 0
+EXIT_ERROR = 1
+EXIT_CHANGES_PENDING = 2
+EXIT_REFUSED = 3
+
+# the marker introducing a table's line, by action
+_ACTION_MARKERS = {'create': '+', 'update': '~', 'noop': '=', 'unsupported': '!'}
+
+# how an applied table's action reads once it has been carried out
+_APPLIED_LABELS = {'create': 'created', 'update': 'updated', 'noop': 'unchanged', 'unsupported': 'unsupported'}
+
+# how an operation's severity reads; the keys are catalog.model.SchemaChange's severities
+_SEVERITY_LABELS = {'additive': 'safe', 'destructive': 'DESTRUCTIVE', 'unsupported': 'UNSUPPORTED'}
+
+# the marker introducing an operation's line, by kind; anything else is an in-place change
+_OP_MARKERS = {'add_column': '+', 'add_index': '+', 'drop_column': '-', 'drop_index': '-'}
 
 
 def run(argv: list[str]) -> None:
     if len(argv) == 0 or argv[0] in ('-h', '--help'):
-        print('usage: pxt schema <verb> [args...]\n\nverbs:\n  update  create missing tables from a schema file')
-        sys.exit(0 if len(argv) > 0 else 2)
+        print(
+            'usage: pxt schema <verb> SCHEMA TARGET [options]\n\nverbs:\n'
+            '  diff    show the changes that update would make; exit 2 if any are pending\n'
+            '  update  create and migrate the tables the schema declares under TARGET\n'
+            '  prune   drop the tables under TARGET that the schema does not declare\n\n'
+            'SCHEMA is a Python file defining models on a pxt.model_base(); TARGET is a catalog\n'
+            "directory or a pxt:// URI. Run 'pxt schema diff --help' for the file's shape."
+        )
+        sys.exit(EXIT_IN_AGREEMENT if len(argv) > 0 else EXIT_ERROR)
     verb = argv[0]
     if verb not in VERBS:
         print(f'pxt schema: unknown verb: {verb} (available: {", ".join(VERBS)})', file=sys.stderr)
-        sys.exit(2)
+        sys.exit(EXIT_ERROR)
 
-    ap = Parser(prog='pxt schema update', epilog=EPILOG)
+    epilogs = {'diff': DIFF_EPILOG, 'update': UPDATE_EPILOG, 'prune': PRUNE_EPILOG}
+    # a usage error exits EXIT_ERROR, not argparse's 2, which here means that changes are pending
+    ap = Parser(prog=f'pxt schema {verb}', epilog=epilogs[verb], usage_exit_code=EXIT_ERROR)
     ap.add_argument('schema', help='path to a Python file defining a class-based schema')
-    ap.add_argument('target', help='catalog directory to create the tables under')
+    ap.add_argument('target', help='catalog directory to reconcile against the schema')
     ap.add_argument('--json', action='store_true', dest='as_json')
+    if verb in ('update', 'prune'):
+        ap.add_argument('-f', '--force', action='store_true', help='skip confirmation')
+        ap.add_argument('-n', '--dry-run', action='store_true', dest='dry_run')
+    if verb == 'update':
+        ap.add_argument(
+            '--allow-destructive',
+            action='store_true',
+            dest='allow_destructive',
+            help='permit operations that drop a column or index',
+        )
     args = ap.parse_args(argv[1:])
-    _update(args.schema, args.target, as_json=args.as_json)
+
+    path = Path(args.schema)
+    if not path.is_file():
+        print(f'pxt schema {verb}: schema file not found: {args.schema}', file=sys.stderr)
+        sys.exit(EXIT_ERROR)
+    schema_path = str(path.resolve())
+
+    if verb == 'diff':
+        _diff(schema_path, args.target, as_json=args.as_json)
+    elif verb == 'prune':
+        _prune(schema_path, args.target, as_json=args.as_json, force=args.force, dry_run=args.dry_run)
+    else:
+        _update(
+            schema_path,
+            args.target,
+            as_json=args.as_json,
+            force=args.force,
+            dry_run=args.dry_run,
+            allow_destructive=args.allow_destructive,
+        )
 
 
-def _update(schema: str, target: str, *, as_json: bool) -> None:
-    schema_path = Path(schema)
-    if not schema_path.is_file():
-        print(f'pxt schema update: schema file not found: {schema}', file=sys.stderr)
-        sys.exit(1)
+def _diff(schema_path: str, target: str, *, as_json: bool) -> None:
+    plan = post('/api/schema/diff', {'schema_path': schema_path, 'target': target})
+    _diff_output(plan, as_json=as_json)
+    sys.exit(EXIT_IN_AGREEMENT if plan['in_agreement'] else EXIT_CHANGES_PENDING)
 
-    resp = post('/api/schema/update', {'schema_path': str(schema_path.resolve()), 'target': target})
+
+def _format_plan(plan: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    for tbl in plan['tables']:
+        action = 'no change' if tbl['action'] == 'noop' else tbl['action']
+        lines.append(f'{_ACTION_MARKERS[tbl["action"]]} {tbl["path"]:<24s} {action}')
+        for op in tbl['ops']:
+            lines.append(f'    {_OP_MARKERS.get(op["kind"], "~")} {op["description"]}  {_severity_label(op)}')
+    for path in plan['extras']:
+        lines.append(f'! {path:<24s} extra (not in schema)')
+
+    s = plan['summary']
+    counts = f'{s["create"]} create, {s["update"]} update, {s["noop"]} unchanged, {s["extras"]} extra'
+    if s['unsupported'] > 0:
+        counts += f', {s["unsupported"]} unsupported'
+    lines.append('')
+    lines.append(f'Plan: {counts}  |  {s["destructive"]} destructive')
+    return lines
+
+
+def _severity_label(op: dict[str, Any]) -> str:
+    # an unmapped severity prints as itself: a category added later must not read as harmless here
+    return _SEVERITY_LABELS.get(op['severity'], op['severity'].upper())
+
+
+def _prune(schema_path: str, target: str, *, as_json: bool, force: bool, dry_run: bool) -> None:
+    plan = post('/api/schema/diff', {'schema_path': schema_path, 'target': target})
+    extras = plan['extras']
+    if len(extras) == 0:
+        if as_json:
+            print(json.dumps({**plan, 'ops': []}, indent=2))
+        else:
+            print('nothing to prune')
+        sys.exit(EXIT_IN_AGREEMENT)
+
+    if dry_run:
+        _prune_output({**plan, 'ops': _drop_ops(extras, 'skipped')}, as_json=as_json, verb='would drop')
+        sys.exit(EXIT_CHANGES_PENDING)
+
+    if not force and not stdin_is_a_tty():
+        _prune_output({**plan, 'ops': _drop_ops(extras, 'refused')}, as_json=as_json, verb='would drop')
+    confirm_or_exit(f'drop {len(extras)} table(s) not declared by the schema?', force, refused_exit_code=EXIT_REFUSED)
+
+    resp = post('/api/schema/prune', {'schema_path': schema_path, 'target': target})
+    _prune_output(resp, as_json=as_json, verb='dropped')
+
+
+def _prune_output(plan: dict[str, Any], *, as_json: bool, verb: str) -> None:
+    if as_json:
+        print(json.dumps(plan, indent=2))
+        return
+    for op in plan['ops']:
+        print(f'{verb} {op["path"]}')
+
+
+def _update(
+    schema_path: str, target: str, *, as_json: bool, force: bool, dry_run: bool, allow_destructive: bool
+) -> None:
+    # plan first, so that destructive changes can be refused or confirmed before anything is applied. The apply
+    # recomputes the plan under its own transaction, so this one is what the caller sees, not what is enforced.
+    plan = post('/api/schema/diff', {'schema_path': schema_path, 'target': target})
+    if dry_run:
+        _diff_output(_with_statuses(plan, destructive='skipped', other='skipped'), as_json=as_json)
+        sys.exit(EXIT_IN_AGREEMENT if plan['in_agreement'] else EXIT_CHANGES_PENDING)
+
+    if plan['in_agreement']:
+        if as_json:
+            print(json.dumps(plan, indent=2))
+        else:
+            print('catalog is up to date')
+        sys.exit(EXIT_IN_AGREEMENT)
+
+    destructive = plan['summary']['destructive']
+    if destructive > 0 and not allow_destructive:
+        _diff_output(_with_statuses(plan, destructive='refused', other='skipped'), as_json=as_json)
+        print(
+            f'pxt schema update: refusing to apply {destructive} destructive operation(s) without --allow-destructive',
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_REFUSED)
+    if destructive > 0:
+        confirm_or_exit(f'apply {destructive} destructive operation(s)?', force, refused_exit_code=EXIT_REFUSED)
+
+    resp = post(
+        '/api/schema/update', {'schema_path': schema_path, 'target': target, 'allow_destructive': allow_destructive}
+    )
 
     if as_json:
         print(json.dumps(resp, indent=2))
         return
+    for tbl in resp['tables']:
+        print(f'{_APPLIED_LABELS[tbl["action"]]:9s} {tbl["path"]}')
 
-    for e in resp['tables']:
-        print(f'{e["action"]:8s} {e["path"]}')
+
+def _with_statuses(plan: dict[str, Any], *, destructive: str, other: str) -> dict[str, Any]:
+    """The plan with a status on every table and operation: `destructive` for the destructive operations, `other`
+    for the rest. A table carries `destructive` if any of its operations does."""
+    for tbl in plan['tables']:
+        for op in tbl['ops']:
+            op['status'] = destructive if op['destructive'] else other
+        tbl['status'] = destructive if any(op['destructive'] for op in tbl['ops']) else other
+    return plan
+
+
+def _drop_ops(paths: list[str], status: str) -> list[dict[str, Any]]:
+    """One drop_table operation per path, in the state given by `status`."""
+    return [
+        {'kind': 'drop_table', 'path': p, 'severity': 'destructive', 'destructive': True, 'status': status}
+        for p in paths
+    ]
+
+
+def _diff_output(plan: dict[str, Any], *, as_json: bool) -> None:
+    if as_json:
+        print(json.dumps(plan, indent=2))
+        return
+    for line in _format_plan(plan):
+        print(line)

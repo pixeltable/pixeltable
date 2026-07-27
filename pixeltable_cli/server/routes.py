@@ -424,13 +424,23 @@ def move(req: Request) -> models.MoveResponse:
     return models.MoveResponse(path=body.path, new_path=body.new_path)
 
 
+@router.post('/api/schema/diff')
+def schema_diff(req: Request) -> models.SchemaDiffResponse:
+    body = req.body(models.SchemaDiffBody)
+    return models.SchemaDiffResponse(**bridge.schema_diff(body.schema_path, body.target))
+
+
+@router.post('/api/schema/prune')
+def schema_prune(req: Request) -> models.SchemaPruneResponse:
+    body = req.body(models.SchemaPruneBody)
+    return models.SchemaPruneResponse(**bridge.schema_prune(body.schema_path, body.target))
+
+
 @router.post('/api/schema/update')
 def schema_update(req: Request) -> models.SchemaUpdateResponse:
     body = req.body(models.SchemaUpdateBody)
-    created, existed = bridge.schema_update(body.schema_path, body.target)
-    tables = [models.SchemaUpdateEntry(path=p, action='created') for p in created]
-    tables += [models.SchemaUpdateEntry(path=p, action='exists') for p in existed]
-    return models.SchemaUpdateResponse(tables=tables)
+    applied = bridge.schema_update(body.schema_path, body.target, allow_destructive=body.allow_destructive)
+    return models.SchemaUpdateResponse(**applied)
 
 
 @router.get('/api/dashboard/search')

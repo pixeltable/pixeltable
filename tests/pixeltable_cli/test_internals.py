@@ -715,20 +715,20 @@ class TestConfirm:
         confirm.confirm_or_exit('drop something?', force=True)
 
     def test_no_tty_refuses(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        monkeypatch.setattr(confirm, '_stdin_is_real_tty', lambda: False)
+        monkeypatch.setattr(confirm, 'stdin_is_a_tty', lambda: False)
         with pytest.raises(SystemExit) as ei:
             confirm.confirm_or_exit('drop something?', force=False)
         assert ei.value.code == 2
         assert '--force' in capsys.readouterr().err
 
     def test_tty_yes(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(confirm, '_stdin_is_real_tty', lambda: True)
+        monkeypatch.setattr(confirm, 'stdin_is_a_tty', lambda: True)
         monkeypatch.setattr(confirm.sys, 'stdin', io.StringIO('y\n'))
         # Should not raise.
         confirm.confirm_or_exit('drop something?', force=False)
 
     def test_tty_no(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        monkeypatch.setattr(confirm, '_stdin_is_real_tty', lambda: True)
+        monkeypatch.setattr(confirm, 'stdin_is_a_tty', lambda: True)
         monkeypatch.setattr(confirm.sys, 'stdin', io.StringIO('n\n'))
         with pytest.raises(SystemExit) as ei:
             confirm.confirm_or_exit('drop something?', force=False)
@@ -736,12 +736,12 @@ class TestConfirm:
         assert 'aborted' in capsys.readouterr().err
 
     def test_tty_empty_aborts(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(confirm, '_stdin_is_real_tty', lambda: True)
+        monkeypatch.setattr(confirm, 'stdin_is_a_tty', lambda: True)
         monkeypatch.setattr(confirm.sys, 'stdin', io.StringIO('\n'))
         with pytest.raises(SystemExit):
             confirm.confirm_or_exit('drop something?', force=False)
 
-    def test_stdin_is_real_tty_posix(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_stdin_is_a_tty_posix(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Non-Windows path: isatty() True -> returns True without touching ctypes."""
 
         class FakeStdin:
@@ -750,15 +750,15 @@ class TestConfirm:
 
         monkeypatch.setattr(confirm.sys, 'stdin', FakeStdin())
         monkeypatch.setattr(confirm.sys, 'platform', 'linux')
-        assert confirm._stdin_is_real_tty() is True
+        assert confirm.stdin_is_a_tty() is True
 
-    def test_stdin_is_real_tty_not_a_tty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_stdin_is_a_tty_not_a_tty(self, monkeypatch: pytest.MonkeyPatch) -> None:
         class FakeStdin:
             def isatty(self) -> bool:
                 return False
 
         monkeypatch.setattr(confirm.sys, 'stdin', FakeStdin())
-        assert confirm._stdin_is_real_tty() is False
+        assert confirm.stdin_is_a_tty() is False
 
 
 class TestParser:

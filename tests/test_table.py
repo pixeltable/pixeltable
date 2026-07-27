@@ -2255,7 +2255,7 @@ class TestTable:
 
         # drop() clears stored images and the cache
         tbl.insert(payload=1, video=get_video_files()[0])
-        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='has dependents'):
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match="the following depend on it: 'test_view'"):
             pxt.drop_table(p('test_tbl'))
         pxt.drop_table(p('test_view'))
         pxt.drop_table(p('test_tbl'))
@@ -3354,7 +3354,7 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS) as exc_info:
             t.add_column(c1=pxt.Int, if_exists='replace')
         error_msg = str(exc_info.value).lower()
-        assert 'already exists' in error_msg and 'has dependents' in error_msg
+        assert 'already exists' in error_msg and 'the following columns depend on it: non_existing_col3' in error_msg
         assert 'c1' in t.columns()
         assert t.select(t.c1).order_by(t.c1).collect()[0] != {'c1': 10}
         assert (

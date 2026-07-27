@@ -179,15 +179,79 @@ class RevertResponse(BaseModel):
     to_version: int
 
 
-class SchemaUpdateBody(BaseModel):
+class SchemaDiffBody(BaseModel):
     schema_path: str  # absolute filesystem path to the schema file on the daemon host
     target: PxtPath
 
 
-class SchemaUpdateEntry(BaseModel):
-    path: str  # absolute path of the table
-    action: Literal['created', 'exists']
+# The schema-plan models below mirror the dicts built by bridge._schema_plan(), which in turn derives them from
+# catalog.model's TableDiff/SchemaChange. Three things are duplicated by hand and have to be changed together:
+#   - `action` here <-> bridge._ACTIONS, keyed by catalog.model.DiffResolution
+#   - an op's `kind` <-> bridge._OP_KINDS, keyed by (SchemaChange.target, SchemaChange.op)
+#   - an op's `severity` <-> SchemaChange.severity, rendered by commands/schema.py:_severity_label()
+# The first two fail loudly on a mismatch (a KeyError in the bridge, or pydantic rejecting the response).
+
+
+class SchemaDiffTable(BaseModel):
+    path: str  # catalog path of the table
+    model_cls: str  # model class name, so an agent can map back to code
+    kind: Literal['table', 'view']
+    action: Literal['create', 'update', 'noop', 'unsupported']
+    destructive: bool
+    # one entry per operation; a create carries none, since the create subsumes them. Each has 'kind', the name of
+    # what it acts on ('column'/'index'/'attribute'), 'severity', 'destructive', 'description', and the operands
+    # of that kind (eg 'type' for add_column)
+    ops: list[dict[str, Any]]
+
+
+class SchemaDiffSummary(BaseModel):
+    create: int
+    update: int
+    noop: int
+    unsupported: int
+    extras: int
+    destructive: int  # number of destructive operations, across all tables
+
+
+class SchemaDiffResponse(BaseModel):
+    # 'schema_path', not 'schema': a field named 'schema' shadows an attribute of pydantic's BaseModel
+    schema_path: str
+    target: str
+    in_agreement: bool  # True if no table needs a create or an update; extras don't count
+    tables: list[SchemaDiffTable]
+    extras: list[str]  # tables under the target that no model declares
+    summary: SchemaDiffSummary
+
+
+class SchemaPruneBody(BaseModel):
+    schema_path: str  # absolute filesystem path to the schema file on the daemon host
+    target: PxtPath
+
+
+class SchemaPruneResponse(SchemaDiffResponse):
+    # one drop_table operation per table dropped, each carrying its OpStatus
+    ops: list[dict[str, Any]]
+
+
+class SchemaUpdateBody(BaseModel):
+    schema_path: str  # absolute filesystem path to the schema file on the daemon host
+    target: PxtPath
+    allow_destructive: bool = False
+
+
+# what became of a planned table or operation
+OpStatus = Literal['applied', 'skipped', 'refused', 'failed']
+
+
+class SchemaUpdateTable(SchemaDiffTable):
+    status: OpStatus
 
 
 class SchemaUpdateResponse(BaseModel):
-    tables: list[SchemaUpdateEntry]
+    # the plan that was applied: the same shape 'schema diff' returns, with a status on each table and operation
+    schema_path: str
+    target: str
+    in_agreement: bool
+    tables: list[SchemaUpdateTable]
+    extras: list[str]
+    summary: SchemaDiffSummary
