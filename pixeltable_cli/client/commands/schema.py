@@ -229,14 +229,14 @@ def _example(out: str | None) -> None:
     print(f'wrote {out}')
 
 
-def _diff(schema_file: str, binding_root: PxtPath, *, as_json: bool) -> None:
-    plan = _plan_for(schema_file, binding_root)
+def _diff(schema_file: str, catalog_dir: PxtPath, *, as_json: bool) -> None:
+    plan = _plan_for(schema_file, catalog_dir)
     _diff_output(plan, as_json=as_json)
     sys.exit(EXIT_IN_AGREEMENT if plan['in_agreement'] else EXIT_CHANGES_PENDING)
 
 
-def _plan_for(schema_file: str, binding_root: PxtPath) -> SchemaPlan:
-    plan: SchemaPlan = post('/api/schema/diff', {'schema_file': schema_file, 'binding_root': binding_root})
+def _plan_for(schema_file: str, catalog_dir: PxtPath) -> SchemaPlan:
+    plan: SchemaPlan = post('/api/schema/diff', {'schema_file': schema_file, 'catalog_dir': catalog_dir})
     return plan
 
 
@@ -265,8 +265,8 @@ def _severity_label(op: SchemaChangeOp) -> str:
     return _SEVERITY_LABELS.get(op['severity'], op['severity'].upper())
 
 
-def _prune(schema_file: str, binding_root: PxtPath, *, as_json: bool, force: bool, dry_run: bool) -> None:
-    plan = _plan_for(schema_file, binding_root)
+def _prune(schema_file: str, catalog_dir: PxtPath, *, as_json: bool, force: bool, dry_run: bool) -> None:
+    plan = _plan_for(schema_file, catalog_dir)
     extras = plan['extras']
     if len(extras) == 0:
         if as_json:
@@ -293,7 +293,7 @@ def _prune(schema_file: str, binding_root: PxtPath, *, as_json: bool, force: boo
         on_refusal=report_refusal,
     )
 
-    resp = post('/api/schema/prune', {'schema_file': schema_file, 'binding_root': binding_root})
+    resp = post('/api/schema/prune', {'schema_file': schema_file, 'catalog_dir': catalog_dir})
     _prune_output(resp, as_json=as_json, verb='dropped')
 
 
@@ -306,10 +306,10 @@ def _prune_output(plan: SchemaPlan, *, as_json: bool, verb: str) -> None:
 
 
 def _update(
-    schema_file: str, binding_root: PxtPath, *, as_json: bool, force: bool, dry_run: bool, allow_destructive: bool
+    schema_file: str, catalog_dir: PxtPath, *, as_json: bool, force: bool, dry_run: bool, allow_destructive: bool
 ) -> None:
     if dry_run:
-        plan = _plan_for(schema_file, binding_root)
+        plan = _plan_for(schema_file, catalog_dir)
         _set_statuses(plan, destructive='skipped', other='skipped')
         _diff_output(plan, as_json=as_json)
         sys.exit(EXIT_IN_AGREEMENT if plan['in_agreement'] else EXIT_CHANGES_PENDING)
@@ -317,17 +317,17 @@ def _update(
     # the plan is read up front only to decide whether to proceed: with destructive operations already permitted
     # and confirmation waived, there is nothing left to decide
     if not (allow_destructive and force):
-        _decide_update(schema_file, binding_root, as_json=as_json, force=force, allow_destructive=allow_destructive)
+        _decide_update(schema_file, catalog_dir, as_json=as_json, force=force, allow_destructive=allow_destructive)
 
     applied = post(
         '/api/schema/update',
-        {'schema_file': schema_file, 'binding_root': binding_root, 'allow_destructive': allow_destructive},
+        {'schema_file': schema_file, 'catalog_dir': catalog_dir, 'allow_destructive': allow_destructive},
     )
     _update_output(applied, as_json=as_json)
 
 
 def _decide_update(
-    schema_file: str, binding_root: PxtPath, *, as_json: bool, force: bool, allow_destructive: bool
+    schema_file: str, catalog_dir: PxtPath, *, as_json: bool, force: bool, allow_destructive: bool
 ) -> None:
     """Reports the pending plan and exits, unless applying it is permitted.
 
@@ -335,7 +335,7 @@ def _decide_update(
     confirmed. Returning means the plan may be applied; it is advisory, being a separate read from the one the
     apply acts on.
     """
-    plan = _plan_for(schema_file, binding_root)
+    plan = _plan_for(schema_file, catalog_dir)
     if plan['in_agreement']:
         _update_output(plan, as_json=as_json)
         sys.exit(EXIT_IN_AGREEMENT)

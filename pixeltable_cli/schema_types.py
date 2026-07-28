@@ -64,7 +64,7 @@ class SchemaPlan(_PlanOps):
     """Set of changes needed to reconcile a target directory with a schema model."""
 
     schema_file: str
-    binding_root: PxtPath
+    catalog_dir: PxtPath
     in_agreement: bool  # True if no table needs a create or an update; extras don't count
     tables: list[TableDiff]
     extras: list[PxtPath]  # tables under the binding root that no model declares

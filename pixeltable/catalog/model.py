@@ -247,8 +247,8 @@ class ModelQuery:
         sample_clause = SampleClause(None, n, n_per_stratum, fraction, seed, stratify_exprs)
         return dataclasses.replace(self, sample_clause=sample_clause)
 
-    def _bind(self, binding_root: str) -> 'pxt.Query':
-        tbl: Table = self.from_clause._bind(binding_root)  # type: ignore[arg-type]
+    def _bind(self, catalog_dir: str) -> 'pxt.Query':
+        tbl: Table = self.from_clause._bind(catalog_dir)  # type: ignore[arg-type]
         subst_dict: exprs.ExprDict[exprs.Expr] = exprs.ExprDict()
         for col_name in tbl.columns():
             subst_dict[ColumnRefByName(col_name)] = getattr(tbl, col_name)
@@ -271,7 +271,7 @@ class ModelQuery:
             q = q.group_by(*group_by_clause)
 
         if self.grouping_tbl is not None:
-            grouping_tbl = self.grouping_tbl._bind(binding_root)  # type: ignore[arg-type]
+            grouping_tbl = self.grouping_tbl._bind(catalog_dir)  # type: ignore[arg-type]
             q = q.group_by(grouping_tbl)
 
         if self.order_by_clause is not None:
@@ -442,7 +442,7 @@ class TableModelMeta(type):
     __indexes__: dict[str, EmbeddingIndex]
     __bound_table__: Table | None
 
-    _binding_root: str | None
+    _catalog_dir: str | None
 
     @classmethod
     def __prepare__(  # type: ignore[override]
@@ -596,42 +596,42 @@ class TableModelMeta(type):
         namespace_dict['__columns__'] = namespace.known_cols
         namespace_dict['__indexes__'] = namespace.known_idxs
         namespace_dict['__bound_table__'] = None
-        namespace_dict['_binding_root'] = None
+        namespace_dict['_catalog_dir'] = None
 
         cls = super().__new__(mcs, cls_name, bases, namespace_dict)
         assert hasattr(bases[0], '__registered_models__')  # This was checked in __prepare__()
         bases[0].__registered_models__[namespace.table_spec['name']] = cls
         return cls
 
-    def _resolve_tbl(cls, binding_root: str, if_not_exists: Literal['error', 'ignore']) -> Table | None:
+    def _resolve_tbl(cls, catalog_dir: str, if_not_exists: Literal['error', 'ignore']) -> Table | None:
         import pixeltable as pxt
 
-        if cls._binding_root is not None and binding_root != cls._binding_root:
+        if cls._catalog_dir is not None and catalog_dir != cls._catalog_dir:
             raise excs.RequestError(
                 excs.ErrorCode.ALREADY_BOUND,
-                f'Cannot bind `{cls.__name__}` at {binding_root!r}: it is already bound at {cls._binding_root!r}.',
+                f'Cannot bind `{cls.__name__}` at {catalog_dir!r}: it is already bound at {cls._catalog_dir!r}.',
             )
 
-        bound_path = f'{binding_root}{cls.__table_spec__["name"]}'
+        bound_path = f'{catalog_dir}{cls.__table_spec__["name"]}'
         return pxt.get_table(bound_path, if_not_exists=if_not_exists)
 
     @property
     def is_bound(cls) -> bool:
-        return cls._binding_root is not None
+        return cls._catalog_dir is not None
 
     @classmethod
-    def _normalize_binding_root(cls, binding_root: str) -> str:
-        if binding_root.endswith('/'):
-            binding_root = binding_root[:-1]
-        _ = catalog.Path.parse(binding_root, allow_empty_path=True)  # validate
-        if len(binding_root) > 0:
-            binding_root += '/'
-        return binding_root
+    def _dir_prefix(cls, catalog_dir: str) -> str:
+        if catalog_dir.endswith('/'):
+            catalog_dir = catalog_dir[:-1]
+        _ = catalog.Path.parse(catalog_dir, allow_empty_path=True)  # validate
+        if len(catalog_dir) > 0:
+            catalog_dir += '/'
+        return catalog_dir
 
-    def _bind(cls, binding_root: str = '') -> pxt.Table:
-        binding_root = cls._normalize_binding_root(binding_root)
+    def _bind(cls, catalog_dir: str = '') -> pxt.Table:
+        catalog_dir = cls._dir_prefix(catalog_dir)
 
-        tbl = cls._resolve_tbl(binding_root, if_not_exists='error')
+        tbl = cls._resolve_tbl(catalog_dir, if_not_exists='error')
 
         if cls.is_bound:
             return tbl
@@ -642,15 +642,15 @@ class TableModelMeta(type):
             # Table ops succeeded; now update the class.
             for col_name, col_ref in col_refs.items():
                 setattr(cls, col_name, col_ref)
-            cls._binding_root = binding_root
+            cls._catalog_dir = catalog_dir
             return tbl
 
-    def _create(cls, binding_root: str = '') -> tuple[Table, bool]:
+    def _create(cls, catalog_dir: str = '') -> tuple[Table, bool]:
         """Returns the table and whether it was created now (False if it already existed)."""
-        binding_root = cls._normalize_binding_root(binding_root)
+        catalog_dir = cls._dir_prefix(catalog_dir)
 
         if cls.is_bound:
-            tbl = cls._resolve_tbl(binding_root, if_not_exists='error')
+            tbl = cls._resolve_tbl(catalog_dir, if_not_exists='error')
             assert tbl is not None
             return tbl, False
 
@@ -661,7 +661,7 @@ class TableModelMeta(type):
         # catalog owns the table being created.
         base: pxt.Query | None = None
         if table_spec['base'] is not None:
-            base = table_spec['base']._bind(binding_root)
+            base = table_spec['base']._bind(catalog_dir)
 
         # The model's own column specs, with `type` annotations resolved to ColumnTypes (so they're serializable
         # for a proxied catalog). Computed value expressions still carry ColumnRefByNames referencing
@@ -675,7 +675,7 @@ class TableModelMeta(type):
                 )
             columns[name] = spec
 
-        bound_path = f'{binding_root}{table_spec["name"]}'
+        bound_path = f'{catalog_dir}{table_spec["name"]}'
         tbl_path = catalog.Path.parse(bound_path)
 
         cat = get_runtime().get_catalog(tbl_path)
@@ -695,7 +695,7 @@ class TableModelMeta(type):
         if was_created:
             Env.get().console_logger.info(f'Created {tbl._path()!r} from {table_spec["display_name"]}.')
 
-        return cls._bind(binding_root), was_created
+        return cls._bind(catalog_dir), was_created
 
     def __getattr__(cls, item: str) -> Any:
         if item in FORWARDED_TABLE_METHODS:
@@ -718,7 +718,7 @@ class TableModelMeta(type):
                 f'`{cls.__name__}` is not yet bound to an actual table. You must first call '
                 f'`{cls.__name__}.bind()`, `{cls.__name__}.create()`, `pxt.bind_all()`, or `pxt.create_all()`.',
             )
-        return cls._resolve_tbl(cls._binding_root, if_not_exists='error')
+        return cls._resolve_tbl(cls._catalog_dir, if_not_exists='error')
 
 
 def prepare_model(
@@ -1221,7 +1221,7 @@ def _add_index_change(idx_name: str, idx: EmbeddingIndex) -> SchemaChangeOp:
     )
 
 
-def validate_models(registered_models: dict[str, TableModelMeta], binding_root: str) -> dict[str, TableDiff]:
+def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: str) -> dict[str, TableDiff]:
     """
     Analyze each registered model against the current catalog state, summarizing the schema changes that creating
     the models would entail, along with any incompatibilities with an already-existing table of the same name.
@@ -1231,7 +1231,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
     """
     from .catalog import retry_loop
 
-    binding_root = TableModelMeta._normalize_binding_root(binding_root)
+    catalog_dir = TableModelMeta._dir_prefix(catalog_dir)
 
     @retry_loop(for_write=False)
     def op() -> dict[str, TableDiff]:
@@ -1248,8 +1248,8 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
             model_filter = None if base is None or base.where_clause is None else str(base.where_clause)
             model_sample = None if base is None or base.sample_clause is None else str(base.sample_clause)
 
-            bound_path = f'{binding_root}{name}'
-            existing = model._resolve_tbl(binding_root, if_not_exists='ignore')
+            bound_path = f'{catalog_dir}{name}'
+            existing = model._resolve_tbl(catalog_dir, if_not_exists='ignore')
 
             ops: list[SchemaChangeOp]
 
@@ -1498,11 +1498,11 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
     registered_models: dict[str, TableModelMeta] = {}
     cls.__registered_models__ = registered_models  # type: ignore[attr-defined]
 
-    def _bind_all(binding_root: str = '') -> None:
+    def _bind_all(catalog_dir: str = '') -> None:
         for model in registered_models.values():
-            model._bind(binding_root)
+            model._bind(catalog_dir)
 
-    def _create_models(binding_root: str, expect_created: set[str]) -> tuple[list[str], list[str]]:
+    def _create_models(catalog_dir: str, expect_created: set[str]) -> tuple[list[str], list[str]]:
         """Create every model that doesn't exist yet and bind all of them.
 
         Returns (created, existing): absolute paths of tables created now and those that already exist. Raises
@@ -1511,7 +1511,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         created: list[str] = []
         existed: list[str] = []
         for name, model in registered_models.items():
-            tbl, was_created = model._create(binding_root)
+            tbl, was_created = model._create(catalog_dir)
             if name in expect_created and not was_created:
                 raise excs.ConcurrencyError(
                     excs.ErrorCode.CONCURRENT_MODIFICATION,
@@ -1520,14 +1520,14 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
             (created if was_created else existed).append(str(tbl._path()))
         return created, existed
 
-    def _create_all(binding_root: str = '', *, mismatch_hint: str = _PY_MISMATCH_HINT) -> tuple[list[str], list[str]]:
+    def _create_all(catalog_dir: str = '', *, mismatch_hint: str = _PY_MISMATCH_HINT) -> tuple[list[str], list[str]]:
         """Returns (created, existing): absolute paths of tables created now and those that already exist.
 
         mismatch_hint closes the error raised when an existing table differs from its model
         """
         # `create_all()` only creates tables; it never mutates an existing one. If any existing table differs from
         # its model, refuse.
-        diffs = validate_models(registered_models, binding_root)
+        diffs = validate_models(registered_models, catalog_dir)
         changed = [(name, d) for name, d in diffs.items() if d['exists'] and d['resolution'] != 'up_to_date']
         if len(changed) > 0:
             detail = '\n'.join(line for name, d in changed for line in _format_diff(name, d))
@@ -1536,26 +1536,26 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                 f'One or more existing tables differ from their models.\n{detail}\n{mismatch_hint}',
             )
 
-        return _create_models(binding_root, {name for name, d in diffs.items() if not d['exists']})
+        return _create_models(catalog_dir, {name for name, d in diffs.items() if not d['exists']})
 
-    def _get_model_diff(binding_root: str = '') -> dict[str, TableDiff]:
-        return validate_models(registered_models, binding_root)
+    def _get_model_diff(catalog_dir: str = '') -> dict[str, TableDiff]:
+        return validate_models(registered_models, catalog_dir)
 
-    def _diff_all(binding_root: str = '') -> None:
-        diffs = _get_model_diff(binding_root)
+    def _diff_all(catalog_dir: str = '') -> None:
+        diffs = _get_model_diff(catalog_dir)
         lines: list[str] = []
         for name, d in diffs.items():
             lines.extend(_format_diff(name, d))
         Env.get().console_logger.info('\n'.join(lines) if len(lines) > 0 else 'Catalog is up to date.')
 
     def _update_all(
-        binding_root: str = '', *, allow_destructive: bool = False, destructive_hint: str = _PY_DESTRUCTIVE_HINT
+        catalog_dir: str = '', *, allow_destructive: bool = False, destructive_hint: str = _PY_DESTRUCTIVE_HINT
     ) -> None:
         """Reconcile every registered model with the catalog.
 
         destructive_hint closes the error raised when the changes would be destructive without allow_destructive
         """
-        diffs = validate_models(registered_models, binding_root)
+        diffs = validate_models(registered_models, catalog_dir)
 
         if len(diffs) == 0:
             # No updates *or* create statements.
@@ -1587,7 +1587,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         ]
 
         if len(update_diffs) > 0:
-            binding_root = TableModelMeta._normalize_binding_root(binding_root)
+            catalog_dir = TableModelMeta._dir_prefix(catalog_dir)
             change_sets: list[TableSchemaChangeSet] = []
             for name, d in update_diffs:
                 model = registered_models[name]
@@ -1618,7 +1618,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                 assert d['tbl_id'] is not None and d['schema_versions'] is not None
                 change_sets.append(
                     TableSchemaChangeSet(
-                        path=catalog.Path.parse(f'{binding_root}{name}'),
+                        path=catalog.Path.parse(f'{catalog_dir}{name}'),
                         new_columns=new_columns,
                         dropped_columns=dropped_col_names,
                         new_idxs={idx_name: model.__indexes__[idx_name] for idx_name in new_idx_names},
@@ -1628,13 +1628,13 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                     )
                 )
 
-            # All models share `binding_root`, hence a single catalog; apply every table's changes in one transaction.
+            # All models share `catalog_dir`, hence a single catalog; apply every table's changes in one transaction.
             cat = get_runtime().get_catalog(change_sets[0]['path'])
             cat.update_from_model(change_sets)
 
         # Now create any new tables, and bind every model to its table. The diff computed above is the one being
         # applied, so the models it found up-to-date are not re-examined against the catalog.
-        _create_models(binding_root, {name for name, d in diffs.items() if d['resolution'] == 'create'})
+        _create_models(catalog_dir, {name for name, d in diffs.items() if d['resolution'] == 'create'})
 
     cls.bind_all = _bind_all  # type: ignore[attr-defined]
     cls.create_all = _create_all  # type: ignore[attr-defined]

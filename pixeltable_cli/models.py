@@ -181,15 +181,15 @@ class RevertResponse(BaseModel):
 
 class SchemaDiffBody(BaseModel):
     schema_file: str  # absolute filesystem path to the schema file on the daemon host
-    binding_root: PxtPath
+    catalog_dir: PxtPath
 
 
 class SchemaPruneBody(BaseModel):
     schema_file: str  # absolute filesystem path to the schema file on the daemon host
-    binding_root: PxtPath
+    catalog_dir: PxtPath
 
 
 class SchemaUpdateBody(BaseModel):
     schema_file: str  # absolute filesystem path to the schema file on the daemon host
-    binding_root: PxtPath
+    catalog_dir: PxtPath
     allow_destructive: bool = False
