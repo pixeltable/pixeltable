@@ -2,12 +2,10 @@ from typing import Callable
 
 import psycopg
 import pytest
-import sqlalchemy as sql
 import sqlalchemy.exc as sql_exc
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.fault_injection import FaultLocation
 from tests.coordinator import MultiThreadedScenario
@@ -171,44 +169,38 @@ class TestCatalog:
         assert ls['Name'].iloc[0] == 'test', ls
 
     @pytest.mark.local('recovers transparently when the server drops the pooled db connections')
-    def test_dropped_connection(self, uses_db: None) -> None:
-        if not Env.get().is_local:
-            # the way this test drops connections (pg_terminate_backend on the pixeltable db) is specific to pgserver
-            pytest.skip('requires pgserver')
+    def test_dropped_connection(self, uses_db: None, fault_injection: None) -> None:
         pxt.create_dir('d')
         t = pxt.create_table('d/t', {'a': pxt.Int})
         t.insert([{'a': 1}])
 
-        def kill_connections() -> None:
-            # Terminate this worker's backends out from under the pooled connections. The terminator runs on a
-            # separate connection outside the engine's pool (and the statement excludes only its own backend),
-            # so every connection the engine has pooled is killed.
-            term_engine = sql.create_engine(Env.get().db_url, poolclass=sql.pool.NullPool)
-            try:
-                with term_engine.connect() as term:
-                    term.execute(
-                        sql.text(
-                            'SELECT pg_terminate_backend(pid) FROM pg_stat_activity '
-                            'WHERE datname = current_database() AND pid <> pg_backend_pid()'
-                        )
-                    )
-                    term.commit()
-            finally:
-                term_engine.dispose()
+        # Simulate terminated PG connection
+        orig = psycopg.errors.AdminShutdown('terminating connection due to administrator command')
+        exc = sql_exc.OperationalError('<injected>', {}, orig)
+        exc.connection_invalidated = True
+
+        def arm_dropped_connection() -> ExceptionFault:
+            fault = ExceptionFault(exc)
+            get_runtime().fault_manager.inject_fault(FaultLocation.CATALOG_ACQUIRE_LOCKS, fault)
+            return fault
 
         # each operation kind reconnects and succeeds instead of raising the dropped-connection error:
         # a catalog-metadata read, a data query, and a write
-        kill_connections()
+        fault = arm_dropped_connection()
         assert 'd/t' in pxt.list_tables('d')
+        fault.assert_count(1)
 
-        kill_connections()
+        fault = arm_dropped_connection()
         assert t.count() == 1
+        fault.assert_count(1)
 
-        kill_connections()
+        fault = arm_dropped_connection()
         assert t.select(t.a).collect()['a'] == [1]
+        fault.assert_count(1)
 
-        kill_connections()
+        fault = arm_dropped_connection()
         t.insert([{'a': 2}])
+        fault.assert_count(1)
         assert t.count() == 2
 
     @pytest.mark.local('fault-injection/concurrency test against the in-process catalog internals')
