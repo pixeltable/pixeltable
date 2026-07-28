@@ -1,6 +1,6 @@
 # ruff: noqa: F401
 
-from .catalog import Catalog, retry_loop
+from .catalog import Catalog, retry_loop, retrying_read
 from .catalog_base import CatalogBase
 from .catalog_proxy import CatalogProxy
 from .column import Column

@@ -527,7 +527,7 @@ class TestTableModel:
         t = ExampleViewModel.table
         res = t.select(t.value, t.derived).collect()
         assert res['value'] == [200.0]
-        # `derived` reads the view's own `value` (200.0), not the base's (2.0)
+        # derived reads the view's own value (200.0), not the base's (2.0)
         assert res['derived'] == [201.0]
 
     def test_update_all_adds_shadowing_column(self, make_catalog_path: Callable[[str], str]) -> None:
@@ -1357,6 +1357,7 @@ class TestTableModel:
         ]
         ExampleTableV3.insert(rows)
 
+        # the sample view guarantees no row order, so order the query rather than the result
         v = ExampleQueryViewV3
         res = v.order_by(v.plustwo).collect()
         assert res['plustwo'] == [3.0, 4.0, 5.0, 6.0]
