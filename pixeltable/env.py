@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import concurrent.futures
 import datetime
 import glob
 import http.server
@@ -92,6 +93,8 @@ class Env:
 
     _resource_pool_info: dict[str, Any]
     _resource_pool_lock: threading.Lock
+    _cpu_pool: concurrent.futures.ThreadPoolExecutor | None
+    _cpu_pool_lock: threading.Lock
     _dbms: Dbms | None
 
     @classmethod
@@ -149,6 +152,8 @@ class Env:
 
         self._resource_pool_info = {}
         self._resource_pool_lock = threading.Lock()
+        self._cpu_pool = None
+        self._cpu_pool_lock = threading.Lock()
         self._dbms = None
 
         # Maps a table's id to the catalog uri it belongs to ('' for the in-process catalog). Populated whenever
@@ -838,6 +843,23 @@ class Env:
                 info = make_pool_info()
                 self._resource_pool_info[pool_id] = info
             return info
+
+    @property
+    def cpu_pool(self) -> concurrent.futures.ThreadPoolExecutor:
+        """Process-wide worker pool for CPU-bound (GIL-releasing) work.
+
+        Workers must never touch the catalog, DataRows, or the DB; they receive fully materialized
+        Python values and return values only.
+        """
+        # check-then-lock: the lock only guards creation; submit() is itself thread-safe
+        if self._cpu_pool is None:
+            with self._cpu_pool_lock:
+                if self._cpu_pool is None:
+                    num_workers = Config.get().get_int_value('cpu_pool_size') or os.cpu_count() or 4
+                    self._cpu_pool = concurrent.futures.ThreadPoolExecutor(
+                        max_workers=num_workers, thread_name_prefix='pxt-cpu'
+                    )
+        return self._cpu_pool
 
     @property
     def media_dir(self) -> Path:

@@ -526,6 +526,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'db': 'Postgres database name',
         'file_cache_size_g': 'Size of the file cache in GB',
         'file_cache_lease_s': 'Seconds a cached media file is protected from eviction after it is accessed',
+        'cpu_pool_size': 'Number of worker threads for CPU-bound UDF execution (default: number of CPU cores)',
         'time_zone': 'Default time zone for timestamps',
         'hide_warnings': 'Hide warnings from the console',
         'verbosity': 'Verbosity level for console output',

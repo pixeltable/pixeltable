@@ -64,6 +64,12 @@ def udf_with_array_constants(
     return a + b
 
 
+# Module-level udf marked run_in_thread, used by TestFunction.test_run_in_thread.
+@pxt.udf(run_in_thread=True)
+def udf_threaded(x: int) -> int:
+    return x + 1
+
+
 T = typing.TypeVar('T')
 
 
@@ -97,6 +103,35 @@ class TestFunction:
         assert isinstance(deserialized, func.CallableFunction)
         # TODO: add Function.exec() and then use that
         assert deserialized.py_fn(1) == 2
+
+    def test_run_in_thread(self, init_env: None) -> None:
+        assert udf_threaded.run_in_thread
+        assert not self.func.run_in_thread
+
+        # module UDFs serialize by path; the flag is re-derived from the decorator on load
+        deserialized = Function.from_dict(udf_threaded.as_dict())
+        assert isinstance(deserialized, func.CallableFunction)
+        assert deserialized.run_in_thread
+
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='run_in_thread cannot be combined with batch_size'):
+
+            @pxt.udf(batch_size=4, run_in_thread=True)
+            def batched_threaded(x: Batch[int]) -> Batch[int]:
+                return x
+
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION, match='run_in_thread cannot be combined with resource_pool'
+        ):
+
+            @pxt.udf(resource_pool='rate-limits:test', run_in_thread=True)
+            def pooled_threaded(x: int) -> int:
+                return x
+
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='run_in_thread requires a synchronous function'):
+
+            @pxt.udf(run_in_thread=True)
+            async def async_threaded(x: int) -> int:
+                return x
 
     def test_display_name_fallback(self, init_env: None) -> None:
         # a CallableFunction with no name falls back to the base display_name rather than leaking None into

@@ -23,7 +23,7 @@ class SceneInfo(TypedDict):
     """Scene duration, in seconds."""
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def scene_detect_adaptive(
     video: pxt.Video,
     *,
@@ -129,7 +129,7 @@ def scene_detect_adaptive(
         ) from e
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def scene_detect_content(
     video: pxt.Video,
     *,
@@ -232,7 +232,7 @@ def scene_detect_content(
         ) from e
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def scene_detect_threshold(
     video: pxt.Video,
     *,
@@ -325,7 +325,7 @@ def scene_detect_threshold(
         ) from e
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def scene_detect_histogram(
     video: pxt.Video, *, fps: float | None = None, threshold: float = 0.05, bins: int = 256, min_scene_len: int = 15
 ) -> list[SceneInfo]:
@@ -399,7 +399,7 @@ def scene_detect_histogram(
         ) from e
 
 
-@pxt.udf(is_method=True)
+@pxt.udf(is_method=True, run_in_thread=True)
 def scene_detect_hash(
     video: pxt.Video,
     *,
