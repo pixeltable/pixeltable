@@ -74,7 +74,7 @@ pytorch_ds = t.to_pytorch_dataset('pt')  # PyTorch DataLoader ready
 coco_path = t.to_coco_dataset()  # COCO annotations
 ```
 
-[CSV import](https://docs.pixeltable.com/howto/cookbooks/data/data-import-csv) · [Hugging Face](https://docs.pixeltable.com/howto/cookbooks/data/data-import-huggingface) · [PyTorch export](https://docs.pixeltable.com/howto/cookbooks/data/data-export-pytorch) · [ML data wrangling](https://docs.pixeltable.com/use-cases/ml-data-wrangling)
+[CSV import](https://docs.pixeltable.com/howto/cookbooks/data/data-import-csv) · [Hugging Face](https://docs.pixeltable.com/howto/cookbooks/data/data-import-huggingface) · [PyTorch export](https://docs.pixeltable.com/howto/cookbooks/data/data-export-pytorch) · [Media processing](https://docs.pixeltable.com/use-cases/media-processing)
 </details>
 
 <details>
@@ -240,7 +240,7 @@ t.add_computed_column(
 )
 ```
 
-[Tool calling](https://docs.pixeltable.com/howto/cookbooks/agents/llm-tool-calling) · [Agents & MCP](https://docs.pixeltable.com/use-cases/agents-mcp)
+[Tool calling](https://docs.pixeltable.com/howto/cookbooks/agents/llm-tool-calling) · [Agentic workflows](https://docs.pixeltable.com/use-cases/agentic-workflows)
 </details>
 
 <details>
@@ -397,9 +397,9 @@ One schema for storage, orchestration, and retrieval. [What is Pixeltable?](http
 | Topic | Guides |
 |---|---|
 | **Schema & orchestration** | [Type system](https://docs.pixeltable.com/platform/type-system) · [Tables & data](https://docs.pixeltable.com/tutorials/tables-and-data-operations) · [Computed columns](https://docs.pixeltable.com/tutorials/computed-columns) · [Views](https://docs.pixeltable.com/platform/views) · [Iterators](https://docs.pixeltable.com/platform/iterators) · [Embedding indexes](https://docs.pixeltable.com/platform/embedding-indexes) · [Queries & expressions](https://docs.pixeltable.com/tutorials/queries-and-expressions) · [Iterative workflow](https://docs.pixeltable.com/howto/cookbooks/core/dev-iterative-workflow) · [Version control](https://docs.pixeltable.com/platform/version-control) |
-| **Agents & serving** | [Agents & MCP](https://docs.pixeltable.com/use-cases/agents-mcp) · [Tool calling](https://docs.pixeltable.com/howto/cookbooks/agents/llm-tool-calling) · [RAG pipeline](https://docs.pixeltable.com/howto/cookbooks/agents/pattern-rag-pipeline) · [CLI & dashboard](https://docs.pixeltable.com/platform/cli) · [UDFs](https://docs.pixeltable.com/platform/udfs-in-pixeltable) · [Built-ins](https://docs.pixeltable.com/sdk/latest/pixeltable) · [30+ providers](https://docs.pixeltable.com/integrations/frameworks) |
+| **Agents & serving** | [Agentic workflows](https://docs.pixeltable.com/use-cases/agentic-workflows) · [Tool calling](https://docs.pixeltable.com/howto/cookbooks/agents/llm-tool-calling) · [RAG pipeline](https://docs.pixeltable.com/howto/cookbooks/agents/pattern-rag-pipeline) · [CLI & dashboard](https://docs.pixeltable.com/platform/cli) · [UDFs](https://docs.pixeltable.com/platform/udfs-in-pixeltable) · [Built-ins](https://docs.pixeltable.com/sdk/latest/pixeltable) · [30+ providers](https://docs.pixeltable.com/integrations/frameworks) |
 | **Cloud & storage** | [Cloud storage](https://docs.pixeltable.com/integrations/cloud-storage) (S3, GCS, Azure, R2, B2, Tigris) · [Configuration](https://docs.pixeltable.com/platform/configuration) · [External files](https://docs.pixeltable.com/platform/external-files) · [Get started](https://docs.pixeltable.com/use-cases/get-started) · [Cloud services](https://docs.pixeltable.com/use-cases/services) · [Public datasets](https://www.pixeltable.com/data-products) |
-| **Local & I/O** | [Storage architecture](https://docs.pixeltable.com/howto/deployment/infrastructure#storage-architecture) · [CSV import](https://docs.pixeltable.com/howto/cookbooks/data/data-import-csv) · [Hugging Face](https://docs.pixeltable.com/howto/cookbooks/data/data-import-huggingface) · [PyTorch export](https://docs.pixeltable.com/howto/cookbooks/data/data-export-pytorch) · [ML data wrangling](https://docs.pixeltable.com/use-cases/ml-data-wrangling) · [Sample apps](https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps) · [Colab tour](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/overview/ten-minute-tour.ipynb) |
+| **Local & I/O** | [Storage architecture](https://docs.pixeltable.com/howto/deployment/infrastructure#storage-architecture) · [CSV import](https://docs.pixeltable.com/howto/cookbooks/data/data-import-csv) · [Hugging Face](https://docs.pixeltable.com/howto/cookbooks/data/data-import-huggingface) · [PyTorch export](https://docs.pixeltable.com/howto/cookbooks/data/data-export-pytorch) · [Media processing](https://docs.pixeltable.com/use-cases/media-processing) · [Sample apps](https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps) · [Colab tour](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/overview/ten-minute-tour.ipynb) |
 
 ## Contributing
 
