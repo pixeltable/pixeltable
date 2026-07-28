@@ -27,7 +27,8 @@ class ComponentIterationNode(ExecNode):
     ):
         assert view.get().is_component_view
         iterator_call = view.get().iterator_call
-        # referenced iterator output fields
+        # referenced iterator output fields; the view-id test excludes a base column of the same name, which an
+        # iterator output shadows and which is never a destination for an output value
         refd_col_refs = [
             e
             for e in input.row_builder.unique_exprs

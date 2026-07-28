@@ -204,10 +204,13 @@ def _serialize(obj: Any, binary_parts: list[bytes]) -> Any:
     if isinstance(obj, tuple):
         return {_TAG: 'tuple', 'v': [_serialize(x, binary_parts) for x in obj]}
     if isinstance(obj, dict):
-        if _TAG in obj:
-            # a user dict whose own key collides with the reserved tag: store it as ordered key/value pairs so
-            # the tag no longer sits at the top level and the dict round-trips
-            return {_TAG: 'rawdict', 'v': [[k, _serialize(val, binary_parts)] for k, val in obj.items()]}
+        if _TAG in obj or any(not isinstance(k, str) for k in obj):
+            # store as ordered key/value pairs, which keeps a key colliding with the reserved tag out of the top
+            # level and preserves keys that json cannot represent (json object keys are always strings)
+            return {
+                _TAG: 'rawdict',
+                'v': [[_serialize(k, binary_parts), _serialize(val, binary_parts)] for k, val in obj.items()],
+            }
         return {k: _serialize(v, binary_parts) for k, v in obj.items()}
     raise AssertionError(f'cannot serialize {type(obj).__name__} for the proxy protocol')
 
@@ -225,8 +228,10 @@ def _deserialize(obj: Any, binary_parts: list[bytes], uploaded_names: dict[str, 
         if tag == 'float':
             return float(v)  # nan/inf
         if tag == 'rawdict':
-            # a user dict whose own key collided with the reserved tag; stored as ordered key/value pairs
-            return {k: _deserialize(val, binary_parts, uploaded_names) for k, val in v}
+            return {
+                _deserialize(k, binary_parts, uploaded_names): _deserialize(val, binary_parts, uploaded_names)
+                for k, val in v
+            }
         if tag == 'tuple':
             return tuple(_deserialize(x, binary_parts, uploaded_names) for x in v)
         if tag == 'bytes':

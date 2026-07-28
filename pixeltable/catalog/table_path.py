@@ -77,8 +77,18 @@ class TablePath(abc.ABC):
             return self
         return self.base.root
 
+    def schema_versions(self) -> dict[UUID, int]:
+        """The schema version of each table in this path, keyed by table id and ordered self -> root."""
+        if self.base is not None:
+            return {self.tbl_id: self.schema_version(), **self.base.schema_versions()}
+        else:
+            return {self.tbl_id: self.schema_version()}
+
     @abc.abstractmethod
     def tbl_name(self) -> str: ...
+
+    @abc.abstractmethod
+    def schema_version(self) -> int: ...
 
     @abc.abstractmethod
     def version(self) -> int | None: ...
@@ -570,6 +580,9 @@ class TableMdPath(TablePath):
 
     def tbl_name(self) -> str:
         return self.md.tbl_md.name
+
+    def schema_version(self) -> int:
+        return self.md.schema_version_md.schema_version
 
     def media_validation(self) -> MediaValidation:
         return MediaValidation[self.md.schema_version_md.media_validation.upper()]
