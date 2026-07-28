@@ -419,7 +419,7 @@ pxt schema diff schema.py pxt://acme:main/prod    # 0 = in sync, 2 = drift, 1 = 
 
 ### Machine-readable plans
 
-`pxt schema diff --json` emits the whole plan as one object: `schema_file`, `target`, `in_agreement`, `tables`, `extras`, and a `summary` with one count per resolution. Each entry in `tables` carries its `path`, `resolution`, whether it is `destructive`, and its `ops`:
+`pxt schema diff --json` emits the whole plan as one object: `schema_file`, `binding_root`, `in_agreement`, `tables`, `extras`, and a `summary` with one count per resolution. Each entry in `tables` carries its `path`, `resolution`, whether it is `destructive`, and its `ops`:
 
 ```json
 {

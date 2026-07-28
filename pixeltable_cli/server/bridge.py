@@ -29,6 +29,7 @@ from pixeltable.catalog.table_metadata import TableMetadata
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable_cli import schema_types
+from pixeltable_cli.utils import PxtPath
 
 _logger = logging.getLogger(__name__)
 
@@ -622,32 +623,32 @@ def _load_model_bases(schema_file: str) -> list[model.TableModelMeta]:
 _DESTRUCTIVE_HINT = "Re-run 'pxt schema update' with --allow-destructive to apply these changes."
 
 
-def _path_key(pxt_path: str) -> tuple[str, ...]:
+def _path_key(pxt_path: PxtPath) -> tuple[str, ...]:
     """A comparable identity for a table path, so that a pxt:// URI and a bare path denote the same table."""
     return tuple(CatalogPath.parse(pxt_path, allow_empty_path=True).components)
 
 
-def _list_tables(pxt_path: str) -> list[str]:
-    """Paths of the tables under the given pxt_path, or [] if it does not exist."""
+def _list_tables(pxt_path: PxtPath) -> list[PxtPath]:
+    """Paths of the tables under the given path, or [] if it does not exist."""
     try:
-        return pxt.list_tables(pxt_path, recursive=True)
+        return [PxtPath(p) for p in pxt.list_tables(pxt_path, recursive=True)]
     except excs.NotFoundError:
         return []
 
 
-def schema_diff(schema_file: str, target: str) -> schema_types.SchemaPlan:
-    """The changes that schema_update() would make to reconcile the target with the schema file.
+def schema_diff(schema_file: str, binding_root: PxtPath) -> schema_types.SchemaPlan:
+    """The changes that schema_update() would make to reconcile the binding root with the schema file.
 
-    Read-only: never creates the target directory, and never touches an existing table.
+    Read-only: never creates the binding root, and never touches an existing table.
     """
-    return _schema_plan(_load_model_bases(schema_file), schema_file, target)
+    return _schema_plan(_load_model_bases(schema_file), schema_file, binding_root)
 
 
-def _schema_plan(bases: list[model.TableModelMeta], schema_file: str, target: str) -> schema_types.SchemaPlan:
-    """The plan for reconciling the target with the models declared by the given bases."""
+def _schema_plan(bases: list[model.TableModelMeta], schema_file: str, binding_root: PxtPath) -> schema_types.SchemaPlan:
+    """The plan for reconciling the binding root with the models declared by the given bases."""
     tables: list[schema_types.TableDiff] = []
     for base in bases:
-        for diff in base.get_model_diff(target).values():
+        for diff in base.get_model_diff(binding_root).values():
             # a create subsumes the additions that constitute it, so only a migration enumerates operations
             enumerated = [] if diff['resolution'] in ('create', 'up_to_date') else diff['ops']
             ops = [_plan_op(op) for op in enumerated]
@@ -663,8 +664,9 @@ def _schema_plan(bases: list[model.TableModelMeta], schema_file: str, target: st
                 }
             )
 
-    declared = {_path_key(t['path']) for t in tables}
-    extras = sorted(p for p in _list_tables(target) if _path_key(p) not in declared)
+    # a table's path crosses from the catalog as a plain string
+    declared = {_path_key(PxtPath(t['path'])) for t in tables}
+    extras = sorted(p for p in _list_tables(binding_root) if _path_key(p) not in declared)
     summary: schema_types.SchemaPlanSummary = {
         'up_to_date': sum(1 for t in tables if t['resolution'] == 'up_to_date'),
         'create': sum(1 for t in tables if t['resolution'] == 'create'),
@@ -676,7 +678,7 @@ def _schema_plan(bases: list[model.TableModelMeta], schema_file: str, target: st
     }
     return {
         'schema_file': schema_file,
-        'target': target,
+        'binding_root': binding_root,
         # extras are excluded: update() never removes them, so their presence is not something it could reconcile
         'in_agreement': all(t['resolution'] == 'up_to_date' for t in tables),
         'tables': tables,
@@ -698,59 +700,61 @@ def _plan_op(op: model.SchemaChangeOp) -> schema_types.SchemaChangeOp:
     }
 
 
-def schema_prune(schema_file: str, target: str) -> schema_types.SchemaPlan:
-    """Drop the tables under the target that no model in the schema file declares.
+def schema_prune(schema_file: str, binding_root: PxtPath) -> schema_types.SchemaPlan:
+    """Drop the tables under the binding root that no model in the schema file declares.
 
     Returns the plan, with one drop_table operation per dropped table. A view is dropped before its base, so that
     pruning a group of related tables does not depend on the order they are listed in. Nothing is force-dropped:
     a table that something outside the pruned set depends on is left in place and its error is raised.
     """
-    plan = _schema_plan(_load_model_bases(schema_file), schema_file, target)
+    plan = _schema_plan(_load_model_bases(schema_file), schema_file, binding_root)
     remaining = list(plan['extras'])
-    dropped: list[str] = []
+    dropped: list[PxtPath] = []
     while len(remaining) > 0:
-        deferred: list[str] = []
+        deferred: list[PxtPath] = []
         blocked_by: excs.Error | None = None
-        for path in remaining:
+        for pxt_path in remaining:
             try:
-                pxt.drop_table(path, if_not_exists='ignore')
+                pxt.drop_table(pxt_path, if_not_exists='ignore')
             except excs.Error as e:
                 blocked_by = e
-                deferred.append(path)
+                deferred.append(pxt_path)
                 continue
-            dropped.append(path)
+            dropped.append(pxt_path)
         if len(deferred) == len(remaining):
             assert blocked_by is not None
             raise blocked_by
         remaining = deferred
 
-    plan['ops'] = [schema_types.drop_table_op(path, 'applied') for path in dropped]
+    plan['ops'] = [schema_types.drop_table_op(pxt_path, 'applied') for pxt_path in dropped]
     return plan
 
 
-def schema_update(schema_file: str, target: str, *, allow_destructive: bool = False) -> schema_types.SchemaPlan:
-    """Reconcile the target with the schema file: create missing tables and migrate existing ones.
+def schema_update(
+    schema_file: str, binding_root: PxtPath, *, allow_destructive: bool = False
+) -> schema_types.SchemaPlan:
+    """Reconcile the binding root with the schema file: create missing tables and migrate existing ones.
 
     Returns the plan that was applied, each operation annotated with its status. Applying is all-or-nothing, so a
     failure raises rather than reporting a partially applied plan.
     """
     bases = _load_model_bases(schema_file)
-    plan = _schema_plan(bases, schema_file, target)
+    plan = _schema_plan(bases, schema_file, binding_root)
 
-    # only create the target directory when it names an in-catalog path; a bare catalog root (eg '' or
+    # only create the binding root when it names an in-catalog path; a bare catalog root (eg '' or
     # 'pxt://org:db') has no directory to create
-    if len(CatalogPath.parse(target, allow_empty_path=True).components) > 0:
-        pxt.create_dir(target, parents=True, if_exists='ignore')
+    if len(CatalogPath.parse(binding_root, allow_empty_path=True).components) > 0:
+        pxt.create_dir(binding_root, parents=True, if_exists='ignore')
 
     for base in bases:
-        base.update_all(target, allow_destructive=allow_destructive, destructive_hint=_DESTRUCTIVE_HINT)
+        base.update_all(binding_root, allow_destructive=allow_destructive, destructive_hint=_DESTRUCTIVE_HINT)
 
     # update_all() recomputes its own diff, so what it applied is only the plan above if nothing changed the
     # catalog in between; re-reading confirms that before every operation is reported as applied
-    if not _schema_plan(bases, schema_file, target)['in_agreement']:
+    if not _schema_plan(bases, schema_file, binding_root)['in_agreement']:
         raise excs.Error(
             excs.ErrorCode.CONCURRENT_MODIFICATION,
-            f'{target} still differs from the schema after applying; it may have been modified concurrently.',
+            f'{binding_root} still differs from the schema after applying; it may have been modified concurrently.',
         )
 
     for tbl in plan['tables']:

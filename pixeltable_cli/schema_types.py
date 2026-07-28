@@ -2,6 +2,8 @@ from typing import Literal
 
 from typing_extensions import TypedDict
 
+from pixeltable_cli.utils import PxtPath
+
 OpStatus = Literal['applied', 'skipped', 'refused', 'failed']
 
 # Mirror of pixeltable.catalog.model.DiffResolution
@@ -62,21 +64,21 @@ class SchemaPlan(_PlanOps):
     """Set of changes needed to reconcile a target directory with a schema model."""
 
     schema_file: str
-    target: str
+    binding_root: PxtPath
     in_agreement: bool  # True if no table needs a create or an update; extras don't count
     tables: list[TableDiff]
-    extras: list[str]  # tables under the target that no model declares
+    extras: list[PxtPath]  # tables under the binding root that no model declares
     summary: SchemaPlanSummary
 
 
-def drop_table_op(path: str, status: OpStatus) -> SchemaChangeOp:
+def drop_table_op(pxt_path: PxtPath, status: OpStatus) -> SchemaChangeOp:
     """The operation for dropping the table at the given path, in the given status."""
     return {
         'target': 'table',
-        'name': path,
+        'name': pxt_path,
         'op': 'drop',
         'severity': 'destructive',
-        'description': f'table {path!r} will be dropped',
+        'description': f'table {pxt_path!r} will be dropped',
         'details': {},
         'destructive': True,
         'status': status,

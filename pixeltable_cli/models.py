@@ -2,19 +2,19 @@ from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, BaseModel, Field
 
-from pixeltable_cli.utils import validate_path_shape
+from pixeltable_cli import utils
 
 
 def _validate_pxt_path(v: str | None) -> str | None:
     if v is None or v == '':
         return v
-    err = validate_path_shape(v)
+    err = utils.validate_path_shape(v)
     if err is not None:
         raise ValueError(err)
     return v
 
 
-PxtPath = Annotated[str, AfterValidator(_validate_pxt_path)]
+PxtPath = Annotated[utils.PxtPath, AfterValidator(_validate_pxt_path)]
 
 
 class HealthResponse(BaseModel):
@@ -181,15 +181,15 @@ class RevertResponse(BaseModel):
 
 class SchemaDiffBody(BaseModel):
     schema_file: str  # absolute filesystem path to the schema file on the daemon host
-    target: PxtPath
+    binding_root: PxtPath
 
 
 class SchemaPruneBody(BaseModel):
     schema_file: str  # absolute filesystem path to the schema file on the daemon host
-    target: PxtPath
+    binding_root: PxtPath
 
 
 class SchemaUpdateBody(BaseModel):
     schema_file: str  # absolute filesystem path to the schema file on the daemon host
-    target: PxtPath
+    binding_root: PxtPath
     allow_destructive: bool = False

@@ -8,9 +8,13 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, NewType
 
 DEFAULT_PORT = 22089
+
+# a Pixeltable path encoded as a string. Distinct from str so that a filesystem path cannot be passed where one of
+# these is expected.
+PxtPath = NewType('PxtPath', str)
 
 # Mirrors pixeltable.catalog.path._URI_RE (duplicated so this module stays stdlib-only): a hosted path is
 # pxt://<org>:<db>/<in-catalog path>.

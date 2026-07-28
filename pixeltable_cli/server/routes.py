@@ -431,19 +431,19 @@ def move(req: Request) -> models.MoveResponse:
 @router.post('/api/schema/diff')
 def schema_diff(req: Request) -> schema_types.SchemaPlan:
     body = req.body(models.SchemaDiffBody)
-    return _SCHEMA_PLAN.validate_python(bridge.schema_diff(body.schema_file, body.target))
+    return _SCHEMA_PLAN.validate_python(bridge.schema_diff(body.schema_file, body.binding_root))
 
 
 @router.post('/api/schema/prune')
 def schema_prune(req: Request) -> schema_types.SchemaPlan:
     body = req.body(models.SchemaPruneBody)
-    return _SCHEMA_PLAN.validate_python(bridge.schema_prune(body.schema_file, body.target))
+    return _SCHEMA_PLAN.validate_python(bridge.schema_prune(body.schema_file, body.binding_root))
 
 
 @router.post('/api/schema/update')
 def schema_update(req: Request) -> schema_types.SchemaPlan:
     body = req.body(models.SchemaUpdateBody)
-    applied = bridge.schema_update(body.schema_file, body.target, allow_destructive=body.allow_destructive)
+    applied = bridge.schema_update(body.schema_file, body.binding_root, allow_destructive=body.allow_destructive)
     return _SCHEMA_PLAN.validate_python(applied)
 
 
