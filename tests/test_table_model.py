@@ -900,7 +900,23 @@ class TestTableModel:
         )
 
         # `get_model_diff()` returns the same information in structured form (the source of the report above).
-        assert TableModelV2.get_model_diff(root) == {
+        diffs = TableModelV2.get_model_diff(root)
+
+        # every diff records the table it was computed against, so that an update can tell whether the catalog
+        # moved underneath it; a model whose table doesn't exist yet has nothing to record
+        for d in diffs.values():
+            if not d['exists']:
+                assert d['tbl_id'] is None and d['schema_versions'] is None
+                continue
+            md = pxt.get_table(d['path']).get_metadata()
+            assert d['tbl_id'] == md['id']
+            assert d['schema_versions'][md['id']] == md['schema_version']
+
+        # those two are the catalog's ids and versions, so they are checked above instead of spelled out below
+        without_identity = {
+            name: {k: v for k, v in d.items() if k not in ('tbl_id', 'schema_versions')} for name, d in diffs.items()
+        }
+        assert without_identity == {
             'test_table': {
                 'path': p('test_table'),
                 'model_cls': 'ExampleTableV2',
@@ -1375,7 +1391,8 @@ class TestTableModel:
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r"Cannot drop column 'value' because the following columns depend on it:\nvc1",
+            match=r"Column 'value' was removed from the model for 'test_table', but cannot be dropped "
+            r'because the following columns depend on it:\nvc1',
         ):
             TableModelV2.update_all(p(''), allow_destructive=True)
 
@@ -1389,7 +1406,8 @@ class TestTableModel:
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r"Cannot drop index 'idx' because the following columns depend on it:\nvc2",
+            match=r"Index 'idx' was removed from the model for 'test_table', but cannot be dropped "
+            r'because the following columns depend on it:\nvc2',
         ):
             TableModelV3.update_all(p(''), allow_destructive=True)
 

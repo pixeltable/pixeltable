@@ -2,22 +2,6 @@
 # ruff: noqa: N806
 # ruff: noqa: E731
 
-"""
-Concurrency repros for `TableModel.update_all()` (PR #1479).
-
-`update_all()` computes a diff in an earlier read transaction, then applies it in a later write transaction. Anything
-the diff observed can change in between. These tests drive that drift window deterministically: thread 0 runs
-`update_all()` and blocks at `FaultLocation.CATALOG_UPDATE_FROM_MODEL_BEFORE_APPLY` (just after its diff is computed,
-before it is applied); thread 1 commits a concurrent schema change; thread 0 then applies its now-stale diff.
-
-Each conflict is exercised in two families: `update_all` (thread 1 is a second `model_base()` syncing the same
-hierarchy) and `single_op` (thread 1 is a direct `Table`-API call). The contract asserted for a drifting change is a
-specific, clean error - never a raw `AssertionError`/`KeyError` and never silent corruption. A schema change to any
-table an update resolves against - the table itself or one of its bases - moves that table's schema version and so
-trips the compare-and-swap, whether or not it touches the same columns; only concurrency that leaves those versions
-alone (inserts, reads) lets the update through.
-"""
-
 from __future__ import annotations
 
 import threading
@@ -453,7 +437,8 @@ class TestConcurrentModelUpdate:
         # base table's schema version is unchanged and the CAS doesn't fire; the dependents check does.
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r"Cannot drop column 'x' because the following columns depend on it:\ndep",
+            match=r"Column 'x' was removed from the model for 'test_table', but cannot be dropped "
+            r'because the following columns depend on it:\ndep',
         ):
             _run_with_concurrent_apply(lambda: TM2.update_all(ROOT, allow_destructive=True), concurrent)
 
@@ -484,7 +469,8 @@ class TestConcurrentModelUpdate:
         v = View.table
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r"Cannot drop index 'ix' because the following columns depend on it:\ndep",
+            match=r"Index 'ix' was removed from the model for 'test_table', but cannot be dropped "
+            r'because the following columns depend on it:\ndep',
         ):
             _run_with_concurrent_apply(
                 lambda: TM2.update_all(ROOT, allow_destructive=True),

@@ -1023,6 +1023,12 @@ class TableDiff(TypedDict):
     resolution: DiffResolution
     changes: list[SchemaChange]
 
+    # identity of the existing table, as of the read this diff was computed from; None if it doesn't exist yet
+    tbl_id: UUID | None
+
+    # schema versions of the TableVersionPath
+    schema_versions: dict[UUID, int] | None
+
 
 # Table-level attribute names that are reported as a single grouped diff (as opposed to `kind`/`iterator`/`filter`/
 # `sample`, which each get their own diff line).
@@ -1180,26 +1186,21 @@ def _add_index_change(idx_name: str, idx: EmbeddingIndex) -> SchemaChange:
     )
 
 
-def validate_models(
-    registered_models: dict[str, TableModelMeta], binding_root: str
-) -> tuple[dict[str, TableDiff], dict[str, UUID], dict[str, dict[UUID, int]]]:
+def validate_models(registered_models: dict[str, TableModelMeta], binding_root: str) -> dict[str, TableDiff]:
     """
     Analyze each registered model against the current catalog state, summarizing the schema changes that creating
     the models would entail, along with any incompatibilities with an already-existing table of the same name.
     This is purely informational: it neither modifies the catalog nor raises on incompatibilities.
-    All metadata reads happen in a single transaction.
-
-    Returns: (diffs, tbl_ids, schema_versions)
+    All metadata reads happen in a single transaction, and each diff's tbl_id and schema_versions record the catalog
+    state it was computed against.
     """
     from .catalog import retry_loop  # imported here: pixeltable.catalog.catalog imports this module
 
     binding_root = TableModelMeta._normalize_binding_root(binding_root)
 
     @retry_loop(for_write=False)
-    def op() -> tuple[dict[str, TableDiff], dict[str, UUID], dict[str, dict[UUID, int]]]:
+    def op() -> dict[str, TableDiff]:
         results: dict[str, TableDiff] = {}
-        tbl_ids: dict[str, UUID] = {}
-        schema_versions: dict[str, dict[UUID, int]] = {}
 
         for name, model in registered_models.items():
             user_cols = _user_columns(model)
@@ -1228,13 +1229,13 @@ def validate_models(
                     exists=False,
                     resolution=_resolution(False, changes),
                     changes=changes,
+                    tbl_id=None,
+                    schema_versions=None,
                 )
                 continue
 
             existing_md = existing.get_metadata()
             tbl_path = existing._tbl_path
-            tbl_ids[name] = tbl_path.tbl_id
-            schema_versions[name] = tbl_path.schema_versions()
 
             # Restrict the existing columns to those defined in this table (i.e. not inherited from a base) and not
             # produced by an iterator, so that they line up with the model's own declared columns.
@@ -1362,9 +1363,11 @@ def validate_models(
                 exists=True,
                 resolution=_resolution(True, changes),
                 changes=changes,
+                tbl_id=tbl_path.tbl_id,
+                schema_versions=tbl_path.schema_versions(),
             )
 
-        return results, tbl_ids, schema_versions
+        return results
 
     return op()
 
@@ -1470,7 +1473,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         """Returns (created, existing): absolute paths of tables created now and those that already exist."""
         # `create_all()` only creates tables; it never mutates an existing one. If any existing table differs from
         # its model, refuse and point the user at `update_all()`.
-        diffs, _, _ = validate_models(registered_models, binding_root)
+        diffs = validate_models(registered_models, binding_root)
         changed = [(name, d) for name, d in diffs.items() if d['exists'] and d['resolution'] != 'up_to_date']
         if len(changed) > 0:
             detail = '\n'.join(line for name, d in changed for line in _format_diff(name, d))
@@ -1484,7 +1487,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         return _create_models(binding_root, {name for name, d in diffs.items() if not d['exists']})
 
     def _get_model_diff(binding_root: str = '') -> dict[str, TableDiff]:
-        return validate_models(registered_models, binding_root)[0]
+        return validate_models(registered_models, binding_root)
 
     def _diff_all(binding_root: str = '') -> None:
         diffs = _get_model_diff(binding_root)
@@ -1494,7 +1497,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         Env.get().console_logger.info('\n'.join(lines) if len(lines) > 0 else 'Catalog is up to date.')
 
     def _update_all(binding_root: str = '', *, allow_destructive: bool = False) -> None:
-        diffs, tbl_ids, schema_versions = validate_models(registered_models, binding_root)
+        diffs = validate_models(registered_models, binding_root)
 
         if len(diffs) == 0:
             # No updates *or* create statements.
@@ -1557,6 +1560,8 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                     )
                     new_columns[col_name] = (spec, origin)
 
+                # only an existing table is updated, so the diff recorded what it was computed against
+                assert d['tbl_id'] is not None and d['schema_versions'] is not None
                 schema_changes.append(
                     TableSchemaChange(
                         path=catalog.Path.parse(f'{binding_root}{name}'),
@@ -1564,8 +1569,8 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                         dropped_columns=dropped_col_names,
                         new_idxs={idx_name: model.__indexes__[idx_name] for idx_name in new_idx_names},
                         dropped_idxs=dropped_idx_names,
-                        expected_tbl_id=tbl_ids[name],
-                        expected_versions=schema_versions[name],
+                        expected_tbl_id=d['tbl_id'],
+                        expected_versions=d['schema_versions'],
                     )
                 )
 

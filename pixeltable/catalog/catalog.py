@@ -1813,7 +1813,13 @@ class Catalog(CatalogBase):
             for _, tv, schema_change in tbl_info:
                 dropped_col_set.update(tv.cols_by_name[name] for name in schema_change['dropped_columns'])
 
-            def check_column_dependents(tbl_id: UUID, col_id: int, kind: str, name: str) -> None:
+            def check_column_dependents(
+                tbl_id: UUID,
+                col_id: int,
+                drop_target: Literal['Index', 'Column'],
+                drop_target_name: str,
+                model_name: str,
+            ) -> None:
                 remaining_dependents = [
                     c
                     for c in self.get_column_dependents(tbl_id, col_id)
@@ -1822,17 +1828,19 @@ class Catalog(CatalogBase):
                 if len(remaining_dependents) > 0:
                     raise excs.RequestError(
                         excs.ErrorCode.UNSUPPORTED_OPERATION,
-                        f'Cannot drop {kind} {name!r} because the following columns depend on it:\n'
-                        f'{", ".join(c.name for c in remaining_dependents)}',
+                        f'{drop_target} {drop_target_name!r} was removed from the model for {model_name!r}, but '
+                        'cannot be dropped because the following columns depend on it:\n'
+                        f'{", ".join(c.name for c in remaining_dependents)}\n'
+                        'Drop those columns first, or remove them from their models.',
                     )
 
             for _, tv, schema_change in tbl_info:
                 for idx_name in schema_change['dropped_idxs']:
                     val_col = tv.idxs_by_name[idx_name].val_col
-                    check_column_dependents(val_col.get_tbl().id, val_col.id, 'index', idx_name)
+                    check_column_dependents(val_col.get_tbl().id, val_col.id, 'Index', idx_name, tv.name)
                 for name in schema_change['dropped_columns']:
                     col = tv.cols_by_name[name]
-                    check_column_dependents(tv.id, col.id, 'column', name)
+                    check_column_dependents(tv.id, col.id, 'Column', name, tv.name)
 
             # check for dependent view predicates; a view can only reference columns on its base path, so the
             # candidates are the mutable views of the updated tables (deduplicated: an updated table's views are also
