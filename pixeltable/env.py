@@ -48,6 +48,15 @@ LOG_FMT_STR = '%(asctime)s %(levelname)s %(threadName)s %(name)s %(filename)s:%(
 T = TypeVar('T')
 
 
+def store_app_name() -> str:
+    """The application_name that this process's connections report to the store.
+
+    Identifies them in pg_stat_activity; the pid makes it distinguishable from the connections of other Pixeltable
+    processes running against the same database.
+    """
+    return f'pixeltable-{os.getpid()}'
+
+
 class Env:
     """
     Store runtime globals for both local and non-local environments.
@@ -478,8 +487,9 @@ class Env:
         metadata.create_system_info(self._sa_engine)
 
     def _create_engine(self, time_zone_name: str, echo: bool = False) -> None:
-        # Add timezone option to connection string
+        # Add timezone and application_name options to connection string
         updated_url = add_option_to_db_url(self.db_url, f'-c timezone={time_zone_name}')
+        updated_url = add_option_to_db_url(updated_url, f'-c application_name={store_app_name()}')
 
         self._sa_engine = sql.create_engine(
             updated_url, echo=echo, isolation_level=self._dbms.transaction_isolation_level
