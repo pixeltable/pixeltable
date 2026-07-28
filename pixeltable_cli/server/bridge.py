@@ -572,21 +572,21 @@ def get_status() -> dict[str, Any]:
     }
 
 
-def _load_model_bases(schema_path: str) -> list[model.TableModelMeta]:
+def _load_model_bases(schema_file: str) -> list[model.TableModelMeta]:
     """The model bases declared by a class-based schema file.
 
     Raises RequestError if the file is missing, fails to import, or declares no model base.
     """
-    path = Path(schema_path)
+    path = Path(schema_file)
     if not path.is_file():
-        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'schema file not found: {schema_path}')
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'schema file not found: {schema_file}')
 
     # load under a unique key so a user schema file can't shadow an existing module (eg, one named json.py); the
     # key is unique per load, so this needs no synchronization
     module_name = f'pxt_schema_{uuid.uuid4().hex}'
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
-        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'cannot load schema file: {schema_path}')
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'cannot load schema file: {schema_file}')
     module = importlib.util.module_from_spec(spec)
 
     # put the schema file's own directory on sys.path so it can import sibling modules next to it; only the
@@ -597,7 +597,7 @@ def _load_model_bases(schema_path: str) -> list[model.TableModelMeta]:
     try:
         spec.loader.exec_module(module)
     except Exception as e:
-        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'error loading {schema_path}: {e}') from e
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'error loading {schema_file}: {e}') from e
     finally:
         sys.modules.pop(module_name, None)
         if needs_remove:
@@ -613,7 +613,7 @@ def _load_model_bases(schema_path: str) -> list[model.TableModelMeta]:
     if len(bases) == 0:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT,
-            f"no model_base() found in {schema_path}; run 'pxt schema example' for a file to start from",
+            f"no model_base() found in {schema_file}; run 'pxt schema example' for a file to start from",
         )
     return bases
 
@@ -628,29 +628,29 @@ def _path_key(pxt_path: str) -> tuple[str, ...]:
 
 
 def _list_tables(pxt_path: str) -> list[str]:
-    """Paths of the tables under the given target, or [] if it does not exist."""
+    """Paths of the tables under the given pxt_path, or [] if it does not exist."""
     try:
         return pxt.list_tables(pxt_path, recursive=True)
     except excs.NotFoundError:
         return []
 
 
-def schema_diff(schema_path: str, target: str) -> schema_types.SchemaPlan:
+def schema_diff(schema_file: str, target: str) -> schema_types.SchemaPlan:
     """The changes that schema_update() would make to reconcile the target with the schema file.
 
     Read-only: never creates the target directory, and never touches an existing table.
     """
-    return _schema_plan(_load_model_bases(schema_path), schema_path, target)
+    return _schema_plan(_load_model_bases(schema_file), schema_file, target)
 
 
-def _schema_plan(bases: list[model.TableModelMeta], schema_path: str, target: str) -> schema_types.SchemaPlan:
+def _schema_plan(bases: list[model.TableModelMeta], schema_file: str, target: str) -> schema_types.SchemaPlan:
     """The plan for reconciling the target with the models declared by the given bases."""
     tables: list[schema_types.TableDiff] = []
     for base in bases:
         for diff in base.get_model_diff(target).values():
             # a create subsumes the additions that constitute it, so only a migration enumerates operations
             enumerated = [] if diff['resolution'] in ('create', 'up_to_date') else diff['ops']
-            ops = [_wire_op(op) for op in enumerated]
+            ops = [_plan_op(op) for op in enumerated]
             tables.append(
                 {
                     'path': diff['path'],
@@ -675,7 +675,7 @@ def _schema_plan(bases: list[model.TableModelMeta], schema_path: str, target: st
         'destructive': sum(1 for t in tables for op in t['ops'] if op['destructive']),
     }
     return {
-        'schema_path': schema_path,
+        'schema_file': schema_file,
         'target': target,
         # extras are excluded: update() never removes them, so their presence is not something it could reconcile
         'in_agreement': all(t['resolution'] == 'up_to_date' for t in tables),
@@ -685,7 +685,7 @@ def _schema_plan(bases: list[model.TableModelMeta], schema_path: str, target: st
     }
 
 
-def _wire_op(op: model.SchemaChangeOp) -> schema_types.SchemaChangeOp:
+def _plan_op(op: model.SchemaChangeOp) -> schema_types.SchemaChangeOp:
     """The CLI-side form of a model operation: everything but the model-side and catalog-side values."""
     return {
         'target': op['target'],
@@ -698,14 +698,14 @@ def _wire_op(op: model.SchemaChangeOp) -> schema_types.SchemaChangeOp:
     }
 
 
-def schema_prune(schema_path: str, target: str) -> schema_types.SchemaPlan:
+def schema_prune(schema_file: str, target: str) -> schema_types.SchemaPlan:
     """Drop the tables under the target that no model in the schema file declares.
 
     Returns the plan, with one drop_table operation per dropped table. A view is dropped before its base, so that
     pruning a group of related tables does not depend on the order they are listed in. Nothing is force-dropped:
     a table that something outside the pruned set depends on is left in place and its error is raised.
     """
-    plan = _schema_plan(_load_model_bases(schema_path), schema_path, target)
+    plan = _schema_plan(_load_model_bases(schema_file), schema_file, target)
     remaining = list(plan['extras'])
     dropped: list[str] = []
     while len(remaining) > 0:
@@ -728,14 +728,14 @@ def schema_prune(schema_path: str, target: str) -> schema_types.SchemaPlan:
     return plan
 
 
-def schema_update(schema_path: str, target: str, *, allow_destructive: bool = False) -> schema_types.SchemaPlan:
+def schema_update(schema_file: str, target: str, *, allow_destructive: bool = False) -> schema_types.SchemaPlan:
     """Reconcile the target with the schema file: create missing tables and migrate existing ones.
 
     Returns the plan that was applied, each operation annotated with its status. Applying is all-or-nothing, so a
     failure raises rather than reporting a partially applied plan.
     """
-    bases = _load_model_bases(schema_path)
-    plan = _schema_plan(bases, schema_path, target)
+    bases = _load_model_bases(schema_file)
+    plan = _schema_plan(bases, schema_file, target)
 
     # only create the target directory when it names an in-catalog path; a bare catalog root (eg '' or
     # 'pxt://org:db') has no directory to create
@@ -747,7 +747,7 @@ def schema_update(schema_path: str, target: str, *, allow_destructive: bool = Fa
 
     # update_all() recomputes its own diff, so what it applied is only the plan above if nothing changed the
     # catalog in between; re-reading confirms that before every operation is reported as applied
-    if not _schema_plan(bases, schema_path, target)['in_agreement']:
+    if not _schema_plan(bases, schema_file, target)['in_agreement']:
         raise excs.Error(
             excs.ErrorCode.CONCURRENT_MODIFICATION,
             f'{target} still differs from the schema after applying; it may have been modified concurrently.',

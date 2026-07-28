@@ -203,15 +203,15 @@ def run(argv: list[str]) -> None:
             file=sys.stderr,
         )
         sys.exit(EXIT_ERROR)
-    schema_path = str(path.resolve())
+    schema_file = str(path.resolve())
 
     if verb == 'diff':
-        _diff(schema_path, args.target, as_json=args.as_json)
+        _diff(schema_file, args.target, as_json=args.as_json)
     elif verb == 'prune':
-        _prune(schema_path, args.target, as_json=args.as_json, force=args.force, dry_run=args.dry_run)
+        _prune(schema_file, args.target, as_json=args.as_json, force=args.force, dry_run=args.dry_run)
     else:
         _update(
-            schema_path,
+            schema_file,
             args.target,
             as_json=args.as_json,
             force=args.force,
@@ -228,14 +228,14 @@ def _example(out: str | None) -> None:
     print(f'wrote {out}')
 
 
-def _diff(schema_path: str, target: str, *, as_json: bool) -> None:
-    plan = _plan_for(schema_path, target)
+def _diff(schema_file: str, target: str, *, as_json: bool) -> None:
+    plan = _plan_for(schema_file, target)
     _diff_output(plan, as_json=as_json)
     sys.exit(EXIT_IN_AGREEMENT if plan['in_agreement'] else EXIT_CHANGES_PENDING)
 
 
-def _plan_for(schema_path: str, target: str) -> SchemaPlan:
-    plan: SchemaPlan = post('/api/schema/diff', {'schema_path': schema_path, 'target': target})
+def _plan_for(schema_file: str, target: str) -> SchemaPlan:
+    plan: SchemaPlan = post('/api/schema/diff', {'schema_file': schema_file, 'target': target})
     return plan
 
 
@@ -264,8 +264,8 @@ def _severity_label(op: SchemaChangeOp) -> str:
     return _SEVERITY_LABELS.get(op['severity'], op['severity'].upper())
 
 
-def _prune(schema_path: str, target: str, *, as_json: bool, force: bool, dry_run: bool) -> None:
-    plan = _plan_for(schema_path, target)
+def _prune(schema_file: str, target: str, *, as_json: bool, force: bool, dry_run: bool) -> None:
+    plan = _plan_for(schema_file, target)
     extras = plan['extras']
     if len(extras) == 0:
         if as_json:
@@ -292,7 +292,7 @@ def _prune(schema_path: str, target: str, *, as_json: bool, force: bool, dry_run
         on_refusal=report_refusal,
     )
 
-    resp = post('/api/schema/prune', {'schema_path': schema_path, 'target': target})
+    resp = post('/api/schema/prune', {'schema_file': schema_file, 'target': target})
     _prune_output(resp, as_json=as_json, verb='dropped')
 
 
@@ -305,10 +305,10 @@ def _prune_output(plan: SchemaPlan, *, as_json: bool, verb: str) -> None:
 
 
 def _update(
-    schema_path: str, target: str, *, as_json: bool, force: bool, dry_run: bool, allow_destructive: bool
+    schema_file: str, target: str, *, as_json: bool, force: bool, dry_run: bool, allow_destructive: bool
 ) -> None:
     if dry_run:
-        plan = _plan_for(schema_path, target)
+        plan = _plan_for(schema_file, target)
         _set_statuses(plan, destructive='skipped', other='skipped')
         _diff_output(plan, as_json=as_json)
         sys.exit(EXIT_IN_AGREEMENT if plan['in_agreement'] else EXIT_CHANGES_PENDING)
@@ -316,22 +316,22 @@ def _update(
     # the plan is read up front only to decide whether to proceed: with destructive operations already permitted
     # and confirmation waived, there is nothing left to decide
     if not (allow_destructive and force):
-        _decide_update(schema_path, target, as_json=as_json, force=force, allow_destructive=allow_destructive)
+        _decide_update(schema_file, target, as_json=as_json, force=force, allow_destructive=allow_destructive)
 
     applied = post(
-        '/api/schema/update', {'schema_path': schema_path, 'target': target, 'allow_destructive': allow_destructive}
+        '/api/schema/update', {'schema_file': schema_file, 'target': target, 'allow_destructive': allow_destructive}
     )
     _update_output(applied, as_json=as_json)
 
 
-def _decide_update(schema_path: str, target: str, *, as_json: bool, force: bool, allow_destructive: bool) -> None:
+def _decide_update(schema_file: str, target: str, *, as_json: bool, force: bool, allow_destructive: bool) -> None:
     """Reports the pending plan and exits, unless applying it is permitted.
 
     Exits 0 if there is nothing to apply, and 3 if the plan is destructive and that was neither permitted nor
     confirmed. Returning means the plan may be applied; it is advisory, being a separate read from the one the
     apply acts on.
     """
-    plan = _plan_for(schema_path, target)
+    plan = _plan_for(schema_file, target)
     if plan['in_agreement']:
         _update_output(plan, as_json=as_json)
         sys.exit(EXIT_IN_AGREEMENT)

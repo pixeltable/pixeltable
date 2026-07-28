@@ -61,7 +61,7 @@ class _PlanOps(TypedDict, total=False):
 class SchemaPlan(_PlanOps):
     """Set of changes needed to reconcile a target directory with a schema model."""
 
-    schema_path: str
+    schema_file: str
     target: str
     in_agreement: bool  # True if no table needs a create or an update; extras don't count
     tables: list[TableDiff]

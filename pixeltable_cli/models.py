@@ -180,16 +180,16 @@ class RevertResponse(BaseModel):
 
 
 class SchemaDiffBody(BaseModel):
-    schema_path: str  # absolute filesystem path to the schema file on the daemon host
+    schema_file: str  # absolute filesystem path to the schema file on the daemon host
     target: PxtPath
 
 
 class SchemaPruneBody(BaseModel):
-    schema_path: str  # absolute filesystem path to the schema file on the daemon host
+    schema_file: str  # absolute filesystem path to the schema file on the daemon host
     target: PxtPath
 
 
 class SchemaUpdateBody(BaseModel):
-    schema_path: str  # absolute filesystem path to the schema file on the daemon host
+    schema_file: str  # absolute filesystem path to the schema file on the daemon host
     target: PxtPath
     allow_destructive: bool = False
