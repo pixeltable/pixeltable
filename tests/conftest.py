@@ -261,7 +261,7 @@ def proxy_daemon_db(init_env: None, worker_id: str) -> Iterator[str]:
     post-test _validate_catalog_state() actually validates the store state at the end of the test.
 
     The db name is worker-scoped so parallel xdist workers don't share a catalog. start() is idempotent,
-    so the per-test make_catalog_path fixture only resets the daemon's catalog rather than restarting the process.
+    so the per-test make_catalog_path fixture only reloads the daemon's catalog rather than restarting the process.
     """
     # the proxy daemon serves over HTTP via fastapi/uvicorn (the serve extra); a minimal install omits them
     pytest.importorskip('fastapi')
@@ -321,7 +321,7 @@ def make_catalog_path(
         from pixeltable.service import proxy_daemon
 
         db = request.getfixturevalue('proxy_daemon_db')
-        proxy_daemon.reset(db)
+        proxy_daemon.reinitialize(db)
         prefix = f'pxt://local:{db}'
 
         def p(path: str) -> str:
