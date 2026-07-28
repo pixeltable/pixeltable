@@ -1407,7 +1407,8 @@ class TestView:
         assert sorted(r['exp'] for r in v.collect()) == [10, 20]
 
     def test_update_changes_view_membership_cascades(self, make_catalog_path: Callable[[str], str]) -> None:
-        """A row leaving a filtered view retires the rows a view on top of it derived from it."""
+        """A row entering or leaving a filtered view reaches the views on top of it, which have no filter of
+        their own to detect the change."""
         p = make_catalog_path
         t = pxt.create_table(p('tbl'), {'n': pxt.Int})
         t.insert([{'n': 1}, {'n': 2}, {'n': 3}])
@@ -1417,8 +1418,40 @@ class TestView:
 
         t.update({'n': 0}, where=t.n == 3)
         assert len(v2.collect()) == 1
-        # selecting only v2's own column references nothing in v1, so no join to v1 filters out stale rows
         assert [r['own'] for r in v2.select(v2.own).collect()] == [20]
+
+        # the same in reverse: a row that starts satisfying the filter is added at both levels
+        t.update({'n': 5}, where=t.n == 0)
+        assert sorted(r['n'] for r in v1.collect()) == [2, 5]
+        assert sorted(r['own'] for r in v2.select(v2.own).collect()) == [20, 50]
+
+        # multi-level cascade
+        t = pxt.create_table(p('tbl2'), {'n': pxt.Int})
+        t.insert([{'n': 1}, {'n': 9}])
+        v1 = pxt.create_view(p('view3'), t.where(t.n > 2))
+        v2 = pxt.create_view(p('view4'), v1, additional_columns={'own': v1.n * 10})
+        v3 = pxt.create_view(p('view5'), v2, additional_columns={'own3': v2.own + 1})
+        assert [r['n'] for r in v1.collect()] == [9]
+        assert [r['own'] for r in v2.collect()] == [90]
+        assert [r['own3'] for r in v3.collect()] == [91]
+
+        # an insert that qualifies reaches every level
+        t.insert([{'n': 5}])
+        assert sorted(r['n'] for r in v1.collect()) == [5, 9]
+        assert sorted(r['own'] for r in v2.collect()) == [50, 90]
+        assert sorted(r['own3'] for r in v3.collect()) == [51, 91]
+
+        # an update that makes a row qualify must reach every level too
+        t.update({'n': 7}, where=t.n == 1)
+        assert sorted(r['n'] for r in v1.collect()) == [5, 7, 9]
+        assert sorted(r['own'] for r in v2.collect()) == [50, 70, 90]
+        assert sorted(r['own3'] for r in v3.collect()) == [51, 71, 91]
+
+        # and so must one that makes it stop qualifying
+        t.update({'n': 0}, where=t.n == 7)
+        assert sorted(r['n'] for r in v1.collect()) == [5, 9]
+        assert sorted(r['own'] for r in v2.collect()) == [50, 90]
+        assert sorted(r['own3'] for r in v3.collect()) == [51, 91]
 
     def test_recompute_column(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path

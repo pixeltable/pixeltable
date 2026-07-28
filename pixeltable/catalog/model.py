@@ -829,15 +829,19 @@ def prepare_model(
                     f'Column {name!r} in {display_name} references columns that are not in '
                     f"the model's scope: {[ref.name for ref in unresolved]}",
                 )
+
+        # subst_dict holds exactly the inherited base columns, we don't allow an explicitly named column to shadow one
+        if exprs.ColumnRefByName(name) in subst_dict:
+            assert base is not None
+            raise excs.AlreadyExistsError(
+                excs.ErrorCode.COLUMN_ALREADY_EXISTS,
+                f'Column {name!r} already exists in the base table {base._first_tbl.tbl_name()!r}.',
+            )
         catalog_col = catalog.Column.create(name, subst_spec)
         catalog_col.tbl_handle = tbl_handle
         additional_cols.append(catalog_col)
         user_cols[name] = catalog_col
         preceding_names.add(name)
-
-        # from here on the name means this column, which has no id yet, so references to it have to stay
-        # ColumnRefByName; drop the base column binding for that name, if there is one
-        subst_dict.pop(exprs.ColumnRefByName(name))
 
     # Resolve each declared embedding index against the model's visible columns.
     resolved_idxs: list[catalog.IndexSpec] = []
@@ -956,14 +960,21 @@ def prepare_model_updates(
                     f'Column {name!r} in {display_name} references columns that are not in '
                     f"the model's scope: {[ref.name for ref in unresolved]}",
                 )
+
+        # a new column can only collide with an inherited one: a name already among this table's own columns
+        # wouldn't have been diffed as new
+        if exprs.ColumnRefByName(name) in subst_dict:
+            assert tvp.base is not None
+            raise excs.AlreadyExistsError(
+                excs.ErrorCode.COLUMN_ALREADY_EXISTS,
+                f'Column {name!r} already exists in the base table {tvp.base.tbl_name()!r}.',
+            )
+
         catalog_col = catalog.Column.create(name, resolved_spec)
         catalog_col.tbl_handle = tbl_handle
         resolved_cols.append(catalog_col)
         preceding_names.add(name)
         user_cols[name] = catalog_col
-        # from here on the name means this column, which has no id yet, so references to it have to stay
-        # ColumnRefByName; drop the binding for that name, if there is one
-        subst_dict.pop(exprs.ColumnRefByName(name))
 
     # Resolve each declared embedding index against the model's visible columns.
     resolved_idxs: list[catalog.IndexSpec] = []

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any, Literal, overload, cast
+from typing import TYPE_CHECKING, Any, Literal, cast, overload
 from uuid import UUID
 
 import pixeltable as pxt

@@ -668,8 +668,8 @@ class TableVersion:
 
     def _cascade_drop_index(self, idx_id: int) -> list[Column]:
         """
-        Mark an index as dropped and remove it from the store and the in-memory/persistent lookup structures.
-        Returns the columns that need to be dropped.
+        Mark an index as dropped, drop it from the store, and remove it from the in-memory and persistent lookup
+        structures. Returns its value and undo columns.
         """
         assert idx_id in self._tbl_md.index_md
         idx_md = self._tbl_md.index_md[idx_id]
@@ -1454,8 +1454,13 @@ class TableVersion:
         base_versions: list[int | None],
         timestamp: float,
         cascade: bool,
+        base_membership_change: bool = False,
         return_rows: bool = False,
     ) -> UpdateStatus:
+        """
+        base_membership_change: True if the update may have added rows to this table's base; a row appearing in the
+            base is a row this view needs to add, whether or not it has a predicate of its own
+        """
         from pixeltable.plan import Planner
 
         assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
@@ -1505,17 +1510,17 @@ class TableVersion:
                     view_tv.is_iterator_column(col) for col in recomputed_cols
                 )
 
-                # an update can move a row in or out of a filtered view, but only if it changed one of the columns
-                # the filter is evaluated over
-                membership_may_change = (
+                membership_change = base_membership_change or (
+                    # an update can move a row in or out of a filtered view, but only if it changed one of the columns
+                    # the filter is evaluated over; a view without a predicate still gains the rows its base gained
                     view_tv.predicate is not None
                     and len(exprs.Expr.get_refd_column_ids(view_tv.predicate.as_dict()) & changed_qids) > 0
                 )
 
                 view_plans: list[exec.ExecNode] = []
-                if needs_iterator_reload or (membership_may_change and view_tv.is_component_view):
+                if needs_iterator_reload or (membership_change and view_tv.is_component_view):
                     view_plans.append(Planner.create_view_load_plan(view_tv.path, propagates_insert=True))
-                elif membership_may_change:
+                elif membership_change:
                     # rows already in the view that still satisfy the predicate; their stored columns that aren't
                     # recomputed carry over from the row that was just soft-deleted
                     view_plans.append(Planner.create_view_update_plan(view_tv.path, recompute_targets=recomputed_cols))
@@ -1534,6 +1539,7 @@ class TableVersion:
                     base_versions=base_versions,
                     timestamp=timestamp,
                     cascade=True,
+                    base_membership_change=membership_change,
                 )
                 result += status.to_cascade()
 

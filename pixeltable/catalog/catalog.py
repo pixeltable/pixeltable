@@ -1869,21 +1869,23 @@ class Catalog(CatalogBase):
 
             # check for dependent view predicates
             mutable_views = {view_tv.id: view_tv for _, tv, _ in tbl_info for view_tv in self._mutable_view_tvs(tv)}
-            views_by_qid = {
-                col_ref.col_md.qcolid: view_tv
-                for view_tv in mutable_views.values()
-                if view_tv.predicate is not None
-                for col_ref in view_tv.predicate.subexprs(expr_class=exprs.ColumnRef, traverse_matches=False)
-            }
+            # a column can appear in more than one view's predicate, so every referencing view is recorded
+            views_by_qid: dict[QColumnId, list[TableVersion]] = defaultdict(list)
+            for view_tv in mutable_views.values():
+                if view_tv.predicate is None:
+                    continue
+                for col_ref in view_tv.predicate.subexprs(expr_class=exprs.ColumnRef, traverse_matches=False):
+                    views_by_qid[col_ref.col_md.qcolid].append(view_tv)
             dropped_cols_by_qid = {col.qid: col for col in dropped_col_set}
             view_dependencies = [
                 (dropped_cols_by_qid[qid], view_tv)
-                for qid, view_tv in views_by_qid.items()
+                for qid, view_tvs in views_by_qid.items()
                 if qid in dropped_cols_by_qid
+                for view_tv in view_tvs
             ]
             if len(view_dependencies) > 0:
                 # sort() for deterministic error message
-                view_dependencies.sort(key=lambda d: (d[0].qid.tbl_id, d[0].qid.col_id))
+                view_dependencies.sort(key=lambda d: (d[0].qid.tbl_id, d[0].qid.col_id, d[1].name))
                 detail = '\n'.join(
                     f'column: {col.name}, view: {view_tv.name}, predicate: {view_tv.predicate}'
                     for col, view_tv in view_dependencies
@@ -1908,6 +1910,12 @@ class Catalog(CatalogBase):
                 dropped_cols = [tv.cols_by_name[name] for name in schema_change['dropped_columns']]
                 dropped_idx_ids = [tv.idxs_by_name[name].id for name in schema_change['dropped_idxs']]
                 expected_schema_version = schema_change['schema_versions'][schema_change['tbl_id']]
+                _logger.info(
+                    f'Applying model updates to {tv.name!r} (id={tv.id}, schema_versions={expected_schema_version}): '
+                    f'add columns {[col.name for col in added_cols]}, drop columns {schema_change["dropped_columns"]}, '
+                    f'add indexes {[spec.idx_name for spec in added_idxs]}, '
+                    f'drop indexes {schema_change["dropped_idxs"]}'
+                )
                 tv.apply_schema_change(expected_schema_version, added_cols, dropped_cols, added_idxs, dropped_idx_ids)
                 applied_tbl_ids.add(tvp.tbl_id)
 

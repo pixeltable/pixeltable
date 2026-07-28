@@ -509,7 +509,7 @@ class TestTableModel:
             assert_resultset_eq(mtbl.order_by(mtbl.value).collect(), atbl.order_by(atbl.value).collect())
 
     def test_view_model_shadows_base_column(self, make_catalog_path: Callable[[str], str]) -> None:
-        """A view model column may shadow a base column; references to that name resolve to the shadowing column."""
+        """A view model column cannot shadow a base column, the same as create_view()."""
         p = make_catalog_path
         TableModel = pxt.model_base()
 
@@ -519,20 +519,14 @@ class TestTableModel:
 
         class ExampleViewModel(TableModel, name='test_view', base=ExampleTableModel):
             value = ExampleTableModel.value * 100.0
-            derived = value + 1.0
 
-        TableModel.create_all(p(''))
-        ExampleTableModel.insert([{'id': 1, 'value': 2.0}])
-
-        t = ExampleViewModel.table
-        res = t.select(t.value, t.derived).collect()
-        assert res['value'] == [200.0]
-        # derived reads the view's own value (200.0), not the base's (2.0)
-        assert res['derived'] == [201.0]
+        with pxt_raises(
+            excs.ErrorCode.COLUMN_ALREADY_EXISTS, match=r"Column 'value' already exists in the base table 'test_table'"
+        ):
+            TableModel.create_all(p(''))
 
     def test_update_all_adds_shadowing_column(self, make_catalog_path: Callable[[str], str]) -> None:
-        """update_all() can add a column that shadows a base column, and a sibling added alongside it resolves the
-        name to the shadowing column."""
+        """update_all() cannot add a view column that shadows a base column, the same as add_computed_column()."""
         p = make_catalog_path
         TableModel = pxt.model_base()
 
@@ -555,14 +549,14 @@ class TestTableModel:
         class ExampleViewModelV2(TableModelV2, name='test_view', base=ExampleTableModelV2):
             vc1 = ExampleTableModelV2.id + 1
             value = ExampleTableModelV2.value * 100.0
-            derived = value + 1.0
 
-        TableModelV2.update_all(p(''))
-
-        t = ExampleViewModelV2.table
-        res = t.select(t.value, t.derived).collect()
-        assert res['value'] == [200.0]
-        assert res['derived'] == [201.0]
+        with pxt_raises(
+            excs.ErrorCode.COLUMN_ALREADY_EXISTS, match=r"Column 'value' already exists in the base table 'test_table'"
+        ):
+            TableModelV2.update_all(p(''))
+        # nothing was applied: value still reads through to the base's column
+        t = ExampleViewModel.table
+        assert t.select(t.value).collect()['value'] == [2.0]
 
     def test_view_model_index_on_iterator_column(self, make_catalog_path: Callable[[str], str]) -> None:
         """An embedding index in a view model can name a column produced by the view's iterator."""
@@ -1450,19 +1444,21 @@ class TestTableModel:
         TableModel.create_all(p(''))
         ExampleTable.insert([{'id': 1, 'value': 5.0}])
 
-        # Add a view manually, not visible to the model_base
+        # Add views manually, not visible to the model_base; both filter on the same column
         t = ExampleTable.table
         pxt.create_view(p('test_view'), t.where(t.value > 1.0))
+        pxt.create_view(p('other_view'), t.where(t.value > 2.0))
 
         TableModelV2 = pxt.model_base()
 
-        # Drop the value column that the view's predicate filters on
+        # Drop the value column that the views' predicates filter on
         class ExampleTableV2(TableModelV2, name='test_table'):
             id: pxt.Required[pxt.Int]
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             match=r'Cannot drop the following columns, because view predicates depend on them:\n'
+            r'column: value, view: other_view, predicate: value > 2.0\n'
             r'column: value, view: test_view, predicate: value > 1.0',
         ):
             TableModelV2.update_all(p(''), allow_destructive=True)
