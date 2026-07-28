@@ -766,47 +766,15 @@ class TableVersion:
         )
         return TableVersionMd(self._tbl_md, self._version_md, self._schema_version_md), tbl_ops
 
-    def add_columns(
-        self, cols: Iterable[Column], print_stats: bool, on_error: Literal['abort', 'ignore']
-    ) -> UpdateStatus:
+    def add_columns(self, cols: list[Column], print_stats: bool, on_error: Literal['abort', 'ignore']) -> UpdateStatus:
         """Adds columns to the table."""
         assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
         assert self.is_mutable
-        assert all(is_valid_identifier(col.name) for col in cols if col.name is not None)
-        assert all(col.stored is not None for col in cols)
-        assert all(col.name not in self.cols_by_name for col in cols if col.name is not None)
-        for col in cols:
-            if col.is_pk:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Cannot add primary key column {col.name!r} after table creation',
-                )
-            if col.is_computed:
-                col.check_value_expr()
-            col.tbl_handle = self.handle
-            col.id = self.next_col_id()
 
         # we're creating a new schema version
         start_ts = time.perf_counter()
         self.bump_version(bump_schema_version=True)
-        index_cols: dict[Column, tuple[index.BtreeIndex, Column, Column]] = {}
-        all_cols: list[Column] = []
-        for col in cols:
-            all_cols.append(col)
-            if col.name is not None and self._is_btree_indexable(col):
-                idx = index.BtreeIndex()
-
-                val_col, undo_col = Column.create_index_columns(
-                    self.handle, col, idx, self.next_col_id(), self.next_col_id(), self.schema_version
-                )
-                index_cols[col] = (idx, val_col, undo_col)
-                all_cols.append(val_col)
-                all_cols.append(undo_col)
-        # Add all columns
-        status = self._add_columns(all_cols, print_stats=print_stats, on_error=on_error)
-        # Create indices and their md records
-        for col, (idx, val_col, undo_col) in index_cols.items():
-            self._create_index(col, val_col, undo_col, idx_name=None, idx=idx)
+        status = self._add_columns_in_version(cols, print_stats=print_stats, on_error=on_error)
         self.set_version_update_status(status)
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Added columns {[col.name for col in cols]} to table {self.name}, new version: {self.version}')
@@ -1007,7 +975,7 @@ class TableVersion:
 
         status = UpdateStatus()
         if len(added_cols) > 0:
-            status += self._add_columns_with_refs(added_cols)
+            status += self._add_columns_in_version(added_cols, print_stats=False, on_error='abort')
         for col, idx_name, idx in added_idxs:
             assert isinstance(col, Column)
             status += self._add_index(col, idx_name, idx)
@@ -1017,10 +985,16 @@ class TableVersion:
         _logger.info(f'Applied model updates to table {self.name}, new version: {self.version}')
         return status
 
-    def _add_columns_with_refs(self, cols: list[Column]) -> UpdateStatus:
-        """Assign ids to cols, resolve exprs.ColumnRefByName to ColumnRefs, and
-        add the columns together with their default btree indexes within the current schema version. cols are in
-        declaration order, so computed columns only contain back references to other cols."""
+    def _add_columns_in_version(
+        self, cols: list[Column], print_stats: bool, on_error: Literal['abort', 'ignore']
+    ) -> UpdateStatus:
+        """Add cols, each with a default btree index if its type has one, within the current schema version.
+
+        - the caller is responsible for recording the schema version change
+        - value expressions that carry ColumnRefByName placeholders are resolved against cols, which need to be in
+          declaration order, so a computed column only refers back to columns preceding it
+        - an expression without placeholders is left as it is.
+        """
         assert all(is_valid_identifier(col.name) for col in cols if col.name is not None)
         assert all(col.stored is not None for col in cols)
         assert all(col.name not in self.cols_by_name for col in cols if col.name is not None)
@@ -1035,6 +1009,7 @@ class TableVersion:
             col.tbl_handle = self.handle
             col.id = self.next_col_id()
 
+        # the ids exist now, so a placeholder can be resolved to the column it names
         subst = exprs.ExprDict[exprs.Expr](
             (
                 exprs.ColumnRefByName(col.name),
@@ -1065,7 +1040,8 @@ class TableVersion:
                 all_cols.append(val_col)
                 all_cols.append(undo_col)
 
-        status = self._add_columns(all_cols, print_stats=False, on_error='abort')
+        status = self._add_columns(all_cols, print_stats=print_stats, on_error=on_error)
+        # create the indices and their md records only once the columns they index exist
         for col, (idx, val_col, undo_col) in index_cols.items():
             self._create_index(col, val_col, undo_col, idx_name=None, idx=idx)
         return status
