@@ -25,11 +25,11 @@ from typing import TYPE_CHECKING, Any
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.catalog import Path as CatalogPath
-from pixeltable.catalog.model import TableModelMeta
+from pixeltable.catalog.model import DiffResolution, TableModelMeta
 from pixeltable.catalog.table_metadata import TableMetadata
-from pixeltable_cli.utils import drop_table_op
 from pixeltable.config import Config
 from pixeltable.env import Env
+from pixeltable_cli.utils import PlanAction, SchemaPlan, SchemaPlanOp, SchemaPlanSummary, SchemaPlanTable, drop_table_op
 
 _logger = logging.getLogger(__name__)
 
@@ -628,7 +628,7 @@ _OP_KINDS: dict[tuple[str, str], str] = {
 }
 
 # the plan's per-table action for a DiffResolution
-_ACTIONS: dict[str, str] = {
+_ACTIONS: dict[DiffResolution, PlanAction] = {
     'create': 'create',
     'up_to_date': 'noop',
     'update_additive': 'update',
@@ -653,7 +653,7 @@ def _tables_under(target: str) -> list[str]:
         return []
 
 
-def schema_diff(schema_path: str, target: str) -> dict[str, Any]:
+def schema_diff(schema_path: str, target: str) -> SchemaPlan:
     """The changes that schema_update() would make to reconcile the target with the schema file.
 
     Read-only: never creates the target directory, and never touches an existing table.
@@ -661,28 +661,25 @@ def schema_diff(schema_path: str, target: str) -> dict[str, Any]:
     return _schema_plan(_load_model_bases(schema_path), schema_path, target)
 
 
-def _schema_plan(bases: list[TableModelMeta], schema_path: str, target: str) -> dict[str, Any]:
+def _schema_plan(bases: list[TableModelMeta], schema_path: str, target: str) -> SchemaPlan:
     """The plan for reconciling the target with the models declared by the given bases."""
-    tables: list[dict[str, Any]] = []
+    tables: list[SchemaPlanTable] = []
     for base in bases:
         for diff in base.get_model_diff(target).values():
             action = _ACTIONS[diff['resolution']]
             # a create subsumes the additions that constitute it, so only a migration enumerates operations
             changes = diff['changes'] if action in ('update', 'unsupported') else []
-            ops: list[dict[str, Any]] = []
-            for c in changes:
-                # 'table' names the differing attribute (eg 'kind'), not a table, so it reads as 'attribute'
-                name_key = 'attribute' if c['target'] == 'table' else c['target']
-                ops.append(
-                    {
-                        'kind': _OP_KINDS[c['target'], c['op']],
-                        name_key: c['name'],
-                        'severity': c['severity'],
-                        'destructive': c['severity'] == 'destructive',
-                        'description': c['description'],
-                        **c['details'],
-                    }
-                )
+            ops: list[SchemaPlanOp] = [
+                {
+                    'kind': _OP_KINDS[c['target'], c['op']],
+                    'name': c['name'],
+                    'severity': c['severity'],
+                    'destructive': c['severity'] == 'destructive',
+                    'description': c['description'],
+                    'details': c['details'],
+                }
+                for c in changes
+            ]
             tables.append(
                 {
                     'path': diff['path'],
@@ -696,7 +693,7 @@ def _schema_plan(bases: list[TableModelMeta], schema_path: str, target: str) -> 
 
     declared = {_catalog_key(t['path']) for t in tables}
     extras = sorted(p for p in _tables_under(target) if _catalog_key(p) not in declared)
-    summary = {
+    summary: SchemaPlanSummary = {
         'create': sum(1 for t in tables if t['action'] == 'create'),
         'update': sum(1 for t in tables if t['action'] == 'update'),
         'noop': sum(1 for t in tables if t['action'] == 'noop'),
@@ -715,7 +712,7 @@ def _schema_plan(bases: list[TableModelMeta], schema_path: str, target: str) -> 
     }
 
 
-def schema_prune(schema_path: str, target: str) -> dict[str, Any]:
+def schema_prune(schema_path: str, target: str) -> SchemaPlan:
     """Drop the tables under the target that no model in the schema file declares.
 
     Returns the plan, with one drop_table operation per dropped table. A view is dropped before its base, so that
@@ -745,7 +742,7 @@ def schema_prune(schema_path: str, target: str) -> dict[str, Any]:
     return plan
 
 
-def schema_update(schema_path: str, target: str, *, allow_destructive: bool = False) -> dict[str, Any]:
+def schema_update(schema_path: str, target: str, *, allow_destructive: bool = False) -> SchemaPlan:
     """Reconcile the target with the schema file: create missing tables and migrate existing ones.
 
     Returns the plan that was applied, each operation annotated with its status. Applying is all-or-nothing, so a

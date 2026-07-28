@@ -1,8 +1,9 @@
+from collections.abc import Sequence
 from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, BaseModel, Field
 
-from pixeltable_cli.utils import validate_path_shape
+from pixeltable_cli.utils import OpStatus, validate_path_shape
 
 
 def _validate_pxt_path(v: str | None) -> str | None:
@@ -184,12 +185,21 @@ class SchemaDiffBody(BaseModel):
     target: PxtPath
 
 
-# The schema-plan models below mirror the dicts built by bridge._schema_plan(), which in turn derives them from
-# catalog.model's TableDiff/SchemaChange. Three things are duplicated by hand and have to be changed together:
+# The schema-plan models below type the responses that carry a schema plan; utils.SchemaPlan documents the format
+# itself. Two mappings out of catalog.model are hand-written and have to be changed together with it:
 #   - `action` here <-> bridge._ACTIONS, keyed by catalog.model.DiffResolution
 #   - an op's `kind` <-> bridge._OP_KINDS, keyed by (SchemaChange.target, SchemaChange.op)
-#   - an op's `severity` <-> SchemaChange.severity, rendered by commands/schema.py:_severity_label()
-# The first two fail loudly on a mismatch (a KeyError in the bridge, or pydantic rejecting the response).
+# Both fail loudly on a mismatch: a KeyError in the bridge, or pydantic rejecting the response. An op's `severity`
+# passes through from SchemaChange unvalidated, and commands/schema.py:_severity_label() renders it.
+
+
+class SchemaPlanOp(BaseModel):
+    kind: str  # 'add_column', 'drop_index', 'drop_table', ...
+    name: str  # what the operation acts on: a column, an index, a table attribute, or a table path
+    severity: str
+    destructive: bool
+    description: str
+    details: dict[str, str]  # the operands of this kind of operation, eg 'type' for add_column
 
 
 class SchemaDiffTable(BaseModel):
@@ -198,10 +208,9 @@ class SchemaDiffTable(BaseModel):
     kind: Literal['table', 'view']
     action: Literal['create', 'update', 'noop', 'unsupported']
     destructive: bool
-    # one entry per operation; a create carries none, since the create subsumes them. Each has 'kind', the name of
-    # what it acts on ('column'/'index'/'attribute'), 'severity', 'destructive', 'description', and the operands
-    # of that kind (eg 'type' for add_column)
-    ops: list[dict[str, Any]]
+    # empty for a create, which subsumes the additions that constitute it. Declared covariantly, so that a
+    # response whose operations all carry a status can narrow it.
+    ops: Sequence[SchemaPlanOp]
 
 
 class SchemaDiffSummary(BaseModel):
@@ -228,9 +237,12 @@ class SchemaPruneBody(BaseModel):
     target: PxtPath
 
 
+class SchemaAppliedOp(SchemaPlanOp):
+    status: OpStatus
+
+
 class SchemaPruneResponse(SchemaDiffResponse):
-    # one drop_table operation per table dropped, each carrying its OpStatus
-    ops: list[dict[str, Any]]
+    ops: list[SchemaAppliedOp]  # one drop_table operation per table dropped
 
 
 class SchemaUpdateBody(BaseModel):
@@ -239,12 +251,9 @@ class SchemaUpdateBody(BaseModel):
     allow_destructive: bool = False
 
 
-# what became of a planned table or operation
-OpStatus = Literal['applied', 'skipped', 'refused', 'failed']
-
-
 class SchemaUpdateTable(SchemaDiffTable):
     status: OpStatus
+    ops: Sequence[SchemaAppliedOp]
 
 
 class SchemaUpdateResponse(BaseModel):

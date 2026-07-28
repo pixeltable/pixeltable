@@ -1,5 +1,5 @@
 """Primitives shared by the client and the in-process daemon: port, pidfile path,
-config-resolution helpers, and the identity fingerprint. Stdlib-only so the client side
+config-resolution helpers, the identity fingerprint, and the schema-plan types. Stdlib-only so the client side
 can import without pulling in pxt or pydantic."""
 
 import hashlib
@@ -8,7 +8,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, TypedDict
 
 DEFAULT_PORT = 22089
 
@@ -124,13 +124,91 @@ def _snapshot_pixeltable_env(environ: dict[str, str] | None = None) -> dict[str,
     return {k: _redact_env_value(k, env[k]) for k in sorted(env) if k.startswith('PIXELTABLE_')}
 
 
-def drop_table_op(path: str, status: str) -> dict[str, Any]:
+# A schema plan is the wire format of 'pxt schema diff/update/prune': what the verb would do, or did. It states a
+# difference between a schema file and a catalog directory in the CLI's own vocabulary -- an action per table, an
+# operation kind per change, and a status once the plan has been carried out. It holds no table ids or schema
+# versions: everything in it is meant to be printed.
+
+# what became of a planned table or operation
+OpStatus = Literal['applied', 'skipped', 'refused', 'failed']
+
+# what a plan does to one table
+PlanAction = Literal['create', 'update', 'noop', 'unsupported']
+
+
+class _PlanStatus(TypedDict, total=False):
+    """The status of a table or an operation, which a plan carries only once it has been carried out or refused."""
+
+    status: OpStatus
+
+
+class SchemaPlanOp(_PlanStatus):
+    """One operation of a schema plan."""
+
+    kind: str  # 'add_column', 'drop_index', 'drop_table', ...
+    name: str  # what the operation acts on: a column, an index, a table attribute, or a table path
+    severity: str  # 'additive', 'destructive' or 'unsupported'
+    destructive: bool  # whether applying it destroys data
+    description: str  # one sentence, ready to print
+    details: dict[str, str]  # the operands of this kind of operation, eg 'type' for add_column
+
+
+class SchemaPlanTable(_PlanStatus):
+    """What a schema plan does to one table."""
+
+    path: str  # catalog path of the table
+    model_cls: str  # model class name, so an agent can map back to code
+    kind: Literal['table', 'view']
+    action: PlanAction
+    destructive: bool  # whether any of the operations is
+    # empty for a create, which subsumes the additions that constitute it
+    ops: list[SchemaPlanOp]
+
+
+class SchemaPlanSummary(TypedDict):
+    """Table counts by action, plus the number of destructive operations across all of them."""
+
+    create: int
+    update: int
+    noop: int
+    unsupported: int
+    extras: int
+    destructive: int
+
+
+class _PlanOps(TypedDict, total=False):
+    """Operations a plan performs on whole tables, as distinct from the per-table ones."""
+
+    ops: list[SchemaPlanOp]
+
+
+class SchemaPlan(_PlanOps):
+    """How a target directory and a schema file differ, and what reconciling them takes."""
+
+    # 'schema_path', not 'schema': a field named 'schema' shadows an attribute of pydantic's BaseModel
+    schema_path: str
+    target: str
+    in_agreement: bool  # True if no table needs a create or an update; extras don't count
+    tables: list[SchemaPlanTable]
+    extras: list[str]  # tables under the target that no model declares
+    summary: SchemaPlanSummary
+
+
+def drop_table_op(path: str, status: OpStatus) -> SchemaPlanOp:
     """The schema-plan operation for dropping the table at the given path, in the given status.
 
     Lives here because both the daemon (reporting what it dropped) and the client (reporting what it would drop,
     or refused to drop) put the same operation into a plan.
     """
-    return {'kind': 'drop_table', 'path': path, 'severity': 'destructive', 'destructive': True, 'status': status}
+    return {
+        'kind': 'drop_table',
+        'name': path,
+        'severity': 'destructive',
+        'destructive': True,
+        'description': f'table {path!r} will be dropped',
+        'details': {},
+        'status': status,
+    }
 
 
 def identity() -> dict[str, Any]:

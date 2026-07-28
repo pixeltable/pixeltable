@@ -429,15 +429,15 @@ pxt schema diff schema.py pxt://acme:main/prod    # 0 = in sync, 2 = drift, 1 = 
   "action": "update",
   "destructive": true,
   "ops": [
-    {"kind": "add_column", "column": "author", "severity": "additive",
-     "destructive": false, "description": "column 'author' will be added", "type": "String"},
-    {"kind": "drop_column", "column": "body", "severity": "destructive",
-     "destructive": true, "description": "column 'body' will be dropped"}
+    {"kind": "add_column", "name": "author", "severity": "additive", "destructive": false,
+     "description": "column 'author' will be added", "details": {"type": "String"}},
+    {"kind": "drop_column", "name": "body", "severity": "destructive", "destructive": true,
+     "description": "column 'body' will be dropped", "details": {}}
   ]
 }
 ```
 
-An op's `kind` is one of `add_column`, `drop_column`, `alter_column`, `add_index`, `drop_index`, or `alter_table`, and it names what it acts on (`column`, `index`, or `attribute`) plus that kind's operands. `severity` is `additive`, `destructive`, or `unsupported`; `destructive` is the boolean form of the middle case. A table with `action: "create"` carries no ops, because the create subsumes them.
+An op's `kind` is one of `add_column`, `drop_column`, `alter_column`, `add_index`, `drop_index`, or `alter_table`. Its `name` is what it acts on -- a column, an index, or, for `alter_table`, the differing table attribute -- and `details` holds that kind's operands, such as the `type` of an added column. `severity` is `additive`, `destructive`, or `unsupported`; `destructive` is the boolean form of the middle case. A table with `action: "create"` carries no ops, because the create subsumes them.
 
 `update` and `prune` return the same object with a `status` on every table and operation:
 
@@ -447,7 +447,7 @@ An op's `kind` is one of `add_column`, `drop_column`, `alter_column`, `add_index
 | `skipped` | Not carried out: a dry run, or nothing to do |
 | `refused` | Not carried out because consent was missing (`--allow-destructive`, or `-f` with no terminal) |
 
-Every path returns the plan, including the ones that refuse before reaching the daemon, so an `--allow-destructive` refusal is as machine-readable as a success: exit `3`, with the offending operations marked `refused` and the rest `skipped`. `prune` reports its drops as `drop_table` ops in a top-level `ops` array.
+Every path returns the plan, including the ones that refuse before reaching the daemon, so an `--allow-destructive` refusal is as machine-readable as a success: exit `3`, with the offending operations marked `refused` and the rest `skipped`. `prune` reports its drops as `drop_table` ops in a top-level `ops` array, each naming the dropped table in `name`.
 
 ### Pruning
 

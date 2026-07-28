@@ -135,12 +135,22 @@ class TestSchema:
         assert r.returncode == 2
         assert [op['status'] for t in r.json['tables'] for op in t['ops']] == ['skipped']
 
+        # -n applies nothing, even with the drop permitted and confirmed
+        r = cli('schema', 'update', str(schema_file), target, '--allow-destructive', '-f', '-n', check=False)
+        assert r.returncode == 2
+        assert 'body' in pxt.get_table(f'{target}/docs').columns()
+
         r = cli('schema', 'update', str(schema_file), target, '--allow-destructive', '-f', '--json')
         assert r.returncode == 0
         docs = next(t for t in r.json['tables'] if t['path'] == f'{target}/docs')
         assert docs['status'] == 'applied'
         assert [op['status'] for op in docs['ops']] == ['applied']
         assert 'body' not in pxt.get_table(f'{target}/docs').columns()
+
+        # rerunning with the same flags reports the same nothing-to-do as an unflagged rerun does
+        r = cli('schema', 'update', str(schema_file), target, '--allow-destructive', '-f')
+        assert r.returncode == 0
+        assert 'catalog is up to date' in r.stdout
 
     def test_diff(self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         p = make_catalog_path
@@ -196,12 +206,12 @@ class TestSchema:
         docs = next(t for t in r.json['tables'] if t['path'] == f'{target}/docs')
         assert docs['action'] == 'update'
         assert docs['destructive']
-        assert [(op['kind'], op.get('column'), op['destructive']) for op in docs['ops']] == [
+        assert [(op['kind'], op['name'], op['destructive']) for op in docs['ops']] == [
             ('add_column', 'author', False),
             ('drop_column', 'body', True),
         ]
         # the added column carries its type, so the plan is actionable without re-reading the schema
-        assert next(op for op in docs['ops'] if op['kind'] == 'add_column')['type'] == 'String'
+        assert next(op for op in docs['ops'] if op['kind'] == 'add_column')['details']['type'] == 'String'
         assert r.json['summary']['destructive'] == 1
 
         r = cli('schema', 'diff', str(schema_file), target, check=False)
@@ -265,7 +275,7 @@ class TestSchema:
         assert {op['status'] for op in r.json['ops']} == {'refused'}
 
         r = cli('schema', 'prune', str(schema_file), target, '-f', '--json')
-        assert sorted(op['path'] for op in r.json['ops']) == [f'{target}/scratch', f'{target}/scratch_view']
+        assert sorted(op['name'] for op in r.json['ops']) == [f'{target}/scratch', f'{target}/scratch_view']
         assert {op['kind'] for op in r.json['ops']} == {'drop_table'}
         assert {op['status'] for op in r.json['ops']} == {'applied'}
         assert sorted(pxt.list_tables(target)) == [f'{target}/docs', f'{target}/titled_docs']
@@ -359,7 +369,7 @@ class TestSchema:
         tbl = r.json['tables'][0]
         assert tbl['action'] == 'unsupported'
         assert all(op['severity'] == 'unsupported' for op in tbl['ops'])
-        assert [(op['kind'], op.get('attribute') or op.get('column')) for op in tbl['ops']] == [
+        assert [(op['kind'], op['name']) for op in tbl['ops']] == [
             ('alter_table', 'kind'),
             ('alter_table', 'view_filter'),
             ('alter_column', 'headline'),

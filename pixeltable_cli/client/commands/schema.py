@@ -2,9 +2,8 @@ import json
 import sys
 import textwrap
 from pathlib import Path
-from typing import Any
 
-from ...utils import drop_table_op
+from ...utils import OpStatus, SchemaPlan, SchemaPlanOp, drop_table_op
 from ..confirm import confirm_or_exit
 from ..http import post
 from ..parser import Parser
@@ -221,12 +220,17 @@ def _example(out: str | None) -> None:
 
 
 def _diff(schema_path: str, target: str, *, as_json: bool) -> None:
-    plan = post('/api/schema/diff', {'schema_path': schema_path, 'target': target})
+    plan = _plan_for(schema_path, target)
     _diff_output(plan, as_json=as_json)
     sys.exit(EXIT_IN_AGREEMENT if plan['in_agreement'] else EXIT_CHANGES_PENDING)
 
 
-def _format_plan(plan: dict[str, Any]) -> list[str]:
+def _plan_for(schema_path: str, target: str) -> SchemaPlan:
+    plan: SchemaPlan = post('/api/schema/diff', {'schema_path': schema_path, 'target': target})
+    return plan
+
+
+def _format_plan(plan: SchemaPlan) -> list[str]:
     lines: list[str] = []
     for tbl in plan['tables']:
         action = 'no change' if tbl['action'] == 'noop' else tbl['action']
@@ -245,13 +249,13 @@ def _format_plan(plan: dict[str, Any]) -> list[str]:
     return lines
 
 
-def _severity_label(op: dict[str, Any]) -> str:
+def _severity_label(op: SchemaPlanOp) -> str:
     # an unmapped severity prints as itself: a category added later must not read as harmless here
     return _SEVERITY_LABELS.get(op['severity'], op['severity'].upper())
 
 
 def _prune(schema_path: str, target: str, *, as_json: bool, force: bool, dry_run: bool) -> None:
-    plan = post('/api/schema/diff', {'schema_path': schema_path, 'target': target})
+    plan = _plan_for(schema_path, target)
     extras = plan['extras']
     if len(extras) == 0:
         if as_json:
@@ -282,34 +286,50 @@ def _prune(schema_path: str, target: str, *, as_json: bool, force: bool, dry_run
     _prune_output(resp, as_json=as_json, verb='dropped')
 
 
-def _prune_output(plan: dict[str, Any], *, as_json: bool, verb: str) -> None:
+def _prune_output(plan: SchemaPlan, *, as_json: bool, verb: str) -> None:
     if as_json:
         print(json.dumps(plan, indent=2))
         return
     for op in plan['ops']:
-        print(f'{verb} {op["path"]}')
+        print(f'{verb} {op["name"]}')
 
 
 def _update(
     schema_path: str, target: str, *, as_json: bool, force: bool, dry_run: bool, allow_destructive: bool
 ) -> None:
-    # plan first, so that destructive changes can be refused or confirmed before anything is applied. This plan
-    # is advisory: it is a separate read from the one the apply acts on.
-    plan = post('/api/schema/diff', {'schema_path': schema_path, 'target': target})
     if dry_run:
+        plan = _plan_for(schema_path, target)
         _set_statuses(plan, destructive='skipped', other='skipped')
         _diff_output(plan, as_json=as_json)
         sys.exit(EXIT_IN_AGREEMENT if plan['in_agreement'] else EXIT_CHANGES_PENDING)
 
+    # the plan is read up front only to decide whether to proceed: with destructive operations already permitted
+    # and confirmation waived, there is nothing left to decide
+    if not (allow_destructive and force):
+        _decide_update(schema_path, target, as_json=as_json, force=force, allow_destructive=allow_destructive)
+
+    applied = post(
+        '/api/schema/update', {'schema_path': schema_path, 'target': target, 'allow_destructive': allow_destructive}
+    )
+    _update_output(applied, as_json=as_json)
+
+
+def _decide_update(schema_path: str, target: str, *, as_json: bool, force: bool, allow_destructive: bool) -> None:
+    """Reports the pending plan and exits, unless applying it is permitted.
+
+    Exits 0 if there is nothing to apply, and 3 if the plan is destructive and that was neither permitted nor
+    confirmed. Returning means the plan may be applied; it is advisory, being a separate read from the one the
+    apply acts on.
+    """
+    plan = _plan_for(schema_path, target)
     if plan['in_agreement']:
-        if as_json:
-            print(json.dumps(plan, indent=2))
-        else:
-            print('catalog is up to date')
+        _update_output(plan, as_json=as_json)
         sys.exit(EXIT_IN_AGREEMENT)
 
     destructive = plan['summary']['destructive']
-    if destructive > 0 and not allow_destructive:
+    if destructive == 0:
+        return
+    if not allow_destructive:
         _set_statuses(plan, destructive='refused', other='skipped')
         _diff_output(plan, as_json=as_json)
         print(
@@ -317,21 +337,21 @@ def _update(
             file=sys.stderr,
         )
         sys.exit(EXIT_REFUSED)
-    if destructive > 0:
-        confirm_or_exit(f'apply {destructive} destructive operation(s)?', force, refused_exit_code=EXIT_REFUSED)
+    confirm_or_exit(f'apply {destructive} destructive operation(s)?', force, refused_exit_code=EXIT_REFUSED)
 
-    resp = post(
-        '/api/schema/update', {'schema_path': schema_path, 'target': target, 'allow_destructive': allow_destructive}
-    )
 
+def _update_output(plan: SchemaPlan, *, as_json: bool) -> None:
     if as_json:
-        print(json.dumps(resp, indent=2))
+        print(json.dumps(plan, indent=2))
         return
-    for tbl in resp['tables']:
+    if plan['in_agreement']:
+        print('catalog is up to date')
+        return
+    for tbl in plan['tables']:
         print(f'{_APPLIED_LABELS[tbl["action"]]:9s} {tbl["path"]}')
 
 
-def _set_statuses(plan: dict[str, Any], *, destructive: str, other: str) -> None:
+def _set_statuses(plan: SchemaPlan, *, destructive: OpStatus, other: OpStatus) -> None:
     """Puts a status on every table and operation of the plan.
 
     Destructive operations take the destructive status, the rest take the other one, and a table takes the
@@ -343,7 +363,7 @@ def _set_statuses(plan: dict[str, Any], *, destructive: str, other: str) -> None
         tbl['status'] = destructive if any(op['destructive'] for op in tbl['ops']) else other
 
 
-def _diff_output(plan: dict[str, Any], *, as_json: bool) -> None:
+def _diff_output(plan: SchemaPlan, *, as_json: bool) -> None:
     if as_json:
         print(json.dumps(plan, indent=2))
         return
