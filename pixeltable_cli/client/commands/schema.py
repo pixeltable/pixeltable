@@ -1,5 +1,6 @@
 import json
 import sys
+import textwrap
 from pathlib import Path
 from typing import Any
 
@@ -8,23 +9,31 @@ from ..confirm import confirm_or_exit
 from ..http import post
 from ..parser import Parser
 
-# the schema-file skeleton, shown by every verb: without it, the shape of a model file has to be guessed
-_SCHEMA_FILE = """\
+# a working schema file: written verbatim by 'pxt schema example', and shown indented in every verb's epilog,
+# because otherwise the shape of a model file has to be guessed
+_EXAMPLE_SCHEMA = """\
+import pixeltable as pxt
+import pixeltable.functions as pxtf
+
+TableModel = pxt.model_base()
+
+
+class Docs(TableModel, name='docs'):
+    title: pxt.Required[pxt.String]           # a stored column; without Required it is nullable
+    body: pxt.String
+    title_upper = pxtf.string.upper(title)    # a computed column: an assignment, not an annotation
+
+
+class Titled(TableModel, name='titled', base=Docs.where(Docs.title != '')):
+    headline = Docs.title_upper + '!'         # a view of Docs, filtered by its base= query
+"""
+
+_SCHEMA_FILE = f"""\
 Schema file:
-  A Python module defining one or more models on a pxt.model_base():
+  A Python module defining one or more models on a pxt.model_base(). To start from this one, run
+  'pxt schema example'.
 
-    import pixeltable as pxt
-    import pixeltable.functions as pxtf
-
-    TableModel = pxt.model_base()
-
-    class Docs(TableModel, name='docs'):
-        title: pxt.Required[pxt.String]           # a stored column; without Required it is nullable
-        body: pxt.String
-        title_upper = pxtf.string.upper(title)    # a computed column: an assignment, not an annotation
-
-    class Titled(TableModel, name='titled', base=Docs.where(Docs.title != '')):
-        headline = Docs.title_upper + '!'         # a view of Docs, filtered by its base= query
+{textwrap.indent(_EXAMPLE_SCHEMA.rstrip(), '    ')}
 
   Each model becomes one table under TARGET, named by name=."""
 
@@ -103,7 +112,19 @@ Notes:
 
 {_SCHEMA_FILE}"""
 
-VERBS = ['diff', 'update', 'prune']
+EXAMPLE_EPILOG = f"""\
+Examples:
+  pxt schema example                       # print it
+  pxt schema example --out schema.py       # write it, then edit and apply
+  pxt schema example --out schema.py && pxt schema update schema.py my_app
+
+Notes:
+  The file is a working schema: applying it as-is creates the tables it declares.
+  'pxt schema pull' is the counterpart for a database that already exists.
+
+{_SCHEMA_FILE}"""
+
+VERBS = ['diff', 'update', 'prune', 'example']
 
 # exit status: whether the target already matches the schema is reported here, not only in the output
 EXIT_IN_AGREEMENT = 0
@@ -129,17 +150,24 @@ def run(argv: list[str]) -> None:
     if len(argv) == 0 or argv[0] in ('-h', '--help'):
         print(
             'usage: pxt schema <verb> SCHEMA TARGET [options]\n\nverbs:\n'
-            '  diff    show the changes that update would make; exit 2 if any are pending\n'
-            '  update  create and migrate the tables the schema declares under TARGET\n'
-            '  prune   drop the tables under TARGET that the schema does not declare\n\n'
+            '  diff     show the changes that update would make; exit 2 if any are pending\n'
+            '  update   create and migrate the tables the schema declares under TARGET\n'
+            '  prune    drop the tables under TARGET that the schema does not declare\n'
+            '  example  write a working schema file to start from (takes no SCHEMA/TARGET)\n\n'
             'SCHEMA is a Python file defining models on a pxt.model_base(); TARGET is a catalog\n'
-            "directory or a pxt:// URI. Run 'pxt schema diff --help' for the file's shape."
+            "directory or a pxt:// URI. Run 'pxt schema example' for a file to start from."
         )
         sys.exit(EXIT_IN_AGREEMENT if len(argv) > 0 else EXIT_ERROR)
     verb = argv[0]
     if verb not in VERBS:
         print(f'pxt schema: unknown verb: {verb} (available: {", ".join(VERBS)})', file=sys.stderr)
         sys.exit(EXIT_ERROR)
+
+    if verb == 'example':
+        ap = Parser(prog='pxt schema example', epilog=EXAMPLE_EPILOG, usage_exit_code=EXIT_ERROR)
+        ap.add_argument('--out', help='write to this file instead of standard output')
+        _example(ap.parse_args(argv[1:]).out)
+        return
 
     epilogs = {'diff': DIFF_EPILOG, 'update': UPDATE_EPILOG, 'prune': PRUNE_EPILOG}
     # a usage error exits EXIT_ERROR, not argparse's 2, which here means that changes are pending
@@ -161,7 +189,11 @@ def run(argv: list[str]) -> None:
 
     path = Path(args.schema)
     if not path.is_file():
-        print(f'pxt schema {verb}: schema file not found: {args.schema}', file=sys.stderr)
+        print(
+            f'pxt schema {verb}: schema file not found: {args.schema}\n'
+            "run 'pxt schema example' for a file to start from",
+            file=sys.stderr,
+        )
         sys.exit(EXIT_ERROR)
     schema_path = str(path.resolve())
 
@@ -178,6 +210,14 @@ def run(argv: list[str]) -> None:
             dry_run=args.dry_run,
             allow_destructive=args.allow_destructive,
         )
+
+
+def _example(out: str | None) -> None:
+    if out is None:
+        sys.stdout.write(_EXAMPLE_SCHEMA)
+        return
+    Path(out).write_text(_EXAMPLE_SCHEMA, encoding='utf-8')
+    print(f'wrote {out}')
 
 
 def _diff(schema_path: str, target: str, *, as_json: bool) -> None:

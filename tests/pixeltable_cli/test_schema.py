@@ -304,18 +304,13 @@ class TestSchema:
         assert "the following depend on it: 'keep/derived'" in r.stderr
         assert pxt.get_table(f'{target}/raw') is not None
 
-    def test_documented_schema_file(
-        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
-    ) -> None:
+    def test_example(self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         p = make_catalog_path
-
-        # the schema file that --help shows has to be one that actually works
-        help_text = cli('schema', 'diff', '--help').stdout
-        body = help_text.split('Schema file:')[1]
-        src = dedent('\n'.join(line for line in body.split('\n') if line.startswith('    ')))
-        schema_file = tmp_path / 'documented.py'
-        schema_file.write_text(src)
         target = p('documented')
+
+        # the file the command emits has to be one that actually works
+        schema_file = tmp_path / 'example.py'
+        schema_file.write_text(cli('schema', 'example').stdout)
 
         r = cli('schema', 'update', str(schema_file), target)
         assert r.stdout.count('created') == 2
@@ -323,9 +318,18 @@ class TestSchema:
         docs.insert([{'title': 'hello', 'body': 'world'}, {'title': '', 'body': 'untitled'}])
         titled = pxt.get_table(f'{target}/titled')
         assert titled.select(titled.headline).collect()['headline'] == ['HELLO!']
+        assert cli('schema', 'diff', str(schema_file), target).returncode == 0
 
-        r = cli('schema', 'diff', str(schema_file), target)
-        assert r.returncode == 0
+        # --out writes the same bytes to a file
+        out_file = tmp_path / 'out.py'
+        r = cli('schema', 'example', '--out', str(out_file))
+        assert f'wrote {out_file}' in r.stdout
+        assert out_file.read_text() == schema_file.read_text()
+
+        # the file is reachable from wherever an agent lands: the verb list, and every verb's help
+        assert 'example' in cli('schema', check=False).stdout
+        for verb in ('diff', 'update', 'prune', 'example'):
+            assert "'pxt schema example'" in cli('schema', verb, '--help').stdout
 
     def test_diff_unsupported(
         self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path

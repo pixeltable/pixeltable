@@ -317,12 +317,18 @@ The commands above act on one object at a time. `pxt schema` works differently: 
 | `pxt schema diff SCHEMA TARGET` | Show what `update` would change. Read-only |
 | `pxt schema update SCHEMA TARGET` | Create the tables the schema declares under `TARGET`, and migrate existing ones |
 | `pxt schema prune SCHEMA TARGET` | Drop the tables under `TARGET` that the schema does not declare |
+| `pxt schema example` | Write a working schema file to start from |
 
 `SCHEMA` is a path to a Python file. `TARGET` is a catalog directory or a `pxt://` URI; it is created by `update` if it doesn't exist.
 
 ### The schema file
 
-A schema file defines one or more models on a `pxt.model_base()`. Each model becomes one table, named by `name=`:
+A schema file defines one or more models on a `pxt.model_base()`. Each model becomes one table, named by `name=`. `pxt schema example` writes the file below, so you never have to start from a blank page:
+
+```bash
+pxt schema example --out schema.py
+```
+
 
 ```python
 import pixeltable as pxt

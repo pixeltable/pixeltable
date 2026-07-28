@@ -610,7 +610,10 @@ def _load_model_bases(schema_path: str) -> list[TableModelMeta]:
         v for v in vars(module).values() if isinstance(v, TableModelMeta) and '__registered_models__' in v.__dict__
     ]
     if len(bases) == 0:
-        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'no model_base() found in {schema_path}')
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f"no model_base() found in {schema_path}; run 'pxt schema example' for a file to start from",
+        )
     return bases
 
 

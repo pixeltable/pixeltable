@@ -6,7 +6,7 @@ import logging
 import random
 import time
 from collections import defaultdict
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Mapping, TypeVar
 from uuid import UUID, uuid4
@@ -2200,7 +2200,7 @@ class Catalog(CatalogBase):
             raise excs.table_was_dropped(tbl_id)
         return schema.Table(**row._mapping)
 
-    def _tbl_paths_str(self, tbl_ids: Collection[UUID], max_paths: int = 5) -> str:
+    def _tbl_paths_str(self, tbl_ids: Sequence[UUID], max_paths: int = 5) -> str:
         """The paths of the given tables, comma-separated, for use in an error message.
 
         Reads the stored records directly rather than loading each table, so that it is usable at any point in a
