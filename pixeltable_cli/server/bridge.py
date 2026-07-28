@@ -617,7 +617,7 @@ def _load_model_bases(schema_path: str) -> list[TableModelMeta]:
     return bases
 
 
-# the plan's operation kind for a SchemaChange, keyed by its (target, op)
+# the plan's operation kind for a SchemaChangeOp, keyed by its (target, op)
 _OP_KINDS: dict[tuple[str, str], str] = {
     ('column', 'add'): 'add_column',
     ('column', 'drop'): 'drop_column',
@@ -668,7 +668,7 @@ def _schema_plan(bases: list[TableModelMeta], schema_path: str, target: str) -> 
         for diff in base.get_model_diff(target).values():
             action = _ACTIONS[diff['resolution']]
             # a create subsumes the additions that constitute it, so only a migration enumerates operations
-            changes = diff['changes'] if action in ('update', 'unsupported') else []
+            diff_ops = diff['ops'] if action in ('update', 'unsupported') else []
             ops: list[SchemaPlanOp] = [
                 {
                     'kind': _OP_KINDS[c['target'], c['op']],
@@ -678,7 +678,7 @@ def _schema_plan(bases: list[TableModelMeta], schema_path: str, target: str) -> 
                     'description': c['description'],
                     'details': c['details'],
                 }
-                for c in changes
+                for c in diff_ops
             ]
             tables.append(
                 {

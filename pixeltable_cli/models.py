@@ -188,9 +188,9 @@ class SchemaDiffBody(BaseModel):
 # The schema-plan models below type the responses that carry a schema plan; utils.SchemaPlan documents the format
 # itself. Two mappings out of catalog.model are hand-written and have to be changed together with it:
 #   - `action` here <-> bridge._ACTIONS, keyed by catalog.model.DiffResolution
-#   - an op's `kind` <-> bridge._OP_KINDS, keyed by (SchemaChange.target, SchemaChange.op)
+#   - an op's `kind` <-> bridge._OP_KINDS, keyed by (SchemaChangeOp.target, SchemaChangeOp.op)
 # Both fail loudly on a mismatch: a KeyError in the bridge, or pydantic rejecting the response. An op's `severity`
-# passes through from SchemaChange unvalidated, and commands/schema.py:_severity_label() renders it.
+# passes through from SchemaChangeOp unvalidated, and commands/schema.py:_severity_label() renders it.
 
 
 class SchemaPlanOp(BaseModel):

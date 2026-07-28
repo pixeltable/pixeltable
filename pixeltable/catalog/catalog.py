@@ -1776,46 +1776,46 @@ class Catalog(CatalogBase):
                 explicit_tbl_id=tbl_id,
             )
 
-    def update_from_model(self, schema_changes: list[model.TableSchemaChange]) -> None:
+    def update_from_model(self, change_sets: list[model.TableSchemaChangeSet]) -> None:
         """Update tables/views from declarative models.
 
         If the table does not exist, raises NotFoundError. If the model is incompatible with the existing table,
         raises RequestError.
 
-        Requires that schema_changes is ordered topologically, ie, base tables precede their views.
+        Requires that change_sets is ordered topologically, ie, base tables precede their views.
         """
         # fault point:
         # - the diff that produced updates was computed in an earlier read transaction
         # - this call applies it in a later write transaction
         fault_injection.process_fault(FaultLocation.CATALOG_UPDATE_FROM_MODEL_BEFORE_APPLY)
-        tbl_ids = [schema_change['tbl_id'] for schema_change in schema_changes]
+        tbl_ids = [change_set['tbl_id'] for change_set in change_sets]
 
         @retry_loop(for_write=True, write_tbl_ids=tbl_ids, lock_mutable_tree=True)
         def update_fn() -> None:
             tbls = [self.get_table_by_id(tbl_id, ignore_if_dropped=True) for tbl_id in tbl_ids]
             # check for tables that were dropped since the diff was computed
-            for tbl, schema_change in zip(tbls, schema_changes):
+            for tbl, change_set in zip(tbls, change_sets):
                 if tbl is None:
                     raise excs.ConcurrencyError(
                         excs.ErrorCode.CONCURRENT_MODIFICATION,
-                        f'Table {str(schema_change["path"])!r} was dropped since update_all() computed its changes; '
+                        f'Table {str(change_set["path"])!r} was dropped since update_all() computed its changes; '
                         'please re-run update_all().',
                     )
 
             # make sure that the tables to which we're applying the schema changes still have the same schema as
             # of the time we computed the diff
-            for tbl, schema_change in zip(tbls, schema_changes):
+            for tbl, change_set in zip(tbls, change_sets):
                 assert tbl is not None  # checked above
-                if tbl._tbl_version_path.schema_versions() != schema_change['schema_versions']:
+                if tbl._tbl_version_path.schema_versions() != change_set['schema_versions']:
                     raise excs.ConcurrencyError(
                         excs.ErrorCode.CONCURRENT_MODIFICATION,
-                        f'Table {str(schema_change["path"])!r} saw schema changes since update_all() computed '
+                        f'Table {str(change_set["path"])!r} saw schema changes since update_all() computed '
                         'its changes; re-run update_all().',
                     )
 
-            # (tbl_version_path, tbl_version, TableSchemaChange) tuple for each table in the model update
+            # (tbl_version_path, tbl_version, TableSchemaChangeSet) tuple for each table in the model update
             tbl_info = list(
-                zip((tbl._tbl_version_path for tbl in tbls), (tbl._tbl_version.get() for tbl in tbls), schema_changes)
+                zip((tbl._tbl_version_path for tbl in tbls), (tbl._tbl_version.get() for tbl in tbls), change_sets)
             )
 
             # validate all columns that get dropped, either explicitly or implicitly:
@@ -1823,9 +1823,9 @@ class Catalog(CatalogBase):
             # - value columns of explicitly dropped indices
             # - value columns of implicitly dropped indices (= the indexed column was dropped)
             dropped_col_set: set[Column] = set()
-            for _, tv, schema_change in tbl_info:
-                dropped_idxs = [tv.idxs_by_name[name] for name in schema_change['dropped_idxs']]
-                for name in schema_change['dropped_columns']:
+            for _, tv, change_set in tbl_info:
+                dropped_idxs = [tv.idxs_by_name[name] for name in change_set['dropped_idxs']]
+                for name in change_set['dropped_columns']:
                     col = tv.cols_by_name[name]
                     dropped_col_set.add(col)
                     dropped_idxs.extend(tv.idxs_by_col.get(col.qid, []))
@@ -1861,10 +1861,10 @@ class Catalog(CatalogBase):
                         'Drop those first, or remove them from their models.',
                     )
 
-            for _, tv, schema_change in tbl_info:
-                for idx_name in schema_change['dropped_idxs']:
+            for _, tv, change_set in tbl_info:
+                for idx_name in change_set['dropped_idxs']:
                     check_column_dependents(tv.idxs_by_name[idx_name], 'index')
-                for name in schema_change['dropped_columns']:
+                for name in change_set['dropped_columns']:
                     check_column_dependents(tv.cols_by_name[name], 'column')
 
             # check for dependent view predicates
@@ -1899,22 +1899,22 @@ class Catalog(CatalogBase):
             # new column: the view's resolution sees the base's already-mutated columns through tvp.columns().
             updated_tbl_ids = {tvp.tbl_id for tvp, _, _ in tbl_info}
             applied_tbl_ids: set[UUID] = set()
-            for tvp, tv, schema_change in tbl_info:
+            for tvp, tv, change_set in tbl_info:
                 # make sure we're doing this in base -> view order
                 pending_ancestor_ids = (set(tvp.tbl_ids[1:]) & updated_tbl_ids) - applied_tbl_ids
                 assert len(pending_ancestor_ids) == 0, f'{tv.name}: bases not yet applied: {pending_ancestor_ids}'
 
                 added_cols, added_idxs = model.prepare_model_updates(
-                    tvp, tv.display_str(), schema_change['new_columns'], schema_change['new_idxs']
+                    tvp, tv.display_str(), change_set['new_columns'], change_set['new_idxs']
                 )
-                dropped_cols = [tv.cols_by_name[name] for name in schema_change['dropped_columns']]
-                dropped_idx_ids = [tv.idxs_by_name[name].id for name in schema_change['dropped_idxs']]
-                expected_schema_version = schema_change['schema_versions'][schema_change['tbl_id']]
+                dropped_cols = [tv.cols_by_name[name] for name in change_set['dropped_columns']]
+                dropped_idx_ids = [tv.idxs_by_name[name].id for name in change_set['dropped_idxs']]
+                expected_schema_version = change_set['schema_versions'][change_set['tbl_id']]
                 _logger.info(
                     f'Applying model updates to {tv.name!r} (id={tv.id}, schema_versions={expected_schema_version}): '
-                    f'add columns {[col.name for col in added_cols]}, drop columns {schema_change["dropped_columns"]}, '
+                    f'add columns {[col.name for col in added_cols]}, drop columns {change_set["dropped_columns"]}, '
                     f'add indexes {[spec.idx_name for spec in added_idxs]}, '
-                    f'drop indexes {schema_change["dropped_idxs"]}'
+                    f'drop indexes {change_set["dropped_idxs"]}'
                 )
                 tv.apply_schema_change(expected_schema_version, added_cols, dropped_cols, added_idxs, dropped_idx_ids)
                 applied_tbl_ids.add(tvp.tbl_id)
@@ -1930,9 +1930,7 @@ class Catalog(CatalogBase):
                 q = sql.select(schema.Table.id).where(schema.Table.id.in_(tbl_ids))
                 live_tbl_ids = {row.id for row in conn.execute(q)}
             missing = [
-                repr(str(schema_change['path']))
-                for schema_change in schema_changes
-                if schema_change['tbl_id'] not in live_tbl_ids
+                repr(str(change_set['path'])) for change_set in change_sets if change_set['tbl_id'] not in live_tbl_ids
             ]
             if len(missing) == 0:
                 raise  # not about a table of this update

@@ -917,7 +917,7 @@ class TestTableModel:
                 'kind': 'table',
                 'exists': True,
                 'resolution': 'unsupported',
-                'changes': [
+                'ops': [
                     {
                         'target': 'table',
                         'name': 'comment',
@@ -1048,7 +1048,7 @@ class TestTableModel:
                 'kind': 'view',
                 'exists': True,
                 'resolution': 'unsupported',
-                'changes': [
+                'ops': [
                     {
                         'target': 'table',
                         'name': 'iterator',
@@ -1108,7 +1108,7 @@ class TestTableModel:
                 'kind': 'view',
                 'exists': True,
                 'resolution': 'unsupported',
-                'changes': [
+                'ops': [
                     {
                         'target': 'table',
                         'name': 'view_filter',
@@ -1169,7 +1169,7 @@ class TestTableModel:
                 'kind': 'table',
                 'exists': True,
                 'resolution': 'unsupported',
-                'changes': [
+                'ops': [
                     {
                         'target': 'table',
                         'name': 'kind',
@@ -1208,7 +1208,7 @@ class TestTableModel:
                 'kind': 'table',
                 'exists': False,
                 'resolution': 'create',
-                'changes': [
+                'ops': [
                     {
                         'target': 'column',
                         'name': 'data',

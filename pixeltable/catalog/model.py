@@ -873,7 +873,7 @@ def prepare_model(
     return iterator, additional_cols, resolved_idxs
 
 
-class TableSchemaChange(TypedDict):
+class TableSchemaChangeSet(TypedDict):
     """
     Schema change operations applied to a single table.
 
@@ -1006,9 +1006,9 @@ def prepare_model_updates(
     return resolved_cols, resolved_idxs
 
 
-class SchemaChange(TypedDict):
+class SchemaChangeOp(TypedDict):
     """
-    Record of the difference between a model and the catalog.
+    A single schema change operation (eg, add column, drop column, etc).
 
     target, op and severity below are also part of the CLI's wire format:
     - pixeltable_cli.server.bridge maps them to the operation kinds of a schema plan
@@ -1017,14 +1017,17 @@ class SchemaChange(TypedDict):
     """
 
     target: Literal['column', 'index', 'table']
+
     # column name, index name, or for 'table', the differing attribute:
     # 'kind' | 'iterator' | 'view_filter' | 'view_sample' | 'media_validation' | 'comment' | 'custom_metadata'
     name: str
+
     op: Literal['add', 'drop', 'alter']
     severity: Literal['additive', 'destructive', 'unsupported']
     model: Any | None  # model-side value; None for drops
     existing: Any | None  # catalog-side value; None for adds
     description: str
+
     # the change's operands, rendered as strings so they survive serialization: 'type' or 'value' for a column add,
     # 'on' for an index add. Empty when the change has no operand beyond name.
     details: dict[str, str]
@@ -1043,7 +1046,7 @@ class TableDiff(TypedDict):
     kind: Literal['table', 'view']
     exists: bool
     resolution: DiffResolution
-    changes: list[SchemaChange]
+    ops: list[SchemaChangeOp]
 
     # identity of the existing table, as of the read this diff was computed from; None if it doesn't exist yet
     tbl_id: UUID | None
@@ -1057,13 +1060,13 @@ class TableDiff(TypedDict):
 _TABLE_PROP_NAMES: tuple[str, ...] = ('media_validation', 'comment', 'custom_metadata')
 
 
-def _resolution(exists: bool, changes: list[SchemaChange]) -> DiffResolution:
-    """Reduce a table's list of changes to the single action `update_all()` would take."""
+def _resolution(exists: bool, ops: list[SchemaChangeOp]) -> DiffResolution:
+    """Reduce a table's list of operations to the single action `update_all()` would take."""
     if not exists:
         return 'create'
-    if len(changes) == 0:
+    if len(ops) == 0:
         return 'up_to_date'
-    severities = {change['severity'] for change in changes}
+    severities = {op['severity'] for op in ops}
     if 'unsupported' in severities:
         return 'unsupported'
     if 'destructive' in severities:
@@ -1184,12 +1187,12 @@ def _format_column_spec(spec: ColumnSpec) -> str:
     return '{' + ', '.join(parts) + '}'
 
 
-def _add_column_change(col_name: str, spec: ColumnSpec) -> SchemaChange:
+def _add_column_change(col_name: str, spec: ColumnSpec) -> SchemaChangeOp:
     details = {'type': _col_type_from_spec(spec)._to_str(as_schema=True)}
     value = spec.get('value')
     if value is not None:
         details['value'] = exprs.Expr.from_object(value).display_str(inline=False)
-    return SchemaChange(
+    return SchemaChangeOp(
         target='column',
         name=col_name,
         op='add',
@@ -1201,11 +1204,11 @@ def _add_column_change(col_name: str, spec: ColumnSpec) -> SchemaChange:
     )
 
 
-def _add_index_change(idx_name: str, idx: EmbeddingIndex) -> SchemaChange:
+def _add_index_change(idx_name: str, idx: EmbeddingIndex) -> SchemaChangeOp:
     # str(), not .name: a ModelColumnRef renders as its bare column name, and a spec holding anything else
     # is reported as it stands rather than dropped from the plan
     details = {'on': str(idx.column)}
-    return SchemaChange(
+    return SchemaChangeOp(
         target='index',
         name=idx_name,
         op='add',
@@ -1247,19 +1250,19 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
             bound_path = f'{binding_root}{name}'
             existing = model._resolve_tbl(binding_root, if_not_exists='ignore')
 
-            changes: list[SchemaChange]
+            ops: list[SchemaChangeOp]
 
             if existing is None:
                 # The table does not yet exist; every column and index is an addition.
-                changes = [_add_column_change(col_name, user_cols[col_name]) for col_name in sorted(model_cols)]
-                changes += [_add_index_change(idx_name, model.__indexes__[idx_name]) for idx_name in sorted(model_idxs)]
+                ops = [_add_column_change(col_name, user_cols[col_name]) for col_name in sorted(model_cols)]
+                ops += [_add_index_change(idx_name, model.__indexes__[idx_name]) for idx_name in sorted(model_idxs)]
                 results[name] = TableDiff(
                     path=bound_path,
                     model_cls=model.__name__,
                     kind=model_kind,
                     exists=False,
-                    resolution=_resolution(False, changes),
-                    changes=changes,
+                    resolution=_resolution(False, ops),
+                    ops=ops,
                     tbl_id=None,
                     schema_versions=None,
                 )
@@ -1279,12 +1282,12 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
                 idx_name for idx_name, info in existing_md['indices'].items() if info['index_type'] == 'embedding'
             }
 
-            changes = []
+            ops = []
 
             # Structural mismatches (kind/iterator/filter/sample); each is unsupported (requires a manual migration).
             if model_kind != existing_md['kind']:
-                changes.append(
-                    SchemaChange(
+                ops.append(
+                    SchemaChangeOp(
                         target='table',
                         name='kind',
                         op='alter',
@@ -1303,8 +1306,8 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
                 ('view_sample', model_sample, existing_md['view_sample']),
             ):
                 if model_val != existing_val:
-                    changes.append(
-                        SchemaChange(
+                    ops.append(
+                        SchemaChangeOp(
                             target='table',
                             name=attr,
                             op='alter',
@@ -1323,8 +1326,8 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
                 model_val = getattr(model_table_props, prop)
                 existing_val = getattr(existing_table_props, prop)
                 if model_val != existing_val:
-                    changes.append(
-                        SchemaChange(
+                    ops.append(
+                        SchemaChangeOp(
                             target='table',
                             name=prop,
                             op='alter',
@@ -1348,8 +1351,8 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
                     if getattr(model_props, prop) != getattr(existing_props, prop)
                 ]
                 if len(altered) > 0:
-                    changes.append(
-                        SchemaChange(
+                    ops.append(
+                        SchemaChangeOp(
                             target='column',
                             name=col_name,
                             op='alter',
@@ -1363,10 +1366,10 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
 
             # Additive/destructive column and index changes.
             for col_name in sorted(model_cols - existing_cols):
-                changes.append(_add_column_change(col_name, user_cols[col_name]))
+                ops.append(_add_column_change(col_name, user_cols[col_name]))
             for col_name in sorted(existing_cols - model_cols):
-                changes.append(
-                    SchemaChange(
+                ops.append(
+                    SchemaChangeOp(
                         target='column',
                         name=col_name,
                         op='drop',
@@ -1378,10 +1381,10 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
                     )
                 )
             for idx_name in sorted(model_idxs - existing_idxs):
-                changes.append(_add_index_change(idx_name, model.__indexes__[idx_name]))
+                ops.append(_add_index_change(idx_name, model.__indexes__[idx_name]))
             for idx_name in sorted(existing_idxs - model_idxs):
-                changes.append(
-                    SchemaChange(
+                ops.append(
+                    SchemaChangeOp(
                         target='index',
                         name=idx_name,
                         op='drop',
@@ -1398,8 +1401,8 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
                 model_cls=model.__name__,
                 kind=model_kind,
                 exists=True,
-                resolution=_resolution(True, changes),
-                changes=changes,
+                resolution=_resolution(True, ops),
+                ops=ops,
                 tbl_id=tbl_path.tbl_id,
                 schema_versions=tbl_path.schema_versions(),
             )
@@ -1417,14 +1420,14 @@ def _format_diff(name: str, diff: TableDiff) -> list[str]:
             f'{kind.capitalize()} {name!r} (from model `{diff["model_cls"]}`) does not yet exist, and will be CREATED.'
         ]
 
-    changes = diff['changes']
-    if len(changes) == 0:
+    ops = diff['ops']
+    if len(ops) == 0:
         return []
 
-    def by(target: str, op: str | None = None, names: tuple[str, ...] | None = None) -> list[SchemaChange]:
+    def by(target: str, op: str | None = None, names: tuple[str, ...] | None = None) -> list[SchemaChangeOp]:
         return [
             c
-            for c in changes
+            for c in ops
             if c['target'] == target and (op is None or c['op'] == op) and (names is None or c['name'] in names)
         ]
 
@@ -1584,13 +1587,13 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
 
         if len(update_diffs) > 0:
             binding_root = TableModelMeta._normalize_binding_root(binding_root)
-            schema_changes: list[TableSchemaChange] = []
+            change_sets: list[TableSchemaChangeSet] = []
             for name, d in update_diffs:
                 model = registered_models[name]
-                new_col_names = {c['name'] for c in d['changes'] if c['target'] == 'column' and c['op'] == 'add'}
-                dropped_col_names = [c['name'] for c in d['changes'] if c['target'] == 'column' and c['op'] == 'drop']
-                new_idx_names = [c['name'] for c in d['changes'] if c['target'] == 'index' and c['op'] == 'add']
-                dropped_idx_names = [c['name'] for c in d['changes'] if c['target'] == 'index' and c['op'] == 'drop']
+                new_col_names = {c['name'] for c in d['ops'] if c['target'] == 'column' and c['op'] == 'add'}
+                dropped_col_names = [c['name'] for c in d['ops'] if c['target'] == 'column' and c['op'] == 'drop']
+                new_idx_names = [c['name'] for c in d['ops'] if c['target'] == 'index' and c['op'] == 'add']
+                dropped_idx_names = [c['name'] for c in d['ops'] if c['target'] == 'index' and c['op'] == 'drop']
                 # Resolve `type` annotations to ColumnTypes, mirroring `_create()`, and tag each column's origin.
                 # Iterate in declaration order (not the diff's sorted order), so a new column may depend on an
                 # earlier new column, as it can at create time.
@@ -1612,8 +1615,8 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
 
                 # only an existing table is updated, so the diff recorded what it was computed against
                 assert d['tbl_id'] is not None and d['schema_versions'] is not None
-                schema_changes.append(
-                    TableSchemaChange(
+                change_sets.append(
+                    TableSchemaChangeSet(
                         path=catalog.Path.parse(f'{binding_root}{name}'),
                         new_columns=new_columns,
                         dropped_columns=dropped_col_names,
@@ -1625,8 +1628,8 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                 )
 
             # All models share `binding_root`, hence a single catalog; apply every table's changes in one transaction.
-            cat = get_runtime().get_catalog(schema_changes[0]['path'])
-            cat.update_from_model(schema_changes)
+            cat = get_runtime().get_catalog(change_sets[0]['path'])
+            cat.update_from_model(change_sets)
 
         # Now create any new tables, and bind every model to its table. The diff computed above is the one being
         # applied, so the models it found up-to-date are not re-examined against the catalog.

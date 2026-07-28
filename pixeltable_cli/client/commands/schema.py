@@ -138,7 +138,7 @@ _ACTION_MARKERS = {'create': '+', 'update': '~', 'noop': '=', 'unsupported': '!'
 # since applying it raises
 _APPLIED_LABELS = {'create': 'created', 'update': 'updated', 'noop': 'unchanged'}
 
-# how an operation's severity reads; the keys are catalog.model.SchemaChange's severities
+# how an operation's severity reads; the keys are catalog.model.SchemaChangeOp's severities
 _SEVERITY_LABELS = {'additive': 'safe', 'destructive': 'DESTRUCTIVE', 'unsupported': 'UNSUPPORTED'}
 
 # the marker introducing an operation's line, by kind; anything else is an in-place change
