@@ -20,7 +20,14 @@ from .utils import dummy_embedding, pxt_raises
 
 ROOT = ''
 
-CATALOG_CHANGED = r'Catalog changed since update_all\(\) computed its changes'
+
+def schema_changed(tbl_name: str) -> str:
+    """The drift error update_all() raises when tbl_name changed since the diff."""
+    return rf"Table '{tbl_name}' saw schema changes since update_all\(\) computed its changes"
+
+
+# a dropped table and one dropped and recreated at the same path are indistinguishable by id: both are gone
+TABLE_GONE = r"Table 'test_table' was dropped or replaced since update_all\(\) computed its changes"
 
 
 def _run_with_concurrent_apply(
@@ -68,7 +75,7 @@ class TestConcurrentModelUpdate:
 
     @pytest.mark.parametrize('family', ['update_all', 'single_op'])
     def test_add_column_name_collision(self, uses_db: None, fault_injection: None, family: str) -> None:
-        """A1: thread 0 adds column `x`; a concurrent change adds a column also named `x`."""
+        """A1: thread 0 adds column x; a concurrent change adds a column also named x."""
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
@@ -98,12 +105,12 @@ class TestConcurrentModelUpdate:
             t = Base.table
             concurrent = lambda: t.add_computed_column(x=t.value + 100)
 
-        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=CATALOG_CHANGED):
+        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=schema_changed('test_table')):
             _run_with_concurrent_apply(lambda: TM2.update_all(ROOT), concurrent)
 
     @pytest.mark.parametrize('family', ['update_all', 'single_op'])
     def test_add_index_name_collision(self, uses_db: None, fault_injection: None, family: str) -> None:
-        """A2: thread 0 adds index `ix`; a concurrent change adds an index also named `ix`."""
+        """A2: thread 0 adds index ix; a concurrent change adds an index also named ix."""
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
@@ -133,12 +140,12 @@ class TestConcurrentModelUpdate:
             t = Base.table
             concurrent = lambda: t.add_embedding_index('text', idx_name='ix', embedding=dummy_embedding.using(n=512))
 
-        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=CATALOG_CHANGED):
+        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=schema_changed('test_table')):
             _run_with_concurrent_apply(lambda: TM2.update_all(ROOT), concurrent)
 
     @pytest.mark.parametrize('family', ['update_all', 'single_op'])
     def test_view_add_shadows_base_add(self, uses_db: None, fault_injection: None, family: str) -> None:
-        """A3: thread 0 adds a view column `x`; a concurrent change adds a column named `x` to the BASE.
+        """A3: thread 0 adds a view column x; a concurrent change adds a column named x to the BASE.
 
         A view column shadows a base column of the same name, so the end state here is well-defined and is what
         running the two changes in sequence produces. The update aborts anyway: the base's schema version is part of
@@ -180,12 +187,12 @@ class TestConcurrentModelUpdate:
             bt = Base.table
             concurrent = lambda: bt.add_computed_column(x=bt.value + 100)
 
-        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=CATALOG_CHANGED):
+        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=schema_changed('test_view')):
             _run_with_concurrent_apply(lambda: TM2.update_all(ROOT), concurrent)
 
     @pytest.mark.parametrize('family', ['update_all', 'single_op'])
     def test_add_col_on_dropped_col(self, uses_db: None, fault_injection: None, family: str) -> None:
-        """A4a: thread 0 adds a computed column referencing `extra`; a concurrent change drops `extra`."""
+        """A4a: thread 0 adds a computed column referencing extra; a concurrent change drops extra."""
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
@@ -216,7 +223,7 @@ class TestConcurrentModelUpdate:
             t = Base.table
             concurrent = lambda: t.drop_column('extra')
 
-        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=CATALOG_CHANGED):
+        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=schema_changed('test_table')):
             _run_with_concurrent_apply(lambda: TM2.update_all(ROOT), concurrent)
 
     @pytest.mark.parametrize('retyped_as', [pxt.String, pxt.Int], ids=['incompatible', 'compatible'])
@@ -226,8 +233,8 @@ class TestConcurrentModelUpdate:
         - thread 0 adds a view column computed from a base column
         - thread 1 drops that base column and re-adds it under the same name with a different type.
 
-        Only the base's schema version moves, so the view's own version cannot detect this. `vc2` resolves its
-        reference to `value` by name at apply time and binds to the replacement column: a physically different column
+        Only the base's schema version moves, so the view's own version cannot detect this. vc2 resolves its
+        reference to value by name at apply time and binds to the replacement column: a physically different column
         than the one the diff was computed against, holding no data.
         """
         TM = pxt.model_base()
@@ -258,13 +265,13 @@ class TestConcurrentModelUpdate:
             t.drop_column('value')
             t.add_column(value=retyped_as)
 
-        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=CATALOG_CHANGED):
+        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=schema_changed('test_view')):
             _run_with_concurrent_apply(lambda: TM2.update_all(ROOT), retype_base_col)
         assert 'vc2' not in pxt.get_table('test_view').columns()
 
     @pytest.mark.parametrize('family', ['update_all', 'single_op'])
     def test_add_index_on_dropped_col(self, uses_db: None, fault_injection: None, family: str) -> None:
-        """A5: thread 0 adds an index on `text`; a concurrent change drops `text`."""
+        """A5: thread 0 adds an index on text; a concurrent change drops text."""
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
@@ -292,12 +299,12 @@ class TestConcurrentModelUpdate:
             t = Base.table
             concurrent = lambda: t.drop_column('text')
 
-        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=CATALOG_CHANGED):
+        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=schema_changed('test_table')):
             _run_with_concurrent_apply(lambda: TM2.update_all(ROOT), concurrent)
 
     @pytest.mark.parametrize('family', ['update_all', 'single_op'])
     def test_conflicting_drop_column(self, uses_db: None, fault_injection: None, family: str) -> None:
-        """B1: thread 0 drops column `x`; a concurrent change already dropped `x`."""
+        """B1: thread 0 drops column x; a concurrent change already dropped x."""
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
@@ -326,12 +333,12 @@ class TestConcurrentModelUpdate:
             t = Base.table
             concurrent = lambda: t.drop_column('x')
 
-        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=CATALOG_CHANGED):
+        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=schema_changed('test_table')):
             _run_with_concurrent_apply(lambda: TM2.update_all(ROOT, allow_destructive=True), concurrent)
 
     @pytest.mark.parametrize('family', ['update_all', 'single_op'])
     def test_conflicting_drop_index(self, uses_db: None, fault_injection: None, family: str) -> None:
-        """B2: thread 0 drops index `ix`; a concurrent change already dropped `ix`."""
+        """B2: thread 0 drops index ix; a concurrent change already dropped ix."""
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
@@ -360,13 +367,13 @@ class TestConcurrentModelUpdate:
             t = Base.table
             concurrent = lambda: t.drop_embedding_index(idx_name='ix')
 
-        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=CATALOG_CHANGED):
+        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=schema_changed('test_table')):
             _run_with_concurrent_apply(lambda: TM2.update_all(ROOT, allow_destructive=True), concurrent)
 
     def test_drop_renamed_column(self, uses_db: None, fault_injection: None) -> None:
-        """B3 (single_op only): thread 0 drops column `x`; a concurrent change renames `x` -> `y`.
+        """B3 (single_op only): thread 0 drops column x; a concurrent change renames x -> y.
 
-        The dropped name no longer exists, and skipping the drop would leave `y` as an undeclared column; the update
+        The dropped name no longer exists, and skipping the drop would leave y as an undeclared column; the update
         must fail rather than silently leave the catalog inconsistent with the model.
         """
         TM = pxt.model_base()
@@ -386,14 +393,14 @@ class TestConcurrentModelUpdate:
             value: pxt.Float
 
         t = Base.table
-        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=CATALOG_CHANGED):
+        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=schema_changed('test_table')):
             _run_with_concurrent_apply(
                 lambda: TM2.update_all(ROOT, allow_destructive=True), lambda: t.rename_column('x', 'y')
             )
 
     @pytest.mark.parametrize('family', ['update_all', 'single_op'])
     def test_drop_column_with_new_dependent(self, uses_db: None, fault_injection: None, family: str) -> None:
-        """B4: thread 0 drops column `x`; a concurrent change adds a dependent that references `x`."""
+        """B4: thread 0 drops column x; a concurrent change adds a dependent that references x."""
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
@@ -433,17 +440,17 @@ class TestConcurrentModelUpdate:
             v = View.table
             concurrent = lambda: v.add_computed_column(dep=Base.table.x + 1)
 
-        # Dropping `x` must be blocked while a live column depends on it. The dependent lives in the view, so the
+        # Dropping x must be blocked while a live column depends on it. The dependent lives in the view, so the
         # base table's schema version is unchanged and the CAS doesn't fire; the dependents check does.
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             match=r"Column 'x' was removed from the model for 'test_table', but cannot be dropped "
-            r'because the following columns depend on it:\ndep',
+            r'because the following depend on it:\ndep',
         ):
             _run_with_concurrent_apply(lambda: TM2.update_all(ROOT, allow_destructive=True), concurrent)
 
     def test_drop_index_with_new_dependent(self, uses_db: None, fault_injection: None) -> None:
-        """B5 (single_op only): thread 0 drops index `ix`; a concurrent change adds a view column that references it."""
+        """B5 (single_op only): thread 0 drops index ix; a concurrent change adds a view column that references it."""
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
@@ -470,7 +477,7 @@ class TestConcurrentModelUpdate:
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             match=r"Index 'ix' was removed from the model for 'test_table', but cannot be dropped "
-            r'because the following columns depend on it:\ndep',
+            r'because the following depend on it:\ndep',
         ):
             _run_with_concurrent_apply(
                 lambda: TM2.update_all(ROOT, allow_destructive=True),
@@ -499,11 +506,11 @@ class TestConcurrentModelUpdate:
             value: pxt.Float
             x = value + 1
 
-        with pxt_raises(excs.ErrorCode.PATH_NOT_FOUND, match=r"Path 'test_table' does not exist"):
+        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=TABLE_GONE):
             _run_with_concurrent_apply(lambda: TM2.update_all(ROOT), lambda: pxt.drop_table('test_table'))
 
     def test_drop_recreate_table(self, uses_db: None, fault_injection: None) -> None:
-        """C2: thread 0 drops column `x`; a concurrent change drops and recreates the table (new tbl_id) without `x`."""
+        """C2: thread 0 drops column x; a concurrent change drops and recreates the table (new tbl_id) without x."""
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
@@ -524,7 +531,7 @@ class TestConcurrentModelUpdate:
             pxt.drop_table('test_table')
             pxt.create_table('test_table', {'id': pxt.Required[pxt.Int], 'value': pxt.Float})
 
-        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=r"Table 'test_table' was replaced since"):
+        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=TABLE_GONE):
             _run_with_concurrent_apply(lambda: TM2.update_all(ROOT, allow_destructive=True), recreate)
 
     def test_move_base(self, uses_db: None, fault_injection: None) -> None:
@@ -589,7 +596,7 @@ class TestConcurrentModelUpdate:
 
     @pytest.mark.parametrize('family', ['update_all', 'single_op'])
     def test_disjoint_adds(self, uses_db: None, fault_injection: None, family: str) -> None:
-        """D1: thread 0 adds column `x`; a concurrent change adds a disjoint column `y` to the same table."""
+        """D1: thread 0 adds column x; a concurrent change adds a disjoint column y to the same table."""
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
@@ -619,7 +626,7 @@ class TestConcurrentModelUpdate:
             t = Base.table
             concurrent = lambda: t.add_computed_column(y=t.value + 2)
 
-        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=CATALOG_CHANGED):
+        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=schema_changed('test_table')):
             _run_with_concurrent_apply(lambda: TM2.update_all(ROOT), concurrent)
         cols = pxt.get_table('test_table').columns()
         assert 'x' not in cols and 'y' in cols
@@ -651,7 +658,7 @@ class TestConcurrentModelUpdate:
 
     @pytest.mark.parametrize('family', ['update_all', 'single_op'])
     def test_disjoint_drops(self, uses_db: None, fault_injection: None, family: str) -> None:
-        """D3: thread 0 drops column `x`; a concurrent change drops a disjoint column `y` from the same table."""
+        """D3: thread 0 drops column x; a concurrent change drops a disjoint column y from the same table."""
         TM = pxt.model_base()
 
         class Base(TM, name='test_table'):
@@ -680,7 +687,7 @@ class TestConcurrentModelUpdate:
             t = Base.table
             concurrent = lambda: t.drop_column('y')
 
-        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=CATALOG_CHANGED):
+        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=schema_changed('test_table')):
             _run_with_concurrent_apply(lambda: TM2.update_all(ROOT, allow_destructive=True), concurrent)
         cols = pxt.get_table('test_table').columns()
         assert 'x' in cols and 'y' not in cols
@@ -781,9 +788,9 @@ class TestConcurrentModelUpdate:
             value: pxt.Float
             x = value + 1
 
-        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=CATALOG_CHANGED):
+        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=schema_changed('test_table')):
             _run_with_concurrent_apply(lambda: TM2.update_all(ROOT), lambda: TMc.update_all(ROOT))
-        # the concurrent actor's `x` is the only one; thread 0's abort added nothing on top of it
+        # the concurrent actor's x is the only one; thread 0's abort added nothing on top of it
         t = pxt.get_table('test_table')
         assert 'x' in t.columns()
         res = t.order_by(t.id).select(t.x).collect()
@@ -824,7 +831,7 @@ class TestConcurrentModelUpdate:
             t = Base.table
             concurrent = lambda: t.add_embedding_index('text', idx_name='ix', embedding=dummy_embedding.using(n=768))
 
-        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=CATALOG_CHANGED):
+        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=schema_changed('test_table')):
             _run_with_concurrent_apply(lambda: TM2.update_all(ROOT), concurrent)
         md = pxt.get_table('test_table').get_metadata()
         assert 'x' not in md['columns']

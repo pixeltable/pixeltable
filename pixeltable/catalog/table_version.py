@@ -6,7 +6,7 @@ import itertools
 import logging
 import time
 import warnings
-from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, cast
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -25,7 +25,7 @@ from pixeltable.runtime import get_runtime
 from pixeltable.utils.object_stores import ObjectOps
 
 from .column import Column
-from .globals import _ROWID_COLUMN_NAME, MediaValidation, QColumnId, TableVersionMd, is_valid_identifier
+from .globals import _ROWID_COLUMN_NAME, IndexSpec, MediaValidation, QColumnId, TableVersionMd, is_valid_identifier
 from .tbl_ops import (
     CreateColumnMdOp,
     CreateStoreColumnsOp,
@@ -239,7 +239,7 @@ class TableVersion:
         create_default_idxs: bool,
         view_md: schema.ViewMd | None,
         is_versioned: bool,
-        additional_idxs: list[tuple[Column, str | None, index.IndexBase]],
+        additional_idxs: list[IndexSpec],
     ) -> TableVersionMd:
         from .table_version_handle import TableVersionHandle
 
@@ -263,7 +263,7 @@ class TableVersion:
                 exprs.ColumnRefByName(col.name),
                 exprs.ColumnRef(
                     col.column_version_md(),
-                    perform_validation=col.effective_media_validation(media_validation) == MediaValidation.ON_READ,
+                    perform_validation=(col._media_validation or media_validation) == MediaValidation.ON_READ,
                 ),
             )
             for col in cols
@@ -285,18 +285,26 @@ class TableVersion:
 
         # Merge default indexes and additional indexes into a manifest of indexes to create.
         index_md: dict[int, schema.IndexMd] = {}
-        idxs_to_create: list[tuple[Column, str | None, index.IndexBase]] = []
+        idxs_to_create: list[IndexSpec] = []
         if create_default_idxs and (view_md is None or not view_md.is_snapshot):
-            idxs_to_create.extend((col, None, index.BtreeIndex()) for col in cols if cls._is_btree_indexable(col))
+            idxs_to_create.extend(
+                IndexSpec(col, None, index.BtreeIndex()) for col in cols if cls._is_btree_indexable(col)
+            )
 
         # an index on a column of this table must reference the instance in cols, which is the one that got an id
         # above; an index on a base column references that column directly
         own_cols = {id(col) for col in cols}
-        assert all(id(col) in own_cols for col, _, _ in additional_idxs if col.tbl_handle.id == tbl_id)
+        assert all(isinstance(spec.indexed_column, Column) for spec in additional_idxs)
+        assert all(
+            id(spec.indexed_column) in own_cols
+            for spec in additional_idxs
+            if cast(Column, spec.indexed_column).tbl_handle.id == tbl_id
+        )
         idxs_to_create.extend(additional_idxs)
 
         index_cols: list[Column] = []
         for idx_col, idx_name, idx in idxs_to_create:
+            assert isinstance(idx_col, Column)
             val_col, undo_col = Column.create_index_columns(
                 tbl_handle, idx_col, idx, next(column_ids), next(column_ids), 0
             )
@@ -968,7 +976,7 @@ class TableVersion:
         expected_schema_version: int,
         added_cols: list[Column],
         dropped_cols: list[Column],
-        added_idxs: list[tuple[Column, str | None, index.IndexBase]],
+        added_idxs: list[IndexSpec],
         dropped_idx_ids: list[int],
     ) -> UpdateStatus:
         """Apply multiple column and index add/drop operations as a single new schema version.
@@ -1001,6 +1009,7 @@ class TableVersion:
         if len(added_cols) > 0:
             status += self._add_columns_with_refs(added_cols)
         for col, idx_name, idx in added_idxs:
+            assert isinstance(col, Column)
             status += self._add_index(col, idx_name, idx)
 
         self.set_version_update_status(status)

@@ -530,7 +530,7 @@ class TestComponentView:
         v2 = pxt.create_view(p('child_view'), v, additional_columns={'derived': v.scol + '_suffix'})
         # nested iterator child view: a second iterator runs on each row of v.
         # The inner iterator's outputs (icol/scol/acol/pos) have the same names as v's and shadow them, so v3's
-        # icol/scol/pos are the inner iterator's; `derived` identifies the row of v that each one came from.
+        # icol/scol/pos are the inner iterator's; derived identifies the row of v that each one came from.
         v3 = pxt.create_view(
             p('child_iterator_view'),
             v,

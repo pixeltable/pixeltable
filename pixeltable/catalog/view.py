@@ -14,7 +14,7 @@ from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 
 from .column import Column
-from .globals import MediaValidation
+from .globals import IndexSpec, MediaValidation
 from .local_table import LocalTable
 from .table_path import TableVersionPath
 from .table_version import TableVersion, TableVersionKey, TableVersionMd
@@ -23,7 +23,6 @@ from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, LoadViewOp, TableOp, T
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
-    from pixeltable import index
     from pixeltable.globals import TableDataSource
     from pixeltable.plan import SampleClause
 
@@ -89,7 +88,7 @@ class View(LocalTable):
         custom_metadata: Any,
         media_validation: MediaValidation,
         iterator_call: func.GeneratingFunctionCall | None,
-        additional_idxs: list[tuple[str, str | None, index.IndexBase]],
+        additional_idxs: list[IndexSpec],
     ) -> tuple[TableVersionMd, list[TableOp] | None]:
         from pixeltable.exprs import InlineDict
 
@@ -142,7 +141,10 @@ class View(LocalTable):
         if include_base_columns:
             for col in base.columns():
                 cols_by_name.setdefault(col.name, col)
-        resolved_idxs = [(cols_by_name[col_name], idx_name, idx) for col_name, idx_name, idx in additional_idxs]
+        resolved_idxs: list[IndexSpec] = []
+        for idx_spec in additional_idxs:
+            assert isinstance(idx_spec.indexed_column, str)
+            resolved_idxs.append(idx_spec._replace(indexed_column=cols_by_name[idx_spec.indexed_column]))
 
         # verify that filters can be evaluated in the context of the base
         if predicate is not None:

@@ -30,7 +30,7 @@ from pixeltable.utils.fault_injection import FaultLocation
 from .catalog_base import CatalogBase
 from .column import Column
 from .dir import Dir
-from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation, QColumnId
+from .globals import DirEntry, IfExistsParam, IfNotExistsParam, IndexSpec, MediaValidation, QColumnId
 from .insertable_table import InsertableTable
 from .local_table import LocalTable
 from .path import ROOT_PATH, Path
@@ -1529,7 +1529,7 @@ class Catalog(CatalogBase):
         media_validation: MediaValidation,
         create_default_idxs: bool,
         is_versioned: bool,
-        additional_idxs: list[tuple[str, str | None, 'index.IndexBase']] | None = None,
+        additional_idxs: list[IndexSpec] | None = None,
         explicit_tbl_id: UUID | None = None,
     ) -> tuple[LocalTable, bool]:
         import pixeltable.metadata.schema
@@ -1634,7 +1634,7 @@ class Catalog(CatalogBase):
         custom_metadata: Any,
         media_validation: MediaValidation,
         if_exists: IfExistsParam,
-        additional_idxs: list[tuple[str, str | None, 'index.IndexBase']] | None = None,
+        additional_idxs: list[IndexSpec] | None = None,
         explicit_tbl_id: UUID | None = None,
     ) -> tuple[LocalTable, bool]:
         assert explicit_tbl_id is None or if_exists == IfExistsParam.ERROR
@@ -1722,11 +1722,11 @@ class Catalog(CatalogBase):
 
         A model's column value expressions can contain placeholder references to other columns in the same table.
         Those references arrive as
-        `ColumnRefByName`s and are substituted here, in the catalog that owns `path`, so they never have to
-        be resolved across a proxy boundary. `base`, when present (i.e. this is a view), is an already-bound Query
+        ColumnRefByNames and are substituted here, in the catalog that owns path, so they never have to
+        be resolved across a proxy boundary. base, when present (i.e. this is a view), is an already-bound Query
         over the existing base table.
 
-        Returns `(table, was_created)`.
+        Returns (table, was_created).
         """
         # We allocate the table id up front so that self-referential ColumnRefs (built below) point at it; since
         # this runs in the catalog that owns the table, no such reference ever needs to be serialized.
@@ -1734,7 +1734,7 @@ class Catalog(CatalogBase):
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
 
         iterator, additional_cols, resolved_idxs = model.prepare_model(
-            tbl_handle, columns, display_name, media_validation, iterator, base, embedding_idxs
+            tbl_handle, columns, display_name, iterator, base, embedding_idxs
         )
 
         # If the table already exists, rebind to it and report that nothing was created.
@@ -1777,85 +1777,97 @@ class Catalog(CatalogBase):
             )
 
     def update_from_model(self, schema_changes: list[model.TableSchemaChange]) -> None:
-        """Update a table or view from a declarative model.
+        """Update tables/views from declarative models.
 
         If the table does not exist, raises NotFoundError. If the model is incompatible with the existing table,
         raises RequestError.
+
+        Requires that schema_changes is ordered topologically, ie, base tables precede their views.
         """
         # fault point:
         # - the diff that produced updates was computed in an earlier read transaction
         # - this call applies it in a later write transaction
         fault_injection.process_fault(FaultLocation.CATALOG_UPDATE_FROM_MODEL_BEFORE_APPLY)
-        tbls = [self.get_table(schema_change['path'], IfNotExistsParam.ERROR) for schema_change in schema_changes]
+        tbl_ids = [schema_change['tbl_id'] for schema_change in schema_changes]
 
-        # A table dropped and recreated at the same path since the diff has a new tbl_id; its schema versions are not
-        # comparable to the snapshotted ones, so reject rather than apply the diff to a different table.
-        for tbl, schema_change in zip(tbls, schema_changes):
-            if tbl._tbl_version_path.tbl_id != schema_change['expected_tbl_id']:
-                raise excs.ConcurrencyError(
-                    excs.ErrorCode.CONCURRENT_MODIFICATION,
-                    f'Table {str(schema_change["path"])!r} was replaced since update_all() computed its changes; '
-                    're-run update_all().',
-                )
-
-        @retry_loop(for_write=True, write_tvps=[tbl._tbl_version_path for tbl in tbls], lock_mutable_tree=True)
+        @retry_loop(for_write=True, write_tbl_ids=tbl_ids, lock_mutable_tree=True)
         def update_fn() -> None:
+            tbls = [self.get_table_by_id(tbl_id, ignore_if_dropped=True) for tbl_id in tbl_ids]
+            # check for tables that were dropped since the diff was computed
+            for tbl, schema_change in zip(tbls, schema_changes):
+                if tbl is None:
+                    raise excs.ConcurrencyError(
+                        excs.ErrorCode.CONCURRENT_MODIFICATION,
+                        f'Table {str(schema_change["path"])!r} was dropped since update_all() computed its changes; '
+                        'please re-run update_all().',
+                    )
+
+            # make sure that the tables to which we're applying the schema changes still have the same schema as
+            # of the time we computed the diff
+            for tbl, schema_change in zip(tbls, schema_changes):
+                assert tbl is not None  # checked above
+                if tbl._tbl_version_path.schema_versions() != schema_change['schema_versions']:
+                    raise excs.ConcurrencyError(
+                        excs.ErrorCode.CONCURRENT_MODIFICATION,
+                        f'Table {str(schema_change["path"])!r} saw schema changes since update_all() computed '
+                        'its changes; re-run update_all().',
+                    )
+
             # (tbl_version_path, tbl_version, TableSchemaChange) tuple for each table in the model update
             tbl_info = list(
                 zip((tbl._tbl_version_path for tbl in tbls), (tbl._tbl_version.get() for tbl in tbls), schema_changes)
             )
 
-            # Reject if the catalog changed since the diff was computed: every table in each update's version path
-            # (the table and its ancestors) must still be at its snapshotted schema version. This runs before any
-            # mutation, so a later table's drift can't abort only after an earlier table's backfill has run.
-            for schema_change in schema_changes:
-                for tbl_id, expected_schema_version in schema_change['expected_versions'].items():
-                    live_tv = self._get_tbl_version(TableVersionKey(tbl_id, None))
-                    if live_tv.schema_version != expected_schema_version:
-                        raise excs.ConcurrencyError(
-                            excs.ErrorCode.CONCURRENT_MODIFICATION,
-                            'Catalog changed since update_all() computed its changes; re-run update_all().',
-                        )
-
-            # Validate all drops against the current catalog, before making any schema changes: the validation sees a
-            # consistent state and drop order (within and across tables) is irrelevant. A column whose only remaining
-            # dependents are themselves being dropped is allowed.
+            # validate all columns that get dropped, either explicitly or implicitly:
+            # - explicitly dropped columns
+            # - value columns of explicitly dropped indices
+            # - value columns of implicitly dropped indices (= the indexed column was dropped)
             dropped_col_set: set[Column] = set()
             for _, tv, schema_change in tbl_info:
-                dropped_col_set.update(tv.cols_by_name[name] for name in schema_change['dropped_columns'])
+                dropped_idxs = [tv.idxs_by_name[name] for name in schema_change['dropped_idxs']]
+                for name in schema_change['dropped_columns']:
+                    col = tv.cols_by_name[name]
+                    dropped_col_set.add(col)
+                    dropped_idxs.extend(tv.idxs_by_col.get(col.qid, []))
+                for idx_info in dropped_idxs:
+                    dropped_col_set.update([idx_info.val_col, idx_info.undo_col])
+
+            def dependent_str(c: Column) -> str:
+                """How a column that blocks a drop is named in the error, which is by index if it belongs to one."""
+                # all user-visible columns have a name
+                if c.name is not None:
+                    return c.name
+                tv = c.get_tbl()
+                idx_info = next((i for i in tv.idxs.values() if c.id == i.val_col.id), None)
+                assert idx_info is not None
+                return f'index {idx_info.name!r} on {tv.name!r}'
 
             def check_column_dependents(
-                tbl_id: UUID,
-                col_id: int,
-                drop_target: Literal['Index', 'Column'],
-                drop_target_name: str,
-                model_name: str,
+                dropped: Column | TableVersion.IndexInfo, drop_target: Literal['index', 'column']
             ) -> None:
+                col = dropped.val_col if isinstance(dropped, TableVersion.IndexInfo) else dropped
+                # we exclude dependents that themselves are being dropped
                 remaining_dependents = [
-                    c
-                    for c in self.get_column_dependents(tbl_id, col_id)
-                    if c.name is not None and c not in dropped_col_set
+                    c for c in self.get_column_dependents(col.get_tbl().id, col.id) if c not in dropped_col_set
                 ]
                 if len(remaining_dependents) > 0:
+                    # sorted() for a deterministic error message
+                    detail = ', '.join(sorted(dependent_str(c) for c in remaining_dependents))
                     raise excs.RequestError(
                         excs.ErrorCode.UNSUPPORTED_OPERATION,
-                        f'{drop_target} {drop_target_name!r} was removed from the model for {model_name!r}, but '
-                        'cannot be dropped because the following columns depend on it:\n'
-                        f'{", ".join(c.name for c in remaining_dependents)}\n'
-                        'Drop those columns first, or remove them from their models.',
+                        f'{drop_target.capitalize()} {dropped.name!r} was removed from the model for '
+                        f'{col.get_tbl().name!r}, '
+                        f'but cannot be dropped because the following depend on it:\n{detail}\n'
+                        'Drop those first, or remove them from their models.',
                     )
 
             for _, tv, schema_change in tbl_info:
                 for idx_name in schema_change['dropped_idxs']:
-                    val_col = tv.idxs_by_name[idx_name].val_col
-                    check_column_dependents(val_col.get_tbl().id, val_col.id, 'Index', idx_name, tv.name)
+                    check_column_dependents(tv.idxs_by_name[idx_name], 'index')
                 for name in schema_change['dropped_columns']:
-                    col = tv.cols_by_name[name]
-                    check_column_dependents(tv.id, col.id, 'Column', name, tv.name)
+                    check_column_dependents(tv.cols_by_name[name], 'column')
 
-            # check for dependent view predicates; a view can only reference columns on its base path, so the
-            # candidates are the mutable views of the updated tables (deduplicated: an updated table's views are also
-            # the views of any updated ancestor)
+            # check for dependent view predicates
             mutable_views = {view_tv.id: view_tv for _, tv, _ in tbl_info for view_tv in self._mutable_view_tvs(tv)}
             views_by_qid = {
                 col_ref.col_md.qcolid: view_tv
@@ -1882,7 +1894,7 @@ class Catalog(CatalogBase):
                 )
 
             # Apply per table in forward order (base tables first), so a view's new column can reference a base's
-            # new column: the view's resolution sees the base's already-mutated columns through `tvp.columns()`.
+            # new column: the view's resolution sees the base's already-mutated columns through tvp.columns().
             updated_tbl_ids = {tvp.tbl_id for tvp, _, _ in tbl_info}
             applied_tbl_ids: set[UUID] = set()
             for tvp, tv, schema_change in tbl_info:
@@ -1895,11 +1907,33 @@ class Catalog(CatalogBase):
                 )
                 dropped_cols = [tv.cols_by_name[name] for name in schema_change['dropped_columns']]
                 dropped_idx_ids = [tv.idxs_by_name[name].id for name in schema_change['dropped_idxs']]
-                expected_schema_version = schema_change['expected_versions'][schema_change['expected_tbl_id']]
+                expected_schema_version = schema_change['schema_versions'][schema_change['tbl_id']]
                 tv.apply_schema_change(expected_schema_version, added_cols, dropped_cols, added_idxs, dropped_idx_ids)
                 applied_tbl_ids.add(tvp.tbl_id)
 
-        update_fn()
+        try:
+            update_fn()
+        except excs.NotFoundError as e:
+            # a table identified by the diff may no longer exist: it was dropped, or dropped and recreated at the
+            # same path, which gives it a new id. Report the ones that are gone by path, not by internal id.
+            # The store is queried directly: a Table cached from before the drop still answers get_table_by_id().
+            with self.begin_xact(for_write=False):
+                conn = get_runtime().conn
+                q = sql.select(schema.Table.id).where(schema.Table.id.in_(tbl_ids))
+                live_tbl_ids = {row.id for row in conn.execute(q)}
+            missing = [
+                repr(str(schema_change['path']))
+                for schema_change in schema_changes
+                if schema_change['tbl_id'] not in live_tbl_ids
+            ]
+            if len(missing) == 0:
+                raise  # not about a table of this update
+            subject = f'Table {missing[0]}' if len(missing) == 1 else f'Tables {", ".join(missing)}'
+            verb = 'was' if len(missing) == 1 else 'were'
+            raise excs.ConcurrencyError(
+                excs.ErrorCode.CONCURRENT_MODIFICATION,
+                f'{subject} {verb} dropped or replaced since update_all() computed its changes; re-run update_all().',
+            ) from e
 
     def add_columns(self, tbl: TableVersionPath, cols: list[Column]) -> None:
         @retry_loop(for_write=True, write_tvps=[tbl], lock_mutable_tree=False)

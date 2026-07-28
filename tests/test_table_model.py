@@ -41,7 +41,7 @@ class TestTableModel:
             incr = value + 1  # computed column
             descr = pxtf.string.format('Name: {name}', name=name)
 
-            # Test all the custom `Column` properties
+            # Test all the custom Column properties
             column_with_special_props = Column(
                 type=pxt.Video,
                 media_validation='on_read',
@@ -444,8 +444,8 @@ class TestTableModel:
             TableModel.create_all(p(root))
 
         # Create analogous tables/views using the "direct construction" method and verify that the schemas (columns
-        # and indices) align with the model-based ones. (The models default to `create_default_idxs=True`, including
-        # for views, whereas `pxt.create_view()` defaults to `False`; pass it explicitly to match.)
+        # and indices) align with the model-based ones. (The models default to create_default_idxs=True, including
+        # for views, whereas pxt.create_view() defaults to False; pass it explicitly to match.)
         tbl2 = pxt.create_table(
             p(f'{prefix}test_table_2'),
             {'id': pxt.Required[pxt.Int], 'name': pxt.String, 'value': pxt.Float, 'img': pxt.Image},
@@ -594,7 +594,7 @@ class TestTableModel:
         assert len(view.order_by(sim, asc=False).limit(1).collect()) == 1
 
     def test_view_model_iterator_column_shadows_base(self, make_catalog_path: Callable[[str], str]) -> None:
-        """An iterator output shadows a base column of the same name, so the model's `text` is the chunk text
+        """An iterator output shadows a base column of the same name, so the model's text is the chunk text
         throughout: the column, the index declared on it, and queries against it."""
         skip_test_if_not_installed('spacy')
         p = make_catalog_path
@@ -602,7 +602,7 @@ class TestTableModel:
 
         class ExampleTableModel(TableModel, name='test_table'):
             id: pxt.Required[pxt.Int]
-            text: pxt.String  # the document text; shadowed in the view by the iterator's `text` output
+            text: pxt.String  # the document text; shadowed in the view by the iterator's text output
 
         class ExampleViewModel(
             TableModel,
@@ -673,7 +673,7 @@ class TestTableModel:
             iterator=pxtf.image.tile_iterator(ExampleTableModel.image, (256, 256)),
         ):
             view_col_1 = ExampleTableModel.value + 1
-            view_col_2 = tile.rotate(90)  # type: ignore[name-defined]  # `tile` is defined by the iterator
+            view_col_2 = tile.rotate(90)  # type: ignore[name-defined]  # tile is defined by the iterator
 
         class ExampleViewModelFromQuery(
             TableModel,
@@ -691,8 +691,8 @@ class TestTableModel:
         view_from_query = ExampleViewModelFromQuery.table
 
         # Create analogous tables/views using the "direct construction" method and verify that the schemas (columns
-        # and indices) align with the model-based ones. (The models default to `create_default_idxs=True`, including
-        # for views, whereas `pxt.create_view()` defaults to `False`; pass it explicitly to match.)
+        # and indices) align with the model-based ones. (The models default to create_default_idxs=True, including
+        # for views, whereas pxt.create_view() defaults to False; pass it explicitly to match.)
         tbl2 = pxt.create_table(
             p('test_table_2'), {'id': pxt.Required[pxt.Int], 'name': pxt.String, 'value': pxt.Float, 'image': pxt.Image}
         )
@@ -731,18 +731,18 @@ class TestTableModel:
         )
 
     def test_diff_all(self, make_catalog_path: Callable[[str], str]) -> None:
-        """`diff_all()` reports added/dropped columns and an iterator mismatch against already-created tables."""
+        """diff_all() reports added/dropped columns and an iterator mismatch against already-created tables."""
         skip_test_if_not_installed('imagehash')
 
         p = make_catalog_path
         root = p('')
 
-        # A base with a table model and a view model, 4 columns each. `create_default_idxs=False` keeps the diff
-        # focused on columns and the iterator (default indexes are not part of a model's declared `__indexes__`).
+        # A base with a table model and a view model, 4 columns each. create_default_idxs=False keeps the diff
+        # focused on columns and the iterator (default indexes are not part of a model's declared __indexes__).
         TableModel = pxt.model_base()
 
-        # In V2, `test_table` exercises every alterable column property across a few kept columns: `score` (type),
-        # `image` (media_validation), and the computed `derived` (value expression, stored, comment, custom_metadata).
+        # In V2, test_table exercises every alterable column property across a few kept columns: score (type),
+        # image (media_validation), and the computed derived (value expression, stored, comment, custom_metadata).
         # It also changes table-level properties (comment, custom_metadata).
         class ExampleTable(
             TableModel, name='test_table', create_default_idxs=False, comment='before', custom_metadata={'origin': 'v1'}
@@ -1393,7 +1393,7 @@ class TestTableModel:
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             match=r"Column 'value' was removed from the model for 'test_table', but cannot be dropped "
-            r'because the following columns depend on it:\nvc1',
+            r'because the following depend on it:\nvc1',
         ):
             TableModelV2.update_all(p(''), allow_destructive=True)
 
@@ -1408,12 +1408,38 @@ class TestTableModel:
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             match=r"Index 'idx' was removed from the model for 'test_table', but cannot be dropped "
-            r'because the following columns depend on it:\nvc2',
+            r'because the following depend on it:\nvc2',
         ):
             TableModelV3.update_all(p(''), allow_destructive=True)
 
+    def test_drop_col_with_view_index(self, make_catalog_path: Callable[[str], str]) -> None:
+        """update_all() cannot drop a column that a view's index is built on."""
+        p = make_catalog_path
+        base = pxt.create_table(p('base_t'), {'c0': pxt.String, 'c1': pxt.String})
+        v = pxt.create_view(p('view_t'), base)
+        v.add_embedding_index('c0', idx_name='v_idx', embedding=dummy_embedding.using(n=32))
+
+        TableModel = pxt.model_base()
+
+        # the view isn't part of the model, so its index survives the update and still depends on the base column
+        class BaseV2(TableModel, name='base_t'):
+            c1: pxt.String
+
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r"Column 'c0' was removed from the model for 'base_t', but cannot be dropped "
+            r"because the following depend on it:\nindex 'v_idx' on 'view_t'",
+        ):
+            TableModel.update_all(p(''), allow_destructive=True)
+        assert 'c0' in pxt.get_table(p('base_t')).columns()
+
+        # dropping the index first unblocks it: nothing is left depending on the column
+        v.drop_embedding_index(idx_name='v_idx')
+        TableModel.update_all(p(''), allow_destructive=True)
+        assert pxt.get_table(p('base_t')).columns() == ['c1']
+
     def test_update_all_view_predicate(self, make_catalog_path: Callable[[str], str]) -> None:
-        """`update_all()` cannot drop a column that a view's predicate references."""
+        """update_all() cannot drop a column that a view's predicate references."""
         p = make_catalog_path
         TableModel = pxt.model_base()
 
@@ -1444,7 +1470,7 @@ class TestTableModel:
         assert 'value' in ExampleTable.table.columns()
 
     def test_table_model_errors(self, make_catalog_path: Callable[[str], str]) -> None:
-        """Reproduce each error condition raised by `pixeltable.catalog.model`."""
+        """Reproduce each error condition raised by pixeltable.catalog.model."""
         p = make_catalog_path
         TableModel = pxt.model_base()
 

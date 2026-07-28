@@ -206,7 +206,7 @@ class TestIterator:
         def schema(tbl: pxt.Table) -> dict[str, str]:
             return {name: col['type_'] for name, col in tbl.get_metadata()['columns'].items()}
 
-        # the iterator's `pos` and `scol` shadow the base table's columns of those names; `input` has no counterpart
+        # the iterator's pos and scol shadow the base table's columns of those names; input has no counterpart
         # among the outputs and stays visible
         assert schema(v) == {
             'pos': 'Required[Int]',

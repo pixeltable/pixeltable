@@ -52,7 +52,7 @@ class ColumnPropertyRef(Expr):
 
     def __repr__(self) -> str:
         # Render from the component directly (not `self.col_ref`, which requires a real `ColumnRef`): a pre-
-        # substitution model value expression may carry a placeholder `ColumnRefByName` here, which renders as its
+        # substitution model value expression may carry a placeholder ColumnRefByName here, which renders as its
         # bare column name, identically to the `ColumnRef` it stands in for.
         return f'{self.components[0]}.{self.prop.name.lower()}'
 

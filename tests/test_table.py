@@ -1436,30 +1436,30 @@ class TestTable:
             dict(r) for r in v.order_by(v.id, v.pos).collect()
         ]
 
-        # stacked iterators; the filter between the levels applies to the first level's component rows, and
-        # the second level's conflicting output columns are renamed
+        # stacked iterators; the filter between the levels applies to the first level's component rows, and the
+        # second level's pos/out1 shadow the first level's, which are no longer visible
         vv = pxt.create_view(p('test_compute_cv2'), v.where(v.out2 == 1), iterator=DummyIterator2(limit=v.out2 + 1))
         out = vv.compute([{'id': 2}, {'id': 3}])
-        assert out.column_names == ['id', 'plus1', 'pos', 'out1', 'out2', 'o2x2', 'pos_1', 'out1_1', 'out3']
-        expected_l1 = {'pos': 1, 'out1': 'str1', 'out2': 1, 'o2x2': 2}
+        assert out.column_names == ['id', 'plus1', 'out2', 'o2x2', 'pos', 'out1', 'out3']
+        expected_l1 = {'out2': 1, 'o2x2': 2}
         assert out == [
-            {'id': 2, 'plus1': 3, **expected_l1, 'pos_1': 0, 'out1_1': 'str0', 'out3': 0},
-            {'id': 2, 'plus1': 3, **expected_l1, 'pos_1': 1, 'out1_1': 'str1', 'out3': 1},
-            {'id': 3, 'plus1': 4, **expected_l1, 'pos_1': 0, 'out1_1': 'str0', 'out3': 0},
-            {'id': 3, 'plus1': 4, **expected_l1, 'pos_1': 1, 'out1_1': 'str1', 'out3': 1},
+            {'id': 2, 'plus1': 3, **expected_l1, 'pos': 0, 'out1': 'str0', 'out3': 0},
+            {'id': 2, 'plus1': 3, **expected_l1, 'pos': 1, 'out1': 'str1', 'out3': 1},
+            {'id': 3, 'plus1': 4, **expected_l1, 'pos': 0, 'out1': 'str0', 'out3': 0},
+            {'id': 3, 'plus1': 4, **expected_l1, 'pos': 1, 'out1': 'str1', 'out3': 1},
         ]
 
         # the output matches the stored view rows: id 2 was loaded when vv was created, id 3 propagates
         # from this insert
         t.insert([{'id': 3}])
-        assert out == [dict(r) for r in vv.order_by(vv.id, vv.pos_1).collect()]
+        assert out == [dict(r) for r in vv.order_by(vv.id, vv.pos).collect()]
 
         # id 1 expands to a single out2=0 component, so vv's out2==1 filter leaves no rows: an empty batch
         # that still carries the full schema
         out = vv.compute([{'id': 1}])
         assert isinstance(out, pxt.RowBatch)
         assert len(out) == 0
-        assert out.column_names == ['id', 'plus1', 'pos', 'out1', 'out2', 'o2x2', 'pos_1', 'out1_1', 'out3']
+        assert out.column_names == ['id', 'plus1', 'out2', 'o2x2', 'pos', 'out1', 'out3']
 
     def test_insert_return_rows_with_idx(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path

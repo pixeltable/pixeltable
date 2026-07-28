@@ -30,7 +30,7 @@ class ColumnRefByName(Expr):
         return f'ColumnRefByName({self.name!r})'
 
     def __str__(self) -> str:
-        # Render as a bare column name, identically to the `ColumnRef` this placeholder stands in for.
+        # Render as a bare column name, identically to the ColumnRef this placeholder stands in for.
         return self.name
 
     def _id_attrs(self) -> list[tuple[str, Any]]:

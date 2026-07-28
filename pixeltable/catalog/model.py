@@ -664,7 +664,7 @@ class TableModelMeta(type):
             base = table_spec['base']._bind(binding_root)
 
         # The model's own column specs, with `type` annotations resolved to ColumnTypes (so they're serializable
-        # for a proxied catalog). Computed `value` expressions still carry `ColumnRefByName`s referencing
+        # for a proxied catalog). Computed value expressions still carry ColumnRefByNames referencing
         # sibling and base columns; those are substituted by the catalog that owns the table (create_from_model).
         columns: dict[str, ColumnSpec] = {}
         for name, col_spec in cls.__columns__.items():
@@ -725,11 +725,10 @@ def prepare_model(
     tbl_handle: TableVersionHandle,
     columns: dict[str, ColumnSpec],
     display_name: str,
-    media_validation: MediaValidation,
     iterator: func.GeneratingFunctionCall | None,
     base: 'pxt.Query | None',
     embedding_idxs: dict[str, EmbeddingIndex],
-) -> tuple[func.GeneratingFunctionCall | None, list[catalog.Column], list[tuple[str, str | None, index.IndexBase]]]:
+) -> tuple[func.GeneratingFunctionCall | None, list[catalog.Column], list[catalog.IndexSpec]]:
     """
     Given model declarations in the form of columns, base, iterator, and embedding_idx specifications, along with
     the relevant metadata, assembles lists of additional columns and additional indices to be created in the table.
@@ -841,7 +840,7 @@ def prepare_model(
         subst_dict.pop(exprs.ColumnRefByName(name))
 
     # Resolve each declared embedding index against the model's visible columns.
-    resolved_idxs: list[tuple[str, str | None, index.IndexBase]] = []
+    resolved_idxs: list[catalog.IndexSpec] = []
     for idx_name, idx_spec in embedding_idxs.items():
         if not isinstance(idx_spec.column, exprs.ColumnRefByName):
             raise excs.RequestError(
@@ -865,7 +864,7 @@ def prepare_model(
             document_embed=idx_spec.document_embed,
             column=user_cols[col_name],
         )
-        resolved_idxs.append((col_name, idx_name, idx))
+        resolved_idxs.append(catalog.IndexSpec(col_name, idx_name, idx))
 
     return iterator, additional_cols, resolved_idxs
 
@@ -888,8 +887,8 @@ class TableSchemaChange(TypedDict):
 
     # tbl_id of the table to update, and {tbl_id: schema_version} for its version path, captured when the diff was
     # computed.
-    expected_tbl_id: UUID
-    expected_versions: dict[UUID, int]
+    tbl_id: UUID
+    schema_versions: dict[UUID, int]
 
 
 def prepare_model_updates(
@@ -897,7 +896,7 @@ def prepare_model_updates(
     display_name: str,
     new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]],
     new_idxs: dict[str, EmbeddingIndex],
-) -> tuple[list[catalog.Column], list[tuple[catalog.Column, str | None, index.IndexBase]]]:
+) -> tuple[list[catalog.Column], list[catalog.IndexSpec]]:
     """
     Given `new_columns` and `new_idxs` as declared by a model, resolves them into proper catalog abstractions
     in preparation for catalog changes. This is the analog of `prepare_model()` for `update_all()`.
@@ -967,7 +966,7 @@ def prepare_model_updates(
         subst_dict.pop(exprs.ColumnRefByName(name))
 
     # Resolve each declared embedding index against the model's visible columns.
-    resolved_idxs: list[tuple[catalog.Column, str | None, index.IndexBase]] = []
+    resolved_idxs: list[catalog.IndexSpec] = []
     for idx_name, idx_spec in new_idxs.items():
         if not isinstance(idx_spec.column, exprs.ColumnRefByName):
             raise excs.RequestError(
@@ -991,7 +990,7 @@ def prepare_model_updates(
             document_embed=idx_spec.document_embed,
             column=user_cols[col_name],
         )
-        resolved_idxs.append((user_cols[col_name], idx_name, idx))
+        resolved_idxs.append(catalog.IndexSpec(user_cols[col_name], idx_name, idx))
 
     return resolved_cols, resolved_idxs
 
@@ -1064,11 +1063,11 @@ class _ColumnProperties:
 
     @classmethod
     def from_spec(cls, spec: ColumnSpec, default_media_validation: str) -> _ColumnProperties:
-        """The comparable properties of a column declared by `spec`, resolved to match a stored column's metadata.
+        """The comparable properties of a column declared by spec, resolved to match a stored column's metadata.
 
-        A computed column's value expression carries `ColumnRefByName` placeholders, but those render identically to
-        the `ColumnRef`s in the stored expression, so the display strings are directly comparable. Defaults mirror
-        `Column.create` (`stored=True`, `primary_key=False`) and a media column's `media_validation` falls back to
+        A computed column's value expression carries ColumnRefByName placeholders, but those render identically to
+        the ColumnRefs in the stored expression, so the display strings are directly comparable. Defaults mirror
+        Column.create (stored=True, primary_key=False) and a media column's media_validation falls back to
         the table default, as it does on the stored column.
         """
         col_type = _col_type_from_spec(spec)
@@ -1152,8 +1151,8 @@ def _base_query_columns(model: TableModelMeta) -> set[str]:
 
 
 def _format_column_spec(spec: ColumnSpec) -> str:
-    """A display string for a column spec. The `value` expression is rendered via `str()` (not `repr()`), so a bare
-    `ColumnRefByName` placeholder shows as its column name (e.g. `extra1`) rather than `ColumnRefByName('extra1')`,
+    """A display string for a column spec. The value expression is rendered via str() (not repr()), so a bare
+    ColumnRefByName placeholder shows as its column name (e.g. extra1) rather than ColumnRefByName('extra1'),
     matching how it renders inside a compound expression and how the stored value expression renders."""
     parts = []
     for key, val in spec.items():
@@ -1194,7 +1193,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
     All metadata reads happen in a single transaction, and each diff's tbl_id and schema_versions record the catalog
     state it was computed against.
     """
-    from .catalog import retry_loop  # imported here: pixeltable.catalog.catalog imports this module
+    from .catalog import retry_loop
 
     binding_root = TableModelMeta._normalize_binding_root(binding_root)
 
@@ -1303,7 +1302,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
                     )
 
             # Columns present in both, whose properties differ; unsupported for now (some alterations will later be
-            # applicable via `allow_destructive=True`).
+            # applicable via allow_destructive=True).
             default_media_validation = model.__table_spec__['media_validation'].name.lower()
             for col_name in sorted(model_cols & existing_cols):
                 model_props = _ColumnProperties.from_spec(user_cols[col_name], default_media_validation)
@@ -1569,8 +1568,8 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                         dropped_columns=dropped_col_names,
                         new_idxs={idx_name: model.__indexes__[idx_name] for idx_name in new_idx_names},
                         dropped_idxs=dropped_idx_names,
-                        expected_tbl_id=d['tbl_id'],
-                        expected_versions=d['schema_versions'],
+                        tbl_id=d['tbl_id'],
+                        schema_versions=d['schema_versions'],
                     )
                 )
 

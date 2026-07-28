@@ -1401,7 +1401,7 @@ class TestView:
         assert sorted(r['exp'] for r in v.collect()) == [10, 20]
 
         tracked_calls.clear()
-        # `exp` is computed from `other`, which this update leaves alone
+        # exp is computed from other, which this update leaves alone
         t.update({'n': 5}, where=t.n == 2)
         assert len(tracked_calls) == 0
         assert sorted(r['exp'] for r in v.collect()) == [10, 20]

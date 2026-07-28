@@ -4,10 +4,10 @@ import dataclasses
 import enum
 import itertools
 from collections.abc import Mapping
+
+from typing import NamedTuple, _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
-
-from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
@@ -15,8 +15,10 @@ from pixeltable.metadata import schema
 from pixeltable.types import ColumnSpec
 
 if TYPE_CHECKING:
-    from pixeltable import exprs
+    from pixeltable import exprs, index
     from pixeltable.globals import TableDataSource
+
+    from .column import Column
 
 # name of the position column in a component view
 _POS_COLUMN_NAME = 'pos'
@@ -167,6 +169,17 @@ class QColumnId:
 
     tbl_id: UUID
     col_id: int
+
+
+class IndexSpec(NamedTuple):
+    """
+    TODO: once the minimum Python is 3.11, make this generic in the column type, so that a declared spec is an
+    IndexSpec[str] and a resolved one an IndexSpec[Column].
+    """
+
+    indexed_column: str | Column
+    idx_name: str | None  # None for an unnamed index
+    idx: index.IndexBase
 
 
 class MediaValidation(enum.Enum):

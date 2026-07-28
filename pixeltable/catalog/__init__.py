@@ -10,6 +10,7 @@ from .globals import (
     DirEntry,
     IfExistsParam,
     IfNotExistsParam,
+    IndexSpec,
     MediaValidation,
     QColumnId,
     TableVersionMd,
