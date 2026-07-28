@@ -11,7 +11,22 @@ import urllib.parse
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
-from typing import Annotated, Any, Callable, Literal, NamedTuple, Optional, TypeVar, get_type_hints
+from typing import (
+    Annotated,
+    Any,
+    Callable,
+    Literal,
+    Mapping,
+    NamedTuple,
+    Optional,
+    Sequence,
+    TypeVar,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
+
+from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
 import fastapi
 import numpy as np
@@ -134,6 +149,79 @@ def _check_json_value_servable(val: Any, col_name: str) -> None:
                 f'output column {col_name!r}: JSON value contains an embedded {type_name}, which is not supported.'
             ),
         )
+
+
+def _get_type_hints(user_fn: Callable, fn_name: str, error_prefix: str) -> dict[str, Any]:
+    """Return type hints dict, if available."""
+    try:
+        return get_type_hints(user_fn)
+    except NameError as e:
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT, f'{error_prefix}: {fn_name!r}: cannot resolve type annotations: {e}'
+        ) from e
+
+
+def _validate_type_hint(
+    annot: type | _GenericAlias, col_type: ts.ColumnType, *, subject: str, error_prefix: str
+) -> None:
+    """Check that a type annotation is interpretable and compatible with a ColumnType."""
+    annot_col_type = ts.ColumnType.from_python_type(annot)
+    if annot_col_type is None:
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_TYPE,
+            f'{error_prefix}: {subject}: cannot interpret annotation {annot!r} as a Pixeltable type',
+        )
+
+    # media values are served as /media URL strings
+    expected_col_type = ts.StringType(nullable=col_type.nullable) if col_type.is_media_type() else col_type
+    if not annot_col_type.is_supertype_of(expected_col_type):
+        raise pxt.RequestError(
+            pxt.ErrorCode.TYPE_MISMATCH,
+            f'{error_prefix}: {subject} has annotation {annot!r} '
+            f'({annot_col_type}), which is incompatible with column type {expected_col_type}',
+        )
+
+
+def _validated_response_model(hints: dict[str, Any], fn_name: str, error_prefix: str) -> type[pydantic.BaseModel]:
+    """The return annotation of a decorated route function, which must be a pydantic model."""
+    return_annot = hints.get('return')
+    if not (isinstance(return_annot, type) and issubclass(return_annot, pydantic.BaseModel)):
+        raise pxt.RequestError(
+            pxt.ErrorCode.INVALID_ARGUMENT,
+            f'{error_prefix}: {fn_name!r} must have a return annotation that is a pydantic.BaseModel subclass; '
+            f'got {return_annot!r}',
+        )
+    return return_annot
+
+
+def _flush_image(val: Any) -> Any:
+    """Flush a PIL image to a temp file and return its local file:// uri; pass other values through."""
+    if not isinstance(val, PIL.Image.Image):
+        return val
+    fmt = image_utils.default_format(val)
+    dest = TempStore.create_path(extension=f'.{fmt}')
+    val.save(dest, format=fmt)
+    return dest.as_uri()
+
+
+def _single_row(rows: Sequence[Mapping[str, Any]], raise_not_found: bool = False) -> Mapping[str, Any]:
+    """The single row of a DML result; error on any other count."""
+    if len(rows) == 0 and raise_not_found:
+        raise HTTPException(status_code=404, detail='compute() produced no output row (dropped by a view filter)')
+    if len(rows) != 1:
+        raise HTTPException(
+            status_code=500, detail=f'operation returned unexpected row count ({len(rows)}), expected 1'
+        )
+    return rows[0]
+
+
+def _at_most_one_row(rows: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """Return rows (expected to hold at most one element) as a list ([] or [row]); error if it holds more."""
+    if len(rows) > 1:
+        raise HTTPException(
+            status_code=500, detail=f'operation returned unexpected row count ({len(rows)}), expected at most 1'
+        )
+    return list(rows)
 
 
 # ColumnType.Type -> json-Schema contentMediaType
@@ -304,18 +392,26 @@ class FastAPIRouter(fastapi.APIRouter):
         background: bool = False,
     ) -> None:
         """
-        Add a POST endpoint that materializes the computed columns of `t` and returns the resulting row.
+        Add a POST endpoint that materializes the computed columns of `t` and returns the result.
 
+        The endpoint runs [`Table.compute()`][pixeltable.Table.compute] on the request body without
+        persisting anything. This is identical to
+        [`add_insert_route()`][pixeltable.serving.FastAPIRouter.add_insert_route], except that no data
+        is actually inserted into the table. `t` may be a view; the request body then carries a row for
+        the view's base table.
 
-        The endpoint runs [`Table.compute()`][pixeltable.Table.compute] on the request body
-        and returns the materialized row without persisting it. This is identical to
-        [`add_insert_route()`][pixeltable.serving.FastAPIRouter.add_insert_route],
-        except that no data is actually inserted into the table.
+        The response shape follows the target:
+
+        - a base table, or a view whose path has no iterator, produces at most one output row: the
+          response is that row as a JSON object, or `null` when a view filter drops the input row
+        - a view whose path contains an iterator can produce several rows per input row: the response
+          is a JSON array (empty when a filter drops the input row)
 
         Args:
-            t: The table to compute rows over.
+            t: The table or view over which to compute rows.
             path: The URL path for the endpoint.
-            inputs: Columns to accept as request fields. Defaults to all non-computed columns.
+            inputs: Columns to accept as request fields. Defaults to all non-computed columns
+                (of the base table, if `t` is a view).
             uploadfile_inputs: Columns to accept as
                 [`UploadFile`](https://fastapi.tiangolo.com/tutorial/request-files/) fields
                 (must be media-typed). These are sent as multipart form data; all other inputs
@@ -323,10 +419,12 @@ class FastAPIRouter(fastapi.APIRouter):
             outputs: Columns to include in the response. Defaults to all columns (including inputs).
             return_fileresponse: If True, return the single media-typed output column as a
                 [`FileResponse`](https://fastapi.tiangolo.com/advanced/custom-response/#fileresponse).
-                Requires exactly one media-typed output column.
-            export_sql: If set, export the computed row into an external RDBMS table after the
+                Requires exactly one media-typed output column, and the computation must produce
+                exactly one row: the endpoint returns 404 if the input row is dropped by a view's
+                filter, and an error if it produces multiple rows.
+            export_sql: If set, export each computed row into an external RDBMS table after the
                 computation succeeds. See [`SqlExport`][pixeltable.serving.SqlExport] for the
-                target specification and supported `method` values. The exported row is the
+                target specification and supported `method` values. The exported rows are the
                 response body. See [`add_insert_route()`][pixeltable.serving.FastAPIRouter.add_insert_route]
                 for the schema-compatibility rules.
             background: If True, return immediately with `{"id": ..., "job_url": ...}` and run
@@ -341,7 +439,19 @@ class FastAPIRouter(fastapi.APIRouter):
             curl -X POST http://localhost:8000/preview \\
               -H 'Content-Type: application/json' \\
               -d '{"prompt": "a sunset over the ocean"}'
-            # {"prompt": "a sunset over the ocean", "result": "..."}
+            # [{"prompt": "a sunset over the ocean", "result": "..."}]
+            ```
+
+            Compute the rows of a view `frames` (defined over `t` with a `FrameIterator`) for a
+            given base table row:
+
+            >>> router.add_compute_route(frames, path='/frames', outputs=['pos', 'frame'])
+
+            ```bash
+            curl -X POST http://localhost:8000/frames \\
+              -H 'Content-Type: application/json' \\
+              -d '{"video": "http://example.com/clip.mp4"}'
+            # [{"pos": 0, "frame": "http://.../media/..."}, {"pos": 1, "frame": "..."}, ...]
             ```
 
             File upload with `FileResponse`:
@@ -371,7 +481,7 @@ class FastAPIRouter(fastapi.APIRouter):
             ...     ),
             ... )
 
-            Each successful POST computes the row and appends it (columns: `prompt`, `result`)
+            Each successful POST computes the rows and appends them (columns: `prompt`, `result`)
             to `public.previews`. The Pixeltable table is not modified.
 
             Background processing:
@@ -567,17 +677,40 @@ class FastAPIRouter(fastapi.APIRouter):
         )
 
         path_str = ''.join(el.capitalize() for el in path.split('/') if len(el) > 0)
-        response_model = self._create_model(f'{path_str}Response', output_cols=output_cols)
+        output_model = self._create_model(f'{path_str}Response', output_cols=output_cols)
 
-        def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
-            for name in json_output_col_names:
-                _check_json_value_servable(row.get(name), name)
-            output = self._create_output([row], output_col_names, response_model, return_fileresponse, url_for_media)
-            result = output[0] if isinstance(output, list) else output
+        # a compute route for a view whose path contains an iterator can produce multiple rows
+        array_response = route_type == 'compute' and not return_fileresponse and t._tbl_path.has_iterator()
+
+        def rows_processor(rows: Sequence[Mapping[str, Any]], url_for_media: Callable[[str], str]) -> Any:
+            if return_fileresponse or route_type == 'insert':
+                rows = [_single_row(rows, raise_not_found=route_type == 'compute')]
+            elif not array_response:
+                rows = _at_most_one_row(rows)
+            for row in rows:
+                for name in json_output_col_names:
+                    _check_json_value_servable(row.get(name), name)
+            output = self._create_output(rows, output_col_names, output_model, return_fileresponse, url_for_media)
+            if return_fileresponse:
+                return output
+            assert isinstance(output, list)
             if sql_exporter is not None:
-                assert isinstance(result, pydantic.BaseModel)
-                sql_exporter.export_row(result)
-            return result
+                for result in output:
+                    assert isinstance(result, pydantic.BaseModel)
+                    sql_exporter.export_row(result)
+            if array_response:
+                return output
+            # single object: the one row, or null when a view filter dropped the input row
+            return output[0] if len(output) > 0 else None
+
+        response_model: Any
+        if array_response:
+            response_model = list[output_model]  # type: ignore[valid-type]
+        elif route_type == 'compute':
+            # a non-iterator compute can return null when a filter drops the row
+            response_model = Optional[output_model]
+        else:
+            response_model = output_model
 
         self._add_dml_route(
             t,
@@ -588,8 +721,8 @@ class FastAPIRouter(fastapi.APIRouter):
             return_fileresponse=return_fileresponse,
             background=background,
             endpoint_name=f'{route_type}_{path.strip("/").replace("/", "_") or "root"}',
-            row_processor=row_processor,
-            row_processor_model=response_model,
+            rows_processor=rows_processor,
+            response_model=response_model,
             route_type=route_type,
         )
 
@@ -605,22 +738,44 @@ class FastAPIRouter(fastapi.APIRouter):
         background: bool = False,
     ) -> Callable[[Callable[..., pydantic.BaseModel]], Callable[..., pydantic.BaseModel]]:
         """
-        Decorator that registers a POST endpoint computing the workflow given by `t` and returning the resulting row.
+        Decorator that registers a POST endpoint that materializes the computed columns of `t` and
+        passes the resulting rows to the decorated function.
 
         The endpoint runs [`Table.compute()`][pixeltable.Table.compute] on the request body
-        and passes the materialized row to the decorated function for post-processing.
-        No data is persisted; use this for "what would an insert produce?" workflows.
+        and passes the materialized rows to the decorated function, whose return value (a pydantic
+        model) is the HTTP response. This is identical to
+        [`insert_route()`][pixeltable.serving.FastAPIRouter.insert_route], except that no data is
+        actually inserted into the table.
+
+        `t` may be a view; the request body then carries a row for the view's base table, and the
+        decorated function receives the view's output rows for that input row (zero if the view's
+        filter drops it, several if an iterator view fans it out).
+
+        The decorated function can take one of two forms:
+
+        - Per-column: one keyword-only parameter per output column (`def fn(*, caption: str, ...)`).
+          The computation must produce exactly one row; the endpoint returns 404 if the input row
+          is dropped by a view's filter, and an error if it fans out to multiple rows.
+        - Batch: a single parameter annotated `list[M]`, with `M` a pydantic model that has one
+          field per output column (`def fn(rows: list[FrameRow])`). The function is called with all
+          output rows -- including an empty list -- and can aggregate them into a single response.
+          Only allowed when `t`'s path contains an iterator (the only case that can produce multiple
+          rows); on a base table or a non-iterator view, use the per-column form.
+
+        In both forms, media-typed outputs (image, video, audio, document) are delivered as `/media/`
+        URL strings -- annotate them as `str` (or `str | None` if the column is nullable).
 
         Args:
-            t: The table to compute rows over.
+            t: The table or view over which to compute rows.
             path: The URL path for the endpoint.
-            inputs: Columns to accept as request fields. Defaults to all non-computed columns.
+            inputs: Columns to accept as request fields. Defaults to all non-computed columns
+                (of the base table, if `t` is a view).
             uploadfile_inputs: Columns to accept as
                 [`UploadFile`](https://fastapi.tiangolo.com/tutorial/request-files/) fields
                 (must be media-typed). These are sent as multipart form data; all other inputs
                 become [`Form`](https://fastapi.tiangolo.com/tutorial/request-forms/) fields.
-            outputs: Columns from the computed row to pass to the decorated function as keyword
-                arguments. Defaults to all columns.
+            outputs: Columns from the computed rows to pass to the decorated function.
+                Defaults to all columns (including inputs).
             export_sql: If set, export the decorated function's return value into an external
                 RDBMS table after the computation succeeds. See
                 [`SqlExport`][pixeltable.serving.SqlExport] for the target specification and
@@ -631,6 +786,8 @@ class FastAPIRouter(fastapi.APIRouter):
                 result; the decorated function's return value is delivered as the job result.
 
         Examples:
+            Per-column form:
+
             >>> class PreviewResponse(pydantic.BaseModel):
             ...     caption: str
             ...     score: float
@@ -649,6 +806,21 @@ class FastAPIRouter(fastapi.APIRouter):
             ```
 
             Nothing is inserted into `t`; the computed row is passed only to `format_response`.
+
+            Batch form, aggregating the rows of a view `frames` (defined over `t` with a
+            `FrameIterator`) for a given base table row:
+
+            >>> class FrameRow(pydantic.BaseModel):
+            ...     pos: int
+            ...     frame: str
+            ...
+            ... class FramesResponse(pydantic.BaseModel):
+            ...     n_frames: int
+            ...     frame_urls: list[str]
+            ...
+            ... @router.compute_route(frames, path='/frames', outputs=['pos', 'frame'])
+            ... def summarize(rows: list[FrameRow]) -> FramesResponse:
+            ...     return FramesResponse(n_frames=len(rows), frame_urls=[r.frame for r in rows])
 
             Export the post-processed response into an external RDBMS table:
 
@@ -799,19 +971,49 @@ class FastAPIRouter(fastapi.APIRouter):
         uploadfile_inputs = uploadfile_inputs or []
 
         def decorator(user_fn: Callable[..., pydantic.BaseModel]) -> Callable[..., pydantic.BaseModel]:
-            response_model = self._validate_decorated_fn(
-                user_fn,
-                output_schema={col_name: cols_by_name[col_name].col_type for col_name in output_col_names},
-                error_prefix=error_prefix,
+            output_schema = {col_name: cols_by_name[col_name].col_type for col_name in output_col_names}
+            # a compute_route() function can take the entire batch of computed rows instead of per-column
+            # values of a single row; the two forms are distinguished by the function signature
+            batch_row_model = (
+                self._batch_row_model(user_fn, error_prefix=error_prefix) if route_type == 'compute' else None
             )
+            batch_param_name: str | None = None
+            if batch_row_model is not None:
+                if not t._tbl_path.has_iterator():
+                    raise pxt.RequestError(
+                        pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'{error_prefix}: the batch form (a single list[M] parameter) requires a view whose path '
+                        'contains an iterator; this target produces at most one row, so use one keyword-only '
+                        'parameter per output column',
+                    )
+                batch_param_name, response_model = self._validate_batch_fn(
+                    user_fn, batch_row_model, output_schema=output_schema, error_prefix=error_prefix
+                )
+            else:
+                response_model = self._validate_per_column_fn(
+                    user_fn, output_schema=output_schema, error_prefix=error_prefix
+                )
 
             sql_exporter = self._make_model_sql_exporter(
                 export_sql, response_model=response_model, error_prefix=error_prefix
             )
 
-            def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> pydantic.BaseModel:
-                kwargs = {name: self._convert_media_val(row[name], url_for_media) for name in output_col_names}
-                result = user_fn(**kwargs)
+            def rows_processor(rows: Sequence[Mapping[str, Any]], url_for_media: Callable[[str], str]) -> Any:
+                if batch_row_model is None:
+                    rows = [_single_row(rows, raise_not_found=route_type == 'compute')]
+                output_rows = [
+                    # compute() returns image outputs in-memory; flush them so they convert to /media URLs
+                    {name: self._convert_media_val(_flush_image(row[name]), url_for_media) for name in output_col_names}
+                    for row in rows
+                ]
+
+                result: Any
+                if batch_row_model is not None:
+                    assert batch_param_name is not None
+                    result = user_fn(**{batch_param_name: [batch_row_model(**row) for row in output_rows]})
+                else:
+                    assert len(output_rows) == 1
+                    result = user_fn(**output_rows[0])
                 if sql_exporter is not None:
                     sql_exporter.export_row(result)
                 return result
@@ -825,8 +1027,8 @@ class FastAPIRouter(fastapi.APIRouter):
                 return_fileresponse=False,
                 background=background,
                 endpoint_name=f'{route_type}_{path.strip("/").replace("/", "_") or "root"}',
-                row_processor=row_processor,
-                row_processor_model=response_model,
+                rows_processor=rows_processor,
+                response_model=response_model,
                 route_type=route_type,
             )
             return user_fn
@@ -956,7 +1158,8 @@ class FastAPIRouter(fastapi.APIRouter):
         path_str = ''.join(el.capitalize() for el in path.split('/') if len(el) > 0)
         update_response_model = self._create_model(f'{path_str}Response', output_cols=output_cols)
 
-        def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
+        def rows_processor(rows: Sequence[Mapping[str, Any]], url_for_media: Callable[[str], str]) -> Any:
+            row = _single_row(rows)
             for name in json_output_col_names:
                 _check_json_value_servable(row.get(name), name)
             output = self._create_output(
@@ -977,8 +1180,8 @@ class FastAPIRouter(fastapi.APIRouter):
             return_fileresponse=return_fileresponse,
             background=background,
             endpoint_name=f'update_{path.strip("/").replace("/", "_") or "root"}',
-            row_processor=row_processor,
-            row_processor_model=update_response_model,
+            rows_processor=rows_processor,
+            response_model=update_response_model,
             route_type='update',
         )
 
@@ -1104,7 +1307,7 @@ class FastAPIRouter(fastapi.APIRouter):
         )
 
         def decorator(user_fn: Callable[..., pydantic.BaseModel]) -> Callable[..., pydantic.BaseModel]:
-            response_model = self._validate_decorated_fn(
+            response_model = self._validate_per_column_fn(
                 user_fn,
                 output_schema={col_name: cols_by_name[col_name].col_type for col_name in output_col_names},
                 error_prefix='update_route()',
@@ -1114,7 +1317,8 @@ class FastAPIRouter(fastapi.APIRouter):
                 export_sql, response_model=response_model, error_prefix='update_route()'
             )
 
-            def row_processor(row: dict[str, Any], url_for_media: Callable[[str], str]) -> pydantic.BaseModel:
+            def rows_processor(rows: Sequence[Mapping[str, Any]], url_for_media: Callable[[str], str]) -> Any:
+                row = _single_row(rows)
                 kwargs = {name: self._convert_media_val(row[name], url_for_media) for name in output_col_names}
                 result = user_fn(**kwargs)
                 if sql_exporter is not None:
@@ -1130,8 +1334,8 @@ class FastAPIRouter(fastapi.APIRouter):
                 return_fileresponse=False,
                 background=background,
                 endpoint_name=f'update_{path.strip("/").replace("/", "_") or "root"}',
-                row_processor=row_processor,
-                row_processor_model=response_model,
+                rows_processor=rows_processor,
+                response_model=response_model,
                 route_type='update',
             )
             return user_fn
@@ -1542,15 +1746,15 @@ class FastAPIRouter(fastapi.APIRouter):
         return_fileresponse: bool,
         background: bool,
         endpoint_name: str,
-        row_processor: Callable[[dict[str, Any], Callable[[str], str]], Any],
-        row_processor_model: type[pydantic.BaseModel] | None,
+        rows_processor: Callable[[Sequence[Mapping[str, Any]], Callable[[str], str]], Any],
+        response_model: Any | None,
         route_type: Literal['insert', 'update', 'compute'],
     ) -> None:
         """Create endpoint for insert/compute/update.
 
         The endpoint signature is the PK columns (for row identification, update only) followed by
-        the input columns. row_processor is called with the single inserted/updated row dict and
-        url_for_media. For insert routes, pk_col_names must be []; for update routes,
+        the input columns. rows_processor is called with the operation's output rows and url_for_media
+        and produces the response body. For insert routes, pk_col_names must be []; for update routes,
         uploadfile_inputs must be [].
         """
         md = t.get_metadata()
@@ -1559,11 +1763,18 @@ class FastAPIRouter(fastapi.APIRouter):
         # use the metadata path (works for both local and hosted tables); skip system columns (name is None)
         cols_by_name = {col.name: col for col in t._tbl_path.column_md() if col.name is not None}
         pk_cols = [cols_by_name[name] for name in pk_col_names]
-        input_cols = [cols_by_name[name] for name in input_col_names]
+        # compute-route inputs conform to the insertable base's schema (see _validate_dml_args)
+        input_cols_by_name = (
+            {col.name: col for col in t._tbl_path.root.column_md() if col.name is not None}
+            if route_type == 'compute'
+            else cols_by_name
+        )
+        input_cols = [input_cols_by_name[name] for name in input_col_names]
 
         def run_dml(row_kwargs: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
             # the table handle is thread-safe, so reuse the captured one; re-validate the frozen contract
             _validate_registered_schema(t, schema_version)
+            rows: Sequence[Mapping[str, Any]]
             if route_type == 'update':
                 status = t.batch_update([row_kwargs], if_not_exists='ignore', return_rows=True)
                 if status.num_rows == 0:
@@ -1574,9 +1785,7 @@ class FastAPIRouter(fastapi.APIRouter):
             else:  # 'insert'
                 status = t.insert([row_kwargs], return_rows=True)
                 rows = status.rows or []
-            if len(rows) != 1:
-                raise HTTPException(status_code=500, detail=f'operation returned unexpected row count ({len(rows)})')
-            return row_processor(rows[0], url_for_media)
+            return rows_processor(rows, url_for_media)
 
         sig = self._create_endpoint_signature(input_cols=pk_cols + input_cols, upload_col_names=uploadfile_inputs)
         endpoint = PxtEndpoint(
@@ -1593,26 +1802,20 @@ class FastAPIRouter(fastapi.APIRouter):
         if background:
             api_kwargs['response_model'] = BackgroundJobResponse
         elif not return_fileresponse:
-            assert row_processor_model is not None
-            api_kwargs['response_model'] = row_processor_model
+            assert response_model is not None
+            api_kwargs['response_model'] = response_model
         if return_fileresponse:
             api_kwargs['response_class'] = FileResponse
 
         self.add_api_route(path, endpoint, **api_kwargs)
 
-    def _validate_decorated_fn(
+    def _validate_per_column_fn(
         self, user_fn: Callable, *, output_schema: dict[str, ts.ColumnType], error_prefix: str
     ) -> type[pydantic.BaseModel]:
-        """Validate the decorated function of insert_/update_route(); return the resolved response model."""
+        """Validate the per-column form of a decorated route function; return the resolved response model."""
         sig = inspect.signature(user_fn)
         fn_name = getattr(user_fn, '__name__', repr(user_fn))
-        # resolve PEP-563 string annotations (from __future__ import annotations) and forward refs
-        try:
-            hints = get_type_hints(user_fn)
-        except NameError as e:
-            raise pxt.RequestError(
-                pxt.ErrorCode.INVALID_ARGUMENT, f'{error_prefix}: {fn_name!r}: cannot resolve type annotations: {e}'
-            ) from e
+        hints = _get_type_hints(user_fn, fn_name, error_prefix)
 
         param_names: set[str] = set()
         output_col_names = list(output_schema.keys())
@@ -1636,27 +1839,13 @@ class FastAPIRouter(fastapi.APIRouter):
                     pxt.ErrorCode.INVALID_ARGUMENT,
                     f'{error_prefix}: {fn_name!r} parameter {p.name!r} has no type annotation',
                 )
-            param_annot = hints[p.name]
 
-            param_col_type = ts.ColumnType.from_python_type(param_annot)
-            if param_col_type is None:
-                raise pxt.RequestError(
-                    pxt.ErrorCode.INVALID_TYPE,
-                    f'{error_prefix}: {fn_name!r} parameter {p.name!r}: cannot interpret annotation '
-                    f'{param_annot!r} as a Pixeltable type',
-                )
-
-            output_col_type = output_schema[p.name]
-            expected_col_type = (
-                ts.StringType(nullable=output_col_type.nullable) if output_col_type.is_media_type() else output_col_type
+            _validate_type_hint(
+                hints[p.name],
+                output_schema[p.name],
+                subject=f'{fn_name!r} parameter {p.name!r}',
+                error_prefix=error_prefix,
             )
-            if not param_col_type.is_supertype_of(expected_col_type):
-                raise pxt.RequestError(
-                    pxt.ErrorCode.TYPE_MISMATCH,
-                    f'{error_prefix}: {fn_name!r} parameter {p.name!r} has annotation {param_annot!r} '
-                    f'({param_col_type}), which is incompatible with column type {expected_col_type}',
-                )
-
             param_names.add(p.name)
 
         missing = [n for n in output_col_names if n not in param_names]
@@ -1667,14 +1856,83 @@ class FastAPIRouter(fastapi.APIRouter):
                 'output must appear as a keyword-only parameter',
             )
 
-        return_annot = hints.get('return')
-        if not (isinstance(return_annot, type) and issubclass(return_annot, pydantic.BaseModel)):
+        return _validated_response_model(hints, fn_name, error_prefix)
+
+    def _batch_row_model(self, user_fn: Callable, *, error_prefix: str) -> type[pydantic.BaseModel] | None:
+        """The row model M if user_fn has the batch form (a single parameter annotated list[M], with M a pydantic
+        model), otherwise None. Detection only: it does not check M's fields against the declared outputs.
+        """
+        sig = inspect.signature(user_fn)
+        params = list(sig.parameters.values())
+        if len(params) != 1 or params[0].kind not in (
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        ):
+            return None
+        fn_name = getattr(user_fn, '__name__', repr(user_fn))
+        annot = _get_type_hints(user_fn, fn_name, error_prefix).get(params[0].name)
+        if get_origin(annot) is not list:
+            return None
+        annot_args = get_args(annot)
+        if len(annot_args) != 1 or not (
+            isinstance(annot_args[0], type) and issubclass(annot_args[0], pydantic.BaseModel)
+        ):
+            return None
+        return annot_args[0]
+
+    def _validate_batch_fn(
+        self,
+        user_fn: Callable,
+        row_model: type[pydantic.BaseModel],
+        *,
+        output_schema: dict[str, ts.ColumnType],
+        error_prefix: str,
+    ) -> tuple[str, type[pydantic.BaseModel]]:
+        """Validate the batch form of a compute_route() function and return (parameter name, response model).
+
+        The sole parameter's name must not collide with an output column, and row_model's fields must cover the
+        declared outputs with compatible types.
+        """
+        sig = inspect.signature(user_fn)
+        fn_name = getattr(user_fn, '__name__', repr(user_fn))
+        hints = _get_type_hints(user_fn, fn_name, error_prefix)
+        param_name = next(iter(sig.parameters))
+
+        if param_name in output_schema:
             raise pxt.RequestError(
                 pxt.ErrorCode.INVALID_ARGUMENT,
-                f'{error_prefix}: {fn_name!r} must have a return annotation that is a pydantic.BaseModel subclass; '
-                f'got {return_annot!r}',
+                f'{error_prefix}: {fn_name!r} parameter {param_name!r} matches an output column name, which is '
+                'ambiguous; rename the parameter or use one keyword-only parameter per output column',
             )
-        return return_annot
+
+        # validate the row model's fields against the output columns, like per-column parameters
+        for field_name, field in row_model.model_fields.items():
+            if field_name not in output_schema:
+                raise pxt.RequestError(
+                    pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{error_prefix}: {fn_name!r} row model field {field_name!r} is not in the declared outputs '
+                    f'{list(output_schema.keys())}',
+                )
+            if field.annotation is None:
+                raise pxt.RequestError(
+                    pxt.ErrorCode.INVALID_ARGUMENT,
+                    f'{error_prefix}: {fn_name!r} row model field {field_name!r} has no type annotation',
+                )
+            _validate_type_hint(
+                field.annotation,
+                output_schema[field_name],
+                subject=f'{fn_name!r} row model field {field_name!r}',
+                error_prefix=error_prefix,
+            )
+        missing = [n for n in output_schema if n not in row_model.model_fields]
+        if missing:
+            raise pxt.RequestError(
+                pxt.ErrorCode.MISSING_REQUIRED,
+                f'{error_prefix}: {fn_name!r} row model is missing fields for outputs {missing}; every declared '
+                'output must appear as a row model field',
+            )
+
+        return param_name, _validated_response_model(hints, fn_name, error_prefix)
 
     class DmlArgsValidationResult(NamedTuple):
         pk_col_names: list[str]
@@ -1699,10 +1957,23 @@ class FastAPIRouter(fastapi.APIRouter):
         """
         verb = 'insert into' if route_type == 'insert' else route_type
         md = t.get_metadata()
-        if md['kind'] != 'table':
+        allowed_kinds = ('table', 'view') if route_type == 'compute' else ('table',)
+        if md['kind'] not in allowed_kinds:
             raise pxt.RequestError(
                 pxt.ErrorCode.UNSUPPORTED_OPERATION, f'{error_prefix}: cannot {verb} {md["kind"]} {md["name"]!r}'
             )
+        if route_type == 'compute':
+            # mirrors the restrictions of Table.compute()
+            if t._tbl_path.has_snapshot():
+                raise pxt.RequestError(
+                    pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{error_prefix}: cannot compute view {md["name"]!r}: its base hierarchy contains a snapshot',
+                )
+            if t._tbl_path.has_sample_clause():
+                raise pxt.RequestError(
+                    pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{error_prefix}: cannot compute view {md["name"]!r}: it is defined with a sample clause',
+                )
         if return_fileresponse and background:
             raise pxt.RequestError(
                 pxt.ErrorCode.INVALID_ARGUMENT,
@@ -1714,13 +1985,19 @@ class FastAPIRouter(fastapi.APIRouter):
         if route_type == 'update' and not pk_col_names:
             raise pxt.RequestError(pxt.ErrorCode.UNSUPPORTED_OPERATION, f'{error_prefix}: table has no primary key')
 
-        # use the metadata path (works for both local and hosted tables); skip system columns (name is None)
+        # skip system columns (name is None)
         cols_by_name = {col.name: col for col in t._tbl_path.column_md() if col.name is not None}
+        # compute() takes rows conforming to the insertable base table's schema, instead of the view schema
+        input_cols_by_name = (
+            {col.name: col for col in t._tbl_path.root.column_md() if col.name is not None}
+            if route_type == 'compute'
+            else cols_by_name
+        )
         pk_set = set(pk_col_names)
 
         for name in [*(inputs or []), *(uploadfile_inputs or [])]:
             # computed columns cannot be inputs
-            if name in col_md and col_md[name]['is_computed']:
+            if name in input_cols_by_name and input_cols_by_name[name].is_computed:
                 raise pxt.RequestError(
                     pxt.ErrorCode.INVALID_ARGUMENT,
                     f'{error_prefix}: {name!r} is a computed column and cannot be used as input',
@@ -1743,7 +2020,7 @@ class FastAPIRouter(fastapi.APIRouter):
         # input_schema: non-computed columns; for updates, also exclude PK and media columns
         input_schema = {
             c.name: c.col_type
-            for c in cols_by_name.values()
+            for c in input_cols_by_name.values()
             if not c.is_computed and not (route_type == 'update' and (c.name in pk_set or c.col_type.is_media_type()))
         }
         input_col_names, output_col_names = self._validate_args(
@@ -1906,7 +2183,7 @@ class FastAPIRouter(fastapi.APIRouter):
 
     def _create_output(
         self,
-        rows: list[dict[str, Any]],
+        rows: Sequence[Mapping[str, Any]],
         output_names: list[str],
         output_model: type[pydantic.BaseModel] | None,
         return_fileresponse: bool,
@@ -1920,15 +2197,8 @@ class FastAPIRouter(fastapi.APIRouter):
         - a list of pydantic model instances, if output_model is not None
         - otherwise a list of row dicts
         """
-        # flush PIL images to temp files, store the local file:// uri
-        for row in rows:
-            for col_name, val in row.items():
-                if isinstance(val, PIL.Image.Image):
-                    fmt = image_utils.default_format(val)
-                    ext = f'.{fmt}'
-                    dest = TempStore.create_path(extension=ext)
-                    val.save(dest, format=fmt)
-                    row[col_name] = dest.as_uri()
+
+        rows = [{col_name: _flush_image(val) for col_name, val in row.items()} for row in rows]
 
         if return_fileresponse:
             assert len(output_names) == 1 and len(rows) == 1
