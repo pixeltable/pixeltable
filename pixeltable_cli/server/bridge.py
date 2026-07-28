@@ -24,12 +24,11 @@ from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
-from pixeltable.catalog import Path as CatalogPath
-from pixeltable.catalog.model import DiffResolution, TableModelMeta
+from pixeltable.catalog import Path as CatalogPath, model
 from pixeltable.catalog.table_metadata import TableMetadata
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable_cli.utils import PlanAction, SchemaPlan, SchemaPlanOp, SchemaPlanSummary, SchemaPlanTable, drop_table_op
+from pixeltable_cli import schema_types
 
 _logger = logging.getLogger(__name__)
 
@@ -573,7 +572,7 @@ def get_status() -> dict[str, Any]:
     }
 
 
-def _load_model_bases(schema_path: str) -> list[TableModelMeta]:
+def _load_model_bases(schema_path: str) -> list[model.TableModelMeta]:
     """The model bases declared by a class-based schema file.
 
     Raises RequestError if the file is missing, fails to import, or declares no model base.
@@ -607,7 +606,9 @@ def _load_model_bases(schema_path: str) -> list[TableModelMeta]:
     # a model base carries __registered_models__ as its own class attribute, whereas the models defined
     # on it merely inherit it
     bases = [
-        v for v in vars(module).values() if isinstance(v, TableModelMeta) and '__registered_models__' in v.__dict__
+        v
+        for v in vars(module).values()
+        if isinstance(v, model.TableModelMeta) and '__registered_models__' in v.__dict__
     ]
     if len(bases) == 0:
         raise excs.RequestError(
@@ -617,43 +618,24 @@ def _load_model_bases(schema_path: str) -> list[TableModelMeta]:
     return bases
 
 
-# the plan's operation kind for a SchemaChangeOp, keyed by its (target, op)
-_OP_KINDS: dict[tuple[str, str], str] = {
-    ('column', 'add'): 'add_column',
-    ('column', 'drop'): 'drop_column',
-    ('column', 'alter'): 'alter_column',
-    ('index', 'add'): 'add_index',
-    ('index', 'drop'): 'drop_index',
-    ('table', 'alter'): 'alter_table',
-}
-
-# the plan's per-table action for a DiffResolution
-_ACTIONS: dict[DiffResolution, PlanAction] = {
-    'create': 'create',
-    'up_to_date': 'noop',
-    'update_additive': 'update',
-    'update_destructive': 'update',
-    'unsupported': 'unsupported',
-}
-
 # close the refusals raised while reconciling, in place of the Python API's wording
 _DESTRUCTIVE_HINT = "Re-run 'pxt schema update' with --allow-destructive to apply these changes."
 
 
-def _catalog_key(path: str) -> tuple[str, ...]:
+def _path_key(pxt_path: str) -> tuple[str, ...]:
     """A comparable identity for a table path, so that a pxt:// URI and a bare path denote the same table."""
-    return tuple(CatalogPath.parse(path, allow_empty_path=True).components)
+    return tuple(CatalogPath.parse(pxt_path, allow_empty_path=True).components)
 
 
-def _tables_under(target: str) -> list[str]:
+def _list_tables(pxt_path: str) -> list[str]:
     """Paths of the tables under the given target, or [] if it does not exist."""
     try:
-        return pxt.list_tables(target, recursive=True)
+        return pxt.list_tables(pxt_path, recursive=True)
     except excs.NotFoundError:
         return []
 
 
-def schema_diff(schema_path: str, target: str) -> SchemaPlan:
+def schema_diff(schema_path: str, target: str) -> schema_types.SchemaPlan:
     """The changes that schema_update() would make to reconcile the target with the schema file.
 
     Read-only: never creates the target directory, and never touches an existing table.
@@ -661,43 +643,34 @@ def schema_diff(schema_path: str, target: str) -> SchemaPlan:
     return _schema_plan(_load_model_bases(schema_path), schema_path, target)
 
 
-def _schema_plan(bases: list[TableModelMeta], schema_path: str, target: str) -> SchemaPlan:
+def _schema_plan(bases: list[model.TableModelMeta], schema_path: str, target: str) -> schema_types.SchemaPlan:
     """The plan for reconciling the target with the models declared by the given bases."""
-    tables: list[SchemaPlanTable] = []
+    tables: list[schema_types.TableDiff] = []
     for base in bases:
         for diff in base.get_model_diff(target).values():
-            action = _ACTIONS[diff['resolution']]
             # a create subsumes the additions that constitute it, so only a migration enumerates operations
-            diff_ops = diff['ops'] if action in ('update', 'unsupported') else []
-            ops: list[SchemaPlanOp] = [
-                {
-                    'kind': _OP_KINDS[c['target'], c['op']],
-                    'name': c['name'],
-                    'severity': c['severity'],
-                    'destructive': c['severity'] == 'destructive',
-                    'description': c['description'],
-                    'details': c['details'],
-                }
-                for c in diff_ops
-            ]
+            enumerated = [] if diff['resolution'] in ('create', 'up_to_date') else diff['ops']
+            ops = [_wire_op(op) for op in enumerated]
             tables.append(
                 {
                     'path': diff['path'],
                     'model_cls': diff['model_cls'],
                     'kind': diff['kind'],
-                    'action': action,
-                    'destructive': any(op['destructive'] for op in ops),
+                    'exists': diff['exists'],
+                    'resolution': diff['resolution'],
                     'ops': ops,
+                    'destructive': any(op['destructive'] for op in ops),
                 }
             )
 
-    declared = {_catalog_key(t['path']) for t in tables}
-    extras = sorted(p for p in _tables_under(target) if _catalog_key(p) not in declared)
-    summary: SchemaPlanSummary = {
-        'create': sum(1 for t in tables if t['action'] == 'create'),
-        'update': sum(1 for t in tables if t['action'] == 'update'),
-        'noop': sum(1 for t in tables if t['action'] == 'noop'),
-        'unsupported': sum(1 for t in tables if t['action'] == 'unsupported'),
+    declared = {_path_key(t['path']) for t in tables}
+    extras = sorted(p for p in _list_tables(target) if _path_key(p) not in declared)
+    summary: schema_types.SchemaPlanSummary = {
+        'up_to_date': sum(1 for t in tables if t['resolution'] == 'up_to_date'),
+        'create': sum(1 for t in tables if t['resolution'] == 'create'),
+        'update_additive': sum(1 for t in tables if t['resolution'] == 'update_additive'),
+        'update_destructive': sum(1 for t in tables if t['resolution'] == 'update_destructive'),
+        'unsupported': sum(1 for t in tables if t['resolution'] == 'unsupported'),
         'extras': len(extras),
         'destructive': sum(1 for t in tables for op in t['ops'] if op['destructive']),
     }
@@ -705,14 +678,27 @@ def _schema_plan(bases: list[TableModelMeta], schema_path: str, target: str) -> 
         'schema_path': schema_path,
         'target': target,
         # extras are excluded: update() never removes them, so their presence is not something it could reconcile
-        'in_agreement': all(t['action'] == 'noop' for t in tables),
+        'in_agreement': all(t['resolution'] == 'up_to_date' for t in tables),
         'tables': tables,
         'extras': extras,
         'summary': summary,
     }
 
 
-def schema_prune(schema_path: str, target: str) -> SchemaPlan:
+def _wire_op(op: model.SchemaChangeOp) -> schema_types.SchemaChangeOp:
+    """The CLI-side form of a model operation: everything but the model-side and catalog-side values."""
+    return {
+        'target': op['target'],
+        'name': op['name'],
+        'op': op['op'],
+        'severity': op['severity'],
+        'description': op['description'],
+        'details': op['details'],
+        'destructive': op['severity'] == 'destructive',
+    }
+
+
+def schema_prune(schema_path: str, target: str) -> schema_types.SchemaPlan:
     """Drop the tables under the target that no model in the schema file declares.
 
     Returns the plan, with one drop_table operation per dropped table. A view is dropped before its base, so that
@@ -738,11 +724,11 @@ def schema_prune(schema_path: str, target: str) -> SchemaPlan:
             raise blocked_by
         remaining = deferred
 
-    plan['ops'] = [drop_table_op(path, 'applied') for path in dropped]
+    plan['ops'] = [schema_types.drop_table_op(path, 'applied') for path in dropped]
     return plan
 
 
-def schema_update(schema_path: str, target: str, *, allow_destructive: bool = False) -> SchemaPlan:
+def schema_update(schema_path: str, target: str, *, allow_destructive: bool = False) -> schema_types.SchemaPlan:
     """Reconcile the target with the schema file: create missing tables and migrate existing ones.
 
     Returns the plan that was applied, each operation annotated with its status. Applying is all-or-nothing, so a
@@ -768,7 +754,7 @@ def schema_update(schema_path: str, target: str, *, allow_destructive: bool = Fa
         )
 
     for tbl in plan['tables']:
-        tbl['status'] = 'skipped' if tbl['action'] == 'noop' else 'applied'
+        tbl['status'] = 'skipped' if tbl['resolution'] == 'up_to_date' else 'applied'
         for op in tbl['ops']:
             op['status'] = 'applied'
     return plan

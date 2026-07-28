@@ -17,16 +17,18 @@ import signal
 import socket
 import subprocess
 import sys
+import typing
 import urllib.error
 from collections.abc import Callable, Iterator
 from email.message import Message
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 from typing_extensions import Self
 
 from pixeltable import exceptions as excs
-from pixeltable_cli import utils
+from pixeltable.catalog import model
+from pixeltable_cli import schema_types as wire, utils
 from pixeltable_cli.client import confirm, http, main as client_main, parser as client_parser, utils as client_utils
 from pixeltable_cli.client.commands import daemon as daemon_cmd, shell as shell_cmd, status as status_cmd
 from pixeltable_cli.server import daemon as server_daemon, routes as server_routes
@@ -1515,3 +1517,34 @@ class TestPerPortPaths:
         assert p1 != p2, f'log path collides across ports: {p1} == {p2}'
         assert '12345' in p1
         assert '54321' in p2
+
+
+class TestWireTypes:
+    """The CLI's schema types mirror the catalog's diff types under the same names.
+
+    Two identically-named TypedDicts in different modules are unrelated as far as mypy is concerned, so a field
+    renamed on one side would otherwise reach the wire under a name that no longer matches its counterpart.
+    """
+
+    # what the wire adds on its own, and what the catalog keeps to itself
+    WIRE_ONLY: ClassVar[set[str]] = {'destructive', 'status'}
+    CATALOG_ONLY: ClassVar[dict[str, set[str]]] = {
+        'SchemaChangeOp': {'model', 'existing'},
+        'TableDiff': {'tbl_id', 'schema_versions'},
+    }
+
+    @pytest.mark.parametrize('name', ['SchemaChangeOp', 'TableDiff'])
+    def test_fields_match(self, name: str) -> None:
+        catalog_fields = set(typing.get_type_hints(getattr(model, name)))
+        wire_fields = set(typing.get_type_hints(getattr(wire, name)))
+        assert wire_fields - self.WIRE_ONLY == catalog_fields - self.CATALOG_ONLY[name]
+
+    @pytest.mark.parametrize('name', ['SchemaChangeOp', 'TableDiff'])
+    def test_shared_fields_have_the_same_type(self, name: str) -> None:
+        catalog_hints = typing.get_type_hints(getattr(model, name))
+        wire_hints = typing.get_type_hints(getattr(wire, name))
+        shared = set(catalog_hints) & set(wire_hints) - {'ops'}  # ops holds the mirrored op type on each side
+        assert all(catalog_hints[f] == wire_hints[f] for f in shared)
+
+    def test_resolutions_match(self) -> None:
+        assert typing.get_args(wire.DiffResolution) == typing.get_args(model.DiffResolution)

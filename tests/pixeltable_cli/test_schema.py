@@ -54,7 +54,7 @@ class TestSchema:
         # json output: the plan that was applied, which is now empty of changes
         r = cli('schema', 'update', str(schema_file), target, '--json')
         assert r.json['in_agreement']
-        assert [t['action'] for t in r.json['tables']] == ['noop', 'noop']
+        assert [t['resolution'] for t in r.json['tables']] == ['up_to_date', 'up_to_date']
 
         # a model whose kind conflicts with the existing object (table vs view) is an error
         schema_file.write_text(
@@ -162,16 +162,17 @@ class TestSchema:
         r = cli('schema', 'diff', str(schema_file), target, '--json', check=False)
         assert r.returncode == 2
         assert not r.json['in_agreement']
-        assert [(t['path'], t['action']) for t in r.json['tables']] == [
+        assert [(t['path'], t['resolution']) for t in r.json['tables']] == [
             (f'{target}/docs', 'create'),
             (f'{target}/titled_docs', 'create'),
         ]
         # a create subsumes the additions that constitute it
         assert all(t['ops'] == [] for t in r.json['tables'])
         assert r.json['summary'] == {
+            'up_to_date': 0,
             'create': 2,
-            'update': 0,
-            'noop': 0,
+            'update_additive': 0,
+            'update_destructive': 0,
             'unsupported': 0,
             'extras': 0,
             'destructive': 0,
@@ -184,8 +185,8 @@ class TestSchema:
         r = cli('schema', 'diff', str(schema_file), target, '--json')
         assert r.returncode == 0
         assert r.json['in_agreement']
-        assert [t['action'] for t in r.json['tables']] == ['noop', 'noop']
-        assert r.json['summary']['noop'] == 2
+        assert [t['resolution'] for t in r.json['tables']] == ['up_to_date', 'up_to_date']
+        assert r.json['summary']['up_to_date'] == 2
 
         # human-readable form
         r = cli('schema', 'diff', str(schema_file), target)
@@ -204,14 +205,14 @@ class TestSchema:
         r = cli('schema', 'diff', str(schema_file), target, '--json', check=False)
         assert r.returncode == 2
         docs = next(t for t in r.json['tables'] if t['path'] == f'{target}/docs')
-        assert docs['action'] == 'update'
+        assert docs['resolution'] == 'update_destructive'
         assert docs['destructive']
-        assert [(op['kind'], op['name'], op['destructive']) for op in docs['ops']] == [
-            ('add_column', 'author', False),
-            ('drop_column', 'body', True),
+        assert [(op['op'], op['target'], op['name'], op['destructive']) for op in docs['ops']] == [
+            ('add', 'column', 'author', False),
+            ('drop', 'column', 'body', True),
         ]
         # the added column carries its type, so the plan is actionable without re-reading the schema
-        assert next(op for op in docs['ops'] if op['kind'] == 'add_column')['details']['type'] == 'String'
+        assert next(op for op in docs['ops'] if op['op'] == 'add')['details']['type'] == 'String'
         assert r.json['summary']['destructive'] == 1
 
         r = cli('schema', 'diff', str(schema_file), target, check=False)
@@ -276,7 +277,7 @@ class TestSchema:
 
         r = cli('schema', 'prune', str(schema_file), target, '-f', '--json')
         assert sorted(op['name'] for op in r.json['ops']) == [f'{target}/scratch', f'{target}/scratch_view']
-        assert {op['kind'] for op in r.json['ops']} == {'drop_table'}
+        assert {(op['target'], op['op']) for op in r.json['ops']} == {('table', 'drop')}
         assert {op['status'] for op in r.json['ops']} == {'applied'}
         assert sorted(pxt.list_tables(target)) == [f'{target}/docs', f'{target}/titled_docs']
 
@@ -367,12 +368,12 @@ class TestSchema:
         r = cli('schema', 'diff', str(schema_file), target, '--json', check=False)
         assert r.returncode == 2
         tbl = r.json['tables'][0]
-        assert tbl['action'] == 'unsupported'
+        assert tbl['resolution'] == 'unsupported'
         assert all(op['severity'] == 'unsupported' for op in tbl['ops'])
-        assert [(op['kind'], op['name']) for op in tbl['ops']] == [
-            ('alter_table', 'kind'),
-            ('alter_table', 'view_filter'),
-            ('alter_column', 'headline'),
+        assert [(op['op'], op['target'], op['name']) for op in tbl['ops']] == [
+            ('alter', 'table', 'kind'),
+            ('alter', 'table', 'view_filter'),
+            ('alter', 'column', 'headline'),
         ]
         assert r.json['summary']['unsupported'] == 1
 

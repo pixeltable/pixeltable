@@ -1,9 +1,8 @@
-from collections.abc import Sequence
 from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, BaseModel, Field
 
-from pixeltable_cli.utils import OpStatus, validate_path_shape
+from pixeltable_cli.utils import validate_path_shape
 
 
 def _validate_pxt_path(v: str | None) -> str | None:
@@ -185,82 +184,12 @@ class SchemaDiffBody(BaseModel):
     target: PxtPath
 
 
-# The schema-plan models below type the responses that carry a schema plan; utils.SchemaPlan documents the format
-# itself. Two mappings out of catalog.model are hand-written and have to be changed together with it:
-#   - `action` here <-> bridge._ACTIONS, keyed by catalog.model.DiffResolution
-#   - an op's `kind` <-> bridge._OP_KINDS, keyed by (SchemaChangeOp.target, SchemaChangeOp.op)
-# Both fail loudly on a mismatch: a KeyError in the bridge, or pydantic rejecting the response. An op's `severity`
-# passes through from SchemaChangeOp unvalidated, and commands/schema.py:_severity_label() renders it.
-
-
-class SchemaPlanOp(BaseModel):
-    kind: str  # 'add_column', 'drop_index', 'drop_table', ...
-    name: str  # what the operation acts on: a column, an index, a table attribute, or a table path
-    severity: str
-    destructive: bool
-    description: str
-    details: dict[str, str]  # the operands of this kind of operation, eg 'type' for add_column
-
-
-class SchemaDiffTable(BaseModel):
-    path: str  # catalog path of the table
-    model_cls: str  # model class name, so an agent can map back to code
-    kind: Literal['table', 'view']
-    action: Literal['create', 'update', 'noop', 'unsupported']
-    destructive: bool
-    # empty for a create, which subsumes the additions that constitute it. Declared covariantly, so that a
-    # response whose operations all carry a status can narrow it.
-    ops: Sequence[SchemaPlanOp]
-
-
-class SchemaDiffSummary(BaseModel):
-    create: int
-    update: int
-    noop: int
-    unsupported: int
-    extras: int
-    destructive: int  # number of destructive operations, across all tables
-
-
-class SchemaDiffResponse(BaseModel):
-    # 'schema_path', not 'schema': a field named 'schema' shadows an attribute of pydantic's BaseModel
-    schema_path: str
-    target: str
-    in_agreement: bool  # True if no table needs a create or an update; extras don't count
-    tables: list[SchemaDiffTable]
-    extras: list[str]  # tables under the target that no model declares
-    summary: SchemaDiffSummary
-
-
 class SchemaPruneBody(BaseModel):
     schema_path: str  # absolute filesystem path to the schema file on the daemon host
     target: PxtPath
-
-
-class SchemaAppliedOp(SchemaPlanOp):
-    status: OpStatus
-
-
-class SchemaPruneResponse(SchemaDiffResponse):
-    ops: list[SchemaAppliedOp]  # one drop_table operation per table dropped
 
 
 class SchemaUpdateBody(BaseModel):
     schema_path: str  # absolute filesystem path to the schema file on the daemon host
     target: PxtPath
     allow_destructive: bool = False
-
-
-class SchemaUpdateTable(SchemaDiffTable):
-    status: OpStatus
-    ops: Sequence[SchemaAppliedOp]
-
-
-class SchemaUpdateResponse(BaseModel):
-    # the plan that was applied: the same shape 'schema diff' returns, with a status on each table and operation
-    schema_path: str
-    target: str
-    in_agreement: bool
-    tables: list[SchemaUpdateTable]
-    extras: list[str]
-    summary: SchemaDiffSummary

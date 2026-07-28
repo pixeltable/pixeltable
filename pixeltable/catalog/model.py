@@ -1010,10 +1010,8 @@ class SchemaChangeOp(TypedDict):
     """
     A single schema change operation (eg, add column, drop column, etc).
 
-    target, op and severity below are also part of the CLI's wire format:
-    - pixeltable_cli.server.bridge maps them to the operation kinds of a schema plan
-    - pixeltable_cli.models types the result
-    Adding a value to any of them means updating those two files as well; see the note above SchemaDiffTable.
+    MIRRORED by pixeltable_cli.schema_types.SchemaChangeOp; adding, removing or retyping a field here means
+    doing the same there.
     """
 
     target: Literal['column', 'index', 'table']
@@ -1033,13 +1031,16 @@ class SchemaChangeOp(TypedDict):
     details: dict[str, str]
 
 
-# also mapped to a schema plan's per-table action by pixeltable_cli.server.bridge; a new value needs a mapping
-# there and in pixeltable_cli.models
+# MIRRORED by pixeltable_cli.schema_types.DiffResolution; a value added here has to be added there too
 DiffResolution = Literal['up_to_date', 'create', 'update_additive', 'update_destructive', 'unsupported']
 
 
 class TableDiff(TypedDict):
-    """How one model differs from its catalog table."""
+    """How one model differs from its catalog table.
+
+    MIRRORED by pixeltable_cli.schema_types.TableDiff; adding, removing or retyping a field here means doing
+    the same there.
+    """
 
     path: str  # catalog path of the table
     model_cls: str  # model class name, so an agent can map back to code

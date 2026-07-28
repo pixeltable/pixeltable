@@ -2,8 +2,9 @@ import json
 import sys
 import textwrap
 from pathlib import Path
+from typing import NamedTuple
 
-from ...utils import OpStatus, SchemaPlan, SchemaPlanOp, drop_table_op
+from ...schema_types import DiffResolution, OpStatus, SchemaChangeOp, SchemaPlan, drop_table_op
 from ..confirm import confirm_or_exit
 from ..http import post
 from ..parser import Parser
@@ -131,18 +132,26 @@ EXIT_ERROR = 1
 EXIT_CHANGES_PENDING = 2
 EXIT_REFUSED = 3
 
-# the marker introducing a table's line, by action
-_ACTION_MARKERS = {'create': '+', 'update': '~', 'noop': '=', 'unsupported': '!'}
 
-# how an applied table's action reads once it has been carried out; an unsupported action never reaches this,
-# since applying it raises
-_APPLIED_LABELS = {'create': 'created', 'update': 'updated', 'noop': 'unchanged'}
+class _Rendering(NamedTuple):
+    marker: str
+    pending: str
+    applied: str  # empty for a resolution that is never carried out
 
-# how an operation's severity reads; the keys are catalog.model.SchemaChangeOp's severities
+
+_RESOLUTIONS: dict[DiffResolution, _Rendering] = {
+    'create': _Rendering('+', 'create', 'created'),
+    'update_additive': _Rendering('~', 'update', 'updated'),
+    'update_destructive': _Rendering('~', 'update', 'updated'),
+    'up_to_date': _Rendering('=', 'no change', 'unchanged'),
+    'unsupported': _Rendering('!', 'unsupported', ''),
+}
+
+# how an operation's severity reads
 _SEVERITY_LABELS = {'additive': 'safe', 'destructive': 'DESTRUCTIVE', 'unsupported': 'UNSUPPORTED'}
 
-# the marker introducing an operation's line, by kind; anything else is an in-place change
-_OP_MARKERS = {'add_column': '+', 'add_index': '+', 'drop_column': '-', 'drop_index': '-'}
+# the marker introducing an operation's line; an alter is an in-place change
+_OP_MARKERS = {'add': '+', 'drop': '-'}
 
 
 def run(argv: list[str]) -> None:
@@ -233,15 +242,16 @@ def _plan_for(schema_path: str, target: str) -> SchemaPlan:
 def _format_plan(plan: SchemaPlan) -> list[str]:
     lines: list[str] = []
     for tbl in plan['tables']:
-        action = 'no change' if tbl['action'] == 'noop' else tbl['action']
-        lines.append(f'{_ACTION_MARKERS[tbl["action"]]} {tbl["path"]:<24s} {action}')
+        rendering = _RESOLUTIONS[tbl['resolution']]
+        lines.append(f'{rendering.marker} {tbl["path"]:<24s} {rendering.pending}')
         for op in tbl['ops']:
-            lines.append(f'    {_OP_MARKERS.get(op["kind"], "~")} {op["description"]}  {_severity_label(op)}')
+            lines.append(f'    {_OP_MARKERS.get(op["op"], "~")} {op["description"]}  {_severity_label(op)}')
     for path in plan['extras']:
         lines.append(f'! {path:<24s} extra (not in schema)')
 
     s = plan['summary']
-    counts = f'{s["create"]} create, {s["update"]} update, {s["noop"]} unchanged, {s["extras"]} extra'
+    updates = s['update_additive'] + s['update_destructive']
+    counts = f'{s["create"]} create, {updates} update, {s["up_to_date"]} unchanged, {s["extras"]} extra'
     if s['unsupported'] > 0:
         counts += f', {s["unsupported"]} unsupported'
     lines.append('')
@@ -249,7 +259,7 @@ def _format_plan(plan: SchemaPlan) -> list[str]:
     return lines
 
 
-def _severity_label(op: SchemaPlanOp) -> str:
+def _severity_label(op: SchemaChangeOp) -> str:
     # an unmapped severity prints as itself: a category added later must not read as harmless here
     return _SEVERITY_LABELS.get(op['severity'], op['severity'].upper())
 
@@ -348,7 +358,7 @@ def _update_output(plan: SchemaPlan, *, as_json: bool) -> None:
         print('catalog is up to date')
         return
     for tbl in plan['tables']:
-        print(f'{_APPLIED_LABELS[tbl["action"]]:9s} {tbl["path"]}')
+        print(f'{_RESOLUTIONS[tbl["resolution"]].applied:9s} {tbl["path"]}')
 
 
 def _set_statuses(plan: SchemaPlan, *, destructive: OpStatus, other: OpStatus) -> None:
