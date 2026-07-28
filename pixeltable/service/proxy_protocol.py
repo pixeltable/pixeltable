@@ -31,6 +31,7 @@ from pixeltable.catalog.table_path import TablePath, TablePathKey, TableVersionP
 from pixeltable.catalog.update_status import RowCountStats, UpdateStatus
 from pixeltable.metadata import VERSION as MD_SCHEMA_VERSION, schema
 from pixeltable.query_clauses import SampleClause
+from pixeltable.row import RowBatch
 from pixeltable.utils.local_store import TempStore
 
 PROTOCOL_VERSION = 1
@@ -153,6 +154,18 @@ def _serialize(obj: Any, binary_parts: list[bytes]) -> Any:
         d = dataclasses.asdict(obj)
         d['rows'] = _serialize(obj.rows, binary_parts)  # returned rows may hold non-JSON scalars (timestamps, etc.)
         return {_TAG: 'UpdateStatus', 'v': d}
+    if isinstance(obj, RowBatch):
+        return {
+            _TAG: 'RowBatch',
+            'v': {
+                'schema': {name: t.as_dict() for name, t in obj._col_types.items()},
+                'rows': [[_serialize(val, binary_parts) for val in row._data] for row in obj],
+                'errors': [row.errors for row in obj],
+                'index_values': [
+                    {name: _serialize(val, binary_parts) for name, val in row.index_values.items()} for row in obj
+                ],
+            },
+        }
     if isinstance(obj, Dir):
         # a Dir is an identity-only handle; only its id crosses the wire
         return {_TAG: 'Dir', 'v': str(obj._id)}
@@ -280,6 +293,16 @@ def _deserialize(obj: Any, binary_parts: list[bytes], uploaded_names: dict[str, 
             for field in ('row_count_stats', 'cascade_row_count_stats'):
                 d[field] = RowCountStats(**d[field])
             return UpdateStatus(**d)
+        if tag == 'RowBatch':
+            return RowBatch(
+                [tuple(_deserialize(val, binary_parts, uploaded_names) for val in row_data) for row_data in v['rows']],
+                {name: ts.ColumnType.from_dict(t) for name, t in v['schema'].items()},
+                errors=v['errors'],
+                index_values=[
+                    {name: _deserialize(val, binary_parts, uploaded_names) for name, val in iv.items()}
+                    for iv in v['index_values']
+                ],
+            )
         if tag == 'Dir':
             return Dir(UUID(v))
         if tag == 'UUID':

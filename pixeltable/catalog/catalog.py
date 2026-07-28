@@ -162,6 +162,17 @@ def retry_loop(
     return decorator
 
 
+def retrying_read(op: Callable[[], T], *, read_tvps: Collection[TableVersionPath] | None = None) -> T:
+    """Runs a read-only op, retrying transient failures if no transaction is open yet.
+
+    An op that is already inside a transaction joins it and is not retried, since a retry loop cannot be started
+    within one.
+    """
+    if get_runtime().in_xact:
+        return op()
+    return retry_loop(for_write=False, read_tvps=read_tvps)(op)()
+
+
 class PendingTableOpsError(Exception):
     tbl_id: UUID
 

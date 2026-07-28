@@ -12,7 +12,6 @@ from pixeltable import catalog, exceptions as excs, exec, exprs
 from pixeltable.catalog import Column, TableVersionHandle
 from pixeltable.exec.sql_node import OrderByClause, OrderByItem, combine_order_by_clauses, print_order_by_clause
 from pixeltable.func.iterator import GeneratingFunctionCall
-from pixeltable.index import BtreeIndex
 from pixeltable.query_clauses import FromClause, SampleClause
 
 if TYPE_CHECKING:
@@ -257,49 +256,53 @@ class Planner:
     ) -> exec.ExecNode:
         """Creates a plan for TableVersion.insert() from either in-memory rows or a SqlDataSource."""
         assert not tbl.is_view
-        plan, batch_size = cls._create_compute_plan(tbl, source, ignore_errors=ignore_errors, for_insert=True)
+        output_cols = cls._compute_output_cols(tbl, for_insert=True)
+        assert len(output_cols) > 0
+        cls.__check_valid_columns(tbl, output_cols, 'inserted into')
+
+        row_builder = exprs.RowBuilder([], output_cols, [], tbl)
+        plan, batch_size = cls._create_input_plan(tbl, source, row_builder)
+        computed_exprs = row_builder.output_exprs - row_builder.input_exprs
+        if len(computed_exprs) > 0:
+            plan = exec.ExprEvalNode(
+                row_builder, computed_exprs, plan.output_exprs, input=plan, maintain_input_order=False
+            )
+
         stored_cols = [c for c in tbl.cols_by_id.values() if c.is_stored]
-        if any(c.col_type.supports_file_offloading() for c in stored_cols):
+        if any(c.col_type.needs_cell_materialization() for c in stored_cols):
             plan = exec.CellMaterializationNode(plan)
         plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=batch_size, ignore_errors=ignore_errors))
         plan = cls._add_save_node(plan)
         return plan
 
     @classmethod
-    def _create_compute_plan(
+    def _compute_output_cols(cls, tbl: catalog.TableVersion, for_insert: bool) -> list[Column]:
+        """Returns the columns of tbl to materialize when computing new rows for it.
+
+        If for_insert == True, only stored columns, incl. index value columns.
+        If for_insert == False, all columns except index value columns and undo columns.
+        """
+        if for_insert:
+            return [c for c in tbl.cols_by_id.values() if c.is_stored]
+        # for compute(), skip index val/undo cols
+        skipped_col_ids = {info.val_col.id for info in tbl.idxs_by_name.values()}
+        skipped_col_ids |= {info.undo_col.id for info in tbl.idxs_by_name.values()}
+        return [c for c in tbl.cols_by_id.values() if c.id not in skipped_col_ids]
+
+    @classmethod
+    def _create_input_plan(
         cls,
         tbl: catalog.TableVersion,
         source: list[dict[str, Any]] | SqlDataSource,
-        ignore_errors: bool,
-        for_insert: bool,
+        row_builder: exprs.RowBuilder,
+        set_pk: bool = False,
     ) -> tuple[exec.ExecNode, int]:
         """
-        Creates a plan for materializing new rows for 'tbl', given the input 'source' (in-memory rows or a
-        SqlDataSource, containing values for the mutable columns). Returns the plan and its exec batch size.
-
-        If for_insert == True, materializes only stored computed columns, incl. index value columns.
-        If for_insert == False, materializes all computed columns except btree value columns and all undo columns.
+        Creates the input stage shared by insert/compute plans: materializes 'source' (in-memory rows or a
+        SqlDataSource, containing values for the mutable columns of 'tbl'), plus a prefetch node for media
+        inputs. Returns the plan and its exec batch size.
         """
         from pixeltable.io.data_sources import SqlDataSource
-
-        assert not tbl.is_view
-        output_cols: list[Column]
-        if for_insert:
-            output_cols = [c for c in tbl.cols_by_id.values() if c.is_stored]
-        else:
-            # skip btree val cols
-            skipped_col_ids = {
-                info.val_col.id for info in tbl.idxs_by_name.values() if isinstance(info.idx, BtreeIndex)
-            }
-            # skip all undo cols
-            skipped_col_ids |= {info.undo_col.id for info in tbl.idxs_by_name.values()}
-            output_cols = [c for c in tbl.cols_by_id.values() if c.id not in skipped_col_ids]
-
-        assert len(output_cols) > 0
-
-        cls.__check_valid_columns(tbl, output_cols, 'inserted into' if for_insert else 'computed for')
-
-        row_builder = exprs.RowBuilder([], output_cols, [], tbl, allow_unstored=not for_insert)
 
         plan: exec.ExecNode
         batch_size: int
@@ -308,27 +311,87 @@ class Planner:
             batch_size = 1024
         else:
             assert isinstance(source, list)
-            plan = exec.InMemoryDataNode(tbl.handle, source, row_builder)
+            plan = exec.InMemoryDataNode(tbl.handle, source, row_builder, set_pk=set_pk)
             batch_size = 0
 
         plan = cls._add_prefetch_node(tbl.id, row_builder.input_exprs, input_node=plan)
-
-        computed_exprs = row_builder.output_exprs - row_builder.input_exprs
-        if len(computed_exprs) > 0:
-            # maintain input order: compute() callers map input rows to output rows positionally
-            plan = exec.ExprEvalNode(
-                row_builder, computed_exprs, plan.output_exprs, input=plan, maintain_input_order=not for_insert
-            )
         return plan, batch_size
 
     @classmethod
     def create_compute_plan(
-        cls, tbl: catalog.TableVersion, rows: list[dict[str, Any]], ignore_errors: bool
+        cls, path: catalog.TableVersionPath, rows: list[dict[str, Any]], ignore_errors: bool
     ) -> exec.ExecNode:
-        """Creates a plan for TableVersion.compute(): like create_insert_plan but without persistence."""
-        assert not tbl.is_view
-        plan, _ = cls._create_compute_plan(tbl, rows, ignore_errors=ignore_errors, for_insert=False)
-        plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=0, ignore_errors=ignore_errors))
+        """Creates a plan for LocalTable.compute(): propagation of input rows along the entire view chain.
+
+        Plan shape:
+        - the input rows are handled identically to insert:
+            - InMemoryDataNode
+            - PrefetchNode
+        - each table in 'path' adds its incremental nodes:
+            - ExprEvalNode + FilterNode for view predicate enforcement
+            - ComponentIterationNode for component views
+            - ExprEvalNode to materialize computed columns, if any
+        """
+        tvs = list(reversed(path.get_tbl_versions()))  # base first
+        base_tv = tvs[0].get()
+        assert base_tv.is_insertable
+
+        # columns to materialize, base to target; each level's columns are computed at that level's stage
+        per_tbl_output_cols: list[list[Column]] = []
+        for tvh in tvs:
+            tv = tvh.get()
+            cols = cls._compute_output_cols(tv, for_insert=False)
+            cls.__check_valid_columns(tv, cols, 'computed for')
+            cls.__check_valid_iterator(tv, tv.iterator_call, 'computed for')
+            per_tbl_output_cols.append(cols)
+        all_cols = [col for cols in per_tbl_output_cols for col in cols]
+
+        # view predicates and iterator args aren't column values; they need to be recorded explicitly
+        extra_exprs: list[exprs.Expr] = []
+        for tvh in tvs[1:]:
+            tv = tvh.get()
+            if tv.predicate is not None:
+                extra_exprs.append(tv.predicate)
+            if tv.is_component_view:
+                extra_exprs.append(tv.iterator_args_expr())
+        row_builder = exprs.RowBuilder(extra_exprs, all_cols, [], path.tbl_version.get(), allow_unstored=True)
+
+        resolve_cols = set(all_cols)
+
+        def recorded(e: exprs.Expr) -> exprs.Expr:
+            """Return the RowBuilder's recorded form of e."""
+            result = row_builder.unique_exprs[e.copy().resolve_computed_cols(resolve_cols=resolve_cols)]
+            assert result is not None
+            return result
+
+        plan, _ = cls._create_input_plan(base_tv, rows, row_builder, set_pk=True)
+        # the plan preserves input row order (all ExprEvalNodes maintain input order), so output rows map
+        # positionally to input rows; avail: exprs whose slots are materialized so far
+        materialized = exprs.ExprSet(row_builder.input_exprs)
+        for tvh, output_cols in zip(tvs, per_tbl_output_cols):
+            tv = tvh.get()
+            if tv.is_view:
+                if tv.predicate is not None:
+                    pred = recorded(tv.predicate)
+                    if pred not in materialized:
+                        plan = exec.ExprEvalNode(row_builder, [pred], list(materialized), input=plan)
+                        materialized.add(pred)
+                    plan = exec.FilterNode(row_builder, pred, plan)
+                if tv.is_component_view:
+                    iterator_args = cast(exprs.InlineDict, recorded(tv.iterator_args_expr()))
+                    plan = exec.ComponentIterationNode(tvh, plan, iterator_args=iterator_args)
+
+            output_col_exprs: list[exprs.Expr] = []
+            for output_col in output_cols:
+                slot_idx = row_builder.table_columns[output_col]
+                output_col_exprs.append(row_builder.unique_exprs[slot_idx])
+            assert all(e is not None for e in output_col_exprs)
+            missing_output_exprs = exprs.ExprSet(e for e in output_col_exprs if e not in materialized)
+            if len(missing_output_exprs) > 0:
+                plan = exec.ExprEvalNode(row_builder, list(missing_output_exprs), list(materialized), input=plan)
+                materialized.update(missing_output_exprs)
+
+        plan.set_ctx(exec.ExecContext(row_builder, batch_size=0, ignore_errors=ignore_errors))
         return plan
 
     @classmethod
@@ -354,7 +417,7 @@ class Planner:
             assert col_name in tbl.cols_by_name
             col = tbl.cols_by_name[col_name]
             plan.row_builder.add_table_column(col, expr.slot_idx)
-            needs_cell_materialization = needs_cell_materialization or col.col_type.supports_file_offloading()
+            needs_cell_materialization = needs_cell_materialization or col.col_type.needs_cell_materialization()
 
         if needs_cell_materialization:
             plan = exec.CellMaterializationNode(plan)
@@ -508,7 +571,10 @@ class Planner:
 
     @classmethod
     def __check_valid_iterator(
-        cls, tbl: catalog.TableVersion, iterator: GeneratingFunctionCall | None, op_name: Literal['updated in']
+        cls,
+        tbl: catalog.TableVersion,
+        iterator: GeneratingFunctionCall | None,
+        op_name: Literal['updated in', 'computed for'],
     ) -> None:
         if iterator is None:
             return
@@ -565,7 +631,7 @@ class Planner:
     def _add_cell_materialization_node(cls, input: exec.ExecNode) -> exec.ExecNode:
         # we need a CellMaterializationNode if any of the evaluated output columns are json or array-typed
         has_target_cols = any(
-            col.col_type.supports_file_offloading()
+            col.col_type.needs_cell_materialization()
             for col, slot_idx in input.row_builder.table_columns.items()
             if slot_idx is not None
         )
@@ -827,7 +893,7 @@ class Planner:
 
         exec_ctx.ignore_errors = True
         plan.set_ctx(exec_ctx)
-        if any(c.col_type.supports_file_offloading() for c in stored_cols):
+        if any(c.col_type.needs_cell_materialization() for c in stored_cols):
             plan = exec.CellMaterializationNode(plan)
         plan = cls._add_save_node(plan)
 

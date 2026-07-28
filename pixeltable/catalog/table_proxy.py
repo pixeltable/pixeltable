@@ -3,11 +3,14 @@ from __future__ import annotations
 import builtins
 import dataclasses
 import threading
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence
 from uuid import UUID
+
+import pydantic
 
 import pixeltable.exceptions as excs
 from pixeltable import type_system as ts
+from pixeltable.utils import parse_local_file_path
 
 from ..exprs import ColumnRef
 from .globals import normalize_schema
@@ -16,14 +19,13 @@ from .table import Table
 from .table_path import TableMdPath, TablePathKey, TableVersionKey
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
     from pathlib import Path
 
-    import pydantic
     import torch.utils.data
 
     from pixeltable import exprs
     from pixeltable.func.function import Function
+    from pixeltable.row import RowBatch
     from pixeltable.service.proxy_client import ProxyClient
     from pixeltable.types import ColumnSpec
 
@@ -307,8 +309,78 @@ class TableProxy(Table):
         /,
         *,
         on_error: Literal['abort', 'ignore'] = 'abort',
-    ) -> list[dict[str, Any]]:
-        raise NotImplementedError
+    ) -> RowBatch:
+        # str/bytes are technically Sequences; reject them explicitly (with a clear message) rather than letting
+        # them fall through to the element-type check or be interpreted as paths/URLs
+        if isinstance(source, (str, bytes)) or not isinstance(source, Sequence) or len(source) == 0:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                'compute() requires a non-empty sequence of dicts or pydantic models',
+            )
+        if not all(isinstance(row, (dict, pydantic.BaseModel)) for row in source):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, 'compute() requires a sequence of dicts or pydantic models'
+            )
+        self._validate_compute()
+        rows = self._convert_local_paths(self._prepare_rows(list(source)))
+        return self._dispatch('compute', {'rows': rows, 'on_error': on_error})
+
+    def _media_column_names(self) -> set[str]:
+        return {
+            col_md.name
+            for col_md in self._tbl_md_path.column_md()
+            if col_md.name is not None and col_md.col_type.is_media_type()
+        }
+
+    def _convert_local_paths(self, rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Convert local file path values of media columns to LocalFile for correct request serialization."""
+        from pixeltable.service.proxy_protocol import LocalFile
+
+        rows = list(rows)
+        media_cols = self._media_column_names()
+        if len(media_cols) == 0:
+            return rows
+
+        converted: list[dict[str, Any]] = []
+        for row in rows:
+            new_row = row
+            for name in media_cols & row.keys():
+                val = row[name]
+                if isinstance(val, str):
+                    p = parse_local_file_path(val)
+                    if p is not None:
+                        if new_row is row:
+                            new_row = dict(row)
+                        new_row[name] = LocalFile(str(p))
+            converted.append(new_row)
+        return converted
+
+    def _prepare_rows(self, source: list[Any]) -> list[dict[str, Any]]:
+        """
+        Validate and normalize a non-empty list of dict/pydantic source rows for the hosted catalog:
+        - pydantic models are validated and converted to dicts on the client (the model classes aren't
+          importable on the server)
+        - plain dicts are sent as-is
+        """
+        if isinstance(source[0], pydantic.BaseModel):
+            source = self._pydantic_to_rows(source)
+        rows: list[dict[str, Any]] = []
+        for source_row in source:
+            if not isinstance(source_row, dict):
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, 'Hosted table rows must be dicts or pydantic models.'
+                )
+            rows.append(source_row)
+        return rows
+
+    def _pydantic_to_rows(self, models: list[Any]) -> list[dict[str, Any]]:
+        """Validate pydantic models against this table's schema and convert them to insertable dicts."""
+        from pixeltable.io.table_data_conduit import PydanticTableDataConduit
+
+        converter = PydanticTableDataConduit(models)
+        converter.add_table_info(self)
+        converter.prepare_for_insert_into_table()
+        return converter.pxt_rows
 
     def update(
         self,
