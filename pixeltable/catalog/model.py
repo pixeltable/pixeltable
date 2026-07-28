@@ -1044,22 +1044,27 @@ def prepare_model_updates(
 
 
 class SchemaChange(TypedDict):
-    """One atomic difference between a model and the catalog.
+    """
+    Record of the difference between a model and the catalog.
 
-    `target`, `op` and `severity` are also part of the CLI's wire format: pixeltable_cli.server.bridge maps them
-    to the operation kinds of a schema plan, and pixeltable_cli.models types the result. Adding a value to any of
-    them means updating those two files as well; see the note above SchemaDiffTable.
+    target, op and severity below are also part of the CLI's wire format:
+    - pixeltable_cli.server.bridge maps them to the operation kinds of a schema plan
+    - pixeltable_cli.models types the result
+    Adding a value to any of them means updating those two files as well; see the note above SchemaDiffTable.
     """
 
     target: Literal['column', 'index', 'table']
+
     # column name, index name, or for 'table', the differing attribute:
     # 'kind' | 'iterator' | 'view_filter' | 'view_sample' | 'media_validation' | 'comment' | 'custom_metadata'
     name: str
+
     op: Literal['add', 'drop', 'alter']
     severity: Literal['additive', 'destructive', 'unsupported']
     model: Any | None  # model-side value; None for drops
     existing: Any | None  # catalog-side value; None for adds
     description: str
+
     # the change's operands, rendered as strings so they survive serialization: 'type' or 'value' for a column add,
     # 'on' for an index add. Empty when the change has no operand beyond name.
     details: dict[str, str]
@@ -1231,7 +1236,9 @@ def _add_column_change(col_name: str, spec: ColumnSpec) -> SchemaChange:
 
 
 def _add_index_change(idx_name: str, idx: EmbeddingIndex) -> SchemaChange:
-    details = {'on': idx.column.name} if isinstance(idx.column, ModelColumnRef) else {}
+    # str(), not .name: a ModelColumnRef renders as its bare column name, and a spec holding anything else
+    # is reported as it stands rather than dropped from the plan
+    details = {'on': str(idx.column)}
     return SchemaChange(
         target='index',
         name=idx_name,
@@ -1488,8 +1495,8 @@ def _format_diff(name: str, diff: TableDiff) -> list[str]:
     return [f'{kind.capitalize()} {name!r} (from model `{diff["model_cls"]}`) has differences:', *detail]
 
 
-# closing lines of the refusals raised by create_all()/update_all(), phrased for the Python API. A caller driving
-# them from a different surface passes its own.
+# closing lines of the refusals raised by create_all()/update_all(), phrased for the Python API;
+# other callers pass their own
 _PY_MISMATCH_HINT = 'Call `update_all()` instead if you intended to also modify existing tables.'
 _PY_DESTRUCTIVE_HINT = (
     'If you wish to apply these changes, re-run `update_all()` with `allow_destructive=True`.\n'
@@ -1511,8 +1518,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
     def _create_all(binding_root: str = '', *, mismatch_hint: str = _PY_MISMATCH_HINT) -> tuple[list[str], list[str]]:
         """Returns (created, existing): absolute paths of tables created now and those that already exist.
 
-        mismatch_hint closes the error raised when an existing table differs from its model; it names the way to
-        proceed, which differs between the Python API and the CLI.
+        mismatch_hint closes the error raised when an existing table differs from its model
         """
         created: list[str] = []
         existed: list[str] = []
@@ -1554,8 +1560,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         """Reconcile every registered model with the catalog.
 
         mismatch_hint and destructive_hint close the errors raised when a table cannot be reconciled and when the
-        changes would be destructive without allow_destructive; each names the way to proceed, which differs
-        between the Python API and the CLI.
+        changes would be destructive without allow_destructive
         """
         diffs = validate_models(registered_models, binding_root)
 

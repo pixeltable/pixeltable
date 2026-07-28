@@ -124,6 +124,15 @@ def _snapshot_pixeltable_env(environ: dict[str, str] | None = None) -> dict[str,
     return {k: _redact_env_value(k, env[k]) for k in sorted(env) if k.startswith('PIXELTABLE_')}
 
 
+def drop_table_op(path: str, status: str) -> dict[str, Any]:
+    """The schema-plan operation for dropping the table at the given path, in the given status.
+
+    Lives here because both the daemon (reporting what it dropped) and the client (reporting what it would drop,
+    or refused to drop) put the same operation into a plan.
+    """
+    return {'kind': 'drop_table', 'path': path, 'severity': 'destructive', 'destructive': True, 'status': status}
+
+
 def identity() -> dict[str, Any]:
     pxt_version = _pxt_version()
     pxt_install_dir = _pxt_install_dir()

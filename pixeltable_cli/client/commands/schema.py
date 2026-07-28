@@ -1,26 +1,10 @@
-"""Reconcile a catalog directory with a class-based schema file.
-
-`diff` previews the changes, `update` applies them, and `prune` drops the tables the schema does not declare.
-A difference that cannot be applied in place -- a kind or iterator mismatch, or a changed column type or
-property -- is reported as unsupported and nothing is applied.
-
-Each verb reports its outcome in the exit status as well as its output, and `--json` returns the plan: for
-`update` and `prune`, with a status on every table and operation, including on the paths that refuse before
-reaching the daemon.
-
-`_SCHEMA_FILE` is appended to every verb's epilog: the shape of a model file is the first thing a caller
-writing one needs, and it is the same for all of them.
-
-The work runs on the daemon (which already has pixeltable loaded); the client stays import-light and only
-forwards the schema file's absolute path.
-"""
-
 import json
 import sys
 from pathlib import Path
 from typing import Any
 
-from ..confirm import confirm_or_exit, stdin_is_a_tty
+from ...utils import drop_table_op
+from ..confirm import confirm_or_exit
 from ..http import post
 from ..parser import Parser
 
@@ -130,8 +114,9 @@ EXIT_REFUSED = 3
 # the marker introducing a table's line, by action
 _ACTION_MARKERS = {'create': '+', 'update': '~', 'noop': '=', 'unsupported': '!'}
 
-# how an applied table's action reads once it has been carried out
-_APPLIED_LABELS = {'create': 'created', 'update': 'updated', 'noop': 'unchanged', 'unsupported': 'unsupported'}
+# how an applied table's action reads once it has been carried out; an unsupported action never reaches this,
+# since applying it raises
+_APPLIED_LABELS = {'create': 'created', 'update': 'updated', 'noop': 'unchanged'}
 
 # how an operation's severity reads; the keys are catalog.model.SchemaChange's severities
 _SEVERITY_LABELS = {'additive': 'safe', 'destructive': 'DESTRUCTIVE', 'unsupported': 'UNSUPPORTED'}
@@ -236,12 +221,22 @@ def _prune(schema_path: str, target: str, *, as_json: bool, force: bool, dry_run
         sys.exit(EXIT_IN_AGREEMENT)
 
     if dry_run:
-        _prune_output({**plan, 'ops': _drop_ops(extras, 'skipped')}, as_json=as_json, verb='would drop')
+        _prune_output(
+            {**plan, 'ops': [drop_table_op(p, 'skipped') for p in extras]}, as_json=as_json, verb='would drop'
+        )
         sys.exit(EXIT_CHANGES_PENDING)
 
-    if not force and not stdin_is_a_tty():
-        _prune_output({**plan, 'ops': _drop_ops(extras, 'refused')}, as_json=as_json, verb='would drop')
-    confirm_or_exit(f'drop {len(extras)} table(s) not declared by the schema?', force, refused_exit_code=EXIT_REFUSED)
+    def report_refusal() -> None:
+        _prune_output(
+            {**plan, 'ops': [drop_table_op(p, 'refused') for p in extras]}, as_json=as_json, verb='would drop'
+        )
+
+    confirm_or_exit(
+        f'drop {len(extras)} table(s) not declared by the schema?',
+        force,
+        refused_exit_code=EXIT_REFUSED,
+        on_refusal=report_refusal,
+    )
 
     resp = post('/api/schema/prune', {'schema_path': schema_path, 'target': target})
     _prune_output(resp, as_json=as_json, verb='dropped')
@@ -258,11 +253,12 @@ def _prune_output(plan: dict[str, Any], *, as_json: bool, verb: str) -> None:
 def _update(
     schema_path: str, target: str, *, as_json: bool, force: bool, dry_run: bool, allow_destructive: bool
 ) -> None:
-    # plan first, so that destructive changes can be refused or confirmed before anything is applied. The apply
-    # recomputes the plan under its own transaction, so this one is what the caller sees, not what is enforced.
+    # plan first, so that destructive changes can be refused or confirmed before anything is applied. This plan
+    # is advisory: it is a separate read from the one the apply acts on.
     plan = post('/api/schema/diff', {'schema_path': schema_path, 'target': target})
     if dry_run:
-        _diff_output(_with_statuses(plan, destructive='skipped', other='skipped'), as_json=as_json)
+        _set_statuses(plan, destructive='skipped', other='skipped')
+        _diff_output(plan, as_json=as_json)
         sys.exit(EXIT_IN_AGREEMENT if plan['in_agreement'] else EXIT_CHANGES_PENDING)
 
     if plan['in_agreement']:
@@ -274,7 +270,8 @@ def _update(
 
     destructive = plan['summary']['destructive']
     if destructive > 0 and not allow_destructive:
-        _diff_output(_with_statuses(plan, destructive='refused', other='skipped'), as_json=as_json)
+        _set_statuses(plan, destructive='refused', other='skipped')
+        _diff_output(plan, as_json=as_json)
         print(
             f'pxt schema update: refusing to apply {destructive} destructive operation(s) without --allow-destructive',
             file=sys.stderr,
@@ -294,22 +291,16 @@ def _update(
         print(f'{_APPLIED_LABELS[tbl["action"]]:9s} {tbl["path"]}')
 
 
-def _with_statuses(plan: dict[str, Any], *, destructive: str, other: str) -> dict[str, Any]:
-    """The plan with a status on every table and operation: `destructive` for the destructive operations, `other`
-    for the rest. A table carries `destructive` if any of its operations does."""
+def _set_statuses(plan: dict[str, Any], *, destructive: str, other: str) -> None:
+    """Puts a status on every table and operation of the plan.
+
+    Destructive operations take the destructive status, the rest take the other one, and a table takes the
+    destructive status if any of its operations does.
+    """
     for tbl in plan['tables']:
         for op in tbl['ops']:
             op['status'] = destructive if op['destructive'] else other
         tbl['status'] = destructive if any(op['destructive'] for op in tbl['ops']) else other
-    return plan
-
-
-def _drop_ops(paths: list[str], status: str) -> list[dict[str, Any]]:
-    """One drop_table operation per path, in the state given by `status`."""
-    return [
-        {'kind': 'drop_table', 'path': p, 'severity': 'destructive', 'destructive': True, 'status': status}
-        for p in paths
-    ]
 
 
 def _diff_output(plan: dict[str, Any], *, as_json: bool) -> None:

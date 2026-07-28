@@ -1,4 +1,5 @@
 import sys
+from collections.abc import Callable
 
 
 def stdin_is_a_tty() -> bool:
@@ -18,11 +19,18 @@ def stdin_is_a_tty() -> bool:
     return bool(ctypes.windll.kernel32.GetConsoleMode(handle, ctypes.byref(mode)))
 
 
-def confirm_or_exit(prompt: str, force: bool, *, refused_exit_code: int = 2) -> None:
-    """Prompt for yes/no on stdin; refuse non-tty unless --force, exiting with refused_exit_code."""
+def confirm_or_exit(
+    prompt: str, force: bool, *, refused_exit_code: int = 2, on_refusal: Callable[[], None] | None = None
+) -> None:
+    """Prompt for yes/no on stdin; refuse non-tty unless --force, exiting with refused_exit_code.
+
+    on_refusal runs just before the non-tty refusal exits, for a caller that reports the refusal itself.
+    """
     if force:
         return
     if not stdin_is_a_tty():
+        if on_refusal is not None:
+            on_refusal()
         print(f'pxt: refusing to proceed without --force/-f (no TTY for confirmation): {prompt}', file=sys.stderr)
         sys.exit(refused_exit_code)
     sys.stderr.write(f'{prompt} [y/N] ')

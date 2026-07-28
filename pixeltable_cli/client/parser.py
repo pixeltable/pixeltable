@@ -6,7 +6,7 @@ from typing import NoReturn
 class Parser(argparse.ArgumentParser):
     """ArgumentParser that appends the epilog (examples) to stderr on error."""
 
-    # status to exit with on a usage error; a command that gives 2 a meaning of its own passes something else
+    # status to exit with on a usage error; overridable where 2 already carries another meaning
     usage_exit_code: int
 
     def __init__(self, *args: object, usage_exit_code: int = 2, **kwargs: object) -> None:

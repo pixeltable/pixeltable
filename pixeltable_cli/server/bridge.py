@@ -27,6 +27,7 @@ from pixeltable import exceptions as excs
 from pixeltable.catalog import Path as CatalogPath
 from pixeltable.catalog.model import TableModelMeta
 from pixeltable.catalog.table_metadata import TableMetadata
+from pixeltable_cli.utils import drop_table_op
 from pixeltable.config import Config
 from pixeltable.env import Env
 
@@ -632,9 +633,18 @@ _ACTIONS: dict[str, str] = {
     'unsupported': 'unsupported',
 }
 
+# close the refusals raised while reconciling, in place of the Python API's wording
+_MISMATCH_HINT = "Run 'pxt schema diff' to see the differences."
+_DESTRUCTIVE_HINT = "Re-run 'pxt schema update' with --allow-destructive to apply these changes."
+
+
+def _catalog_key(path: str) -> tuple[str, ...]:
+    """A comparable identity for a table path, so that a pxt:// URI and a bare path denote the same table."""
+    return tuple(CatalogPath.parse(path, allow_empty_path=True).components)
+
 
 def _tables_under(target: str) -> list[str]:
-    """Paths of the tables under `target`, or [] if `target` does not exist."""
+    """Paths of the tables under the given target, or [] if it does not exist."""
     try:
         return pxt.list_tables(target, recursive=True)
     except excs.NotFoundError:
@@ -642,7 +652,7 @@ def _tables_under(target: str) -> list[str]:
 
 
 def schema_diff(schema_path: str, target: str) -> dict[str, Any]:
-    """The changes that schema_update() would make to reconcile `target` with the schema file.
+    """The changes that schema_update() would make to reconcile the target with the schema file.
 
     Read-only: never creates the target directory, and never touches an existing table.
     """
@@ -650,7 +660,7 @@ def schema_diff(schema_path: str, target: str) -> dict[str, Any]:
 
 
 def _schema_plan(bases: list[TableModelMeta], schema_path: str, target: str) -> dict[str, Any]:
-    """The plan for reconciling `target` with the models declared by `bases`."""
+    """The plan for reconciling the target with the models declared by the given bases."""
     tables: list[dict[str, Any]] = []
     for base in bases:
         for diff in base.get_model_diff(target).values():
@@ -703,16 +713,8 @@ def _schema_plan(bases: list[TableModelMeta], schema_path: str, target: str) -> 
     }
 
 
-# close the refusals raised while reconciling, in place of the Python API's wording
-_MISMATCH_HINT = "Run 'pxt schema diff' to see the differences."
-_DESTRUCTIVE_HINT = (
-    "Re-run 'pxt schema update' with --allow-destructive to apply these changes. To rename a column or index "
-    "instead of dropping and re-adding it, use 'pxt rename'."
-)
-
-
 def schema_prune(schema_path: str, target: str) -> dict[str, Any]:
-    """Drop the tables under `target` that no model in the schema file declares.
+    """Drop the tables under the target that no model in the schema file declares.
 
     Returns the plan, with one drop_table operation per dropped table. A view is dropped before its base, so that
     pruning a group of related tables does not depend on the order they are listed in. Nothing is force-dropped:
@@ -741,18 +743,8 @@ def schema_prune(schema_path: str, target: str) -> dict[str, Any]:
     return plan
 
 
-def drop_table_op(path: str, status: str) -> dict[str, Any]:
-    """The plan operation for dropping the table at `path`, in the state given by `status`."""
-    return {'kind': 'drop_table', 'path': path, 'severity': 'destructive', 'destructive': True, 'status': status}
-
-
-def _catalog_key(path: str) -> tuple[str, ...]:
-    """A comparable identity for a table path, so that a `pxt://` URI and a bare path denote the same table."""
-    return tuple(CatalogPath.parse(path, allow_empty_path=True).components)
-
-
 def schema_update(schema_path: str, target: str, *, allow_destructive: bool = False) -> dict[str, Any]:
-    """Reconcile `target` with the schema file: create missing tables and migrate existing ones.
+    """Reconcile the target with the schema file: create missing tables and migrate existing ones.
 
     Returns the plan that was applied, each operation annotated with its status. Applying is all-or-nothing, so a
     failure raises rather than reporting a partially applied plan.
@@ -771,6 +763,14 @@ def schema_update(schema_path: str, target: str, *, allow_destructive: bool = Fa
             allow_destructive=allow_destructive,
             mismatch_hint=_MISMATCH_HINT,
             destructive_hint=_DESTRUCTIVE_HINT,
+        )
+
+    # update_all() recomputes its own diff, so what it applied is only the plan above if nothing changed the
+    # catalog in between; re-reading confirms that before every operation is reported as applied
+    if not _schema_plan(bases, schema_path, target)['in_agreement']:
+        raise excs.Error(
+            excs.ErrorCode.CONCURRENT_MODIFICATION,
+            f'{target} still differs from the schema after applying; it may have been modified concurrently.',
         )
 
     for tbl in plan['tables']:

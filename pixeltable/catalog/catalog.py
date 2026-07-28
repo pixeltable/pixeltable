@@ -2200,24 +2200,21 @@ class Catalog(CatalogBase):
             raise excs.table_was_dropped(tbl_id)
         return schema.Table(**row._mapping)
 
-    # how many table paths _tbl_paths_str() spells out before summarizing the rest as a count
-    MAX_LISTED_TBL_PATHS = 5
-
-    def _tbl_paths_str(self, tbl_ids: Collection[UUID]) -> str:
+    def _tbl_paths_str(self, tbl_ids: Collection[UUID], max_paths: int = 5) -> str:
         """The paths of the given tables, comma-separated, for use in an error message.
 
         Reads the stored records directly rather than loading each table, so that it is usable at any point in a
-        transaction. Paths are listed in sorted order, and beyond MAX_LISTED_TBL_PATHS are replaced by a count.
+        transaction. Paths are listed in sorted order, and beyond a fixed limit are replaced by a count.
         """
         paths: list[str] = []
-        for tbl_id in tbl_ids:
+        for tbl_id in tbl_ids[:max_paths]:
             record = self.read_tbl_record(tbl_id)
             paths.append(str(self.get_dir_path(record.dir_id).append(record.md['name'])))
         paths.sort()
-        if len(paths) <= self.MAX_LISTED_TBL_PATHS:
+        if len(tbl_ids) <= max_paths:
             return ', '.join(repr(p) for p in paths)
-        listed = ', '.join(repr(p) for p in paths[: self.MAX_LISTED_TBL_PATHS])
-        return f'{listed} and {len(paths) - self.MAX_LISTED_TBL_PATHS} more'
+        listed = ', '.join(repr(p) for p in paths[:max_paths])
+        return f'{listed} and {len(paths) - max_paths} more'
 
     def read_dir_record(self, dir_id: UUID) -> schema.Dir:
         conn = get_runtime().conn
