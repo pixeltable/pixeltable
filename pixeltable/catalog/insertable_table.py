@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any, Literal, overload
+from typing import TYPE_CHECKING, Any, Literal, cast, overload
 from uuid import UUID
 
 import pixeltable as pxt
@@ -11,7 +11,7 @@ from pixeltable.runtime import get_runtime
 from pixeltable.utils.filecache import FileCache
 
 from .column import Column
-from .globals import MediaValidation, OnErrorParam
+from .globals import IndexSpec, MediaValidation, OnErrorParam
 from .local_table import LocalTable
 from .table_path import TableVersionPath
 from .table_version import TableVersion, TableVersionMd
@@ -20,7 +20,7 @@ from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, TableOp, TableOpsBuild
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
-    from pixeltable import exprs, index
+    from pixeltable import exprs
     from pixeltable.globals import TableDataSource
     from pixeltable.io.data_sources import SqlDataSource
     from pixeltable.io.table_data_conduit import TableDataConduit
@@ -51,7 +51,7 @@ class InsertableTable(LocalTable):
         media_validation: MediaValidation,
         create_default_idxs: bool,
         is_versioned: bool,
-        additional_idxs: list[tuple[Column, str | None, index.IndexBase]],
+        additional_idxs: list[IndexSpec],
     ) -> tuple[TableVersionMd, list[TableOp]]:
         cls._verify_schema(columns)
         column_names = [col.name for col in columns]
@@ -69,6 +69,13 @@ class InsertableTable(LocalTable):
                 )
             col.is_pk = True
 
+        cols_by_name = {col.name: col for col in columns if col.name is not None}
+        assert all(isinstance(spec.indexed_column, str) for spec in additional_idxs)
+        resolved_idxs = [
+            IndexSpec(indexed_column=cols_by_name[cast(str, spec.indexed_column)], idx_name=spec.idx_name, idx=spec.idx)
+            for spec in additional_idxs
+        ]
+
         md = TableVersion.create_initial_md(
             tbl_id,
             name,
@@ -79,7 +86,7 @@ class InsertableTable(LocalTable):
             create_default_idxs=create_default_idxs,
             view_md=None,
             is_versioned=is_versioned,
-            additional_idxs=additional_idxs,
+            additional_idxs=resolved_idxs,
         )
 
         ops = (

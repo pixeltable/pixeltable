@@ -514,9 +514,9 @@ class Planner:
         cls.__check_valid_columns(target, recomputed_cols, 'updated in')
 
         # Substitute update target exprs into recomputed exprs before building select_list
-        spec: dict[exprs.Expr, exprs.Expr] = {
-            exprs.ColumnRef(col.column_version_md()): e for col, e in update_targets.items()
-        }
+        spec = exprs.ExprDict[exprs.Expr](
+            (exprs.ColumnRef(col.column_version_md()), e) for col, e in update_targets.items()
+        )
         exprs.Expr.list_substitute(eval_exprs, spec)
         evaluated_cols: list[Column] = list(update_targets.keys()) + eval_cols
         select_list: list[exprs.Expr] = list(update_targets.values()) + eval_exprs
@@ -825,17 +825,18 @@ class Planner:
 
     @classmethod
     def create_view_load_plan(
-        cls, view: catalog.TableVersionPath, propagates_insert: bool = False
-    ) -> tuple[exec.ExecNode, int]:
+        cls, view: catalog.TableVersionPath, propagates_insert: bool = False, exclude_existing_rows: bool = False
+    ) -> exec.ExecNode:
         """Creates a query plan for populating a view.
 
         Args:
             view: the view to populate
             propagates_insert: if True, we're propagating a base update to this view
+            exclude_existing_rows: if True, skip base rows for which the view already has a row that was deleted at
+                the view's current version
 
         Returns:
             - root node of the plan
-            - number of materialized values per row
         """
         assert isinstance(view, catalog.TableVersionPath)
         assert view.is_view
@@ -882,6 +883,7 @@ class Planner:
             eval_ctx=base_eval_ctx,
             with_pk=True,
             created_at_current_version=view.get_bases() if propagates_insert else [],
+            exclude_deleted_at_current_version=view.tbl_version if exclude_existing_rows else None,
         )
         exec_ctx = plan.ctx
         if target.is_component_view:
@@ -897,7 +899,7 @@ class Planner:
             plan = exec.CellMaterializationNode(plan)
         plan = cls._add_save_node(plan)
 
-        return plan, len(row_builder.default_eval_ctx.target_exprs)
+        return plan
 
     @classmethod
     def _verify_join_clauses(cls, analyzer: Analyzer) -> None:
@@ -1086,6 +1088,7 @@ class Planner:
         with_pk: bool = False,
         created_at_current_version: list[catalog.TableVersionHandle] | None = None,
         deleted_at_current_version: list[catalog.TableVersionHandle] | None = None,
+        exclude_deleted_at_current_version: catalog.TableVersionHandle | None = None,
     ) -> exec.ExecNode:
         """
         Create plan to materialize eval_ctx.
@@ -1168,6 +1171,7 @@ class Planner:
                 cell_md_col_refs=cls._cell_md_col_refs(tbl_scan_exprs),
                 created_at_current_version=created_at_current_version,
                 deleted_at_current_version=deleted_at_current_version,
+                exclude_deleted_at_current_version=exclude_deleted_at_current_version,
             )
             tbl_scan_plans.append(plan)
 

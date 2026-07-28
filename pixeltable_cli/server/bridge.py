@@ -637,7 +637,6 @@ _ACTIONS: dict[str, str] = {
 }
 
 # close the refusals raised while reconciling, in place of the Python API's wording
-_MISMATCH_HINT = "Run 'pxt schema diff' to see the differences."
 _DESTRUCTIVE_HINT = "Re-run 'pxt schema update' with --allow-destructive to apply these changes."
 
 
@@ -761,12 +760,7 @@ def schema_update(schema_path: str, target: str, *, allow_destructive: bool = Fa
         pxt.create_dir(target, parents=True, if_exists='ignore')
 
     for base in bases:
-        base.update_all(
-            target,
-            allow_destructive=allow_destructive,
-            mismatch_hint=_MISMATCH_HINT,
-            destructive_hint=_DESTRUCTIVE_HINT,
-        )
+        base.update_all(target, allow_destructive=allow_destructive, destructive_hint=_DESTRUCTIVE_HINT)
 
     # update_all() recomputes its own diff, so what it applied is only the plan above if nothing changed the
     # catalog in between; re-reading confirms that before every operation is reported as applied
