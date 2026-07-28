@@ -536,8 +536,6 @@ class Catalog(CatalogBase):
         The order matters: TVPs are processed before tbl_ids in both groups so that ancestor-first validation
         (write_tvps -> write_tbl_ids -> read_tvps -> read_tbl_ids) is established before any unordered ID pass runs.
         """
-        # Fault location: this is the transaction's first use of the connection; a dropped connection surfaces here.
-        fault_injection.process_fault(FaultLocation.CATALOG_ACQUIRE_LOCKS)
         x_locked_ids: set[UUID] = set()
         for tvp in write_tvps:
             if tvp.tbl_id in x_locked_ids:
