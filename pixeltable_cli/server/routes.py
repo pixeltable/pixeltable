@@ -356,14 +356,13 @@ def columns(req: Request) -> models.ColumnsResponse:
     path = req.query_str('path')
     computed = req.query_bool('computed')
     # An empty `?path=` is almost always an interpolated variable resolving to empty;
-    # treat it as a bad request rather than silently dumping the full catalog.
+    # treat it as a bad request rather than silently dumping the full catalog. Omitting it is the deliberate
+    # way to ask for everything, and resolves to the working directory when one is set.
     if path == '':
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT, "'path' query parameter is empty; omit it entirely for all tables"
         )
-    if path is not None:
-        path = req.resolve_path(path)
-    paths = _resolve_table_paths(path)
+    paths = _resolve_table_paths(req.resolve_path(path or ''))
     entries: list[models.ColumnEntry] = []
     for p in paths:
         try:
@@ -396,9 +395,7 @@ def indexes(req: Request) -> models.IdxsResponse:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT, "'path' query parameter is empty; omit it entirely for all tables"
         )
-    if path is not None:
-        path = req.resolve_path(path)
-    paths = _resolve_table_paths(path)
+    paths = _resolve_table_paths(req.resolve_path(path or ''))
     entries: list[models.IdxEntry] = []
     for p in paths:
         try:
@@ -591,14 +588,12 @@ def _tbl_count(path: str) -> int | None:
         return None
 
 
-def _resolve_table_paths(path: str | None) -> list[str]:
-    """Resolve an optional path to the list of table paths it designates.
+def _resolve_table_paths(path: str) -> list[str]:
+    """Resolve a path to the list of table paths it designates.
 
-    None designates every table in the in-process catalog. A directory (including a hosted db root, e.g.
-    pxt://org:db) designates every table beneath it, recursively. Any other path designates a single table.
+    A directory (including the catalog root '' and a hosted db root, e.g. pxt://org:db) designates every table
+    beneath it, recursively. Any other path designates a single table.
     """
-    if path is None:
-        return _collect_from_tree(pxt.get_dir_tree(''), scope='')
     try:
         tree = pxt.get_dir_tree(path)
     except excs.NotFoundError:

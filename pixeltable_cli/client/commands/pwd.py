@@ -7,7 +7,7 @@ Examples:
 
 Notes:
   Prints the working directory for the invoking terminal; each terminal session has its own.
-  Set or clear it with 'pxt cwd'."""
+  Set or clear it with 'pxt cd'."""
 
 
 def run(argv: list[str]) -> None:

@@ -165,11 +165,11 @@ class TestCwd:
         pxt.create_table(p('cli_cwd.sub.t'), {'x': pxt.Int}, if_exists='replace')
         try:
             # start from a known-clear state (the session is shared across this worker's commands)
-            cli('cwd')
+            cli('cd')
             assert 'no working directory' in cli('pwd').stdout
 
             # once set, relative paths resolve under the working directory
-            cli('cwd', p('cli_cwd/sub'))
+            cli('cd', p('cli_cwd/sub'))
             assert p('cli_cwd/sub') in cli('pwd').stdout
             assert 'x' in cli('describe', 't').stdout  # 't' -> cli_cwd/sub/t
             assert cli('count', 't').returncode == 0
@@ -178,11 +178,52 @@ class TestCwd:
             assert cli('describe', 'nope', check=False).returncode != 0
 
             # clearing restores root-relative resolution
-            cli('cwd')
+            cli('cd')
             assert 'no working directory' in cli('pwd').stdout
             assert cli('describe', 't', check=False).returncode != 0  # no wd -> 't' at root -> not found
         finally:
-            cli('cwd')  # never leak the working directory into other tests sharing this session
+            cli('cd')  # never leak the working directory into other tests sharing this session
+
+    def test_listings_honor_wd(
+        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode
+    ) -> None:
+        """'columns' and 'idxs' with no path cover the working directory, not the whole catalog."""
+        p = make_catalog_path
+        pxt.create_dir(p('cli_cwd_list'), if_exists='ignore')
+        pxt.create_table(p('cli_cwd_list.inside'), {'x': pxt.String}, if_exists='replace')
+        pxt.create_table(p('cli_cwd_outside'), {'y': pxt.String}, if_exists='replace')
+        try:
+            cli('cd', p('cli_cwd_list'))
+            for verb in ('columns', 'idxs'):
+                tables = {e['table'] for e in cli(verb, '--json').json}
+                assert p('cli_cwd_list/inside') in tables, verb
+                assert p('cli_cwd_outside') not in tables, verb
+
+            # cleared, the command covers the catalog again: the no-path form locally, the db root over proxy
+            cli('cd')
+            args = ('columns', '--json') if catalog_mode == 'local' else ('columns', p(''), '--json')
+            assert p('cli_cwd_outside') in {e['table'] for e in cli(*args).json}
+        finally:
+            cli('cd')
+
+    @pytest.mark.local("a leading '/' absolute path is a local-catalog notion")
+    def test_mv_destination_honors_absolute_path(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        pxt.create_dir(p('cli_mv_wd'), if_exists='ignore')
+        pxt.create_dir(p('cli_mv_wd.sub'), if_exists='ignore')
+        pxt.create_table(p('cli_mv_wd.movee'), {'a': pxt.Int}, if_exists='replace')
+        try:
+            cli('cd', p('cli_mv_wd'))
+
+            # a relative destination lands under the working directory
+            assert cli('mv', 'movee', 'sub', '--json').json['new_path'] == p('cli_mv_wd/sub/movee')
+
+            # '/' is the catalog root, not a directory under the working directory
+            assert cli('mv', 'sub/movee', '/', '--json').json['new_path'] == 'movee'
+            assert pxt.get_table(p('movee'), if_not_exists='ignore') is not None
+        finally:
+            cli('cd')
+            pxt.drop_table(p('movee'), if_not_exists='ignore')
 
     @pytest.mark.local("a leading '/' absolute path is a local-catalog notion")
     def test_absolute_path_ignores_wd(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
@@ -191,14 +232,14 @@ class TestCwd:
         pxt.create_dir(p('cli_cwd_abs.sub'), if_exists='ignore')
         pxt.create_table(p('cli_cwd_abs.sub.t'), {'x': pxt.Int}, if_exists='replace')
         try:
-            cli('cwd', p('cli_cwd_abs/sub'))
+            cli('cd', p('cli_cwd_abs/sub'))
             assert 'x' in cli('describe', 't').stdout  # relative: resolves under the wd
             assert 'x' in cli('describe', '/cli_cwd_abs/sub/t').stdout  # leading '/': absolute, wd ignored
             # output uses the CLI absolute convention: local paths print with a leading '/'
             assert cli('pwd').stdout.strip() == '/cli_cwd_abs/sub'
             assert '/cli_cwd_abs/sub/t' in cli('ls').stdout
         finally:
-            cli('cwd')
+            cli('cd')
 
     @pytest.mark.local('prompt renders the working directory in the CLI absolute convention')
     def test_shell_prompt_shows_working_directory(
@@ -218,14 +259,14 @@ class TestCwd:
 
         try:
             # no working directory -> bare prompt
-            cli('cwd')
+            cli('cd')
             assert 'pxt> ' in shell_prompt()
 
             # once set, the prompt shows the working directory with a leading '/'
-            cli('cwd', p('cli_cwd_shell'))
+            cli('cd', p('cli_cwd_shell'))
             assert 'pxt /cli_cwd_shell> ' in shell_prompt()
         finally:
-            cli('cwd')  # never leak the working directory into other tests sharing this session
+            cli('cd')  # never leak the working directory into other tests sharing this session
 
     @pytest.mark.local('daemon session store; independent of the catalog backend')
     def test_rejects_nonexistent_and_isolates_sessions(
@@ -861,13 +902,13 @@ class TestRename:
         assert 'renamed' in cli('rename', p('cli_rn/txt'), 'txt2').stdout
 
     def test_errors(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
-        """`new_name` must be a leaf, no '/' or '.'."""
+        """`new_name` must be a name, not a path: no '/' or '.'."""
         p = make_catalog_path
         pxt.create_dir(p('cli_rn_err'), if_exists='ignore')
         pxt.create_table(p('cli_rn_err.t'), {'a': pxt.Int}, if_exists='replace')
         r = cli('rename', p('cli_rn_err/t'), 'a/b', check=False)
         assert r.returncode != 0
-        assert 'leaf name' in r.stderr
+        assert 'must be a name, not a path' in r.stderr
 
 
 class TestMv:

@@ -3,10 +3,10 @@ from ..utils import display_path, post_request, validate_path_arg
 
 EPILOG = """\
 Examples:
-  pxt cwd pxt://org:db/my_dir      # absolute: a hosted directory
-  pxt cwd /my_dir                  # absolute: from the local catalog root
-  pxt cwd my_dir                   # relative: my_dir under the current working directory
-  pxt cwd                          # clear the working directory
+  pxt cd pxt://org:db/my_dir      # absolute: a hosted directory
+  pxt cd /my_dir                  # absolute: from the local catalog root
+  pxt cd my_dir                   # relative: my_dir under the current working directory
+  pxt cd                          # clear the working directory
 
 Notes:
   The working directory is prepended to relative paths in subsequent commands; a pxt:// URI or a
@@ -17,7 +17,7 @@ Notes:
 
 
 def run(argv: list[str]) -> None:
-    ap = Parser(prog='pxt cwd', epilog=EPILOG)
+    ap = Parser(prog='pxt cd', epilog=EPILOG)
     ap.add_argument('uri', nargs='?', default=None, help='directory to set as the working directory; omit to clear')
     args = ap.parse_args(argv)
 

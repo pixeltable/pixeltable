@@ -1498,7 +1498,7 @@ class TestConfigRouteWithGenericTypes:
     /api/config must not crash on those (a previous regression called expected_type(value)
     on a types.GenericAlias and raised TypeError)."""
 
-    def test_config_route_handles_list_generic(self) -> None:
+    def test_config_route_handles_list_generic(self, init_env: None) -> None:
         # In-process call into the route handler; doesn't require the daemon subprocess.
         # The key signal: route returns a ConfigResponse rather than raising.
         from pixeltable_cli.server.router import Request
@@ -1509,7 +1509,7 @@ class TestConfigRouteWithGenericTypes:
         services = [e for e in resp.entries if e.section == 'pixeltable' and e.key == 'service']
         assert len(services) == 1
 
-    def test_config_route_redacts_otel_headers(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_config_route_redacts_otel_headers(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
         from pixeltable_cli.server.router import Request
 
         monkeypatch.setenv('OTEL_EXPORTER_OTLP_HEADERS', 'Authorization=Bearer top-secret')
