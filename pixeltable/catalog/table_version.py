@@ -1193,7 +1193,9 @@ class TableVersion:
             with telemetry.span(
                 'pixeltable.view_load', set_current=telemetry.current_span() is not None, view=view.get().name
             ):
-                view_plan = Planner.create_view_load_plan(view.get().path, propagates_insert=True)
+                view_plan = Planner.create_view_load_plan(
+                    view.get().path, created_at_current_version=view.get().path.get_bases()
+                )
                 status = view.get()._insert(view_plan, timestamp, print_stats=print_stats)
             result += status.to_cascade()
 
@@ -1493,19 +1495,36 @@ class TableVersion:
                     and len(exprs.Expr.get_refd_column_ids(view_tv.predicate.as_dict()) & changed_qids) > 0
                 )
 
+                # a base that produced no plans of its own didn't create a new version, so its rows are matched
+                # live rather than by v_min; base_versions records that as a None, and zip() drops the ancestors
+                # this update never reached
+                created_bases = [b for b, v in zip(view_tv.path.get_bases(), base_versions) if v is not None]
+
                 view_plans: list[exec.ExecNode] = []
                 if needs_iterator_reload or (membership_change and view_tv.is_component_view):
-                    view_plans.append(Planner.create_view_load_plan(view_tv.path, propagates_insert=True))
+                    view_plans.append(
+                        Planner.create_view_load_plan(view_tv.path, created_at_current_version=created_bases)
+                    )
                 elif membership_change:
                     # rows already in the view that still satisfy the predicate; their stored columns that aren't
                     # recomputed carry over from the row that was just soft-deleted
-                    view_plans.append(Planner.create_view_update_plan(view_tv.path, recompute_targets=recomputed_cols))
+                    view_plans.append(
+                        Planner.create_view_update_plan(
+                            view_tv.path, recompute_targets=recomputed_cols, created_at_current_version=created_bases
+                        )
+                    )
                     # rows that satisfy the predicate now and weren't in the view; nothing to carry over
                     view_plans.append(
-                        Planner.create_view_load_plan(view_tv.path, propagates_insert=True, exclude_existing_rows=True)
+                        Planner.create_view_load_plan(
+                            view_tv.path, created_at_current_version=created_bases, exclude_existing_rows=True
+                        )
                     )
                 elif len(recomputed_cols) > 0:
-                    view_plans.append(Planner.create_view_update_plan(view_tv.path, recompute_targets=recomputed_cols))
+                    view_plans.append(
+                        Planner.create_view_update_plan(
+                            view_tv.path, recompute_targets=recomputed_cols, created_at_current_version=created_bases
+                        )
+                    )
 
                 status = view_tv.propagate_update(
                     view_plans,

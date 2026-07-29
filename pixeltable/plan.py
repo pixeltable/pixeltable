@@ -781,7 +781,10 @@ class Planner:
 
     @classmethod
     def create_view_update_plan(
-        cls, view: catalog.TableVersionPath, recompute_targets: list[catalog.Column]
+        cls,
+        view: catalog.TableVersionPath,
+        recompute_targets: list[catalog.Column],
+        created_at_current_version: list[catalog.TableVersionHandle],
     ) -> exec.ExecNode:
         """Creates a plan to materialize updated rows for a view, given that the base table has been updated.
         The plan:
@@ -812,7 +815,7 @@ class Planner:
             select_list,
             where_clause=target.predicate,
             ignore_errors=True,
-            created_at_current_version=view.get_bases(),
+            created_at_current_version=created_at_current_version,
             deleted_at_current_version=[view.tbl_version],
         )
         # Register output columns with the row builder
@@ -825,13 +828,17 @@ class Planner:
 
     @classmethod
     def create_view_load_plan(
-        cls, view: catalog.TableVersionPath, propagates_insert: bool = False, exclude_existing_rows: bool = False
+        cls,
+        view: catalog.TableVersionPath,
+        created_at_current_version: list[catalog.TableVersionHandle] | None = None,
+        exclude_existing_rows: bool = False,
     ) -> exec.ExecNode:
         """Creates a query plan for populating a view.
 
         Args:
             view: the view to populate
-            propagates_insert: if True, we're propagating a base update to this view
+            created_at_current_version: bases restricted to the rows they created at their own current version;
+                a base that created none is matched on its live rows instead, so it must be left out
             exclude_existing_rows: if True, skip base rows for which the view already has a row that was deleted at
                 the view's current version
 
@@ -859,7 +866,6 @@ class Planner:
         )
         row_builder = exprs.RowBuilder(base_analyzer.all_exprs, stored_cols, [], target, for_view_load=True)
 
-        # if we're propagating an insert, we only want to see those base rows that were created for the current version
         # execution plan:
         # 1. materialize exprs computed from the base that are needed for stored view columns
         # 2. if it's an iterator view, expand the base rows into component rows
@@ -882,7 +888,7 @@ class Planner:
             analyzer=base_analyzer,
             eval_ctx=base_eval_ctx,
             with_pk=True,
-            created_at_current_version=view.get_bases() if propagates_insert else [],
+            created_at_current_version=created_at_current_version or [],
             exclude_deleted_at_current_version=view.tbl_version if exclude_existing_rows else None,
         )
         exec_ctx = plan.ctx
