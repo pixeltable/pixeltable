@@ -1084,8 +1084,6 @@ class TestTableModel:
 
         TableModel = pxt.model_base()
 
-        # Index names are deliberately not of the form `idx<n>`, to avoid colliding with the default b-tree indexes
-        # that are auto-named `idx<n>` (created because `create_default_idxs` defaults to `True`).
         class ExampleTable(TableModel, name='test_table'):
             id: pxt.Required[pxt.Int]
             value: pxt.Float
@@ -1109,8 +1107,8 @@ class TestTableModel:
         images = get_image_files()
         ExampleTable.insert([{'id': 1, 'value': 1.0, 'image': images[0]}, {'id': 2, 'value': 2.0, 'image': images[1]}])
 
-        # A fresh base whose models match the created tables plus purely additive changes: two new columns and a new
-        # index on the table, and a new column on the view. No drops, no kind/iterator mismatch.
+        # A fresh base whose models match the created tables plus purely additive changes: new columns and new
+        # embedding/b-tree indexes on the table, new columns on the views. No drops, no kind/iterator mismatch.
         TableModelV2 = pxt.model_base()
 
         class ExampleTableV2(TableModelV2, name='test_table'):
@@ -1152,11 +1150,13 @@ class TestTableModel:
         # Purely additive, so no `allow_destructive` needed.
         TableModelV2.update_all(root)
 
-        # The new columns and index are present on the table; the new column is present on the view.
+        # The new columns and indexes are present on the table; the new column is present on the view.
         tbl_md = ExampleTableV2.get_metadata()
         assert 'plus_ten' in tbl_md['columns']
         assert 'note' in tbl_md['columns']
         assert {'embed_a', 'embed_b'} <= set(tbl_md['indices'].keys())
+        assert tbl_md['indices']['b_tree_a']['index_type'] == 'btree'
+        assert tbl_md['indices']['b_tree_a']['columns'] == ['id']
         assert 'vc2' in ExampleViewV2.get_metadata()['columns']
 
         # The new computed column is backfilled for the existing rows.
@@ -1177,7 +1177,7 @@ class TestTableModel:
             # 'plus_ten', 'plus_fifteen', and 'note' dropped
 
             embed_b = EmbeddingIndex(image, embedding=dummy_embedding.using(n=512))
-            # embed_a and embed_c dropped
+            # embed_a, embed_c, and b_tree_a are dropped
 
         class ExampleViewV3(TableModelV3, name='test_view', base=ExampleTableV3):
             vc2 = ExampleTableV3.value + 2  # kept
@@ -1204,6 +1204,7 @@ class TestTableModel:
         tbl_md = ExampleTableV3.get_metadata()
         assert {'doubled', 'label'} <= set(tbl_md['columns'].keys())
         assert not ({'plus_ten', 'note'} & set(tbl_md['columns'].keys()))
+        assert set(tbl_md['indices'].keys()) == {'embed_b'}
         view_md = ExampleViewV3.get_metadata()
         assert 'vc3' in view_md['columns'] and 'vc1' not in view_md['columns']
 

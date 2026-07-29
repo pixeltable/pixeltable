@@ -1295,8 +1295,18 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
             for col_name, col_md in existing_md['columns'].items()
             if col_md['defined_in'] == existing_md['name'] and not col_md['is_iterator_col']
         }
+
+        # Default indexes have no counterpart in __indexes__. create_default_idxs=True is incompatible with explicit
+        # B-tree indexes. So, if create_default_idxs is True, all B-tree indexes are default indexes, and we can ignore
+        # them all because column diff will take care of them. If create_default_idxs is False, all B-tree indexes are
+        # explicitly declared, so we need to diff and compare them similarly to embedding indexes.
+        # TODO this only works if create_default_idxs cannot be changed, which we have no way of verifying right now.
+        # TODO make sure that new column addition honors create_default_idxs.
+        include_btree_idxs = not model.__table_spec__['create_default_idxs']
         existing_idxs = {
-            idx_name for idx_name, info in existing_md['indices'].items() if info['index_type'] == 'embedding'
+            idx_name
+            for idx_name, info in existing_md['indices'].items()
+            if info['index_type'] == 'embedding' or (include_btree_idxs and info['index_type'] == 'btree')
         }
 
         changes = []
@@ -1390,6 +1400,12 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
                     description=f'column {col_name!r} will be dropped',
                 )
             )
+        # TODO: Bug: indexes present in both the model and the catalog are not compared, only their names are.
+        # Redefining
+        # an index while keeping its name (repointing it at another column, or changing an embedding function or
+        # metric) therefore yields no change at all, and the table is reported as up-to-date. Columns get this
+        # treatment via `_ColumnProperties` above, which reports an `alter` change with severity 'unsupported';
+        # indexes need the equivalent.
         for idx_name in sorted(model_idxs - existing_idxs):
             changes.append(_add_index_change(idx_name, model.__indexes__[idx_name]))
         for idx_name in sorted(existing_idxs - model_idxs):
