@@ -2310,17 +2310,19 @@ class Catalog(CatalogBase):
         return schema.Table(**row._mapping)
 
     def _tbl_paths_str(self, tbl_ids: Sequence[UUID], max_paths: int = 5) -> str:
-        """The paths of the given tables, comma-separated, for use in an error message.
+        """Returns the paths of the given tables, comma-separated and sorted, for use in an error message.
 
         Reads the stored records directly rather than loading each table, so that it is usable at any point in a
         transaction. Paths are listed in sorted order, and beyond a fixed limit are replaced by a count.
         """
+        # every path is read before sorting, so that the ones listed are the first in sorted order rather than
+        # an arbitrary subset of the ids
         paths: list[str] = []
-        for tbl_id in tbl_ids[:max_paths]:
+        for tbl_id in tbl_ids:
             record = self.read_tbl_record(tbl_id)
             paths.append(str(self.get_dir_path(record.dir_id).append(record.md['name'])))
         paths.sort()
-        if len(tbl_ids) <= max_paths:
+        if len(paths) <= max_paths:
             return ', '.join(repr(p) for p in paths)
         listed = ', '.join(repr(p) for p in paths[:max_paths])
         return f'{listed} and {len(paths) - max_paths} more'

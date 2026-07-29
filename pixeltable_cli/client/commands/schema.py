@@ -121,7 +121,6 @@ Examples:
 
 Notes:
   The file is a working schema: applying it as-is creates the tables it declares.
-  'pxt schema pull' is the counterpart for a database that already exists.
 
 {_SCHEMA_FILE}"""
 

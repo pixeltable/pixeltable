@@ -215,6 +215,12 @@ class TestView:
         with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match="the following depend on it: 'test_view_on_view'"):
             v3 = pxt.create_view(p('test_view'), t, if_exists='replace')
         assert p('test_view_on_view') in pxt.list_tables(p(''))
+        # past a handful of dependents the message lists the first few in sorted order and counts the rest;
+        # 'test_view_on_view' sorts last, so it is the one summarized
+        for i in range(5):
+            pxt.create_view(p(f'test_view_dep{i}'), v2)
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match=r"dep4' and 1 more"):
+            pxt.create_view(p('test_view'), t, if_exists='replace')
         # if_exists='replace_force' should drop the existing view and
         # its dependent views and create a new one
         v3 = pxt.create_view(p('test_view'), t, if_exists='replace_force')
