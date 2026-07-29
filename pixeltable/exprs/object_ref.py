@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sql
 
@@ -11,6 +11,9 @@ from .expr import Expr, ExprScope
 from .json_mapper import JsonMapperDispatch
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
+
+if TYPE_CHECKING:
+    from .expr_dict import ExprDict
 
 
 class ObjectRef(Expr):
@@ -31,7 +34,7 @@ class ObjectRef(Expr):
         # instances will be conflated into a single slot).
         return [('addr', id(self))]
 
-    def substitute(self, subs: dict[Expr, Expr]) -> Expr:
+    def substitute(self, subs: ExprDict[Expr]) -> Expr:
         # Just return self; we need to avoid creating a new id after doing the substitution, because otherwise
         # we'll wind up in a situation where the scope_anchor of the enclosing JsonMapper is different from the
         # nested ObjectRefs inside its target_expr (and therefore occupies a different slot_idx).

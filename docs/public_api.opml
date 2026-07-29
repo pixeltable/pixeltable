@@ -54,6 +54,7 @@
             <outline text="method|pixeltable.Table.update" />
             <outline text="method|pixeltable.Table.batch_update" />
             <outline text="method|pixeltable.Table.delete" />
+            <outline text="method|pixeltable.Table.compute" />
             <outline text="method|pixeltable.Table.add_embedding_index" />
             <outline text="method|pixeltable.Table.drop_embedding_index" />
             <outline text="method|pixeltable.Table.drop_index" />
@@ -105,7 +106,15 @@
             <outline text="method|pixeltable.ResultSet.to_pydantic" />
           </outline>
 
-          <outline text="class|pixeltable.Row" />
+          <outline text="class|pixeltable.Row">
+            <outline text="method|pixeltable.Row.to_json" />
+          </outline>
+
+          <outline text="class|pixeltable.RowBatch">
+            <outline text="method|pixeltable.RowBatch.to_json" />
+          </outline>
+
+          <outline text="class|pixeltable.CellError" />
 
           <outline text="class|pixeltable.ResultCursor">
             <outline text="method|pixeltable.ResultCursor.open" />

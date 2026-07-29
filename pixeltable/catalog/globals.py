@@ -4,10 +4,10 @@ import dataclasses
 import enum
 import itertools
 from collections.abc import Mapping
+
+from typing import NamedTuple, _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
-
-from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
@@ -15,8 +15,10 @@ from pixeltable.metadata import schema
 from pixeltable.types import ColumnSpec
 
 if TYPE_CHECKING:
-    from pixeltable import exprs
+    from pixeltable import exprs, index
     from pixeltable.globals import TableDataSource
+
+    from .column import Column
 
 # name of the position column in a component view
 _POS_COLUMN_NAME = 'pos'
@@ -169,6 +171,17 @@ class QColumnId:
     col_id: int
 
 
+class IndexSpec(NamedTuple):
+    """
+    TODO: once the minimum Python is 3.11, make this generic in the column type, so that a declared spec is an
+    IndexSpec[str] and a resolved one an IndexSpec[Column].
+    """
+
+    indexed_column: str | Column
+    idx_name: str | None  # None for an unnamed index
+    idx: index.IndexBase
+
+
 class MediaValidation(enum.Enum):
     ON_READ = 0
     ON_WRITE = 1
@@ -182,6 +195,25 @@ class MediaValidation(enum.Enum):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT, f'{error_prefix} must be one of: [{val_strs}]'
             ) from None
+
+
+class OnErrorParam(enum.Enum):
+    """Supported values for the on_error parameter"""
+
+    ABORT = 'abort'
+    IGNORE = 'ignore'
+
+    @classmethod
+    def is_valid(cls, v: Any) -> bool:
+        if isinstance(v, str):
+            return v.lower() in [c.value for c in cls]
+        return False
+
+    @classmethod
+    def fail_on_exception(cls, v: str) -> bool:
+        if not cls.is_valid(v):
+            raise ValueError(f'Invalid value for on_error: {v}')
+        return v.lower() == cls.ABORT.value
 
 
 class IfExistsParam(enum.Enum):

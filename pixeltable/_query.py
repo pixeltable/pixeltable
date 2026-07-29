@@ -18,7 +18,6 @@ from typing import (
     Iterable,
     Iterator,
     Literal,
-    Mapping,
     NoReturn,
     Sequence,
     TypeVar,
@@ -39,6 +38,7 @@ from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.env import Env
 from pixeltable.plan import Planner
 from pixeltable.query_clauses import FromClause, JoinClause, JoinType, SampleClause
+from pixeltable.row import Row
 from pixeltable.runtime import get_runtime
 from pixeltable.service.proxy_client import ProxyClient
 from pixeltable.type_system import ColumnType
@@ -48,7 +48,7 @@ from pixeltable.utils.formatter import Formatter
 if TYPE_CHECKING:
     import torch.utils.data
 
-__all__ = ['Query', 'ResultCursor', 'ResultSet', 'Row']
+__all__ = ['Query', 'ResultCursor', 'ResultSet']
 
 
 class ResultSet:
@@ -193,79 +193,6 @@ class ResultSet:
 
     def __hash__(self) -> int:
         return hash(self.to_pandas())
-
-
-class Row(Mapping[str, Any]):
-    """A dict-like wrapper over a single result row.
-
-    Supports key access (`row['col']`), membership (`'col' in row`),
-    iteration over keys, and the standard `get`, `keys`, `values`,
-    and `items` methods.
-    """
-
-    def __init__(self, data: Iterable[Any], columns: dict[str, int], col_types: dict[str, ColumnType]):
-        self._data = tuple(data)
-        self._columns = columns
-        self._col_types = col_types
-
-    def __getitem__(self, key: str) -> Any:
-        if key not in self._columns:
-            raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Column {key!r} does not exist in the row.')
-        return self._data[self._columns[key]]
-
-    def get(self, key: str, default: Any = None) -> Any:
-        if key not in self._columns:
-            return default
-        return self._data[self._columns[key]]
-
-    def __iter__(self) -> Iterator[str]:
-        return iter(self._columns)
-
-    def __contains__(self, key: object) -> bool:
-        return key in self._columns
-
-    def __len__(self) -> int:
-        return len(self._columns)
-
-    def __repr__(self) -> str:
-        return 'Row({' + ', '.join(f'{k!r}: {v!r}' for k, v in self.items()) + '})'
-
-    def to_json(self) -> dict[str, Any]:
-        """Return a JSON-serializable dict of this row's values.
-
-        - `None`: preserved as `None`
-        - Timestamp, Date: ISO 8601 string
-        - UUID: string
-        - Array: Python list (via `tolist()`)
-        - Json: validated for serializability, kept as native Python
-        - Binary: omitted (not representable in JSON)
-        - All others: unchanged
-        """
-        result: dict[str, Any] = {}
-        for col_name, col_type in self._col_types.items():
-            val = self[col_name]
-            if col_type.is_binary_type():
-                continue
-            elif val is None:
-                result[col_name] = None
-            elif col_type.is_timestamp_type() or col_type.is_date_type():
-                result[col_name] = val.isoformat()
-            elif col_type.is_uuid_type():
-                result[col_name] = str(val)
-            elif col_type.is_array_type():
-                result[col_name] = val.tolist()
-            elif col_type.is_json_type():
-                try:
-                    json.dumps(val)
-                except (TypeError, ValueError) as err:
-                    raise excs.RequestError(
-                        excs.ErrorCode.INVALID_DATA_FORMAT,
-                        f'Column {col_name!r} contains a value that is not JSON-serializable: {err}',
-                    ) from err
-                result[col_name] = val
-            else:
-                result[col_name] = val
-        return result
 
 
 class ResultCursor(Iterable[Row]):
