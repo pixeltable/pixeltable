@@ -72,6 +72,7 @@ dependencies = [
     "deprecated>=1.2.15",
     "pypdfium2>=4.30.0",
     "pathspec>=0.10.2",
+    "psutil>=5.9",
 ]
 
 [project.optional-dependencies]
@@ -138,6 +139,7 @@ dev = [
     "types-deprecated>=1.2.15",
     "types-jsonschema>=4.1.0",
     "types-pillow>=10.0",
+    "types-psutil>=5.9",
     "types-pycocotools>=2.0",
     "types-pyyaml>=6.0.1,<7",
     "types-requests>=2.31.0",

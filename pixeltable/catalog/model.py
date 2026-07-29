@@ -621,12 +621,9 @@ class TableModelMeta(type):
 
     @classmethod
     def _normalize_binding_root(cls, binding_root: str) -> str:
-        if binding_root.endswith('/'):
-            binding_root = binding_root[:-1]
+        binding_root = binding_root.rstrip('/')
         _ = catalog.Path.parse(binding_root, allow_empty_path=True)  # validate
-        if len(binding_root) > 0:
-            binding_root += '/'
-        return binding_root
+        return f'{binding_root}/' if binding_root != '' else ''
 
     def _bind(cls, binding_root: str = '') -> pxt.Table:
         binding_root = cls._normalize_binding_root(binding_root)
