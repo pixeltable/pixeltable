@@ -1043,18 +1043,22 @@ def prepare_model_updates(
                 excs.ErrorCode.INVALID_SCHEMA,
                 f'Embedding index {idx_name!r} in {display_name} references unknown column {col_name!r}.',
             )
-        assert isinstance(idx_spec, EmbeddingIndex)  # TODO
-        idx = index.EmbeddingIndex(
-            metric=idx_spec.metric,
-            precision=idx_spec.precision,
-            embed=idx_spec.embedding,
-            string_embed=idx_spec.string_embed,
-            image_embed=idx_spec.image_embed,
-            audio_embed=idx_spec.audio_embed,
-            video_embed=idx_spec.video_embed,
-            document_embed=idx_spec.document_embed,
-            column=user_cols[col_name],
-        )
+        idx: index.IndexBase
+        if isinstance(idx_spec, EmbeddingIndex):
+            idx = index.EmbeddingIndex(
+                metric=idx_spec.metric,
+                precision=idx_spec.precision,
+                embed=idx_spec.embedding,
+                string_embed=idx_spec.string_embed,
+                image_embed=idx_spec.image_embed,
+                audio_embed=idx_spec.audio_embed,
+                video_embed=idx_spec.video_embed,
+                document_embed=idx_spec.document_embed,
+                column=user_cols[col_name],
+            )
+        else:
+            assert isinstance(idx_spec, BtreeIndex)
+            idx = index.BtreeIndex()
         resolved_idxs.append((user_cols[col_name], idx_name, idx))
 
     return resolved_cols, resolved_idxs

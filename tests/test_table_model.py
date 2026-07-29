@@ -1074,6 +1074,7 @@ class TestTableModel:
         ):
             TableModelV2.update_all(root)
 
+    @pytest.mark.local('blah')  # TODO
     def test_update_all(self, make_catalog_path: Callable[[str], str]) -> None:
         """`update_all()` applies purely additive changes (new columns and indexes) to existing tables."""
         skip_test_if_not_installed('imagehash')
@@ -1125,6 +1126,8 @@ class TestTableModel:
             embed_a = EmbeddingIndex(image, embedding=dummy_embedding.using(n=768))
             embed_b = EmbeddingIndex(image, embedding=dummy_embedding.using(n=512))  # new index
             embed_c = EmbeddingIndex(new_image, embedding=dummy_embedding.using(n=256))  # new index on new column
+
+            b_tree_a = BtreeIndex(id)  # new b-tree index
 
         class ExampleViewV2(TableModelV2, name='test_view', base=ExampleTableV2):
             vc1 = ExampleTableV2.value + 1
