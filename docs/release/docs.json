@@ -44,27 +44,17 @@
             "pages": [
               "platform/configuration",
               {
-                "group": "Cloud deployment",
+                "group": "Self-hosting",
                 "pages": [
-                  {
-                    "group": "Self-hosting",
-                    "pages": [
-                      "howto/deployment/overview",
-                      "howto/deployment/serving",
-                      "howto/deployment/infrastructure",
-                      "howto/deployment/operations",
-                      "howto/deployment/monitoring",
-                      "howto/deployment/security"
-                    ]
-                  },
-                  {
-                    "group": "Pixeltable Cloud",
-                    "pages": [
-                      "use-cases/services"
-                    ]
-                  }
+                  "howto/deployment/overview",
+                  "howto/deployment/serving",
+                  "howto/deployment/infrastructure",
+                  "howto/deployment/operations",
+                  "howto/deployment/monitoring",
+                  "howto/deployment/security"
                 ]
-              }
+              },
+              "use-cases/services"
             ]
           },
           {
@@ -796,6 +786,10 @@
     {
       "source": "/integrations/models",
       "destination": "/integrations/frameworks"
+    },
+    {
+      "source": "/overview/python-sdk",
+      "destination": "/sdk/latest/pixeltable"
     }
   ]
 }
