@@ -1371,6 +1371,8 @@ class TestPxtPathValidator:
         with pytest.raises(pydantic.ValidationError):
             MoveBody(path='a.b', new_path='c')
         with pytest.raises(pydantic.ValidationError):
+            MoveBody(path='a//b', new_path='c')
+        with pytest.raises(pydantic.ValidationError):
             MoveBody(path='a/b', new_path='trailing/')
 
 

@@ -32,12 +32,9 @@ def run(argv: list[str]) -> None:
     parent = args.path.rsplit('/', 1)[0] if '/' in args.path else ''
     dst = f'{parent}/{args.new_name}' if parent else args.new_name
 
-    if args.dry_run:
-        print(f'would rename {args.path} -> {dst}')
-        return
-
-    resp = post_request('/api/move', {'path': args.path, 'new_path': dst})
+    resp = post_request('/api/move', {'path': args.path, 'new_path': dst, 'dry_run': args.dry_run})
     if args.as_json:
         print(json.dumps(resp, indent=2))
     else:
-        print(f'renamed {display_path(resp["path"])} -> {display_path(resp["new_path"])}')
+        verb = 'would rename' if args.dry_run else 'renamed'
+        print(f'{verb} {display_path(resp["path"])} -> {display_path(resp["new_path"])}')

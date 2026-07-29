@@ -432,7 +432,8 @@ def move(req: Request) -> models.MoveResponse:
     body = req.body(models.MoveBody)
     src = req.resolve_path(body.path)
     dst = req.resolve_path(body.new_path)
-    pxt.move(src, dst)
+    if not body.dry_run:
+        pxt.move(src, dst)
     return models.MoveResponse(path=src, new_path=dst)
 
 

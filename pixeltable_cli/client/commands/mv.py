@@ -28,24 +28,21 @@ def run(argv: list[str]) -> None:
     err = validate_path_shape(args.path)
     if err is not None:
         ap.error(err)
+    err = validate_path_shape(args.new_dir)
+    if err is not None:
+        ap.error(err)
     name = args.path.rsplit('/', 1)[-1]
-    # a leading '/' makes the destination absolute
-    is_absolute = args.new_dir.startswith('/')
-    new_dir = args.new_dir.strip('/')
-    if new_dir != '':
-        err = validate_path_shape(new_dir)
-        if err is not None:
-            ap.error(err)
-    dst = f'{new_dir}/{name}' if new_dir != '' else name
-    if is_absolute:
-        dst = f'/{dst}'
+    parent = args.new_dir.rstrip('/')
+    if parent != '':
+        dst = f'{parent}/{name}'
+    elif args.new_dir == '':
+        dst = name  # the working directory
+    else:
+        dst = f'/{name}'  # the catalog root
 
-    if args.dry_run:
-        print(f'would move {args.path} -> {dst}')
-        return
-
-    resp = post_request('/api/move', {'path': args.path, 'new_path': dst})
+    resp = post_request('/api/move', {'path': args.path, 'new_path': dst, 'dry_run': args.dry_run})
     if args.as_json:
         print(json.dumps(resp, indent=2))
     else:
-        print(f'moved {display_path(resp["path"])} -> {display_path(resp["new_path"])}')
+        verb = 'would move' if args.dry_run else 'moved'
+        print(f'{verb} {display_path(resp["path"])} -> {display_path(resp["new_path"])}')

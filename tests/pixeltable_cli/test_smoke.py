@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 
 import pixeltable as pxt
+from pixeltable_cli.client.utils import display_path
 from tests.utils import CatalogMode, get_image_files
 
 from .conftest import PxtRunner
@@ -214,6 +215,13 @@ class TestCwd:
         pxt.create_table(p('cli_mv_wd.movee'), {'a': pxt.Int}, if_exists='replace')
         try:
             cli('cd', p('cli_mv_wd'))
+
+            # a dry run reports the resolved destination, so a working directory doesn't hide where it lands
+            r = cli('mv', 'movee', 'sub', '-n')
+            assert 'would move' in r.stdout
+            assert display_path(p('cli_mv_wd/sub/movee')) in r.stdout
+            assert cli('mv', 'movee', 'sub', '-n', '--json').json['new_path'] == p('cli_mv_wd/sub/movee')
+            assert pxt.get_table(p('cli_mv_wd/movee'), if_not_exists='ignore') is not None  # nothing moved
 
             # a relative destination lands under the working directory
             assert cli('mv', 'movee', 'sub', '--json').json['new_path'] == p('cli_mv_wd/sub/movee')
