@@ -6386,6 +6386,7 @@ dependencies = [
     { name = "pillow" },
     { name = "pillow-heif" },
     { name = "pixeltable-pgserver" },
+    { name = "psutil" },
     { name = "psycopg", extra = ["binary"] },
     { name = "puremagic" },
     { name = "pyarrow" },
@@ -6492,6 +6493,7 @@ dev = [
     { name = "types-deprecated" },
     { name = "types-jsonschema" },
     { name = "types-pillow" },
+    { name = "types-psutil" },
     { name = "types-pycocotools" },
     { name = "types-pyyaml" },
     { name = "types-requests" },
@@ -6545,6 +6547,7 @@ requires-dist = [
     { name = "pillow", specifier = ">=9.3.0" },
     { name = "pillow-heif", specifier = ">=0.15.0" },
     { name = "pixeltable-pgserver", specifier = "==0.5.0" },
+    { name = "psutil", specifier = ">=5.9" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1.18" },
     { name = "puremagic", specifier = ">=1.20" },
     { name = "pyarrow", specifier = ">=19" },
@@ -6636,6 +6639,7 @@ dev = [
     { name = "types-deprecated", specifier = ">=1.2.15" },
     { name = "types-jsonschema", specifier = ">=4.1.0" },
     { name = "types-pillow", specifier = ">=10.0" },
+    { name = "types-psutil", specifier = ">=5.9" },
     { name = "types-pycocotools", specifier = ">=2.0" },
     { name = "types-pyyaml", specifier = ">=6.0.1,<7" },
     { name = "types-requests", specifier = ">=2.31.0" },
@@ -10693,6 +10697,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/2b/a1/4d16b016257c91f52a5251b9f7b9ddcbb6a1f7fc2b0cca4765539b2c81e7/types-Pillow-10.1.0.20240106.tar.gz", hash = "sha256:d2c2ed7ece6b0becb4daf150e2374c8f4d977fe6efec625ef952e262576190e7", size = 31728, upload-time = "2024-01-06T02:19:00.696Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/33/21/9f4f29fa4ff6dd28ef803f4c539386ba5fa7b3416387437a170a460d4928/types_Pillow-10.1.0.20240106-py3-none-any.whl", hash = "sha256:c04c68ace4a92af2e48904754750f1fcf2b1bc2ac7a75510cff11c3d7123dc92", size = 51165, upload-time = "2024-01-06T02:18:58.922Z" },
+]
+
+[[package]]
+name = "types-psutil"
+version = "7.2.2.20260518"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/cb/f1/6901857281d4e8d792492e1495eef6f4f01318a3b6a066486d81000a4511/types_psutil-7.2.2.20260518.tar.gz", hash = "sha256:9f825f631463a5b4d26f19f63aebc9ec25f01140d655026f3ad8a67841f9b331", size = 26660, upload-time = "2026-05-18T06:05:09.389Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cd/eb/f726339668879819599c74c2e1f0cab760912a4159046942bdae2ad37bd6/types_psutil-7.2.2.20260518-py3-none-any.whl", hash = "sha256:6a3d697665754a60d7b5a41d5a2cff12b53f5e0676d77810cd28ba5e14cb4049", size = 32820, upload-time = "2026-05-18T06:05:08.321Z" },
 ]
 
 [[package]]

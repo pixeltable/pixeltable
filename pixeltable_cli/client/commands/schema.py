@@ -7,8 +7,8 @@ from typing import NamedTuple
 from ...schema_types import DiffResolution, OpStatus, SchemaChangeOp, SchemaPlan, drop_table_op
 from ...utils import PxtPath
 from ..confirm import confirm_or_exit
-from ..http import post
 from ..parser import Parser
+from ..utils import post_request
 
 # a working schema file: written verbatim by 'pxt schema example', and shown indented in every verb's epilog,
 # because otherwise the shape of a model file has to be guessed
@@ -236,7 +236,7 @@ def _diff(schema_file: str, catalog_dir: PxtPath, *, as_json: bool) -> None:
 
 
 def _plan_for(schema_file: str, catalog_dir: PxtPath) -> SchemaPlan:
-    plan: SchemaPlan = post('/api/schema/diff', {'schema_file': schema_file, 'catalog_dir': catalog_dir})
+    plan: SchemaPlan = post_request('/api/schema/diff', {'schema_file': schema_file, 'catalog_dir': catalog_dir})
     return plan
 
 
@@ -293,7 +293,7 @@ def _prune(schema_file: str, catalog_dir: PxtPath, *, as_json: bool, force: bool
         on_refusal=report_refusal,
     )
 
-    resp = post('/api/schema/prune', {'schema_file': schema_file, 'catalog_dir': catalog_dir})
+    resp = post_request('/api/schema/prune', {'schema_file': schema_file, 'catalog_dir': catalog_dir})
     _prune_output(resp, as_json=as_json, verb='dropped')
 
 
@@ -319,7 +319,7 @@ def _update(
     if not (allow_destructive and force):
         _decide_update(schema_file, catalog_dir, as_json=as_json, force=force, allow_destructive=allow_destructive)
 
-    applied = post(
+    applied = post_request(
         '/api/schema/update',
         {'schema_file': schema_file, 'catalog_dir': catalog_dir, 'allow_destructive': allow_destructive},
     )

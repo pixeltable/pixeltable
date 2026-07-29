@@ -161,6 +161,10 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
     # don't have several processes trying to initialize pgserver in parallel.
     root_tmp_dir = tmp_path_factory.getbasetemp().parent
     with FileLock(str(root_tmp_dir / 'pxt-init.lock')):
+        # Config caches the home directory on first use, and Env._set_up() reads it from there. A test that
+        # reached Config before this fixture ran would have cached the user's real home, which the Env rebuild
+        # below would then adopt; re-read it now that PIXELTABLE_HOME points at this worker's directory.
+        Config.init({}, reinit=True)
         # We need to call `Env._init_env()` with `reinit_db=True`. This is because if a previous test run was
         # interrupted (e.g., by an inopportune Ctrl-C), there may be residual DB artifacts that interfere with
         # initialization.

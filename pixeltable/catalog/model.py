@@ -621,12 +621,9 @@ class TableModelMeta(type):
 
     @classmethod
     def _dir_prefix(cls, catalog_dir: str) -> str:
-        if catalog_dir.endswith('/'):
-            catalog_dir = catalog_dir[:-1]
+        catalog_dir = catalog_dir.rstrip('/')
         _ = catalog.Path.parse(catalog_dir, allow_empty_path=True)  # validate
-        if len(catalog_dir) > 0:
-            catalog_dir += '/'
-        return catalog_dir
+        return f'{catalog_dir}/' if catalog_dir != '' else ''
 
     def _bind(cls, catalog_dir: str = '') -> pxt.Table:
         catalog_dir = cls._dir_prefix(catalog_dir)

@@ -31,7 +31,7 @@ export async function getDirectoryTree(): Promise<TreeNode[]> {
 }
 
 export async function getTableMetadata(path: string): Promise<TableMetadata> {
-  return fetchJson<TableMetadata>(`${API_BASE}/dashboard/tables/${encodeURIComponent(path)}/meta`);
+  return fetchJson<TableMetadata>(`${API_BASE}/dashboard/tables/meta?path=${encodeURIComponent(path)}`);
 }
 
 export async function getTableData(
@@ -44,15 +44,14 @@ export async function getTableData(
     errorsOnly?: boolean;
   } = {}
 ): Promise<TableData> {
-  const params = new URLSearchParams();
+  const params = new URLSearchParams({ path });
   if (options.offset !== undefined) params.set('offset', String(options.offset));
   if (options.limit !== undefined) params.set('limit', String(options.limit));
   if (options.orderBy) params.set('order_by', options.orderBy);
   if (options.orderDesc) params.set('order_desc', 'true');
   if (options.errorsOnly) params.set('errors_only', 'true');
 
-  const query = params.toString();
-  return fetchJson<TableData>(`${API_BASE}/dashboard/tables/${encodeURIComponent(path)}/data${query ? `?${query}` : ''}`);
+  return fetchJson<TableData>(`${API_BASE}/dashboard/tables/data?${params.toString()}`);
 }
 
 export async function search(query: string, limit = 50): Promise<SearchResults> {
@@ -62,7 +61,7 @@ export async function search(query: string, limit = 50): Promise<SearchResults> 
 
 export async function getPipeline(tablePath?: string): Promise<PipelineResponse> {
   const url = tablePath !== undefined
-    ? `${API_BASE}/dashboard/tables/${encodeURIComponent(tablePath)}/pipeline`
+    ? `${API_BASE}/dashboard/tables/pipeline?path=${encodeURIComponent(tablePath)}`
     : `${API_BASE}/dashboard/pipeline`;
   return fetchJson<PipelineResponse>(url);
 }

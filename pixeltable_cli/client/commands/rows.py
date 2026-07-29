@@ -1,7 +1,7 @@
 import json
 
-from ..http import get, quote_path
 from ..parser import Parser, parse_cols
+from ..utils import get_request, validate_path_arg
 
 EPILOG = """\
 Examples:
@@ -30,7 +30,7 @@ def run(argv: list[str]) -> None:
 
     cols = parse_cols(args.cols, ap)
     cols_csv = ','.join(cols) if cols is not None else None
-    resp = get(f'/api/tables/{quote_path(args.path)}/rows', params={'n': args.n, 'cols': cols_csv})
+    resp = get_request('/api/tables/rows', params={'path': validate_path_arg(args.path), 'n': args.n, 'cols': cols_csv})
 
     if args.as_json:
         print(json.dumps(resp['rows'], indent=2, default=str))
