@@ -1534,3 +1534,37 @@ class TestPerPortPaths:
         assert p1 != p2, f'log path collides across ports: {p1} == {p2}'
         assert '12345' in p1
         assert '54321' in p2
+
+
+class TestDotSegments:
+    """'.' and '..' are CLI path conventions, resolved before a path reaches pixeltable, where a dot is
+    still the legacy component separator."""
+
+    @pytest.mark.parametrize(
+        ('path', 'expected'),
+        [
+            ('.', ''),
+            ('..', ''),  # clamps at the root rather than escaping the catalog
+            ('a/..', ''),
+            ('a/b/..', 'a'),
+            ('a/./b', 'a/b'),
+            ('a/b/../c', 'a/c'),
+            ('a/../../b', 'b'),
+            ('pxt://o:d/a/..', 'pxt://o:d'),
+            ('pxt://o:d/..', 'pxt://o:d'),
+            ('pxt://o:d/a/../b', 'pxt://o:d/b'),
+            ('a/b', 'a/b'),  # untouched when there is nothing to resolve
+            ('a.b', 'a.b'),  # the legacy separator is not a navigation token
+        ],
+    )
+    def test_resolves(self, path: str, expected: str) -> None:
+        assert utils.resolve_dot_segments(path) == expected
+
+    def test_shape_check_admits_only_the_two_tokens(self) -> None:
+        assert utils.validate_path_shape('.') is None
+        assert utils.validate_path_shape('..') is None
+        assert utils.validate_path_shape('a/../b') is None
+        # anything else with a dot is still the legacy separator
+        for bad in ('a.b', 'a/...', '...'):
+            err = utils.validate_path_shape(bad)
+            assert err is not None and 'separator' in err, bad

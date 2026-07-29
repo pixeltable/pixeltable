@@ -8,6 +8,7 @@ EPILOG = """\
 Examples:
   pxt mv my_dir/my_table other_dir              # move to other_dir/my_table
   pxt mv my_dir/my_table /                      # move to the catalog root
+  pxt mv my_dir/my_table .                      # move to the working directory
   pxt mv my_dir/my_table other_dir -n           # dry-run
 
 Notes:

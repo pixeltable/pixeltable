@@ -13,7 +13,7 @@ from typing import Any, TypeVar, overload
 import pydantic
 
 from pixeltable import exceptions as excs
-from pixeltable_cli.utils import validate_path_shape
+from pixeltable_cli.utils import resolve_dot_segments, validate_path_shape
 
 T = TypeVar('T', bound=pydantic.BaseModel)
 
@@ -109,7 +109,9 @@ class Request:
         - a leading '/' marks an absolute path from the catalog root -- the '/' is stripped and any working
           directory is ignored;
         - anything else is relative and is taken under the session's working directory when one is set (the
-          empty path resolves to the working directory itself).
+          empty path resolves to the working directory itself);
+        - '.' and '..' are resolved afterwards, so they are relative to the working directory too; '..' at the
+          catalog root keeps the root.
         """
         from . import daemon  # module-level import would be circular: daemon -> http_server -> router
 
@@ -120,6 +122,8 @@ class Request:
                 wd = daemon.get_wd(self.headers.get('x-pxt-session'))
                 if wd is not None:
                     path = wd if path == '' else f'{wd}/{path}'
+        # after the working directory is applied, so that '..' steps out of it rather than out of the argument
+        path = resolve_dot_segments(path)
         if path != '':
             err = validate_path_shape(path)
             if err is not None:

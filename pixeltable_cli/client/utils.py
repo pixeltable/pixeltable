@@ -360,8 +360,8 @@ def post_request(path: str, body: dict[str, Any]) -> Any:
 
 def validate_path_arg(path: str) -> str:
     """Validate a pxt path's shape and return it unchanged. Paths travel as query params or body fields,
-    which the transport URL-encodes, so no encoding happens here. A bad shape ('.' separator, trailing '/',
-    '//') exits 2 with a clear message before any network round-trip."""
+    which the transport URL-encodes, so no encoding happens here. A bad shape (a dotted component other than
+    '.' or '..', trailing '/', '//') exits 2 with a clear message before any network round-trip."""
     err = validate_path_shape(path)
     if err is not None:
         print(f'pxt: {err}', file=sys.stderr)

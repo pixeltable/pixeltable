@@ -6,11 +6,13 @@ Examples:
   pxt cd pxt://org:db/my_dir      # absolute: a hosted directory
   pxt cd /my_dir                  # absolute: from the local catalog root
   pxt cd my_dir                   # relative: my_dir under the current working directory
+  pxt cd ..                       # up one level
   pxt cd                          # clear the working directory
 
 Notes:
   The working directory is prepended to relative paths in subsequent commands; a pxt:// URI or a
   leading '/' is absolute and ignores it.
+  '.' and '..' work in any path; '..' at the catalog root keeps the root.
   It is scoped to the invoking terminal (keyed by the shell's session), so separate terminals don't
   share it and it does not leak into subprocesses or agents you launch -- those run under their own
   session with no working directory. Scripts and agents should use absolute paths and ignore it."""
