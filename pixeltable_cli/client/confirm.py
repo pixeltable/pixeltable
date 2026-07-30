@@ -22,7 +22,7 @@ def stdin_is_a_tty() -> bool:
 def confirm_or_exit(
     prompt: str, force: bool, *, refused_exit_code: int = 2, on_refusal: Callable[[], None] | None = None
 ) -> None:
-    """Prompt for yes/no on stdin; refuse non-tty unless --force, exiting with refused_exit_code.
+    """Prompt for yes/no on stdin; refuse non-tty unless --force. Both refusals exit with refused_exit_code.
 
     on_refusal runs just before the non-tty refusal exits, for a caller that reports the refusal itself.
     """
@@ -38,4 +38,4 @@ def confirm_or_exit(
     ans = sys.stdin.readline().strip().lower()
     if ans not in ('y', 'yes'):
         print('aborted', file=sys.stderr)
-        sys.exit(1)
+        sys.exit(refused_exit_code)

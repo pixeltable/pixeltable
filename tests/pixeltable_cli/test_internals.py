@@ -749,8 +749,9 @@ class TestConfirm:
         monkeypatch.setattr(confirm, 'stdin_is_a_tty', lambda: True)
         monkeypatch.setattr(confirm.sys, 'stdin', io.StringIO('n\n'))
         with pytest.raises(SystemExit) as ei:
-            confirm.confirm_or_exit('drop something?', force=False)
-        assert ei.value.code == 1
+            confirm.confirm_or_exit('drop something?', force=False, refused_exit_code=3)
+        # answering no is refusal, same as the non-tty path
+        assert ei.value.code == 3
         assert 'aborted' in capsys.readouterr().err
 
     def test_tty_empty_aborts(self, monkeypatch: pytest.MonkeyPatch) -> None:

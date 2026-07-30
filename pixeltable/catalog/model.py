@@ -1481,7 +1481,7 @@ def _format_diff(name: str, diff: TableDiff) -> list[str]:
 
 # closing lines of the refusals raised by create_all()/update_all(), phrased for the Python API
 _PY_MISMATCH_HINT = 'Call `update_all()` instead if you intended to also modify existing tables.'
-_PY_DESTRUCTIVE_HINT = (
+PY_DESTRUCTIVE_HINT = (
     'If you wish to apply these changes, re-run `update_all()` with `allow_destructive=True`.\n'
     'If you intended to rename columns or indexes instead of dropping them, apply those changes '
     'directly with `pxt.move()`.'
@@ -1538,9 +1538,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
             lines.extend(_format_diff(name, d))
         Env.get().console_logger.info('\n'.join(lines) if len(lines) > 0 else 'Catalog is up to date.')
 
-    def _update_all(
-        catalog_dir: str = '', *, allow_destructive: bool = False, destructive_hint: str = _PY_DESTRUCTIVE_HINT
-    ) -> dict[str, TableDiff]:
+    def _update_all(catalog_dir: str = '', *, allow_destructive: bool = False) -> dict[str, TableDiff]:
         """Reconcile every registered model with the catalog.
 
         Returns the diff that was applied, per model. The compare-and-swap in update_from_model() and the
@@ -1550,7 +1548,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         Not atomic: migrations and creations run in separate transactions, so a failure raises with part of the
         diff applied. Re-running reconciles whatever is left.
 
-        destructive_hint closes the error raised when the changes would be destructive without allow_destructive
+        Destructive changes without allow_destructive raise DESTRUCTIVE_SCHEMA_CHANGE.
         """
         diffs = validate_models(registered_models, catalog_dir)
 
@@ -1574,8 +1572,8 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         if len(destructive) > 0 and not allow_destructive:
             detail = '\n'.join(line for name, d in destructive for line in _format_diff(name, d))
             raise excs.RequestError(
-                excs.ErrorCode.SCHEMA_MISMATCH,
-                f'The following updates would result in destructive catalog changes.\n{detail}\n{destructive_hint}',
+                excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE,
+                f'The following updates would result in destructive catalog changes.\n{detail}\n{PY_DESTRUCTIVE_HINT}',
             )
 
         # Apply column/index changes to existing tables. Brand-new tables are handled by `_create_all()` below.
@@ -1636,10 +1634,11 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         except excs.Error as e:
             # the migrations above are already committed; name them, so that a failure here doesn't read as
             # though the catalog were untouched. Augmenting in place keeps the exception's type and fields.
+            # e.message excludes e.detail, which is diagnostic text that must not become part of the message
             if len(update_diffs) > 0:
                 migrated = ', '.join(repr(d['path']) for _, d in update_diffs)
                 e.args = (
-                    f'{e}\n\nThe following table(s) were already migrated: {migrated}. '
+                    f'{e.message}\n\nThe following table(s) were already migrated: {migrated}. '
                     'Re-run update_all() to finish reconciling.',
                 )
             raise

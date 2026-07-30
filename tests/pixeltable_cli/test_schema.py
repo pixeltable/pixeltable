@@ -315,6 +315,40 @@ class TestSchema:
         assert "the following depend on it: 'keep/derived'" in r.stderr
         assert pxt.get_table(f'{target}/raw') is not None
 
+    def test_prune_reports_tables_dropped_before_the_failure(
+        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+    ) -> None:
+        p = make_catalog_path
+        target = p('partial')
+
+        # 'gone' prunes cleanly; 'raw' cannot, because the schema keeps the view that depends on it
+        pxt.create_dir(target)
+        pxt.create_table(f'{target}/gone', {'id': pxt.Int})
+        raw = pxt.create_table(f'{target}/raw', {'id': pxt.Int})
+        pxt.create_view(f'{target}/derived', raw.where(raw.id > 0))
+        schema_file = tmp_path / 'app_schema.py'
+        schema_file.write_text(
+            dedent(
+                """
+                import pixeltable as pxt
+
+                TableModel = pxt.model_base()
+
+
+                class Derived(TableModel, name='derived'):
+                    id: pxt.Int
+                """
+            )
+        )
+
+        r = cli('schema', 'prune', str(schema_file), target, '-f', check=False)
+        assert r.returncode == 1
+        # the proxy reports fully-qualified paths, the local catalog relative ones
+        assert 'The following table(s) were already dropped:' in r.stderr
+        assert 'partial/gone' in r.stderr
+        assert pxt.get_table(f'{target}/raw') is not None
+        assert f'{target}/gone' not in pxt.list_tables(target)
+
     def test_example(self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         p = make_catalog_path
         target = p('documented')

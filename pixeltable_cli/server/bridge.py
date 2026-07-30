@@ -711,6 +711,7 @@ def schema_prune(schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaP
     Returns the plan, with one drop_table operation per dropped table. A view is dropped before its base, so that
     pruning a group of related tables does not depend on the order they are listed in. Nothing is force-dropped:
     a table that something outside the pruned set depends on is left in place and its error is raised.
+    If this exits with an error, it may have dropped a partial list of tables.
     """
     plan = _schema_plan(_load_model_bases(schema_file), schema_file, catalog_dir)
     remaining = list(plan['extras'])
@@ -728,6 +729,12 @@ def schema_prune(schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaP
             dropped.append(pxt_path)
         if len(deferred) == len(remaining):
             assert blocked_by is not None
+            if len(dropped) > 0:
+                # the drops so far are already committed; name them, so the error doesn't read as though the
+                # catalog were untouched. Augmenting in place keeps the exception's type and fields, and
+                # blocked_by.message excludes blocked_by.detail, which must not become part of the message.
+                names = ', '.join(repr(pxt_path) for pxt_path in dropped)
+                blocked_by.args = (f'{blocked_by.message}\n\nThe following table(s) were already dropped: {names}.',)
             raise blocked_by
         remaining = deferred
 
@@ -751,7 +758,14 @@ def schema_update(
 
     applied: list[model.TableDiff] = []
     for base in bases:
-        diffs = base.update_all(catalog_dir, allow_destructive=allow_destructive, destructive_hint=_DESTRUCTIVE_HINT)
+        try:
+            diffs = base.update_all(catalog_dir, allow_destructive=allow_destructive)
+        except excs.RequestError as e:
+            if e.error_code is not excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE:
+                raise
+            # update_all() closes its refusal with instructions for the Python API; a CLI user needs the flag
+            e.args = (e.message.replace(model.PY_DESTRUCTIVE_HINT, _DESTRUCTIVE_HINT),)
+            raise
         applied.extend(diffs.values())
 
     plan = _plan_from_diffs(applied, schema_file, catalog_dir)
