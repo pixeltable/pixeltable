@@ -29,8 +29,29 @@ import requests
 from typing_extensions import Self
 
 from pixeltable import exceptions as excs
+from pixeltable.config import ServiceConfig
 from pixeltable.service import management_client
-from pixeltable.service.management_protocol import ServiceOperationType
+from pixeltable.service.management_protocol import (
+    CreateDbRequest,
+    CreateServiceRequest,
+    DeleteDbRequest,
+    DeleteServiceRequest,
+    GetBundleUploadUrlRequest,
+    GetDbRequest,
+    GetServiceRequest,
+    ListDbRequest,
+    ListOrgsRequest,
+    ListServicesRequest,
+    ServiceOperationType,
+    StartDbRequest,
+    StartServiceRequest,
+    StopDbRequest,
+    StopServiceRequest,
+    UpdateDbRequest,
+    UpdateRuntimeRequest,
+    UpdateServiceRequest,
+)
+from pixeltable.serving import _config as serving_config
 from pixeltable_cli import utils
 from pixeltable_cli.client import confirm, hosted, main as client_main, parser as client_parser, utils as client_utils
 from pixeltable_cli.client.commands import (
@@ -1543,6 +1564,227 @@ class TestHostedCommandHelp:
         assert info.value.code == 0
         out = capsys.readouterr().out
         assert all(token in out for token in expected), out
+
+
+def _forwarded_request(
+    monkeypatch: pytest.MonkeyPatch,
+    handler: Callable[[server_router.Request], Any],
+    *,
+    body: dict[str, Any] | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> Any:
+    """Call a daemon route with the given body/query and return the management API request it sent."""
+    sent: list[Any] = []
+
+    def api_call(request: Any) -> dict[str, Any]:
+        sent.append(request)
+        return {}
+
+    monkeypatch.setattr(management_client, 'api_call', api_call)
+    req = server_router.Request(
+        query={} if query is None else query, body_bytes=b'' if body is None else json.dumps(body).encode()
+    )
+    handler(req)
+    assert len(sent) == 1, sent
+    return sent[0]
+
+
+_POST_ROUTE_REQUESTS = [
+    (
+        server_routes.create_db,
+        {'org': 'acme', 'db': 'main', 'location': 'aws', 'region': 'us-east-1'},
+        CreateDbRequest(org='acme', db='main', location='aws', region='us-east-1'),
+    ),
+    (server_routes.delete_db, {'org': 'acme', 'db': 'main'}, DeleteDbRequest(org='acme', db='main')),
+    (server_routes.start_db, {'org': 'acme', 'db': 'main'}, StartDbRequest(org='acme', db='main')),
+    (server_routes.stop_db, {'org': 'acme', 'db': 'main'}, StopDbRequest(org='acme', db='main')),
+    (
+        server_routes.update_db,
+        {'org': 'acme', 'db': 'main', 'workers': 2, 'cpu': 1.5, 'memory_mb': 1024, 'disk_gb': 20},
+        UpdateDbRequest(org='acme', db='main', workers=2, cpu=1.5, memory_mb=1024, disk_gb=20),
+    ),
+    (
+        server_routes.trigger_runtime_update,
+        {'org': 'acme', 'db': 'main', 'bundle_s3_key': 'bundles/acme/main.tar.gz'},
+        UpdateRuntimeRequest(org='acme', db='main', bundle_s3_key='bundles/acme/main.tar.gz'),
+    ),
+    (
+        server_routes.create_service,
+        {
+            'org': 'acme',
+            'db': 'main',
+            'service_name': 'svc',
+            'base_path': 'dir',
+            'workers': 3,
+            'cpu': 1.5,
+            'memory_mb': 1024,
+            'disk_gb': 20,
+            'service_config': ServiceConfig(name='svc').model_dump_json(),
+        },
+        CreateServiceRequest(
+            org='acme',
+            db='main',
+            service_name='svc',
+            base_path='dir',
+            workers_min=3,
+            cpu=1.5,
+            memory_mb=1024,
+            disk_gb=20,
+            service_config=ServiceConfig(name='svc'),
+        ),
+    ),
+    (
+        server_routes.update_service,
+        {'org': 'acme', 'db': 'main', 'service_name': 'svc', 'workers': 4, 'service_config': None},
+        UpdateServiceRequest(org='acme', db='main', service_name='svc', workers_min=4),
+    ),
+    (
+        server_routes.delete_service,
+        {'org': 'acme', 'db': 'main', 'service_name': 'svc'},
+        DeleteServiceRequest(org='acme', db='main', service_name='svc'),
+    ),
+    (
+        server_routes.start_service,
+        {'org': 'acme', 'db': 'main', 'service_name': 'svc'},
+        StartServiceRequest(org='acme', db='main', service_name='svc'),
+    ),
+    (
+        server_routes.stop_service,
+        {'org': 'acme', 'db': 'main', 'service_name': 'svc'},
+        StopServiceRequest(org='acme', db='main', service_name='svc'),
+    ),
+]
+
+_GET_ROUTE_REQUESTS = [
+    (server_routes.list_orgs, {}, ListOrgsRequest()),
+    (server_routes.list_dbs, {'org': ['acme']}, ListDbRequest(org='acme')),
+    (server_routes.get_db, {'org': ['acme'], 'db': ['main']}, GetDbRequest(org='acme', db='main')),
+    (server_routes.get_upload_url, {'org': ['acme'], 'db': ['main']}, GetBundleUploadUrlRequest(org='acme', db='main')),
+    (server_routes.list_services, {'org': ['acme'], 'db': ['main']}, ListServicesRequest(org='acme', db='main')),
+    (
+        server_routes.get_service,
+        {'org': ['acme'], 'db': ['main'], 'service_name': ['svc']},
+        GetServiceRequest(org='acme', db='main', service_name='svc'),
+    ),
+]
+
+
+class TestCloudRouteRequests:
+    """The management API request each cloud route builds from its body or query string."""
+
+    @pytest.mark.parametrize(('handler', 'body', 'expected'), _POST_ROUTE_REQUESTS)
+    def test_post_route(
+        self,
+        handler: Callable[[server_router.Request], Any],
+        body: dict[str, Any],
+        expected: Any,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        assert _forwarded_request(monkeypatch, handler, body=body) == expected
+
+    @pytest.mark.parametrize(('handler', 'query', 'expected'), _GET_ROUTE_REQUESTS)
+    def test_get_route(
+        self,
+        handler: Callable[[server_router.Request], Any],
+        query: dict[str, list[str]],
+        expected: Any,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        assert _forwarded_request(monkeypatch, handler, query=query) == expected
+
+    def test_get_org_picks_one_org_out_of_the_list(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        orgs = {'orgs': [{'org': 'other', 'org_id': 'o0'}, {'org': 'acme', 'org_id': 'o1'}]}
+        monkeypatch.setattr(management_client, 'api_call', lambda request: orgs)
+        assert server_routes.get_org(server_router.Request(query={'org': ['acme']}, body_bytes=b'')) == {
+            'org': {'org': 'acme', 'org_id': 'o1'}
+        }
+        with pytest.raises(excs.NotFoundError, match="Org 'nope' not found"):
+            server_routes.get_org(server_router.Request(query={'org': ['nope']}, body_bytes=b''))
+
+
+class TestHostedCommandRequests:
+    """The bodies `pxt db` and `pxt service` post, as the cloud routes read them."""
+
+    def _posted_body(self, monkeypatch: pytest.MonkeyPatch, module: ModuleType, argv: list[str]) -> dict[str, Any]:
+        """Run one CLI command with the daemon stubbed out, and return the body it posted."""
+        posted: list[dict[str, Any]] = []
+
+        def post_request(path: str, body: dict[str, Any]) -> dict[str, Any]:
+            posted.append(body)
+            return {}
+
+        monkeypatch.setattr(module, 'post_request', post_request)
+        monkeypatch.setattr(module, 'get_request', lambda path, params=None: {})
+        monkeypatch.setattr(module, 'poll_db', lambda *args, **kwargs: {}, raising=False)
+        monkeypatch.setattr(module, 'poll_svc', lambda *args, **kwargs: {}, raising=False)
+        module.run(argv)
+        assert len(posted) == 1, posted
+        return posted[0]
+
+    @pytest.mark.parametrize(
+        ('module', 'argv', 'handler', 'expected'),
+        [
+            (
+                db_cmd,
+                ['create', 'pxt://acme:main'],
+                server_routes.create_db,
+                CreateDbRequest(org='acme', db='main', location='aws', region='us-east-1'),
+            ),
+            (
+                db_cmd,
+                ['update', 'pxt://acme:main', '--workers', '2'],
+                server_routes.update_db,
+                UpdateDbRequest(org='acme', db='main', workers=2),
+            ),
+            (db_cmd, ['start', 'pxt://acme:main'], server_routes.start_db, StartDbRequest(org='acme', db='main')),
+            (db_cmd, ['stop', 'pxt://acme:main'], server_routes.stop_db, StopDbRequest(org='acme', db='main')),
+            (db_cmd, ['delete', 'pxt://acme:main'], server_routes.delete_db, DeleteDbRequest(org='acme', db='main')),
+            (
+                service_cmd,
+                ['start', 'pxt://acme:main/services/svc'],
+                server_routes.start_service,
+                StartServiceRequest(org='acme', db='main', service_name='svc'),
+            ),
+            (
+                service_cmd,
+                ['stop', 'pxt://acme:main/services/svc'],
+                server_routes.stop_service,
+                StopServiceRequest(org='acme', db='main', service_name='svc'),
+            ),
+            (
+                service_cmd,
+                ['delete', 'pxt://acme:main/services/svc'],
+                server_routes.delete_service,
+                DeleteServiceRequest(org='acme', db='main', service_name='svc'),
+            ),
+        ],
+    )
+    def test_command_body(
+        self,
+        module: ModuleType,
+        argv: list[str],
+        handler: Callable[[server_router.Request], Any],
+        expected: Any,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        body = self._posted_body(monkeypatch, module, argv)
+        assert _forwarded_request(monkeypatch, handler, body=body) == expected
+
+    def test_service_create_and_update_bodies(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        svc_config = ServiceConfig(name='svc')
+        monkeypatch.setattr(serving_config, 'lookup_service_config', lambda name: svc_config)
+
+        argv = ['create', 'svc', '--base-uri', 'pxt://acme:main/dir', '--workers', '3']
+        body = self._posted_body(monkeypatch, service_cmd, argv)
+        assert _forwarded_request(monkeypatch, server_routes.create_service, body=body) == CreateServiceRequest(
+            org='acme', db='main', service_name='svc', base_path='dir', workers_min=3, service_config=svc_config
+        )
+
+        argv = ['update', 'pxt://acme:main/services/svc', '--workers', '4']
+        body = self._posted_body(monkeypatch, service_cmd, argv)
+        assert _forwarded_request(monkeypatch, server_routes.update_service, body=body) == UpdateServiceRequest(
+            org='acme', db='main', service_name='svc', workers_min=4, service_config=svc_config
+        )
 
 
 class TestHostedUriHelpers:

@@ -133,12 +133,12 @@ class Runtime:
 
     def _make_proxy_catalog(self, catalog_uri: Path) -> CatalogBase:
         from pixeltable.catalog.catalog_proxy import CatalogProxy
+        from pixeltable.service.proxy_client import ProxyClient
 
         assert catalog_uri.db is not None
 
         if catalog_uri.org == 'local':
             from pixeltable.service import proxy_daemon
-            from pixeltable.service.proxy_client import ProxyClient
 
             info = proxy_daemon.read_port_lock(catalog_uri.db)
             if info is None:
@@ -150,7 +150,6 @@ class Runtime:
             return CatalogProxy(catalog_uri, ProxyClient.local(f'http://127.0.0.1:{info["port"]}'))
 
         # Remote database: connect via TLS to the proxy endpoint.
-        from pixeltable.service.proxy_client import ProxyClient  # local: breaks circular import via proxy_dispatch
 
         api_key = Env.get().pxt_api_key
         if api_key is None:
