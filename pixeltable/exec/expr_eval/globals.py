@@ -94,6 +94,9 @@ class Dispatcher(Protocol):
     exc_event: asyncio.Event
     schedulers: dict[str, Scheduler]  # key: resource pool id
 
+    # instrumentation state, set per execution
+    col_names: dict[int, str]  # slot idx -> name of the table column it materializes; unnamed slots absent
+
     def dispatch(self, rows: list[exprs.DataRow], exec_ctx: Any) -> None:
         """Dispatches row slots to the appropriate schedulers; does not block"""
         ...

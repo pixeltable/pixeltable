@@ -9,7 +9,7 @@ from typing import AsyncIterator, Iterable
 import numpy as np
 
 import pixeltable.exceptions as excs
-from pixeltable import exprs, telemetry
+from pixeltable import exprs, telemetry, telemetry_schemas
 from pixeltable.utils.progress_reporter import ProgressReporter
 
 from ..data_row_batch import DataRowBatch
@@ -45,6 +45,7 @@ class ExprEvalNode(ExecNode):
     maintain_input_order: bool  # True if we're returning rows in the order we received them from our input
     outputs: np.ndarray  # bool per slot; True if this slot is part of our output
     schedulers: dict[str, Scheduler]  # key: resource pool name
+    col_names: dict[int, str]  # Dispatcher protocol; slot idx -> name of the table column it materializes
     eval_ctx: ExprEvalCtx  # for input/output rows
 
     # execution state
@@ -110,6 +111,12 @@ class ExprEvalNode(ExecNode):
         self.num_output_rows = 0
         self._span_rows = []
         self.schedulers = {}
+        self.col_names = {}
+        for col, slot_idx in self.row_builder.table_columns.items():
+            # a slot can map to multiple columns (a computed column plus its unnamed index value column);
+            # keep the named one
+            if slot_idx is not None and col.name is not None:
+                self.col_names.setdefault(slot_idx, col.name)
         # evaluators are owned by eval_ctx and reused across iterations; clear per-execution state
         # (closed flag, batched-call queue, etc.) so they accept work again
         for evaluator in self.eval_ctx.slot_evaluators.values():
@@ -360,6 +367,15 @@ class ExprEvalNode(ExecNode):
         if len(rows) == 0 or self.exc_event.is_set():
             return
 
+        # count only the root-errored cells; propagation to dependents happens below
+        evaluator = exec_ctx.slot_evaluators.get(slot_with_exc)
+        if isinstance(evaluator, FnCallEvaluator):
+            telemetry_schemas.udf_errors.add(len(rows), udf=evaluator.fn.display_name)
+        tbl = self.row_builder.tbl
+        telemetry_schemas.cells_errors.add(
+            len(rows), table=tbl.name if tbl is not None else None, table_id=str(tbl.id) if tbl is not None else None
+        )
+
         if not self.ctx.ignore_errors:
             dependency_idxs = [e.slot_idx for e in exec_ctx.row_builder.unique_exprs[slot_with_exc].dependencies()]
             first_row = rows[0]
@@ -372,6 +388,12 @@ class ExprEvalNode(ExecNode):
         for row in rows:
             assert row.has_exc(slot_with_exc)
             exc = row.get_exc(slot_with_exc)
+            telemetry.emit(
+                # rows only carry spans at DEBUG; at INFO the event attaches to the ambient operation span
+                row.span if row.span is not None else telemetry.current_span(),
+                'pixeltable.cell.error',
+                **telemetry_schemas.CellErrorAttrs(column=self.col_names.get(slot_with_exc), error=type(exc).__name__),
+            )
             # propagate exception
             for slot_idx in np.nonzero(exec_ctx.row_builder.transitive_dependents[slot_with_exc])[0].tolist():
                 row.set_exc(slot_idx, exc)
@@ -400,8 +422,10 @@ class ExprEvalNode(ExecNode):
         missing_dependents = np.stack([r.missing_dependents for r in rows], axis=0)
 
         # Compute progress (output slot materialization)
-        report_progress = self.progress_reporter is not None and self.eval_ctx is exec_ctx
-        if report_progress:
+        is_top_ctx = self.eval_ctx is exec_ctx
+        report_progress = self.progress_reporter is not None and is_top_ctx
+        count_cells = is_top_ctx and telemetry.active()
+        if report_progress or count_cells:
             # Count currently non-materialized output slots (before updating missing_slots)
             missing_outputs_before: np.int64 = (missing_slots & self.outputs).sum()
 
@@ -409,11 +433,19 @@ class ExprEvalNode(ExecNode):
         missing_slots &= ~has_val  # (num_rows, num_slots)
 
         # Progress reporting
-        if report_progress:
+        if report_progress or count_cells:
             missing_outputs_after: np.int64 = (missing_slots & self.outputs).sum()
             num_computed_outputs = int(missing_outputs_before - missing_outputs_after)
             if num_computed_outputs > 0:
-                self.progress_reporter.update(num_computed_outputs)
+                if report_progress:
+                    self.progress_reporter.update(num_computed_outputs)
+                if count_cells:
+                    tbl = self.row_builder.tbl
+                    telemetry_schemas.cells_computed.add(
+                        num_computed_outputs,
+                        table=tbl.name if tbl is not None else None,
+                        table_id=str(tbl.id) if tbl is not None else None,
+                    )
 
         # Identify completed rows
         missing_slot_counts = missing_slots.sum(axis=1)  # (num_rows,)

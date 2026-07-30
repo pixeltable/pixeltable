@@ -22,7 +22,7 @@ import PIL
 from deprecated import deprecated
 
 import pixeltable as pxt
-from pixeltable import env, exceptions as excs, exprs, type_system as ts
+from pixeltable import env, exceptions as excs, exprs, telemetry_schemas, type_system as ts
 from pixeltable.config import Config
 from pixeltable.func import Batch, Tools
 from pixeltable.runtime import get_runtime
@@ -644,7 +644,11 @@ async def chat_completions(
     is_retry = _runtime_ctx is not None and _runtime_ctx.is_retry
     rate_limits_info.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
 
-    return json.loads(result.text)
+    result_dict = json.loads(result.text)
+    telemetry_schemas.record_token_usage(
+        'chat_completions', result_dict.get('usage'), 'prompt_tokens', 'completion_tokens'
+    )
+    return result_dict
 
 
 @chat_completions.resource_estimator
@@ -770,7 +774,9 @@ async def responses(
     is_retry = _runtime_ctx is not None and _runtime_ctx.is_retry
     rate_limits_info.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
 
-    return json.loads(result.text)
+    result_dict = json.loads(result.text)
+    telemetry_schemas.record_token_usage('responses', result_dict.get('usage'), 'input_tokens', 'output_tokens')
+    return result_dict
 
 
 @responses.resource_estimator

@@ -43,6 +43,9 @@ class TestInsertTracing:
 
             op = sub.find('pixeltable.insert')
             assert op['set_current'] is True and op['parent_id'] is None
+            assert op['end_attrs']['pxt.table_id'] == str(t._id)
+            assert op['end_attrs']['pxt.num_rows'] == 5
+            assert op['end_attrs']['pxt.num_excs'] == 0
             rows = [s for s in sub.spans if s['name'] == 'pixeltable.row']
             assert len(rows) == 5
             assert all(r['parent_id'] == op['id'] for r in rows)
@@ -51,6 +54,14 @@ class TestInsertTracing:
             assert len(udfs) == 5
             assert all(u['parent_id'] in row_ids for u in udfs)
             assert all(u['set_current'] for u in udfs)  # provider instrumentors must nest under the UDF span
+            assert all(u['attrs']['pxt.column'] == 'inc' for u in udfs)
+            xacts = [
+                s for s in sub.spans if s['name'] == 'pixeltable.catalog.begin_xact' and s['parent_id'] == op['id']
+            ]
+            assert any(
+                s['end_attrs']['pxt.for_write'] and str(t._id) in s['end_attrs']['pxt.write_table_ids'] for s in xacts
+            )
+            assert all(s['end_attrs']['pxt.attempt'] == 0 for s in xacts)
             assert all(s['ended'] for s in sub.spans)
         finally:
             SubscriberRegistry.get().unsubscribe(sub)
@@ -84,6 +95,8 @@ class TestInsertTracing:
             assert len(udfs) == len(providers) == 3
             assert all(s['set_current'] for s in udfs)
             assert all(s['parent_id'] in udf_ids for s in providers)
+            assert all(s['attrs']['pxt.column'] == 'inc' for s in udfs)
+            assert sorted(s['attrs']['pxt.batch_size'] for s in udfs) == [1, 2, 2]  # 5 rows in batches of <= 2
         finally:
             SubscriberRegistry.get().unsubscribe(sub)
             telemetry.set_span_level(telemetry.INFO)
@@ -133,8 +146,7 @@ class TestInsertTracing:
             SubscriberRegistry.get().unsubscribe(sub)
             telemetry.set_span_level(telemetry.INFO)
 
-    def test_bare_query_stays_dark(self, uses_db: None) -> None:
-        """Shared machinery (row/udf spans) must not emit without a top-level operation span."""
+    def test_collect_and_yield_rows_spans(self, uses_db: None) -> None:
         t = self._make_table()
         t.insert([{'c': i} for i in range(3)])
 
@@ -142,16 +154,107 @@ class TestInsertTracing:
         SubscriberRegistry.get().subscribe(sub)
         telemetry.set_span_level(telemetry.DEBUG)
         try:
-            # a query computes abs on the fly but has no operation span wrapping it
-            _ = t.select(out=pxtf.math.abs(t.c)).collect()
-            assert [s for s in sub.spans if s['name'] == 'pixeltable.row'] == []
-            assert [s for s in sub.spans if s['name'].startswith('pixeltable.udf.')] == []
+            _ = t.select(out=fail_on_three(t.c)).collect()
+
+            collect = sub.find('pixeltable.collect')
+            yield_rows = sub.find('pixeltable.result_cursor.yield_rows')
+            assert collect['set_current'] is True and collect['parent_id'] is None
+            assert collect['end_attrs']['pxt.tables'] == ['tracing_test']
+            assert collect['end_attrs']['pxt.rows'] == 3
+            assert yield_rows['set_current'] is True and yield_rows['parent_id'] == collect['id']
+            assert yield_rows['attrs']['pxt.tables'] == ['tracing_test']
+            assert yield_rows['end_attrs']['pxt.rows'] == 3
+            rows = [s for s in sub.spans if s['name'] == 'pixeltable.row']
+            assert len(rows) == 3
+            assert all(row['parent_id'] == yield_rows['id'] for row in rows)
+            row_ids = {row['id'] for row in rows}
+            udfs = [s for s in sub.spans if s['name'] == 'pixeltable.udf.fail_on_three']
+            assert len(udfs) == 3
+            assert all(udf['parent_id'] in row_ids for udf in udfs)
+            assert all(s['ended'] for s in sub.spans)
         finally:
             SubscriberRegistry.get().unsubscribe(sub)
             telemetry.set_span_level(telemetry.INFO)
 
-    def test_non_insert_write_stays_dark(self, uses_db: None) -> None:
-        """sql_insert is shared by uninstrumented write paths; those must not emit root spans."""
+    @pytest.mark.parametrize(('method', 'span_name'), [('head', 'pixeltable.head'), ('tail', 'pixeltable.tail')])
+    def test_head_and_tail_spans(self, uses_db: None, method: str, span_name: str) -> None:
+        t = self._make_table()
+        t.insert([{'c': i} for i in range(3)])
+
+        sub = RecordingSubscriber()
+        SubscriberRegistry.get().subscribe(sub)
+        try:
+            result = getattr(t, method)(2)
+            assert len(result) == 2
+            op = sub.find(span_name)
+            yield_rows = sub.find('pixeltable.result_cursor.yield_rows')
+            assert op['set_current'] is True and op['parent_id'] is None
+            assert op['end_attrs']['pxt.tables'] == ['tracing_test']
+            assert op['end_attrs']['pxt.rows'] == 2
+            assert yield_rows['set_current'] is True and yield_rows['parent_id'] == op['id']
+            assert all(s['ended'] for s in sub.spans)
+        finally:
+            SubscriberRegistry.get().unsubscribe(sub)
+
+    def test_result_cursor_yield_rows_span(self, uses_db: None) -> None:
+        t = self._make_table()
+        t.insert([{'c': i} for i in range(3)])
+
+        sub = RecordingSubscriber()
+        SubscriberRegistry.get().subscribe(sub)
+        try:
+            rows = list(t.select(t.c).cursor())
+            assert len(rows) == 3
+            yield_rows = sub.find('pixeltable.result_cursor.yield_rows')
+            assert yield_rows['set_current'] is True and yield_rows['parent_id'] is None
+            assert yield_rows['ended']
+        finally:
+            SubscriberRegistry.get().unsubscribe(sub)
+
+    def test_count_and_move_spans(self, uses_db: None) -> None:
+        t = self._make_table()
+        t.insert([{'c': i} for i in range(3)])
+
+        sub = RecordingSubscriber()
+        SubscriberRegistry.get().subscribe(sub)
+        try:
+            # count(): root op span carrying the counted rows
+            assert t.where(t.c > 0).count() == 2
+            op = sub.find('pixeltable.count')
+            assert op['set_current'] is True and op['parent_id'] is None
+            assert op['end_attrs']['pxt.tables'] == ['tracing_test']
+            assert op['end_attrs']['pxt.rows'] == 2
+            # move(): root op span carrying source and destination paths
+            pxt.move('tracing_test', 'tracing_test2')
+            op = sub.find('pixeltable.move')
+            assert op['set_current'] is True and op['parent_id'] is None
+            assert op['end_attrs']['pxt.path'] == 'tracing_test'
+            assert op['end_attrs']['pxt.new_path'] == 'tracing_test2'
+            assert all(s['ended'] for s in sub.spans)
+        finally:
+            SubscriberRegistry.get().unsubscribe(sub)
+
+    def test_compute_span(self, uses_db: None) -> None:
+        t = self._make_table()
+
+        sub = RecordingSubscriber()
+        SubscriberRegistry.get().subscribe(sub)
+        telemetry.set_span_level(telemetry.DEBUG)
+        try:
+            result = t.compute([{'c': i} for i in range(3)])
+            assert len(result) == 3
+            op = sub.find('pixeltable.compute')
+            assert op['set_current'] is True and op['parent_id'] is None
+            rows = [s for s in sub.spans if s['name'] == 'pixeltable.row']
+            assert len(rows) == 3
+            assert all(row['parent_id'] == op['id'] for row in rows)
+            assert all(s['ended'] for s in sub.spans)
+        finally:
+            SubscriberRegistry.get().unsubscribe(sub)
+            telemetry.set_span_level(telemetry.INFO)
+
+    def test_update_emits_op_span(self, uses_db: None) -> None:
+        """update() is an instrumented operation: work spans nest under its op span."""
         t = self._make_table()
         t.insert([{'c': i} for i in range(3)])
 
@@ -159,6 +262,15 @@ class TestInsertTracing:
         SubscriberRegistry.get().subscribe(sub)
         try:
             t.update({'c': t.c + 1})
-            assert [s for s in sub.spans if s['name'] == 'pixeltable.sa.insert_rows'] == []
+            op = sub.find('pixeltable.update')
+            assert op['set_current'] is True and op['parent_id'] is None
+            assert op['end_attrs']['pxt.table_id'] == str(t._id)
+            assert op['end_attrs']['pxt.table'] == 'tracing_test'
+            assert op['end_attrs']['pxt.version'] == 3  # v0 create, v1 add_computed_column, v2 insert, v3 update
+            assert op['end_attrs']['pxt.num_rows'] == 3
+            sa_spans = [s for s in sub.spans if s['name'] == 'pixeltable.sa.insert_rows']
+            assert len(sa_spans) > 0
+            assert all(s['parent_id'] == op['id'] for s in sa_spans)
+            assert sum(s['attrs']['pxt.rows'] for s in sa_spans) == 3
         finally:
             SubscriberRegistry.get().unsubscribe(sub)
