@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <opml version="2.0">
   <head>
-    <title>Python SDK Documentation Structure</title>
+    <title>Pixeltable SDK Documentation Structure</title>
     <description>Complete explicit listing of all functions and UDFs</description>
   </head>
   <body>
 
-    <outline text="tab|Python SDK">
+    <outline text="tab|Pixeltable SDK">
 
       <!-- Core API group with main module -->
       <outline text="group|Core API">
