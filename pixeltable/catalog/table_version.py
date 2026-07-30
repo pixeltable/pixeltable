@@ -343,6 +343,7 @@ class TableVersion:
             view_md=view_md,
             additional_md={},
             is_versioned=is_versioned,
+            default_idxs_enabled=create_default_idxs,
         )
 
         table_version_md = schema.VersionMd(
