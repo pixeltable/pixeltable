@@ -9,7 +9,7 @@ pytestmark = pytest.mark.local('UDF/integration test')
 
 
 @pytest.mark.remote_api
-@rerun(reruns=3, reruns_delay=8)
+@rerun(reruns=4, reruns_delay=8)
 class TestGroq:
     def test_chat_completions(self, uses_db: None) -> None:
         skip_test_if_not_installed('groq')

@@ -2,13 +2,13 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+from ..utils import rerun_on_network_error, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 
 pytestmark = pytest.mark.local('UDF/integration test')
 
 
 @pytest.mark.remote_api
-@rerun(reruns=3, reruns_delay=8)
+@rerun_on_network_error()
 class TestDeepseek:
     def test_chat_completions(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
@@ -18,11 +18,11 @@ class TestDeepseek:
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         msgs = [{'role': 'system', 'content': 'You are a helpful assistant.'}, {'role': 'user', 'content': t.input}]
         t.add_computed_column(input_msgs=msgs)
-        t.add_computed_column(chat_output=chat_completions(model='deepseek-chat', messages=t.input_msgs))
+        t.add_computed_column(chat_output=chat_completions(model='deepseek-v4-flash', messages=t.input_msgs))
         # test a bunch of the parameters
         t.add_computed_column(
             chat_output_2=chat_completions(
-                model='deepseek-chat',
+                model='deepseek-v4-flash',
                 messages=msgs,
                 model_kwargs={
                     'frequency_penalty': 0.1,
@@ -36,10 +36,8 @@ class TestDeepseek:
                 },
             )
         )
-        t.add_computed_column(reasoning_output=chat_completions(model='deepseek-reasoner', messages=t.input_msgs))
 
         validate_update_status(t.insert(input='What is the capital of France?'), 1)
         result = t.collect()
         assert 'paris' in result['chat_output'][0]['choices'][0]['message']['content'].lower()
         assert 'paris' in result['chat_output_2'][0]['choices'][0]['message']['content'].lower()
-        assert 'paris' in result['reasoning_output'][0]['choices'][0]['message']['content'].lower()

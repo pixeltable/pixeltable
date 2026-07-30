@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import datetime
 import glob
 import http.server
@@ -48,6 +49,15 @@ LOG_FMT_STR = '%(asctime)s %(levelname)s %(threadName)s %(name)s %(filename)s:%(
 T = TypeVar('T')
 
 
+def store_app_name() -> str:
+    """The application_name that this process's connections report to the store.
+
+    Identifies them in pg_stat_activity; the pid makes it distinguishable from the connections of other Pixeltable
+    processes running against the same database.
+    """
+    return f'pixeltable-{os.getpid()}'
+
+
 class Env:
     """
     Store runtime globals for both local and non-local environments.
@@ -74,6 +84,7 @@ class Env:
 
     # info about optional packages that are utilized by some parts of the code
     __optional_packages: dict[str, PackageInfo]
+    _optional_packages_lock: threading.Lock  # guards the lazy is_installed/version fields of __optional_packages
 
     _httpd: http.server.HTTPServer | None
     _http_address: str | None
@@ -81,10 +92,12 @@ class Env:
     _managed_logging_handlers: list[tuple[logging.Logger, logging.Handler]]
     _logfilename: str | None
     _file_cache_size_g: float
+    _file_cache_lease_s: float
     _default_input_media_dest: str | None
     _default_output_media_dest: str | None
     _pxt_api_key: str | None
     _default_video_encoder: str | None
+    _default_video_encoder_lock: threading.Lock
     _initialized: bool
 
     _resource_pool_info: dict[str, Any]
@@ -134,9 +147,11 @@ class Env:
         self._db_url = None
         self._default_time_zone = None
         self.__optional_packages = {}
+        self._optional_packages_lock = threading.Lock()
         self._httpd = None
         self._http_address = None
         self._default_video_encoder = None
+        self._default_video_encoder_lock = threading.Lock()
 
         self._logfilename = None
         self._managed_logging_handlers = []
@@ -293,6 +308,11 @@ class Env:
                 f'(either add a `file_cache_size_g` entry to the `pixeltable` section of {Config.get().config_file},\n'
                 'or set the PIXELTABLE_FILE_CACHE_SIZE_G environment variable)',
             )
+
+        # how long an accessed cache file is protected from eviction; exceeds the expected duration of a single
+        # query/insert so a file fetched at the start of an operation is still present when the operation needs it
+        lease_s = config.get_float_value('file_cache_lease_s')
+        self._file_cache_lease_s = 600.0 if lease_s is None else lease_s
 
         self._default_input_media_dest = config.get_string_value('input_media_dest')
         self._default_output_media_dest = config.get_string_value('output_media_dest')
@@ -468,8 +488,9 @@ class Env:
         metadata.create_system_info(self._sa_engine)
 
     def _create_engine(self, time_zone_name: str, echo: bool = False) -> None:
-        # Add timezone option to connection string
+        # Add timezone and application_name options to connection string
         updated_url = add_option_to_db_url(self.db_url, f'-c timezone={time_zone_name}')
+        updated_url = add_option_to_db_url(updated_url, f'-c application_name={store_app_name()}')
 
         self._sa_engine = sql.create_engine(
             updated_url, echo=echo, isolation_level=self._dbms.transaction_isolation_level
@@ -524,24 +545,13 @@ class Env:
         finally:
             engine.dispose()
 
-    def _pgserver_terminate_connections_stmt(self) -> str:
-        return f"""
-                SELECT pg_terminate_backend(pg_stat_activity.pid)
-                FROM pg_stat_activity
-                WHERE pg_stat_activity.datname = '{self._db_name}'
-                AND pid <> pg_backend_pid()
-            """
-
     def _drop_store_db(self) -> None:
         assert self._db_name is not None
         engine = sql.create_engine(self._dbms.default_system_db_url(), future=True, isolation_level='AUTOCOMMIT')
         preparer = engine.dialect.identifier_preparer
         try:
             with engine.begin() as conn:
-                # terminate active connections
-                if self._db_server is not None:
-                    conn.execute(sql.text(self._pgserver_terminate_connections_stmt()))
-                # drop db
+                # drop db; the statement force-terminates any active connections to it
                 stmt = self._dbms.drop_db_stmt(preparer.quote(self._db_name))
                 conn.execute(sql.text(stmt))
         finally:
@@ -639,9 +649,10 @@ class Env:
 
     @property
     def default_video_encoder(self) -> str | None:
-        if self._default_video_encoder is None:
-            self._default_video_encoder = self._determine_default_video_encoder()
-        return self._default_video_encoder
+        with self._default_video_encoder_lock:
+            if self._default_video_encoder is None:
+                self._default_video_encoder = self._determine_default_video_encoder()
+            return self._default_video_encoder
 
     def _determine_default_video_encoder(self) -> str | None:
         """
@@ -773,47 +784,52 @@ class Env:
         assert package_name in self.__optional_packages
         package_info = self.__optional_packages[package_name]
 
-        if not package_info.is_installed:
-            # Check again whether the package has been installed.
-            # We do this so that if a user gets an "optional library not found" error message, they can
-            # `pip install` the library and re-run the Pixeltable operation without having to restart
-            # their Python session.
-            package_info.is_installed = importlib.util.find_spec(package_name) is not None
+        # the lazily-populated is_installed/version fields are shared; guard the check-then-set so concurrent
+        # callers don't race on find_spec/import or observe a half-assigned version
+        with self._optional_packages_lock:
             if not package_info.is_installed:
-                # Still not found.
-                if not_installed_msg is None:
-                    not_installed_msg = f'This feature requires the `{package_name}` package'
+                # Check again whether the package has been installed.
+                # We do this so that if a user gets an "optional library not found" error message, they can
+                # `pip install` the library and re-run the Pixeltable operation without having to restart
+                # their Python session.
+                package_info.is_installed = importlib.util.find_spec(package_name) is not None
+                if not package_info.is_installed:
+                    # Still not found.
+                    if not_installed_msg is None:
+                        not_installed_msg = f'This feature requires the `{package_name}` package'
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'{not_installed_msg}. To install it, run: `pip install -U {package_info.library_name}`',
+                    )
+
+            if min_version is None:
+                return
+
+            # check whether we have a version >= the required one
+            if package_info.version is None:
+                module = importlib.import_module(package_name)
+                version_str: str | None = getattr(module, '__version__', None)
+                if version_str is None:
+                    version_str = importlib.metadata.version(package_info.library_name)
+                package_info.version = [int(x) for x in version_str.split('.')]
+
+            if min_version > package_info.version:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'{not_installed_msg}. To install it, run: `pip install -U {package_info.library_name}`',
+                    f'The installed version of package `{package_name}` is '
+                    f'{".".join(str(v) for v in package_info.version)}, '
+                    f'but version >={".".join(str(v) for v in min_version)} is required. '
+                    f'To fix this, run: `pip install -U {package_info.library_name}`',
                 )
-
-        if min_version is None:
-            return
-
-        # check whether we have a version >= the required one
-        if package_info.version is None:
-            module = importlib.import_module(package_name)
-            version_str: str | None = getattr(module, '__version__', None)
-            if version_str is None:
-                version_str = importlib.metadata.version(package_info.library_name)
-            package_info.version = [int(x) for x in version_str.split('.')]
-
-        if min_version > package_info.version:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'The installed version of package `{package_name}` is '
-                f'{".".join(str(v) for v in package_info.version)}, '
-                f'but version >={".".join(str(v) for v in min_version)} is required. '
-                f'To fix this, run: `pip install -U {package_info.library_name}`',
-            )
 
     def clear_tmp_dir(self) -> None:
         for path in glob.glob(f'{self._tmp_dir}/*'):
+            # another process sharing this home can remove an entry between the glob and the delete
             if os.path.isdir(path):
-                shutil.rmtree(path)
+                shutil.rmtree(path, ignore_errors=True)
             else:
-                os.remove(path)
+                with contextlib.suppress(FileNotFoundError):
+                    os.remove(path)
 
     # def get_resource_pool_info(self, pool_id: str, pool_info_cls: Type[T] | None) -> T:
     def get_resource_pool_info(self, pool_id: str, make_pool_info: Callable[[], T] | None = None) -> T:
@@ -871,24 +887,7 @@ class Env:
             except Exception as e:
                 _logger.warning(f'Error stopping HTTP server: {e}')
 
-        # First terminate all connections to the database
-        if self._db_server is not None:
-            assert self._dbms is not None
-            assert self._db_name is not None
-            try:
-                temp_engine = sql.create_engine(self._dbms.default_system_db_url(), isolation_level='AUTOCOMMIT')
-                try:
-                    with temp_engine.begin() as conn:
-                        conn.execute(sql.text(self._pgserver_terminate_connections_stmt()))
-                        _logger.info(f"Terminated all connections to database '{self._db_name}'")
-                except Exception as e:
-                    _logger.warning(f'Error terminating database connections: {e}')
-                finally:
-                    temp_engine.dispose()
-            except Exception as e:
-                _logger.warning(f'Error stopping database server: {e}')
-
-        # Dispose of SQLAlchemy engine (after stopping db server)
+        # Dispose of SQLAlchemy engine
         if self._sa_engine is not None:
             try:
                 self._sa_engine.dispose()

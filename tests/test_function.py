@@ -98,6 +98,18 @@ class TestFunction:
         # TODO: add Function.exec() and then use that
         assert deserialized.py_fn(1) == 2
 
+    def test_display_name_fallback(self, init_env: None) -> None:
+        # a CallableFunction with no name falls back to the base display_name rather than leaking None into
+        # reprs and error messages (FunctionCall.display_str uses display_name)
+        def f(x: int) -> int:
+            return x
+
+        cf = func.CallableFunction([func.Signature.create(f, None, None)], [f], self_path=None, self_name=None)
+        assert cf.display_name == '<anonymous>'
+        # an explicit display_name override still wins
+        cf2 = func.CallableFunction([func.Signature.create(f, None, None)], [f], self_name='_f', display_name='f')
+        assert cf2.display_name == 'f'
+
         # by-value ExprTemplateFunction (here from .using()
         tmpl = self.f1.using(c=2.0)
         assert isinstance(tmpl, func.ExprTemplateFunction)
@@ -1905,7 +1917,7 @@ class TestFunction:
         videos = get_video_files()[:2]
         t_vid = pxt.create_table(p('test_est_vid'), {'video': pxt.Video})
         t_vid.add_computed_column(emb=mock_embed(t_vid.video))
-        with pxt_raises(pxt.ErrorCode.GENERIC_USER_ERROR, match='not in the resolved function signature'):
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='not in the resolved function signature'):
             t_vid.insert([{'video': v} for v in videos])
 
     def test_resource_estimator_non_polymorphic(self, make_catalog_path: Callable[[str], str]) -> None:

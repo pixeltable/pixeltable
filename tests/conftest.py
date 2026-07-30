@@ -20,7 +20,6 @@ import pixeltable as pxt
 import pixeltable.utils.fault_injection as prod_fault_injection
 import tests.fault_injection as test_fault_injection
 from pixeltable import exprs, functions as pxtf
-from pixeltable.catalog.model import TableModelMeta
 from pixeltable.config import Config
 from pixeltable.env import LOG_FMT_STR, Env
 from pixeltable.functions.huggingface import clip, sentence_transformer
@@ -116,6 +115,11 @@ def _set_up_external_db_schema(worker_id: int | str) -> str:
     return schema_name
 
 
+def _worker_db_name(worker_id: int | str) -> str:
+    """The db name used by both the pytest process and its proxy daemon."""
+    return f'test_{worker_id}'
+
+
 @pytest.fixture(scope='session')
 def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:  # type: ignore[misc]
     os.chdir(os.path.dirname(os.path.dirname(__file__)))  # Project root directory
@@ -128,10 +132,14 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
     home_dir = str(tmp_path_factory.mktemp('base') / '.pixeltable')
     os.environ['PIXELTABLE_HOME'] = home_dir
     os.environ['PIXELTABLE_CONFIG'] = str(shared_home / 'config.toml')
-    os.environ['PIXELTABLE_DB'] = f'test_{worker_id}'
+    os.environ['PIXELTABLE_DB'] = _worker_db_name(worker_id)
     os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
     os.environ['PIXELTABLE_API_URL'] = 'https://preprod-internal-api.pixeltable.com'
     os.environ['FIFTYONE_DATABASE_DIR'] = f'{home_dir}/.fiftyone'
+    if IN_CI:
+        # In CI, we use a separate Hugging Face cache directory for each worker since _clear_hf_caches()
+        # deletes the cache between tests.
+        os.environ['HF_HOME'] = f'{home_dir}/huggingface'
     reinit_db = True
     schema_name = None
     if os.environ.get('PIXELTABLE_DB_CONNECT_STR') is not None:
@@ -146,6 +154,7 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
         'PIXELTABLE_PGDATA',
         'PIXELTABLE_API_URL',
         'FIFTYONE_DATABASE_DIR',
+        'HF_HOME',
         'PIXELTABLE_DB_CONNECT_STR',
     ):
         print(f'{var:25} = {os.environ.get(var)}')
@@ -157,6 +166,10 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
     # don't have several processes trying to initialize pgserver in parallel.
     root_tmp_dir = tmp_path_factory.getbasetemp().parent
     with FileLock(str(root_tmp_dir / 'pxt-init.lock')):
+        # Config caches the home directory on first use, and Env._set_up() reads it from there. A test that
+        # reached Config before this fixture ran would have cached the user's real home, which the Env rebuild
+        # below would then adopt; re-read it now that PIXELTABLE_HOME points at this worker's directory.
+        Config.init({}, reinit=True)
         # We need to call `Env._init_env()` with `reinit_db=True`. This is because if a previous test run was
         # interrupted (e.g., by an inopportune Ctrl-C), there may be residual DB artifacts that interfere with
         # initialization.
@@ -168,6 +181,9 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
     pxt_logger = logging.getLogger('pixeltable')
     pxt_logger.setLevel(logging.DEBUG)
     pxt_logger.addHandler(stdout_handler)
+    test_logger = logging.getLogger('pixeltable_test')
+    test_logger.setLevel(logging.DEBUG)
+    test_logger.addHandler(stdout_handler)
     logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
 
     yield
@@ -216,13 +232,13 @@ def _reset_catalog_state() -> None:
     # Clean the DB *before* reloading. This is because some tests
     # (such as test_migration.py) may leave the DB in a broken state.
     clean_db()
-    TableModelMeta.registered_models.clear()
     Config.init({}, reinit=True)
     Env.get().default_time_zone = None
     Env.get().user = None
     reload_catalog()
     FileCache.get().validate()
     FileCache.get().set_capacity(10 << 30)  # 10 GiB
+    FileCache.get().set_lease_seconds(Env.get()._file_cache_lease_s)  # reset any per-test override
 
 
 def _validate_catalog_state() -> None:
@@ -245,20 +261,25 @@ def uses_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
 def proxy_daemon_db(init_env: None, worker_id: str) -> Iterator[str]:
     """A per-worker local proxy daemon, started once for the session and reused across tests.
 
+    The daemon deliberately runs against the same database as the pytest process (_worker_db_name). This way, the
+    post-test _validate_catalog_state() actually validates the store state at the end of the test.
+
     The db name is worker-scoped so parallel xdist workers don't share a catalog. start() is idempotent,
-    so the per-test make_catalog_path fixture only resets the daemon's catalog rather than restarting the process.
+    so the per-test make_catalog_path fixture only reloads the daemon's catalog rather than restarting the process.
     """
     # the proxy daemon serves over HTTP via fastapi/uvicorn (the serve extra); a minimal install omits them
     pytest.importorskip('fastapi')
     pytest.importorskip('uvicorn')
     from pixeltable.service import proxy_daemon
 
-    db = f'testdb_{worker_id}'
+    db = _worker_db_name(worker_id)
     proxy_daemon.start(db)
     try:
         yield db
     finally:
-        proxy_daemon.delete(db)
+        # stop() rather than delete(): delete() would remove the daemon's logs, making it hard to debug CI failures.
+        # The database will be cleared before the next test run.
+        proxy_daemon.stop(db)
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
@@ -304,7 +325,7 @@ def make_catalog_path(
         from pixeltable.service import proxy_daemon
 
         db = request.getfixturevalue('proxy_daemon_db')
-        proxy_daemon.reset(db)
+        proxy_daemon.reinitialize(db)
         prefix = f'pxt://local:{db}'
 
         def p(path: str) -> str:
@@ -324,6 +345,10 @@ def _free_disk_space() -> None:
 
     # In CI, we sometimes run into disk space issues. We try to mitigate this by clearing out various caches between
     # tests.
+
+    if Env._instance is None:
+        # Pixeltable was never initialized in this process, so there's nothing to clean up.
+        return
 
     # Clear the temp store and media dir
     try:

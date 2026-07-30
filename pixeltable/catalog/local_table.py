@@ -5,10 +5,11 @@ import builtins
 import datetime
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence
 from uuid import UUID
 
 import pandas as pd
+import pydantic
 from typing_extensions import overload
 
 import pixeltable as pxt
@@ -21,6 +22,7 @@ from pixeltable.catalog.table_metadata import (
     VersionMetadata,
 )
 from pixeltable.metadata.utils import MetadataUtils
+from pixeltable.row import RowBatch
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 from pixeltable.utils.formatter import Formatter
@@ -34,6 +36,7 @@ from .globals import (
     IfExistsParam,
     IfNotExistsParam,
     MediaValidation,
+    OnErrorParam,
     QColumnId,
     is_valid_identifier,
 )
@@ -88,14 +91,16 @@ class LocalTable(Table):
         return self
 
     def _name(self) -> str:
-        cat = get_runtime().catalog
-        with cat.begin_xact(for_write=False):
-            return cat.read_tbl_record(self._id).md['name']
+        from pixeltable.catalog import retrying_read
+
+        # retrying_read(), not begin_xact(): this is also called as a top-level statement (eg while preparing an
+        # insert), where a dropped connection has to be retried rather than raised
+        return retrying_read(lambda: get_runtime().catalog.read_tbl_record(self._id).md['name'])
 
     def _dir_id(self) -> UUID | None:
-        cat = get_runtime().catalog
-        with cat.begin_xact(for_write=False):
-            return cat.read_tbl_record(self._id).dir_id
+        from pixeltable.catalog import retrying_read
+
+        return retrying_read(lambda: get_runtime().catalog.read_tbl_record(self._id).dir_id)
 
     def get_metadata(self) -> 'TableMetadata':
         from pixeltable.catalog import retry_loop
@@ -187,6 +192,8 @@ class LocalTable(Table):
             primary_key=primary_key,
             kind=self._display_name(),  # type: ignore[typeddict-item]
             base=None,
+            view_filter=None,
+            view_sample=None,
             iterator_call=None,
         )
 
@@ -238,6 +245,63 @@ class LocalTable(Table):
         cols = self._tbl_version_path.columns()
         return [c.name for c in cols]
 
+    @telemetry.spanned('pixeltable.compute', set_current=True)
+    def compute(
+        self,
+        source: Sequence[dict[str, Any]] | Sequence[pydantic.BaseModel],
+        /,
+        *,
+        on_error: Literal['abort', 'ignore'] = 'abort',
+    ) -> RowBatch:
+        from pixeltable.io.table_data_conduit import PydanticTableDataConduit, RowDataTableDataConduit, TableDataConduit
+        from pixeltable.plan import Planner
+
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
+        # str/bytes are technically Sequences; reject them explicitly so we don't fall through to
+        # TableDataConduit.create() which would treat a string as a path/URL and trigger file I/O.
+        if isinstance(source, (str, bytes)) or not isinstance(source, Sequence) or len(source) == 0:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'compute() requires a non-empty sequence of dicts or pydantic models; got {type(source).__name__}',
+            )
+        fail_on_exc = OnErrorParam.fail_on_exception(on_error)
+        # TableDataConduit.is_rowdata_structure() only accepts list (not arbitrary Sequence) for the
+        # dict-source dispatch, so normalize to list here.
+        data_source = TableDataConduit.create(list(source))
+        if not isinstance(data_source, (RowDataTableDataConduit, PydanticTableDataConduit)):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'compute() requires a sequence of dicts or pydantic models; got {type(source).__name__}',
+            )
+
+        path = self._tbl_version_path
+        self._validate_compute()
+        try:
+            with get_runtime().catalog.begin_xact(read_tbl_ids=path.tbl_ids):
+                # input rows supply values for the base table's columns
+                base_tbl = self._get_base_tables()[-1] if path.is_view() else self
+                data_source.add_table_info(base_tbl)
+                data_source.prepare_for_insert_into_table()
+                input_rows = [row for batch in data_source.valid_row_batch() for row in batch]
+
+                plan = Planner.create_compute_plan(path, input_rows, ignore_errors=not fail_on_exc)
+                data_rows: list[exprs.DataRow] = []
+                with plan:
+                    # TODO: fix progress reporter
+                    for row_batch in plan:
+                        if fail_on_exc:
+                            for row in row_batch:
+                                # if fail_on_exc == True, we need to check for media validation exceptions
+                                if row.has_exc():
+                                    raise row.get_first_exc()
+                        data_rows.extend(row_batch.rows)
+                result = plan.row_builder.create_row_batch(data_rows, output_cols=path.columns())
+        except excs.ExprEvalError as e:
+            excs.raise_from_expr_eval_err(e)
+
+        FileCache.get().emit_eviction_warnings()
+        return result
+
     def _get_base_tables(self) -> list['Table']:
         """The ancestor list of bases of this table, starting with its immediate base. Requires a transaction context"""
         bases: list[Table] = []
@@ -278,7 +342,9 @@ class LocalTable(Table):
         pxt:// path of a hosted table); when None the local in-catalog path is shown.
         """
 
-        with get_runtime().catalog.begin_xact(read_tvps=[self._tbl_version_path]):
+        from pixeltable.catalog import retrying_read
+
+        def op() -> DescriptionHelper:
             helper = DescriptionHelper()
             helper.append(self._table_descriptor(path))
             col_df, separator_idxs = self._col_descriptor()
@@ -291,6 +357,8 @@ class LocalTable(Table):
             if self._get_custom_metadata():
                 helper.append(f'Custom Metadata: {Formatter.summarize_json(self._get_custom_metadata())}')
             return helper
+
+        return retrying_read(op, read_tvps=[self._tbl_version_path])
 
     def _col_descriptor(self, columns: list[str] | None = None) -> tuple[pd.DataFrame, list[int] | None]:
         """Generates column descriptor DataFrame and a list of vertical separators.
@@ -371,12 +439,10 @@ class LocalTable(Table):
     def to_coco_dataset(self) -> Path:
         return self.select().to_coco_dataset()
 
-    def _column_has_dependents(self, col: Column) -> bool:
-        """Returns True if the column has dependents, False otherwise."""
-        assert col is not None
-        assert col.name in self._get_schema()
+    def _get_dependent_user_cols(self, col: Column) -> list[Column]:
+        """Returns the named (user-visible) columns that depend on `col`."""
         cat = get_runtime().catalog
-        return any(c.name is not None for c in cat.get_column_dependents(col.get_tbl().id, col.id))
+        return [c for c in cat.get_column_dependents(col.get_tbl().id, col.id) if c.name is not None]
 
     def _ignore_or_drop_existing_columns(self, new_col_names: list[str], if_exists: IfExistsParam) -> list[str]:
         """Check and handle existing columns in the new column specification based on the if_exists parameter.
@@ -406,7 +472,7 @@ class LocalTable(Table):
                     col = self._tbl_version.get().cols_by_name[new_col_name]
                     # cannot drop a column with dependents; so reject
                     # replace directive if column has dependents.
-                    if self._column_has_dependents(col):
+                    if len(self._get_dependent_user_cols(col)) > 0:
                         raise excs.AlreadyExistsError(
                             excs.ErrorCode.COLUMN_ALREADY_EXISTS,
                             f'Column {new_col_name!r} already exists and has dependents. '
@@ -561,7 +627,6 @@ class LocalTable(Table):
         from pixeltable.catalog import retry_loop
 
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
-        cat = get_runtime().catalog
 
         # Retry loop is necessary because table metadata is loaded inside.
         # Note: the provided ColumnRef may belong to a different table.
@@ -599,7 +664,7 @@ class LocalTable(Table):
                         excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot drop base table column {col.name!r}'
                     )
 
-            dependent_user_cols = [c for c in cat.get_column_dependents(col.get_tbl().id, col.id) if c.name is not None]
+            dependent_user_cols = self._get_dependent_user_cols(col)
             if len(dependent_user_cols) > 0:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -648,6 +713,52 @@ class LocalTable(Table):
         ):
             self._check_mutable('rename columns of')
             self._tbl_version.get().rename_column(old_name, new_name)
+
+    def alter_column(self, column: str | ColumnRef, *, type_: type) -> None:
+        from pixeltable.catalog import retry_loop
+
+        new_col_type = ts.ColumnType.normalize_type(type_, nullable_default=True, allow_builtin_types=False)
+
+        @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)
+        def do_alter_column() -> None:
+            self._check_mutable('alter columns of')
+
+            if isinstance(column, str):
+                col = self._tbl_version_path.get_column(column)
+                if col is None:
+                    raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {column}')
+            else:
+                if not self._tbl_version_path.has_column(column.col_md.qcolid):
+                    raise excs.NotFoundError(
+                        excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {column.col.qualified_name}'
+                    )
+                col = column.col
+            if col.get_tbl().id != self._tbl_version_path.tbl_id:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot alter base table column {col.name!r}'
+                )
+            if col.is_computed:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot alter the type of computed column {col.name!r}'
+                )
+            if col.is_pk:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot alter the type of primary key column {col.name!r}'
+                )
+
+            # TODO(PXT-960): follow up: allow alteration if it doesn't invalidate any dependents, and doesn't change
+            # their column types.
+            dependent_user_cols = self._get_dependent_user_cols(col)
+            if len(dependent_user_cols) > 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot alter column {col.name!r} because the following columns depend on it: '
+                    f'{", ".join(c.qualified_name for c in dependent_user_cols)}',
+                )
+
+            self._tbl_version.get().alter_column(col, new_col_type)
+
+        do_alter_column()
 
     @telemetry.spanned('pixeltable.add_embedding_index', set_current=True)
     def add_embedding_index(
@@ -857,9 +968,7 @@ class LocalTable(Table):
             idx_info = idx_info_list[0]
 
         # Find out if anything depends on this index
-        val_col = idx_info.val_col
-        col_dependents = get_runtime().catalog.get_column_dependents(val_col.get_tbl().id, val_col.id)
-        dependent_user_cols = [c for c in col_dependents if c.name is not None]
+        dependent_user_cols = self._get_dependent_user_cols(idx_info.val_col)
         if len(dependent_user_cols) > 0:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,

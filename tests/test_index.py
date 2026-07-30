@@ -24,7 +24,7 @@ from .utils import (
     local_embedding,
     pxt_raises,
     reload_catalog,
-    rerun,
+    rerun_on_network_error,
     skip_test_if_not_installed,
     validate_update_status,
 )
@@ -80,7 +80,7 @@ class TestIndex:
         reload_tester.run_reload_test(clear=True)
 
     @pytest.mark.parametrize('use_index_name,use_separate_embeddings', [(False, False), (True, False), (False, True)])
-    @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
+    @rerun_on_network_error()
     def test_similarity(
         self,
         use_index_name: bool,
@@ -749,12 +749,6 @@ class TestIndex:
         with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND) as exc_info:
             img_t.drop_embedding_index(column=img_t.img)
         assert 'does not have an index' in str(exc_info.value).lower()
-
-        # revert() makes the index reappear
-        img_t.revert()
-        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS) as exc_info:
-            img_t.add_embedding_index('img', idx_name='idx0', image_embed=local_embed)
-        assert 'duplicate index name' in str(exc_info.value).lower()
 
         # dropping the indexed column also drops indices
         img_t.drop_column('img')

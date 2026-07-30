@@ -30,11 +30,15 @@ class SchemaObject(abc.ABC):
 
     def _parent(self) -> 'catalog.Dir | None':
         """Returns the parent directory of this schema object."""
-        with get_runtime().catalog.begin_xact(for_write=False):
+        from pixeltable.catalog import retrying_read
+
+        def op() -> 'catalog.Dir | None':
             dir_id = self._dir_id()
             if dir_id is None:
                 return None
             return get_runtime().catalog.get_dir(dir_id)
+
+        return retrying_read(op)
 
     @telemetry.spanned('pixeltable.catalog.resolve_path', level=telemetry.DEBUG)
     def _path(self) -> 'catalog.Path':
@@ -42,7 +46,9 @@ class SchemaObject(abc.ABC):
 
         Resolves the whole path in a single read transaction so the result is a consistent snapshot.
         """
-        with get_runtime().catalog.begin_xact(for_write=False):
+        from pixeltable.catalog import retrying_read
+
+        def op() -> 'catalog.Path':
             dir_id = self._dir_id()
             if dir_id is None:
                 # an instance that's in the process of getting dropped has dir_id unset
@@ -51,6 +57,8 @@ class SchemaObject(abc.ABC):
             full_path = path.append(self._name())
             telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.CatalogAttrs(path=str(full_path)))
             return full_path
+
+        return retrying_read(op)
 
     @abc.abstractmethod
     def _display_name(self) -> str:

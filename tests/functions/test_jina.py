@@ -2,14 +2,14 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import rerun, skip_test_if_no_client, validate_update_status
+from ..utils import rerun_on_network_error, skip_test_if_no_client, validate_update_status
 
 pytestmark = pytest.mark.local('UDF/integration test')
 
 
 @pytest.mark.expensive
 @pytest.mark.remote_api
-@rerun(reruns=3, reruns_delay=8)
+@rerun_on_network_error()
 class TestJina:
     def test_embeddings(self, uses_db: None) -> None:
         """Test basic embedding generation."""

@@ -2,14 +2,20 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+from ..utils import (
+    rerun,
+    rerun_on_network_error,
+    skip_test_if_no_client,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 from .tool_utils import run_tool_invocations_test
 
 pytestmark = pytest.mark.local('UDF/integration test')
 
 
 @pytest.mark.remote_api
-@rerun(reruns=3, reruns_delay=8)
+@rerun_on_network_error()
 class TestAnthropic:
     def test_messages(self, uses_db: None) -> None:
         skip_test_if_not_installed('anthropic')

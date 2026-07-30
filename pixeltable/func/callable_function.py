@@ -26,6 +26,7 @@ class CallableFunction(Function):
 
     py_fns: list[Callable]
     self_name: str | None
+    _display_name: str | None
     batch_size: int | None
 
     def __init__(
@@ -34,6 +35,7 @@ class CallableFunction(Function):
         py_fns: list[Callable],
         self_path: str | None = None,
         self_name: str | None = None,
+        display_name: str | None = None,
         batch_size: int | None = None,
         is_method: bool = False,
         is_property: bool = False,
@@ -48,6 +50,7 @@ class CallableFunction(Function):
             )
         self.py_fns = py_fns
         self.self_name = self_name
+        self._display_name = display_name
         self.batch_size = batch_size
         self.__doc__ = self.py_fns[0].__doc__
         super().__init__(
@@ -151,7 +154,11 @@ class CallableFunction(Function):
 
     @property
     def display_name(self) -> str:
-        return self.self_name
+        if self._display_name is not None:
+            return self._display_name
+        if self.self_name is not None:
+            return self.self_name
+        return super().display_name
 
     @property
     def name(self) -> str:

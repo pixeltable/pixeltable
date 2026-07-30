@@ -54,6 +54,7 @@
             <outline text="method|pixeltable.Table.update" />
             <outline text="method|pixeltable.Table.batch_update" />
             <outline text="method|pixeltable.Table.delete" />
+            <outline text="method|pixeltable.Table.compute" />
             <outline text="method|pixeltable.Table.add_embedding_index" />
             <outline text="method|pixeltable.Table.drop_embedding_index" />
             <outline text="method|pixeltable.Table.drop_index" />
@@ -105,7 +106,15 @@
             <outline text="method|pixeltable.ResultSet.to_pydantic" />
           </outline>
 
-          <outline text="class|pixeltable.Row" />
+          <outline text="class|pixeltable.Row">
+            <outline text="method|pixeltable.Row.to_json" />
+          </outline>
+
+          <outline text="class|pixeltable.RowBatch">
+            <outline text="method|pixeltable.RowBatch.to_json" />
+          </outline>
+
+          <outline text="class|pixeltable.CellError" />
 
           <outline text="class|pixeltable.ResultCursor">
             <outline text="method|pixeltable.ResultCursor.open" />
@@ -137,7 +146,9 @@
       <!-- Built-in Functions and Operators group -->
       <outline text="group|Built-in Functions and Operators">
         <outline text="module|pixeltable.functions">
+          <outline text="func|pixeltable.functions.filter" />
           <outline text="func|pixeltable.functions.map" />
+          <outline text="func|pixeltable.functions.sort" />
           <outline text="uda|pixeltable.functions.count" />
           <outline text="uda|pixeltable.functions.max" />
           <outline text="uda|pixeltable.functions.mean" />
@@ -204,6 +215,21 @@
         <outline text="module|pixeltable.functions.json">
           <outline text="iter|pixeltable.functions.json.list_iterator" />
           <outline text="udf|pixeltable.functions.json.dumps" />
+          <outline text="udf|pixeltable.functions.json.len" />
+          <outline text="udf|pixeltable.functions.json.is_empty" />
+          <outline text="udf|pixeltable.functions.json.contains" />
+          <outline text="udf|pixeltable.functions.json.get" />
+          <outline text="udf|pixeltable.functions.json.sum" />
+          <outline text="udf|pixeltable.functions.json.min" />
+          <outline text="udf|pixeltable.functions.json.max" />
+          <outline text="udf|pixeltable.functions.json.mean" />
+          <outline text="udf|pixeltable.functions.json.count" />
+          <outline text="udf|pixeltable.functions.json.keys" />
+          <outline text="udf|pixeltable.functions.json.values" />
+          <outline text="udf|pixeltable.functions.json.items" />
+          <outline text="udf|pixeltable.functions.json.flatten" />
+          <outline text="udf|pixeltable.functions.json.concat" />
+          <outline text="udf|pixeltable.functions.json.merge" />
           <outline text="uda|pixeltable.functions.json.make_list" />
         </outline>
         <outline text="module|pixeltable.functions.math">
@@ -445,8 +471,6 @@
         </outline>
         <outline text="module|pixeltable.functions.reve">
           <outline text="udf|pixeltable.functions.reve.create" />
-          <outline text="udf|pixeltable.functions.reve.edit" />
-          <outline text="udf|pixeltable.functions.reve.remix" />
         </outline>
         <outline text="module|pixeltable.functions.runwayml">
           <outline text="udf|pixeltable.functions.runwayml.text_to_image" />

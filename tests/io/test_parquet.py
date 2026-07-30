@@ -19,7 +19,7 @@ from ..utils import (
     get_image_files,
     make_test_arrow_table,
     pxt_raises,
-    rerun,
+    rerun_on_network_error,
     skip_test_if_not_installed,
     validate_update_status,
 )
@@ -108,7 +108,7 @@ class TestParquet:
             's3://pxt-test/pytest-resources/alltypes_plain.parquet',
         ],
     )
-    @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
+    @rerun_on_network_error()
     def test_import_parquet_from_remote(self, make_catalog_path: Callable[[str], str], source: str) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('pyarrow')
@@ -374,6 +374,7 @@ class TestParquet:
         # Test that we can reimport the image (it will come back as bytes)
         _ = pxt.io.import_parquet(p('imported_image'), parquet_path=str(export_path))
 
+    @rerun_on_network_error()
     def test_import_images(
         self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, tmp_path: pathlib.Path
     ) -> None:

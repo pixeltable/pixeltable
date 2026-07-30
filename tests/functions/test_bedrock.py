@@ -13,6 +13,7 @@ from ..utils import (
     get_image_files,
     get_video_files,
     rerun,
+    rerun_on_network_error,
     skip_test_if_no_aws_credentials,
     validate_update_status,
 )
@@ -132,7 +133,7 @@ def _converse_image_messages(t: pxt.Table) -> list:
 @pytest.mark.remote_api
 @pytest.mark.expensive
 @pytest.mark.usefixtures('bedrock_us_east_1')
-@rerun(reruns=3, reruns_delay=8)
+@rerun_on_network_error()
 class TestBedrock:
     def test_invoke_model_twelvelabs_marengo_image(self, uses_db: None) -> None:
         skip_test_if_no_aws_credentials()
@@ -268,6 +269,7 @@ class TestBedrock:
         validate_update_status(t.insert(input='What is the capital of France?'), expected_rows=1)
         assert 'Paris' in t.collect()[0]['response']
 
+    @rerun(reruns=3, reruns_delay=8)
     def test_converse_tool_invocations(self, uses_db: None) -> None:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions import bedrock

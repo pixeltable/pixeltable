@@ -5,12 +5,18 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import get_image_files, rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+from ..utils import (
+    get_image_files,
+    rerun_on_network_error,
+    skip_test_if_no_client,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 
 pytestmark = pytest.mark.local('UDF/integration test')
 
 
-@rerun(reruns=3, reruns_delay=30)
+@rerun_on_network_error()
 class TestRunwayML:
     def test_image_to_data_uri(self) -> None:
         from pixeltable.functions.runwayml import _image_to_data_uri

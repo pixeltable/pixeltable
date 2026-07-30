@@ -159,7 +159,7 @@ class TestCLI:
         assert data['port'] == 9999
         assert data['routes'][0]['type'] == 'insert'
 
-    def test_serve_routes(self, tmp_path: pathlib.Path) -> None:
+    def test_serve_routes(self, init_env: None, tmp_path: pathlib.Path) -> None:
         """CLI args are correctly wired into AppConfig and RouteConfig objects."""
         skip_test_if_not_installed('fastapi', 'uvicorn')
 
@@ -372,7 +372,7 @@ class TestCLI:
         assert 'Routes: 3' in out
         assert 'API docs at http://127.0.0.1:8080/docs' in out
 
-    def test_serve_output(self, capsys: pytest.CaptureFixture) -> None:
+    def test_serve_output(self, init_env: None, capsys: pytest.CaptureFixture) -> None:
         """EADDRINUSE error output (plain and JSON) and other startup error paths."""
         skip_test_if_not_installed('fastapi', 'uvicorn')
 

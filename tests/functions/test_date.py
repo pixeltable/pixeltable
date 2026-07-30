@@ -15,6 +15,7 @@ from pixeltable.functions.date import (
     isoweekday,
     make_date,
     month,
+    replace,
     strftime,
     toordinal,
     weekday,
@@ -63,6 +64,7 @@ class TestDate:
                 {},
             ),
             (isoformat, date.isoformat, [], {}),
+            (replace, date.replace, [2025, 1, 1], {}),
             (strftime, date.strftime, ['%Y-%m-%d'], {}),
             (toordinal, date.toordinal, [], {}),
         ]

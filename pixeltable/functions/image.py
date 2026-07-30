@@ -451,6 +451,18 @@ def mode(self: PIL.Image.Image) -> str:
     return self.mode
 
 
+@pxt.udf(is_property=True)
+def size(self: PIL.Image.Image) -> tuple[int, int]:
+    """
+    Return the image size as a `[width, height]` list.
+
+    Equivalent to [`PIL.Image.Image.size`](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.size).
+    """
+    # the annotation declares the fixed two-element schema; the runtime value must be a json value (a list),
+    # not a tuple, so that path expressions like size[0] evaluate against it
+    return list(self.size)  # type: ignore[return-value]
+
+
 class Tile(TypedDict):
     tile: PIL.Image.Image
     tile_coord: tuple[int, int]

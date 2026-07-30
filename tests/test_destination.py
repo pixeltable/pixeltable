@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import io
 import os
 import re
+import urllib.error
+import urllib.request
+from pathlib import Path
 from typing import Callable, ClassVar
 
 import pytest
@@ -14,9 +18,10 @@ from pixeltable.functions.net import presigned_url
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
 
-from .utils import CatalogMode, MediaStore, pxt_raises, rerun, skip_test_if_not_installed
+from .utils import CatalogMode, MediaStore, pxt_raises, rerun_on_network_error, skip_test_if_not_installed
 
 
+@rerun_on_network_error()
 class TestDestination:
     TESTED_DESTINATIONS = (
         StorageTarget.AZURE_STORE,
@@ -208,7 +213,6 @@ class TestDestination:
         with pytest.raises(ValueError, match='Invalid pxtfs:// store URI'):
             ObjectPath.parse_object_storage_addr('pxtfs://org:db/homebucket', allow_obj_name=False)
 
-    @rerun(reruns=3, reruns_delay=15)
     @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS)
     def test_destination(
         self, make_catalog_path: Callable[[str], str], dest_id: StorageTarget, catalog_mode: CatalogMode
@@ -439,7 +443,6 @@ class TestDestination:
             assert ObjectOps.count(t._id, dest=uri) == 0
 
     @pytest.mark.local('media destination/object-store internals')
-    @rerun(reruns=3, reruns_delay=15)
     def test_presigned_url_all_destinations(self, uses_db: None) -> None:
         """Test presigned_url UDF for all cloud storage destinations"""
         # Exclude LOCAL_STORE as it doesn't support presigned URLs
@@ -568,3 +571,39 @@ class TestDestination:
         module_name, src_base, src_obj = self.PUBLIC_TEST_OBJECTS[dest_id]
         skip_test_if_not_installed(module_name)
         self.__download_object(src_base, src_obj)
+
+    def test_http_download_retry(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        url = 'https://example.com/media/img.jpg'
+        error_codes: list[int] = []
+        attempts = 0
+
+        def fake_urlopen(req: urllib.request.Request) -> io.BytesIO:
+            nonlocal attempts
+            attempts += 1
+            if attempts <= len(error_codes):
+                raise urllib.error.HTTPError(url, error_codes[attempts - 1], 'error', None, None)
+            return io.BytesIO(b'payload')
+
+        monkeypatch.setattr('urllib.request.urlopen', fake_urlopen)
+        monkeypatch.setattr('time.sleep', lambda _: None)
+        dest_path = tmp_path / 'img.jpg'
+
+        # transient 429s followed by success: retried until the download succeeds
+        error_codes = [429, 429]
+        ObjectOps.copy_object_to_local_file(url, dest_path)
+        assert attempts == 3
+        assert dest_path.read_bytes() == b'payload'
+
+        # persistent 429s: gives up after 4 attempts and reraises the original error
+        error_codes = [429] * 10
+        attempts = 0
+        with pytest.raises(urllib.error.HTTPError):
+            ObjectOps.copy_object_to_local_file(url, dest_path)
+        assert attempts == 4
+
+        # permanent error: not retried
+        error_codes = [404]
+        attempts = 0
+        with pytest.raises(urllib.error.HTTPError):
+            ObjectOps.copy_object_to_local_file(url, dest_path)
+        assert attempts == 1

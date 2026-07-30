@@ -8,7 +8,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 
-from ..utils import ensure_s3_pytest_resources_access, get_image_files, pxt_raises, rerun
+from ..utils import ensure_s3_pytest_resources_access, get_image_files, pxt_raises, rerun_on_network_error
 
 EXPECTED_SCHEMA = {
     'name': ts.StringType(nullable=True),
@@ -87,7 +87,7 @@ class TestImport:
         t2.insert(data)
         assert t2.count() == 8
 
-    @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
+    @rerun_on_network_error()
     def test_import_json(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
@@ -109,7 +109,7 @@ class TestImport:
             's3://pxt-test/pytest-resources/example.json',
         ],
     )
-    @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
+    @rerun_on_network_error()
     def test_import_json_from_remote(self, make_catalog_path: Callable[[str], str], source: str) -> None:
         p = make_catalog_path
         if source.startswith('s3://'):
@@ -118,7 +118,7 @@ class TestImport:
         assert tab.count() == 4
         assert tab._get_schema() == EXPECTED_SCHEMA
 
-    @rerun(reruns=3, reruns_delay=15, only_rerun=['429', 'Too Many Requests'])
+    @rerun_on_network_error()
     def test_insert_json(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
