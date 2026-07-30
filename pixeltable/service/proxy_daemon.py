@@ -31,7 +31,6 @@ import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.metadata.schema import base_metadata
 from pixeltable.runtime import get_runtime, reset_runtime
 
 from . import proxy_dispatch
@@ -247,12 +246,15 @@ def stop(db: str) -> None:
     _port_lock(db).unlink(missing_ok=True)
 
 
-def reset(db: str) -> None:
-    """Reset the running daemon's catalog to empty, in place (no restart, so its endpoint stays valid)."""
+def reinitialize(db: str) -> None:
+    """Test only. Drop the running daemon's cached catalog state, in place (no restart, so its endpoint stays valid).
+
+    Does not clear the store state.
+    """
     ep = endpoint(db)
     if ep is None:
         raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'No running proxy daemon for {db!r}')
-    response = httpx.post(f'{ep}/reset', timeout=60.0)
+    response = httpx.post(f'{ep}/reinitialize', timeout=60.0)
     response.raise_for_status()
 
 
@@ -265,28 +267,10 @@ def delete(db: str) -> None:
         shutil.rmtree(home)
 
 
-def reset_catalog() -> None:
-    """Empty this daemon's catalog in place and reload it. Runs inside the daemon process.
-
-    Drops the data tables and truncates the metadata tables, then reinitializes; the result is the same
-    empty-but-initialized state as a freshly created database (init recreates the root directory record),
-    so the daemon can be reused across tests without a restart. The truncate/drop logic mirrors the test
-    harness's clean_db(); a shared home for it is a later cleanup.
+def _reinitialize() -> None:
+    """Test only. Discard this daemon's cached catalog state and reload it from the store. Runs inside the daemon
+    process.
     """
-    engine = Env.get().engine
-    inspector = sql.inspect(engine)
-    all_table_names = set(inspector.get_table_names())
-    md_table_names = set(base_metadata.tables.keys())
-    data_table_names = all_table_names - md_table_names
-    existing_md_names = all_table_names & md_table_names
-    with engine.connect() as conn:
-        if data_table_names:
-            names = ', '.join(f'"{t}"' for t in data_table_names)
-            conn.execute(sql.text(f'DROP TABLE IF EXISTS {names} CASCADE'))
-        if existing_md_names:
-            names = ', '.join(f'"{t}"' for t in existing_md_names)
-            conn.execute(sql.text(f'TRUNCATE TABLE {names} CASCADE'))
-        conn.commit()
     reset_runtime()
     pxt.init()
 
@@ -333,10 +317,10 @@ def _build_app() -> 'FastAPI':
             content=encode_body(response_json.encode(), response_parts), media_type='application/octet-stream'
         )
 
-    @app.post('/reset')
-    async def reset_endpoint() -> Response:
-        # reset_catalog() truncates tables and reinitializes; keep it off the event loop
-        await run_in_threadpool(reset_catalog)
+    @app.post('/reinitialize')
+    async def reinitialize_endpoint() -> Response:
+        # _reinitialize() rebuilds the runtime, which is synchronous; keep it off the event loop
+        await run_in_threadpool(_reinitialize)
         return Response(content='{"status": "ok"}', media_type='application/json')
 
     @app.get('/health')

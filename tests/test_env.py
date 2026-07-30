@@ -1,3 +1,5 @@
+from typing import Iterator
+
 import pytest
 
 import pixeltable as pxt
@@ -12,13 +14,21 @@ from .utils import pxt_raises, skip_test_if_not_local
 pytestmark = pytest.mark.local('exercises process-global Env/Config and runtime reset')
 
 
-def _reset_env(reinit: bool, db_name: str) -> None:
-    """Reset the environment for testing."""
+def _reset_env(reinit: bool, db_name: str | None) -> None:
+    """Reset the environment for testing. db_name=None restores the default test database."""
     reset_runtime()
     # Reload configs
-    Config.init(config_overrides={'pixeltable.db': db_name}, reinit=True)
+    config_overrides = {} if db_name is None else {'pixeltable.db': db_name}
+    Config.init(config_overrides=config_overrides, reinit=True)
     Env._init_env(reinit_db=reinit)
     FileCache.init()
+
+
+@pytest.fixture(autouse=True)
+def restore_env() -> Iterator[None]:
+    """Put the process back on its configured database once the test is done."""
+    yield
+    _reset_env(reinit=False, db_name=None)
 
 
 class TestEnvReset:
