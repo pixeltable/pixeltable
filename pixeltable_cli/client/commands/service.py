@@ -7,8 +7,8 @@ import json
 
 from pixeltable_cli.utils import parse_base_uri, parse_db_uri, parse_service_uri, poll_svc, print_service
 
-from ..http import get, post
 from ..parser import Parser
+from ..utils import get_request, post_request
 
 EPILOG = """\
 Examples:
@@ -100,9 +100,11 @@ def _do_create(args: argparse.Namespace) -> None:
         pxt_config.Config.init({}, additional_config_files=[args.config])
     service_config = lookup_service_config(args.name).model_dump_json()
 
-    resp = post(
-        f'/api/orgs/{org}/dbs/{db}/services',
+    resp = post_request(
+        '/api/services',
         {
+            'org': org,
+            'db': db,
             'service_name': args.name,
             'base_path': base_path,
             'workers': args.workers,
@@ -137,9 +139,12 @@ def _do_update(args: argparse.Namespace) -> None:
     except excs.NotFoundError:
         service_config = None
 
-    resp = post(
-        f'/api/orgs/{org}/dbs/{db}/services/{svc_name}/update',
+    resp = post_request(
+        '/api/service/update',
         {
+            'org': org,
+            'db': db,
+            'service_name': svc_name,
             'workers': args.workers,
             'cpu': args.cpu,
             'memory_mb': args.memory_mb,
@@ -158,7 +163,7 @@ def _do_update(args: argparse.Namespace) -> None:
 
 def _do_list(args: argparse.Namespace) -> None:
     org, db = parse_db_uri(args.db_uri, prog='pxt service list')
-    resp = get(f'/api/orgs/{org}/dbs/{db}/services')
+    resp = get_request('/api/services', {'org': org, 'db': db})
     svcs = resp.get('services', []) if isinstance(resp, dict) else []
     if args.json_output:
         print(json.dumps(svcs))
@@ -171,7 +176,7 @@ def _do_list(args: argparse.Namespace) -> None:
 
 def _do_status(args: argparse.Namespace) -> None:
     org, db, svc_name = parse_service_uri(args.service_uri, prog='pxt service status')
-    resp = get(f'/api/orgs/{org}/dbs/{db}/services/{svc_name}')
+    resp = get_request('/api/service', {'org': org, 'db': db, 'service_name': svc_name})
     svc = resp.get('service', resp) if isinstance(resp, dict) else {}
     if args.json_output:
         print(json.dumps(svc))
@@ -181,7 +186,7 @@ def _do_status(args: argparse.Namespace) -> None:
 
 def _do_start(args: argparse.Namespace) -> None:
     org, db, svc_name = parse_service_uri(args.service_uri, prog='pxt service start')
-    resp = post(f'/api/orgs/{org}/dbs/{db}/services/{svc_name}/start', {})
+    resp = post_request('/api/service/start', {'org': org, 'db': db, 'service_name': svc_name})
     svc = resp.get('service', resp) if isinstance(resp, dict) else {}
     if svc.get('state') in ('STARTING', 'DEPLOYING'):
         svc = poll_svc(org, db, svc_name, frozenset({'STARTING', 'DEPLOYING'}), f"Service '{svc_name}' is starting...")
@@ -193,7 +198,7 @@ def _do_start(args: argparse.Namespace) -> None:
 
 def _do_stop(args: argparse.Namespace) -> None:
     org, db, svc_name = parse_service_uri(args.service_uri, prog='pxt service stop')
-    resp = post(f'/api/orgs/{org}/dbs/{db}/services/{svc_name}/stop', {})
+    resp = post_request('/api/service/stop', {'org': org, 'db': db, 'service_name': svc_name})
     svc = resp.get('service', resp) if isinstance(resp, dict) else {}
     if svc.get('state') == 'STOPPING':
         svc = poll_svc(org, db, svc_name, frozenset({'STOPPING'}), f"Service '{svc_name}' is stopping...")
@@ -205,7 +210,7 @@ def _do_stop(args: argparse.Namespace) -> None:
 
 def _do_delete(args: argparse.Namespace) -> None:
     org, db, svc_name = parse_service_uri(args.service_uri, prog='pxt service delete')
-    post(f'/api/orgs/{org}/dbs/{db}/services/{svc_name}/delete', {})
+    post_request('/api/service/delete', {'org': org, 'db': db, 'service_name': svc_name})
     if args.json_output:
         print(json.dumps({'deleted': svc_name}))
     else:

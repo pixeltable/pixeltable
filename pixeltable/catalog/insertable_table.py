@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import enum
 import time
-from typing import TYPE_CHECKING, Any, Literal, Sequence, overload
+from typing import TYPE_CHECKING, Any, Literal, cast, overload
 from uuid import UUID
-
-import pydantic
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, telemetry, type_system as ts
@@ -14,7 +11,7 @@ from pixeltable.runtime import get_runtime
 from pixeltable.utils.filecache import FileCache
 
 from .column import Column
-from .globals import MediaValidation
+from .globals import IndexSpec, MediaValidation, OnErrorParam
 from .local_table import LocalTable
 from .table_path import TableVersionPath
 from .table_version import TableVersion, TableVersionMd
@@ -23,33 +20,12 @@ from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, TableOp, TableOpsBuild
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
-    from pixeltable import exprs, index
+    from pixeltable import exprs
     from pixeltable.globals import TableDataSource
     from pixeltable.io.data_sources import SqlDataSource
     from pixeltable.io.table_data_conduit import TableDataConduit
 
     from .table import Table
-
-
-class OnErrorParameter(enum.Enum):
-    """Supported values for the on_error parameter"""
-
-    ABORT = 'abort'
-    IGNORE = 'ignore'
-
-    @classmethod
-    def is_valid(cls, v: Any) -> bool:
-        if isinstance(v, str):
-            return v.lower() in [c.value for c in cls]
-        return False
-
-    @classmethod
-    def fail_on_exception(cls, v: Any) -> bool:
-        if not cls.is_valid(v):
-            raise ValueError(f'Invalid value for on_error: {v}')
-        if isinstance(v, str):
-            return v.lower() != cls.IGNORE.value
-        return True
 
 
 class InsertableTable(LocalTable):
@@ -75,7 +51,7 @@ class InsertableTable(LocalTable):
         media_validation: MediaValidation,
         create_default_idxs: bool,
         is_versioned: bool,
-        additional_idxs: list[tuple[Column, str | None, index.IndexBase]],
+        additional_idxs: list[IndexSpec],
     ) -> tuple[TableVersionMd, list[TableOp]]:
         cls._verify_schema(columns)
         column_names = [col.name for col in columns]
@@ -93,6 +69,13 @@ class InsertableTable(LocalTable):
                 )
             col.is_pk = True
 
+        cols_by_name = {col.name: col for col in columns if col.name is not None}
+        assert all(isinstance(spec.indexed_column, str) for spec in additional_idxs)
+        resolved_idxs = [
+            IndexSpec(indexed_column=cols_by_name[cast(str, spec.indexed_column)], idx_name=spec.idx_name, idx=spec.idx)
+            for spec in additional_idxs
+        ]
+
         md = TableVersion.create_initial_md(
             tbl_id,
             name,
@@ -103,7 +86,7 @@ class InsertableTable(LocalTable):
             create_default_idxs=create_default_idxs,
             view_md=None,
             is_versioned=is_versioned,
-            additional_idxs=additional_idxs,
+            additional_idxs=resolved_idxs,
         )
 
         ops = (
@@ -154,7 +137,7 @@ class InsertableTable(LocalTable):
         from pixeltable.io.table_data_conduit import TableDataConduit
 
         self._validate_insert_source(source)
-        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
+        fail_on_exception = OnErrorParam.fail_on_exception(on_error)
 
         if source is None:
             source = [kwargs]
@@ -174,45 +157,6 @@ class InsertableTable(LocalTable):
                 print_stats=print_stats,
                 return_rows=return_rows,
             )
-
-    def compute(
-        self,
-        source: Sequence[dict[str, Any]] | Sequence[pydantic.BaseModel],
-        /,
-        *,
-        on_error: Literal['abort', 'ignore'] = 'abort',
-    ) -> list[dict[str, Any]]:
-        from pixeltable.io.table_data_conduit import PydanticTableDataConduit, RowDataTableDataConduit, TableDataConduit
-
-        # str/bytes are technically Sequences; reject them explicitly so we don't fall through to
-        # TableDataConduit.create() which would treat a string as a path/URL and trigger file I/O.
-        if isinstance(source, (str, bytes)) or not isinstance(source, Sequence) or len(source) == 0:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'compute() requires a non-empty sequence of dicts or pydantic models; got {type(source).__name__}',
-            )
-        fail_on_exc = OnErrorParameter.fail_on_exception(on_error)
-        # TableDataConduit.is_rowdata_structure() only accepts list (not arbitrary Sequence) for the
-        # dict-source dispatch, so normalize to list here.
-        data_source = TableDataConduit.create(list(source))
-        if not isinstance(data_source, (RowDataTableDataConduit, PydanticTableDataConduit)):
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'compute() requires a sequence of dicts or pydantic models; got {type(source).__name__}',
-            )
-        data_source.add_table_info(self)
-        data_source.prepare_for_insert_into_table()
-
-        result: list[dict[str, Any]] = []
-        try:
-            with get_runtime().catalog.begin_xact(read_tbl_ids=[self._id]):
-                for row_batch in data_source.valid_row_batch():
-                    result.extend(self._tbl_version.get().compute(row_batch, fail_on_exc=fail_on_exc))
-        except excs.ExprEvalError as e:
-            excs.raise_from_expr_eval_err(e)
-
-        FileCache.get().emit_eviction_warnings()
-        return result
 
     def _insert_table_data_source(
         self,
@@ -268,7 +212,7 @@ class InsertableTable(LocalTable):
 
         Assumes the source's columns have already been validated against this table's schema.
         """
-        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
+        fail_on_exception = OnErrorParam.fail_on_exception(on_error)
         start_ts = time.perf_counter()
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True

@@ -55,6 +55,9 @@ def validate_path_shape(path: str) -> str | None:
 
     A hosted URI pxt://<org>:<db>/<in-catalog path> is accepted; only its in-catalog portion is shape-checked
     here. The org/db and the overall URI form are validated by pixeltable when the path is resolved.
+
+    '.' and '..' are accepted as whole components; resolve_dot_segments() removes them before a path reaches
+    pixeltable, where a dot is still the legacy separator.
     """
     if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in path):
         return f'pxt paths must not contain control characters; got {path!r}'
@@ -66,14 +69,49 @@ def validate_path_shape(path: str) -> str | None:
     else:
         in_catalog = path
         if in_catalog.startswith('/'):
-            return f"pxt paths are relative; drop the leading '/' (use '' for root). Got {path!r}"
-    if '.' in in_catalog:
+            # a leading '/' marks an absolute path from the catalog root; accept it and validate the remainder
+            in_catalog = in_catalog[1:]
+    if any('.' in c and c not in ('.', '..') for c in in_catalog.split('/')):
         return f"pxt paths use '/' as the separator; got {path!r}"
     if in_catalog.endswith('/'):
         return f"pxt paths must not end with '/'; got {path!r}"
     if '//' in in_catalog:
         return f"pxt paths must not contain empty components ('//'); got {path!r}"
     return None
+
+
+def resolve_dot_segments(path: str) -> str:
+    """Resolve '.' and '..' components of a pxt path, clamping at the catalog root.
+
+    '..' at the root keeps the root, as it does in a shell. A pxt:// prefix is preserved and never traversed
+    out of, so '..' cannot move between catalogs. Empty components are left in place for the shape check to
+    report.
+    """
+    prefix = ''
+    in_catalog = path
+    if path.startswith('pxt://'):
+        m = _PXT_URI_RE.match(path)
+        if m is None:
+            return path  # malformed URI; validate_path_shape() reports it
+        db = m.group('db')
+        prefix = f'pxt://{m.group("org")}' + ('' if db is None else f':{db}')
+        in_catalog = m.group('rest') or ''
+    if '.' not in in_catalog:
+        return path
+
+    components: list[str] = []
+    for c in in_catalog.split('/'):
+        if c == '.':
+            continue
+        if c == '..':
+            if len(components) > 0:
+                components.pop()
+            continue
+        components.append(c)
+    resolved = '/'.join(components)
+    if prefix == '':
+        return resolved
+    return prefix if resolved == '' else f'{prefix}/{resolved}'
 
 
 # Identity fingerprint keys
@@ -280,11 +318,11 @@ def print_org(org: dict[str, Any]) -> None:
 
 
 def poll_db(org: str, db: str, pending_states: frozenset[str], label: str) -> dict[str, Any]:
-    """Poll daemon GET .../dbs/{db} until state leaves pending_states."""
-    # imported lazily: rich is heavy, and importing http at module scope would create a utils<->http cycle
+    """Poll the daemon's /api/db route until the database's state leaves pending_states."""
+    # imported lazily: rich is heavy, and importing client.utils at module scope would create a cycle
     from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
-    from pixeltable_cli.client.http import get
+    from pixeltable_cli.client.utils import get_request
 
     result: dict[str, Any] = {}
     deadline = time.monotonic() + _DB_POLL_TIMEOUT
@@ -300,7 +338,7 @@ def poll_db(org: str, db: str, pending_states: frozenset[str], label: str) -> di
         while time.monotonic() < deadline:
             time.sleep(_DB_POLL_INTERVAL)
             try:
-                resp = get(f'/api/orgs/{org}/dbs/{db}')
+                resp = get_request('/api/db', {'org': org, 'db': db})
                 result = resp.get('database', resp) if isinstance(resp, dict) else {}
             except SystemExit:
                 raise
@@ -312,10 +350,10 @@ def poll_db(org: str, db: str, pending_states: frozenset[str], label: str) -> di
 
 
 def poll_svc(org: str, db: str, svc_name: str, pending_states: frozenset[str], label: str) -> dict[str, Any]:
-    """Poll daemon GET .../services/{svc_name} until state leaves pending_states."""
+    """Poll the daemon's /api/service route until the service's state leaves pending_states."""
     from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
-    from pixeltable_cli.client.http import get
+    from pixeltable_cli.client.utils import get_request
 
     svc: dict[str, Any] = {}
     deadline = time.monotonic() + _SVC_POLL_TIMEOUT
@@ -331,7 +369,7 @@ def poll_svc(org: str, db: str, svc_name: str, pending_states: frozenset[str], l
         while time.monotonic() < deadline:
             time.sleep(_SVC_POLL_INTERVAL)
             try:
-                resp = get(f'/api/orgs/{org}/dbs/{db}/services/{svc_name}')
+                resp = get_request('/api/service', {'org': org, 'db': db, 'service_name': svc_name})
                 svc = resp.get('service', resp) if isinstance(resp, dict) else {}
             except SystemExit:
                 raise

@@ -20,8 +20,8 @@ from pixeltable_cli.utils import (
     print_db,
 )
 
-from ..http import get, post
 from ..parser import Parser
+from ..utils import get_request, post_request
 
 EPILOG = """\
 Examples:
@@ -106,7 +106,7 @@ def run(argv: list[str]) -> None:
 
 def _do_create(args: argparse.Namespace) -> None:
     org, db = parse_db_uri(args.db_uri, prog='pxt db create')
-    resp = post(f'/api/orgs/{org}/dbs', {'db': db, 'location': args.location, 'region': args.region})
+    resp = post_request('/api/dbs', {'org': org, 'db': db, 'location': args.location, 'region': args.region})
     result = resp.get('database', resp) if isinstance(resp, dict) else {}
     if result.get('state') == 'PROVISIONING':
         result = poll_db(org, db, frozenset({'PROVISIONING'}), f"Database '{db}' is provisioning...")
@@ -118,7 +118,7 @@ def _do_create(args: argparse.Namespace) -> None:
 
 def _do_list(args: argparse.Namespace) -> None:
     org = parse_org_uri(args.org_uri, prog='pxt db list')
-    resp = get(f'/api/orgs/{org}/dbs')
+    resp = get_request('/api/dbs', {'org': org})
     dbs = resp.get('databases', []) if isinstance(resp, dict) else []
     if args.json_output:
         print(json.dumps(dbs))
@@ -131,7 +131,7 @@ def _do_list(args: argparse.Namespace) -> None:
 
 def _do_status(args: argparse.Namespace) -> None:
     org, db = parse_db_uri(args.db_uri, prog='pxt db status')
-    resp = get(f'/api/orgs/{org}/dbs/{db}')
+    resp = get_request('/api/db', {'org': org, 'db': db})
     result = resp.get('database', resp) if isinstance(resp, dict) else {}
     if args.json_output:
         print(json.dumps(result))
@@ -141,7 +141,7 @@ def _do_status(args: argparse.Namespace) -> None:
 
 def _do_start(args: argparse.Namespace) -> None:
     org, db = parse_db_uri(args.db_uri, prog='pxt db start')
-    post(f'/api/orgs/{org}/dbs/{db}/start', {})
+    post_request('/api/db/start', {'org': org, 'db': db})
     result = poll_db(org, db, frozenset({'UPDATING', 'STARTING'}), f"Database '{db}' is starting...")
     if args.json_output:
         print(json.dumps(result))
@@ -151,7 +151,7 @@ def _do_start(args: argparse.Namespace) -> None:
 
 def _do_stop(args: argparse.Namespace) -> None:
     org, db = parse_db_uri(args.db_uri, prog='pxt db stop')
-    post(f'/api/orgs/{org}/dbs/{db}/stop', {})
+    post_request('/api/db/stop', {'org': org, 'db': db})
     result = poll_db(org, db, frozenset({'STOPPING'}), f"Database '{db}' is stopping...")
     if args.json_output:
         print(json.dumps(result))
@@ -161,9 +161,16 @@ def _do_stop(args: argparse.Namespace) -> None:
 
 def _do_update(args: argparse.Namespace) -> None:
     org, db = parse_db_uri(args.db_uri, prog='pxt db update')
-    resp = post(
-        f'/api/orgs/{org}/dbs/{db}/update',
-        {'workers': args.workers, 'cpu': args.cpu, 'memory_mb': args.memory_mb, 'disk_gb': args.disk_gb},
+    resp = post_request(
+        '/api/db/update',
+        {
+            'org': org,
+            'db': db,
+            'workers': args.workers,
+            'cpu': args.cpu,
+            'memory_mb': args.memory_mb,
+            'disk_gb': args.disk_gb,
+        },
     )
     result = resp.get('database', resp) if isinstance(resp, dict) else {}
     if result.get('state') == 'UPDATING':
@@ -176,7 +183,7 @@ def _do_update(args: argparse.Namespace) -> None:
 
 def _do_delete(args: argparse.Namespace) -> None:
     org, db = parse_db_uri(args.db_uri, prog='pxt db delete')
-    post(f'/api/orgs/{org}/dbs/{db}/delete', {})
+    post_request('/api/db/delete', {'org': org, 'db': db})
     if args.json_output:
         print(json.dumps({'deleted': db}))
     else:
@@ -216,7 +223,7 @@ def _do_update_runtime(args: argparse.Namespace) -> None:
     try:
         if not args.json_output:
             print('Uploading bundle...', end=' ', flush=True)
-        url_resp = get(f'/api/orgs/{org}/dbs/{db}/upload-url')
+        url_resp = get_request('/api/db/upload-url', {'org': org, 'db': db})
         presigned_url = url_resp['presigned_url']
         bundle_s3_key = url_resp['bundle_s3_key']
 
@@ -232,7 +239,7 @@ def _do_update_runtime(args: argparse.Namespace) -> None:
     finally:
         bundle_path.unlink(missing_ok=True)
 
-    post(f'/api/orgs/{org}/dbs/{db}/update-runtime', {'bundle_s3_key': bundle_s3_key})
+    post_request('/api/db/update-runtime', {'org': org, 'db': db, 'bundle_s3_key': bundle_s3_key})
 
     # Poll until the state leaves UPDATING.
     result: dict[str, Any] = {}
@@ -242,7 +249,7 @@ def _do_update_runtime(args: argparse.Namespace) -> None:
     while time.monotonic() < deadline:
         time.sleep(_RUNTIME_POLL_INTERVAL)
         try:
-            resp = get(f'/api/orgs/{org}/dbs/{db}')
+            resp = get_request('/api/db', {'org': org, 'db': db})
             result = resp.get('database', resp) if isinstance(resp, dict) else {}
         except SystemExit:
             break

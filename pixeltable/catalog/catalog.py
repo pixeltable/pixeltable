@@ -18,6 +18,7 @@ from sqlalchemy.dialects.postgresql import array as pg_array
 
 import pixeltable.index as index
 from pixeltable import exceptions as excs, exprs, func, telemetry
+from pixeltable.catalog import model
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
@@ -29,10 +30,9 @@ from pixeltable.utils.fault_injection import FaultLocation
 from .catalog_base import CatalogBase
 from .column import Column
 from .dir import Dir
-from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation, QColumnId
+from .globals import DirEntry, IfExistsParam, IfNotExistsParam, IndexSpec, MediaValidation, QColumnId
 from .insertable_table import InsertableTable
 from .local_table import LocalTable
-from .model import EmbeddingIndex, prepare_model
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
 from .table_path import TablePath, TableVersionPath
@@ -81,6 +81,18 @@ _MAX_RETRIES = -1
 T = TypeVar('T')
 
 
+def _is_retryable_exc(e: BaseException) -> bool:
+    """True if e is a transient database failure that can be retried."""
+    if not isinstance(e, sql_exc.DBAPIError):
+        return False
+    # connection_invalidated: the connection was terminated by the server (eg, by pg_terminate_backend)
+    # TODO: Investigate whether DeadlockDetected points to a bug in our locking protocol, which is
+    # supposed to be deadlock-free.
+    return e.connection_invalidated or isinstance(
+        e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable, psycopg.errors.DeadlockDetected)
+    )
+
+
 def retry_loop(
     *,
     for_write: bool = False,
@@ -125,18 +137,8 @@ def retry_loop(
                 except PendingTableOpsError as e:
                     Env.get().console_logger.debug(f'retry_loop(): finalizing pending ops for {e.tbl_id}')
                     cat._finalize_pending_ops(e.tbl_id)
-                except (sql_exc.DBAPIError, sql_exc.OperationalError) as e:
-                    # TODO: what other exceptions should we be looking for?
-                    if isinstance(
-                        # TODO: Investigate whether DeadlockDetected points to a bug in our locking protocol,
-                        #     which is supposed to be deadlock-free.
-                        e.orig,
-                        (
-                            psycopg.errors.SerializationFailure,
-                            psycopg.errors.LockNotAvailable,
-                            psycopg.errors.DeadlockDetected,
-                        ),
-                    ):
+                except sql_exc.DBAPIError as e:
+                    if _is_retryable_exc(e):
                         if num_retries < _MAX_RETRIES or _MAX_RETRIES == -1:
                             num_retries += 1
                             _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
@@ -158,6 +160,17 @@ def retry_loop(
         return loop
 
     return decorator
+
+
+def retrying_read(op: Callable[[], T], *, read_tvps: Collection[TableVersionPath] | None = None) -> T:
+    """Runs a read-only op, retrying transient failures if no transaction is open yet.
+
+    An op that is already inside a transaction joins it and is not retried, since a retry loop cannot be started
+    within one.
+    """
+    if get_runtime().in_xact:
+        return op()
+    return retry_loop(for_write=False, read_tvps=read_tvps)(op)()
 
 
 class PendingTableOpsError(Exception):
@@ -265,15 +278,22 @@ class Catalog(CatalogBase):
             clause = sql.and_(schema.Table.md['name'].astext == tbl_name, clause)
         return clause
 
+    def _validate_tbls_exist(self, tbl_ids: Collection[UUID]) -> None:
+        conn = get_runtime().conn
+        assert conn is not None
+        for tbl_id in tbl_ids:
+            q = sql.select(sql.func.count()).select_from(schema.Table).where(self._active_tbl_clause(tbl_id=tbl_id))
+            if conn.execute(q).scalar() == 0:
+                raise excs.table_was_dropped(tbl_id)
+
     def validate_tbls_exist(self, tbl_ids: Collection[UUID]) -> None:
         """Raises TABLE_NOT_FOUND if any id is not a live (not dropped or being dropped) table."""
-        with self.begin_xact():
-            conn = get_runtime().conn
-            assert conn is not None
-            for tbl_id in tbl_ids:
-                q = sql.select(sql.func.count()).select_from(schema.Table).where(self._active_tbl_clause(tbl_id=tbl_id))
-                if conn.execute(q).scalar() == 0:
-                    raise excs.table_was_dropped(tbl_id)
+        # Only retry when this call opens the outermost transaction; when it runs nested inside an existing transaction,
+        # the outer transaction handles recovery.
+        if get_runtime().in_xact:
+            self._validate_tbls_exist(tbl_ids)
+        else:
+            retry_loop(for_write=False)(self._validate_tbls_exist)(tbl_ids)
 
     def validate(self) -> None:
         """Validate structural consistency of cached metadata"""
@@ -415,14 +435,12 @@ class Catalog(CatalogBase):
                         except sql_exc.DBAPIError as e:
                             # Handle retriable errors
                             has_exc = True
-                            if isinstance(
-                                e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)
-                            ) and (num_retries < _MAX_RETRIES or _MAX_RETRIES == -1):
+                            if _is_retryable_exc(e) and (num_retries < _MAX_RETRIES or _MAX_RETRIES == -1):
                                 _logger.debug(f'Retriable error {type(e.orig)} on attempt {num_retries}')
                                 num_retries += 1
                                 time.sleep(random.uniform(0.1, 0.5))
                                 # attempt failed -- don't try to commit the transaction before retrying
-                                conn.rollback()
+                                self._try_rollback(conn)
                                 assert not self._undo_actions  # We should not have any undo actions at this point
                                 continue
                             raise
@@ -492,6 +510,13 @@ class Catalog(CatalogBase):
 
                 self._undo_actions.clear()
                 self._modified_tvs.clear()
+
+    def _try_rollback(self, conn: sql.Connection) -> None:
+        """Initiate rollback, ignoring the failure resulting from a possibly already-dead connection."""
+        try:
+            conn.rollback()
+        except sql_exc.DBAPIError:
+            pass
 
     def _acquire_locks(
         self,
@@ -719,10 +744,16 @@ class Catalog(CatalogBase):
         if not tbl_md.is_mutable:
             return set()  # nothing to lock
 
-        if lock_mutable_tree:
-            # also lock mutable views
+        # bring the locked table's TableVersion into the cache; metadata is only readable while locks are being
+        # acquired. check_pending_ops == False means this table's pending ops are in the process of being finalized,
+        # so its metadata is still in flux; loading it would also pull in the tables its value exprs reference, which
+        # may have pending ops of their own.
+        if check_pending_ops or lock_mutable_tree:
             key = TableVersionKey(row.id, tbl_md.current_version if tbl_md.is_snapshot else None)
             tv = self._get_tbl_version(key)
+
+        if lock_mutable_tree:
+            # also lock mutable views
             for view in tv.mutable_views:
                 locked.update(
                     self._acquire_write_lock(
@@ -918,17 +949,12 @@ class Catalog(CatalogBase):
                     return other_exc
                 continue
 
-            except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
+            except sql_exc.DBAPIError as e:
                 # TODO: why are we still seeing these here, instead of them getting taken care of by the retry
                 # logic of begin_xact()?
-                if isinstance(
-                    e.orig,
-                    (
-                        psycopg.errors.SerializationFailure,
-                        psycopg.errors.LockNotAvailable,
-                        psycopg.errors.InFailedSqlTransaction,
-                    ),
-                ):
+                # InFailedSqlTransaction is specific to finalizing a multi-op statement: an earlier op in the
+                # same transaction failed and poisoned it, so the current op needs a fresh transaction.
+                if _is_retryable_exc(e) or isinstance(e.orig, psycopg.errors.InFailedSqlTransaction):
                     num_retries += 1
                     _logger.debug(f'Finalize pending ops({tbl_id}): retriable error: {e.orig} of type {type(e.orig)}')
                     log_msg: str
@@ -1151,6 +1177,13 @@ class Catalog(CatalogBase):
             col = tv.cols_by_id[dependent.col_id]
             result.add(col)
         return result
+
+    def _mutable_view_tvs(self, tbl_version: TableVersion) -> Iterator[TableVersion]:
+        """Return the TableVersions of all transitive mutable views of the given table."""
+        for view in tbl_version.mutable_views:
+            view_tv = view.get()
+            yield view_tv
+            yield from self._mutable_view_tvs(view_tv)
 
     def _acquire_dir_xlock(
         self, *, parent_id: UUID | None = None, dir_id: UUID | None = None, dir_name: str | None = None
@@ -1496,7 +1529,7 @@ class Catalog(CatalogBase):
         media_validation: MediaValidation,
         create_default_idxs: bool,
         is_versioned: bool,
-        additional_idxs: list[tuple[Column, str | None, 'index.IndexBase']] | None = None,
+        additional_idxs: list[IndexSpec] | None = None,
         explicit_tbl_id: UUID | None = None,
     ) -> tuple[LocalTable, bool]:
         import pixeltable.metadata.schema
@@ -1601,7 +1634,7 @@ class Catalog(CatalogBase):
         custom_metadata: Any,
         media_validation: MediaValidation,
         if_exists: IfExistsParam,
-        additional_idxs: list[tuple[Column, str | None, 'index.IndexBase']] | None = None,
+        additional_idxs: list[IndexSpec] | None = None,
         explicit_tbl_id: UUID | None = None,
     ) -> tuple[LocalTable, bool]:
         assert explicit_tbl_id is None or if_exists == IfExistsParam.ERROR
@@ -1683,33 +1716,30 @@ class Catalog(CatalogBase):
         custom_metadata: Any,
         iterator: func.GeneratingFunctionCall | None,
         base: 'pxt.Query | None',
-        embedding_idxs: dict[str, EmbeddingIndex],
+        embedding_idxs: dict[str, model.EmbeddingIndex],
     ) -> tuple[LocalTable, bool]:
         """Create a table or view from a declarative model.
 
         A model's column value expressions can contain placeholder references to other columns in the same table.
         Those references arrive as
-        `ModelColumnRef`s and are substituted here, in the catalog that owns `path`, so they never have to
-        be resolved across a proxy boundary. `base`, when present (i.e. this is a view), is an already-bound Query
+        ColumnRefByNames and are substituted here, in the catalog that owns path, so they never have to
+        be resolved across a proxy boundary. base, when present (i.e. this is a view), is an already-bound Query
         over the existing base table.
 
-        If a table already exists at `path`, validates the model against it and returns it (idempotent rebind);
-        otherwise creates it. Returns `(table, was_created)`.
+        Returns (table, was_created).
         """
         # We allocate the table id up front so that self-referential ColumnRefs (built below) point at it; since
         # this runs in the catalog that owns the table, no such reference ever needs to be serialized.
         tbl_id = uuid4()
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
 
-        iterator, additional_cols, resolved_idxs = prepare_model(
-            tbl_handle, columns, display_name, media_validation, iterator, base, embedding_idxs
+        iterator, additional_cols, resolved_idxs = model.prepare_model(
+            tbl_handle, columns, display_name, iterator, base, embedding_idxs
         )
 
-        # If the table already exists, validate the model against it and rebind (the server enforces its own
-        # consistency; we never trust a client to have validated).
+        # If the table already exists, rebind to it and report that nothing was created.
         existing = self.get_table(path, IfNotExistsParam.IGNORE)
         if existing is not None:
-            self._validate_model(existing, display_name, base, iterator)
             return existing, False
 
         if base is None:
@@ -1746,35 +1776,172 @@ class Catalog(CatalogBase):
                 explicit_tbl_id=tbl_id,
             )
 
-    def _validate_model(
-        self,
-        existing: LocalTable,
-        display_name: str,
-        base: pxt.Query | None,
-        iterator: func.GeneratingFunctionCall | None,
-    ) -> None:
-        """Raise if a model's schema is incompatible with an already-existing table of the same name."""
-        existing_md = existing.get_metadata()
-        model_kind = 'table' if base is None else 'view'
-        if model_kind != existing_md['kind']:
-            raise excs.RequestError(
-                excs.ErrorCode.SCHEMA_MISMATCH,
-                f'{display_name} is defined as a {model_kind}, '
-                f'but the existing {existing_md["path"]!r} is a {existing_md["kind"]}.',
+    def update_from_model(self, schema_changes: list[model.TableSchemaChange]) -> None:
+        """Update tables/views from declarative models.
+
+        If the table does not exist, raises NotFoundError. If the model is incompatible with the existing table,
+        raises RequestError.
+
+        Requires that schema_changes is ordered topologically, ie, base tables precede their views.
+        """
+        # fault point:
+        # - the diff that produced updates was computed in an earlier read transaction
+        # - this call applies it in a later write transaction
+        fault_injection.process_fault(FaultLocation.CATALOG_UPDATE_FROM_MODEL_BEFORE_APPLY)
+        tbl_ids = [schema_change['tbl_id'] for schema_change in schema_changes]
+
+        @retry_loop(for_write=True, write_tbl_ids=tbl_ids, lock_mutable_tree=True)
+        def update_fn() -> None:
+            tbls = [self.get_table_by_id(tbl_id, ignore_if_dropped=True) for tbl_id in tbl_ids]
+            # check for tables that were dropped since the diff was computed
+            for tbl, schema_change in zip(tbls, schema_changes):
+                if tbl is None:
+                    raise excs.ConcurrencyError(
+                        excs.ErrorCode.CONCURRENT_MODIFICATION,
+                        f'Table {str(schema_change["path"])!r} was dropped since update_all() computed its changes; '
+                        'please re-run update_all().',
+                    )
+
+            # make sure that the tables to which we're applying the schema changes still have the same schema as
+            # of the time we computed the diff
+            for tbl, schema_change in zip(tbls, schema_changes):
+                assert tbl is not None  # checked above
+                if tbl._tbl_version_path.schema_versions() != schema_change['schema_versions']:
+                    raise excs.ConcurrencyError(
+                        excs.ErrorCode.CONCURRENT_MODIFICATION,
+                        f'Table {str(schema_change["path"])!r} saw schema changes since update_all() computed '
+                        'its changes; re-run update_all().',
+                    )
+
+            # (tbl_version_path, tbl_version, TableSchemaChange) tuple for each table in the model update
+            tbl_info = list(
+                zip((tbl._tbl_version_path for tbl in tbls), (tbl._tbl_version.get() for tbl in tbls), schema_changes)
             )
 
-        # TODO: validate table properties (comment, custom_metadata, media_validation, primary_key, etc.)
-        # TODO: validate base table query
-        # TODO: inspect columns and indices
+            # validate all columns that get dropped, either explicitly or implicitly:
+            # - explicitly dropped columns
+            # - value columns of explicitly dropped indices
+            # - value columns of implicitly dropped indices (= the indexed column was dropped)
+            dropped_col_set: set[Column] = set()
+            for _, tv, schema_change in tbl_info:
+                dropped_idxs = [tv.idxs_by_name[name] for name in schema_change['dropped_idxs']]
+                for name in schema_change['dropped_columns']:
+                    col = tv.cols_by_name[name]
+                    dropped_col_set.add(col)
+                    dropped_idxs.extend(tv.idxs_by_col.get(col.qid, []))
+                for idx_info in dropped_idxs:
+                    dropped_col_set.update([idx_info.val_col, idx_info.undo_col])
 
-        bound_iterator_str = 'None' if iterator is None else iterator.display_str()
-        if bound_iterator_str != str(existing_md['iterator_call']):
-            raise excs.RequestError(
-                excs.ErrorCode.SCHEMA_MISMATCH,
-                f'Iterator for {display_name} does not match the existing table {existing_md["path"]!r}.\n'
-                f'  Model iterator: {bound_iterator_str}\n'
-                f'  Existing iterator: {existing_md["iterator_call"]}',
-            )
+            def dependent_str(c: Column) -> str:
+                """How a column that blocks a drop is named in the error, which is by index if it belongs to one."""
+                # all user-visible columns have a name
+                if c.name is not None:
+                    return c.name
+                tv = c.get_tbl()
+                idx_info = next((i for i in tv.idxs.values() if c.id == i.val_col.id), None)
+                assert idx_info is not None
+                return f'index {idx_info.name!r} on {tv.name!r}'
+
+            def check_column_dependents(
+                dropped: Column | TableVersion.IndexInfo, drop_target: Literal['index', 'column']
+            ) -> None:
+                col = dropped.val_col if isinstance(dropped, TableVersion.IndexInfo) else dropped
+                # we exclude dependents that themselves are being dropped
+                remaining_dependents = [
+                    c for c in self.get_column_dependents(col.get_tbl().id, col.id) if c not in dropped_col_set
+                ]
+                if len(remaining_dependents) > 0:
+                    # sorted() for a deterministic error message
+                    detail = ', '.join(sorted(dependent_str(c) for c in remaining_dependents))
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'{drop_target.capitalize()} {dropped.name!r} was removed from the model for '
+                        f'{col.get_tbl().name!r}, '
+                        f'but cannot be dropped because the following depend on it:\n{detail}\n'
+                        'Drop those first, or remove them from their models.',
+                    )
+
+            for _, tv, schema_change in tbl_info:
+                for idx_name in schema_change['dropped_idxs']:
+                    check_column_dependents(tv.idxs_by_name[idx_name], 'index')
+                for name in schema_change['dropped_columns']:
+                    check_column_dependents(tv.cols_by_name[name], 'column')
+
+            # check for dependent view predicates
+            mutable_views = {view_tv.id: view_tv for _, tv, _ in tbl_info for view_tv in self._mutable_view_tvs(tv)}
+            # a column can appear in more than one view's predicate, so every referencing view is recorded
+            views_by_qid: dict[QColumnId, list[TableVersion]] = defaultdict(list)
+            for view_tv in mutable_views.values():
+                if view_tv.predicate is None:
+                    continue
+                for col_ref in view_tv.predicate.subexprs(expr_class=exprs.ColumnRef, traverse_matches=False):
+                    views_by_qid[col_ref.col_md.qcolid].append(view_tv)
+            dropped_cols_by_qid = {col.qid: col for col in dropped_col_set}
+            view_dependencies = [
+                (dropped_cols_by_qid[qid], view_tv)
+                for qid, view_tvs in views_by_qid.items()
+                if qid in dropped_cols_by_qid
+                for view_tv in view_tvs
+            ]
+            if len(view_dependencies) > 0:
+                # sort() for deterministic error message
+                view_dependencies.sort(key=lambda d: (d[0].qid.tbl_id, d[0].qid.col_id, d[1].name))
+                detail = '\n'.join(
+                    f'column: {col.name}, view: {view_tv.name}, predicate: {view_tv.predicate}'
+                    for col, view_tv in view_dependencies
+                )
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot drop the following columns, because view predicates depend on them:\n{detail}',
+                )
+
+            # Apply per table in forward order (base tables first), so a view's new column can reference a base's
+            # new column: the view's resolution sees the base's already-mutated columns through tvp.columns().
+            updated_tbl_ids = {tvp.tbl_id for tvp, _, _ in tbl_info}
+            applied_tbl_ids: set[UUID] = set()
+            for tvp, tv, schema_change in tbl_info:
+                # make sure we're doing this in base -> view order
+                pending_ancestor_ids = (set(tvp.tbl_ids[1:]) & updated_tbl_ids) - applied_tbl_ids
+                assert len(pending_ancestor_ids) == 0, f'{tv.name}: bases not yet applied: {pending_ancestor_ids}'
+
+                added_cols, added_idxs = model.prepare_model_updates(
+                    tvp, tv.display_str(), schema_change['new_columns'], schema_change['new_idxs']
+                )
+                dropped_cols = [tv.cols_by_name[name] for name in schema_change['dropped_columns']]
+                dropped_idx_ids = [tv.idxs_by_name[name].id for name in schema_change['dropped_idxs']]
+                expected_schema_version = schema_change['schema_versions'][schema_change['tbl_id']]
+                _logger.info(
+                    f'Applying model updates to {tv.name!r} (id={tv.id}, schema_versions={expected_schema_version}): '
+                    f'add columns {[col.name for col in added_cols]}, drop columns {schema_change["dropped_columns"]}, '
+                    f'add indexes {[spec.idx_name for spec in added_idxs]}, '
+                    f'drop indexes {schema_change["dropped_idxs"]}'
+                )
+                tv.apply_schema_change(expected_schema_version, added_cols, dropped_cols, added_idxs, dropped_idx_ids)
+                applied_tbl_ids.add(tvp.tbl_id)
+
+        try:
+            update_fn()
+        except excs.NotFoundError as e:
+            # a table identified by the diff may no longer exist: it was dropped, or dropped and recreated at the
+            # same path, which gives it a new id. Report the ones that are gone by path, not by internal id.
+            # The store is queried directly: a Table cached from before the drop still answers get_table_by_id().
+            with self.begin_xact(for_write=False):
+                conn = get_runtime().conn
+                q = sql.select(schema.Table.id).where(schema.Table.id.in_(tbl_ids))
+                live_tbl_ids = {row.id for row in conn.execute(q)}
+            missing = [
+                repr(str(schema_change['path']))
+                for schema_change in schema_changes
+                if schema_change['tbl_id'] not in live_tbl_ids
+            ]
+            if len(missing) == 0:
+                raise  # not about a table of this update
+            subject = f'Table {missing[0]}' if len(missing) == 1 else f'Tables {", ".join(missing)}'
+            verb = 'was' if len(missing) == 1 else 'were'
+            raise excs.ConcurrencyError(
+                excs.ErrorCode.CONCURRENT_MODIFICATION,
+                f'{subject} {verb} dropped or replaced since update_all() computed its changes; re-run update_all().',
+            ) from e
 
     def add_columns(self, tbl: TableVersionPath, cols: list[Column]) -> None:
         @retry_loop(for_write=True, write_tvps=[tbl], lock_mutable_tree=False)
@@ -2813,15 +2980,8 @@ class Catalog(CatalogBase):
                     session.flush()
                     _logger.info(f'Added root directory record for user: {user!r}')
                     return
-            except (sql_exc.DBAPIError, sql_exc.OperationalError) as e:
-                if not isinstance(
-                    e.orig,
-                    (
-                        psycopg.errors.SerializationFailure,
-                        psycopg.errors.LockNotAvailable,
-                        psycopg.errors.DeadlockDetected,
-                    ),
-                ):
+            except sql_exc.DBAPIError as e:
+                if not _is_retryable_exc(e):
                     raise
                 if _MAX_RETRIES != -1 and num_retries >= _MAX_RETRIES:
                     raise excs.ConcurrencyError(

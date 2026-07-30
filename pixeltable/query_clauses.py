@@ -139,8 +139,7 @@ class SampleClause:
     def __repr__(self) -> str:
         s = ','.join(e.display_str(inline=True) for e in self.stratify_exprs)
         return (
-            f'sample_{self.version}(n={self.n}, n_per_stratum={self.n_per_stratum}, '
-            f'fraction={self.fraction}, seed={self.seed}, [{s}])'
+            f'sample(n={self.n}, n_per_stratum={self.n_per_stratum}, fraction={self.fraction}, seed={self.seed}, [{s}])'
         )
 
     @classmethod

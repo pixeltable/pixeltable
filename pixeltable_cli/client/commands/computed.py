@@ -1,8 +1,8 @@
 import json
 
 from ...utils import validate_path_shape
-from ..http import get
 from ..parser import Parser
+from ..utils import display_path, get_request
 
 EPILOG = """\
 Examples:
@@ -31,7 +31,7 @@ def run(argv: list[str]) -> None:
         if err is not None:
             ap.error(err)
 
-    resp = get('/api/columns', params={'path': args.path or None, 'computed': True})
+    resp = get_request('/api/columns', params={'path': args.path or None, 'computed': True})
     entries = resp['entries']
 
     if args.as_json:
@@ -40,4 +40,4 @@ def run(argv: list[str]) -> None:
 
     for e in entries:
         expr = e['computed_with'] if e.get('computed_with') is not None else ''
-        print(f'{e["table"]}\t{e["column"]}\t{e["type_"]}\t{expr}')
+        print(f'{display_path(e["table"])}\t{e["column"]}\t{e["type_"]}\t{expr}')

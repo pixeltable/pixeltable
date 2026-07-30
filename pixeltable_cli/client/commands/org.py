@@ -7,8 +7,8 @@ import json
 
 from pixeltable_cli.utils import parse_org_uri, print_org
 
-from ..http import get
 from ..parser import Parser
+from ..utils import get_request
 
 EPILOG = """\
 Examples:
@@ -37,7 +37,7 @@ def run(argv: list[str]) -> None:
 
 
 def _do_list(args: argparse.Namespace) -> None:
-    resp = get('/api/orgs')
+    resp = get_request('/api/orgs')
     orgs = resp.get('orgs', []) if isinstance(resp, dict) else []
     if args.json_output:
         print(json.dumps(orgs))
@@ -50,7 +50,7 @@ def _do_list(args: argparse.Namespace) -> None:
 
 def _do_status(args: argparse.Namespace) -> None:
     org = parse_org_uri(args.org_uri, prog='pxt org status')
-    resp = get(f'/api/orgs/{org}')
+    resp = get_request('/api/org', {'org': org})
     result = resp.get('org', resp) if isinstance(resp, dict) else {}
     if args.json_output:
         print(json.dumps(result))
