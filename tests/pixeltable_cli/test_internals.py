@@ -1615,7 +1615,7 @@ _POST_ROUTE_REQUESTS = [
             'db': 'main',
             'service_name': 'svc',
             'base_path': 'dir',
-            'workers': 3,
+            'workers_min': 3,
             'cpu': 1.5,
             'memory_mb': 1024,
             'disk_gb': 20,
@@ -1635,7 +1635,7 @@ _POST_ROUTE_REQUESTS = [
     ),
     (
         server_routes.update_service,
-        {'org': 'acme', 'db': 'main', 'service_name': 'svc', 'workers': 4, 'service_config': None},
+        {'org': 'acme', 'db': 'main', 'service_name': 'svc', 'workers_min': 4, 'service_config': None},
         UpdateServiceRequest(org='acme', db='main', service_name='svc', workers_min=4),
     ),
     (
@@ -2018,19 +2018,20 @@ class TestManagementClient:
 
         # a read operation is sent a second time, on a new connection
         session = self._install_session(monkeypatch, 1, {'database': {'db': 'main', 'state': 'AVAILABLE'}})
-        assert management_client.get_db('acme', 'main') == {'database': {'db': 'main', 'state': 'AVAILABLE'}}
+        get_db = GetDbRequest(org='acme', db='main')
+        assert management_client.api_call(get_db) == {'database': {'db': 'main', 'state': 'AVAILABLE'}}
         assert session.n_calls == 2
 
         # only once, though: a second drop surfaces as an error
         session = self._install_session(monkeypatch, 2, {'database': {}})
         with pytest.raises(requests.exceptions.ConnectionError, match='RemoteDisconnected'):
-            management_client.get_db('acme', 'main')
+            management_client.api_call(get_db)
         assert session.n_calls == 2
 
         # a mutating operation is never sent again: the management API may have applied it already
         session = self._install_session(monkeypatch, 1, {'database': {}})
         with pytest.raises(requests.exceptions.ConnectionError, match='RemoteDisconnected'):
-            management_client.create_db('acme', 'main')
+            management_client.api_call(CreateDbRequest(org='acme', db='main'))
         assert session.n_calls == 1
 
     def test_read_ops_are_known_operation_types(self) -> None:

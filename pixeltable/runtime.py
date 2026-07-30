@@ -14,7 +14,6 @@ from rich.progress import Progress
 from sqlalchemy import orm
 
 from pixeltable import exceptions as excs
-from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.utils import fault_injection
 
@@ -150,36 +149,10 @@ class Runtime:
             return CatalogProxy(catalog_uri, ProxyClient.local(f'http://127.0.0.1:{info["port"]}'))
 
         # Remote database: connect via TLS to the proxy endpoint.
-
-        api_key = Env.get().pxt_api_key
-        if api_key is None:
-            raise excs.AuthorizationError(
-                excs.ErrorCode.MISSING_CREDENTIALS,
-                f'A Pixeltable API key is required to connect to hosted database {catalog_uri!r}. '
-                'Set PIXELTABLE_API_KEY or add api_key to your config.',
-            )
-        # Optional domain suffix override for the proxy endpoint; cloud_host is deliberately not a registered
-        # config option: PIXELTABLE_CLOUD_HOST is the only override.
-        cloud_domain = Config.get().get_string_value('cloud_host')
-        port_override = 9000
-        if cloud_domain is not None and ':' in cloud_domain:
-            cloud_domain, _, port_str = cloud_domain.rpartition(':')
-            try:
-                port_override = int(port_str)
-            except ValueError as err:
-                raise excs.Error(
-                    excs.ErrorCode.GENERIC_USER_ERROR,
-                    f'Invalid PIXELTABLE_CLOUD_HOST value: port {port_str!r} is not a valid integer.',
-                ) from err
-            if cloud_domain == '':
-                raise excs.Error(
-                    excs.ErrorCode.GENERIC_USER_ERROR,
-                    f'Invalid PIXELTABLE_CLOUD_HOST value: missing host before ":{port_str}".',
-                )
-        host = None if cloud_domain is None else f'{catalog_uri.org}-{catalog_uri.db}.{cloud_domain}'
-        return CatalogProxy(
-            catalog_uri, ProxyClient.remote(catalog_uri.org, catalog_uri.db, api_key, host=host, port=port_override)
-        )
+        api_key = Env.get().require_api_key(f'connect to hosted database {catalog_uri!r}')
+        host, port = Env.get().proxy_endpoint(catalog_uri.org, catalog_uri.db)
+        client = ProxyClient.remote(catalog_uri.org, catalog_uri.db, api_key, host=host, port=port)
+        return CatalogProxy(catalog_uri, client)
 
     @property
     def event_loop(self) -> asyncio.AbstractEventLoop:

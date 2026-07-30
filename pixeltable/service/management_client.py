@@ -1,7 +1,6 @@
-"""Client for the Pixeltable cloud management API.
+"""Transport for the Pixeltable cloud management API.
 
-All management API assembly lives here. Callers pass plain Python values;
-this module constructs the protocol request objects and returns raw response dicts.
+Callers pass a request model from management_protocol and get back the raw response dict.
 """
 
 from __future__ import annotations
@@ -15,25 +14,6 @@ from requests.adapters import HTTPAdapter, Retry
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.service.management_protocol import (
-    CreateDbRequest,
-    CreateServiceRequest,
-    DeleteDbRequest,
-    DeleteServiceRequest,
-    GetBundleUploadUrlRequest,
-    GetDbRequest,
-    GetServiceRequest,
-    ListDbRequest,
-    ListOrgsRequest,
-    ListServicesRequest,
-    StartDbRequest,
-    StartServiceRequest,
-    StopDbRequest,
-    StopServiceRequest,
-    UpdateDbRequest,
-    UpdateRuntimeRequest,
-    UpdateServiceRequest,
-)
 
 _DEFAULT_API_URL = 'https://internal-api.pixeltable.com'
 
@@ -74,15 +54,7 @@ _SESSION = _new_session()
 
 
 def _api_headers() -> dict[str, str]:
-    api_key = Env.get().pxt_api_key
-    if api_key is None:
-        raise excs.AuthorizationError(
-            excs.ErrorCode.MISSING_CREDENTIALS,
-            'A Pixeltable API key is required. '
-            'Set it with `os.environ["PIXELTABLE_API_KEY"] = "your-key"`, '
-            'or add `api_key = "your-key"` to the `[pixeltable]` section in your Pixeltable config file.',
-        )
-    return {'Content-Type': 'application/json', 'X-api-key': api_key}
+    return {'Content-Type': 'application/json', 'X-api-key': Env.get().require_api_key()}
 
 
 def api_call(request: Any) -> dict[str, Any]:
@@ -108,125 +80,3 @@ def api_call(request: Any) -> dict[str, Any]:
             status_code=resp.status_code,
         )
     return resp.json()
-
-
-def list_orgs() -> dict[str, Any]:
-    return api_call(ListOrgsRequest())
-
-
-def get_org(org: str) -> dict[str, Any] | None:
-    resp = api_call(ListOrgsRequest())
-    return next((o for o in resp.get('orgs', []) if o.get('org') == org), None)
-
-
-def list_dbs(org: str) -> dict[str, Any]:
-    return api_call(ListDbRequest(org=org))
-
-
-def create_db(org: str, db: str, location: str = 'aws', region: str = 'us-east-1') -> dict[str, Any]:
-    return api_call(CreateDbRequest(org=org, db=db, location=location, region=region))
-
-
-def get_db(org: str, db: str) -> dict[str, Any]:
-    return api_call(GetDbRequest(org=org, db=db))
-
-
-def delete_db(org: str, db: str) -> dict[str, Any]:
-    return api_call(DeleteDbRequest(org=org, db=db))
-
-
-def start_db(org: str, db: str) -> dict[str, Any]:
-    return api_call(StartDbRequest(org=org, db=db))
-
-
-def stop_db(org: str, db: str) -> dict[str, Any]:
-    return api_call(StopDbRequest(org=org, db=db))
-
-
-def update_db(
-    org: str,
-    db: str,
-    workers: int | None = None,
-    cpu: float | None = None,
-    memory_mb: int | None = None,
-    disk_gb: int | None = None,
-) -> dict[str, Any]:
-    return api_call(UpdateDbRequest(org=org, db=db, workers=workers, cpu=cpu, memory_mb=memory_mb, disk_gb=disk_gb))
-
-
-def get_upload_url(org: str, db: str) -> dict[str, Any]:
-    return api_call(GetBundleUploadUrlRequest(org=org, db=db))
-
-
-def trigger_runtime_update(org: str, db: str, bundle_s3_key: str) -> dict[str, Any]:
-    return api_call(UpdateRuntimeRequest(org=org, db=db, bundle_s3_key=bundle_s3_key))
-
-
-def list_services(org: str, db: str) -> dict[str, Any]:
-    return api_call(ListServicesRequest(org=org, db=db))
-
-
-def create_service(
-    org: str,
-    db: str,
-    service_name: str,
-    base_path: str = '',
-    workers: int = 1,
-    cpu: float = 0.5,
-    memory_mb: int = 512,
-    disk_gb: int = 10,
-    service_config: str | None = None,
-) -> dict[str, Any]:
-    return api_call(
-        CreateServiceRequest(
-            org=org,
-            db=db,
-            service_name=service_name,
-            base_path=base_path,
-            workers_min=workers,
-            cpu=cpu,
-            memory_mb=memory_mb,
-            disk_gb=disk_gb,
-            service_config=service_config,
-        )
-    )
-
-
-def get_service(org: str, db: str, svc_name: str) -> dict[str, Any]:
-    return api_call(GetServiceRequest(org=org, db=db, service_name=svc_name))
-
-
-def delete_service(org: str, db: str, svc_name: str) -> dict[str, Any]:
-    return api_call(DeleteServiceRequest(org=org, db=db, service_name=svc_name))
-
-
-def start_service(org: str, db: str, svc_name: str) -> dict[str, Any]:
-    return api_call(StartServiceRequest(org=org, db=db, service_name=svc_name))
-
-
-def stop_service(org: str, db: str, svc_name: str) -> dict[str, Any]:
-    return api_call(StopServiceRequest(org=org, db=db, service_name=svc_name))
-
-
-def update_service(
-    org: str,
-    db: str,
-    svc_name: str,
-    workers: int | None = None,
-    cpu: float | None = None,
-    memory_mb: int | None = None,
-    disk_gb: int | None = None,
-    service_config: str | None = None,
-) -> dict[str, Any]:
-    return api_call(
-        UpdateServiceRequest(
-            org=org,
-            db=db,
-            service_name=svc_name,
-            workers_min=workers,
-            cpu=cpu,
-            memory_mb=memory_mb,
-            disk_gb=disk_gb,
-            service_config=service_config,
-        )
-    )

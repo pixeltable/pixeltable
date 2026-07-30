@@ -143,3 +143,49 @@ class TestEnvReset:
         t2_new = pxt.get_table('analytics/reports/sales')
         result = t2_new.where(t2_new.sale_id == 1).select(t2_new.amount_doubled).collect()
         assert result[0]['amount_doubled'] == 300.0
+
+
+class TestApiKey:
+    def test_require_api_key(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv('PIXELTABLE_API_KEY', 'sk-test')
+        assert Env.get().require_api_key() == 'sk-test'
+        assert Env.get().require_api_key('create a database') == 'sk-test'
+
+        monkeypatch.delenv('PIXELTABLE_API_KEY', raising=False)
+        monkeypatch.setattr(Config, 'get_string_value', lambda self, key, section='pixeltable': None)
+        with pxt_raises(excs.ErrorCode.MISSING_CREDENTIALS, match='A Pixeltable API key is required\\. Set it with'):
+            Env.get().require_api_key()
+        with pxt_raises(
+            excs.ErrorCode.MISSING_CREDENTIALS, match='API key is required to create a database\\. Set it with'
+        ):
+            Env.get().require_api_key('create a database')
+
+
+class TestProxyEndpoint:
+    @pytest.mark.parametrize(
+        ('cloud_host', 'expected'),
+        [
+            (None, ('acme-main.pxt.run', 9000)),
+            ('dev.pxt.run', ('acme-main.dev.pxt.run', 9000)),
+            ('localhost:9443', ('acme-main.localhost', 9443)),
+        ],
+    )
+    def test_proxy_endpoint(
+        self, cloud_host: str | None, expected: tuple[str, int], init_env: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        if cloud_host is None:
+            monkeypatch.delenv('PIXELTABLE_CLOUD_HOST', raising=False)
+        else:
+            monkeypatch.setenv('PIXELTABLE_CLOUD_HOST', cloud_host)
+        assert Env.get().proxy_endpoint('acme', 'main') == expected
+
+    @pytest.mark.parametrize(
+        ('cloud_host', 'error'),
+        [('dev.pxt.run:https', "port 'https' is not a valid integer"), (':9000', 'missing host')],
+    )
+    def test_proxy_endpoint_rejects(
+        self, cloud_host: str, error: str, init_env: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv('PIXELTABLE_CLOUD_HOST', cloud_host)
+        with pxt_raises(excs.ErrorCode.GENERIC_USER_ERROR, match=error):
+            Env.get().proxy_endpoint('acme', 'main')

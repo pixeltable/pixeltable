@@ -113,7 +113,6 @@ class HttpTransport(Transport):
         self._http.close()
 
 
-_DEFAULT_PORT = 9000
 _CONNECT_TIMEOUT = 30.0
 _RPC_TIMEOUT = 1800.0
 _MAX_POOL_SIZE = 16  # matches the fetch_media download threadpool
@@ -181,11 +180,11 @@ class TunnelTransport(Transport):
     _endpoint: str
     _pool: _TunnelPool
 
-    def __init__(self, org: str, db: str, api_key: str, host: str | None = None, port: int = _DEFAULT_PORT):
+    def __init__(self, org: str, db: str, api_key: str, host: str, port: int):
         self._org = org
         self._db = db
         self._api_key = api_key
-        self._host = host or f'{org}-{db}.pxt.run'
+        self._host = host
         self._port = port
         self._pool = _TunnelPool(self._connect_tunnel)
         # media URLs are formed against this endpoint; they are reachable only through the tunnel (see fetch())
@@ -299,7 +298,7 @@ class ProxyClient:
         return cls(HttpTransport(endpoint))
 
     @classmethod
-    def remote(cls, org: str, db: str, api_key: str, host: str | None = None, port: int = _DEFAULT_PORT) -> ProxyClient:
+    def remote(cls, org: str, db: str, api_key: str, host: str, port: int) -> ProxyClient:
         """Connect to the Pixeltable cloud service's proxy daemon over an authenticated TLS tunnel."""
         return cls(TunnelTransport(org, db, api_key, host=host, port=port))
 

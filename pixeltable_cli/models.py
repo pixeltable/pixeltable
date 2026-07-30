@@ -182,64 +182,6 @@ class RevertResponse(BaseModel):
     to_version: int
 
 
-class CreateDbBody(BaseModel):
-    org: str
-    db: str
-    location: str = 'aws'
-    region: str = 'us-east-1'
-
-
-class UpdateDbBody(BaseModel):
-    org: str
-    db: str
-    workers: int | None = None
-    cpu: float | None = None
-    memory_mb: int | None = None
-    disk_gb: int | None = None
-
-
-class UpdateRuntimeBody(BaseModel):
-    org: str
-    db: str
-    bundle_s3_key: str
-
-
-class CreateServiceBody(BaseModel):
-    org: str
-    db: str
-    service_name: str
-    base_path: str
-    workers: int = 1
-    cpu: float = 0.5
-    memory_mb: int = 512
-    disk_gb: int = 10
-    service_config: str | None = None
-
-
-class UpdateServiceBody(BaseModel):
-    org: str
-    db: str
-    service_name: str
-    workers: int | None = None
-    cpu: float | None = None
-    memory_mb: int | None = None
-    disk_gb: int | None = None
-    service_config: str | None = None
-
-
-class DbBody(BaseModel):
-    """Identifies a hosted database for an operation that takes no other input."""
-
-    org: str
-    db: str
-
-
-class ServiceBody(DbBody):
-    """Identifies a hosted service for an operation that takes no other input."""
-
-    service_name: str
-
-
 class SchemaUpdateBody(BaseModel):
     schema_path: str  # absolute filesystem path to the schema file on the daemon host
     target: PxtPath

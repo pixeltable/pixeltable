@@ -48,6 +48,9 @@ LOG_FMT_STR = '%(asctime)s %(levelname)s %(threadName)s %(name)s %(filename)s:%(
 
 T = TypeVar('T')
 
+_DEFAULT_PROXY_DOMAIN = 'pxt.run'
+_DEFAULT_PROXY_PORT = 9000
+
 
 class Env:
     """
@@ -579,6 +582,42 @@ class Env:
     def pxt_api_key(self) -> str | None:
         """Get the Pixeltable API key from config"""
         return Config.get().get_string_value('api_key')
+
+    def require_api_key(self, purpose: str | None = None) -> str:
+        """Return the Pixeltable API key, raising if none is configured. purpose names the attempted operation."""
+        api_key = self.pxt_api_key
+        if api_key is None:
+            attempt = '' if purpose is None else f' to {purpose}'
+            raise excs.AuthorizationError(
+                excs.ErrorCode.MISSING_CREDENTIALS,
+                f'A Pixeltable API key is required{attempt}. '
+                'Set it with `os.environ["PIXELTABLE_API_KEY"] = "your-key"`, '
+                'or add `api_key = "your-key"` to the `[pixeltable]` section in your Pixeltable config file.',
+            )
+        return api_key
+
+    def proxy_endpoint(self, org: str, db: str) -> tuple[str, int]:
+        """Host and port of the proxy daemon serving a hosted database."""
+        # cloud_host is deliberately not a registered config option: PIXELTABLE_CLOUD_HOST is the only override
+        setting = Config.get().get_string_value('cloud_host')
+        domain, port = _DEFAULT_PROXY_DOMAIN, _DEFAULT_PROXY_PORT
+        if setting is not None:
+            domain = setting
+            if ':' in setting:
+                domain, _, port_str = setting.rpartition(':')
+                if domain == '':
+                    raise excs.Error(
+                        excs.ErrorCode.GENERIC_USER_ERROR,
+                        f'Invalid PIXELTABLE_CLOUD_HOST value: missing host before ":{port_str}".',
+                    )
+                try:
+                    port = int(port_str)
+                except ValueError as err:
+                    raise excs.Error(
+                        excs.ErrorCode.GENERIC_USER_ERROR,
+                        f'Invalid PIXELTABLE_CLOUD_HOST value: port {port_str!r} is not a valid integer.',
+                    ) from err
+        return f'{org}-{db}.{domain}', port
 
     def create_client(self, name: str) -> Any:
         """
