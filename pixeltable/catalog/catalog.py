@@ -2313,14 +2313,18 @@ class Catalog(CatalogBase):
         """Returns the paths of the given tables, comma-separated and sorted, for use in an error message.
 
         Reads the stored records directly rather than loading each table, so that it is usable at any point in a
-        transaction. Paths are listed in sorted order, and beyond a fixed limit are replaced by a count.
+        transaction. Paths are listed in sorted order, and beyond a fixed limit are replaced by a count. A table
+        that no longer has a record is left out: this builds the text of an error, and must not raise one itself.
         """
         # every path is read before sorting, so that the ones listed are the first in sorted order rather than
         # an arbitrary subset of the ids
         paths: list[str] = []
         for tbl_id in tbl_ids:
-            record = self.read_tbl_record(tbl_id)
-            paths.append(str(self.get_dir_path(record.dir_id).append(record.md['name'])))
+            try:
+                record = self.read_tbl_record(tbl_id)
+                paths.append(str(self.get_dir_path(record.dir_id).append(record.md['name'])))
+            except excs.NotFoundError:
+                continue
         paths.sort()
         if len(paths) <= max_paths:
             return ', '.join(repr(p) for p in paths)
