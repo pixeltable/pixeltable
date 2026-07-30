@@ -29,4 +29,4 @@ package-lock.json
 docs/release/package.json
 
 # Test sample app — lock file is regenerated fresh on each test run
-tests/test_cloud/sample_app/uv.lock
+tests/cloud/sample_app/uv.lock
