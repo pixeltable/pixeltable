@@ -40,9 +40,9 @@ def _new_session() -> requests.Session:
     # the management API sets no cookies; blocking the jar leaves the session without mutable state, so
     # concurrent calls can share it
     session.cookies.set_policy(http.cookiejar.DefaultCookiePolicy(allowed_domains=[]))
-    # retry only failures to establish a connection: those never reached the server. Read and status
-    # retries stay off because every operation is a POST, and replaying one that the server may have
-    # already processed could apply it twice.
+    # retry only failures to establish a connection: those never reached the server. allowed_methods
+    # gates read and status retries alone, so an empty set still leaves connect retries on, while
+    # keeping a POST from being replayed after the server may have already processed it.
     retries = Retry(total=2, connect=2, read=0, status=0, other=0, allowed_methods=frozenset(), backoff_factor=0.2)
     adapter = HTTPAdapter(pool_connections=1, pool_maxsize=_POOL_MAXSIZE, max_retries=retries)
     session.mount('https://', adapter)
