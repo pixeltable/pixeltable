@@ -1007,7 +1007,7 @@ class SchemaChangeOp(TypedDict):
     """
     A single schema change operation (eg, add column, drop column, etc).
 
-    MIRRORED by pixeltable_cli.schema_types.SchemaChangeOp; adding, removing or retyping a field here means
+    Mirrored by pixeltable_cli.schema_types.SchemaChangeOp; adding, removing or retyping a field here means
     doing the same there.
     """
 
@@ -1028,14 +1028,14 @@ class SchemaChangeOp(TypedDict):
     details: dict[str, str]
 
 
-# MIRRORED by pixeltable_cli.schema_types.DiffResolution; a value added here has to be added there too
+# Mirrored by pixeltable_cli.schema_types.DiffResolution; a value added here has to be added there too
 DiffResolution = Literal['up_to_date', 'create', 'update_additive', 'update_destructive', 'unsupported']
 
 
 class TableDiff(TypedDict):
     """How one model differs from its catalog table.
 
-    MIRRORED by pixeltable_cli.schema_types.TableDiff; adding, removing or retyping a field here means doing
+    Mirrored by pixeltable_cli.schema_types.TableDiff; adding, removing or retyping a field here means doing
     the same there.
     """
 
@@ -1498,14 +1498,11 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         for model in registered_models.values():
             model._bind(catalog_dir)
 
-    def _create_models(catalog_dir: str, expect_created: set[str]) -> tuple[list[str], list[str]]:
+    def _create_models(catalog_dir: str, expect_created: set[str]) -> None:
         """Create every model that doesn't exist yet and bind all of them.
 
-        Returns (created, existing): absolute paths of tables created now and those that already exist. Raises
-        ConcurrencyError if a model named in expect_created already exists.
+        Raises ConcurrencyError if a model named in expect_created already exists.
         """
-        created: list[str] = []
-        existed: list[str] = []
         for name, model in registered_models.items():
             tbl, was_created = model._create(catalog_dir)
             if name in expect_created and not was_created:
@@ -1513,11 +1510,10 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                     excs.ErrorCode.CONCURRENT_MODIFICATION,
                     f'Table {str(tbl._path())!r} was created concurrently; re-run the operation.',
                 )
-            (created if was_created else existed).append(str(tbl._path()))
-        return created, existed
 
-    def _create_all(catalog_dir: str = '') -> tuple[list[str], list[str]]:
-        """Returns (created, existing): absolute paths of tables created now and those that already exist."""
+    def _create_all(catalog_dir: str = '') -> dict[str, TableDiff]:
+        """Returns the diff that was applied, per model: 'create' for the tables created now, 'up_to_date'
+        for those that already matched. Raises rather than returning a partially applied diff."""
         # `create_all()` only creates tables; it never mutates an existing one. If any existing table differs from
         # its model, refuse.
         diffs = validate_models(registered_models, catalog_dir)
@@ -1529,7 +1525,8 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                 f'One or more existing tables differ from their models.\n{detail}\n{_PY_MISMATCH_HINT}',
             )
 
-        return _create_models(catalog_dir, {name for name, d in diffs.items() if not d['exists']})
+        _create_models(catalog_dir, {name for name, d in diffs.items() if not d['exists']})
+        return diffs
 
     def _get_model_diff(catalog_dir: str = '') -> dict[str, TableDiff]:
         return validate_models(registered_models, catalog_dir)
@@ -1543,8 +1540,15 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
 
     def _update_all(
         catalog_dir: str = '', *, allow_destructive: bool = False, destructive_hint: str = _PY_DESTRUCTIVE_HINT
-    ) -> None:
+    ) -> dict[str, TableDiff]:
         """Reconcile every registered model with the catalog.
+
+        Returns the diff that was applied, per model. The compare-and-swap in update_from_model() and the
+        concurrency check in _create_models() both abort if the catalog moved, so the returned diff is what
+        reached the store.
+
+        Not atomic: migrations and creations run in separate transactions, so a failure raises with part of the
+        diff applied. Re-running reconciles whatever is left.
 
         destructive_hint closes the error raised when the changes would be destructive without allow_destructive
         """
@@ -1553,7 +1557,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         if len(diffs) == 0:
             # No updates *or* create statements.
             Env.get().console_logger.info('Catalog is up to date.')
-            return
+            return diffs
 
         fatal = [(name, d) for name, d in diffs.items() if d['resolution'] == 'unsupported']
         if len(fatal) > 0:
@@ -1627,7 +1631,19 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
 
         # Now create any new tables, and bind every model to its table. The diff computed above is the one being
         # applied, so the models it found up-to-date are not re-examined against the catalog.
-        _create_models(catalog_dir, {name for name, d in diffs.items() if d['resolution'] == 'create'})
+        try:
+            _create_models(catalog_dir, {name for name, d in diffs.items() if d['resolution'] == 'create'})
+        except excs.Error as e:
+            # the migrations above are already committed; name them, so that a failure here doesn't read as
+            # though the catalog were untouched. Augmenting in place keeps the exception's type and fields.
+            if len(update_diffs) > 0:
+                migrated = ', '.join(repr(d['path']) for _, d in update_diffs)
+                e.args = (
+                    f'{e}\n\nThe following table(s) were already migrated: {migrated}. '
+                    'Re-run update_all() to finish reconciling.',
+                )
+            raise
+        return diffs
 
     cls.bind_all = _bind_all  # type: ignore[attr-defined]
     cls.create_all = _create_all  # type: ignore[attr-defined]

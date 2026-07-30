@@ -646,23 +646,28 @@ def schema_diff(schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaPl
 
 def _schema_plan(bases: list[model.TableModelMeta], schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaPlan:
     """The plan for reconciling the catalog directory with the models declared by the given bases."""
+    diffs = [diff for base in bases for diff in base.get_model_diff(catalog_dir).values()]
+    return _plan_from_diffs(diffs, schema_file, catalog_dir)
+
+
+def _plan_from_diffs(diffs: list[model.TableDiff], schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaPlan:
+    """The plan that the given per-table diffs describe."""
     tables: list[schema_types.TableDiff] = []
-    for base in bases:
-        for diff in base.get_model_diff(catalog_dir).values():
-            # a create subsumes the additions that constitute it, so only a migration enumerates operations
-            enumerated = [] if diff['resolution'] in ('create', 'up_to_date') else diff['ops']
-            ops = [_plan_op(op) for op in enumerated]
-            tables.append(
-                {
-                    'path': diff['path'],
-                    'model_cls': diff['model_cls'],
-                    'kind': diff['kind'],
-                    'exists': diff['exists'],
-                    'resolution': diff['resolution'],
-                    'ops': ops,
-                    'destructive': any(op['destructive'] for op in ops),
-                }
-            )
+    for diff in diffs:
+        # a create subsumes the additions that constitute it, so only a migration enumerates operations
+        enumerated = [] if diff['resolution'] in ('create', 'up_to_date') else diff['ops']
+        ops = [_plan_op(op) for op in enumerated]
+        tables.append(
+            {
+                'path': diff['path'],
+                'model_cls': diff['model_cls'],
+                'kind': diff['kind'],
+                'exists': diff['exists'],
+                'resolution': diff['resolution'],
+                'ops': ops,
+                'destructive': any(op['destructive'] for op in ops),
+            }
+        )
 
     # a table's path crosses from the catalog as a plain string
     declared = {_path_key(PxtPath(t['path'])) for t in tables}
@@ -738,24 +743,18 @@ def schema_update(
     Returns the plan that was applied, each operation annotated with its status.
     """
     bases = _load_model_bases(schema_file)
-    plan = _schema_plan(bases, schema_file, catalog_dir)
 
     # only create catalog_dir when it names an in-catalog path; a bare catalog root (eg '' or 'pxt://org:db')
     # has no directory to create
     if len(CatalogPath.parse(catalog_dir, allow_empty_path=True).components) > 0:
         pxt.create_dir(catalog_dir, parents=True, if_exists='ignore')
 
+    applied: list[model.TableDiff] = []
     for base in bases:
-        base.update_all(catalog_dir, allow_destructive=allow_destructive, destructive_hint=_DESTRUCTIVE_HINT)
+        diffs = base.update_all(catalog_dir, allow_destructive=allow_destructive, destructive_hint=_DESTRUCTIVE_HINT)
+        applied.extend(diffs.values())
 
-    # update_all() recomputes its own diff, so what it applied is only the plan above if nothing changed the
-    # catalog in between; re-reading confirms that before every operation is reported as applied
-    if not _schema_plan(bases, schema_file, catalog_dir)['in_agreement']:
-        raise excs.Error(
-            excs.ErrorCode.CONCURRENT_MODIFICATION,
-            f'{catalog_dir} still differs from the schema after applying; it may have been modified concurrently.',
-        )
-
+    plan = _plan_from_diffs(applied, schema_file, catalog_dir)
     for tbl in plan['tables']:
         tbl['status'] = 'skipped' if tbl['resolution'] == 'up_to_date' else 'applied'
         for op in tbl['ops']:
