@@ -767,19 +767,17 @@ class Catalog(CatalogBase):
             if has_pending_ops:
                 raise PendingTableOpsError(row.id)
 
-        if not tbl_md.is_mutable:
-            return set()  # nothing to lock
-
-        # TODO cache refresh condition? my initial change had cache refresh unconditionally.
-        # also note: this func can return earlier
-
         # bring the locked table's TableVersion into the cache; metadata is only readable while locks are being
         # acquired. check_pending_ops == False means this table's pending ops are in the process of being finalized,
         # so its metadata is still in flux; loading it would also pull in the tables its value exprs reference, which
         # may have pending ops of their own.
-        if check_pending_ops or lock_mutable_tree:
+        tv: TableVersion | None = None
+        if check_pending_ops and not tbl_md.is_pure_snapshot:
             key = TableVersionKey(row.id, tbl_md.current_version if tbl_md.is_snapshot else None)
             tv = self._get_tbl_version(key)
+
+        if not tbl_md.is_mutable:
+            return set()  # nothing to lock
 
         if lock_mutable_tree:
             # also lock mutable views
