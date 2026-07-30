@@ -1357,7 +1357,7 @@ class TestTableModel:
             fc1 = ExampleTableV3.id + 1
 
         # Refuses without opt-in, since columns are being dropped.
-        with pxt_raises(excs.ErrorCode.SCHEMA_MISMATCH, match='destructive'):
+        with pxt_raises(excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE, match='destructive'):
             TableModelV3.update_all(root)
 
         # Succeeds with the opt-in.
