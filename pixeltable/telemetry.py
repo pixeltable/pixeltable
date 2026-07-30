@@ -65,7 +65,6 @@ class Subscriber(Hashable):
 
     def on_event(self, token: Any, name: str, attrs: dict[str, Any]) -> None:
         """Attach a discrete event to the span identified by token (this subscriber's on_span_start() return)."""
-        pass
 
     def on_counter_add(self, counter: Counter, value: int | float, attrs: dict[str, Any]) -> None:
         pass

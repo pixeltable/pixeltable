@@ -608,7 +608,7 @@ class LocalTable(Table):
 
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
         result = do_add_computed_column()
-        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_status_attrs(result))
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_attrs_from_update_status(result))
         return result
 
     @classmethod
@@ -1035,7 +1035,7 @@ class LocalTable(Table):
             tv = self._tbl_version.get()
             result = tv.update(value_spec, where, cascade, return_rows=return_rows)
             telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table=tv.name, version=tv.version))
-            telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_status_attrs(result))
+            telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_attrs_from_update_status(result))
             FileCache.get().emit_eviction_warnings()
             return result
 
@@ -1095,7 +1095,7 @@ class LocalTable(Table):
                 return_rows=return_rows,
             )
             telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table=tv.name, version=tv.version))
-            telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_status_attrs(result))
+            telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_attrs_from_update_status(result))
             FileCache.get().emit_eviction_warnings()
             return result
 
@@ -1155,7 +1155,7 @@ class LocalTable(Table):
             tv = self._tbl_version.get()
             result = tv.recompute_columns(col_names, where=where, errors_only=errors_only, cascade=cascade)
             telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table=tv.name, version=tv.version))
-            telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_status_attrs(result))
+            telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_attrs_from_update_status(result))
             FileCache.get().emit_eviction_warnings()
             return result
 

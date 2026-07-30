@@ -158,7 +158,7 @@ class InsertableTable(LocalTable):
             print_stats=print_stats,
             return_rows=return_rows,
         )
-        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_status_attrs(status))
+        telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_attrs_from_update_status(status))
         return status
 
     def _insert_table_data_source(
@@ -256,7 +256,7 @@ class InsertableTable(LocalTable):
             tv = self._tbl_version.get()
             status = tv.delete(where=where)
             telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table=tv.name, version=tv.version))
-            telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_status_attrs(status))
+            telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.op_attrs_from_update_status(status))
             return status
 
     def _get_base_table(self) -> 'Table' | None:

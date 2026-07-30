@@ -7,9 +7,9 @@ export. The hub boundary itself (`span(**attrs)`, `add_attrs(**attrs)`) stays un
 a construction-time contract, not a runtime enforcement.
 
 Metric instruments are declared at the bottom of this module (the single inventory of pixeltable metrics),
-each recorded only from its owning call sites (most have exactly one; the udf instruments record at the
-five mutually exclusive execution sites). The token counters record through `record_token_usage()`,
-called by provider UDFs that opt into token accounting with their response's usage dict.
+each recorded only from its owning call sites (most have exactly one; the udf instruments record at
+mutually exclusive execution sites, so a call is counted once). The token counters record through
+`record_token_usage()`, called by provider UDFs that opt into token accounting with their response's usage dict.
 """
 
 from __future__ import annotations
@@ -25,11 +25,10 @@ if TYPE_CHECKING:
 class OpAttrs(Attrs, total=False):
     """Span attributes shared by all operation spans (`pixeltable.insert`, `pixeltable.create_dir`, ...).
 
-    `table_id` (and `path` on the path-addressed entry points: `create_table`, `create_view`,
-    `drop_table`, `create_dir`, `drop_dir`, `move`) identifies the operation's target at span start;
-    `new_path` is the destination of a `move`. The remaining fields are attached at span end (`table` is
-    the table name, `version` the post-operation version; the counts come from the operation's
-    `UpdateStatus`, on the operations that produce one).
+    `table_id` and `path` identify the operation's target at span start (`path` where the operation
+    addresses its target by path); `new_path` is the destination of a `move`. The remaining fields are
+    attached at span end (`table` is the table name, `version` the post-operation version; the counts
+    come from the operation's `UpdateStatus`, on the operations that produce one).
     """
 
     table: str
@@ -44,7 +43,7 @@ class OpAttrs(Attrs, total=False):
     cols_with_excs: list[str]
 
 
-def op_status_attrs(status: UpdateStatus) -> OpAttrs:
+def op_attrs_from_update_status(status: UpdateStatus) -> OpAttrs:
     """The OpAttrs end attributes carried by an operation's UpdateStatus."""
     return OpAttrs(
         num_rows=status.num_rows,
@@ -83,8 +82,8 @@ class XactAttrs(Attrs):
 class CatalogAttrs(Attrs, total=False):
     """Span attributes for the `pixeltable.catalog.*` metadata spans and the `pixeltable.op.*` table ops.
 
-    Each span sets the subset identifying its target: metadata reads/writes carry `table_id` (plus
-    `version` where one applies); path resolution carries `path`.
+    Each span sets the subset identifying its target: `table_id` is the target table's id, `path` the
+    target's path, `version` the targeted table version (where one applies).
     """
 
     table_id: str
@@ -105,8 +104,8 @@ class UdfCallAttrs(Attrs, total=False):
     """Span attributes for the per-call `pixeltable.udf.<name>` spans (DEBUG/TRACE).
 
     Each site sets the subset that applies: `column` when the call materializes a named table column,
-    `batch_size` for batched calls, `resource_pool` and `retries` on the scheduler (resource-pool)
-    execution paths.
+    `batch_size` for batched calls. `resource_pool` and `retries` are only meaningful for calls executed
+    under a resource-pool scheduler: the pool name and the number of retries the call needed.
     """
 
     column: str | None
@@ -162,9 +161,8 @@ class CellErrorAttrs(Attrs, total=False):
 class StoreAttrs(Attrs, total=False):
     """Span attributes for the `pixeltable.store.*` and `pixeltable.sa.*` spans.
 
-    Each span sets the subset that applies: the row-oriented spans (`build_rows`, `insert_rows`,
-    `soft_delete_rows`, `write_column`) carry `rows`; `write_column`/`add_column` carry `column`;
-    `create_index` carries `index`.
+    Each span sets the subset that applies: `rows` is the number of rows the span's operation covered,
+    `column` the affected column's name, `index` the created index's name.
     """
 
     rows: int

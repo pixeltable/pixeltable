@@ -109,8 +109,9 @@ def test_logs_can_be_enabled_explicitly(tmp_path: Path) -> None:
 
 
 def check_inert_without_endpoint() -> None:
-    for k in [k for k in os.environ if k.startswith('OTEL_')]:
-        del os.environ[k]
+    for k in list(os.environ):
+        if k.startswith('OTEL_'):
+            del os.environ[k]
     pxt_otel.init()
     assert isinstance(trace.get_tracer_provider(), ProxyTracerProvider)
     assert _sdk._state.initialized
@@ -198,8 +199,9 @@ def test_protocol_grpc(tmp_path: Path) -> None:
 
 
 def check_span_dump_without_endpoint() -> None:
-    for k in [k for k in os.environ if k.startswith('OTEL_') and k != 'OTEL_SPAN_DUMP']:
-        del os.environ[k]
+    for k in list(os.environ):
+        if k.startswith('OTEL_') and k != 'OTEL_SPAN_DUMP':
+            del os.environ[k]
     pxt_otel.init()
     assert isinstance(trace.get_tracer_provider(), TracerProvider)
     assert _sdk._state.owns_tracer_provider
