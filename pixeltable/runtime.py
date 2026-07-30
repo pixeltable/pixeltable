@@ -177,12 +177,8 @@ class Runtime:
                     f'Invalid PIXELTABLE_CLOUD_HOST value: missing host before ":{port_str}".',
                 )
         host = f'{catalog_uri.org}-{catalog_uri.db}.{cloud_domain}' if cloud_domain else None
-        no_verify = os.environ.get('PIXELTABLE_CLOUD_NO_VERIFY', '') in ('1', 'true', 'yes')
         return CatalogProxy(
-            catalog_uri,
-            ProxyClient.remote(
-                catalog_uri.org, catalog_uri.db, api_key, host=host, port=port_override, no_verify=no_verify
-            ),
+            catalog_uri, ProxyClient.remote(catalog_uri.org, catalog_uri.db, api_key, host=host, port=port_override)
         )
 
     @property

@@ -21,6 +21,7 @@ import sys
 import urllib.error
 from collections.abc import Callable, Iterator
 from email.message import Message
+from types import ModuleType
 from typing import Any
 
 import pytest
@@ -32,7 +33,14 @@ from pixeltable.service import management_client
 from pixeltable.service.management_protocol import ServiceOperationType
 from pixeltable_cli import utils
 from pixeltable_cli.client import confirm, hosted, main as client_main, parser as client_parser, utils as client_utils
-from pixeltable_cli.client.commands import daemon as daemon_cmd, shell as shell_cmd, status as status_cmd
+from pixeltable_cli.client.commands import (
+    daemon as daemon_cmd,
+    db as db_cmd,
+    org as org_cmd,
+    service as service_cmd,
+    shell as shell_cmd,
+    status as status_cmd,
+)
 from pixeltable_cli.server import daemon as server_daemon, router as server_router, routes as server_routes
 
 
@@ -1512,6 +1520,29 @@ class TestPerPortPaths:
         assert p1 != p2, f'log path collides across ports: {p1} == {p2}'
         assert '12345' in p1
         assert '54321' in p2
+
+
+class TestHostedCommandHelp:
+    """Subcommands and options offered by `pxt db`, `pxt service` and `pxt org`."""
+
+    @pytest.mark.parametrize(
+        ('module', 'argv', 'expected'),
+        [
+            (db_cmd, ['--help'], ['create', 'list', 'update', 'update-runtime', 'status']),
+            (db_cmd, ['update', '--help'], ['--workers', '--cpu']),
+            (service_cmd, ['--help'], ['create', 'update', 'stop', 'start', 'status']),
+            (service_cmd, ['update', '--help'], ['--workers']),
+            (org_cmd, ['--help'], ['list', 'status']),
+        ],
+    )
+    def test_help(
+        self, module: ModuleType, argv: list[str], expected: list[str], capsys: pytest.CaptureFixture
+    ) -> None:
+        with pytest.raises(SystemExit) as info:
+            module.run(argv)
+        assert info.value.code == 0
+        out = capsys.readouterr().out
+        assert all(token in out for token in expected), out
 
 
 class TestHostedUriHelpers:

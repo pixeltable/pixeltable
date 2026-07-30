@@ -178,25 +178,15 @@ class TunnelTransport(Transport):
     _api_key: str
     _host: str
     _port: int
-    _no_verify: bool
     _endpoint: str
     _pool: _TunnelPool
 
-    def __init__(
-        self,
-        org: str,
-        db: str,
-        api_key: str,
-        host: str | None = None,
-        port: int = _DEFAULT_PORT,
-        no_verify: bool = False,
-    ):
+    def __init__(self, org: str, db: str, api_key: str, host: str | None = None, port: int = _DEFAULT_PORT):
         self._org = org
         self._db = db
         self._api_key = api_key
         self._host = host or f'{org}-{db}.pxt.run'
         self._port = port
-        self._no_verify = no_verify
         self._pool = _TunnelPool(self._connect_tunnel)
         # media URLs are formed against this endpoint; they are reachable only through the tunnel (see fetch())
         self._endpoint = f'https://{self._host}:{self._port}'
@@ -204,9 +194,6 @@ class TunnelTransport(Transport):
     def _connect_tunnel(self) -> http.client.HTTPConnection:
         """Open one tunnel connection: TCP + TLS + PXT/1.0 CONNECT handshake."""
         ctx = ssl.create_default_context()
-        if self._no_verify:
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
         raw_sock = socket.create_connection((self._host, self._port), timeout=_CONNECT_TIMEOUT)
         ssl_sock: ssl.SSLSocket | None = None
         try:
@@ -312,17 +299,9 @@ class ProxyClient:
         return cls(HttpTransport(endpoint))
 
     @classmethod
-    def remote(
-        cls,
-        org: str,
-        db: str,
-        api_key: str,
-        host: str | None = None,
-        port: int = _DEFAULT_PORT,
-        no_verify: bool = False,
-    ) -> ProxyClient:
+    def remote(cls, org: str, db: str, api_key: str, host: str | None = None, port: int = _DEFAULT_PORT) -> ProxyClient:
         """Connect to the Pixeltable cloud service's proxy daemon over an authenticated TLS tunnel."""
-        return cls(TunnelTransport(org, db, api_key, host=host, port=port, no_verify=no_verify))
+        return cls(TunnelTransport(org, db, api_key, host=host, port=port))
 
     def _send(self, request_json: str, parts: list[bytes]) -> tuple[str, list[bytes]]:
         """Encode the request (json head + binary parts), POST it to /rpc, and decode the response."""
