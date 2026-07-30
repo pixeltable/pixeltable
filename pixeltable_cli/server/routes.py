@@ -649,7 +649,7 @@ def _redact_db_password(url: str | None) -> str | None:
         return None
 
 
-# Cloud control-plane proxy routes
+# Cloud management API proxy routes
 
 
 @router.get('/api/orgs')

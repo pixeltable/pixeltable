@@ -6,6 +6,7 @@ Covers things that aren't reachable through the daemon smoke tests:
   - parser.py / main.py error and help paths
   - the client HTTP get/post error branches
   - the interactive shell REPL (driven via subprocess.Popen)
+  - management_client's retry of a dropped management API connection
 """
 
 import importlib.metadata
@@ -23,9 +24,12 @@ from email.message import Message
 from typing import Any
 
 import pytest
+import requests
 from typing_extensions import Self
 
 from pixeltable import exceptions as excs
+from pixeltable.service import management_client
+from pixeltable.service.management_protocol import ServiceOperationType
 from pixeltable_cli import utils
 from pixeltable_cli.client import confirm, hosted, main as client_main, parser as client_parser, utils as client_utils
 from pixeltable_cli.client.commands import daemon as daemon_cmd, shell as shell_cmd, status as status_cmd
@@ -1691,3 +1695,73 @@ class TestDotSegments:
         for bad in ('a.b', 'a/...', '...'):
             err = utils.validate_path_shape(bad)
             assert err is not None and 'separator' in err, bad
+
+
+class _StubResponse:
+    """Minimal HTTP response: status code, body text, and the parsed body."""
+
+    status_code: int
+    text: str
+
+    def __init__(self, status_code: int, payload: dict[str, Any]) -> None:
+        self.status_code = status_code
+        self.text = json.dumps(payload)
+
+    def json(self) -> dict[str, Any]:
+        return json.loads(self.text)
+
+
+class _FlakySession:
+    """Session stub whose first n_failures post() calls raise a dropped-connection error."""
+
+    n_failures: int
+    payload: dict[str, Any]
+    n_calls: int
+
+    def __init__(self, n_failures: int, payload: dict[str, Any]) -> None:
+        self.n_failures = n_failures
+        self.payload = payload
+        self.n_calls = 0
+
+    def post(self, url: str, *, data: str, headers: dict[str, str], timeout: int) -> _StubResponse:
+        self.n_calls += 1
+        if self.n_calls <= self.n_failures:
+            raise requests.exceptions.ConnectionError('Connection aborted: RemoteDisconnected')
+        return _StubResponse(200, self.payload)
+
+
+class TestManagementClient:
+    """Management API calls whose connection drops before a response is read."""
+
+    def _install_session(
+        self, monkeypatch: pytest.MonkeyPatch, n_failures: int, payload: dict[str, Any]
+    ) -> _FlakySession:
+        session = _FlakySession(n_failures, payload)
+        monkeypatch.setattr(management_client, '_SESSION', session)
+        return session
+
+    def test_dropped_connection(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv('PIXELTABLE_API_KEY', 'test-key')
+
+        # a read operation is sent a second time, on a new connection
+        session = self._install_session(monkeypatch, 1, {'database': {'db': 'main', 'state': 'AVAILABLE'}})
+        assert management_client.get_db('acme', 'main') == {'database': {'db': 'main', 'state': 'AVAILABLE'}}
+        assert session.n_calls == 2
+
+        # only once, though: a second drop surfaces as an error
+        session = self._install_session(monkeypatch, 2, {'database': {}})
+        with pytest.raises(requests.exceptions.ConnectionError, match='RemoteDisconnected'):
+            management_client.get_db('acme', 'main')
+        assert session.n_calls == 2
+
+        # a mutating operation is never sent again: the management API may have applied it already
+        session = self._install_session(monkeypatch, 1, {'database': {}})
+        with pytest.raises(requests.exceptions.ConnectionError, match='RemoteDisconnected'):
+            management_client.create_db('acme', 'main')
+        assert session.n_calls == 1
+
+    def test_read_ops_are_known_operation_types(self) -> None:
+        # _READ_OPS holds operation_type strings; a rename on the protocol side must not leave stale ones
+        op_values = {op.value for op in ServiceOperationType}
+        stale = management_client._READ_OPS - op_values
+        assert len(stale) == 0, stale

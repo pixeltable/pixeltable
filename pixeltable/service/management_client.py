@@ -6,10 +6,12 @@ this module constructs the protocol request objects and returns raw response dic
 
 from __future__ import annotations
 
+import http.cookiejar
 import os
 from typing import Any
 
 import requests
+from requests.adapters import HTTPAdapter, Retry
 
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
@@ -37,6 +39,31 @@ PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.
 
 _LONG_OPS = frozenset({'create_db', 'update_runtime', 'delete_db'})
 
+# operations that don't change server state; can be sent multiple times
+_READ_OPS = frozenset({'list_orgs', 'list_dbs', 'get_db', 'list_services', 'get_service'})
+
+# maximum number of connections kept open to the service, sized for concurrent calls from multiple threads
+_POOL_MAXSIZE = 16
+
+
+def _new_session() -> requests.Session:
+    """Create a pooled session for management API requests."""
+    session = requests.Session()
+    # the management API sets no cookies; blocking the jar leaves the session without mutable state, so
+    # concurrent calls can share it
+    session.cookies.set_policy(http.cookiejar.DefaultCookiePolicy(allowed_domains=[]))
+    # retry only failures to establish a connection: those never reached the server. Read and status
+    # retries stay off because every operation is a POST, and replaying one that the server may have
+    # already processed could apply it twice.
+    retries = Retry(total=2, connect=2, read=0, status=0, other=0, allowed_methods=frozenset(), backoff_factor=0.2)
+    adapter = HTTPAdapter(pool_connections=1, pool_maxsize=_POOL_MAXSIZE, max_retries=retries)
+    session.mount('https://', adapter)
+    session.mount('http://', adapter)
+    return session
+
+
+_SESSION = _new_session()
+
 
 def _api_headers() -> dict[str, str]:
     api_key = Env.get().pxt_api_key
@@ -51,15 +78,24 @@ def _api_headers() -> dict[str, str]:
 
 
 def api_call(request: Any) -> dict[str, Any]:
-    """Forward one request to the cloud control-plane and return the raw response dict."""
+    """Forward one request to the cloud management API and return the raw response dict."""
     op = getattr(request, 'operation_type', None)
     op_str = op.value if hasattr(op, 'value') else str(op) if op else ''
     timeout = 180 if op_str in _LONG_OPS else 30
-    resp = requests.post(PIXELTABLE_API_URL, data=request.model_dump_json(), headers=_api_headers(), timeout=timeout)
+    body = request.model_dump_json()
+    try:
+        resp = _SESSION.post(PIXELTABLE_API_URL, data=body, headers=_api_headers(), timeout=timeout)
+    except requests.exceptions.ConnectionError:
+        # a pooled connection closed by the peer while idle fails the call that next picks it up.
+        # Retrying gets a new connection, but is only safe for operations that a second delivery
+        # cannot change.
+        if op_str not in _READ_OPS:
+            raise
+        resp = _SESSION.post(PIXELTABLE_API_URL, data=body, headers=_api_headers(), timeout=timeout)
     if resp.status_code not in (200, 201):
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,
-            f'Control-plane error {resp.status_code}: {resp.text}',
+            f'Management API error {resp.status_code}: {resp.text}',
             provider='pixeltable_cloud',
             status_code=resp.status_code,
         )

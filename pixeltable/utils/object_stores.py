@@ -284,7 +284,7 @@ class ObjectPath:
         elif scheme == 'pxtfs':
             # pxtfs://org:db/<bucket>[/optional/prefix]
             # Currently only 'home' bucket is supported.
-            # 'home' is a logical name resolved to a physical R2 bucket name at runtime via the control plane.
+            # 'home' is a logical name resolved to a physical R2 bucket name at runtime via the management API.
             storage_target = StorageTarget.PIXELTABLE_STORE
             netloc_parts = parsed.netloc.split(':')
             if len(netloc_parts) != 2 or not netloc_parts[0] or not netloc_parts[1]:

@@ -1,7 +1,7 @@
 """
 Cloud API utilities for pixeltable core.
 
-Provides functions for communicating with the Pixeltable Cloud control plane,
+Provides functions for communicating with the Pixeltable cloud management API,
 such as obtaining temporary credentials for home buckets.
 """
 
@@ -42,7 +42,7 @@ def _api_headers() -> dict[str, str]:
 
 def get_bucket_credentials(org: str, db: str, bucket: str, prefix: str | None = None) -> GetBucketCredentialsResponse:
     """
-    Fetch temporary R2 credentials for a home bucket from the cloud control plane.
+    Fetch temporary R2 credentials for a home bucket from the cloud management API.
 
     Args:
         org: Organization name
