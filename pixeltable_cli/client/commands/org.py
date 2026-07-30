@@ -5,8 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 
-from pixeltable_cli.utils import parse_org_uri, print_org
-
+from ..hosted import parse_org_uri, print_org
 from ..parser import Parser
 from ..utils import get_request
 
@@ -31,12 +30,12 @@ def run(argv: list[str]) -> None:
     args = parser.parse_args(argv)
 
     if args.action == 'list':
-        _do_list(args)
+        _list(args)
     elif args.action == 'status':
-        _do_status(args)
+        _status(args)
 
 
-def _do_list(args: argparse.Namespace) -> None:
+def _list(args: argparse.Namespace) -> None:
     resp = get_request('/api/orgs')
     orgs = resp.get('orgs', []) if isinstance(resp, dict) else []
     if args.json_output:
@@ -48,7 +47,7 @@ def _do_list(args: argparse.Namespace) -> None:
             print_org(org)
 
 
-def _do_status(args: argparse.Namespace) -> None:
+def _status(args: argparse.Namespace) -> None:
     org = parse_org_uri(args.org_uri, prog='pxt org status')
     resp = get_request('/api/org', {'org': org})
     result = resp.get('org', resp) if isinstance(resp, dict) else {}

@@ -27,7 +27,7 @@ from typing_extensions import Self
 
 from pixeltable import exceptions as excs
 from pixeltable_cli import utils
-from pixeltable_cli.client import confirm, main as client_main, parser as client_parser, utils as client_utils
+from pixeltable_cli.client import confirm, hosted, main as client_main, parser as client_parser, utils as client_utils
 from pixeltable_cli.client.commands import daemon as daemon_cmd, shell as shell_cmd, status as status_cmd
 from pixeltable_cli.server import daemon as server_daemon, router as server_router, routes as server_routes
 
@@ -1511,46 +1511,46 @@ class TestPerPortPaths:
 
 
 class TestHostedUriHelpers:
-    """URI parsing / printing helpers merged from the hosted-CLI commands into utils.py."""
+    """URI parsing / printing helpers shared by the hosted-CLI commands."""
 
     def test_split_pxt_uri(self) -> None:
-        assert utils._split_pxt_uri('pxt://acme') == ('acme', None, None)
-        assert utils._split_pxt_uri('pxt://acme:main') == ('acme', 'main', None)
-        assert utils._split_pxt_uri('pxt://acme:main/services/foo') == ('acme', 'main', 'services/foo')
-        assert utils._split_pxt_uri('pxt://acme:main/') == ('acme', 'main', None)  # trailing slash → no path
-        assert utils._split_pxt_uri('not-a-uri') == (None, None, None)
+        assert utils.split_pxt_uri('pxt://acme') == ('acme', None, None)
+        assert utils.split_pxt_uri('pxt://acme:main') == ('acme', 'main', None)
+        assert utils.split_pxt_uri('pxt://acme:main/services/foo') == ('acme', 'main', 'services/foo')
+        assert utils.split_pxt_uri('pxt://acme:main/') == ('acme', 'main', '')
+        assert utils.split_pxt_uri('not-a-uri') is None
 
     def test_parse_db_uri(self) -> None:
-        assert utils.parse_db_uri('pxt://acme:main') == ('acme', 'main')
+        assert hosted.parse_db_uri('pxt://acme:main') == ('acme', 'main')
 
-    @pytest.mark.parametrize('bad', ['pxt://acme', 'pxt://acme:main/tbl', 'nope'])
+    @pytest.mark.parametrize('bad', ['pxt://acme', 'pxt://acme:main/tbl', 'pxt://acme:main/', 'nope'])
     def test_parse_db_uri_rejects(self, bad: str, capsys: pytest.CaptureFixture) -> None:
         with pytest.raises(SystemExit) as info:
-            utils.parse_db_uri(bad)
+            hosted.parse_db_uri(bad)
         assert info.value.code == 2
         assert 'pxt://org:db' in capsys.readouterr().err
 
     def test_parse_org_uri(self) -> None:
-        assert utils.parse_org_uri('pxt://acme') == 'acme'
+        assert hosted.parse_org_uri('pxt://acme') == 'acme'
 
-    @pytest.mark.parametrize('bad', ['pxt://acme:main', 'pxt://acme:main/x', 'nope'])
+    @pytest.mark.parametrize('bad', ['pxt://acme:main', 'pxt://acme:main/x', 'pxt://acme/', 'nope'])
     def test_parse_org_uri_rejects(self, bad: str) -> None:
         with pytest.raises(SystemExit) as info:
-            utils.parse_org_uri(bad)
+            hosted.parse_org_uri(bad)
         assert info.value.code == 2
 
     def test_parse_base_uri(self) -> None:
-        assert utils.parse_base_uri('pxt://acme:main') == ('acme', 'main', '')
-        assert utils.parse_base_uri('pxt://acme:main/dir/sub') == ('acme', 'main', 'dir/sub')
+        assert hosted.parse_base_uri('pxt://acme:main') == ('acme', 'main', '')
+        assert hosted.parse_base_uri('pxt://acme:main/dir/sub') == ('acme', 'main', 'dir/sub')
 
     @pytest.mark.parametrize('bad', ['pxt://acme', 'nope'])
     def test_parse_base_uri_rejects(self, bad: str) -> None:
         with pytest.raises(SystemExit) as info:
-            utils.parse_base_uri(bad)
+            hosted.parse_base_uri(bad)
         assert info.value.code == 2
 
     def test_parse_service_uri(self) -> None:
-        assert utils.parse_service_uri('pxt://acme:main/services/foo') == ('acme', 'main', 'foo')
+        assert hosted.parse_service_uri('pxt://acme:main/services/foo') == ('acme', 'main', 'foo')
 
     @pytest.mark.parametrize(
         'bad',
@@ -1564,7 +1564,7 @@ class TestHostedUriHelpers:
     )
     def test_parse_service_uri_rejects(self, bad: str) -> None:
         with pytest.raises(SystemExit) as info:
-            utils.parse_service_uri(bad)
+            hosted.parse_service_uri(bad)
         assert info.value.code == 2
 
     @pytest.mark.parametrize(
@@ -1572,20 +1572,20 @@ class TestHostedUriHelpers:
         [(0, '0s'), (45, '45s'), (90, '1m'), (3600, '1h'), (3660, '1h1m'), (86400, '1d'), (90000, '1d1h')],
     )
     def test_fmt_age(self, age_s: int, expected: str) -> None:
-        assert utils._fmt_age(age_s) == expected
+        assert hosted._fmt_age(age_s) == expected
 
     def test_print_org(self, capsys: pytest.CaptureFixture) -> None:
-        utils.print_org({'org': 'acme', 'org_id': 'o1', 'default_db': 'main'})
+        hosted.print_org({'org': 'acme', 'org_id': 'o1', 'default_db': 'main'})
         out = capsys.readouterr().out
         assert 'acme' in out and 'id=o1' in out and 'default_db=main' in out
 
     def test_print_db(self, capsys: pytest.CaptureFixture) -> None:
-        utils.print_db({'db': 'main', 'state': 'AVAILABLE', 'location': 'aws', 'region': 'us-east-1'})
+        hosted.print_db({'db': 'main', 'state': 'AVAILABLE', 'location': 'aws', 'region': 'us-east-1'})
         out = capsys.readouterr().out
         assert 'main' in out and 'state=AVAILABLE' in out and 'aws/us-east-1' in out
 
     def test_print_service_prints_routes(self, capsys: pytest.CaptureFixture) -> None:
-        utils.print_service(
+        hosted.print_service(
             {
                 'service_name': 'svc',
                 'state': 'AVAILABLE',
@@ -1600,13 +1600,63 @@ class TestHostedUriHelpers:
         assert 'POST  https://svc.example/v1/insert' in out
 
     def test_print_workers(self, capsys: pytest.CaptureFixture) -> None:
-        utils._print_workers(
+        hosted._print_workers(
             [{'pod_id': 'pod-1', 'status': 'Running', 'ready': 1, 'total': 1, 'restarts': 0, 'age_s': 45}]
         )
         out = capsys.readouterr().out
         assert 'POD ID' in out and 'pod-1' in out and 'Running' in out
-        utils._print_workers([])  # empty → prints nothing
+        hosted._print_workers([])  # empty prints nothing
         assert capsys.readouterr().out == ''
+
+
+class TestPrintAligned:
+    def test_widths_fit_the_widest_cell(self, capsys: pytest.CaptureFixture) -> None:
+        client_utils.print_aligned(['NAME', 'N'], [['a-very-long-name', '1'], ['b', '200']], right_align={1})
+        header, first, second = capsys.readouterr().out.splitlines()
+        assert header == 'NAME                N'
+        assert first == 'a-very-long-name    1'
+        assert second == 'b                 200'
+
+    def test_indent(self, capsys: pytest.CaptureFixture) -> None:
+        client_utils.print_aligned(['NAME'], [['a']], right_align=set(), indent='  ')
+        assert capsys.readouterr().out.splitlines() == ['  NAME', '  a']
+
+    def test_no_rows_prints_nothing(self, capsys: pytest.CaptureFixture) -> None:
+        client_utils.print_aligned(['NAME'], [], right_align=set())
+        assert capsys.readouterr().out == ''
+
+
+class TestPollState:
+    """poll_state() waits out a resource's pending states, tolerating transient read failures."""
+
+    def _poll(self, responses: list[Any], monkeypatch: pytest.MonkeyPatch, timeout: float = 5) -> dict[str, Any]:
+        """Run poll_state() against a canned sequence of get_request() results; an exception item is raised."""
+        remaining = list(responses)
+
+        def fake_get_request(path: str, params: dict[str, Any] | None = None) -> Any:
+            resp = remaining.pop(0)
+            if isinstance(resp, BaseException):
+                raise resp
+            return resp
+
+        monkeypatch.setattr(hosted, 'get_request', fake_get_request)
+        return hosted.poll_state('/api/db', {}, 'database', frozenset({'PENDING'}), 0, timeout, None)
+
+    def test_returns_once_state_leaves_pending(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        responses = [{'database': {'state': 'PENDING'}}, {'database': {'state': 'AVAILABLE'}}]
+        assert self._poll(responses, monkeypatch) == {'state': 'AVAILABLE'}
+
+    def test_retries_a_failed_read(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        responses = [RuntimeError('connection refused'), {'database': {'state': 'AVAILABLE'}}]
+        assert self._poll(responses, monkeypatch) == {'state': 'AVAILABLE'}
+
+    def test_daemon_exit_propagates(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        with pytest.raises(SystemExit):
+            self._poll([SystemExit(1)], monkeypatch)
+
+    def test_returns_last_read_on_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        responses: list[Any] = [{'database': {'state': 'PENDING'}}] * 1000
+        assert self._poll(responses, monkeypatch, timeout=0.05) == {'state': 'PENDING'}
 
 
 class TestDotSegments:

@@ -1,5 +1,6 @@
 """Client-only support: daemon orchestration (probe /api/health, spawn/kill/restart the daemon, read the
-pidfile, tail the log on failed startup), the stdlib HTTP client (get/post), and CLI path helpers. Kept to the
+pidfile, tail the log on failed startup), the stdlib HTTP client (get/post), and CLI path and output
+helpers. Kept to the
 stdlib plus psutil, so importing this on every `pxt` invocation stays cheap."""
 
 import json
@@ -375,3 +376,21 @@ def display_path(path: str) -> str:
     if path.startswith('pxt://') or path.startswith('/'):
         return path
     return '/' + path
+
+
+def print_aligned(headers: list[str], rows: list[list[str]], right_align: set[int], indent: str = '') -> None:
+    """Print a table whose column widths fit the widest cell, headers included. Prints nothing if rows is empty.
+
+    right_align holds the indices of the columns to right-justify; the rest are left-justified.
+    """
+    if len(rows) == 0:
+        return
+    widths = [max(len(c) for c in col) for col in zip(headers, *rows)]
+
+    def fmt(r: list[str]) -> str:
+        cells = [c.rjust(w) if i in right_align else c.ljust(w) for i, (c, w) in enumerate(zip(r, widths))]
+        return (indent + '  '.join(cells)).rstrip()
+
+    print(fmt(headers))
+    for r in rows:
+        print(fmt(r))

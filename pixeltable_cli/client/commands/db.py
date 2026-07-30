@@ -6,20 +6,18 @@ import argparse
 import json
 import os
 import sys
-import time
 import urllib.request
 from pathlib import Path
-from typing import Any
 
-from pixeltable_cli.utils import (
-    _RUNTIME_POLL_INTERVAL,
-    _RUNTIME_POLL_TIMEOUT,
+from ..hosted import (
+    RUNTIME_POLL_INTERVAL,
+    RUNTIME_POLL_TIMEOUT,
     parse_db_uri,
     parse_org_uri,
     poll_db,
+    poll_state,
     print_db,
 )
-
 from ..parser import Parser
 from ..utils import get_request, post_request
 
@@ -87,24 +85,24 @@ def run(argv: list[str]) -> None:
     args = parser.parse_args(argv)
 
     if args.action == 'create':
-        _do_create(args)
+        _create(args)
     elif args.action == 'list':
-        _do_list(args)
+        _list(args)
     elif args.action == 'status':
-        _do_status(args)
+        _status(args)
     elif args.action == 'start':
-        _do_start(args)
+        _start(args)
     elif args.action == 'stop':
-        _do_stop(args)
+        _stop(args)
     elif args.action == 'update':
-        _do_update(args)
+        _update(args)
     elif args.action == 'update-runtime':
-        _do_update_runtime(args)
+        _update_runtime(args)
     elif args.action == 'delete':
-        _do_delete(args)
+        _delete(args)
 
 
-def _do_create(args: argparse.Namespace) -> None:
+def _create(args: argparse.Namespace) -> None:
     org, db = parse_db_uri(args.db_uri, prog='pxt db create')
     resp = post_request('/api/dbs', {'org': org, 'db': db, 'location': args.location, 'region': args.region})
     result = resp.get('database', resp) if isinstance(resp, dict) else {}
@@ -116,7 +114,7 @@ def _do_create(args: argparse.Namespace) -> None:
         print_db(result)
 
 
-def _do_list(args: argparse.Namespace) -> None:
+def _list(args: argparse.Namespace) -> None:
     org = parse_org_uri(args.org_uri, prog='pxt db list')
     resp = get_request('/api/dbs', {'org': org})
     dbs = resp.get('databases', []) if isinstance(resp, dict) else []
@@ -129,7 +127,7 @@ def _do_list(args: argparse.Namespace) -> None:
             print_db(db)
 
 
-def _do_status(args: argparse.Namespace) -> None:
+def _status(args: argparse.Namespace) -> None:
     org, db = parse_db_uri(args.db_uri, prog='pxt db status')
     resp = get_request('/api/db', {'org': org, 'db': db})
     result = resp.get('database', resp) if isinstance(resp, dict) else {}
@@ -139,7 +137,7 @@ def _do_status(args: argparse.Namespace) -> None:
         print_db(result)
 
 
-def _do_start(args: argparse.Namespace) -> None:
+def _start(args: argparse.Namespace) -> None:
     org, db = parse_db_uri(args.db_uri, prog='pxt db start')
     post_request('/api/db/start', {'org': org, 'db': db})
     result = poll_db(org, db, frozenset({'UPDATING', 'STARTING'}), f"Database '{db}' is starting...")
@@ -149,7 +147,7 @@ def _do_start(args: argparse.Namespace) -> None:
         print_db(result)
 
 
-def _do_stop(args: argparse.Namespace) -> None:
+def _stop(args: argparse.Namespace) -> None:
     org, db = parse_db_uri(args.db_uri, prog='pxt db stop')
     post_request('/api/db/stop', {'org': org, 'db': db})
     result = poll_db(org, db, frozenset({'STOPPING'}), f"Database '{db}' is stopping...")
@@ -159,7 +157,7 @@ def _do_stop(args: argparse.Namespace) -> None:
         print_db(result)
 
 
-def _do_update(args: argparse.Namespace) -> None:
+def _update(args: argparse.Namespace) -> None:
     org, db = parse_db_uri(args.db_uri, prog='pxt db update')
     resp = post_request(
         '/api/db/update',
@@ -181,7 +179,7 @@ def _do_update(args: argparse.Namespace) -> None:
         print_db(result)
 
 
-def _do_delete(args: argparse.Namespace) -> None:
+def _delete(args: argparse.Namespace) -> None:
     org, db = parse_db_uri(args.db_uri, prog='pxt db delete')
     post_request('/api/db/delete', {'org': org, 'db': db})
     if args.json_output:
@@ -190,7 +188,7 @@ def _do_delete(args: argparse.Namespace) -> None:
         print(f"Deleted database '{db}'.")
 
 
-def _do_update_runtime(args: argparse.Namespace) -> None:
+def _update_runtime(args: argparse.Namespace) -> None:
     # imported lazily: build_db_runtime_bundle pulls in pixeltable, which the stdlib-only client avoids
     # loading for the other db subcommands
     from pixeltable.serving.deploy import build_db_runtime_bundle
@@ -241,29 +239,20 @@ def _do_update_runtime(args: argparse.Namespace) -> None:
 
     post_request('/api/db/update-runtime', {'org': org, 'db': db, 'bundle_s3_key': bundle_s3_key})
 
-    # Poll until the state leaves UPDATING.
-    result: dict[str, Any] = {}
-    deadline = time.monotonic() + _RUNTIME_POLL_TIMEOUT
-    if not args.json_output:
-        print('Waiting for runtime build', end='', flush=True)
-    while time.monotonic() < deadline:
-        time.sleep(_RUNTIME_POLL_INTERVAL)
-        try:
-            resp = get_request('/api/db', {'org': org, 'db': db})
-            result = resp.get('database', resp) if isinstance(resp, dict) else {}
-        except SystemExit:
-            break
-        except Exception:
-            pass
-        if not args.json_output:
-            print('.', end='', flush=True)
-        if result.get('state') != 'UPDATING':
-            break
+    label = None if args.json_output else 'Waiting for runtime build...'
+    result = poll_state(
+        '/api/db',
+        {'org': org, 'db': db},
+        'database',
+        frozenset({'UPDATING'}),
+        RUNTIME_POLL_INTERVAL,
+        RUNTIME_POLL_TIMEOUT,
+        label,
+    )
 
     build_failed = result.get('last_build_state') == 'FAILED'
     build_error = result.get('last_build_error') or ''
     if not args.json_output:
-        print()
         final_state = result.get('state', '')
         if build_failed:
             print(f'Runtime build failed: {build_error}', file=sys.stderr)

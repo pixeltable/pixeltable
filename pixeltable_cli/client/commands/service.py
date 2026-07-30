@@ -5,8 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 
-from pixeltable_cli.utils import parse_base_uri, parse_db_uri, parse_service_uri, poll_svc, print_service
-
+from ..hosted import parse_base_uri, parse_db_uri, parse_service_uri, poll_svc, print_service
 from ..parser import Parser
 from ..utils import get_request, post_request
 
@@ -74,22 +73,22 @@ def run(argv: list[str]) -> None:
     args = parser.parse_args(argv)
 
     if args.action == 'create':
-        _do_create(args)
+        _create(args)
     elif args.action == 'update':
-        _do_update(args)
+        _update(args)
     elif args.action == 'list':
-        _do_list(args)
+        _list(args)
     elif args.action == 'status':
-        _do_status(args)
+        _status(args)
     elif args.action == 'start':
-        _do_start(args)
+        _start(args)
     elif args.action == 'stop':
-        _do_stop(args)
+        _stop(args)
     elif args.action == 'delete':
-        _do_delete(args)
+        _delete(args)
 
 
-def _do_create(args: argparse.Namespace) -> None:
+def _create(args: argparse.Namespace) -> None:
     # imported lazily to keep the other service subcommands free of the pixeltable import
     from pixeltable import config as pxt_config
     from pixeltable.serving._config import lookup_service_config
@@ -125,7 +124,7 @@ def _do_create(args: argparse.Namespace) -> None:
         print_service(svc)
 
 
-def _do_update(args: argparse.Namespace) -> None:
+def _update(args: argparse.Namespace) -> None:
     # imported lazily to keep the other service subcommands free of the pixeltable import
     from pixeltable import config as pxt_config, exceptions as excs
     from pixeltable.serving._config import lookup_service_config
@@ -161,7 +160,7 @@ def _do_update(args: argparse.Namespace) -> None:
         print_service(svc)
 
 
-def _do_list(args: argparse.Namespace) -> None:
+def _list(args: argparse.Namespace) -> None:
     org, db = parse_db_uri(args.db_uri, prog='pxt service list')
     resp = get_request('/api/services', {'org': org, 'db': db})
     svcs = resp.get('services', []) if isinstance(resp, dict) else []
@@ -174,7 +173,7 @@ def _do_list(args: argparse.Namespace) -> None:
             print_service(svc)
 
 
-def _do_status(args: argparse.Namespace) -> None:
+def _status(args: argparse.Namespace) -> None:
     org, db, svc_name = parse_service_uri(args.service_uri, prog='pxt service status')
     resp = get_request('/api/service', {'org': org, 'db': db, 'service_name': svc_name})
     svc = resp.get('service', resp) if isinstance(resp, dict) else {}
@@ -184,7 +183,7 @@ def _do_status(args: argparse.Namespace) -> None:
         print_service(svc)
 
 
-def _do_start(args: argparse.Namespace) -> None:
+def _start(args: argparse.Namespace) -> None:
     org, db, svc_name = parse_service_uri(args.service_uri, prog='pxt service start')
     resp = post_request('/api/service/start', {'org': org, 'db': db, 'service_name': svc_name})
     svc = resp.get('service', resp) if isinstance(resp, dict) else {}
@@ -196,7 +195,7 @@ def _do_start(args: argparse.Namespace) -> None:
         print_service(svc)
 
 
-def _do_stop(args: argparse.Namespace) -> None:
+def _stop(args: argparse.Namespace) -> None:
     org, db, svc_name = parse_service_uri(args.service_uri, prog='pxt service stop')
     resp = post_request('/api/service/stop', {'org': org, 'db': db, 'service_name': svc_name})
     svc = resp.get('service', resp) if isinstance(resp, dict) else {}
@@ -208,7 +207,7 @@ def _do_stop(args: argparse.Namespace) -> None:
         print_service(svc)
 
 
-def _do_delete(args: argparse.Namespace) -> None:
+def _delete(args: argparse.Namespace) -> None:
     org, db, svc_name = parse_service_uri(args.service_uri, prog='pxt service delete')
     post_request('/api/service/delete', {'org': org, 'db': db, 'service_name': svc_name})
     if args.json_output:

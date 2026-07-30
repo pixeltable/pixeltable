@@ -39,17 +39,17 @@ def run(argv: list[str]) -> None:
     args = parser.parse_args(argv)
 
     if args.action == 'start':
-        _do_start()
+        _start()
     elif args.action == 'stop':
-        _do_stop(force=args.force)
+        _stop(force=args.force)
     elif args.action == 'restart':
-        _do_stop(force=False, ok_if_absent=True)
-        _do_start()
+        _stop(force=False, ok_if_absent=True)
+        _start()
     elif args.action == 'status':
-        _do_status(as_json=args.as_json)
+        _status(as_json=args.as_json)
 
 
-def _do_start() -> None:
+def _start() -> None:
     try:
         base = ensure_running()
     except RuntimeError as e:
@@ -61,7 +61,7 @@ def _do_start() -> None:
     print(f'pxt daemon up at {base}{suffix}')
 
 
-def _do_stop(force: bool, ok_if_absent: bool = False) -> None:
+def _stop(force: bool, ok_if_absent: bool = False) -> None:
     tracked_pid = read_pidfile()
     health = fetch_health()
 
@@ -112,7 +112,7 @@ def _do_stop(force: bool, ok_if_absent: bool = False) -> None:
     print(f'pxt: stopped daemon (PID {pid_to_kill})')
 
 
-def _do_status(as_json: bool) -> None:
+def _status(as_json: bool) -> None:
     health = fetch_health()
     if health is None:
         print('pxt: no daemon running', file=sys.stderr)
