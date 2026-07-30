@@ -54,6 +54,12 @@ def pytest_addoption(parser: argparsing.Parser) -> None:
         default=None,
         help='Run tests against a cloud database, e.g. --cloud=pxt://pixeltable:clitest-e2e1',
     )
+    parser.addoption(
+        '--keep-cloud-resources',
+        action='store_true',
+        default=False,
+        help='Leave the hosted database and service created by the cloud e2e tests in place, for inspection.',
+    )
 
 
 def pytest_configure(config: PytestConfig) -> None:

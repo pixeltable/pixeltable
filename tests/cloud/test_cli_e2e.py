@@ -15,9 +15,8 @@ Required env:
 Optional env:
     PIXELTABLE_API_URL        (default: https://dev-internal-api.pixeltable.com)
     PIXELTABLE_CLOUD_HOST     (default: dev.pxt.run)
-    PXT_E2E_SVC_DOMAIN        (default: svc.<CLOUD_HOST>)
-    PXT_E2E_ORG          (default: pixeltable)
-    PXT_E2E_SKIP_CLEANUP      (set to 1 to leave resources for inspection)
+
+Pass --keep-cloud-resources to leave the database and service in place after the run.
 """
 
 from __future__ import annotations
@@ -43,12 +42,11 @@ pytestmark = [pytest.mark.cloud_e2e, pytest.mark.xdist_group('cloud_e2e')]
 
 _SAMPLE_APP = Path(__file__).parent / 'sample_app'
 
+_ORG = 'pixeltable'
+
 _API_KEY = os.environ.get('PIXELTABLE_API_KEY', '')
 _API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://dev-internal-api.pixeltable.com')
 _CLOUD_HOST = os.environ.get('PIXELTABLE_CLOUD_HOST', 'dev.pxt.run')
-_SVC_DOMAIN = os.environ.get('PXT_E2E_SVC_DOMAIN', f'svc.{_CLOUD_HOST}')
-_ORG = os.environ.get('PXT_E2E_ORG', 'pixeltable')
-_SKIP_CLEANUP = os.environ.get('PXT_E2E_SKIP_CLEANUP', '0') == '1'
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -160,7 +158,6 @@ class Resources(NamedTuple):
     svc_name: str
     db_uri: str
     svc_uri: str
-    svc_base: str
     table_uri: str  # pxt://org:db/e2e_items
 
 
@@ -189,20 +186,28 @@ def resources(request: pytest.FixtureRequest) -> Iterator[Resources]:
     db = f'clitest-e2e-{run_id}'
     db_uri = f'pxt://{_ORG}:{db}'
     svc_uri = f'{db_uri}/services/{_SVC_NAME}'
-    svc_base = f'https://{_ORG}-{db}.{_SVC_DOMAIN}/{_SVC_NAME}'
     table_uri = f'{db_uri}/e2e_items'
 
-    r = Resources(
-        org=_ORG, db=db, svc_name=_SVC_NAME, db_uri=db_uri, svc_uri=svc_uri, svc_base=svc_base, table_uri=table_uri
-    )
+    r = Resources(org=_ORG, db=db, svc_name=_SVC_NAME, db_uri=db_uri, svc_uri=svc_uri, table_uri=table_uri)
     try:
         yield r
     finally:
-        if _SKIP_CLEANUP or request.session.testsfailed > 0:
+        if request.config.getoption('--keep-cloud-resources') or request.session.testsfailed > 0:
             print(f'\n[cleanup skipped, resources left for inspection: {db_uri}]', flush=True)
         else:
             _pxt('service', 'delete', svc_uri, '--json', check=False)
             _pxt('db', 'delete', db_uri, '--json', check=False)
+
+
+@pytest.fixture(scope='module')
+def svc_base(resources: Resources) -> str:
+    """Root URL of the deployed service, as reported by `pxt service status`; routes hang off it."""
+    out = _pxt_json('service', 'status', resources.svc_uri)
+    json_line = next((line for line in out.splitlines() if line.startswith('{')), None)
+    assert json_line is not None, f'no JSON in service status output:\n{out}'
+    endpoint = json.loads(json_line).get('endpoint')
+    assert endpoint is not None, f'service status reports no endpoint:\n{out}'
+    return endpoint.rstrip('/')
 
 
 # ── tests ─────────────────────────────────────────────────────────────────────
@@ -376,8 +381,8 @@ class TestCloudE2E:
         out = _pxt_json('service', 'status', resources.svc_uri)
         assert 'AVAILABLE' in out
 
-    def test_route_insert(self, resources: Resources) -> None:
-        resp = _post(f'{resources.svc_base}/insert', {'id': 9000, 'name': 'lifecycle_probe'})
+    def test_route_insert(self, svc_base: str) -> None:
+        resp = _post(f'{svc_base}/insert', {'id': 9000, 'name': 'lifecycle_probe'})
         assert resp.status_code == 200
         assert 'name_upper' in resp.text
 
@@ -392,18 +397,18 @@ class TestCloudE2E:
         out = _sdk(code)
         assert 'rows: 1' in out, f'SDK did not see id=9000 inserted via service:\n{out}'
 
-    def test_route_compute(self, resources: Resources) -> None:
-        resp = _post(f'{resources.svc_base}/compute', {'id': 9001, 'name': 'compute_probe'})
+    def test_route_compute(self, svc_base: str) -> None:
+        resp = _post(f'{svc_base}/compute', {'id': 9001, 'name': 'compute_probe'})
         assert resp.status_code == 200
         assert 'COMPUTE_PROBE' in resp.text
 
-    def test_route_update(self, resources: Resources) -> None:
-        resp = _post(f'{resources.svc_base}/update', {'id': 9000, 'name': 'updated_probe'})
+    def test_route_update(self, svc_base: str) -> None:
+        resp = _post(f'{svc_base}/update', {'id': 9000, 'name': 'updated_probe'})
         assert resp.status_code == 200
         assert 'UPDATED_PROBE' in resp.text
 
-    def test_route_delete(self, resources: Resources) -> None:
-        resp = _post(f'{resources.svc_base}/delete', {'id': 9000})
+    def test_route_delete(self, svc_base: str) -> None:
+        resp = _post(f'{svc_base}/delete', {'id': 9000})
         assert resp.status_code == 200
         assert 'num_rows' in resp.text
 
@@ -454,10 +459,10 @@ class TestCloudE2E:
         out = _wait_for_state('service', resources.svc_uri, 'AVAILABLE', timeout=180)
         assert 'AVAILABLE' in out
 
-    def test_route_query(self, resources: Resources) -> None:
+    def test_route_query(self, svc_base: str) -> None:
         # Rolling update race: after service update the old pod (without /find) may still
         # serve while the new pod is pulling the update-runtime image. Give it up to 3 min.
-        resp = _get(f'{resources.svc_base}/find', params={'item_id': 1}, retries=24, delay=8.0)
+        resp = _get(f'{svc_base}/find', params={'item_id': 1}, retries=24, delay=8.0)
         assert resp.status_code == 200, f'/find returned {resp.status_code}: {resp.text[:300]}'
         assert 'item_1' in resp.text
 
@@ -502,8 +507,8 @@ class TestCloudE2E:
         assert '9001_ok: True' in out, f'id=9001 missing after restart:\n{out}'
         assert '9000_gone: True' in out, f'id=9000 reappeared after restart:\n{out}'
 
-    def test_route_insert_after_restart(self, resources: Resources) -> None:
-        resp = _post(f'{resources.svc_base}/insert', {'id': 9002, 'name': 'post_restart'})
+    def test_route_insert_after_restart(self, svc_base: str) -> None:
+        resp = _post(f'{svc_base}/insert', {'id': 9002, 'name': 'post_restart'})
         assert resp.status_code == 200
         assert 'name_upper' in resp.text
 

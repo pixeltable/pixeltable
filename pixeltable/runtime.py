@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import logging
-import os
 import threading
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Coroutine, Iterator, Literal, TypeVar
@@ -15,6 +14,7 @@ from rich.progress import Progress
 from sqlalchemy import orm
 
 from pixeltable import exceptions as excs
+from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.utils import fault_injection
 
@@ -159,10 +159,11 @@ class Runtime:
                 f'A Pixeltable API key is required to connect to hosted database {catalog_uri!r}. '
                 'Set PIXELTABLE_API_KEY or add api_key to your config.',
             )
-        # Optional domain suffix override for the proxy endpoint (PIXELTABLE_CLOUD_HOST).
-        cloud_domain = os.environ.get('PIXELTABLE_CLOUD_HOST') or None
+        # Optional domain suffix override for the proxy endpoint; cloud_host is deliberately not a registered
+        # config option: PIXELTABLE_CLOUD_HOST is the only override.
+        cloud_domain = Config.get().get_string_value('cloud_host')
         port_override = 9000
-        if cloud_domain and ':' in cloud_domain:
+        if cloud_domain is not None and ':' in cloud_domain:
             cloud_domain, _, port_str = cloud_domain.rpartition(':')
             try:
                 port_override = int(port_str)
@@ -171,12 +172,12 @@ class Runtime:
                     excs.ErrorCode.GENERIC_USER_ERROR,
                     f'Invalid PIXELTABLE_CLOUD_HOST value: port {port_str!r} is not a valid integer.',
                 ) from err
-            if not cloud_domain:
+            if cloud_domain == '':
                 raise excs.Error(
                     excs.ErrorCode.GENERIC_USER_ERROR,
                     f'Invalid PIXELTABLE_CLOUD_HOST value: missing host before ":{port_str}".',
                 )
-        host = f'{catalog_uri.org}-{catalog_uri.db}.{cloud_domain}' if cloud_domain else None
+        host = None if cloud_domain is None else f'{catalog_uri.org}-{catalog_uri.db}.{cloud_domain}'
         return CatalogProxy(
             catalog_uri, ProxyClient.remote(catalog_uri.org, catalog_uri.db, api_key, host=host, port=port_override)
         )

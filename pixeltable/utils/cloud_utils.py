@@ -7,7 +7,6 @@ such as obtaining temporary credentials for home buckets.
 
 from __future__ import annotations
 
-import os
 from typing import Literal
 
 import requests
@@ -15,14 +14,13 @@ import requests
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
+from pixeltable.service.management_client import api_url
 from pixeltable.service.pxtfs_protocol import (
     GetBucketCredentialsRequest,
     GetBucketCredentialsResponse,
     GetPresignedUrlRequest,
     GetPresignedUrlResponse,
 )
-
-PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.pixeltable.com')
 
 
 def _api_headers() -> dict[str, str]:
@@ -55,7 +53,7 @@ def get_bucket_credentials(org: str, db: str, bucket: str, prefix: str | None = 
     """
     request = GetBucketCredentialsRequest(org=org, db=db, bucket_name=bucket, prefix=prefix)
     try:
-        response = requests.post(PIXELTABLE_API_URL, data=request.model_dump_json(), headers=_api_headers(), timeout=15)
+        response = requests.post(api_url(), data=request.model_dump_json(), headers=_api_headers(), timeout=15)
         if response.status_code != 200:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_ERROR,
@@ -82,7 +80,7 @@ def get_presigned_url_from_cloud(
     """
     request = GetPresignedUrlRequest(org=org, db=db, bucket_name=bucket, key=key, method=method, expiration=expiration)
     try:
-        response = requests.post(PIXELTABLE_API_URL, data=request.model_dump_json(), headers=_api_headers(), timeout=30)
+        response = requests.post(api_url(), data=request.model_dump_json(), headers=_api_headers(), timeout=30)
         if response.status_code != 200:
             raise excs.ExternalServiceError(
                 excs.ErrorCode.PROVIDER_ERROR,

@@ -7,13 +7,13 @@ this module constructs the protocol request objects and returns raw response dic
 from __future__ import annotations
 
 import http.cookiejar
-import os
 from typing import Any
 
 import requests
 from requests.adapters import HTTPAdapter, Retry
 
 from pixeltable import exceptions as excs
+from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.service.management_protocol import (
     CreateDbRequest,
@@ -35,7 +35,15 @@ from pixeltable.service.management_protocol import (
     UpdateServiceRequest,
 )
 
-PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.pixeltable.com')
+_DEFAULT_API_URL = 'https://internal-api.pixeltable.com'
+
+
+def api_url() -> str:
+    """URL of the Pixeltable cloud management API."""
+    # api_url is deliberately not a registered config option: PIXELTABLE_API_URL is the only override
+    url = Config.get().get_string_value('api_url')
+    return _DEFAULT_API_URL if url is None else url
+
 
 _LONG_OPS = frozenset({'create_db', 'update_runtime', 'delete_db'})
 
@@ -84,14 +92,14 @@ def api_call(request: Any) -> dict[str, Any]:
     timeout = 180 if op_str in _LONG_OPS else 30
     body = request.model_dump_json()
     try:
-        resp = _SESSION.post(PIXELTABLE_API_URL, data=body, headers=_api_headers(), timeout=timeout)
+        resp = _SESSION.post(api_url(), data=body, headers=_api_headers(), timeout=timeout)
     except requests.exceptions.ConnectionError:
         # a pooled connection closed by the peer while idle fails the call that next picks it up.
         # Retrying gets a new connection, but is only safe for operations that a second delivery
         # cannot change.
         if op_str not in _READ_OPS:
             raise
-        resp = _SESSION.post(PIXELTABLE_API_URL, data=body, headers=_api_headers(), timeout=timeout)
+        resp = _SESSION.post(api_url(), data=body, headers=_api_headers(), timeout=timeout)
     if resp.status_code not in (200, 201):
         raise excs.ExternalServiceError(
             excs.ErrorCode.PROVIDER_ERROR,
