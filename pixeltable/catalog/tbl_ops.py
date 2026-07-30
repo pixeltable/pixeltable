@@ -136,7 +136,7 @@ class LoadViewOp(TableOp):
         fault_injection.process_fault(FaultLocation.CATALOG_LOAD_VIEW_OP_EXEC)
         assert get_runtime().in_xact
         view_path = TableVersionPath.from_dict(self.view_path)
-        plan, _ = Planner.create_view_load_plan(view_path)
+        plan = Planner.create_view_load_plan(view_path)
         with get_runtime().report_progress():
             plan.ctx.title = tv.display_str()
             _, row_counts, _ = tv.store_tbl.insert_rows(plan, v_min=tv.version)

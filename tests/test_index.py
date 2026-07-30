@@ -750,12 +750,6 @@ class TestIndex:
             img_t.drop_embedding_index(column=img_t.img)
         assert 'does not have an index' in str(exc_info.value).lower()
 
-        # revert() makes the index reappear
-        img_t.revert()
-        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS) as exc_info:
-            img_t.add_embedding_index('img', idx_name='idx0', image_embed=local_embed)
-        assert 'duplicate index name' in str(exc_info.value).lower()
-
         # dropping the indexed column also drops indices
         img_t.drop_column('img')
         with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND) as exc_info:

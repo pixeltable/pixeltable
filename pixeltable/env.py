@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import datetime
 import glob
 import http.server
@@ -46,6 +47,15 @@ _logger = logging.getLogger(__name__)
 LOG_FMT_STR = '%(asctime)s %(levelname)s %(threadName)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
 T = TypeVar('T')
+
+
+def store_app_name() -> str:
+    """The application_name that this process's connections report to the store.
+
+    Identifies them in pg_stat_activity; the pid makes it distinguishable from the connections of other Pixeltable
+    processes running against the same database.
+    """
+    return f'pixeltable-{os.getpid()}'
 
 
 class Env:
@@ -478,8 +488,9 @@ class Env:
         metadata.create_system_info(self._sa_engine)
 
     def _create_engine(self, time_zone_name: str, echo: bool = False) -> None:
-        # Add timezone option to connection string
+        # Add timezone and application_name options to connection string
         updated_url = add_option_to_db_url(self.db_url, f'-c timezone={time_zone_name}')
+        updated_url = add_option_to_db_url(updated_url, f'-c application_name={store_app_name()}')
 
         self._sa_engine = sql.create_engine(
             updated_url, echo=echo, isolation_level=self._dbms.transaction_isolation_level
@@ -534,24 +545,13 @@ class Env:
         finally:
             engine.dispose()
 
-    def _pgserver_terminate_connections_stmt(self) -> str:
-        return f"""
-                SELECT pg_terminate_backend(pg_stat_activity.pid)
-                FROM pg_stat_activity
-                WHERE pg_stat_activity.datname = '{self._db_name}'
-                AND pid <> pg_backend_pid()
-            """
-
     def _drop_store_db(self) -> None:
         assert self._db_name is not None
         engine = sql.create_engine(self._dbms.default_system_db_url(), future=True, isolation_level='AUTOCOMMIT')
         preparer = engine.dialect.identifier_preparer
         try:
             with engine.begin() as conn:
-                # terminate active connections
-                if self._db_server is not None:
-                    conn.execute(sql.text(self._pgserver_terminate_connections_stmt()))
-                # drop db
+                # drop db; the statement force-terminates any active connections to it
                 stmt = self._dbms.drop_db_stmt(preparer.quote(self._db_name))
                 conn.execute(sql.text(stmt))
         finally:
@@ -824,10 +824,12 @@ class Env:
 
     def clear_tmp_dir(self) -> None:
         for path in glob.glob(f'{self._tmp_dir}/*'):
+            # another process sharing this home can remove an entry between the glob and the delete
             if os.path.isdir(path):
-                shutil.rmtree(path)
+                shutil.rmtree(path, ignore_errors=True)
             else:
-                os.remove(path)
+                with contextlib.suppress(FileNotFoundError):
+                    os.remove(path)
 
     # def get_resource_pool_info(self, pool_id: str, pool_info_cls: Type[T] | None) -> T:
     def get_resource_pool_info(self, pool_id: str, make_pool_info: Callable[[], T] | None = None) -> T:
@@ -885,24 +887,7 @@ class Env:
             except Exception as e:
                 _logger.warning(f'Error stopping HTTP server: {e}')
 
-        # First terminate all connections to the database
-        if self._db_server is not None:
-            assert self._dbms is not None
-            assert self._db_name is not None
-            try:
-                temp_engine = sql.create_engine(self._dbms.default_system_db_url(), isolation_level='AUTOCOMMIT')
-                try:
-                    with temp_engine.begin() as conn:
-                        conn.execute(sql.text(self._pgserver_terminate_connections_stmt()))
-                        _logger.info(f"Terminated all connections to database '{self._db_name}'")
-                except Exception as e:
-                    _logger.warning(f'Error terminating database connections: {e}')
-                finally:
-                    temp_engine.dispose()
-            except Exception as e:
-                _logger.warning(f'Error stopping database server: {e}')
-
-        # Dispose of SQLAlchemy engine (after stopping db server)
+        # Dispose of SQLAlchemy engine
         if self._sa_engine is not None:
             try:
                 self._sa_engine.dispose()

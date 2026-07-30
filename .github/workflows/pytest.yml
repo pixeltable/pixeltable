@@ -226,15 +226,19 @@ jobs:
         if: ${{ matrix.test-category == 'py' }}
         env:
           PXTTEST_CI_OS: ${{ matrix.os }}
+          # Collect coverage for every unit-test configuration in scheduled runs. pytest-cov ensures xdist workers
+          # are measured; other triggers avoid the tracing overhead.
+          PYTEST_COVERAGE_OPTS: >-
+            ${{ github.event_name == 'schedule' && '--cov=pixeltable --cov-report=term-missing' || '' }}
         # Run the tests with the 'expensive' marker only once, on ubuntu-24.04 with Python 3.10. The other tests
         # (including tests with the 'remote_api' marker that are not also marked 'expensive') will run on all matrix
         # configurations.
+        # --basetemp pins pytest's temp root dir so that the Archive step below works on all platforms
         run: |
           echo 'Running tests with options: ${{ matrix.pytest-options }}'
           echo 'Extra pre-test command    : ${{ matrix.pre-test-cmd }}'
           ${{ matrix.pre-test-cmd }}
-          coverage run -m --source=pixeltable pytest -v --strict-markers ${{ matrix.pytest-options }}
-          coverage report -m
+          pytest -v --strict-markers -n auto --dist loadgroup --basetemp="$RUNNER_TEMP/pxt-pytest" ${{ matrix.pytest-options }} $PYTEST_COVERAGE_OPTS
       - name: Run the OpenTelemetry instrumentation tests
         # The opentelemetry-instrumentation-pixeltable package is a separate distribution; the core suite does not
         # collect its tests (testpaths in pyproject.toml). It is tested here against a minimal install + otel extra.
@@ -288,14 +292,15 @@ jobs:
         if: ${{ matrix.test-category == 'lint' }}
         run: ./scripts/check-notebooks.sh
       - name: Archive log files
-        # Archive the log files even if a preceding step failed. Currently we do this only on ubuntu runners.
-        if: ${{ always() && startsWith(matrix.os, 'ubuntu') }}
+        if: ${{ always() && matrix.test-category == 'py' }}
         uses: actions/upload-artifact@v4
         with:
           name: pixeltable-pytest-logs-${{ matrix.display-name }}-${{ matrix.os }}-${{ matrix.python-version }}
+          if-no-files-found: ignore
           path: |
-            /tmp/pytest-of-runner/pytest-0/base0/.pixeltable/logs
-            /tmp/pytest-of-runner/pytest-0/base0/.pixeltable/proxy_*/logs
+            ${{ runner.temp }}/pxt-pytest/**/.pixeltable/logs
+            ${{ runner.temp }}/pxt-pytest/**/.pixeltable/proxy_*/logs
+          include-hidden-files: true
       - name: Print utilization info
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
         run: |

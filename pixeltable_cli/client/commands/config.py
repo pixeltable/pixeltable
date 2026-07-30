@@ -1,7 +1,7 @@
 import json
 
-from ..http import get
 from ..parser import Parser
+from ..utils import get_request
 
 EPILOG = """\
 Examples:
@@ -30,7 +30,7 @@ def run(argv: list[str]) -> None:
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)
 
-    resp = get('/api/config')
+    resp = get_request('/api/config')
     entries = resp['entries']
     if args.section is not None:
         entries = [e for e in entries if e['section'] == args.section]

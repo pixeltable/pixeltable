@@ -71,8 +71,24 @@ class TablePath(abc.ABC):
         else:
             return [self.tbl_id]
 
+    @property
+    def root(self) -> TablePath:
+        if self.base is None:
+            return self
+        return self.base.root
+
+    def schema_versions(self) -> dict[UUID, int]:
+        """The schema version of each table in this path, keyed by table id and ordered self -> root."""
+        if self.base is not None:
+            return {self.tbl_id: self.schema_version(), **self.base.schema_versions()}
+        else:
+            return {self.tbl_id: self.schema_version()}
+
     @abc.abstractmethod
     def tbl_name(self) -> str: ...
+
+    @abc.abstractmethod
+    def schema_version(self) -> int: ...
 
     @abc.abstractmethod
     def version(self) -> int | None: ...
@@ -91,6 +107,18 @@ class TablePath(abc.ABC):
 
     @abc.abstractmethod
     def is_mutable(self) -> bool: ...
+
+    def has_snapshot(self) -> bool:
+        """True if this table or one of its ancestors is a snapshot."""
+        return self.is_snapshot() or (self.base is not None and self.base.has_snapshot())
+
+    def has_iterator(self) -> bool:
+        """True if this table or one of its ancestors is a view created with an iterator."""
+        return self.is_component_view() or (self.base is not None and self.base.has_iterator())
+
+    @abc.abstractmethod
+    def has_sample_clause(self) -> bool:
+        """True if this table or one of its ancestors is defined with a sample clause."""
 
     @abc.abstractmethod
     def is_versioned(self) -> bool: ...
@@ -337,6 +365,11 @@ class TableVersionPath(TablePath):
     def is_insertable(self) -> bool:
         return self._cached_tv().is_insertable
 
+    def has_sample_clause(self) -> bool:
+        if self._cached_tv().sample_clause is not None:
+            return True
+        return self.base is not None and self.base.has_sample_clause()
+
     def comment(self) -> str:
         return self._cached_tv().comment
 
@@ -548,6 +581,9 @@ class TableMdPath(TablePath):
     def tbl_name(self) -> str:
         return self.md.tbl_md.name
 
+    def schema_version(self) -> int:
+        return self.md.schema_version_md.schema_version
+
     def media_validation(self) -> MediaValidation:
         return MediaValidation[self.md.schema_version_md.media_validation.upper()]
 
@@ -574,6 +610,12 @@ class TableMdPath(TablePath):
 
     def is_mutable(self) -> bool:
         return self.md.tbl_md.is_mutable
+
+    def has_sample_clause(self) -> bool:
+        view_md = self.md.tbl_md.view_md
+        if view_md is not None and view_md.sample_clause is not None:
+            return True
+        return self.base is not None and self.base.has_sample_clause()
 
     def is_versioned(self) -> bool:
         return self.md.tbl_md.is_versioned
