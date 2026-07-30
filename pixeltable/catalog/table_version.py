@@ -1586,11 +1586,14 @@ class TableVersion:
         if del_rows > 0 and self.is_versioned:
             # we're creating a new version
             self.bump_version(timestamp, bump_schema_version=False)
-        for view in self.mutable_views:
-            status = view.get().propagate_delete(
-                where=None, base_versions=[self.version, *base_versions], timestamp=timestamp
-            )
-            result += status.to_cascade()
+        # a table that deleted nothing has nothing beneath it to delete, and never bumped: passing on its
+        # current version would match the rows an earlier operation retired at that version
+        if del_rows > 0:
+            for view in self.mutable_views:
+                status = view.get().propagate_delete(
+                    where=None, base_versions=[self.version, *base_versions], timestamp=timestamp
+                )
+                result += status.to_cascade()
 
         if del_rows > 0 and self.is_versioned:
             self.set_version_update_status(result)

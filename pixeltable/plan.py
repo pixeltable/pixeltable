@@ -1007,7 +1007,6 @@ class Planner:
         - materializes cell values of 'columns' (and their cellmd, if applicable) into DataRow.cell_vals/cell_md
 
         Updates 'select_list' in place to make it executable.
-        TODO: make created_at_current_version a flag and use the versions from tbl
         """
         if select_list is None:
             select_list = []

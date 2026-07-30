@@ -1577,6 +1577,22 @@ class TestView:
                 additional_columns={'v1': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
             )
 
+    def test_noop_delete_of_base(self, make_catalog_path: Callable[[str], str]) -> None:
+        """A base delete that matches no rows leaves the views on top of it alone."""
+        p = make_catalog_path
+        t = pxt.create_table(p('tbl'), {'n': pxt.Int})
+        t.insert([{'n': 1}])
+        # no columns and no filter of its own: an update of t leaves v untouched, so it stays at its old version
+        v = pxt.create_view(p('v'), t)
+
+        t.update({'n': 2})
+        t.delete(where=t.n == 999)
+        assert v.select(v.n).collect()['n'] == [2]
+
+        # a delete that does match still propagates
+        t.delete(where=t.n == 2)
+        assert v.select(v.n).collect()['n'] == []
+
     def test_update_base_of_nested_view(self, make_catalog_path: Callable[[str], str]) -> None:
         """Updating a base column keeps every row of a view two levels below it visible."""
         p = make_catalog_path
