@@ -355,7 +355,7 @@ class TestSchema:
 
         # the file the command emits has to be one that actually works
         schema_file = tmp_path / 'example.py'
-        schema_file.write_text(cli('schema', 'example').stdout)
+        schema_file.write_text(cli('schema', 'example', '--brief').stdout)
 
         r = cli('schema', 'update', str(schema_file), target)
         assert r.stdout.count('created') == 2
@@ -365,11 +365,23 @@ class TestSchema:
         assert titled.select(titled.headline).collect()['headline'] == ['HELLO!']
         assert cli('schema', 'diff', str(schema_file), target).returncode == 0
 
-        # --out writes the same bytes to a file
+        # --out writes the same bytes to a file, for either form
         out_file = tmp_path / 'out.py'
-        r = cli('schema', 'example', '--out', str(out_file))
+        r = cli('schema', 'example', '--brief', '--out', str(out_file))
         assert f'wrote {out_file}' in r.stdout
         assert out_file.read_text() == schema_file.read_text()
+        cli('schema', 'example', '--out', str(out_file))
+        assert out_file.read_text() == cli('schema', 'example').stdout
+
+        # the full example is the default, and it declares every construct the DSL supports
+        full = out_file.read_text()
+        assert all(
+            construct in full
+            for construct in ('pxt.Column(', 'pxt.EmbeddingIndex(', 'iterator=', 'base=', 'pxt.Document')
+        )
+        # it has to be a file the daemon can import and plan, media types and embedding index included
+        r = cli('schema', 'diff', str(out_file), p('full_example'), check=False)
+        assert r.returncode == 2, r.stderr  # 2 = changes pending, ie the plan was computed
 
         # the file is reachable from wherever an agent lands: the verb list, and every verb's help
         assert 'example' in cli('schema', check=False).stdout

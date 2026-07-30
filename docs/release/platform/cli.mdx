@@ -346,12 +346,13 @@ The commands above act on one object at a time. `pxt schema` works differently: 
 
 ### The schema file
 
-A schema file defines one or more models on a `pxt.model_base()`. Each model becomes one table, named by `name=`. `pxt schema example` writes the file below, so you never have to start from a blank page:
+A schema file defines one or more models on a `pxt.model_base()`. Each model becomes one table, named by `name=`. `pxt schema example` writes a file covering every construct the schema DSL supports, so you never have to start from a blank page and never have to look a construct up:
 
 ```bash
 pxt schema example --out schema.py
 ```
 
+`pxt schema example --brief` writes the minimal version instead:
 
 ```python
 import pixeltable as pxt

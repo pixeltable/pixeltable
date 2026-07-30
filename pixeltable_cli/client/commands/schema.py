@@ -12,7 +12,7 @@ from ..utils import post_request
 
 # a working schema file: written verbatim by 'pxt schema example', and shown indented in every verb's epilog,
 # because otherwise the shape of a model file has to be guessed
-_EXAMPLE_SCHEMA = """\
+_BRIEF_EXAMPLE_SCHEMA = """\
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 
@@ -29,12 +29,83 @@ class Titled(TableModel, name='titled', base=Docs.where(Docs.title != '')):
     headline = Docs.title_upper + '!'         # a view of Docs, filtered by its base= query
 """
 
+_EXAMPLE_SCHEMA = '''\
+"""Pixeltable schema, written by 'pxt schema example'.
+
+Every construct the schema DSL supports appears below; delete what you do not need.
+'pxt schema example --brief' prints a minimal starting point instead.
+
+'pxt schema diff FILE TARGET' reports what applying this would change; 'pxt schema update' applies it.
+Building an application with Pixeltable? The agent skill carries the full API:
+    npx skills add pixeltable/pixeltable-skill
+"""
+
+import pixeltable as pxt
+import pixeltable.functions as pxtf
+
+TableModel = pxt.model_base()
+
+
+class Docs(TableModel, name='docs'):
+    """One model becomes one table, named by name=."""
+
+    # an annotation declares a stored column; pxt.Required makes it non-nullable
+    doc_id: pxt.Required[pxt.Int]
+    title: pxt.Required[pxt.String]
+    body: pxt.String
+    published: pxt.Timestamp
+    tags: pxt.Json
+    rating: pxt.Float
+    is_draft: pxt.Bool
+    embedding: pxt.Array[(384,), pxt.Float]
+    source: pxt.Document  # a media column takes a local path or a URL on insert
+
+    # an assignment declares a computed column, evaluated on insert and on update
+    title_upper = pxtf.string.upper(title)
+    summary = pxtf.string.slice(body, 0, 80)
+
+    # an embedding index makes a column searchable by similarity
+    body_idx = pxt.EmbeddingIndex(
+        body, embedding=pxtf.huggingface.sentence_transformer.using(model_id='intfloat/e5-large-v2')
+    )
+
+
+class Recordings(TableModel, name='recordings'):
+    """The other media types, and the column properties an annotation cannot express."""
+
+    recording_id: pxt.Required[pxt.Int]
+    cover: pxt.Image
+    narration: pxt.Audio
+    clip: pxt.Video
+
+    thumbnail = pxt.Column(value=cover.rotate(90), stored=False)  # computed on read, never stored
+    scan = pxt.Column(type=pxt.Image, media_validation='on_read', comment='validated on read, not on insert')
+
+
+class Titled(TableModel, name='titled', base=Docs.where(Docs.title != '')):
+    """A view: base= is a query over another model. Its rows follow the base and are not inserted directly."""
+
+    headline = Docs.title_upper + '!'
+
+
+class Sentences(
+    TableModel,
+    name='sentences',
+    base=Docs,
+    iterator=pxtf.string.string_splitter(Docs.body, separators='sentence'),
+):
+    """A component view: one row per item the iterator produces from each base row."""
+
+    # 'text' is an output column of the iterator, not declared here
+    length = pxtf.string.len(text)  # type: ignore[name-defined]  # noqa: F821
+'''
+
 _SCHEMA_FILE = f"""\
 Schema file:
-  A Python module defining one or more models on a pxt.model_base(). To start from this one, run
-  'pxt schema example'.
+  A Python module defining one or more models on a pxt.model_base(). This is the minimal form;
+  'pxt schema example' writes one covering every supported construct.
 
-{textwrap.indent(_EXAMPLE_SCHEMA.rstrip(), '    ')}
+{textwrap.indent(_BRIEF_EXAMPLE_SCHEMA.rstrip(), '    ')}
 
   Each model becomes one table under TARGET, named by name=."""
 
@@ -116,11 +187,14 @@ Notes:
 EXAMPLE_EPILOG = f"""\
 Examples:
   pxt schema example                       # print it
+  pxt schema example --brief               # a minimal schema instead
   pxt schema example --out schema.py       # write it, then edit and apply
   pxt schema example --out schema.py && pxt schema update schema.py my_app
 
 Notes:
   The file is a working schema: applying it as-is creates the tables it declares.
+  It covers every construct the DSL supports, so there is nothing to look up elsewhere; delete
+  whatever the application does not need.
 
 {_SCHEMA_FILE}"""
 
@@ -174,7 +248,9 @@ def run(argv: list[str]) -> None:
     if verb == 'example':
         ap = Parser(prog='pxt schema example', epilog=EXAMPLE_EPILOG, usage_exit_code=EXIT_ERROR)
         ap.add_argument('--out', help='write to this file instead of standard output')
-        _example(ap.parse_args(argv[1:]).out)
+        ap.add_argument('--brief', action='store_true', help='a minimal schema instead of the full one')
+        args = ap.parse_args(argv[1:])
+        _example(args.out, brief=args.brief)
         return
 
     epilogs = {'diff': DIFF_EPILOG, 'update': UPDATE_EPILOG, 'prune': PRUNE_EPILOG}
@@ -220,11 +296,12 @@ def run(argv: list[str]) -> None:
         )
 
 
-def _example(out: str | None) -> None:
+def _example(out: str | None, *, brief: bool) -> None:
+    text = _BRIEF_EXAMPLE_SCHEMA if brief else _EXAMPLE_SCHEMA
     if out is None:
-        sys.stdout.write(_EXAMPLE_SCHEMA)
+        sys.stdout.write(text)
         return
-    Path(out).write_text(_EXAMPLE_SCHEMA, encoding='utf-8')
+    Path(out).write_text(text, encoding='utf-8')
     print(f'wrote {out}')
 
 
