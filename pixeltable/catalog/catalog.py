@@ -5,6 +5,7 @@ import functools
 import logging
 import random
 import time
+import warnings
 from collections import defaultdict
 from collections.abc import Collection, Sequence
 from contextlib import contextmanager
@@ -3103,15 +3104,18 @@ class Catalog(CatalogBase):
         """Validate the underlying store for testing purposes.
         This function can and should be extended to perform more checks.
         """
-        all_contents = self.get_dir_contents(ROOT_PATH, recursive=True)
-        with self.begin_xact(for_write=False), self._allow_tbl_md_read():
-            for entry in all_contents.values():
-                if entry.table is None:
-                    continue
-                id = entry.table.id
-                tbl = self.get_table_by_id(id)
-                assert tbl is not None, id
-                self._validate_table(tbl)
+        # Some tests intentionally cause warnings (e.g. UDF is gone). Ignore those warnings.
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', excs.PixeltableWarning)
+            all_contents = self.get_dir_contents(ROOT_PATH, recursive=True)
+            with self.begin_xact(for_write=False), self._allow_tbl_md_read():
+                for entry in all_contents.values():
+                    if entry.table is None:
+                        continue
+                    id = entry.table.id
+                    tbl = self.get_table_by_id(id)
+                    assert tbl is not None, id
+                    self._validate_table(tbl)
 
     def _validate_table(self, tbl: pxt.Table) -> None:
         if tbl._tbl_version is None:
