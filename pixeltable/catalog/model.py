@@ -1479,8 +1479,7 @@ def _format_diff(name: str, diff: TableDiff) -> list[str]:
     return [f'{kind.capitalize()} {name!r} (from model `{diff["model_cls"]}`) has differences:', *detail]
 
 
-# closing lines of the refusals raised by create_all()/update_all(), phrased for the Python API;
-# other callers pass their own
+# closing lines of the refusals raised by create_all()/update_all(), phrased for the Python API
 _PY_MISMATCH_HINT = 'Call `update_all()` instead if you intended to also modify existing tables.'
 _PY_DESTRUCTIVE_HINT = (
     'If you wish to apply these changes, re-run `update_all()` with `allow_destructive=True`.\n'
@@ -1517,11 +1516,8 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
             (created if was_created else existed).append(str(tbl._path()))
         return created, existed
 
-    def _create_all(catalog_dir: str = '', *, mismatch_hint: str = _PY_MISMATCH_HINT) -> tuple[list[str], list[str]]:
-        """Returns (created, existing): absolute paths of tables created now and those that already exist.
-
-        mismatch_hint closes the error raised when an existing table differs from its model
-        """
+    def _create_all(catalog_dir: str = '') -> tuple[list[str], list[str]]:
+        """Returns (created, existing): absolute paths of tables created now and those that already exist."""
         # `create_all()` only creates tables; it never mutates an existing one. If any existing table differs from
         # its model, refuse.
         diffs = validate_models(registered_models, catalog_dir)
@@ -1530,7 +1526,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
             detail = '\n'.join(line for name, d in changed for line in _format_diff(name, d))
             raise excs.RequestError(
                 excs.ErrorCode.SCHEMA_MISMATCH,
-                f'One or more existing tables differ from their models.\n{detail}\n{mismatch_hint}',
+                f'One or more existing tables differ from their models.\n{detail}\n{_PY_MISMATCH_HINT}',
             )
 
         return _create_models(catalog_dir, {name for name, d in diffs.items() if not d['exists']})

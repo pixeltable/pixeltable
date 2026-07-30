@@ -415,7 +415,7 @@ pxt schema update schema.py my_app -n                       # the plan, applying
 pxt schema update schema.py my_app --allow-destructive -f   # including drops
 ```
 
-Applying is all-or-nothing. If the plan contains a destructive operation and `--allow-destructive` is absent, nothing at all is applied and `update` exits `3`.
+If the plan contains a destructive operation and `--allow-destructive` is absent, nothing at all is applied and `update` exits `3`.
 
 <Warning>
 Dropping a column or an index destroys its data. Run `pxt schema diff` (or `update -n`) first: the plan marks every operation `safe`, `DESTRUCTIVE`, or `UNSUPPORTED`.

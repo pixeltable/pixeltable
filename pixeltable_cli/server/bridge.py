@@ -637,15 +637,15 @@ def _list_tables(pxt_path: PxtPath) -> list[PxtPath]:
 
 
 def schema_diff(schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaPlan:
-    """The changes that schema_update() would make to reconcile the binding root with the schema file.
+    """The changes that schema_update() would make to reconcile the catalog directory with the schema file.
 
-    Read-only: never creates the binding root, and never touches an existing table.
+    Read-only: never creates the catalog directory, and never touches an existing table.
     """
     return _schema_plan(_load_model_bases(schema_file), schema_file, catalog_dir)
 
 
 def _schema_plan(bases: list[model.TableModelMeta], schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaPlan:
-    """The plan for reconciling the binding root with the models declared by the given bases."""
+    """The plan for reconciling the catalog directory with the models declared by the given bases."""
     tables: list[schema_types.TableDiff] = []
     for base in bases:
         for diff in base.get_model_diff(catalog_dir).values():
@@ -701,7 +701,7 @@ def _plan_op(op: model.SchemaChangeOp) -> schema_types.SchemaChangeOp:
 
 
 def schema_prune(schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaPlan:
-    """Drop the tables under the binding root that no model in the schema file declares.
+    """Drop the tables under catalog_dir that no model in the schema file declares.
 
     Returns the plan, with one drop_table operation per dropped table. A view is dropped before its base, so that
     pruning a group of related tables does not depend on the order they are listed in. Nothing is force-dropped:
@@ -733,16 +733,15 @@ def schema_prune(schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaP
 def schema_update(
     schema_file: str, catalog_dir: PxtPath, *, allow_destructive: bool = False
 ) -> schema_types.SchemaPlan:
-    """Reconcile the binding root with the schema file: create missing tables and migrate existing ones.
+    """Reconcile the tree under catalog_dir with the schema file: create missing tables and migrate existing ones.
 
-    Returns the plan that was applied, each operation annotated with its status. Applying is all-or-nothing, so a
-    failure raises rather than reporting a partially applied plan.
+    Returns the plan that was applied, each operation annotated with its status.
     """
     bases = _load_model_bases(schema_file)
     plan = _schema_plan(bases, schema_file, catalog_dir)
 
-    # only create the binding root when it names an in-catalog path; a bare catalog root (eg '' or
-    # 'pxt://org:db') has no directory to create
+    # only create catalog_dir when it names an in-catalog path; a bare catalog root (eg '' or 'pxt://org:db')
+    # has no directory to create
     if len(CatalogPath.parse(catalog_dir, allow_empty_path=True).components) > 0:
         pxt.create_dir(catalog_dir, parents=True, if_exists='ignore')
 

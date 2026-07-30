@@ -67,7 +67,7 @@ class SchemaPlan(_PlanOps):
     catalog_dir: PxtPath
     in_agreement: bool  # True if no table needs a create or an update; extras don't count
     tables: list[TableDiff]
-    extras: list[PxtPath]  # tables under the binding root that no model declares
+    extras: list[PxtPath]  # tables under catalog_dir that no model declares
     summary: SchemaPlanSummary
 
 
