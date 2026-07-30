@@ -682,7 +682,7 @@ class TableVersion:
 
         # remove this index entry from the active indexes (in memory)
         # and the index metadata (in persistent table metadata)
-        # TODO: this is wrong, it breaks revert()
+        # TODO(PXT-1254): this is wrong, it breaks revert()
         del self.idxs[idx_id]
         del self.idxs_by_name[idx_md.name]
         if idx_info.col.qid in self.idxs_by_col:
