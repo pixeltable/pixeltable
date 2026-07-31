@@ -149,7 +149,7 @@ class Runtime:
                 excs.ErrorCode.SERVICE_NOT_FOUND,
                 f'No local proxy is running for {db!r}. Start it with: pxt localproxy start {db}',
             )
-        return CatalogProxy(catalog_uri, ProxyClient(f'http://127.0.0.1:{info["port"]}'))
+        return CatalogProxy(catalog_uri, ProxyClient(f'http://127.0.0.1:{info["port"]}', catalog_uri))
 
     @property
     def event_loop(self) -> asyncio.AbstractEventLoop:
