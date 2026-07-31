@@ -1815,10 +1815,10 @@ class TableVersion:
     def default_idxs_enabled(self) -> bool:
         """Whether eligible columns of this table get a default B-tree index.
 
-        Tables created before this property was recorded in the metadata return True.
+        Tables created before this property was recorded in the metadata return False.
         """
         md_value = self._tbl_md.default_idxs_enabled
-        return True if md_value is None else md_value
+        return False if md_value is None else md_value
 
     def bump_version(self, timestamp: float | None = None, *, bump_schema_version: bool) -> None:
         """
