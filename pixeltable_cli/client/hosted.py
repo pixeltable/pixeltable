@@ -31,6 +31,24 @@ def parse_db_uri(uri: str, prog: str = 'pxt') -> tuple[str, str]:
     return parts.org, parts.db
 
 
+def resolve_db_uri(db_uri: str | None, prog: str = 'pxt') -> tuple[str, str]:
+    """Parse pxt://org:db and return (org, db), defaulting to the configured pixeltable.db_uri. Exits on error."""
+    if db_uri is None:
+        resp = get_request('/api/config')
+        entries = resp.get('entries', []) if isinstance(resp, dict) else []
+        configured = next(
+            (e.get('value') for e in entries if e.get('section') == 'pixeltable' and e.get('key') == 'db_uri'), None
+        )
+        if configured is None:
+            print(
+                f'{prog}: error: no database URI given, and no db_uri is set in the Pixeltable config file',
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        db_uri = configured
+    return parse_db_uri(db_uri, prog=prog)
+
+
 def parse_org_uri(uri: str, prog: str = 'pxt') -> str:
     """Parse pxt://org and return org. Exits on error."""
     parts = split_pxt_uri(uri)
@@ -164,7 +182,7 @@ def poll_state(
     endpoint: str,
     params: dict[str, str],
     result_key: str,
-    pending_states: frozenset[str],
+    pending_states: set[str],
     interval: float,
     timeout: float,
     label: str | None,
@@ -191,28 +209,24 @@ def poll_state(
     return result
 
 
-def exit_if_pending(result: dict[str, Any], pending_states: frozenset[str], waited_for: str) -> None:
-    """Report an unfinished transition and exit 1. waited_for names it, eg 'the database to start'.
-
-    A state still in pending_states means the transition did not complete; an empty result means no state
-    was read at all.
-    """
-    if len(result) > 0 and result.get('state') not in pending_states:
-        return
+def exit_unless_reached(result: dict[str, Any], expected_state: str, operation: str) -> None:
+    """Exit with 1 unless the operation reached expected_state."""
     state = result.get('state')
+    if state == expected_state:
+        return
     seen = 'no state was read' if state is None else f'last state: {state}'
-    print(f'pxt: timed out waiting for {waited_for} ({seen}); the operation may still be running', file=sys.stderr)
+    print(f'pxt: {operation} did not complete ({seen})', file=sys.stderr)
     sys.exit(1)
 
 
-def poll_db(org: str, db: str, pending_states: frozenset[str], label: str | None) -> dict[str, Any]:
+def poll_db(org: str, db: str, pending_states: set[str], label: str | None) -> dict[str, Any]:
     """Poll a hosted database until its state leaves pending_states."""
     return poll_state(
         '/api/db', {'org': org, 'db': db}, 'database', pending_states, DB_POLL_INTERVAL, DB_POLL_TIMEOUT, label
     )
 
 
-def poll_svc(org: str, db: str, svc_name: str, pending_states: frozenset[str], label: str | None) -> dict[str, Any]:
+def poll_svc(org: str, db: str, svc_name: str, pending_states: set[str], label: str | None) -> dict[str, Any]:
     """Poll a hosted service until its state leaves pending_states."""
     return poll_state(
         '/api/service',

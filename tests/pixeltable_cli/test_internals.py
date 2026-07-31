@@ -1709,15 +1709,20 @@ class TestHostedCommandRequests:
         """Run one CLI command with the daemon stubbed out, and return the body it posted."""
         posted: list[dict[str, Any]] = []
 
+        # each command checks that its resource reached the state the operation aims for, so the stubs
+        # report the state that operation ends in
         def post_request(path: str, body: dict[str, Any]) -> dict[str, Any]:
             posted.append(body)
-            return {}
+            return {'state': 'STOPPED' if path.endswith('/stop') else 'AVAILABLE'}
+
+        def poll(org: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
+            pending = next((a for a in args if isinstance(a, set)), set())
+            return {'state': 'STOPPED' if 'STOPPING' in pending else 'AVAILABLE'}
 
         monkeypatch.setattr(module, 'post_request', post_request)
         monkeypatch.setattr(module, 'get_request', lambda path, params=None: {})
-        # a state outside every pending set, so the command reads the transition as complete
-        monkeypatch.setattr(module, 'poll_db', lambda *args, **kwargs: {'state': 'AVAILABLE'}, raising=False)
-        monkeypatch.setattr(module, 'poll_svc', lambda *args, **kwargs: {'state': 'AVAILABLE'}, raising=False)
+        monkeypatch.setattr(module, 'poll_db', poll, raising=False)
+        monkeypatch.setattr(module, 'poll_svc', poll, raising=False)
         module.run(argv)
         assert len(posted) == 1, posted
         return posted[0]
@@ -1918,7 +1923,7 @@ class TestPollState:
             return resp
 
         monkeypatch.setattr(hosted, 'get_request', fake_get_request)
-        return hosted.poll_state('/api/db', {}, 'database', frozenset({'PENDING'}), 0, timeout, None)
+        return hosted.poll_state('/api/db', {}, 'database', {'PENDING'}, 0, timeout, None)
 
     def test_returns_once_state_leaves_pending(self, monkeypatch: pytest.MonkeyPatch) -> None:
         responses = [{'database': {'state': 'PENDING'}}, {'database': {'state': 'AVAILABLE'}}]

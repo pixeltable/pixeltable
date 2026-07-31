@@ -11,12 +11,12 @@ from pathlib import Path
 from ..hosted import (
     RUNTIME_POLL_INTERVAL,
     RUNTIME_POLL_TIMEOUT,
-    exit_if_pending,
-    parse_db_uri,
+    exit_unless_reached,
     parse_org_uri,
     poll_db,
     poll_state,
     print_db,
+    resolve_db_uri,
 )
 from ..parser import Parser
 from ..utils import get_request, post_request
@@ -39,7 +39,7 @@ def run(argv: list[str]) -> None:
     sub = parser.add_subparsers(dest='action', required=True)
 
     p = sub.add_parser('create', help='create a hosted database')
-    p.add_argument('db_uri', help='Database URI: pxt://org:db')
+    p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
     p.add_argument('--location', default='aws', help='Cloud provider (default: aws)')
     p.add_argument('--region', default='us-east-1', help='Region (default: us-east-1)')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
@@ -49,19 +49,19 @@ def run(argv: list[str]) -> None:
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
     p = sub.add_parser('status', help='show status of a hosted database')
-    p.add_argument('db_uri', help='Database URI: pxt://org:db')
+    p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
     p = sub.add_parser('start', help='start (wake) a stopped hosted database')
-    p.add_argument('db_uri', help='Database URI: pxt://org:db')
+    p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
     p = sub.add_parser('stop', help='stop (sleep) a running hosted database')
-    p.add_argument('db_uri', help='Database URI: pxt://org:db')
+    p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
     p = sub.add_parser('update', help='update worker count or resource limits')
-    p.add_argument('db_uri', help='Database URI: pxt://org:db')
+    p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
     p.add_argument('--workers', type=int, default=None, help='Number of proxy daemon workers')
     p.add_argument('--cpu', type=float, default=None, help='CPU cores per worker')
     p.add_argument('--memory', type=int, default=None, dest='memory_mb', help='Memory per worker in MB')
@@ -69,7 +69,7 @@ def run(argv: list[str]) -> None:
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
     p = sub.add_parser('update-runtime', help='rebuild the Python runtime for a hosted database')
-    p.add_argument('db_uri', help='Database URI: pxt://org:db')
+    p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
     p.add_argument(
         '--project-dir',
         default=None,
@@ -79,7 +79,7 @@ def run(argv: list[str]) -> None:
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
     p = sub.add_parser('delete', help='delete a hosted database')
-    p.add_argument('db_uri', help='Database URI: pxt://org:db')
+    p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
     args = parser.parse_args(argv)
@@ -103,19 +103,16 @@ def run(argv: list[str]) -> None:
 
 
 def _create(args: argparse.Namespace) -> None:
-    org, db = parse_db_uri(args.db_uri, prog='pxt db create')
+    org, db = resolve_db_uri(args.db_uri, prog='pxt db create')
     resp = post_request('/api/dbs', {'org': org, 'db': db, 'location': args.location, 'region': args.region})
     result = resp.get('database', resp) if isinstance(resp, dict) else {}
-    pending: frozenset[str] | None = None  # set only if we waited, so a no-wait create isn't checked
     if result.get('state') == 'PROVISIONING':
-        result = poll_db(org, db, frozenset({'PROVISIONING'}), f"Database '{db}' is provisioning...")
-        pending = frozenset({'PROVISIONING'})
+        result = poll_db(org, db, {'PROVISIONING'}, f"Database '{db}' is provisioning...")
     if args.json_output:
         print(json.dumps(result))
     else:
         print_db(result)
-    if pending is not None:
-        exit_if_pending(result, pending, f'database {db!r} to finish provisioning')
+    exit_unless_reached(result, 'AVAILABLE', f'creating database {db!r}')
 
 
 def _list(args: argparse.Namespace) -> None:
@@ -132,7 +129,7 @@ def _list(args: argparse.Namespace) -> None:
 
 
 def _status(args: argparse.Namespace) -> None:
-    org, db = parse_db_uri(args.db_uri, prog='pxt db status')
+    org, db = resolve_db_uri(args.db_uri, prog='pxt db status')
     resp = get_request('/api/db', {'org': org, 'db': db})
     result = resp.get('database', resp) if isinstance(resp, dict) else {}
     if args.json_output:
@@ -142,29 +139,29 @@ def _status(args: argparse.Namespace) -> None:
 
 
 def _start(args: argparse.Namespace) -> None:
-    org, db = parse_db_uri(args.db_uri, prog='pxt db start')
+    org, db = resolve_db_uri(args.db_uri, prog='pxt db start')
     post_request('/api/db/start', {'org': org, 'db': db})
-    result = poll_db(org, db, frozenset({'UPDATING', 'STARTING'}), f"Database '{db}' is starting...")
+    result = poll_db(org, db, {'UPDATING', 'STARTING'}, f"Database '{db}' is starting...")
     if args.json_output:
         print(json.dumps(result))
     else:
         print_db(result)
-    exit_if_pending(result, frozenset({'UPDATING', 'STARTING'}), f'database {db!r} to start')
+    exit_unless_reached(result, 'AVAILABLE', f'starting database {db!r}')
 
 
 def _stop(args: argparse.Namespace) -> None:
-    org, db = parse_db_uri(args.db_uri, prog='pxt db stop')
+    org, db = resolve_db_uri(args.db_uri, prog='pxt db stop')
     post_request('/api/db/stop', {'org': org, 'db': db})
-    result = poll_db(org, db, frozenset({'STOPPING'}), f"Database '{db}' is stopping...")
+    result = poll_db(org, db, {'STOPPING'}, f"Database '{db}' is stopping...")
     if args.json_output:
         print(json.dumps(result))
     else:
         print_db(result)
-    exit_if_pending(result, frozenset({'STOPPING'}), f'database {db!r} to stop')
+    exit_unless_reached(result, 'STOPPED', f'stopping database {db!r}')
 
 
 def _update(args: argparse.Namespace) -> None:
-    org, db = parse_db_uri(args.db_uri, prog='pxt db update')
+    org, db = resolve_db_uri(args.db_uri, prog='pxt db update')
     resp = post_request(
         '/api/db/update',
         {
@@ -177,20 +174,17 @@ def _update(args: argparse.Namespace) -> None:
         },
     )
     result = resp.get('database', resp) if isinstance(resp, dict) else {}
-    pending: frozenset[str] | None = None  # set only if we waited, so a no-wait update isn't checked
     if result.get('state') == 'UPDATING':
-        result = poll_db(org, db, frozenset({'UPDATING'}), f"Database '{db}' is updating...")
-        pending = frozenset({'UPDATING'})
+        result = poll_db(org, db, {'UPDATING'}, f"Database '{db}' is updating...")
     if args.json_output:
         print(json.dumps(result))
     else:
         print_db(result)
-    if pending is not None:
-        exit_if_pending(result, pending, f'database {db!r} to finish updating')
+    exit_unless_reached(result, 'AVAILABLE', f'updating database {db!r}')
 
 
 def _delete(args: argparse.Namespace) -> None:
-    org, db = parse_db_uri(args.db_uri, prog='pxt db delete')
+    org, db = resolve_db_uri(args.db_uri, prog='pxt db delete')
     post_request('/api/db/delete', {'org': org, 'db': db})
     if args.json_output:
         print(json.dumps({'deleted': db}))
@@ -203,7 +197,7 @@ def _update_runtime(args: argparse.Namespace) -> None:
     # loading for the other db subcommands
     from pixeltable.serving.deploy import build_db_runtime_bundle
 
-    org, db = parse_db_uri(args.db_uri, prog='pxt db update-runtime')
+    org, db = resolve_db_uri(args.db_uri, prog='pxt db update-runtime')
 
     project_dir = (Path(args.project_dir) if args.project_dir is not None else Path.cwd()).resolve()
 
@@ -249,13 +243,7 @@ def _update_runtime(args: argparse.Namespace) -> None:
 
     label = None if args.json_output else 'Waiting for runtime build...'
     result = poll_state(
-        '/api/db',
-        {'org': org, 'db': db},
-        'database',
-        frozenset({'UPDATING'}),
-        RUNTIME_POLL_INTERVAL,
-        RUNTIME_POLL_TIMEOUT,
-        label,
+        '/api/db', {'org': org, 'db': db}, 'database', {'UPDATING'}, RUNTIME_POLL_INTERVAL, RUNTIME_POLL_TIMEOUT, label
     )
 
     build_failed = result.get('last_build_state') == 'FAILED'
@@ -271,4 +259,4 @@ def _update_runtime(args: argparse.Namespace) -> None:
         print(json.dumps(result))
     if build_failed:
         sys.exit(1)
-    exit_if_pending(result, frozenset({'UPDATING'}), f'the runtime build of database {db!r}')
+    exit_unless_reached(result, 'AVAILABLE', f'the runtime build of database {db!r}')

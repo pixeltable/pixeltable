@@ -49,8 +49,8 @@ These flags work the same way across the catalog commands that support them and 
 |---|---|---|
 | `-h`, `--help` | Every command | Print the command's usage and examples |
 | `--json` | Inspection, query, and mutation commands (`ls`, `describe`, `columns`, `computed`, `idxs`, `history`, `status`, `config`, `rows`, `get`, `count`, `errors`, `drop`, `drop-dir`, `rename`, `mv`, `revert`), plus `serve`, `db`, `service`, `org`, and `daemon status` | Emit machine-readable JSON instead. Not accepted by `shell` (interactive REPL), `health` (always JSON), `dashboard` (URL launcher), the navigation commands (`cd`, `pwd`), or the lifecycle subcommands that print plain status lines (`daemon start`/`stop`). |
-| `-n`, `--dry-run` | Every catalog mutation (`drop`, `rm`, `rename`, `mv`, `revert`) | Print the intended action; don't execute. `pxt serve` accepts the long form `--dry-run` only. |
-| `-f`, `--force` | Mutations that prompt for confirmation (`drop`, `rm`, `revert`) | Skip the `[y/N]` prompt. Required in non-interactive contexts. `rename` and `mv` don't prompt and don't accept `-f`. |
+| `-n`, `--dry-run` | Every catalog mutation (`drop`, `drop-dir`, `rename`, `mv`, `revert`) | Print the intended action; don't execute. `pxt serve` accepts the long form `--dry-run` only. |
+| `-f`, `--force` | Mutations that prompt for confirmation (`drop`, `drop-dir`, `revert`) | Skip the `[y/N]` prompt. Required in non-interactive contexts. `rename` and `mv` don't prompt and don't accept `-f`. |
 
 ### Working directory
 
@@ -272,11 +272,11 @@ pxt errors my_dir/my_table --col embedding
 
 ## Mutation commands
 
-Every mutation accepts the universal `-n`/`--dry-run` and `--json` flags. The destructive ones (`drop`, `rm`, `revert`) also prompt `[y/N]` with a TTY and accept `-f`/`--force` to skip the prompt; in non-interactive contexts they refuse to proceed without `-f`. `rename` and `mv` don't prompt: renaming or moving a catalog entry is reversible and doesn't lose data.
+Every mutation accepts the universal `-n`/`--dry-run` and `--json` flags. The destructive ones (`drop`, `drop-dir`, `revert`) also prompt `[y/N]` with a TTY and accept `-f`/`--force` to skip the prompt; in non-interactive contexts they refuse to proceed without `-f`. `rename` and `mv` don't prompt: renaming or moving a catalog entry is reversible and doesn't lose data.
 
 ### `pxt drop`
 
-Drop a table or view. Use `pxt rm` for directories.
+Drop a table or view. Use `pxt drop-dir` for directories.
 
 | Flag | Description |
 |---|---|
@@ -716,6 +716,8 @@ Route type reference:
 Manage cloud-hosted Pixeltable databases. A database is a hosted Pixeltable instance with its own compute, storage, and Python runtime.
 
 Database URIs use the form `pxt://org:db`. States: `PROVISIONING` → `AVAILABLE` ⇄ `STOPPED` → `UPDATING` → `DELETING`.
+
+The URI argument is optional: with it omitted, these commands use `db_uri` from the Pixeltable config file (see [Configuration](/platform/configuration)), so a project that sets it can run `pxt db status` and friends with no argument.
 
 #### `pxt db create`
 

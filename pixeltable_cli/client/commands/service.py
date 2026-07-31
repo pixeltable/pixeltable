@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 
-from ..hosted import exit_if_pending, parse_base_uri, parse_db_uri, parse_service_uri, poll_svc, print_service
+from ..hosted import exit_unless_reached, parse_base_uri, parse_db_uri, parse_service_uri, poll_svc, print_service
 from ..parser import Parser
 from ..utils import get_request, post_request
 
@@ -114,18 +114,13 @@ def _create(args: argparse.Namespace) -> None:
         },
     )
     svc = resp.get('service', resp) if isinstance(resp, dict) else {}
-    pending: frozenset[str] | None = None  # set only if we waited, so a completed call isn't checked
     if svc.get('state') in ('DEPLOYING', 'STARTING'):
-        svc = poll_svc(
-            org, db, args.name, frozenset({'DEPLOYING', 'STARTING'}), f"Service '{args.name}' is deploying..."
-        )
-        pending = frozenset({'DEPLOYING', 'STARTING'})
+        svc = poll_svc(org, db, args.name, {'DEPLOYING', 'STARTING'}, f"Service '{args.name}' is deploying...")
     if args.json_output:
         print(json.dumps(svc))
     else:
         print_service(svc)
-    if pending is not None:
-        exit_if_pending(svc, pending, f'service {args.name!r} to deploy')
+    exit_unless_reached(svc, 'AVAILABLE', f'deploying service {args.name!r}')
 
 
 def _update(args: argparse.Namespace) -> None:
@@ -156,16 +151,13 @@ def _update(args: argparse.Namespace) -> None:
         },
     )
     svc = resp.get('service', resp) if isinstance(resp, dict) else {}
-    pending: frozenset[str] | None = None  # set only if we waited, so a completed call isn't checked
     if svc.get('state') == 'UPDATING':
-        svc = poll_svc(org, db, svc_name, frozenset({'UPDATING'}), f"Service '{svc_name}' is updating...")
-        pending = frozenset({'UPDATING'})
+        svc = poll_svc(org, db, svc_name, {'UPDATING'}, f"Service '{svc_name}' is updating...")
     if args.json_output:
         print(json.dumps(svc))
     else:
         print_service(svc)
-    if pending is not None:
-        exit_if_pending(svc, pending, f'service {svc_name!r} to finish updating')
+    exit_unless_reached(svc, 'AVAILABLE', f'updating service {svc_name!r}')
 
 
 def _list(args: argparse.Namespace) -> None:
@@ -195,32 +187,26 @@ def _start(args: argparse.Namespace) -> None:
     org, db, svc_name = parse_service_uri(args.service_uri, prog='pxt service start')
     resp = post_request('/api/service/start', {'org': org, 'db': db, 'service_name': svc_name})
     svc = resp.get('service', resp) if isinstance(resp, dict) else {}
-    pending: frozenset[str] | None = None  # set only if we waited, so a completed call isn't checked
     if svc.get('state') in ('STARTING', 'DEPLOYING'):
-        svc = poll_svc(org, db, svc_name, frozenset({'STARTING', 'DEPLOYING'}), f"Service '{svc_name}' is starting...")
-        pending = frozenset({'STARTING', 'DEPLOYING'})
+        svc = poll_svc(org, db, svc_name, {'STARTING', 'DEPLOYING'}, f"Service '{svc_name}' is starting...")
     if args.json_output:
         print(json.dumps(svc))
     else:
         print_service(svc)
-    if pending is not None:
-        exit_if_pending(svc, pending, f'service {svc_name!r} to start')
+    exit_unless_reached(svc, 'AVAILABLE', f'starting service {svc_name!r}')
 
 
 def _stop(args: argparse.Namespace) -> None:
     org, db, svc_name = parse_service_uri(args.service_uri, prog='pxt service stop')
     resp = post_request('/api/service/stop', {'org': org, 'db': db, 'service_name': svc_name})
     svc = resp.get('service', resp) if isinstance(resp, dict) else {}
-    pending: frozenset[str] | None = None  # set only if we waited, so a completed call isn't checked
     if svc.get('state') == 'STOPPING':
-        svc = poll_svc(org, db, svc_name, frozenset({'STOPPING'}), f"Service '{svc_name}' is stopping...")
-        pending = frozenset({'STOPPING'})
+        svc = poll_svc(org, db, svc_name, {'STOPPING'}, f"Service '{svc_name}' is stopping...")
     if args.json_output:
         print(json.dumps(svc))
     else:
         print_service(svc)
-    if pending is not None:
-        exit_if_pending(svc, pending, f'service {svc_name!r} to stop')
+    exit_unless_reached(svc, 'STOPPED', f'stopping service {svc_name!r}')
 
 
 def _delete(args: argparse.Namespace) -> None:
