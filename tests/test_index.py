@@ -1068,20 +1068,23 @@ class TestIndex:
 
         t.add_embedding_index('name', idx_name='emb_idx', string_embed=local_embed)
 
-        # duplicate index name (regardless of the column) or index type
+        # a name collision with a B-tree index on the same column is an error with 'error', a no-op with 'ignore'
         with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='Duplicate index name'):
             t.add_btree_index('name', idx_name='name_idx2')
         t.add_btree_index('name', idx_name='name_idx2', if_exists='ignore')  # no-op
-        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='Duplicate index name'):
-            t.add_btree_index('name', idx_name='idx0')
-        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='Duplicate index name'):
-            t.add_btree_index('id', idx_name='emb_idx')
+        assert btree_idxs() == {'idx0', 'name_idx2'}
 
-        # if_exists='ignore' + name collision between index types
+        # a name collision with a B-tree index on a different column is an error, regardless of if_exists
+        for ie in ('error', 'ignore'):
+            with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match="Index 'idx0' already exists on column 'id'"):
+                t.add_btree_index('name', idx_name='idx0', if_exists=ie)
+
+        # a name collision with an index of a different type is an error, regardless of if_exists
+        for ie in ('error', 'ignore'):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not a B-tree index'):
+                t.add_btree_index('id', idx_name='emb_idx', if_exists=ie)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not an embedding index'):
             t.add_embedding_index('name', idx_name='name_idx2', string_embed=local_embed, if_exists='ignore')
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not a B-tree index'):
-            t.add_btree_index('name', idx_name='emb_idx', if_exists='ignore')
 
         # unsupported column type raises
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='requires scalar or media type'):

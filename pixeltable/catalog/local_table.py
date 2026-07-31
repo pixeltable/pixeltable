@@ -728,7 +728,7 @@ class LocalTable(Table):
             if err is not None:
                 raise err
 
-            if idx_name is not None and self._resolve_btree_index_name_collision(idx_name, if_exists_):
+            if idx_name is not None and self._resolve_btree_index_name_collision(idx_name, col, if_exists_):
                 return
 
             matches = self._find_matching_btree_idxs(col)
@@ -747,20 +747,24 @@ class LocalTable(Table):
 
         FileCache.get().emit_eviction_warnings()
 
-    def _resolve_btree_index_name_collision(self, idx_name: str, if_exists: IfExistsParam) -> bool:
-        """Returns True if a B-tree addition is a no-op based on if_exists and another b-tree index with the same name
-        existing.
+    def _resolve_btree_index_name_collision(self, idx_name: str, col: Column, if_exists: IfExistsParam) -> bool:
+        """Returns True if a B-tree addition on col is a no-op, based on if_exists and an existing index of the same
+        name.
         """
-        tv = self._tbl_version.get()
-        if idx_name not in tv.idxs_by_name:
+        info = self._tbl_version.get().idxs_by_name.get(idx_name)
+        if info is None:
             return False
-        if if_exists == IfExistsParam.ERROR:
-            raise excs.AlreadyExistsError(excs.ErrorCode.INDEX_ALREADY_EXISTS, f'Duplicate index name: {idx_name}')
-        assert if_exists == IfExistsParam.IGNORE
-        if not isinstance(tv.idxs_by_name[idx_name].idx, index.BtreeIndex):
+        if not isinstance(info.idx, index.BtreeIndex):
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, f'Index {idx_name!r} already exists, but is not a B-tree index.'
             )
+        if info.col.qid != col.qid:
+            raise excs.AlreadyExistsError(
+                excs.ErrorCode.INDEX_ALREADY_EXISTS, f'Index {idx_name!r} already exists on column {info.col.name!r}.'
+            )
+        if if_exists == IfExistsParam.ERROR:
+            raise excs.AlreadyExistsError(excs.ErrorCode.INDEX_ALREADY_EXISTS, f'Duplicate index name: {idx_name}')
+        assert if_exists == IfExistsParam.IGNORE
         return True
 
     def _find_matching_btree_idxs(self, col: Column) -> list[TableVersion.IndexInfo]:
