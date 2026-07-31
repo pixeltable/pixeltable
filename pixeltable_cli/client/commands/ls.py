@@ -2,7 +2,7 @@ import json
 from typing import Any
 
 from ..parser import Parser
-from ..utils import display_path, get_request, validate_path_arg
+from ..utils import display_path, get_request, print_aligned, validate_path_arg
 
 EPILOG = """\
 Columns under -l:
@@ -69,21 +69,7 @@ def run(argv: list[str]) -> None:
             row.append(flags if flags is not None and flags != '' else '-')
         rows.append(row)
 
-    _print_aligned(headers, rows, right_align)
-
-
-def _print_aligned(headers: list[str], rows: list[list[str]], right_align: set[int]) -> None:
-    if len(rows) == 0:
-        return
-    widths = [max(len(c) for c in col) for col in zip(headers, *rows)]
-
-    def fmt(r: list[str]) -> str:
-        cells = [c.rjust(w) if i in right_align else c.ljust(w) for i, (c, w) in enumerate(zip(r, widths))]
-        return '  '.join(cells).rstrip()
-
-    print(fmt(headers))
-    for r in rows:
-        print(fmt(r))
+    print_aligned(headers, rows, right_align)
 
 
 def _print_tree(node: dict[str, Any], prefix: str = '') -> None:

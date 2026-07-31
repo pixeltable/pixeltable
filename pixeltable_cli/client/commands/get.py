@@ -24,11 +24,13 @@ Notes:
 def run(argv: list[str]) -> None:
     ap = Parser(prog='pxt get', epilog=EPILOG)
     ap.add_argument('path')
-    ap.add_argument('pk', nargs='+', help='primary key values in PK column order')
+    ap.add_argument('pk', nargs='*', help='primary key values in PK column order')
     ap.add_argument('--cols', help='comma-separated column subset')
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)
 
+    if not args.pk:
+        ap.error('pk values are required for table row lookup')
     # Reject empty/whitespace-only PK tokens: argparse accepts pxt get t '' (or a stray
     # space), and an empty PK would silently produce a 'no row found' that masks the typo.
     if any(v.strip() == '' for v in args.pk):

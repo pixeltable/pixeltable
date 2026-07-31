@@ -159,7 +159,7 @@ pytest: install
 .PHONY: fullpytest
 fullpytest: install
 	@echo 'Running `pytest`, including expensive tests ...'
-	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) -m '' tests
+	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) -m 'not cloud_e2e' tests
 
 .PHONY: slimpytest
 slimpytest: install
