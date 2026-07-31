@@ -797,12 +797,12 @@ class LocalTable(Table):
             if idx_name is not None and self._resolve_btree_index_name_collision(idx_name, col, if_exists_):
                 return
 
-            match = self._find_matching_btree_idx(col)
-            if match is not None:
+            existing = self._find_existing_btree_idx(col)
+            if existing is not None:
                 if if_exists_ == IfExistsParam.ERROR:
                     raise excs.AlreadyExistsError(
                         excs.ErrorCode.INDEX_ALREADY_EXISTS,
-                        f'A B-tree index already exists on column {col.name!r} (index {match.name!r}).',
+                        f'A B-tree index already exists on column {col.name!r} (index {existing.name!r}).',
                     )
                 assert if_exists_ == IfExistsParam.IGNORE
                 return
@@ -832,7 +832,7 @@ class LocalTable(Table):
         assert if_exists == IfExistsParam.IGNORE
         return True
 
-    def _find_matching_btree_idx(self, col: Column) -> TableVersion.IndexInfo | None:
+    def _find_existing_btree_idx(self, col: Column) -> TableVersion.IndexInfo | None:
         """Return the existing B-tree index on col, if any."""
         matches = [
             info
