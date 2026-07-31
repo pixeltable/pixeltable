@@ -18,17 +18,19 @@ import signal
 import socket
 import subprocess
 import sys
+import typing
 import urllib.error
 from collections.abc import Callable, Iterator
 from email.message import Message
 from types import ModuleType
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 import requests
 from typing_extensions import Self
 
 from pixeltable import exceptions as excs
+from pixeltable.catalog import model
 from pixeltable.config import ServiceConfig
 from pixeltable.service import management_client
 from pixeltable.service.management_protocol import (
@@ -52,7 +54,7 @@ from pixeltable.service.management_protocol import (
     UpdateServiceRequest,
 )
 from pixeltable.serving import _config as serving_config
-from pixeltable_cli import utils
+from pixeltable_cli import schema_types as wire, utils
 from pixeltable_cli.client import confirm, hosted, main as client_main, parser as client_parser, utils as client_utils
 from pixeltable_cli.client.commands import (
     daemon as daemon_cmd,
@@ -764,33 +766,34 @@ class TestConfirm:
         confirm.confirm_or_exit('drop something?', force=True)
 
     def test_no_tty_refuses(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        monkeypatch.setattr(confirm, '_stdin_is_real_tty', lambda: False)
+        monkeypatch.setattr(confirm, 'stdin_is_a_tty', lambda: False)
         with pytest.raises(SystemExit) as ei:
             confirm.confirm_or_exit('drop something?', force=False)
         assert ei.value.code == 2
         assert '--force' in capsys.readouterr().err
 
     def test_tty_yes(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(confirm, '_stdin_is_real_tty', lambda: True)
+        monkeypatch.setattr(confirm, 'stdin_is_a_tty', lambda: True)
         monkeypatch.setattr(confirm.sys, 'stdin', io.StringIO('y\n'))
         # Should not raise.
         confirm.confirm_or_exit('drop something?', force=False)
 
     def test_tty_no(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        monkeypatch.setattr(confirm, '_stdin_is_real_tty', lambda: True)
+        monkeypatch.setattr(confirm, 'stdin_is_a_tty', lambda: True)
         monkeypatch.setattr(confirm.sys, 'stdin', io.StringIO('n\n'))
         with pytest.raises(SystemExit) as ei:
-            confirm.confirm_or_exit('drop something?', force=False)
-        assert ei.value.code == 1
+            confirm.confirm_or_exit('drop something?', force=False, refused_exit_code=3)
+        # answering no is refusal, same as the non-tty path
+        assert ei.value.code == 3
         assert 'aborted' in capsys.readouterr().err
 
     def test_tty_empty_aborts(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(confirm, '_stdin_is_real_tty', lambda: True)
+        monkeypatch.setattr(confirm, 'stdin_is_a_tty', lambda: True)
         monkeypatch.setattr(confirm.sys, 'stdin', io.StringIO('\n'))
         with pytest.raises(SystemExit):
             confirm.confirm_or_exit('drop something?', force=False)
 
-    def test_stdin_is_real_tty_posix(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_stdin_is_a_tty_posix(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Non-Windows path: isatty() True -> returns True without touching ctypes."""
 
         class FakeStdin:
@@ -799,15 +802,15 @@ class TestConfirm:
 
         monkeypatch.setattr(confirm.sys, 'stdin', FakeStdin())
         monkeypatch.setattr(confirm.sys, 'platform', 'linux')
-        assert confirm._stdin_is_real_tty() is True
+        assert confirm.stdin_is_a_tty() is True
 
-    def test_stdin_is_real_tty_not_a_tty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_stdin_is_a_tty_not_a_tty(self, monkeypatch: pytest.MonkeyPatch) -> None:
         class FakeStdin:
             def isatty(self) -> bool:
                 return False
 
         monkeypatch.setattr(confirm.sys, 'stdin', FakeStdin())
-        assert confirm._stdin_is_real_tty() is False
+        assert confirm.stdin_is_a_tty() is False
 
 
 class TestParser:
@@ -1940,6 +1943,37 @@ class TestPollState:
     def test_returns_last_read_on_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
         responses: list[Any] = [{'database': {'state': 'PENDING'}}] * 1000
         assert self._poll(responses, monkeypatch, timeout=0.05) == {'state': 'PENDING'}
+
+
+class TestWireTypes:
+    """The CLI's schema types mirror the catalog's diff types under the same names.
+
+    Two identically-named TypedDicts in different modules are unrelated as far as mypy is concerned, so a field
+    renamed on one side would otherwise reach the wire under a name that no longer matches its counterpart.
+    """
+
+    # what the wire adds on its own, and what the catalog keeps to itself
+    WIRE_ONLY: ClassVar[set[str]] = {'destructive', 'status'}
+    CATALOG_ONLY: ClassVar[dict[str, set[str]]] = {
+        'SchemaChangeOp': {'model', 'existing'},
+        'TableDiff': {'tbl_id', 'schema_versions'},
+    }
+
+    @pytest.mark.parametrize('name', ['SchemaChangeOp', 'TableDiff'])
+    def test_fields_match(self, name: str) -> None:
+        catalog_fields = set(typing.get_type_hints(getattr(model, name)))
+        wire_fields = set(typing.get_type_hints(getattr(wire, name)))
+        assert wire_fields - self.WIRE_ONLY == catalog_fields - self.CATALOG_ONLY[name]
+
+    @pytest.mark.parametrize('name', ['SchemaChangeOp', 'TableDiff'])
+    def test_shared_fields_have_the_same_type(self, name: str) -> None:
+        catalog_hints = typing.get_type_hints(getattr(model, name))
+        wire_hints = typing.get_type_hints(getattr(wire, name))
+        shared = set(catalog_hints) & set(wire_hints) - {'ops'}  # ops holds the mirrored op type on each side
+        assert all(catalog_hints[f] == wire_hints[f] for f in shared)
+
+    def test_resolutions_match(self) -> None:
+        assert typing.get_args(wire.DiffResolution) == typing.get_args(model.DiffResolution)
 
 
 class TestDotSegments:
