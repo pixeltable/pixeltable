@@ -191,8 +191,6 @@ class TestCwd:
         """'columns' and 'idxs' with no path cover the working directory, not the whole catalog."""
         p = make_catalog_path
         pxt.create_dir(p('cli_cwd_list'), if_exists='ignore')
-        # both tables get default btree indexes, so that 'idxs' has something to report for each of them and its
-        # scoping to the working directory is what the assertions below actually exercise
         pxt.create_table(p('cli_cwd_list/inside'), {'x': pxt.String}, if_exists='replace', create_default_idxs=True)
         pxt.create_table(p('cli_cwd_outside'), {'y': pxt.String}, if_exists='replace', create_default_idxs=True)
         try:
