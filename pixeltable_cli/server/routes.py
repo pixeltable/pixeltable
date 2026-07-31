@@ -485,16 +485,17 @@ def schema_update(req: Request) -> schema_types.SchemaPlan:
 @router.get('/api/dashboard/search')
 def dashboard_search(req: Request) -> dict[str, Any]:
     q = req.query_str('q', default='') or ''
-    limit = req.query_int('limit', default=50, ge=1, le=100)
-    if q == '':
-        return {'query': '', 'directories': [], 'tables': [], 'columns': []}
-    return bridge.search(q, limit=limit)
+    additional_catalogs = req.query_list('catalogs')
+    return bridge.search(q, additional_db_uris=additional_catalogs or None)
 
 
 @router.get('/api/dashboard/tables/meta')
 def dashboard_table_meta(req: Request) -> dict[str, Any]:
     path = req.resolve_path(req.query_str('path') or '')
-    return dict(pxt.get_table(path).get_metadata())
+    tbl = pxt.get_table(path)
+    md = dict(tbl.get_metadata())
+    md['row_count'] = tbl.count()
+    return md
 
 
 @router.get('/api/dashboard/tables/pipeline')

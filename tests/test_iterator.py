@@ -683,6 +683,8 @@ class TestIterator:
             {'input': 'balloon', 'pos': 2, 'output_text': 'stored balloon 2', 'unstored_text': 'unstored balloon 2'},
             {'input': 'balloon', 'pos': 3, 'output_text': 'stored balloon 3', 'unstored_text': 'unstored balloon 3'},
         ]
+        assert v.get_metadata()['iterator_call'].startswith('CustomLegacyIterator(')
+        v.describe()
 
     def test_nested_iterator(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
