@@ -300,7 +300,7 @@ class TestTableModel:
             name: pxt.String
             img: pxt.Image
 
-            name_idx = BtreeIndex(name)  # column referenced directly
+            name_idx = BtreeIndex(name)
             img_idx = BtreeIndex(img)
 
         TableModel.create_all(p(''))
