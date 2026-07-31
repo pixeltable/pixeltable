@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { search } from '@/api/client'
+import { loadExtraCatalogs } from '@/lib/catalogs'
 import { useDebounce } from '@/hooks/useDebounce'
 import { cn } from '@/lib/utils'
 import type { SearchResults } from '@/types'
@@ -18,6 +19,7 @@ import {
   CornerDownLeft,
   Zap,
   Loader2,
+  AlertTriangle,
 } from 'lucide-react'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -45,13 +47,13 @@ const RESULT_META: Record<string, {
   color: string
   bg: string
 }> = {
-  directory:  { icon: Folder,  color: 'text-k-yellow',      bg: 'bg-k-yellow/10' },
-  table:      { icon: Table2,  color: 'text-blue-400',      bg: 'bg-blue-400/10' },
-  view:       { icon: Eye,     color: 'text-purple-400',    bg: 'bg-purple-400/10' },
-  snapshot:   { icon: Camera,  color: 'text-orange-400',    bg: 'bg-orange-400/10' },
+  directory:  { icon: Folder,  color: 'text-foreground',      bg: 'bg-k-yellow/10' },
+  table:      { icon: Table2,  color: 'text-muted-foreground',      bg: 'bg-blue-400/10' },
+  view:       { icon: Eye,     color: 'text-muted-foreground',    bg: 'bg-purple-400/10' },
+  snapshot:   { icon: Camera,  color: 'text-muted-foreground',    bg: 'bg-orange-400/10' },
   replica:    { icon: Copy,    color: 'text-muted-foreground', bg: 'bg-muted' },
-  column:     { icon: Hash,    color: 'text-emerald-400',   bg: 'bg-emerald-400/10' },
-  computed:   { icon: Zap,     color: 'text-k-yellow',      bg: 'bg-k-yellow/10' },
+  column:     { icon: Hash,    color: 'text-muted-foreground',   bg: 'bg-emerald-400/10' },
+  computed:   { icon: Zap,     color: 'text-foreground',      bg: 'bg-k-yellow/10' },
 }
 
 function getResultMeta(item: SearchResultItem) {
@@ -106,7 +108,7 @@ function ResultItem({
         <div className="flex items-center gap-2">
           <span className={cn(
             'text-[13px] font-medium truncate',
-            isSelected ? 'text-foreground' : 'text-foreground/80',
+            isSelected ? 'text-foreground' : 'text-foreground',
           )}>
             {item.name}
           </span>
@@ -123,10 +125,10 @@ function ResultItem({
         <div className="text-[11px] text-muted-foreground truncate font-mono mt-0.5">
           {item.type === 'column' ? (
             <>
-              <span className="text-muted-foreground/80">in</span>{' '}
-              <span className="text-foreground/70">{item.path}</span>
+              <span className="text-muted-foreground">in</span>{' '}
+              <span className="text-foreground">{item.path}</span>
               {item.extra && (
-                <span className="text-muted-foreground/70 ml-1.5">· {item.extra}</span>
+                <span className="text-muted-foreground ml-1.5">· {item.extra}</span>
               )}
             </>
           ) : (
@@ -138,7 +140,7 @@ function ResultItem({
       {/* Type label */}
       <span className={cn(
         'text-[11px] font-medium capitalize shrink-0 transition-opacity',
-        isSelected ? 'text-muted-foreground' : 'text-muted-foreground/70',
+        isSelected ? 'text-muted-foreground' : 'text-muted-foreground',
       )}>
         {item.type}
       </span>
@@ -148,13 +150,23 @@ function ResultItem({
 
 // ── Section header ───────────────────────────────────────────────────────────
 
+// A catalog and a table fail differently, so they read differently; both mean results are missing.
+function unavailableSummary(unavailable: SearchResults['unavailable']): string {
+  const catalogs = unavailable.filter(u => u.kind === 'catalog').map(u => u.path)
+  const tables = unavailable.filter(u => u.kind === 'table')
+  const parts: string[] = []
+  if (catalogs.length > 0) parts.push(`could not search ${catalogs.join(', ')}`)
+  if (tables.length > 0) parts.push(`could not read ${tables.length} table${tables.length === 1 ? '' : 's'}`)
+  return parts.join('; ')
+}
+
 function SectionHeader({ label, count }: { label: string; count: number }) {
   return (
     <div className="flex items-center gap-2 px-3 pt-3 pb-1.5">
-      <span className="text-[11px] font-semibold text-muted-foreground/70 uppercase tracking-wider">
+      <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
         {label}
       </span>
-      <span className="text-[11px] text-muted-foreground/60 tabular-nums">
+      <span className="text-[11px] text-muted-foreground tabular-nums">
         {count}
       </span>
       <div className="flex-1 h-px bg-border/30" />
@@ -184,7 +196,7 @@ export function SearchPanel({ isOpen, onClose, onSelect }: SearchPanelProps) {
   useEffect(() => {
     if (!debouncedQuery.trim()) { setResults(null); return }
     setLoading(true)
-    search(debouncedQuery)
+    search(debouncedQuery, loadExtraCatalogs())
       .then(setResults)
       .catch(console.error)
       .finally(() => setLoading(false))
@@ -246,9 +258,9 @@ export function SearchPanel({ isOpen, onClose, onSelect }: SearchPanelProps) {
           {/* ── Search input ──────────────────────────────────────────── */}
           <div className="flex items-center gap-3 px-4 h-14 border-b border-border/40">
             {loading ? (
-              <Loader2 className="h-4 w-4 text-k-yellow animate-spin shrink-0" />
+              <Loader2 className="h-4 w-4 text-foreground animate-spin shrink-0" />
             ) : (
-              <Search className="h-4 w-4 text-muted-foreground/70 shrink-0" />
+              <Search className="h-4 w-4 text-muted-foreground shrink-0" />
             )}
             <input
               ref={inputRef}
@@ -293,14 +305,29 @@ export function SearchPanel({ isOpen, onClose, onSelect }: SearchPanelProps) {
               </div>
             )}
 
+            {/* Whatever could not be searched; its matches are missing from the sections below */}
+            {!loading && results && results.unavailable.length > 0 && (
+              <div className="mb-2 rounded border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                  <span>{unavailableSummary(results.unavailable)}</span>
+                </div>
+                {results.unavailable.map((u) => (
+                  <div key={u.path} className="mt-1 pl-5.5 text-xs text-muted-foreground/70 break-all">
+                    {u.path}: {u.error}
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* No results */}
             {!loading && query && flattenedResults.length === 0 && (
               <div className="py-12 text-center">
-                <Search className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
+                <Search className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
                 <p className="text-sm text-muted-foreground">
-                  No results for "<span className="text-foreground/90 font-medium">{query}</span>"
+                  No results for "<span className="text-foreground font-medium">{query}</span>"
                 </p>
-                <p className="text-xs text-muted-foreground/70 mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   Try a broader query or different terms
                 </p>
               </div>
@@ -375,12 +402,12 @@ export function SearchPanel({ isOpen, onClose, onSelect }: SearchPanelProps) {
             {!loading && !query && (
               <div className="py-10 text-center">
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/80 mx-auto mb-4">
-                  <Search className="h-4.5 w-4.5 text-muted-foreground/60" />
+                  <Search className="h-4.5 w-4.5 text-muted-foreground" />
                 </div>
                 <p className="text-[13px] text-muted-foreground font-light">
                   Search across your Pixeltable instance
                 </p>
-                <p className="text-xs text-muted-foreground/70 mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   Directories, tables, views, snapshots, and columns
                 </p>
               </div>
@@ -389,7 +416,7 @@ export function SearchPanel({ isOpen, onClose, onSelect }: SearchPanelProps) {
 
           {/* ── Footer / keyboard hints ────────────────────────────────── */}
           <div className="flex items-center gap-4 px-4 py-2.5 border-t border-border/30 bg-accent/30">
-            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70">
+            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <div className="flex gap-0.5">
                 <kbd className="inline-flex h-[18px] w-[18px] items-center justify-center rounded border border-border/50 bg-accent/60">
                   <ArrowUp className="h-2.5 w-2.5" />
@@ -400,20 +427,20 @@ export function SearchPanel({ isOpen, onClose, onSelect }: SearchPanelProps) {
               </div>
               <span>navigate</span>
             </div>
-            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70">
+            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <kbd className="inline-flex h-[18px] px-1.5 items-center justify-center rounded border border-border/50 bg-accent/60">
                 <CornerDownLeft className="h-2.5 w-2.5" />
               </kbd>
               <span>select</span>
             </div>
-            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70">
+            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <kbd className="inline-flex h-[18px] px-1.5 items-center justify-center rounded border border-border/50 bg-accent/60 text-[10px] font-mono">
                 esc
               </kbd>
               <span>close</span>
             </div>
             {flattenedResults.length > 0 && (
-              <span className="ml-auto text-[11px] text-muted-foreground/70 tabular-nums">
+              <span className="ml-auto text-[11px] text-muted-foreground tabular-nums">
                 {flattenedResults.length} result{flattenedResults.length !== 1 ? 's' : ''}
               </span>
             )}
