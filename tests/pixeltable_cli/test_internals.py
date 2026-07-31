@@ -1715,8 +1715,9 @@ class TestHostedCommandRequests:
 
         monkeypatch.setattr(module, 'post_request', post_request)
         monkeypatch.setattr(module, 'get_request', lambda path, params=None: {})
-        monkeypatch.setattr(module, 'poll_db', lambda *args, **kwargs: {}, raising=False)
-        monkeypatch.setattr(module, 'poll_svc', lambda *args, **kwargs: {}, raising=False)
+        # a state outside every pending set, so the command reads the transition as complete
+        monkeypatch.setattr(module, 'poll_db', lambda *args, **kwargs: {'state': 'AVAILABLE'}, raising=False)
+        monkeypatch.setattr(module, 'poll_svc', lambda *args, **kwargs: {'state': 'AVAILABLE'}, raising=False)
         module.run(argv)
         assert len(posted) == 1, posted
         return posted[0]

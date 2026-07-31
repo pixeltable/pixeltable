@@ -191,6 +191,20 @@ def poll_state(
     return result
 
 
+def exit_if_pending(result: dict[str, Any], pending_states: frozenset[str], waited_for: str) -> None:
+    """Report an unfinished transition and exit 1. waited_for names it, eg 'the database to start'.
+
+    A state still in pending_states means the transition did not complete; an empty result means no state
+    was read at all.
+    """
+    if len(result) > 0 and result.get('state') not in pending_states:
+        return
+    state = result.get('state')
+    seen = 'no state was read' if state is None else f'last state: {state}'
+    print(f'pxt: timed out waiting for {waited_for} ({seen}); the operation may still be running', file=sys.stderr)
+    sys.exit(1)
+
+
 def poll_db(org: str, db: str, pending_states: frozenset[str], label: str | None) -> dict[str, Any]:
     """Poll a hosted database until its state leaves pending_states."""
     return poll_state(

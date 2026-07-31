@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 import urllib.request
 from pathlib import Path
@@ -12,6 +11,7 @@ from pathlib import Path
 from ..hosted import (
     RUNTIME_POLL_INTERVAL,
     RUNTIME_POLL_TIMEOUT,
+    exit_if_pending,
     parse_db_uri,
     parse_org_uri,
     poll_db,
@@ -106,12 +106,16 @@ def _create(args: argparse.Namespace) -> None:
     org, db = parse_db_uri(args.db_uri, prog='pxt db create')
     resp = post_request('/api/dbs', {'org': org, 'db': db, 'location': args.location, 'region': args.region})
     result = resp.get('database', resp) if isinstance(resp, dict) else {}
+    pending: frozenset[str] | None = None  # set only if we waited, so a no-wait create isn't checked
     if result.get('state') == 'PROVISIONING':
         result = poll_db(org, db, frozenset({'PROVISIONING'}), f"Database '{db}' is provisioning...")
+        pending = frozenset({'PROVISIONING'})
     if args.json_output:
         print(json.dumps(result))
     else:
         print_db(result)
+    if pending is not None:
+        exit_if_pending(result, pending, f'database {db!r} to finish provisioning')
 
 
 def _list(args: argparse.Namespace) -> None:
@@ -145,6 +149,7 @@ def _start(args: argparse.Namespace) -> None:
         print(json.dumps(result))
     else:
         print_db(result)
+    exit_if_pending(result, frozenset({'UPDATING', 'STARTING'}), f'database {db!r} to start')
 
 
 def _stop(args: argparse.Namespace) -> None:
@@ -155,6 +160,7 @@ def _stop(args: argparse.Namespace) -> None:
         print(json.dumps(result))
     else:
         print_db(result)
+    exit_if_pending(result, frozenset({'STOPPING'}), f'database {db!r} to stop')
 
 
 def _update(args: argparse.Namespace) -> None:
@@ -171,12 +177,16 @@ def _update(args: argparse.Namespace) -> None:
         },
     )
     result = resp.get('database', resp) if isinstance(resp, dict) else {}
+    pending: frozenset[str] | None = None  # set only if we waited, so a no-wait update isn't checked
     if result.get('state') == 'UPDATING':
         result = poll_db(org, db, frozenset({'UPDATING'}), f"Database '{db}' is updating...")
+        pending = frozenset({'UPDATING'})
     if args.json_output:
         print(json.dumps(result))
     else:
         print_db(result)
+    if pending is not None:
+        exit_if_pending(result, pending, f'database {db!r} to finish updating')
 
 
 def _delete(args: argparse.Namespace) -> None:
@@ -195,9 +205,7 @@ def _update_runtime(args: argparse.Namespace) -> None:
 
     org, db = parse_db_uri(args.db_uri, prog='pxt db update-runtime')
 
-    if args.project_dir is not None:
-        os.chdir(args.project_dir)
-    project_dir = Path.cwd().resolve()
+    project_dir = (Path(args.project_dir) if args.project_dir is not None else Path.cwd()).resolve()
 
     # Markers that identify a project directory: a project file or a supported lockfile.
     # Keep this list in sync with deploy.py.
@@ -258,10 +266,9 @@ def _update_runtime(args: argparse.Namespace) -> None:
             print(f'Runtime build failed: {build_error}', file=sys.stderr)
         elif final_state:
             print(f'Runtime build {final_state.lower()}.')
-        else:
-            print('Timed out waiting for runtime build.')
 
     if args.json_output:
         print(json.dumps(result))
     if build_failed:
         sys.exit(1)
+    exit_if_pending(result, frozenset({'UPDATING'}), f'the runtime build of database {db!r}')

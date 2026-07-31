@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -43,25 +44,55 @@ def _collect_project_files(project_dir: Path, include: list[str] | None, exclude
     return sorted(files)
 
 
+def _conda_exe() -> str | None:
+    """Path to the executable that manages the active environment, or None if there is none to find.
+
+    CONDA_EXE/MAMBA_EXE point at the manager that activated the environment; conda and micromamba are
+    only on PATH for some installations (micromamba in particular ships no `conda`).
+    """
+    for var in ('CONDA_EXE', 'MAMBA_EXE'):
+        exe = os.environ.get(var)
+        if exe is not None and exe != '':
+            return exe
+    return shutil.which('conda') or shutil.which('micromamba')
+
+
 def _export_conda_env() -> bytes | None:
     """Export the active conda environment as a cross-platform YAML (no build strings).
 
-    Returns None if conda is not active or the export fails.
-    Strips pixeltable* dependency lines (both conda and pip) — the server installs pixeltable separately.
+    Returns None if no conda environment is active. Raises if one is active but cannot be exported:
+    building the bundle as though there were no environment would silently drop its dependencies.
+    Strips the pixeltable dependency line (both conda and pip); the server installs pixeltable separately.
     """
     conda_prefix = os.environ.get('CONDA_PREFIX')
-    if not conda_prefix:
+    if conda_prefix is None or conda_prefix == '':
         return None
+    exe = _conda_exe()
+    if exe is None:
+        raise excs.Error(
+            excs.ErrorCode.INVALID_STATE,
+            f'A conda environment is active ({conda_prefix}) but no conda or micromamba executable was found.\n'
+            'Set CONDA_EXE or MAMBA_EXE, or deactivate the environment to build without it.',
+        )
     try:
         result = subprocess.run(
-            ['conda', 'env', 'export', '--no-builds', '--prefix', conda_prefix], capture_output=True, check=True
+            [exe, 'env', 'export', '--no-builds', '--prefix', conda_prefix], capture_output=True, check=True
         )
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return None
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        stderr = (
+            e.stderr.decode('utf-8', errors='replace').strip() if isinstance(e, subprocess.CalledProcessError) else ''
+        )
+        raise excs.Error(
+            excs.ErrorCode.INVALID_STATE,
+            f'Failed to export the active conda environment ({conda_prefix}) with {exe}: {e}\n{stderr}\n'
+            'Fix the environment, or deactivate it to build without it.',
+        ) from e
+    # a dependency line names pixeltable itself only if what follows is a version spec or nothing;
+    # `pixeltable-yolox` and friends are ordinary dependencies and stay
     filtered = [
         line
         for line in result.stdout.decode('utf-8').splitlines(keepends=True)
-        if not re.match(r'^\s+-\s+pixeltable', line)
+        if not re.match(r'^\s+-\s+pixeltable\s*([=<>!~]|$)', line)
     ]
     return ''.join(filtered).encode('utf-8')
 
