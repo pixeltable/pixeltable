@@ -8,6 +8,7 @@ Covers things that aren't reachable through the daemon smoke tests:
   - the interactive shell REPL (driven via subprocess.Popen)
 """
 
+import http.client
 import importlib.metadata
 import io
 import json
@@ -413,6 +414,22 @@ class TestProbe:
             raise urllib.error.URLError('refused')
 
         monkeypatch.setattr('urllib.request.urlopen', boom)
+        assert client_utils.fetch_health() is None
+
+    def test_fetch_health_truncated_response(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A daemon that sends headers and then drops the connection isn't healthy, it isn't a crash."""
+
+        class FakeResp:
+            def __enter__(self) -> Self:
+                return self
+
+            def __exit__(self, *a: object) -> None:
+                pass
+
+            def read(self) -> bytes:
+                raise http.client.IncompleteRead(b'', 1020)
+
+        monkeypatch.setattr('urllib.request.urlopen', lambda *a, **kw: FakeResp())
         assert client_utils.fetch_health() is None
 
     def test_client_pxt_version_unknown(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -889,6 +906,27 @@ class TestHttp:
         err = capsys.readouterr().err
         # falls back to e.reason when the body isn't JSON
         assert 'Internal Server Error' in err
+
+    def test_truncated_response(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+        monkeypatch.setattr(client_utils, 'ensure_running', lambda: 'http://127.0.0.1:1')
+
+        class FakeResp:
+            def __enter__(self) -> Self:
+                return self
+
+            def __exit__(self, *a: object) -> None:
+                pass
+
+            def read(self) -> bytes:
+                raise http.client.IncompleteRead(b'', 1020)
+
+        monkeypatch.setattr(client_utils.urllib.request, 'urlopen', lambda *a, **kw: FakeResp())
+        with pytest.raises(SystemExit) as ei:
+            client_utils.get_request('/api/health')
+        assert ei.value.code == 1
+        err = capsys.readouterr().err
+        assert 'bad response from daemon' in err
+        assert 'IncompleteRead' in err
 
     def test_url_error_unreachable(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
         monkeypatch.setattr(client_utils, 'ensure_running', lambda: 'http://127.0.0.1:1')
