@@ -69,7 +69,7 @@ def _export_conda_env() -> bytes | None:
         return None
     exe = _conda_exe()
     if exe is None:
-        raise excs.Error(
+        raise excs.RequestError(
             excs.ErrorCode.INVALID_STATE,
             f'A conda environment is active ({conda_prefix}) but no conda or micromamba executable was found.\n'
             'Set CONDA_EXE or MAMBA_EXE, or deactivate the environment to build without it.',
@@ -82,7 +82,7 @@ def _export_conda_env() -> bytes | None:
         stderr = (
             e.stderr.decode('utf-8', errors='replace').strip() if isinstance(e, subprocess.CalledProcessError) else ''
         )
-        raise excs.Error(
+        raise excs.RequestError(
             excs.ErrorCode.INVALID_STATE,
             f'Failed to export the active conda environment ({conda_prefix}) with {exe}: {e}\n{stderr}\n'
             'Fix the environment, or deactivate it to build without it.',

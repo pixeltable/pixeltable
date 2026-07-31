@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import tarfile
 import textwrap
@@ -12,6 +13,7 @@ import pytest
 
 from pixeltable import exceptions as excs, metadata
 from pixeltable.config import Config
+from pixeltable.serving import deploy
 from pixeltable.serving.deploy import build_db_runtime_bundle
 
 from ..utils import pxt_raises
@@ -20,6 +22,16 @@ pytestmark = pytest.mark.local('runtime bundle packaging')
 
 
 class TestDbRuntimeBundle:
+    @pytest.fixture(autouse=True)
+    def no_ambient_conda(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Unset CONDA_PREFIX, so that the bundle contents depend only on what each test sets up.
+
+        With it set, every bundle build runs `conda env export` against whatever environment happens to be
+        active, which is slow and fails outright on an installation whose export is broken. The tests that
+        cover the conda paths set CONDA_PREFIX themselves.
+        """
+        monkeypatch.delenv('CONDA_PREFIX', raising=False)
+
     def test_bundle_layout(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Bundle always contains metadata.json and project/; nothing else at root."""
         monkeypatch.chdir(tmp_path)
@@ -145,6 +157,57 @@ class TestDbRuntimeBundle:
         bundle_path = build_db_runtime_bundle(tmp_path)
         assert tarfile.is_tarfile(bundle_path)
         assert bundle_path.suffix == '.bz2'
+
+    def test_bundle_conda_env(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An active conda environment is exported to project/conda-environment.yaml, minus pixeltable itself."""
+        monkeypatch.chdir(tmp_path)
+        Config.init({}, reinit=True)
+
+        exported = textwrap.dedent("""\
+            name: pxt
+            dependencies:
+              - python=3.10
+              - pixeltable-yolox=0.1
+              - pip:
+                - pixeltable==0.5.0
+                - openai
+        """).encode()
+        monkeypatch.setenv('CONDA_PREFIX', str(tmp_path / 'envs' / 'pxt'))
+        monkeypatch.setenv('CONDA_EXE', 'conda')
+        monkeypatch.setattr(
+            deploy.subprocess, 'run', lambda args, **kw: subprocess.CompletedProcess(args, 0, exported, b'')
+        )
+
+        bundle_path = build_db_runtime_bundle(tmp_path)
+
+        with tarfile.open(bundle_path, 'r:bz2') as tar, tar.extractfile('project/conda-environment.yaml') as f:
+            env_yaml = f.read().decode()
+        assert 'python=3.10' in env_yaml
+        assert 'openai' in env_yaml
+        # pixeltable is installed separately by the server; a package merely named after it is an ordinary dependency
+        assert 'pixeltable==0.5.0' not in env_yaml
+        assert 'pixeltable-yolox=0.1' in env_yaml
+
+    def test_bundle_conda_env_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An active conda environment that can't be exported fails the build rather than dropping its deps."""
+        monkeypatch.chdir(tmp_path)
+        Config.init({}, reinit=True)
+        monkeypatch.setenv('CONDA_PREFIX', str(tmp_path / 'envs' / 'pxt'))
+
+        monkeypatch.delenv('CONDA_EXE', raising=False)
+        monkeypatch.delenv('MAMBA_EXE', raising=False)
+        monkeypatch.setattr(deploy.shutil, 'which', lambda name: None)
+        with pxt_raises(excs.ErrorCode.INVALID_STATE, match='no conda or micromamba executable was found'):
+            build_db_runtime_bundle(tmp_path)
+
+        monkeypatch.setenv('CONDA_EXE', 'conda')
+
+        def failed_export(args: list[str], **kw: object) -> subprocess.CompletedProcess:
+            raise subprocess.CalledProcessError(1, args, output=b'', stderr=b'conda plugin error')
+
+        monkeypatch.setattr(deploy.subprocess, 'run', failed_export)
+        with pxt_raises(excs.ErrorCode.INVALID_STATE, match='conda plugin error'):
+            build_db_runtime_bundle(tmp_path)
 
     def test_bundle_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Error paths in build_db_runtime_bundle()."""
