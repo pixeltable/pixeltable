@@ -169,6 +169,8 @@ class LocalTable(Table):
         if any(col.is_pk for col in columns):
             primary_key = [col.name for col in columns if col.is_pk]
 
+        default_idxs_enabled = self._tbl_version is not None and self._tbl_version.get().default_idxs_enabled
+
         return TableMetadata(
             id=self._id,
             name=self._name(),
@@ -176,6 +178,7 @@ class LocalTable(Table):
             columns=column_info,
             indices=index_info,
             is_versioned=tv.is_versioned,
+            default_idxs_enabled=default_idxs_enabled,
             is_view=False,
             is_snapshot=False,
             version=self._get_version(),

@@ -273,6 +273,7 @@ class TestTableModel:
                     }
                 },
                 'is_versioned': True,
+                'default_idxs_enabled': False,
                 'is_view': False,
                 'is_snapshot': False,
                 'version': 1,
@@ -314,6 +315,81 @@ class TestTableModel:
         tbl2.add_btree_index('name', idx_name='name_idx')
         tbl2.add_btree_index('img', idx_name='img_idx')
         assert schema_from_tbl_md(tbl.get_metadata()) == schema_from_tbl_md(tbl2.get_metadata())
+
+    def test_default_idxs_diff(self, make_catalog_path: Callable[[str], str]) -> None:
+        """The diff compares `create_default_idxs` against the table's persisted value, and `update_all()` gives
+        newly added columns the same default index treatment the table's original columns got."""
+        p = make_catalog_path
+        root = p('')
+        TableModel = pxt.model_base()
+
+        class WithDefaults(TableModel, name='defaults_table', create_default_idxs=True):
+            id: pxt.Required[pxt.Int]
+            name: pxt.String
+
+        class NoDefaults(TableModel, name='no_defaults_table'):
+            id: pxt.Required[pxt.Int]
+            name: pxt.String
+            name_idx = BtreeIndex(name)  # explicitly declared, since this table has no default indexes
+
+        TableModel.create_all(root)
+        tbl = WithDefaults.table
+
+        def btree_cols() -> set[str]:
+            return {
+                col
+                for i in tbl.get_metadata()['indices'].values()
+                if i['index_type'] == 'btree'
+                for col in i['columns']
+            }
+
+        assert btree_cols() == {'id', 'name'}
+        assert tbl.get_metadata()['default_idxs_enabled'] is True
+
+        # Adding a column via `update_all()` honors the table's setting: `extra` gets a default index, and the
+        # index is not itself reported as a difference (default indexes have no counterpart in `__indexes__`).
+        TableModelV2 = pxt.model_base()
+
+        class WithDefaultsV2(TableModelV2, name='defaults_table', create_default_idxs=True):
+            id: pxt.Required[pxt.Int]
+            name: pxt.String
+            extra: pxt.Int
+
+        diff = TableModelV2.get_model_diff(root)['defaults_table']
+        assert diff['resolution'] == 'update_additive'
+        assert [(c['target'], c['name'], c['op']) for c in diff['changes']] == [('column', 'extra', 'add')]
+        TableModelV2.update_all(root)
+        assert btree_cols() == {'id', 'name', 'extra'}
+        assert TableModelV2.get_model_diff(root)['defaults_table']['resolution'] == 'up_to_date'
+
+        # A model that disagrees with the table's persisted create_default_idxs setting is an unsupported change.
+        TableModelV3 = pxt.model_base()
+
+        class WithDefaultsV3(TableModelV3, name='defaults_table', create_default_idxs=False):
+            id: pxt.Required[pxt.Int]
+            name: pxt.String
+            extra: pxt.Int
+            name_idx = BtreeIndex(name)
+
+        class NoDefaultsV3(TableModelV3, name='no_defaults_table', create_default_idxs=True):
+            id: pxt.Required[pxt.Int]
+            name: pxt.String
+
+        diff = TableModelV3.get_model_diff(root)['defaults_table']
+        assert diff['resolution'] == 'unsupported'
+        assert [(c['target'], c['name'], c['model'], c['existing']) for c in diff['changes']] == [
+            ('table', 'default_idxs_enabled', False, True)
+        ]
+        diff = TableModelV3.get_model_diff(root)['no_defaults_table']
+        assert diff['resolution'] == 'unsupported'
+        assert [(c['target'], c['name'], c['model'], c['existing']) for c in diff['changes']] == [
+            ('table', 'default_idxs_enabled', True, False)
+        ]
+        with capture_console_output(
+            match=r'the following table properties have changed \(FATAL\):\n'
+            r'\s*default_idxs_enabled: model=False, existing=True'
+        ):
+            TableModelV3.diff_all(root)
 
     def test_all_table_exprs(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path

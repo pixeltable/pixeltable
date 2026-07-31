@@ -1094,7 +1094,7 @@ class TableDiff(TypedDict):
 
 # Table-level attribute names that are reported as a single grouped diff (as opposed to `kind`/`iterator`/`filter`/
 # `sample`, which each get their own diff line).
-_TABLE_PROP_NAMES: tuple[str, ...] = ('media_validation', 'comment', 'custom_metadata')
+_TABLE_PROP_NAMES: tuple[str, ...] = ('media_validation', 'comment', 'custom_metadata', 'default_idxs_enabled')
 
 
 def _resolution(exists: bool, changes: list[SchemaChange]) -> DiffResolution:
@@ -1296,20 +1296,38 @@ def validate_models(registered_models: dict[str, TableModelMeta], binding_root: 
             if col_md['defined_in'] == existing_md['name'] and not col_md['is_iterator_col']
         }
 
+        changes = []
+
+        # create_default_idxs mismatch is unsupported.
+        model_default_idxs = model.__table_spec__['create_default_idxs']
+        existing_default_idxs = existing_md['default_idxs_enabled']
+        if model_default_idxs != existing_default_idxs:
+            changes.append(
+                SchemaChange(
+                    target='table',
+                    name='default_idxs_enabled',
+                    op='alter',
+                    severity='unsupported',
+                    model=model_default_idxs,
+                    existing=existing_default_idxs,
+                    description=f'`{model.__name__}` specifies create_default_idxs={model_default_idxs}, '
+                    f'but {name!r} was created with create_default_idxs={existing_default_idxs}',
+                )
+            )
+
         # Default indexes have no counterpart in __indexes__. create_default_idxs=True is incompatible with explicit
-        # B-tree indexes. So, if create_default_idxs is True, all B-tree indexes are default indexes, and we can ignore
-        # them all because column diff will take care of them. If create_default_idxs is False, all B-tree indexes are
-        # explicitly declared, so we need to diff and compare them similarly to embedding indexes.
-        # TODO this only works if create_default_idxs cannot be changed, which we have no way of verifying right now.
-        # TODO make sure that new column addition honors create_default_idxs.
-        include_btree_idxs = not model.__table_spec__['create_default_idxs']
+        # B-tree indexes. So, if the existing table has default indexes enabled, all of its B-tree indexes are default
+        # indexes, and we can ignore them all because resolving column diff will take care of the indexes, too.
+        # Otherwise all B-tree indexes are explicitly declared, so we diff and compare them like embedding indexes.
+        # If there is a disagreement on create_default_idxs, no meaningful diff of b-tree indexes can be calculated.
+        include_btree_idxs = not model_default_idxs and not existing_default_idxs
+        if not include_btree_idxs:
+            model_idxs = {idx_name for idx_name, idx in model.__indexes__.items() if not isinstance(idx, BtreeIndex)}
         existing_idxs = {
             idx_name
             for idx_name, info in existing_md['indices'].items()
             if info['index_type'] == 'embedding' or (include_btree_idxs and info['index_type'] == 'btree')
         }
-
-        changes = []
 
         # Structural mismatches (kind/iterator/filter/sample); each is unsupported (requires a manual migration).
         if model_kind != existing_md['kind']:

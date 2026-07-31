@@ -79,6 +79,8 @@ class TableMetadata(TypedDict):
     """Index metadata for all of the indices of the table."""
     is_versioned: bool
     """`True` if this is a versioned table."""
+    default_idxs_enabled: bool
+    """`True` if eligible columns of this table get a default B-tree index."""
     is_view: bool
     """`True` if this table is a view."""
     is_snapshot: bool

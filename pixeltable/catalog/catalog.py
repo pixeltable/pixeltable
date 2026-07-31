@@ -1815,7 +1815,9 @@ class Catalog(CatalogBase):
                 resolved_cols, resolved_idxs = model.prepare_model_updates(
                     tvp, tv.display_str(), update['new_columns'], update['new_idxs']
                 )
-                tv.add_columns(resolved_cols, print_stats=False, on_error='abort')
+                tv.add_columns(
+                    resolved_cols, print_stats=False, on_error='abort', create_default_idxs=tv.default_idxs_enabled
+                )
                 for col, idx_name, idx_base in resolved_idxs:
                     tv.add_index(col, idx_name, idx_base)
 

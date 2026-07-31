@@ -1657,6 +1657,15 @@ class TableVersion:
     def is_versioned(self) -> bool:
         return self._tbl_md.is_versioned
 
+    @property
+    def default_idxs_enabled(self) -> bool:
+        """Whether eligible columns of this table get a default B-tree index.
+
+        Tables created before this property was recorded in the metadata return True.
+        """
+        md_value = self._tbl_md.default_idxs_enabled
+        return True if md_value is None else md_value
+
     def bump_version(self, timestamp: float | None = None, *, bump_schema_version: bool) -> None:
         """
         Increments the table version and adjusts all associated metadata. This will *not* trigger a database action;
