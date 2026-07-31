@@ -52,7 +52,7 @@ dependencies = [
     "fasteners>=0.19",
     "psycopg[binary]>=3.1.18",
     "sqlalchemy>=2.0.23",
-    "pgvector>=0.4.0,<0.5.0",
+    "pgvector>=0.4.0",
     "av>=10.0.0",
     "beautifulsoup4>=4.10",
     "lxml>=5.1",
@@ -72,6 +72,7 @@ dependencies = [
     "deprecated>=1.2.15",
     "pypdfium2>=4.30.0",
     "pathspec>=0.10.2",
+    "psutil>=5.9",
 ]
 
 [project.optional-dependencies]
@@ -138,6 +139,7 @@ dev = [
     "types-deprecated>=1.2.15",
     "types-jsonschema>=4.1.0",
     "types-pillow>=10.0",
+    "types-psutil>=5.9",
     "types-pycocotools>=2.0",
     "types-pyyaml>=6.0.1,<7",
     "types-requests>=2.31.0",
@@ -218,7 +220,7 @@ test = [
     "pytest-xdist[psutil]>=3.8",
     "pytest-rerunfailures>=15.1",
     "pytest-benchmark>=5.1",
-    "coverage>=7.9",
+    "pytest-cov>=7",
     "filelock>=3.20.3",
 ]
 extra-dev = [

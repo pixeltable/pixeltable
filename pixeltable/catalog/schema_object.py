@@ -30,24 +30,32 @@ class SchemaObject(abc.ABC):
 
     def _parent(self) -> 'catalog.Dir | None':
         """Returns the parent directory of this schema object."""
-        with get_runtime().catalog.begin_xact(for_write=False):
+        from pixeltable.catalog import retrying_read
+
+        def op() -> 'catalog.Dir | None':
             dir_id = self._dir_id()
             if dir_id is None:
                 return None
             return get_runtime().catalog.get_dir(dir_id)
+
+        return retrying_read(op)
 
     def _path(self) -> 'catalog.Path':
         """Returns the path to this schema object. Raises TABLE_NOT_FOUND if dropped.
 
         Resolves the whole path in a single read transaction so the result is a consistent snapshot.
         """
-        with get_runtime().catalog.begin_xact(for_write=False):
+        from pixeltable.catalog import retrying_read
+
+        def op() -> 'catalog.Path':
             dir_id = self._dir_id()
             if dir_id is None:
                 # an instance that's in the process of getting dropped has dir_id unset
                 raise excs.table_was_dropped(self._id)
             path = get_runtime().catalog.get_dir_path(dir_id)
             return path.append(self._name())
+
+        return retrying_read(op)
 
     @abc.abstractmethod
     def _display_name(self) -> str:
