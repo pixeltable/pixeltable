@@ -8,7 +8,7 @@ from .utils import pxt_raises
 
 
 class TestConfig:
-    def test_config_errors(self, tmp_path: Path) -> None:
+    def test_config_errors(self, init_env: None, tmp_path: Path) -> None:
         def spawn_cmd(cmd: str, expected_error_msg: str) -> None:
             cmd = cmd.replace('\\', r'\\')  # Escape backslashes for Windows compatibility
             result = subprocess.run(

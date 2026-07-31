@@ -31,7 +31,6 @@ import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.metadata.schema import base_metadata
 from pixeltable.runtime import get_runtime, reset_runtime
 
 from . import proxy_dispatch
@@ -247,12 +246,15 @@ def stop(db: str) -> None:
     _port_lock(db).unlink(missing_ok=True)
 
 
-def reset(db: str) -> None:
-    """Reset the running daemon's catalog to empty, in place (no restart, so its endpoint stays valid)."""
+def reinitialize(db: str) -> None:
+    """Test only. Drop the running daemon's cached catalog state, in place (no restart, so its endpoint stays valid).
+
+    Does not clear the store state.
+    """
     ep = endpoint(db)
     if ep is None:
         raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'No running proxy daemon for {db!r}')
-    response = httpx.post(f'{ep}/reset', timeout=60.0)
+    response = httpx.post(f'{ep}/reinitialize', timeout=60.0)
     response.raise_for_status()
 
 
@@ -265,28 +267,10 @@ def delete(db: str) -> None:
         shutil.rmtree(home)
 
 
-def reset_catalog() -> None:
-    """Empty this daemon's catalog in place and reload it. Runs inside the daemon process.
-
-    Drops the data tables and truncates the metadata tables, then reinitializes; the result is the same
-    empty-but-initialized state as a freshly created database (init recreates the root directory record),
-    so the daemon can be reused across tests without a restart. The truncate/drop logic mirrors the test
-    harness's clean_db(); a shared home for it is a later cleanup.
+def _reinitialize() -> None:
+    """Test only. Discard this daemon's cached catalog state and reload it from the store. Runs inside the daemon
+    process.
     """
-    engine = Env.get().engine
-    inspector = sql.inspect(engine)
-    all_table_names = set(inspector.get_table_names())
-    md_table_names = set(base_metadata.tables.keys())
-    data_table_names = all_table_names - md_table_names
-    existing_md_names = all_table_names & md_table_names
-    with engine.connect() as conn:
-        if data_table_names:
-            names = ', '.join(f'"{t}"' for t in data_table_names)
-            conn.execute(sql.text(f'DROP TABLE IF EXISTS {names} CASCADE'))
-        if existing_md_names:
-            names = ', '.join(f'"{t}"' for t in existing_md_names)
-            conn.execute(sql.text(f'TRUNCATE TABLE {names} CASCADE'))
-        conn.commit()
     reset_runtime()
     pxt.init()
 
@@ -333,10 +317,10 @@ def _build_app() -> 'FastAPI':
             content=encode_body(response_json.encode(), response_parts), media_type='application/octet-stream'
         )
 
-    @app.post('/reset')
-    async def reset_endpoint() -> Response:
-        # reset_catalog() truncates tables and reinitializes; keep it off the event loop
-        await run_in_threadpool(reset_catalog)
+    @app.post('/reinitialize')
+    async def reinitialize_endpoint() -> Response:
+        # _reinitialize() rebuilds the runtime, which is synchronous; keep it off the event loop
+        await run_in_threadpool(_reinitialize)
         return Response(content='{"status": "ok"}', media_type='application/json')
 
     @app.get('/health')
@@ -358,7 +342,15 @@ def _build_app() -> 'FastAPI':
 
 
 def _serve() -> None:
-    """Daemon entrypoint. Env (PIXELTABLE_HOME/PGDATA/DB) is set by the launching start()."""
+    """Daemon entrypoint.
+
+    Local mode (default): binds to a random loopback port, writes a port.lock file
+    for the SDK to discover, and manages the database lifecycle itself.
+
+    Fixed-address mode: when PIXELTABLE_DAEMON_HOST or PIXELTABLE_DAEMON_PORT is set,
+    binds to that address and port instead and skips the lock file. Used when an
+    external orchestrator (e.g. a sidecar) handles routing and discovery.
+    """
     # mark this process as a hosted-catalog server (no client-accessible local store) before the catalog inits
     os.environ['PIXELTABLE_PROXY_DAEMON'] = '1'
     try:
@@ -366,7 +358,7 @@ def _serve() -> None:
     except ModuleNotFoundError as e:
         raise excs.Error(
             excs.ErrorCode.INTERNAL_ERROR,
-            'The local proxy daemon requires the serve dependencies (fastapi, uvicorn). '
+            'The proxy daemon requires the serve dependencies (fastapi, uvicorn). '
             'Install them with: pip install pixeltable[serve]',
         ) from e
 
@@ -375,12 +367,21 @@ def _serve() -> None:
     # eagerly create/migrate this daemon's database before announcing readiness
     _ = get_runtime().catalog
 
+    config = Config.get()
+    daemon_host = config.get_string_value('daemon_host')
+    daemon_port = config.get_int_value('daemon_port')
+
+    log_level = (config.get_string_value('log_level') or 'info').lower()
+    if daemon_host is not None or daemon_port is not None:
+        uvicorn.run(app, host=daemon_host or '127.0.0.1', port=daemon_port or 8000, log_level=log_level)
+        return
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind(('127.0.0.1', 0))
     port = sock.getsockname()[1]
 
-    lock = Config.get().home / _LOCK_NAME  # this process's home is proxy_<db>
+    lock = config.home / _LOCK_NAME  # this process's home is proxy_<db>
     lock.write_text(json.dumps({'port': port, 'pid': os.getpid()}))
 
     def _cleanup(*_: Any) -> None:

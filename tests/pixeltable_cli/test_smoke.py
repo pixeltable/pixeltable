@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 
 import pixeltable as pxt
+from pixeltable_cli.client.utils import display_path
 from tests.utils import CatalogMode, get_image_files
 
 from .conftest import PxtRunner
@@ -50,7 +51,7 @@ class TestLs:
         """Bare ls (text + json) lists what's in the catalog and reflects mutations."""
         p = make_catalog_path
         pxt.create_dir(p('cli_ls'), if_exists='ignore')
-        pxt.create_table(p('cli_ls.t'), {'x': pxt.Int}, if_exists='replace')
+        pxt.create_table(p('cli_ls/t'), {'x': pxt.Int}, if_exists='replace')
 
         # json reports the entry
         entries = cli('ls', p('cli_ls'), '--json').json['entries']
@@ -67,7 +68,7 @@ class TestLs:
         assert cli('ls', p('cli_ls_empty')).returncode == 0
 
         # after a drop, the entry is gone from the listing
-        pxt.drop_table(p('cli_ls.t'))
+        pxt.drop_table(p('cli_ls/t'))
         entries = cli('ls', p('cli_ls'), '--json').json['entries']
         assert p('cli_ls/t') not in {e['path'] for e in entries}
 
@@ -76,7 +77,7 @@ class TestLs:
         cheap path: it skips the per-entry metadata fetch and returns num_cols=None."""
         p = make_catalog_path
         pxt.create_dir(p('cli_ls_long'), if_exists='ignore')
-        t = pxt.create_table(p('cli_ls_long.t'), {'a': pxt.Int}, if_exists='replace')
+        t = pxt.create_table(p('cli_ls_long/t'), {'a': pxt.Int}, if_exists='replace')
         t.add_computed_column(b=t.a * 2)
 
         # -l text: headers + 'c' flag for computed column
@@ -102,9 +103,9 @@ class TestLs:
         num_rows in both text and JSON; a dirs-only target skips the count pool entirely."""
         p = make_catalog_path
         pxt.create_dir(p('cli_ls_tree'), if_exists='ignore')
-        pxt.create_dir(p('cli_ls_tree.sub'), if_exists='ignore')
-        pxt.create_table(p('cli_ls_tree.sub.leaf'), {'a': pxt.Int}, if_exists='replace')
-        t = pxt.create_table(p('cli_ls_tree.t'), {'a': pxt.Int}, if_exists='replace')
+        pxt.create_dir(p('cli_ls_tree/sub'), if_exists='ignore')
+        pxt.create_table(p('cli_ls_tree/sub/leaf'), {'a': pxt.Int}, if_exists='replace')
+        t = pxt.create_table(p('cli_ls_tree/t'), {'a': pxt.Int}, if_exists='replace')
         t.insert([{'a': i} for i in range(4)])
 
         # --tree: nested entries and a box-drawing prefix
@@ -124,8 +125,8 @@ class TestLs:
 
         # --counts on a dirs-only target: directories report no row count
         pxt.create_dir(p('cli_ls_dirs'), if_exists='ignore')
-        pxt.create_dir(p('cli_ls_dirs.sub1'), if_exists='ignore')
-        pxt.create_dir(p('cli_ls_dirs.sub2'), if_exists='ignore')
+        pxt.create_dir(p('cli_ls_dirs/sub1'), if_exists='ignore')
+        pxt.create_dir(p('cli_ls_dirs/sub2'), if_exists='ignore')
         entries = cli('ls', p('cli_ls_dirs'), '--counts', '--json').json['entries']
         assert all(e['kind'] == 'dir' for e in entries)
         assert all(e.get('num_rows') is None for e in entries)
@@ -136,7 +137,7 @@ class TestLs:
         a typo like `pxt ls my_table` vs `pxt describe my_table`."""
         p = make_catalog_path
         pxt.create_dir(p('cli_ls_err'), if_exists='ignore')
-        pxt.create_table(p('cli_ls_err.t'), {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table(p('cli_ls_err/t'), {'a': pxt.Int}, if_exists='replace')
 
         # name absent at the root -> 404 path-not-found
         r = cli('ls', p('does_not_exist'), check=False)
@@ -155,11 +156,199 @@ class TestLs:
         assert "'cli_ls_err/t' is a table, not a directory" in r.stderr
 
 
+class TestCwd:
+    """cwd/pwd: the per-session working directory the daemon prepends to relative paths."""
+
+    def test_working_directory(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        pxt.create_dir(p('cli_cwd'), if_exists='ignore')
+        pxt.create_dir(p('cli_cwd/sub'), if_exists='ignore')
+        pxt.create_table(p('cli_cwd/sub/t'), {'x': pxt.Int}, if_exists='replace')
+        try:
+            # start from a known-clear state (the session is shared across this worker's commands)
+            cli('cd')
+            assert 'no working directory' in cli('pwd').stdout
+
+            # once set, relative paths resolve under the working directory
+            cli('cd', p('cli_cwd/sub'))
+            assert p('cli_cwd/sub') in cli('pwd').stdout
+            assert 'x' in cli('describe', 't').stdout  # 't' -> cli_cwd/sub/t
+            assert cli('count', 't').returncode == 0
+
+            # a relative path with no match under the working directory fails as not-found
+            assert cli('describe', 'nope', check=False).returncode != 0
+
+            # clearing restores root-relative resolution
+            cli('cd')
+            assert 'no working directory' in cli('pwd').stdout
+            assert cli('describe', 't', check=False).returncode != 0  # no wd -> 't' at root -> not found
+        finally:
+            cli('cd')  # never leak the working directory into other tests sharing this session
+
+    def test_listings_honor_wd(
+        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode
+    ) -> None:
+        """'columns' and 'idxs' with no path cover the working directory, not the whole catalog."""
+        p = make_catalog_path
+        pxt.create_dir(p('cli_cwd_list'), if_exists='ignore')
+        # both tables get default btree indexes, so that 'idxs' has something to report for each of them and its
+        # scoping to the working directory is what the assertions below actually exercise
+        pxt.create_table(p('cli_cwd_list/inside'), {'x': pxt.String}, if_exists='replace', create_default_idxs=True)
+        pxt.create_table(p('cli_cwd_outside'), {'y': pxt.String}, if_exists='replace', create_default_idxs=True)
+        try:
+            cli('cd', p('cli_cwd_list'))
+            for verb in ('columns', 'idxs'):
+                tables = {e['table'] for e in cli(verb, '--json').json}
+                assert p('cli_cwd_list/inside') in tables, verb
+                assert p('cli_cwd_outside') not in tables, verb
+
+            # cleared, the command covers the catalog again: the no-path form locally, the db root over proxy
+            cli('cd')
+            args = ('columns', '--json') if catalog_mode == 'local' else ('columns', p(''), '--json')
+            assert p('cli_cwd_outside') in {e['table'] for e in cli(*args).json}
+        finally:
+            cli('cd')
+
+    @pytest.mark.local("'..' resolves against the local catalog root")
+    def test_dot_segments(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
+        """'.' and '..' navigate relative to the working directory, as they do in a shell."""
+        p = make_catalog_path
+        pxt.create_dir(p('cli_dots'), if_exists='ignore')
+        pxt.create_dir(p('cli_dots/sub'), if_exists='ignore')
+        pxt.create_table(p('cli_dots/t'), {'x': pxt.Int}, if_exists='replace')
+        try:
+            cli('cd', p('cli_dots/sub'))
+            assert cli('pwd').stdout.strip() == display_path(p('cli_dots/sub'))
+
+            # '..' steps out of the working directory, '.' stays put
+            cli('cd', '..')
+            assert cli('pwd').stdout.strip() == display_path(p('cli_dots'))
+            cli('cd', '.')
+            assert cli('pwd').stdout.strip() == display_path(p('cli_dots'))
+
+            # they resolve mid-path too, so a sibling is reachable without retyping the root
+            assert 'x' in cli('describe', 'sub/../t').stdout
+
+            # '..' at the root keeps the root rather than escaping the catalog
+            cli('cd', '/')
+            cli('cd', '..')
+            assert 'no working directory' in cli('pwd').stdout
+
+            # a dotted component that isn't '.' or '..' is still the legacy separator, and still rejected
+            r = cli('describe', 'a.b', check=False)
+            assert r.returncode != 0
+            assert 'separator' in r.stderr
+        finally:
+            cli('cd')
+
+    @pytest.mark.local("a leading '/' absolute path is a local-catalog notion")
+    def test_mv_destination_honors_absolute_path(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        pxt.create_dir(p('cli_mv_wd'), if_exists='ignore')
+        pxt.create_dir(p('cli_mv_wd/sub'), if_exists='ignore')
+        pxt.create_table(p('cli_mv_wd/movee'), {'a': pxt.Int}, if_exists='replace')
+        try:
+            cli('cd', p('cli_mv_wd'))
+
+            # a dry run reports the resolved destination, so a working directory doesn't hide where it lands
+            r = cli('mv', 'movee', 'sub', '-n')
+            assert 'would move' in r.stdout
+            assert display_path(p('cli_mv_wd/sub/movee')) in r.stdout
+            assert cli('mv', 'movee', 'sub', '-n', '--json').json['new_path'] == p('cli_mv_wd/sub/movee')
+            assert pxt.get_table(p('cli_mv_wd/movee'), if_not_exists='ignore') is not None  # nothing moved
+
+            # a relative destination lands under the working directory
+            assert cli('mv', 'movee', 'sub', '--json').json['new_path'] == p('cli_mv_wd/sub/movee')
+
+            # '.' names the working directory, so a table can be moved back up into it
+            assert cli('mv', 'sub/movee', '.', '--json').json['new_path'] == p('cli_mv_wd/movee')
+
+            # '/' is the catalog root, not a directory under the working directory
+            assert cli('mv', 'movee', '/', '--json').json['new_path'] == 'movee'
+            assert pxt.get_table(p('movee'), if_not_exists='ignore') is not None
+        finally:
+            cli('cd')
+            pxt.drop_table(p('movee'), if_not_exists='ignore')
+
+    @pytest.mark.local("a leading '/' absolute path is a local-catalog notion")
+    def test_absolute_path_ignores_wd(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        pxt.create_dir(p('cli_cwd_abs'), if_exists='ignore')
+        pxt.create_dir(p('cli_cwd_abs/sub'), if_exists='ignore')
+        pxt.create_table(p('cli_cwd_abs/sub/t'), {'x': pxt.Int}, if_exists='replace')
+        try:
+            cli('cd', p('cli_cwd_abs/sub'))
+            assert 'x' in cli('describe', 't').stdout  # relative: resolves under the wd
+            assert 'x' in cli('describe', '/cli_cwd_abs/sub/t').stdout  # leading '/': absolute, wd ignored
+            # output uses the CLI absolute convention: local paths print with a leading '/'
+            assert cli('pwd').stdout.strip() == '/cli_cwd_abs/sub'
+            assert '/cli_cwd_abs/sub/t' in cli('ls').stdout
+        finally:
+            cli('cd')
+
+    @pytest.mark.local('prompt renders the working directory in the CLI absolute convention')
+    def test_shell_prompt_shows_working_directory(
+        self, cli: PxtRunner, pxt_daemon: int, make_catalog_path: Callable[[str], str]
+    ) -> None:
+        p = make_catalog_path
+        pxt.create_dir(p('cli_cwd_shell'), if_exists='ignore')
+        env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
+
+        def shell_prompt() -> str:
+            # feed 'exit' so the REPL prints one prompt (to stdout) and returns
+            r = subprocess.run(
+                ['pxt', 'shell'], input='exit\n', capture_output=True, text=True, env=env, timeout=30, check=False
+            )
+            assert r.returncode == 0, r.stderr
+            return r.stdout
+
+        try:
+            # no working directory -> bare prompt
+            cli('cd')
+            assert 'pxt> ' in shell_prompt()
+
+            # once set, the prompt shows the working directory with a leading '/'
+            cli('cd', p('cli_cwd_shell'))
+            assert 'pxt /cli_cwd_shell> ' in shell_prompt()
+        finally:
+            cli('cd')  # never leak the working directory into other tests sharing this session
+
+    @pytest.mark.local('daemon session store; independent of the catalog backend')
+    def test_rejects_nonexistent_and_isolates_sessions(
+        self, make_catalog_path: Callable[[str], str], pxt_daemon: int
+    ) -> None:
+        p = make_catalog_path
+        pxt.create_dir(p('cli_cwd_iso'), if_exists='ignore')
+        base = f'http://127.0.0.1:{pxt_daemon}'
+
+        def post_cwd(session: str, body: dict[str, str]) -> None:
+            req = urllib.request.Request(
+                f'{base}/api/cwd',
+                data=json.dumps(body).encode(),
+                headers={'Content-Type': 'application/json', 'X-Pxt-Session': session},
+                method='POST',
+            )
+            with urllib.request.urlopen(req) as r:
+                r.read()
+
+        # a non-existent target is rejected at set time
+        with pytest.raises(urllib.error.HTTPError) as ei:
+            post_cwd('sess-a', {'uri': p('cli_cwd_iso/nope')})
+        assert ei.value.code in (400, 404, 422)
+
+        # session A's working directory is invisible to session B
+        post_cwd('sess-a', {'uri': p('cli_cwd_iso')})
+        req_b = urllib.request.Request(f'{base}/api/cwd', headers={'X-Pxt-Session': 'sess-b'})
+        with urllib.request.urlopen(req_b) as r:
+            assert json.loads(r.read())['uri'] is None
+        post_cwd('sess-a', {'uri': '/'})  # cleanup: root resolves to a clear
+
+
 class TestDescribe:
     def test_basics(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         pxt.create_dir(p('cli_desc'), if_exists='ignore')
-        pxt.create_table(p('cli_desc.t'), {'a': pxt.Int, 'b': pxt.String}, if_exists='replace')
+        pxt.create_table(p('cli_desc/t'), {'a': pxt.Int, 'b': pxt.String}, if_exists='replace')
 
         # --json returns the full get_metadata() dict
         meta = cli('describe', p('cli_desc/t'), '--json').json
@@ -182,7 +371,7 @@ class TestColumns:
         `computed` is an alias for `columns --computed`."""
         p = make_catalog_path
         pxt.create_dir(p('cli_cols'), if_exists='ignore')
-        t = pxt.create_table(p('cli_cols.t'), {'a': pxt.Int, 'b': pxt.String}, if_exists='replace')
+        t = pxt.create_table(p('cli_cols/t'), {'a': pxt.Int, 'b': pxt.String}, if_exists='replace')
         t.add_computed_column(doubled=t.a * 2)
 
         # --json: all three columns
@@ -203,8 +392,8 @@ class TestColumns:
 
         # a directory path walks every table beneath it, recursively (dual: a bare dir locally, a
         # db-scoped dir over proxy)
-        pxt.create_dir(p('cli_cols.sub'), if_exists='ignore')
-        pxt.create_table(p('cli_cols.sub.t2'), {'z': pxt.Int}, if_exists='replace')
+        pxt.create_dir(p('cli_cols/sub'), if_exists='ignore')
+        pxt.create_table(p('cli_cols/sub/t2'), {'z': pxt.Int}, if_exists='replace')
         walked = {e['table'] for e in cli('columns', p('cli_cols'), '--json').json}
         assert p('cli_cols/t') in walked
         assert p('cli_cols/sub/t2') in walked
@@ -227,7 +416,7 @@ class TestIdxs:
         """idxs runs against one table, a directory (recursively), or the whole catalog."""
         p = make_catalog_path
         pxt.create_dir(p('cli_idx'), if_exists='ignore')
-        pxt.create_table(p('cli_idx.t'), {'a': pxt.Int}, if_exists='replace', create_default_idxs=True)
+        pxt.create_table(p('cli_idx/t'), {'a': pxt.Int}, if_exists='replace', create_default_idxs=True)
 
         # --json: no embedding idx exists on a plain table
         entries = cli('idxs', p('cli_idx/t'), '--json').json
@@ -236,10 +425,10 @@ class TestIdxs:
         # text: command runs cleanly regardless of catalog content
         assert cli('idxs', p('cli_idx/t')).returncode == 0
 
-        # a directory path walks every table beneath it, recursively; both tables carry default btree indexes, so both
-        # of them show up
-        pxt.create_dir(p('cli_idx.sub'), if_exists='ignore')
-        pxt.create_table(p('cli_idx.sub.t2'), {'a': pxt.Int}, if_exists='replace', create_default_idxs=True)
+        # a directory path walks every table beneath it, recursively; both tables carry auto-created
+        # btree indexes, so both tables show up
+        pxt.create_dir(p('cli_idx/sub'), if_exists='ignore')
+        pxt.create_table(p('cli_idx/sub/t2'), {'a': pxt.Int}, if_exists='replace', create_default_idxs=True)
         walked = {e['table'] for e in cli('idxs', p('cli_idx'), '--json').json}
         assert p('cli_idx/t') in walked
         assert p('cli_idx/sub/t2') in walked
@@ -256,7 +445,7 @@ class TestIdxs:
         --embedding."""
         p = make_catalog_path
         pxt.create_dir(p('cli_idx_emb'), if_exists='ignore')
-        t = pxt.create_table(p('cli_idx_emb.t'), {'s': pxt.String}, if_exists='replace')
+        t = pxt.create_table(p('cli_idx_emb/t'), {'s': pxt.String}, if_exists='replace')
         t.add_embedding_index('s', idx_name='emb_idx', string_embed=_trivial_embed)
 
         all_entries = cli('idxs', p('cli_idx_emb/t'), '--json').json
@@ -270,7 +459,7 @@ class TestHistory:
     def test_basics(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         pxt.create_dir(p('cli_hist'), if_exists='ignore')
-        t = pxt.create_table(p('cli_hist.t'), {'a': pxt.Int}, if_exists='replace')
+        t = pxt.create_table(p('cli_hist/t'), {'a': pxt.Int}, if_exists='replace')
         for i in range(4):
             t.insert([{'a': i}])
 
@@ -293,7 +482,7 @@ class TestHistory:
         # generic 500. The CLI client validates -n before sending, so this exercises the
         # programmatic-caller path.
         for bad, expected in (('abc', 'must be an integer'), ('0', 'must be >= 1'), ('-3', 'must be >= 1')):
-            req = urllib.request.Request(f'http://127.0.0.1:{pxt_daemon}/api/tables/cli_hist/t/history?n={bad}')
+            req = urllib.request.Request(f'http://127.0.0.1:{pxt_daemon}/api/tables/history?path=cli_hist/t&n={bad}')
             with pytest.raises(urllib.error.HTTPError) as ei:
                 urllib.request.urlopen(req)
             assert ei.value.code == 422
@@ -305,7 +494,7 @@ class TestRows:
         """rows: text + --json default; -n limit; --cols subset; null cells render as empty."""
         p = make_catalog_path
         pxt.create_dir(p('cli_rows'), if_exists='ignore')
-        t = pxt.create_table(p('cli_rows.t'), {'n': pxt.Int, 's': pxt.String}, if_exists='replace')
+        t = pxt.create_table(p('cli_rows/t'), {'n': pxt.Int, 's': pxt.String}, if_exists='replace')
         t.insert([{'n': i, 's': f'row{i}'} for i in range(5)])
 
         # --json + -n
@@ -322,7 +511,7 @@ class TestRows:
         assert 'row4' in text
 
         # null cell renders as empty, not the literal 'None'
-        t2 = pxt.create_table(p('cli_rows.nulls'), {'a': pxt.Int, 's': pxt.String}, if_exists='replace')
+        t2 = pxt.create_table(p('cli_rows/nulls'), {'a': pxt.Int, 's': pxt.String}, if_exists='replace')
         t2.insert([{'a': 1, 's': None}])
         assert 'None' not in cli('rows', p('cli_rows/nulls')).stdout
 
@@ -333,7 +522,7 @@ class TestRows:
         img_paths = get_image_files()[:2]
         pxt.create_dir(p('cli_img'), if_exists='ignore')
         t = pxt.create_table(
-            p('cli_img.t'),
+            p('cli_img/t'),
             {'k': pxt.Required[pxt.Int], 'img': pxt.Image, 'tag': pxt.String},
             primary_key='k',
             if_exists='replace',
@@ -359,7 +548,7 @@ class TestRows:
     def test_errors(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         pxt.create_dir(p('cli_rows_err'), if_exists='ignore')
-        pxt.create_table(p('cli_rows_err.t'), {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table(p('cli_rows_err/t'), {'a': pxt.Int}, if_exists='replace')
 
         # n must be >= 1
         r = cli('rows', p('cli_rows_err/t'), '-n', '0', check=False)
@@ -383,7 +572,7 @@ class TestGet:
         p = make_catalog_path
         pxt.create_dir(p('cli_get'), if_exists='ignore')
         t = pxt.create_table(
-            p('cli_get.t'),
+            p('cli_get/t'),
             {'k': pxt.Required[pxt.Int], 'a': pxt.Int, 'v': pxt.String},
             primary_key='k',
             if_exists='replace',
@@ -416,7 +605,7 @@ class TestGet:
         # float PK: '1.5' coerces to float; whitespace around the numeric token is stripped
         # by float() (documented Python behavior) and the lookup still finds the row.
         t = pxt.create_table(
-            p('cli_get_coerce.f'), {'k': pxt.Required[pxt.Float], 'v': pxt.String}, primary_key='k', if_exists='replace'
+            p('cli_get_coerce/f'), {'k': pxt.Required[pxt.Float], 'v': pxt.String}, primary_key='k', if_exists='replace'
         )
         t.insert([{'k': 1.5, 'v': 'one-and-a-half'}])
         assert cli('get', p('cli_get_coerce/f'), '1.5', '--json').json['row']['v'] == 'one-and-a-half'
@@ -424,7 +613,7 @@ class TestGet:
 
         # string PK: a token that doesn't parse as a number stays a string.
         t = pxt.create_table(
-            p('cli_get_coerce.s'), {'k': pxt.Required[pxt.String], 'v': pxt.Int}, primary_key='k', if_exists='replace'
+            p('cli_get_coerce/s'), {'k': pxt.Required[pxt.String], 'v': pxt.Int}, primary_key='k', if_exists='replace'
         )
         t.insert([{'k': 'alpha', 'v': 1}])
         assert cli('get', p('cli_get_coerce/s'), 'alpha', '--json').json['row']['v'] == 1
@@ -433,10 +622,10 @@ class TestGet:
         """No-PK rejection, PK count mismatch, unknown col, empty/whitespace PK, empty --cols token."""
         p = make_catalog_path
         pxt.create_dir(p('cli_get_err'), if_exists='ignore')
-        pxt.create_table(p('cli_get_err.no_pk'), {'a': pxt.Int}, if_exists='replace')
-        pxt.create_table(p('cli_get_err.t'), {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
+        pxt.create_table(p('cli_get_err/no_pk'), {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table(p('cli_get_err/t'), {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
         pxt.create_table(
-            p('cli_get_err.tc'),
+            p('cli_get_err/tc'),
             {'a': pxt.Required[pxt.Int], 'b': pxt.Required[pxt.String]},
             primary_key=['a', 'b'],
             if_exists='replace',
@@ -480,7 +669,7 @@ class TestCount:
     def test_basics(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         pxt.create_dir(p('cli_count'), if_exists='ignore')
-        t = pxt.create_table(p('cli_count.t'), {'a': pxt.Int}, if_exists='replace')
+        t = pxt.create_table(p('cli_count/t'), {'a': pxt.Int}, if_exists='replace')
         t.insert([{'a': i} for i in range(7)])
 
         assert cli('count', p('cli_count/t'), '--json').json['count'] == 7
@@ -605,14 +794,14 @@ class TestErrors:
         pxt.create_dir(p('cli_errs'), if_exists='ignore')
 
         # No computed columns -> no errors -> empty JSON list and empty text output
-        pxt.create_table(p('cli_errs.ok'), {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
+        pxt.create_table(p('cli_errs/ok'), {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
         assert cli('errors', p('cli_errs/ok'), '--json').json == []
         r = cli('errors', p('cli_errs/ok'))
         assert r.returncode == 0
         assert r.stdout.strip() == ''
 
         # Computed column that raises for k=0: row 0 shows up in the errors listing
-        t = pxt.create_table(p('cli_errs.bad'), {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
+        t = pxt.create_table(p('cli_errs/bad'), {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
         t.add_computed_column(b=_fail_on_zero(t.k), on_error='ignore')
         t.add_computed_column(c=_fail_on_zero(t.k), on_error='ignore')
         t.insert([{'k': 0}, {'k': 1}], on_error='ignore')
@@ -633,9 +822,9 @@ class TestErrors:
         """No-PK rejection, unknown --col, --col on a non-stored-computed column."""
         p = make_catalog_path
         pxt.create_dir(p('cli_errs_err'), if_exists='ignore')
-        pxt.create_table(p('cli_errs_err.no_pk'), {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table(p('cli_errs_err/no_pk'), {'a': pxt.Int}, if_exists='replace')
         pxt.create_table(
-            p('cli_errs_err.t'), {'k': pxt.Required[pxt.Int], 'plain': pxt.String}, primary_key='k', if_exists='replace'
+            p('cli_errs_err/t'), {'k': pxt.Required[pxt.Int], 'plain': pxt.String}, primary_key='k', if_exists='replace'
         )
 
         # no PK -> 400
@@ -661,10 +850,10 @@ class TestDrop:
     def test_basics(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         pxt.create_dir(p('cli_drop'), if_exists='ignore')
-        pxt.create_dir(p('cli_drop.nest'), if_exists='ignore')
-        pxt.create_table(p('cli_drop.nest.victim'), {'a': pxt.Int}, if_exists='replace')
-        pxt.create_table(p('cli_drop.dry'), {'a': pxt.Int}, if_exists='replace')
-        pxt.create_table(p('cli_drop.txt'), {'a': pxt.Int}, if_exists='replace')
+        pxt.create_dir(p('cli_drop/nest'), if_exists='ignore')
+        pxt.create_table(p('cli_drop/nest/victim'), {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table(p('cli_drop/dry'), {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table(p('cli_drop/txt'), {'a': pxt.Int}, if_exists='replace')
 
         # drop a table: --json reports dropped=True; table is gone
         out = cli('drop', p('cli_drop/nest/victim'), '-f', '--json').json
@@ -675,8 +864,8 @@ class TestDrop:
         assert cli('drop-dir', p('cli_drop/nest'), '-f', '--json').json['dropped'] is True
 
         # rm refuses a non-empty dir without -r; -r succeeds
-        pxt.create_dir(p('cli_drop.nest2'), if_exists='ignore')
-        pxt.create_table(p('cli_drop.nest2.t'), {'a': pxt.Int}, if_exists='replace')
+        pxt.create_dir(p('cli_drop/nest2'), if_exists='ignore')
+        pxt.create_table(p('cli_drop/nest2/t'), {'a': pxt.Int}, if_exists='replace')
         assert cli('drop-dir', p('cli_drop/nest2'), '-f', check=False).returncode != 0
         assert cli('drop-dir', p('cli_drop/nest2'), '-r', '-f', '--json').json['dropped'] is True
 
@@ -705,8 +894,8 @@ class TestDrop:
         Without --cascade, dropping a table with a view fails."""
         p = make_catalog_path
         pxt.create_dir(p('cli_drop_csc'), if_exists='ignore')
-        t = pxt.create_table(p('cli_drop_csc.base'), {'a': pxt.Int}, if_exists='replace')
-        pxt.create_view(p('cli_drop_csc.dep_view'), t, if_exists='replace')
+        t = pxt.create_table(p('cli_drop_csc/base'), {'a': pxt.Int}, if_exists='replace')
+        pxt.create_view(p('cli_drop_csc/dep_view'), t, if_exists='replace')
 
         # without --cascade: drop fails because of the dependent view
         r = cli('drop', p('cli_drop_csc/base'), '-f', check=False)
@@ -722,7 +911,7 @@ class TestDrop:
         p = make_catalog_path
         # no -f, no TTY: refuse to proceed
         pxt.create_dir(p('cli_drop_err'), if_exists='ignore')
-        pxt.create_table(p('cli_drop_err.protected'), {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table(p('cli_drop_err/protected'), {'a': pxt.Int}, if_exists='replace')
         r = cli('drop', p('cli_drop_err/protected'), check=False)
         assert r.returncode != 0
         assert '--force' in r.stderr
@@ -739,9 +928,9 @@ class TestRename:
     def test_basics(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         pxt.create_dir(p('cli_rn'), if_exists='ignore')
-        pxt.create_table(p('cli_rn.old_name'), {'a': pxt.Int}, if_exists='replace')
-        pxt.create_table(p('cli_rn.dr'), {'a': pxt.Int}, if_exists='replace')
-        pxt.create_table(p('cli_rn.txt'), {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table(p('cli_rn/old_name'), {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table(p('cli_rn/dr'), {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table(p('cli_rn/txt'), {'a': pxt.Int}, if_exists='replace')
 
         # rename + --json
         out = cli('rename', p('cli_rn/old_name'), 'new_name', '--json').json
@@ -758,24 +947,24 @@ class TestRename:
         assert 'renamed' in cli('rename', p('cli_rn/txt'), 'txt2').stdout
 
     def test_errors(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
-        """`new_name` must be a leaf, no '/' or '.'."""
+        """`new_name` must be a name, not a path: no '/' or '.'."""
         p = make_catalog_path
         pxt.create_dir(p('cli_rn_err'), if_exists='ignore')
-        pxt.create_table(p('cli_rn_err.t'), {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table(p('cli_rn_err/t'), {'a': pxt.Int}, if_exists='replace')
         r = cli('rename', p('cli_rn_err/t'), 'a/b', check=False)
         assert r.returncode != 0
-        assert 'leaf name' in r.stderr
+        assert 'must be a name, not a path' in r.stderr
 
 
 class TestMv:
     def test_basics(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         pxt.create_dir(p('cli_mv'), if_exists='ignore')
-        pxt.create_dir(p('cli_mv.src'), if_exists='ignore')
-        pxt.create_dir(p('cli_mv.dst'), if_exists='ignore')
-        pxt.create_table(p('cli_mv.src.movee'), {'a': pxt.Int}, if_exists='replace')
-        pxt.create_table(p('cli_mv.toroot'), {'a': pxt.Int}, if_exists='replace')
-        pxt.create_table(p('cli_mv.dr'), {'a': pxt.Int}, if_exists='replace')
+        pxt.create_dir(p('cli_mv/src'), if_exists='ignore')
+        pxt.create_dir(p('cli_mv/dst'), if_exists='ignore')
+        pxt.create_table(p('cli_mv/src/movee'), {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table(p('cli_mv/toroot'), {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table(p('cli_mv/dr'), {'a': pxt.Int}, if_exists='replace')
 
         # mv into another dir: --json reports the new path
         out = cli('mv', p('cli_mv/src/movee'), p('cli_mv/dst'), '--json').json
@@ -783,7 +972,7 @@ class TestMv:
         assert pxt.get_table(p('cli_mv/dst/movee'), if_not_exists='ignore') is not None
 
         # text confirmation
-        pxt.create_table(p('cli_mv.src.tx'), {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table(p('cli_mv/src/tx'), {'a': pxt.Int}, if_exists='replace')
         assert 'moved' in cli('mv', p('cli_mv/src/tx'), p('cli_mv/dst')).stdout
 
         # empty destination moves to the catalog root (p('') is '' locally, the db uri over proxy; a
@@ -806,11 +995,11 @@ class TestRevert:
     def test_basics(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         pxt.create_dir(p('cli_rv'), if_exists='ignore')
-        t = pxt.create_table(p('cli_rv.t'), {'a': pxt.Int}, if_exists='replace')
+        t = pxt.create_table(p('cli_rv/t'), {'a': pxt.Int}, if_exists='replace')
         t.insert([{'a': 1}])
         v_before = t.get_metadata()['version']
-        pxt.create_table(p('cli_rv.txt'), {'a': pxt.Int}, if_exists='replace').insert([{'a': 1}])
-        pxt.create_table(p('cli_rv.dr'), {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table(p('cli_rv/txt'), {'a': pxt.Int}, if_exists='replace').insert([{'a': 1}])
+        pxt.create_table(p('cli_rv/dr'), {'a': pxt.Int}, if_exists='replace')
 
         # revert + --json
         out = cli('revert', p('cli_rv/t'), '-f', '--json').json
@@ -831,7 +1020,7 @@ class TestRevert:
         future programmatic caller that bypasses the CLI."""
         p = make_catalog_path
         pxt.create_dir(p('cli_rv_err'), if_exists='ignore')
-        pxt.create_table(p('cli_rv_err.t'), {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table(p('cli_rv_err/t'), {'a': pxt.Int}, if_exists='replace')
 
         # client preflight
         r = cli('revert', p('cli_rv_err/t'), '--steps', '0', '-f', check=False)
@@ -845,8 +1034,8 @@ class TestRevert:
 
         # direct HTTP: server's own steps<1 check fires when the client preflight is bypassed
         req = urllib.request.Request(
-            f'http://127.0.0.1:{pxt_daemon}/api/tables/whatever/revert',
-            data=json.dumps({'steps': 0}).encode(),
+            f'http://127.0.0.1:{pxt_daemon}/api/tables/revert',
+            data=json.dumps({'path': 'whatever', 'steps': 0}).encode(),
             headers={'Content-Type': 'application/json'},
             method='POST',
         )
@@ -859,7 +1048,7 @@ class TestRevert:
 
 @pytest.mark.local('client-side path-shape validator; the pxt:// prefix is validated elsewhere')
 class TestPathValidator:
-    """Client-side path validator (pixeltable_cli.client.http.quote_path). Catches every well-known
+    """Client-side path validator (pixeltable_cli.client.utils.validate_path_arg). Catches every well-known
     bad shape before the request reaches the server so the user gets a clear error message
     instead of a generic 'Invalid path' from pxt."""
 
@@ -868,10 +1057,10 @@ class TestPathValidator:
         r = cli('describe', 'a.b', check=False)
         assert r.returncode != 0
         assert "'/'" in r.stderr or 'separator' in r.stderr
-        # leading '/' would create an empty leading component
+        # a leading '/' marks an absolute path from the catalog root, so it passes shape validation
+        # (it fails later as not-found, not as a shape error)
         r = cli('describe', '/x', check=False)
-        assert r.returncode != 0
-        assert 'relative' in r.stderr
+        assert 'relative' not in r.stderr
         # trailing '/' would create an empty trailing component
         r = cli('describe', 'x/', check=False)
         assert r.returncode != 0
@@ -882,14 +1071,12 @@ class TestPathValidator:
         assert 'empty components' in r.stderr
 
     def test_server_rejects_control_chars(self, pxt_daemon: int) -> None:
-        # A control character in the URL-decoded path would otherwise be interpolated into
-        # response headers (eg the Content-Disposition emitted by dashboard_table_export),
-        # enabling header injection / response splitting. The server-side validator must
-        # reject every ASCII control character before the path reaches any downstream sink.
-        # LF (%0A) is filtered out earlier by the route-matching regex; the test covers the
-        # remaining control chars that do reach _validate_path.
-        for encoded in ('foo%0Dbar', 'foo%00bar', 'foo%7Fbar', 'foo%01bar'):
-            req = urllib.request.Request(f'http://127.0.0.1:{pxt_daemon}/api/tables/{encoded}')
+        # A control character in a path would otherwise be interpolated into response headers (eg the
+        # Content-Disposition emitted by dashboard_table_export), enabling header injection / response
+        # splitting. resolve_path must reject every ASCII control character before the path reaches any
+        # downstream sink. The path now travels in the query string, so even LF (%0A) reaches the validator.
+        for encoded in ('foo%0Abar', 'foo%0Dbar', 'foo%00bar', 'foo%7Fbar', 'foo%01bar'):
+            req = urllib.request.Request(f'http://127.0.0.1:{pxt_daemon}/api/tables/describe?path={encoded}')
             with pytest.raises(urllib.error.HTTPError) as ei:
                 urllib.request.urlopen(req)
             assert ei.value.code == 422
@@ -903,8 +1090,8 @@ class TestColsValidator:
 
     def test_rejects_empty_tokens(self, cli: PxtRunner) -> None:
         pxt.create_dir('cli_colsv', if_exists='ignore')
-        pxt.create_table('cli_colsv.r', {'a': pxt.Int, 'b': pxt.Int}, if_exists='replace')
-        pxt.create_table('cli_colsv.g', {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
+        pxt.create_table('cli_colsv/r', {'a': pxt.Int, 'b': pxt.Int}, if_exists='replace')
+        pxt.create_table('cli_colsv/g', {'k': pxt.Required[pxt.Int]}, primary_key='k', if_exists='replace')
         results = [cli('rows', 'cli_colsv/r', '--cols', bad, check=False) for bad in ('a,', ',a', 'a,,b')]
         assert all(r.returncode != 0 for r in results)
         assert all('must not be empty' in r.stderr for r in results)
@@ -947,7 +1134,7 @@ class TestDashboard:
 
     def test_search(self, cli: PxtRunner, pxt_daemon: int) -> None:
         pxt.create_dir('cli_dash', if_exists='ignore')
-        pxt.create_table('cli_dash.t', {'x': pxt.Int}, if_exists='replace')
+        pxt.create_table('cli_dash/t', {'x': pxt.Int}, if_exists='replace')
         search_url = f'http://127.0.0.1:{pxt_daemon}/api/dashboard/search?q=cli_dash'
         with urllib.request.urlopen(search_url, timeout=5) as r:
             data = json.loads(r.read())
@@ -956,21 +1143,21 @@ class TestDashboard:
 
     def test_table_meta_data_export(self, cli: PxtRunner, pxt_daemon: int) -> None:
         pxt.create_dir('cli_dash_t', if_exists='ignore')
-        t = pxt.create_table('cli_dash_t.t', {'x': pxt.Int}, if_exists='replace')
+        t = pxt.create_table('cli_dash_t/t', {'x': pxt.Int}, if_exists='replace')
         t.insert([{'x': 1}, {'x': 2}, {'x': 3}])
 
         base = f'http://127.0.0.1:{pxt_daemon}'
-        with urllib.request.urlopen(f'{base}/api/dashboard/tables/cli_dash_t/t/meta', timeout=5) as r:
+        with urllib.request.urlopen(f'{base}/api/dashboard/tables/meta?path=cli_dash_t/t', timeout=5) as r:
             meta = json.loads(r.read())
         assert 'columns' in meta
         assert 'x' in meta['columns']
 
-        with urllib.request.urlopen(f'{base}/api/dashboard/tables/cli_dash_t/t/data?limit=10', timeout=5) as r:
+        with urllib.request.urlopen(f'{base}/api/dashboard/tables/data?path=cli_dash_t/t&limit=10', timeout=5) as r:
             data = json.loads(r.read())
         assert data['total_count'] == 3
         assert all('x' in row for row in data['rows'])
 
-        with urllib.request.urlopen(f'{base}/api/dashboard/tables/cli_dash_t/t/export?limit=10', timeout=5) as r:
+        with urllib.request.urlopen(f'{base}/api/dashboard/tables/export?path=cli_dash_t/t&limit=10', timeout=5) as r:
             csv_body = r.read().decode('utf-8')
             disp = r.headers.get('Content-Disposition', '')
         assert csv_body.splitlines()[0] == 'x'
@@ -982,7 +1169,7 @@ class TestDashboard:
         is an object, not a top-level array), and getStatus reads the flat pxt_version / home /
         total_* fields from /api/status and maps them into its own nested shape."""
         pxt.create_dir('cli_dash_contract', if_exists='ignore')
-        pxt.create_table('cli_dash_contract.t', {'x': pxt.Int}, if_exists='replace')
+        pxt.create_table('cli_dash_contract/t', {'x': pxt.Int}, if_exists='replace')
         base = f'http://127.0.0.1:{pxt_daemon}'
 
         with urllib.request.urlopen(f'{base}/api/dirs?tree=true', timeout=5) as r:

@@ -1,3 +1,5 @@
+from typing import Iterator
+
 import pytest
 
 import pixeltable as pxt
@@ -5,18 +7,28 @@ from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import reset_runtime
+from pixeltable.utils.filecache import FileCache
 
 from .utils import pxt_raises, skip_test_if_not_local
 
 pytestmark = pytest.mark.local('exercises process-global Env/Config and runtime reset')
 
 
-def _reset_env(reinit: bool, db_name: str) -> None:
-    """Reset the environment for testing."""
+def _reset_env(reinit: bool, db_name: str | None) -> None:
+    """Reset the environment for testing. db_name=None restores the default test database."""
     reset_runtime()
     # Reload configs
-    Config.init(config_overrides={'pixeltable.db': db_name}, reinit=True)
+    config_overrides = {} if db_name is None else {'pixeltable.db': db_name}
+    Config.init(config_overrides=config_overrides, reinit=True)
     Env._init_env(reinit_db=reinit)
+    FileCache.init()
+
+
+@pytest.fixture(autouse=True)
+def restore_env() -> Iterator[None]:
+    """Put the process back on its configured database once the test is done."""
+    yield
+    _reset_env(reinit=False, db_name=None)
 
 
 class TestEnvReset:
@@ -141,3 +153,49 @@ class TestEnvReset:
         t2_new = pxt.get_table('analytics/reports/sales')
         result = t2_new.where(t2_new.sale_id == 1).select(t2_new.amount_doubled).collect()
         assert result[0]['amount_doubled'] == 300.0
+
+
+class TestApiKey:
+    def test_require_api_key(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv('PIXELTABLE_API_KEY', 'sk-test')
+        assert Env.get().require_api_key() == 'sk-test'
+        assert Env.get().require_api_key('create a database') == 'sk-test'
+
+        monkeypatch.delenv('PIXELTABLE_API_KEY', raising=False)
+        monkeypatch.setattr(Config, 'get_string_value', lambda self, key, section='pixeltable': None)
+        with pxt_raises(excs.ErrorCode.MISSING_CREDENTIALS, match='A Pixeltable API key is required\\. Set it with'):
+            Env.get().require_api_key()
+        with pxt_raises(
+            excs.ErrorCode.MISSING_CREDENTIALS, match='API key is required to create a database\\. Set it with'
+        ):
+            Env.get().require_api_key('create a database')
+
+
+class TestProxyEndpoint:
+    @pytest.mark.parametrize(
+        ('cloud_host', 'expected'),
+        [
+            (None, ('acme-main.pxt.run', 9000)),
+            ('dev.pxt.run', ('acme-main.dev.pxt.run', 9000)),
+            ('localhost:9443', ('acme-main.localhost', 9443)),
+        ],
+    )
+    def test_proxy_endpoint(
+        self, cloud_host: str | None, expected: tuple[str, int], init_env: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        if cloud_host is None:
+            monkeypatch.delenv('PIXELTABLE_CLOUD_HOST', raising=False)
+        else:
+            monkeypatch.setenv('PIXELTABLE_CLOUD_HOST', cloud_host)
+        assert Env.get().proxy_endpoint('acme', 'main') == expected
+
+    @pytest.mark.parametrize(
+        ('cloud_host', 'error'),
+        [('dev.pxt.run:https', "port 'https' is not a valid integer"), (':9000', 'missing host')],
+    )
+    def test_proxy_endpoint_rejects(
+        self, cloud_host: str, error: str, init_env: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv('PIXELTABLE_CLOUD_HOST', cloud_host)
+        with pxt_raises(excs.ErrorCode.GENERIC_USER_ERROR, match=error):
+            Env.get().proxy_endpoint('acme', 'main')

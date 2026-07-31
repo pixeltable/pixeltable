@@ -14,7 +14,7 @@ import uuid
 from pathlib import Path
 from typing import Any, ClassVar, Iterable, Literal, Mapping, Sequence, Union
 
-import pgvector.sqlalchemy  # type: ignore[import-untyped]
+import pgvector.sqlalchemy
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
@@ -709,8 +709,8 @@ class ColumnType:
         # types that refer to external media files
         return self.is_image_type() or self.is_video_type() or self.is_audio_type() or self.is_document_type()
 
-    def supports_file_offloading(self) -> bool:
-        # types that can be offloaded to file-based storage via a CellMaterializationNode
+    def needs_cell_materialization(self) -> bool:
+        """True if this type requires cell materialization/reconstruction"""
         return self.is_array_type() or self.is_json_type() or self.is_binary_type()
 
     def to_sa_type(self) -> sql.types.TypeEngine:
@@ -2044,7 +2044,7 @@ _SA_TYPE_BY_NAME: dict[str, type] = {name: t for t, name in _SA_TYPE_NAMES.items
 
 
 def sa_type_as_dict(t: sql.types.TypeEngine) -> dict:
-    d = {'type': _SA_TYPE_NAMES[type(t)]}
+    d: dict[str, int | str] = {'type': _SA_TYPE_NAMES[type(t)]}
     if isinstance(t, sql.types.String):
         assert t.length is None
     if isinstance(t, sql.types.TIMESTAMP):

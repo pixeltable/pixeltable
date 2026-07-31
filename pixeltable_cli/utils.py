@@ -1,6 +1,6 @@
 """Primitives shared by the client and the in-process daemon: port, pidfile path,
-config-resolution helpers, and the identity fingerprint. Stdlib-only so the client side
-can import without pulling in pxt or pydantic."""
+config-resolution helpers, and the identity fingerprint. Stdlib-only so the client side can import without
+pulling in pxt or pydantic."""
 
 import hashlib
 import importlib.metadata
@@ -8,9 +8,13 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple, NewType
 
 DEFAULT_PORT = 22089
+
+# a Pixeltable path encoded as a string. Distinct from str so that a filesystem path cannot be passed where one of
+# these is expected.
+PxtPath = NewType('PxtPath', str)
 
 # Mirrors pixeltable.catalog.path._URI_RE (duplicated so this module stays stdlib-only): a hosted path is
 # pxt://<org>:<db>/<in-catalog path>.
@@ -48,30 +52,87 @@ def pidfile_path() -> str:
     return os.path.join(_resolve_pixeltable_home(), f'pxt-daemon-{get_port()}.pid')
 
 
+class PxtUriParts(NamedTuple):
+    """The components of a pxt://<org>[:<db>][/<path>] URI.
+
+    path is returned as written: None when the URI has nothing past the org and db, and '' for a trailing '/'
+    with nothing after it.
+    """
+
+    org: str
+    db: str | None
+    path: str | None
+
+
+def split_pxt_uri(uri: str) -> PxtUriParts | None:
+    """Split a pxt:// URI into its components. Returns None if uri isn't a pxt:// URI."""
+    m = _PXT_URI_RE.match(uri)
+    if m is None:
+        return None
+    return PxtUriParts(m.group('org'), m.group('db'), m.group('rest'))
+
+
 def validate_path_shape(path: str) -> str | None:
     """Return an error message if path violates pxt path shape rules, else None. Empty is allowed.
 
     A hosted URI pxt://<org>:<db>/<in-catalog path> is accepted; only its in-catalog portion is shape-checked
     here. The org/db and the overall URI form are validated by pixeltable when the path is resolved.
+
+    '.' and '..' are accepted as whole components; resolve_dot_segments() removes them before a path reaches
+    pixeltable, where a dot is still the legacy separator.
     """
     if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in path):
         return f'pxt paths must not contain control characters; got {path!r}'
     if path.startswith('pxt://'):
-        m = _PXT_URI_RE.match(path)
-        if m is None:
+        parts = split_pxt_uri(path)
+        if parts is None:
             return f'invalid URI; expected pxt://<org>:<db>/<path>, got {path!r}'
-        in_catalog = m.group('rest') or ''
+        in_catalog = parts.path or ''
     else:
         in_catalog = path
         if in_catalog.startswith('/'):
-            return f"pxt paths are relative; drop the leading '/' (use '' for root). Got {path!r}"
-    if '.' in in_catalog:
+            # a leading '/' marks an absolute path from the catalog root; accept it and validate the remainder
+            in_catalog = in_catalog[1:]
+    if any('.' in c and c not in ('.', '..') for c in in_catalog.split('/')):
         return f"pxt paths use '/' as the separator; got {path!r}"
     if in_catalog.endswith('/'):
         return f"pxt paths must not end with '/'; got {path!r}"
     if '//' in in_catalog:
         return f"pxt paths must not contain empty components ('//'); got {path!r}"
     return None
+
+
+def resolve_dot_segments(path: str) -> str:
+    """Resolve '.' and '..' components of a pxt path, clamping at the catalog root.
+
+    '..' at the root keeps the root, as it does in a shell. A pxt:// prefix is preserved and never traversed
+    out of, so '..' cannot move between catalogs. Empty components are left in place for the shape check to
+    report.
+    """
+    prefix = ''
+    in_catalog = path
+    if path.startswith('pxt://'):
+        parts = split_pxt_uri(path)
+        if parts is None:
+            return path  # malformed URI; validate_path_shape() reports it
+        prefix = f'pxt://{parts.org}' + ('' if parts.db is None else f':{parts.db}')
+        in_catalog = parts.path or ''
+    if '.' not in in_catalog:
+        return path
+
+    components: list[str] = []
+    for c in in_catalog.split('/'):
+        if c == '.':
+            continue
+        if c == '..':
+            if len(components) > 0:
+                components.pop()
+            continue
+        components.append(c)
+    resolved = '/'.join(components)
+    if prefix == '':
+        return resolved
+    return prefix if resolved == '' else f'{prefix}/{resolved}'
 
 
 # Identity fingerprint keys

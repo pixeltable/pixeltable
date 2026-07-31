@@ -41,7 +41,7 @@ class TestTableModel:
             incr = value + 1  # computed column
             descr = pxtf.string.format('Name: {name}', name=name)
 
-            # Test all the custom `Column` properties
+            # Test all the custom Column properties
             column_with_special_props = Column(
                 type=pxt.Video,
                 media_validation='on_read',
@@ -357,7 +357,7 @@ class TestTableModel:
 
         diff = TableModelV2.get_model_diff(root)['defaults_table']
         assert diff['resolution'] == 'update_additive'
-        assert [(c['target'], c['name'], c['op']) for c in diff['changes']] == [('column', 'extra', 'add')]
+        assert [(c['target'], c['name'], c['op']) for c in diff['ops']] == [('column', 'extra', 'add')]
         TableModelV2.update_all(root)
         assert btree_cols() == {'id', 'name', 'extra'}
         assert TableModelV2.get_model_diff(root)['defaults_table']['resolution'] == 'up_to_date'
@@ -377,12 +377,12 @@ class TestTableModel:
 
         diff = TableModelV3.get_model_diff(root)['defaults_table']
         assert diff['resolution'] == 'unsupported'
-        assert [(c['target'], c['name'], c['model'], c['existing']) for c in diff['changes']] == [
+        assert [(c['target'], c['name'], c['model'], c['existing']) for c in diff['ops']] == [
             ('table', 'default_idxs_enabled', False, True)
         ]
         diff = TableModelV3.get_model_diff(root)['no_defaults_table']
         assert diff['resolution'] == 'unsupported'
-        assert [(c['target'], c['name'], c['model'], c['existing']) for c in diff['changes']] == [
+        assert [(c['target'], c['name'], c['model'], c['existing']) for c in diff['ops']] == [
             ('table', 'default_idxs_enabled', True, False)
         ]
         with capture_console_output(
@@ -605,6 +605,146 @@ class TestTableModel:
             assert schema_from_tbl_md(mtbl.get_metadata()) == schema_from_tbl_md(atbl.get_metadata())
             assert_resultset_eq(mtbl.order_by(mtbl.value).collect(), atbl.order_by(atbl.value).collect())
 
+    def test_view_model_shadows_base_column(self, make_catalog_path: Callable[[str], str]) -> None:
+        """A view model column cannot shadow a base column, the same as create_view()."""
+        p = make_catalog_path
+        TableModel = pxt.model_base()
+
+        class ExampleTableModel(TableModel, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            value: pxt.Float
+
+        class ExampleViewModel(TableModel, name='test_view', base=ExampleTableModel):
+            value = ExampleTableModel.value * 100.0
+
+        with pxt_raises(
+            excs.ErrorCode.COLUMN_ALREADY_EXISTS, match=r"Column 'value' already exists in the base table 'test_table'"
+        ):
+            TableModel.create_all(p(''))
+
+    def test_update_all_adds_shadowing_column(self, make_catalog_path: Callable[[str], str]) -> None:
+        """update_all() cannot add a view column that shadows a base column, the same as add_computed_column()."""
+        p = make_catalog_path
+        TableModel = pxt.model_base()
+
+        class ExampleTableModel(TableModel, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            value: pxt.Float
+
+        class ExampleViewModel(TableModel, name='test_view', base=ExampleTableModel):
+            vc1 = ExampleTableModel.id + 1
+
+        TableModel.create_all(p(''))
+        ExampleTableModel.insert([{'id': 1, 'value': 2.0}])
+
+        TableModelV2 = pxt.model_base()
+
+        class ExampleTableModelV2(TableModelV2, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            value: pxt.Float
+
+        class ExampleViewModelV2(TableModelV2, name='test_view', base=ExampleTableModelV2):
+            vc1 = ExampleTableModelV2.id + 1
+            value = ExampleTableModelV2.value * 100.0
+
+        with pxt_raises(
+            excs.ErrorCode.COLUMN_ALREADY_EXISTS, match=r"Column 'value' already exists in the base table 'test_table'"
+        ):
+            TableModelV2.update_all(p(''))
+        # nothing was applied: value still reads through to the base's column
+        t = ExampleViewModel.table
+        assert t.select(t.value).collect()['value'] == [2.0]
+
+    def test_view_model_index_on_iterator_column(self, make_catalog_path: Callable[[str], str]) -> None:
+        """An embedding index in a view model can name a column produced by the view's iterator."""
+        skip_test_if_not_installed('spacy')
+        p = make_catalog_path
+        TableModel = pxt.model_base()
+
+        class ExampleTableModel(TableModel, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            doc_text: pxt.String
+
+        class ExampleViewModel(
+            TableModel,
+            name='test_view',
+            base=ExampleTableModel,
+            iterator=pxtf.string.string_splitter(ExampleTableModel.doc_text, separators='sentence'),
+        ):
+            # text is an output column of the iterator, not one declared by this model
+            ix = EmbeddingIndex(text, embedding=dummy_embedding.using(n=32))  # type: ignore[name-defined]
+
+        TableModel.create_all(p(''))
+        ExampleTableModel.insert([{'id': 1, 'doc_text': 'One sentence. Two sentence.'}])
+
+        idx_md = ExampleViewModel.get_metadata()['indices']['ix']
+        assert idx_md['columns'] == ['text']
+        assert idx_md['index_type'] == 'embedding'
+        view = ExampleViewModel.table
+        sim = view.text.similarity(string='One sentence.')
+        assert len(view.order_by(sim, asc=False).limit(1).collect()) == 1
+
+    def test_view_model_iterator_column_shadows_base(self, make_catalog_path: Callable[[str], str]) -> None:
+        """An iterator output shadows a base column of the same name, so the model's text is the chunk text
+        throughout: the column, the index declared on it, and queries against it."""
+        skip_test_if_not_installed('spacy')
+        p = make_catalog_path
+        TableModel = pxt.model_base()
+
+        class ExampleTableModel(TableModel, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            text: pxt.String  # the document text; shadowed in the view by the iterator's text output
+
+        class ExampleViewModel(
+            TableModel,
+            name='test_view',
+            base=ExampleTableModel,
+            iterator=pxtf.string.string_splitter(ExampleTableModel.text, separators='sentence'),
+        ):
+            ix = EmbeddingIndex(text, embedding=dummy_embedding.using(n=32))  # type: ignore[name-defined]
+
+        TableModel.create_all(p(''))
+        ExampleTableModel.insert([{'id': 1, 'text': 'One sentence. Two sentence.'}])
+
+        view = ExampleViewModel.table
+        assert view.columns() == ['pos', 'text', 'id']
+        assert [r['text'] for r in view.order_by(view.pos).collect()] == ['One sentence.', 'Two sentence.']
+        idx_md = ExampleViewModel.get_metadata()['indices']['ix']
+        assert idx_md['columns'] == ['text']
+        sim = view.text.similarity(string='One sentence.')
+        assert len(view.order_by(sim, asc=False).limit(1).collect()) == 1
+
+    def test_view_model_column_collides_with_iterator(self, make_catalog_path: Callable[[str], str]) -> None:
+        """A model column cannot reuse the name of one of the view's iterator outputs."""
+        p = make_catalog_path
+        TableModel = pxt.model_base()
+
+        class ExampleTableModel(TableModel, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            doc_text: pxt.String
+
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA, match=r"'text' is already defined by the iterator; it cannot be redeclared"
+        ):
+
+            class ExampleViewModel(
+                TableModel,
+                name='test_view',
+                base=ExampleTableModel,
+                iterator=pxtf.string.string_splitter(ExampleTableModel.doc_text, separators='sentence'),
+            ):
+                text = ExampleTableModel.doc_text + '!'
+
+        # the same collision through the non-model API
+        TableModel.create_all(p(''))
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"'text' .* produced by the iterator"):
+            pxt.create_view(
+                p('other_view'),
+                ExampleTableModel.table,
+                iterator=pxtf.string.string_splitter(ExampleTableModel.table.doc_text, separators='sentence'),
+                additional_columns={'text': pxt.String},
+            )
+
     def test_view_model_with_iterator(self, make_catalog_path: Callable[[str], str]) -> None:
         skip_test_if_not_installed('imagehash')
 
@@ -624,7 +764,7 @@ class TestTableModel:
             iterator=pxtf.image.tile_iterator(ExampleTableModel.image, (256, 256)),
         ):
             view_col_1 = ExampleTableModel.value + 1
-            view_col_2 = tile.rotate(90)  # type: ignore[name-defined]  # `tile` is defined by the iterator
+            view_col_2 = tile.rotate(90)  # type: ignore[name-defined]  # tile is defined by the iterator
 
         class ExampleViewModelFromQuery(
             TableModel,
@@ -642,7 +782,8 @@ class TestTableModel:
         view_from_query = ExampleViewModelFromQuery.table
 
         # Create analogous tables/views using the "direct construction" method and verify that the schemas (columns
-        # and indices) align with the model-based ones.
+        # and indices) align with the model-based ones. (The models default to create_default_idxs=True, including
+        # for views, whereas pxt.create_view() defaults to False; pass it explicitly to match.)
         tbl2 = pxt.create_table(
             p('test_table_2'), {'id': pxt.Required[pxt.Int], 'name': pxt.String, 'value': pxt.Float, 'image': pxt.Image}
         )
@@ -678,18 +819,18 @@ class TestTableModel:
         )
 
     def test_diff_all(self, make_catalog_path: Callable[[str], str]) -> None:
-        """`diff_all()` reports added/dropped columns and an iterator mismatch against already-created tables."""
+        """diff_all() reports added/dropped columns and an iterator mismatch against already-created tables."""
         skip_test_if_not_installed('imagehash')
 
         p = make_catalog_path
         root = p('')
 
-        # A base with a table model and a view model, 4 columns each. `create_default_idxs=False` keeps the diff
-        # focused on columns and the iterator (default indexes are not part of a model's declared `__indexes__`).
+        # A base with a table model and a view model, 4 columns each. create_default_idxs=False keeps the diff
+        # focused on columns and the iterator (default indexes are not part of a model's declared __indexes__).
         TableModel = pxt.model_base()
 
-        # In V2, `test_table` exercises every alterable column property across a few kept columns: `score` (type),
-        # `image` (media_validation), and the computed `derived` (value expression, stored, comment, custom_metadata).
+        # In V2, test_table exercises every alterable column property across a few kept columns: score (type),
+        # image (media_validation), and the computed derived (value expression, stored, comment, custom_metadata).
         # It also changes table-level properties (comment, custom_metadata).
         class ExampleTable(
             TableModel, name='test_table', create_default_idxs=False, comment='before', custom_metadata={'origin': 'v1'}
@@ -847,14 +988,30 @@ class TestTableModel:
         )
 
         # `get_model_diff()` returns the same information in structured form (the source of the report above).
-        assert TableModelV2.get_model_diff(root) == {
+        diffs = TableModelV2.get_model_diff(root)
+
+        # every diff records the table it was computed against, so that an update can tell whether the catalog
+        # moved underneath it; a model whose table doesn't exist yet has nothing to record
+        for d in diffs.values():
+            if not d['exists']:
+                assert d['tbl_id'] is None and d['schema_versions'] is None
+                continue
+            md = pxt.get_table(d['path']).get_metadata()
+            assert d['tbl_id'] == md['id']
+            assert d['schema_versions'][md['id']] == md['schema_version']
+
+        # those two are the catalog's ids and versions, so they are checked above instead of spelled out below
+        without_identity = {
+            name: {k: v for k, v in d.items() if k not in ('tbl_id', 'schema_versions')} for name, d in diffs.items()
+        }
+        assert without_identity == {
             'test_table': {
                 'path': p('test_table'),
                 'model_cls': 'ExampleTableV2',
                 'kind': 'table',
                 'exists': True,
                 'resolution': 'unsupported',
-                'changes': [
+                'ops': [
                     {
                         'target': 'table',
                         'name': 'comment',
@@ -863,6 +1020,7 @@ class TestTableModel:
                         'model': 'after',
                         'existing': 'before',
                         'description': "table property 'comment': model='after', existing='before'",
+                        'details': {},
                     },
                     {
                         'target': 'table',
@@ -873,6 +1031,7 @@ class TestTableModel:
                         'existing': {'origin': 'v1'},
                         'description': "table property 'custom_metadata': "
                         "model={'origin': 'v2'}, existing={'origin': 'v1'}",
+                        'details': {},
                     },
                     {
                         'target': 'column',
@@ -893,6 +1052,7 @@ class TestTableModel:
                         },
                         'description': "column 'derived' has altered properties: "
                         'value, stored, comment, custom_metadata',
+                        'details': {},
                     },
                     {
                         'target': 'column',
@@ -902,6 +1062,7 @@ class TestTableModel:
                         'model': {'media_validation': 'on_read'},
                         'existing': {'media_validation': 'on_write'},
                         'description': "column 'image' has altered properties: media_validation",
+                        'details': {},
                     },
                     {
                         'target': 'column',
@@ -911,6 +1072,7 @@ class TestTableModel:
                         'model': {'type': 'Int'},
                         'existing': {'type': 'Float'},
                         'description': "column 'score' has altered properties: type",
+                        'details': {},
                     },
                     {
                         'target': 'column',
@@ -920,6 +1082,7 @@ class TestTableModel:
                         'model': "{'type': Int | None}",
                         'existing': None,
                         'description': "column 'extra1' will be added",
+                        'details': {'type': 'Int'},
                     },
                     {
                         'target': 'column',
@@ -929,6 +1092,7 @@ class TestTableModel:
                         'model': "{'type': String | None}",
                         'existing': None,
                         'description': "column 'extra2' will be added",
+                        'details': {'type': 'String'},
                     },
                     {
                         'target': 'column',
@@ -938,6 +1102,7 @@ class TestTableModel:
                         'model': None,
                         'existing': None,
                         'description': "column 'name' will be dropped",
+                        'details': {},
                     },
                     {
                         'target': 'column',
@@ -947,6 +1112,7 @@ class TestTableModel:
                         'model': None,
                         'existing': None,
                         'description': "column 'value' will be dropped",
+                        'details': {},
                     },
                     {
                         'target': 'index',
@@ -956,6 +1122,7 @@ class TestTableModel:
                         'model': 'EmbeddingIndex(column=image, embedding=dummy_embedding(text, n=256))',
                         'existing': None,
                         'description': "index 'idx3' will be added",
+                        'details': {'on': 'image'},
                     },
                     {
                         'target': 'index',
@@ -965,6 +1132,7 @@ class TestTableModel:
                         'model': None,
                         'existing': None,
                         'description': "index 'idx2' will be dropped",
+                        'details': {},
                     },
                 ],
             },
@@ -974,7 +1142,7 @@ class TestTableModel:
                 'kind': 'view',
                 'exists': True,
                 'resolution': 'unsupported',
-                'changes': [
+                'ops': [
                     {
                         'target': 'table',
                         'name': 'iterator',
@@ -984,6 +1152,7 @@ class TestTableModel:
                         'existing': 'tile_iterator(image, [256, 256])',
                         'description': "iterator mismatch: model='tile_iterator(image, [128, 128])', "
                         "existing='tile_iterator(image, [256, 256])'",
+                        'details': {},
                     },
                     {
                         'target': 'column',
@@ -993,6 +1162,7 @@ class TestTableModel:
                         'model': "{'type': Int | None}",
                         'existing': None,
                         'description': "column 'vextra1' will be added",
+                        'details': {'type': 'Int'},
                     },
                     {
                         'target': 'column',
@@ -1002,6 +1172,7 @@ class TestTableModel:
                         'model': "{'type': String | None}",
                         'existing': None,
                         'description': "column 'vextra2' will be added",
+                        'details': {'type': 'String'},
                     },
                     {
                         'target': 'column',
@@ -1011,6 +1182,7 @@ class TestTableModel:
                         'model': None,
                         'existing': None,
                         'description': "column 'vc3' will be dropped",
+                        'details': {},
                     },
                     {
                         'target': 'column',
@@ -1020,6 +1192,7 @@ class TestTableModel:
                         'model': None,
                         'existing': None,
                         'description': "column 'vc4' will be dropped",
+                        'details': {},
                     },
                 ],
             },
@@ -1029,7 +1202,7 @@ class TestTableModel:
                 'kind': 'view',
                 'exists': True,
                 'resolution': 'unsupported',
-                'changes': [
+                'ops': [
                     {
                         'target': 'table',
                         'name': 'view_filter',
@@ -1038,6 +1211,7 @@ class TestTableModel:
                         'model': 'id > 5',
                         'existing': 'id > 0',
                         'description': "view_filter mismatch: model='id > 5', existing='id > 0'",
+                        'details': {},
                     },
                     {
                         'target': 'table',
@@ -1049,6 +1223,7 @@ class TestTableModel:
                         'description': 'view_sample mismatch: '
                         "model='sample(n=20, n_per_stratum=None, fraction=None, seed=2, [])', "
                         "existing='sample(n=10, n_per_stratum=None, fraction=None, seed=1, [])'",
+                        'details': {},
                     },
                     {
                         'target': 'column',
@@ -1058,6 +1233,7 @@ class TestTableModel:
                         'model': "{'value': extra1, 'stored': False}",
                         'existing': None,
                         'description': "column 'extra1' will be added",
+                        'details': {'type': 'Int', 'value': 'extra1'},
                     },
                     {
                         'target': 'column',
@@ -1067,6 +1243,7 @@ class TestTableModel:
                         'model': "{'value': id + 2, 'stored': True}",
                         'existing': None,
                         'description': "column 'plustwo' will be added",
+                        'details': {'type': 'Required[Int]', 'value': 'id + 2'},
                     },
                     {
                         'target': 'column',
@@ -1076,6 +1253,7 @@ class TestTableModel:
                         'model': None,
                         'existing': None,
                         'description': "column 'plusone' will be dropped",
+                        'details': {},
                     },
                 ],
             },
@@ -1085,7 +1263,7 @@ class TestTableModel:
                 'kind': 'table',
                 'exists': True,
                 'resolution': 'unsupported',
-                'changes': [
+                'ops': [
                     {
                         'target': 'table',
                         'name': 'kind',
@@ -1094,6 +1272,7 @@ class TestTableModel:
                         'model': 'table',
                         'existing': 'view',
                         'description': "`ExampleKindV2` specifies a table, but 'test_kind' is a view",
+                        'details': {},
                     },
                     {
                         'target': 'column',
@@ -1103,6 +1282,7 @@ class TestTableModel:
                         'model': {'value': None},
                         'existing': {'value': 'value + 1'},
                         'description': "column 'kc1' has altered properties: value",
+                        'details': {},
                     },
                     {
                         'target': 'column',
@@ -1112,6 +1292,7 @@ class TestTableModel:
                         'model': {'value': None},
                         'existing': {'value': 'value + 2'},
                         'description': "column 'kc2' has altered properties: value",
+                        'details': {},
                     },
                 ],
             },
@@ -1121,7 +1302,7 @@ class TestTableModel:
                 'kind': 'table',
                 'exists': False,
                 'resolution': 'create',
-                'changes': [
+                'ops': [
                     {
                         'target': 'column',
                         'name': 'data',
@@ -1130,6 +1311,7 @@ class TestTableModel:
                         'model': "{'type': String | None}",
                         'existing': None,
                         'description': "column 'data' will be added",
+                        'details': {'type': 'String'},
                     },
                     {
                         'target': 'column',
@@ -1139,6 +1321,7 @@ class TestTableModel:
                         'model': "{'type': Int}",
                         'existing': None,
                         'description': "column 'id' will be added",
+                        'details': {'type': 'Required[Int]'},
                     },
                 ],
             },
@@ -1150,7 +1333,6 @@ class TestTableModel:
         ):
             TableModelV2.update_all(root)
 
-    @pytest.mark.local('blah')  # TODO
     def test_update_all(self, make_catalog_path: Callable[[str], str]) -> None:
         """`update_all()` applies purely additive changes (new columns and indexes) to existing tables."""
         skip_test_if_not_installed('imagehash')
@@ -1271,7 +1453,7 @@ class TestTableModel:
             fc1 = ExampleTableV3.id + 1
 
         # Refuses without opt-in, since columns are being dropped.
-        with pxt_raises(excs.ErrorCode.SCHEMA_MISMATCH, match='destructive'):
+        with pxt_raises(excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE, match='destructive'):
             TableModelV3.update_all(root)
 
         # Succeeds with the opt-in.
@@ -1292,7 +1474,9 @@ class TestTableModel:
         ]
         ExampleTableV3.insert(rows)
 
-        res = ExampleQueryViewV3.select().collect()
+        # the sample view guarantees no row order, so order the query rather than the result
+        v = ExampleQueryViewV3
+        res = v.order_by(v.plustwo).collect()
         assert res['plustwo'] == [3.0, 4.0, 5.0, 6.0]
 
     def test_update_all_errors(self, make_catalog_path: Callable[[str], str]) -> None:
@@ -1325,7 +1509,8 @@ class TestTableModel:
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r"Cannot drop column 'value' because the following columns depend on it:\nvc1",
+            match=r"Column 'value' was removed from the model for 'test_table', but cannot be dropped "
+            r'because the following depend on it:\nvc1',
         ):
             TableModelV2.update_all(p(''), allow_destructive=True)
 
@@ -1339,12 +1524,72 @@ class TestTableModel:
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r"Cannot drop index 'idx' because the following columns depend on it:\nvc2",
+            match=r"Index 'idx' was removed from the model for 'test_table', but cannot be dropped "
+            r'because the following depend on it:\nvc2',
         ):
             TableModelV3.update_all(p(''), allow_destructive=True)
 
+    def test_drop_col_with_view_index(self, make_catalog_path: Callable[[str], str]) -> None:
+        """update_all() cannot drop a column that a view's index is built on."""
+        p = make_catalog_path
+        base = pxt.create_table(p('base_t'), {'c0': pxt.String, 'c1': pxt.String})
+        v = pxt.create_view(p('view_t'), base)
+        v.add_embedding_index('c0', idx_name='v_idx', embedding=dummy_embedding.using(n=32))
+
+        TableModel = pxt.model_base()
+
+        # the view isn't part of the model, so its index survives the update and still depends on the base column
+        class BaseV2(TableModel, name='base_t'):
+            c1: pxt.String
+
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r"Column 'c0' was removed from the model for 'base_t', but cannot be dropped "
+            r"because the following depend on it:\nindex 'v_idx' on 'view_t'",
+        ):
+            TableModel.update_all(p(''), allow_destructive=True)
+        assert 'c0' in pxt.get_table(p('base_t')).columns()
+
+        # dropping the index first unblocks it: nothing is left depending on the column
+        v.drop_embedding_index(idx_name='v_idx')
+        TableModel.update_all(p(''), allow_destructive=True)
+        assert pxt.get_table(p('base_t')).columns() == ['c1']
+
+    def test_update_all_view_predicate(self, make_catalog_path: Callable[[str], str]) -> None:
+        """update_all() cannot drop a column that a view's predicate references."""
+        p = make_catalog_path
+        TableModel = pxt.model_base()
+
+        class ExampleTable(TableModel, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            value: pxt.Float
+
+        TableModel.create_all(p(''))
+        ExampleTable.insert([{'id': 1, 'value': 5.0}])
+
+        # Add views manually, not visible to the model_base; both filter on the same column
+        t = ExampleTable.table
+        pxt.create_view(p('test_view'), t.where(t.value > 1.0))
+        pxt.create_view(p('other_view'), t.where(t.value > 2.0))
+
+        TableModelV2 = pxt.model_base()
+
+        # Drop the value column that the views' predicates filter on
+        class ExampleTableV2(TableModelV2, name='test_table'):
+            id: pxt.Required[pxt.Int]
+
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r'Cannot drop the following columns, because view predicates depend on them:\n'
+            r'column: value, view: other_view, predicate: value > 2.0\n'
+            r'column: value, view: test_view, predicate: value > 1.0',
+        ):
+            TableModelV2.update_all(p(''), allow_destructive=True)
+
+        assert 'value' in ExampleTable.table.columns()
+
     def test_table_model_errors(self, make_catalog_path: Callable[[str], str]) -> None:
-        """Reproduce each error condition raised by `pixeltable.catalog.model`."""
+        """Reproduce each error condition raised by pixeltable.catalog.model."""
         p = make_catalog_path
         TableModel = pxt.model_base()
 

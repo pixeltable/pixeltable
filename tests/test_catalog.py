@@ -7,7 +7,7 @@ import sqlalchemy.exc as sql_exc
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable.env import Env
+from pixeltable.env import Env, store_app_name
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.fault_injection import FaultLocation
 from tests.coordinator import MultiThreadedScenario
@@ -186,7 +186,14 @@ class TestCatalog:
             term_engine = sql.create_engine(Env.get().db_url, poolclass=sql.pool.NullPool)
             try:
                 with term_engine.connect() as term:
-                    term.execute(sql.text(Env.get()._pgserver_terminate_connections_stmt()))
+                    killed = term.execute(
+                        sql.text(
+                            'SELECT pg_terminate_backend(pid) FROM pg_stat_activity '
+                            'WHERE datname = current_database() AND application_name = :app'
+                        ),
+                        {'app': store_app_name()},
+                    ).fetchall()
+                    assert len(killed) > 0
                     term.commit()
             finally:
                 term_engine.dispose()

@@ -132,24 +132,27 @@ class Runtime:
 
     def _make_proxy_catalog(self, catalog_uri: Path) -> CatalogBase:
         from pixeltable.catalog.catalog_proxy import CatalogProxy
-
-        if catalog_uri.org != 'local':
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Hosted catalog {catalog_uri!r} is not supported yet'
-            )
-
-        from pixeltable.service import proxy_daemon
         from pixeltable.service.proxy_client import ProxyClient
 
         assert catalog_uri.db is not None
-        info = proxy_daemon.read_port_lock(catalog_uri.db)
-        if info is None:
-            db = catalog_uri.db
-            raise excs.NotFoundError(
-                excs.ErrorCode.SERVICE_NOT_FOUND,
-                f'No local proxy is running for {db!r}. Start it with: pxt localproxy start {db}',
-            )
-        return CatalogProxy(catalog_uri, ProxyClient(f'http://127.0.0.1:{info["port"]}'))
+
+        if catalog_uri.org == 'local':
+            from pixeltable.service import proxy_daemon
+
+            info = proxy_daemon.read_port_lock(catalog_uri.db)
+            if info is None:
+                db = catalog_uri.db
+                raise excs.NotFoundError(
+                    excs.ErrorCode.SERVICE_NOT_FOUND,
+                    f'No local proxy is running for {db!r}. Start it with: pxt localproxy start {db}',
+                )
+            return CatalogProxy(catalog_uri, ProxyClient.local(f'http://127.0.0.1:{info["port"]}'))
+
+        # Remote database: connect via TLS to the proxy endpoint.
+        api_key = Env.get().require_api_key(f'connect to hosted database {catalog_uri!r}')
+        host, port = Env.get().proxy_endpoint(catalog_uri.org, catalog_uri.db)
+        client = ProxyClient.remote(catalog_uri.org, catalog_uri.db, api_key, host=host, port=port)
+        return CatalogProxy(catalog_uri, client)
 
     @property
     def event_loop(self) -> asyncio.AbstractEventLoop:

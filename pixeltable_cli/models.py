@@ -2,19 +2,19 @@ from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, BaseModel, Field
 
-from pixeltable_cli.utils import validate_path_shape
+from pixeltable_cli import utils
 
 
 def _validate_pxt_path(v: str | None) -> str | None:
     if v is None or v == '':
         return v
-    err = validate_path_shape(v)
+    err = utils.validate_path_shape(v)
     if err is not None:
         raise ValueError(err)
     return v
 
 
-PxtPath = Annotated[str, AfterValidator(_validate_pxt_path)]
+PxtPath = Annotated[utils.PxtPath, AfterValidator(_validate_pxt_path)]
 
 
 class HealthResponse(BaseModel):
@@ -151,6 +151,7 @@ class GetResponse(BaseModel):
 
 
 class DropBody(BaseModel):
+    path: PxtPath
     cascade: bool = False  # drop dependent views (tables) or recurse (dirs)
 
 
@@ -162,6 +163,7 @@ class DropResponse(BaseModel):
 class MoveBody(BaseModel):
     path: PxtPath
     new_path: PxtPath
+    dry_run: bool = False  # resolve both paths and report them, without moving anything
 
 
 class MoveResponse(BaseModel):
@@ -170,6 +172,7 @@ class MoveResponse(BaseModel):
 
 
 class RevertBody(BaseModel):
+    path: PxtPath
     steps: int = 1  # number of consecutive revert() calls
 
 
@@ -179,15 +182,25 @@ class RevertResponse(BaseModel):
     to_version: int
 
 
+class SchemaDiffBody(BaseModel):
+    schema_file: str  # absolute filesystem path to the schema file on the daemon host
+    catalog_dir: PxtPath
+
+
+class SchemaPruneBody(BaseModel):
+    schema_file: str  # absolute filesystem path to the schema file on the daemon host
+    catalog_dir: PxtPath
+
+
 class SchemaUpdateBody(BaseModel):
-    schema_path: str  # absolute filesystem path to the schema file on the daemon host
-    target: PxtPath
+    schema_file: str  # absolute filesystem path to the schema file on the daemon host
+    catalog_dir: PxtPath
+    allow_destructive: bool = False
 
 
-class SchemaUpdateEntry(BaseModel):
-    path: str  # absolute path of the table
-    action: Literal['created', 'exists']
+class CwdBody(BaseModel):
+    uri: str
 
 
-class SchemaUpdateResponse(BaseModel):
-    tables: list[SchemaUpdateEntry]
+class CwdResponse(BaseModel):
+    uri: str | None  # the session's working directory, or None when unset (catalog root)

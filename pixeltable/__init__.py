@@ -4,10 +4,9 @@ Core Pixeltable API for table operations, data processing, and UDF management.
 
 # ruff: noqa: F401
 
-from ._query import Query, ResultCursor, ResultSet, Row
+from ._query import Query, ResultCursor, ResultSet
 from ._version import __version__
 from .catalog import (
-    Column,
     ColumnMetadata,
     IndexMetadata,
     InsertableTable,
@@ -18,6 +17,9 @@ from .catalog import (
     View,
     model_base,
 )
+
+# the schema-model DSL: catalog.column.Column is the internal storage column and stays unexported
+from .catalog.model import Column, EmbeddingIndex
 from .exceptions import (
     AlreadyExistsError,
     AuthorizationError,
@@ -71,6 +73,7 @@ from .globals import (
     tool,
     tools,
 )
+from .row import CellError, Row, RowBatch
 from .type_system import (
     UUID,
     Array,

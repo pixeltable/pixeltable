@@ -59,7 +59,7 @@ class CellMaterializationNode(ExecNode):
         self.output_col_info = {
             col: slot_idx
             for col, slot_idx in input.row_builder.table_columns.items()
-            if slot_idx is not None and col.col_type.supports_file_offloading()
+            if slot_idx is not None and col.col_type.needs_cell_materialization()
         }
         self._init_exec_state()
 

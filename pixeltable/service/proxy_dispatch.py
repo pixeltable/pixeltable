@@ -11,6 +11,7 @@ import logging
 import os
 import pathlib
 import shutil
+import time
 import traceback
 from typing import TYPE_CHECKING, Any, Callable, cast
 from uuid import UUID, uuid4
@@ -23,6 +24,7 @@ from pixeltable.catalog import InsertableTable, Path, TablePathKey, retry_loop
 from pixeltable.catalog.table_version import TableVersionKey
 from pixeltable.env import Env
 from pixeltable.io.data_sources import SqlDataSource
+from pixeltable.row import RowBatch
 from pixeltable.runtime import get_runtime
 from pixeltable.utils import parse_local_file_path
 from pixeltable.utils.local_store import TempStore
@@ -42,6 +44,9 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
     """Entry point for an incoming proxy request; always returns a ProxyResponse as (JSON head, binary parts)."""
     request = ProxyRequest.model_validate_json(request_json)
     request._binary_parts = request_parts
+    path_label = request.path_key.get('tbl_key', request.path_key) if request.path_key else ''
+    _logger.debug('%s.%s %s', request.class_name, request.method, path_label)
+    t0 = time.monotonic()
     try:
         if request.protocol_version != PROTOCOL_VERSION:
             raise excs.RequestError(
@@ -73,6 +78,7 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
             # a mutation bumps the table version; return the new md so the client's path refreshes
             with cat.begin_xact(for_write=False):
                 md = cat.read_md_for_export(tbl)
+            _logger.debug('%s.%s %s (%.2fs)', request.class_name, request.method, path_label, time.monotonic() - t0)
             return _encode_response(ProxyResponse(result=result, current_md=md))
 
         handler = _HANDLERS.get(key)
@@ -80,13 +86,16 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, f'Unsupported proxy method: {request.class_name}.{request.method}'
             )
-        return _encode_response(ProxyResponse(result=_convert_result(key, handler(request))))
+        result = _convert_result(key, handler(request))
+        _logger.debug('%s.%s (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
+        return _encode_response(ProxyResponse(result=result))
 
     except excs.Error as e:
         if e.detail is not None:
             # the client only gets the message; keep the diagnostic detail (e.g. an evaluation stack trace)
             # for whoever reads the server logs
             _logger.info('Error detail handling %s.%s:\n%s', request.class_name, request.method, e.detail)
+        _logger.info('%s.%s error (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
         error_dict = e.to_dict()
         error_dict['message'] = _restore_upload_names(error_dict['message'], request._uploaded_names)
         if 'cause' in error_dict:
@@ -98,7 +107,14 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
         # reference id to the client: server internals (stack frames, filesystem paths) must not cross the wire.
         ref = uuid4().hex
         tb = traceback.format_exc()
-        _logger.error('Internal error (ref %s) handling %s.%s:\n%s', ref, request.class_name, request.method, tb)
+        _logger.error(
+            'Internal error (ref %s) handling %s.%s (%.2fs):\n%s',
+            ref,
+            request.class_name,
+            request.method,
+            time.monotonic() - t0,
+            tb,
+        )
         err = excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'Internal proxy error (ref: {ref})')
         error_dict = err.to_dict()
         if os.environ.get('PXTTEST_IN_CI'):
@@ -191,7 +207,6 @@ def _create_view(request: ProxyRequest) -> tuple[list, bool]:
 
 def _create_from_model(request: ProxyRequest) -> tuple[list, bool]:
     kwargs = _deserialize_args(request)
-    # `base` arrives as a Query dict; rebuild it here.
     base_dict = kwargs.pop('base')
 
     @retry_loop(for_write=False)
@@ -224,9 +239,13 @@ def _get_table(request: ProxyRequest) -> list | None:
 def _get_table_by_id(request: ProxyRequest) -> list | None:
     kwargs = _deserialize_args(request)
     cat = get_runtime().catalog
-    with cat.begin_xact(for_write=False):  # get_table_by_id must run inside a transaction
+
+    @retry_loop(for_write=False)
+    def load() -> list | None:
         tbl = cat.get_table_by_id(**kwargs)
         return None if tbl is None else cat.read_md_for_export(tbl)
+
+    return load()
 
 
 def _catalog_method(request: ProxyRequest) -> Any:
@@ -238,8 +257,12 @@ def _catalog_method(request: ProxyRequest) -> Any:
 def _resolve_tbl(path_key: TablePathKey) -> LocalTable:
     tbl_id, effective_version = path_key.keys[0].tbl_id, path_key.keys[0].effective_version
     cat = get_runtime().catalog
-    with cat.begin_xact(for_write=False):
-        tbl = cat.get_table_by_id(tbl_id, effective_version)
+
+    @retry_loop(for_write=False)
+    def resolve() -> LocalTable | None:
+        return cat.get_table_by_id(tbl_id, effective_version)
+
+    tbl = resolve()
     if tbl is None:
         raise excs.table_was_dropped(tbl_id)
     return tbl
@@ -361,8 +384,6 @@ def _insert_query(request: ProxyRequest, tbl: LocalTable) -> Any:
 
 
 def _compute(request: ProxyRequest, tbl: LocalTable) -> Any:
-    # only an InsertableTableProxy dispatches 'compute', so a non-InsertableTable here is an internal error
-    assert isinstance(tbl, InsertableTable), tbl
     kwargs = _deserialize_args(request)
     return tbl.compute(kwargs['rows'], on_error=kwargs['on_error'])
 
@@ -534,6 +555,11 @@ def _encode_row_media(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return rows
 
 
+def _encode_row_batch(batch: RowBatch) -> RowBatch:
+    """Converter for a RowBatch containing references to local files."""
+    return batch._map_values(_encode_local_path)
+
+
 def _encode_update_status(status: UpdateStatus) -> UpdateStatus:
     """Converter for handlers returning an UpdateStatus with rows."""
     if status.rows is not None:
@@ -634,7 +660,7 @@ _RESULT_CONVERTERS: dict[tuple[str, str], Callable[[Any], Any]] = {
     ('Table', 'insert_hf_dataset'): _encode_update_status,
     ('Table', 'insert_sql_source'): _encode_update_status,
     ('Table', 'insert_query'): _encode_update_status,
-    ('Table', 'compute'): _encode_row_media,
+    ('Table', 'compute'): _encode_row_batch,
     ('Table', 'update'): _encode_update_status,
     ('Table', 'batch_update'): _encode_update_status,
 }

@@ -1,7 +1,7 @@
 import json
 
-from ..http import get, quote_path
 from ..parser import Parser, parse_cols
+from ..utils import get_request, validate_path_arg
 
 EPILOG = """\
 Examples:
@@ -24,11 +24,13 @@ Notes:
 def run(argv: list[str]) -> None:
     ap = Parser(prog='pxt get', epilog=EPILOG)
     ap.add_argument('path')
-    ap.add_argument('pk', nargs='+', help='primary key values in PK column order')
+    ap.add_argument('pk', nargs='*', help='primary key values in PK column order')
     ap.add_argument('--cols', help='comma-separated column subset')
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)
 
+    if not args.pk:
+        ap.error('pk values are required for table row lookup')
     # Reject empty/whitespace-only PK tokens: argparse accepts pxt get t '' (or a stray
     # space), and an empty PK would silently produce a 'no row found' that masks the typo.
     if any(v.strip() == '' for v in args.pk):
@@ -37,7 +39,9 @@ def run(argv: list[str]) -> None:
     cols_csv = ','.join(cols) if cols is not None else None
     # PK coercion (numeric strings -> int/float) happens on the server side; the URL only
     # carries strings.
-    resp = get(f'/api/tables/{quote_path(args.path)}/row', params={'pk': args.pk, 'cols': cols_csv})
+    resp = get_request(
+        '/api/tables/row', params={'path': validate_path_arg(args.path), 'pk': args.pk, 'cols': cols_csv}
+    )
 
     if args.as_json:
         print(json.dumps(resp, indent=2, default=str))

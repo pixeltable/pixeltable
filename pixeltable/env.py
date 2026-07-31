@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import datetime
 import glob
 import http.server
@@ -46,6 +47,18 @@ _logger = logging.getLogger(__name__)
 LOG_FMT_STR = '%(asctime)s %(levelname)s %(threadName)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
 T = TypeVar('T')
+
+_DEFAULT_PROXY_DOMAIN = 'pxt.run'
+_DEFAULT_PROXY_PORT = 9000
+
+
+def store_app_name() -> str:
+    """The application_name that this process's connections report to the store.
+
+    Identifies them in pg_stat_activity; the pid makes it distinguishable from the connections of other Pixeltable
+    processes running against the same database.
+    """
+    return f'pixeltable-{os.getpid()}'
 
 
 class Env:
@@ -400,15 +413,20 @@ class Env:
                 'Reinitializing pixeltable database is not supported when running in non-local environment',
             )
 
-        if reinit_db and self._store_db_exists():
-            self._drop_store_db()
+        if self.is_local:
+            # Embedded postmaster: create or reset the database as needed.
+            if reinit_db and self._store_db_exists():
+                self._drop_store_db()
 
-        create_db = not self._store_db_exists()
-        if create_db:
-            _logger.info(f'creating database at: {self.db_url}')
-            self._create_store_db()
+            create_db = not self._store_db_exists()
+            if create_db:
+                _logger.info(f'creating database at: {self.db_url}')
+                self._create_store_db()
+            else:
+                _logger.info(f'found database at: {self.db_url}')
         else:
-            _logger.info(f'found database at: {self.db_url}')
+            # External DB: pre-provisioned; no local setup needed.
+            _logger.info(f'Using external database at: {self.db_url}')
 
         # Create the SQLAlchemy engine. This will also set the default time zone.
         self._create_engine(time_zone_name=tz_name, echo=echo)
@@ -438,13 +456,20 @@ class Env:
             dialect = db_url.get_dialect().name
             if dialect == 'cockroachdb':
                 self._dbms = CockroachDbms(db_url)
+                # Check if database exists (CockroachDB exposes pg_database via the system DB)
+                if not self._store_db_exists():
+                    error = f'Database {self._db_name!r} does not exist'
+                    _logger.error(error)
+                    raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, error)
+            elif dialect == 'postgresql':
+                # Ensure psycopg v3 driver is used; the default postgresql:// scheme may resolve to psycopg2.
+                if db_url.drivername == 'postgresql':
+                    db_url = db_url.set(drivername='postgresql+psycopg')
+                    self._db_url = db_url.render_as_string(hide_password=False)
+                self._dbms = PostgresqlDbms(db_url)
+                # External PostgreSQL: database is pre-provisioned. Connect directly — no existence check needed.
             else:
                 raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Unsupported DBMS {dialect}')
-            # Check if database exists
-            if not self._store_db_exists():
-                error = f'Database {self._db_name!r} does not exist'
-                _logger.error(error)
-                raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, error)
             _logger.info(f'Using database at: {self.db_url}')
         else:
             self._db_name = config.get_string_value('db') or 'pixeltable'
@@ -478,8 +503,9 @@ class Env:
         metadata.create_system_info(self._sa_engine)
 
     def _create_engine(self, time_zone_name: str, echo: bool = False) -> None:
-        # Add timezone option to connection string
+        # Add timezone and application_name options to connection string
         updated_url = add_option_to_db_url(self.db_url, f'-c timezone={time_zone_name}')
+        updated_url = add_option_to_db_url(updated_url, f'-c application_name={store_app_name()}')
 
         self._sa_engine = sql.create_engine(
             updated_url, echo=echo, isolation_level=self._dbms.transaction_isolation_level
@@ -534,24 +560,13 @@ class Env:
         finally:
             engine.dispose()
 
-    def _pgserver_terminate_connections_stmt(self) -> str:
-        return f"""
-                SELECT pg_terminate_backend(pg_stat_activity.pid)
-                FROM pg_stat_activity
-                WHERE pg_stat_activity.datname = '{self._db_name}'
-                AND pid <> pg_backend_pid()
-            """
-
     def _drop_store_db(self) -> None:
         assert self._db_name is not None
         engine = sql.create_engine(self._dbms.default_system_db_url(), future=True, isolation_level='AUTOCOMMIT')
         preparer = engine.dialect.identifier_preparer
         try:
             with engine.begin() as conn:
-                # terminate active connections
-                if self._db_server is not None:
-                    conn.execute(sql.text(self._pgserver_terminate_connections_stmt()))
-                # drop db
+                # drop db; the statement force-terminates any active connections to it
                 stmt = self._dbms.drop_db_stmt(preparer.quote(self._db_name))
                 conn.execute(sql.text(stmt))
         finally:
@@ -566,6 +581,42 @@ class Env:
     def pxt_api_key(self) -> str | None:
         """Get the Pixeltable API key from config"""
         return Config.get().get_string_value('api_key')
+
+    def require_api_key(self, purpose: str | None = None) -> str:
+        """Return the Pixeltable API key, raising if none is configured. purpose names the attempted operation."""
+        api_key = self.pxt_api_key
+        if api_key is None:
+            attempt = '' if purpose is None else f' to {purpose}'
+            raise excs.AuthorizationError(
+                excs.ErrorCode.MISSING_CREDENTIALS,
+                f'A Pixeltable API key is required{attempt}. '
+                'Set it with `os.environ["PIXELTABLE_API_KEY"] = "your-key"`, '
+                'or add `api_key = "your-key"` to the `[pixeltable]` section in your Pixeltable config file.',
+            )
+        return api_key
+
+    def proxy_endpoint(self, org: str, db: str) -> tuple[str, int]:
+        """Host and port of the proxy daemon serving a hosted database."""
+        # cloud_host is deliberately not a registered config option: PIXELTABLE_CLOUD_HOST is the only override
+        setting = Config.get().get_string_value('cloud_host')
+        domain, port = _DEFAULT_PROXY_DOMAIN, _DEFAULT_PROXY_PORT
+        if setting is not None:
+            domain = setting
+            if ':' in setting:
+                domain, _, port_str = setting.rpartition(':')
+                if domain == '':
+                    raise excs.Error(
+                        excs.ErrorCode.GENERIC_USER_ERROR,
+                        f'Invalid PIXELTABLE_CLOUD_HOST value: missing host before ":{port_str}".',
+                    )
+                try:
+                    port = int(port_str)
+                except ValueError as err:
+                    raise excs.Error(
+                        excs.ErrorCode.GENERIC_USER_ERROR,
+                        f'Invalid PIXELTABLE_CLOUD_HOST value: port {port_str!r} is not a valid integer.',
+                    ) from err
+        return f'{org}-{db}.{domain}', port
 
     def create_client(self, name: str) -> Any:
         """
@@ -824,10 +875,12 @@ class Env:
 
     def clear_tmp_dir(self) -> None:
         for path in glob.glob(f'{self._tmp_dir}/*'):
+            # another process sharing this home can remove an entry between the glob and the delete
             if os.path.isdir(path):
-                shutil.rmtree(path)
+                shutil.rmtree(path, ignore_errors=True)
             else:
-                os.remove(path)
+                with contextlib.suppress(FileNotFoundError):
+                    os.remove(path)
 
     # def get_resource_pool_info(self, pool_id: str, pool_info_cls: Type[T] | None) -> T:
     def get_resource_pool_info(self, pool_id: str, make_pool_info: Callable[[], T] | None = None) -> T:
@@ -885,24 +938,7 @@ class Env:
             except Exception as e:
                 _logger.warning(f'Error stopping HTTP server: {e}')
 
-        # First terminate all connections to the database
-        if self._db_server is not None:
-            assert self._dbms is not None
-            assert self._db_name is not None
-            try:
-                temp_engine = sql.create_engine(self._dbms.default_system_db_url(), isolation_level='AUTOCOMMIT')
-                try:
-                    with temp_engine.begin() as conn:
-                        conn.execute(sql.text(self._pgserver_terminate_connections_stmt()))
-                        _logger.info(f"Terminated all connections to database '{self._db_name}'")
-                except Exception as e:
-                    _logger.warning(f'Error terminating database connections: {e}')
-                finally:
-                    temp_engine.dispose()
-            except Exception as e:
-                _logger.warning(f'Error stopping database server: {e}')
-
-        # Dispose of SQLAlchemy engine (after stopping db server)
+        # Dispose of SQLAlchemy engine
         if self._sa_engine is not None:
             try:
                 self._sa_engine.dispose()
