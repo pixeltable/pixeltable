@@ -357,6 +357,8 @@ class TestBridge:
     def test_schema_update_destructive_refusal(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         schema_src = dedent(
             """
+            from __future__ import annotations
+
             import pixeltable as pxt
 
             TableModel = pxt.model_base()

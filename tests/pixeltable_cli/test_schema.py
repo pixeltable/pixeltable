@@ -299,6 +299,8 @@ class TestSchema:
         schema_file.write_text(
             dedent(
                 """
+                from __future__ import annotations
+
                 import pixeltable as pxt
 
                 TableModel = pxt.model_base()
@@ -330,6 +332,8 @@ class TestSchema:
         schema_file.write_text(
             dedent(
                 """
+                from __future__ import annotations
+
                 import pixeltable as pxt
 
                 TableModel = pxt.model_base()
@@ -401,6 +405,8 @@ class TestSchema:
         schema_file.write_text(
             dedent(
                 """
+                from __future__ import annotations
+
                 import pixeltable as pxt
 
                 TableModel = pxt.model_base()

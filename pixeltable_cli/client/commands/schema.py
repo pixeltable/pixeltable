@@ -13,6 +13,8 @@ from ..utils import post_request
 # a working schema file: written verbatim by 'pxt schema example', and shown indented in every verb's epilog,
 # because otherwise the shape of a model file has to be guessed
 _BRIEF_EXAMPLE_SCHEMA = """\
+from __future__ import annotations  # required to declare a model on Python 3.14+
+
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 
@@ -39,6 +41,8 @@ Every construct the schema DSL supports appears below; delete what you do not ne
 Building an application with Pixeltable? The agent skill carries the full API:
     npx skills add pixeltable/pixeltable-skill
 """
+
+from __future__ import annotations  # required to declare a model on Python 3.14+
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
