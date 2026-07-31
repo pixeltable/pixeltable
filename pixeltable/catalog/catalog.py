@@ -6,7 +6,7 @@ import logging
 import random
 import time
 import warnings
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from collections.abc import Collection, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Mapping, TypeVar
@@ -18,7 +18,7 @@ import sqlalchemy.exc as sql_exc
 from sqlalchemy.dialects.postgresql import array as pg_array
 
 import pixeltable.index as index
-from pixeltable import exceptions as excs, exprs, func, telemetry
+from pixeltable import exceptions as excs, func, telemetry
 from pixeltable.catalog import model
 from pixeltable.env import Env
 from pixeltable.metadata import schema
@@ -27,7 +27,6 @@ from pixeltable.types import ColumnSpec
 from pixeltable.utils import fault_injection
 from pixeltable.utils.exception_handler import run_cleanup
 from pixeltable.utils.fault_injection import FaultLocation
-
 from .catalog_base import CatalogBase
 from .column import Column
 from .dir import Dir
@@ -78,6 +77,9 @@ def _unpack_row(row: sql.engine.Row | None, entities: list[type[sql.orm.decl_api
 # for now, we don't limit the number of retries, because we haven't seen situations where the actual number of retries
 # grows uncontrollably
 _MAX_RETRIES = -1
+
+# Max internal cache size
+_MAX_TBL_CACHE_SIZE = 1024
 
 T = TypeVar('T')
 
@@ -207,6 +209,9 @@ class Catalog(CatalogBase):
     Caching and invalidation of metadata:
     - Catalog caches TableVersion instances in order to avoid excessive metadata loading
     - Any updates to the metadata need to include clearing/invalidating the metadata cache
+    - Both _tbls and _tbl_versions caches maintain LRU order. At the end of the transaction, Catalog can evict entries
+    in excess of _MAX_TBL_CACHE_SIZE from both of them. No eviction during a transaction is possible. To maintain
+    the LRU order, every cache hit should move_to_end(key).
     - for any specific table version (ie, combination of id and effective version) there can be only a single
       Tableversion instance in circulation; the reason is that each TV instance has its own store_tbl.sa_tbl, and
       mixing multiple instances of sqlalchemy Table objects in the same query (for the same underlying table) leads to
@@ -223,8 +228,8 @@ class Catalog(CatalogBase):
     # cached TableVersion instances; key: [id, version]
     # - mutable version of a table: version == None (even though TableVersion.version is set correctly)
     # - snapshot versions: records the version of the snapshot
-    _tbl_versions: dict[TableVersionKey, TableVersion]
-    _tbls: dict[tuple[UUID, int | None], LocalTable]
+    _tbl_versions: OrderedDict[TableVersionKey, TableVersion]
+    _tbls: OrderedDict[TableVersionKey, LocalTable]
     _in_write_xact: bool  # True if we're in a write transaction
     _x_locked_tbl_ids: set[UUID]  # Ids of tables exclusively locked for write in the current transaction
     _modified_tvs: set[TableVersionHandle]  # TableVersion instances modified in the current transaction
@@ -245,8 +250,8 @@ class Catalog(CatalogBase):
     _column_dependents: dict[QColumnId, set[QColumnId]] | None
 
     def __init__(self) -> None:
-        self._tbl_versions = {}
-        self._tbls = {}  # don't use a defaultdict here, it doesn't cooperate with the debugger
+        self._tbl_versions = OrderedDict()
+        self._tbls = OrderedDict()
         self._in_write_xact = False
         self._x_locked_tbl_ids = set()
         self._modified_tvs = set()
@@ -509,6 +514,7 @@ class Catalog(CatalogBase):
                     for tvp in [*write_tvps, *read_tvps]:
                         tvp.clear_cached_md()
 
+                self._evict_caches()
                 self._undo_actions.clear()
                 self._modified_tvs.clear()
 
@@ -560,6 +566,25 @@ class Catalog(CatalogBase):
             self._refresh_tbl_cache(tbl_id=tbl_id, check_pending_ops=finalize_pending_ops)
 
         self._x_locked_tbl_ids = x_locked_ids
+
+    def _evict_caches(self) -> None:
+        # Evict LRU _tbls entries
+        evicted_tbls: list[TableVersionKey] = []
+        while len(self._tbls) > _MAX_TBL_CACHE_SIZE:
+            key, _ = self._tbls.popitem(last=False)
+            evicted_tbls.append(key)
+
+        # Evict LRU _tbl_versions entries. Reset is_validated to False preemptively in case an instance escapes.
+        evicted_tvs: list[TableVersionKey] = []
+        while len(self._tbl_versions) > _MAX_TBL_CACHE_SIZE:
+            key, tv = self._tbl_versions.popitem(last=False)
+            tv.is_validated = False
+            evicted_tvs.append(key)
+
+        if evicted_tbls:
+            _logger.info(f'Evicted {len(evicted_tbls)} LRU table(s) from cache: {evicted_tbls}')
+        if evicted_tvs:
+            _logger.info(f'Evicted {len(evicted_tvs)} LRU table version(s) from cache: {evicted_tvs}')
 
     def register_undo_action(self, func: Callable[[], None]) -> Callable[[], None]:
         """Registers a function to be called if the current transaction fails.
@@ -742,16 +767,17 @@ class Catalog(CatalogBase):
             if has_pending_ops:
                 raise PendingTableOpsError(row.id)
 
-        if not tbl_md.is_mutable:
-            return set()  # nothing to lock
-
         # bring the locked table's TableVersion into the cache; metadata is only readable while locks are being
         # acquired. check_pending_ops == False means this table's pending ops are in the process of being finalized,
         # so its metadata is still in flux; loading it would also pull in the tables its value exprs reference, which
         # may have pending ops of their own.
-        if check_pending_ops or lock_mutable_tree:
+        tv: TableVersion | None = None
+        if check_pending_ops and not tbl_md.is_pure_snapshot:
             key = TableVersionKey(row.id, tbl_md.current_version if tbl_md.is_snapshot else None)
             tv = self._get_tbl_version(key)
+
+        if not tbl_md.is_mutable:
+            return set()  # nothing to lock
 
         if lock_mutable_tree:
             # also lock mutable views
@@ -937,6 +963,10 @@ class Catalog(CatalogBase):
             except AssertionError as e:
                 _logger.error(f'Finalize pending ops({tbl_id}): assertion error: {e}', exc_info=True)
                 # we need to make sure not to swallow asserts
+                raise
+
+            except excs.PixeltableWarning:
+                # Tests promote PixeltableWarnings to an error. Re-raise them to avoid getting stuck in a finalize loop.
                 raise
 
             except PendingTableOpsError as e:
@@ -1471,7 +1501,8 @@ class Catalog(CatalogBase):
     ) -> LocalTable | None:
         """Loads the table if it isn't already cached, starting its own (re-entrant) transaction to do so.
         Might raise PendingTableOpsError."""
-        if (tbl_id, version) not in self._tbls:
+        key = TableVersionKey(tbl_id, version)
+        if key not in self._tbls:
             # begin_xact() is re-entrant: it joins the caller's transaction if there is one, and otherwise
             # starts a fresh read transaction (which also permits the metadata load). Cache hits stay xact-free.
             with self.begin_xact(for_write=False):
@@ -1480,7 +1511,8 @@ class Catalog(CatalogBase):
                 else:
                     tbl = self._load_tbl_at_version(tbl_id, version)
         else:
-            tbl = self._tbls.get((tbl_id, version))
+            tbl = self._tbls.get(key)
+            self._tbls.move_to_end(key)
         if tbl is not None:
             Env.get().record_tbl_catalog_uri(tbl._id, ROOT_PATH)
         return tbl
@@ -2093,12 +2125,11 @@ class Catalog(CatalogBase):
 
         tvp.clear_cached_md()
 
-        assert (tbl_id, None) in self._tbls  # tables must have an entry with effective_version=None
-
         # Remove visible Table references.
-        versions = [version for id, version in self._tbls if id == tbl_id]
-        for version in versions:
-            del self._tbls[tbl_id, version]
+        keys = [k for k in self._tbls if k.tbl_id == tbl_id]
+        assert any(k.effective_version is None for k in keys)  # tables must have an entry with effective_version=None
+        for k in keys:
+            del self._tbls[k]
 
         _logger.info(f'Dropped table {tbl_path_repr}.')
 
@@ -2236,6 +2267,8 @@ class Catalog(CatalogBase):
         conn = get_runtime().conn
         assert conn is not None
         tv = self._tbl_versions.get(key)
+        if tv is not None:
+            self._tbl_versions.move_to_end(key)
         if tv is None and not self._tbl_md_read_allowed:
             raise AssertionError(
                 'Loading new table metadata is not allowed in the middle of a transaction. '
@@ -2449,7 +2482,7 @@ class Catalog(CatalogBase):
             if key not in self._tbl_versions:
                 _ = self._load_tbl_version(key)
             tbl = InsertableTable(TableVersionHandle(key))
-            self._tbls[tbl_id, None] = tbl
+            self._tbls[key] = tbl
             return tbl
 
         # this is a view; determine the sequence of TableVersions to load
@@ -2476,7 +2509,7 @@ class Catalog(CatalogBase):
             view_path = TableVersionPath(TableVersionHandle(key), base=base_path)
             base_path = view_path
         view = View(tbl_id, view_path, snapshot_only=tbl_md.is_pure_snapshot)
-        self._tbls[tbl_id, None] = view
+        self._tbls[TableVersionKey(tbl_id, None)] = view
         return view
 
     def _load_tbl_at_version(self, tbl_id: UUID, version: int) -> LocalTable | None:
@@ -2504,7 +2537,7 @@ class Catalog(CatalogBase):
 
         # snapshot_only=True: an anonymous snapshot doesn't have a physical table
         view = View(tbl_id, tvp, snapshot_only=True)
-        self._tbls[tbl_id, version] = view
+        self._tbls[TableVersionKey(tbl_id, version)] = view
         return view
 
     def construct_tvp(
