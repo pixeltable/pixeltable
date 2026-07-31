@@ -703,6 +703,7 @@ class TestOpenai:
         assert len(r2) == 2
         assert any('Apple' in answer for answer in r2['answer'])
 
+    @rerun(reruns=3, reruns_delay=8)
     def test_azure_openai(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
         if not os.environ.get('AZURE_OPENAI_API_KEY'):

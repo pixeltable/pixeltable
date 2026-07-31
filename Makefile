@@ -165,7 +165,7 @@ fullpytest: install
 slimpytest: install
 	@echo 'Running `pytest` on a slim configuration ...'
 	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) \
-	    tests/test_{catalog,dirs,env,exprs,function,index,snapshot,table,table_model,unversioned_table,view}.py
+	    tests/test_{alter_column,catalog,dirs,env,exprs,function,index,snapshot,table,table_model,unversioned_table,view}.py
 
 .PHONY: nbtest
 nbtest: install

@@ -365,7 +365,7 @@ def from_table(tbl: catalog.Table, return_value: 'exprs.Expr' | None, descriptio
     ancestors = [tbl, *tbl._get_base_tables()]
     ancestors.reverse()  # We must traverse the ancestors in order from base to derived
 
-    subst: dict[exprs.Expr, exprs.Expr] = {}
+    subst: exprs.ExprDict[exprs.Expr] = exprs.ExprDict()
     result_dict: dict[str, exprs.Expr] = {}
     params: list[Parameter] = []
 

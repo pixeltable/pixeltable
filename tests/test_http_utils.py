@@ -3,7 +3,7 @@
 import logging
 import types
 
-from pixeltable.utils.http import fetch_url, is_retriable_error, parse_duration_str, redact_url
+from pixeltable.utils.http import fetch_url, is_retryable_error, parse_duration_str, redact_url
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps
 
@@ -15,69 +15,69 @@ class DummyError(Exception):
 class TestHttpUtils:
     def test_non_retriable_errors(self) -> None:
         exc = DummyError('dummy')
-        assert not is_retriable_error(exc)[0]
+        assert not is_retryable_error(exc)[0]
 
         exc.status = 400
-        assert not is_retriable_error(exc)[0]
+        assert not is_retryable_error(exc)[0]
 
         exc = DummyError('dummy')
         exc.status_code = 500
-        assert not is_retriable_error(exc)[0]
+        assert not is_retryable_error(exc)[0]
 
         exc = DummyError('dummy')
         exc.status_code = 'IM_A_TEAPOT'
-        assert not is_retriable_error(exc)[0]
+        assert not is_retryable_error(exc)[0]
 
     def test_non_retriable_errors_inside_response(self) -> None:
         exc = DummyError('dummy')
         exc.response = types.SimpleNamespace()
-        assert not is_retriable_error(exc)[0]
+        assert not is_retryable_error(exc)[0]
 
         exc.response.status = 404
-        assert not is_retriable_error(exc)[0]
+        assert not is_retryable_error(exc)[0]
 
         exc = DummyError('dummy')
         exc.response = types.SimpleNamespace()
         exc.response.code = 'BAD_REQUEST'
-        assert not is_retriable_error(exc)[0]
+        assert not is_retryable_error(exc)[0]
 
     def test_retriable_errors(self) -> None:
         exc = DummyError('dummy')
         exc.status = 429
-        assert is_retriable_error(exc) == (True, None)
+        assert is_retryable_error(exc) == (True, None)
         exc.headers = {'Retry-After': '3'}
-        assert is_retriable_error(exc) == (True, 3)
+        assert is_retryable_error(exc) == (True, 3)
 
         exc = DummyError('dummy')
         exc.code = 503
-        assert is_retriable_error(exc) == (True, None)
+        assert is_retryable_error(exc) == (True, None)
         exc.headers = {'retryafter': '4', 'Some-Other-Header': 'value'}
-        assert is_retriable_error(exc) == (True, 4)
+        assert is_retryable_error(exc) == (True, 4)
 
         exc = DummyError('dummy')
         exc.code = 'too_many_requests'
-        assert is_retriable_error(exc) == (True, None)
+        assert is_retryable_error(exc) == (True, None)
 
     def test_retriable_errors_inside_response(self) -> None:
         exc = DummyError('dummy')
         exc.response = types.SimpleNamespace()
         exc.response.status = 429
-        assert is_retriable_error(exc) == (True, None)
+        assert is_retryable_error(exc) == (True, None)
         exc.response.headers = {'Retry-After': '3'}
-        assert is_retriable_error(exc) == (True, 3)
+        assert is_retryable_error(exc) == (True, 3)
 
     def test_retriable_errors_based_on_msg(self) -> None:
         exc = DummyError('blah-blah-blah too many requests blah-blah-blah')
-        assert is_retriable_error(exc) == (True, None)
+        assert is_retryable_error(exc) == (True, None)
 
         exc = DummyError('rate exceeded, retry after 123 seconds')
-        assert is_retriable_error(exc) == (True, 123)
+        assert is_retryable_error(exc) == (True, 123)
 
         exc = DummyError('（╯ ͡° ل͜ ͡°）╯︵ ┻━┻  request throttled, retry-after:7')  # noqa: RUF001
-        assert is_retriable_error(exc) == (True, 7)
+        assert is_retryable_error(exc) == (True, 7)
 
         exc = DummyError('429, try again in 5 seconds')
-        assert is_retriable_error(exc) == (True, 5)
+        assert is_retryable_error(exc) == (True, 5)
 
     def test_twelvelabs_exc(self) -> None:
         # Almost the actual error received from TwelveLabs
@@ -104,7 +104,7 @@ class TestHttpUtils:
             'x-ratelimit-used': '100',
             'x-trace-id': '122506435189331138',
         }
-        assert is_retriable_error(exc) == (True, 11382)
+        assert is_retryable_error(exc) == (True, 11382)
 
     def test_parse_duration_header(self) -> None:
         assert parse_duration_str(None) is None

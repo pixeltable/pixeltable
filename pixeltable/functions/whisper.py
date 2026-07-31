@@ -6,6 +6,7 @@ This UDF will cause Pixeltable to invoke the relevant model locally. In order to
 first `pip install openai-whisper`.
 """
 
+import threading
 from typing import TYPE_CHECKING, Sequence
 
 import pixeltable as pxt
@@ -84,12 +85,15 @@ def _lookup_model(model_id: str, device: str) -> 'Whisper':
     import whisper
 
     key = (model_id, device)
-    if key not in _model_cache:
-        model = whisper.load_model(model_id, device)
-        _model_cache[key] = model
-    return _model_cache[key]
+    with _cache_lock:
+        if key not in _model_cache:
+            model = whisper.load_model(model_id, device)
+            _model_cache[key] = model
+        return _model_cache[key]
 
 
+# guards the cache below; held across model loads so a cache miss never loads twice
+_cache_lock = threading.Lock()
 _model_cache: dict[tuple[str, str], 'Whisper'] = {}
 
 

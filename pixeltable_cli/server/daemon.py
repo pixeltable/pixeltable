@@ -3,10 +3,32 @@
 import atexit
 import os
 import sys
+import threading
 
 from pixeltable_cli.client.utils import is_running
 from pixeltable_cli.server.http_server import bind, run
 from pixeltable_cli.utils import get_port, pidfile_path
+
+# working directories
+_wd_lock = threading.Lock()
+_wd: dict[str, str] = {}  # key: session id, value: working directory
+
+
+def get_wd(session: str | None) -> str | None:
+    if session is None:
+        return None
+    with _wd_lock:
+        return _wd.get(session)
+
+
+def set_wd(session: str, uri: str) -> None:
+    with _wd_lock:
+        _wd[session] = uri
+
+
+def clear_wd(session: str) -> None:
+    with _wd_lock:
+        _wd.pop(session, None)
 
 
 def _write_pidfile() -> None:

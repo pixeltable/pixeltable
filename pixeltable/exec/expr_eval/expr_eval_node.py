@@ -524,7 +524,13 @@ class ExprEvalNode(ExecNode):
         except asyncio.CancelledError:
             pass
         except Exception as exc:
-            stack_trace = traceback.format_exc()
-            # TODO: find a better error class
-            self.error = excs.Error(excs.ErrorCode.GENERIC_USER_ERROR, f'Exception in task: {exc}\n{stack_trace}')
+            if isinstance(exc, excs.Error):
+                # keep the specific error so its error_code survives; stash the traceback as detail for diagnostics
+                if exc.detail is None:
+                    exc.detail = traceback.format_exc()
+                self.error = exc
+            else:
+                # chain the original exception so its traceback is preserved
+                self.error = excs.Error(excs.ErrorCode.GENERIC_USER_ERROR, f'Exception in task: {exc}')
+                self.error.__cause__ = exc
             self.exc_event.set()

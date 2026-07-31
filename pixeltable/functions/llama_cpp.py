@@ -5,6 +5,7 @@ Provides integration with llama.cpp for running quantized language models locall
 supporting chat completions and embeddings with GGUF format models.
 """
 
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -108,10 +109,11 @@ def _lookup_local_model(model_path: str, n_gpu_layers: int, *, chat_format: str 
     import llama_cpp
 
     key = (model_path, None, n_gpu_layers, chat_format)
-    if key not in _model_cache:
-        llm = llama_cpp.Llama(model_path, n_gpu_layers=n_gpu_layers, chat_format=chat_format, verbose=False)
-        _model_cache[key] = llm
-    return _model_cache[key]
+    with _cache_lock:
+        if key not in _model_cache:
+            llm = llama_cpp.Llama(model_path, n_gpu_layers=n_gpu_layers, chat_format=chat_format, verbose=False)
+            _model_cache[key] = llm
+        return _model_cache[key]
 
 
 def _lookup_pretrained_model(
@@ -120,24 +122,28 @@ def _lookup_pretrained_model(
     import llama_cpp
 
     key = (repo_id, filename, n_gpu_layers, chat_format)
-    if key not in _model_cache:
-        llm = llama_cpp.Llama.from_pretrained(
-            repo_id=repo_id, filename=filename, n_gpu_layers=n_gpu_layers, chat_format=chat_format, verbose=False
-        )
-        _model_cache[key] = llm
-    return _model_cache[key]
+    with _cache_lock:
+        if key not in _model_cache:
+            llm = llama_cpp.Llama.from_pretrained(
+                repo_id=repo_id, filename=filename, n_gpu_layers=n_gpu_layers, chat_format=chat_format, verbose=False
+            )
+            _model_cache[key] = llm
+        return _model_cache[key]
 
 
+# guards the cache below; held across model loads so a cache miss never loads twice
+_cache_lock = threading.Lock()
 _model_cache: dict[tuple[str, str, int, str | None], 'llama_cpp.Llama'] = {}
 _IS_GPU_AVAILABLE: bool | None = None
 
 
 def cleanup() -> None:
-    for model in _model_cache.values():
-        if model._sampler is not None:
-            model._sampler.close()
-        model.close()
-    _model_cache.clear()
+    with _cache_lock:
+        for model in _model_cache.values():
+            if model._sampler is not None:
+                model._sampler.close()
+            model.close()
+        _model_cache.clear()
 
 
 __all__ = local_public_names(__name__)

@@ -23,6 +23,7 @@ from pixeltable.catalog import InsertableTable, Path, TablePathKey, retry_loop
 from pixeltable.catalog.table_version import TableVersionKey
 from pixeltable.env import Env
 from pixeltable.io.data_sources import SqlDataSource
+from pixeltable.row import RowBatch
 from pixeltable.runtime import get_runtime
 from pixeltable.utils import parse_local_file_path
 from pixeltable.utils.local_store import TempStore
@@ -205,6 +206,12 @@ def _create_from_model(request: ProxyRequest) -> tuple[list, bool]:
     return md, was_created
 
 
+def _update_from_model(request: ProxyRequest) -> None:
+    # Deserialize through the read-transaction path, since each Updates carries Exprs (column value expressions).
+    kwargs = _deserialize_args(request)
+    get_runtime().catalog.update_from_model(kwargs['updates'])
+
+
 def _get_table(request: ProxyRequest) -> list | None:
     kwargs = _deserialize_args(request)
     cat = get_runtime().catalog
@@ -218,9 +225,13 @@ def _get_table(request: ProxyRequest) -> list | None:
 def _get_table_by_id(request: ProxyRequest) -> list | None:
     kwargs = _deserialize_args(request)
     cat = get_runtime().catalog
-    with cat.begin_xact(for_write=False):  # get_table_by_id must run inside a transaction
+
+    @retry_loop(for_write=False)
+    def load() -> list | None:
         tbl = cat.get_table_by_id(**kwargs)
         return None if tbl is None else cat.read_md_for_export(tbl)
+
+    return load()
 
 
 def _catalog_method(request: ProxyRequest) -> Any:
@@ -232,8 +243,12 @@ def _catalog_method(request: ProxyRequest) -> Any:
 def _resolve_tbl(path_key: TablePathKey) -> LocalTable:
     tbl_id, effective_version = path_key.keys[0].tbl_id, path_key.keys[0].effective_version
     cat = get_runtime().catalog
-    with cat.begin_xact(for_write=False):
-        tbl = cat.get_table_by_id(tbl_id, effective_version)
+
+    @retry_loop(for_write=False)
+    def resolve() -> LocalTable | None:
+        return cat.get_table_by_id(tbl_id, effective_version)
+
+    tbl = resolve()
     if tbl is None:
         raise excs.table_was_dropped(tbl_id)
     return tbl
@@ -355,8 +370,6 @@ def _insert_query(request: ProxyRequest, tbl: LocalTable) -> Any:
 
 
 def _compute(request: ProxyRequest, tbl: LocalTable) -> Any:
-    # only an InsertableTableProxy dispatches 'compute', so a non-InsertableTable here is an internal error
-    assert isinstance(tbl, InsertableTable), tbl
     kwargs = _deserialize_args(request)
     return tbl.compute(kwargs['rows'], on_error=kwargs['on_error'])
 
@@ -418,6 +431,11 @@ def _drop_column(request: ProxyRequest, tbl: LocalTable) -> None:
 def _rename_column(request: ProxyRequest, tbl: LocalTable) -> None:
     kwargs = _deserialize_args(request)
     tbl.rename_column(kwargs['old_name'], kwargs['new_name'])
+
+
+def _alter_column(request: ProxyRequest, tbl: LocalTable) -> None:
+    kwargs = _deserialize_args(request)
+    tbl.alter_column(kwargs['column'], type_=kwargs['type_'])
 
 
 def _add_embedding_index(request: ProxyRequest, tbl: LocalTable) -> None:
@@ -513,6 +531,11 @@ def _encode_row_media(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return rows
 
 
+def _encode_row_batch(batch: RowBatch) -> RowBatch:
+    """Converter for a RowBatch containing references to local files."""
+    return batch._map_values(_encode_local_path)
+
+
 def _encode_update_status(status: UpdateStatus) -> UpdateStatus:
     """Converter for handlers returning an UpdateStatus with rows."""
     if status.rows is not None:
@@ -531,6 +554,7 @@ _HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest], Any]] = {
     ('CatalogBase', 'create_table'): _create_table,
     ('CatalogBase', 'create_view'): _create_view,
     ('CatalogBase', 'create_from_model'): _create_from_model,
+    ('CatalogBase', 'update_from_model'): _update_from_model,
     ('CatalogBase', 'get_table'): _get_table,
     ('CatalogBase', 'get_table_by_id'): _get_table_by_id,
     ('CatalogBase', 'move'): _catalog_method,
@@ -548,6 +572,7 @@ _HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest], Any]] = {
 # snapshot_path_key is behind); reads run unconditionally.
 _MUTATION_METHODS: frozenset[str] = frozenset(
     {
+        'alter_column',
         'insert',
         'insert_source',
         'insert_hf_dataset',
@@ -571,6 +596,7 @@ _MUTATION_METHODS: frozenset[str] = frozenset(
 
 # Path-bearing Table methods: handler(request, tbl) -> result; handle() resolves tbl and sends current md back.
 _TABLE_HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest, 'LocalTable'], Any]] = {
+    ('Table', 'alter_column'): _alter_column,
     ('Table', 'get_metadata'): _get_metadata,
     ('Table', '_path'): _get_path,
     ('Table', 'describe'): _describe,
@@ -608,7 +634,7 @@ _RESULT_CONVERTERS: dict[tuple[str, str], Callable[[Any], Any]] = {
     ('Table', 'insert_hf_dataset'): _encode_update_status,
     ('Table', 'insert_sql_source'): _encode_update_status,
     ('Table', 'insert_query'): _encode_update_status,
-    ('Table', 'compute'): _encode_row_media,
+    ('Table', 'compute'): _encode_row_batch,
     ('Table', 'update'): _encode_update_status,
     ('Table', 'batch_update'): _encode_update_status,
 }

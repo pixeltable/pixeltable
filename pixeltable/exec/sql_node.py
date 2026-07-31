@@ -8,7 +8,7 @@ from uuid import UUID
 
 import numpy as np
 import sqlalchemy as sql
-from pgvector.sqlalchemy import HalfVector  # type: ignore[import-untyped]
+from pgvector import HalfVector
 
 from pixeltable import catalog, exprs
 from pixeltable.env import Env
@@ -302,6 +302,7 @@ class SqlNode(ExecNode):
         refd_tbl_ids: set[UUID] | None = None,
         created_at_current_version: set[UUID] | None = None,
         deleted_at_current_version: set[UUID] | None = None,
+        exclude_deleted_at_current_version: catalog.TableVersionHandle | None = None,
     ) -> sql.Select:
         """Add From clause to stmt for tables/views referenced by materialized_exprs
         Args:
@@ -312,6 +313,9 @@ class SqlNode(ExecNode):
               version
             deleted_at_current_version: set of table ids for which we only want to see rows deleted (expired) at the
               current version
+            exclude_deleted_at_current_version: a table that is not part of tbl's join chain and contributes no
+              columns; rows of tbl's table that have a corresponding row (identified by rowid) in it deleted at its
+              current version are excluded
         Returns:
             augmented stmt
         """
@@ -328,11 +332,14 @@ class SqlNode(ExecNode):
         if not versioned:
             assert len(created_at_current_version) == 0
             assert len(deleted_at_current_version) == 0
+            assert exclude_deleted_at_current_version is None
         joined_tbls: list[catalog.TableVersionHandle] = [candidates[0]]
         for t in candidates[1:]:
             # the tables in the path must either all be versioned or not
             assert t.get().is_versioned == versioned
-            if t.id in refd_tbl_ids:
+            # a versioned table has to be joined even if nothing references its columns, in order to apply the version
+            # predicate (= select only visible rows)
+            if versioned or t.id in refd_tbl_ids:
                 joined_tbls.append(t)
 
         first = True
@@ -364,6 +371,22 @@ class SqlNode(ExecNode):
                 else:
                     stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_max > tv.version)
             prev_tv = tv
+
+        if exclude_deleted_at_current_version is not None:
+            # the exclusion is implemented as (exclude_deleted_at_current_version is always a view):
+            #   LEFT OUTER JOIN view ON view.rowid = tbl.rowid AND view.v_max = :v_max_1
+            #   WHERE ... AND view.rowid IS NULL
+            excluded_tv = exclude_deleted_at_current_version.get()
+            excluded_rowid_cols = excluded_tv.store_tbl.rowid_columns()
+            path_rowid_cols = tbl.tbl_version.get().store_tbl.rowid_columns()
+            assert len(excluded_rowid_cols) == len(path_rowid_cols)
+            on_clause = sql.and_(
+                *[c1 == c2 for c1, c2 in zip(excluded_rowid_cols, path_rowid_cols)],
+                excluded_tv.store_tbl.v_max_col == excluded_tv.version,
+            )
+            stmt = stmt.join(excluded_tv.store_tbl.sa_tbl, onclause=on_clause, isouter=True).where(
+                excluded_rowid_cols[0].is_(None)
+            )
 
         return stmt
 
@@ -474,9 +497,11 @@ class SqlNode(ExecNode):
                             output_row[slot_idx] = sql_row[i]
                     else:
                         raise RuntimeError(f'Unexpected datetime value for {e}')
-                elif isinstance(sql_row[i], HalfVector):
-                    # All array data needs to be materialized as ndarrays
-                    output_row[slot_idx] = sql_row[i].to_numpy().astype(np.float32)
+                elif e.col_type.is_array_type() and isinstance(sql_row[i], (list, HalfVector)):
+                    # pgvector decodes VECTOR/HALFVEC values to lists of floats (>= 0.5) or HalfVector
+                    # objects (< 0.5); all array data needs to be materialized as ndarrays
+                    value = sql_row[i].to_numpy() if isinstance(sql_row[i], HalfVector) else sql_row[i]
+                    output_row[slot_idx] = np.asarray(value, dtype=np.float32)
                 else:
                     output_row[slot_idx] = sql_row[i]
 
@@ -526,6 +551,7 @@ class SqlScanNode(SqlNode):
         set_pk: bool = False,
         created_at_current_version: list[catalog.TableVersionHandle] | None = None,
         deleted_at_current_version: list[catalog.TableVersionHandle] | None = None,
+        exclude_deleted_at_current_version: catalog.TableVersionHandle | None = None,
     ):
         sql_elements = exprs.SqlElementCache()
         super().__init__(
@@ -545,6 +571,7 @@ class SqlScanNode(SqlNode):
 
         self.created_at_current_version = created_at_current_version
         self.deleted_at_current_version = deleted_at_current_version
+        self.exclude_deleted_at_current_version = exclude_deleted_at_current_version
 
     def _create_stmt(self) -> sql.Select:
         stmt = super()._create_stmt()
@@ -556,6 +583,7 @@ class SqlScanNode(SqlNode):
             refd_tbl_ids,
             created_at_current_version={t.id for t in self.created_at_current_version},
             deleted_at_current_version={t.id for t in self.deleted_at_current_version},
+            exclude_deleted_at_current_version=self.exclude_deleted_at_current_version,
         )
         return stmt
 

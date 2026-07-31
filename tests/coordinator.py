@@ -29,9 +29,12 @@ class MultiThreadedScenario:
     """
 
     _steps: list[_Step]
+    # every BlockFault this scenario refers to, in registration order
+    _block_faults: list[BlockFault]
 
     def __init__(self) -> None:
         self._steps = []
+        self._block_faults = []
 
     def then_run(self, *, thread_id: int, name: str, fn: Callable[[], Any]) -> 'MultiThreadedScenario':
         """Append a step that runs `fn` synchronously on Thread `thread_id`."""
@@ -47,6 +50,7 @@ class MultiThreadedScenario:
 
     def then_inject_fault(self, *, thread_id: int, loc: FaultLocation, fault: Fault) -> 'MultiThreadedScenario':
         """Append a step that arms `fault` at `loc` on Thread `thread_id`."""
+        self._register_block_fault(fault)
         return self.then_run(
             thread_id=thread_id,
             name=f'inject fault at {loc.name}',
@@ -55,7 +59,16 @@ class MultiThreadedScenario:
 
     def then_unblock(self, *, thread_id: int, fault: BlockFault) -> 'MultiThreadedScenario':
         """Append a step that unblocks `fault` on Thread `thread_id`."""
+        self._register_block_fault(fault)
         return self.then_run(thread_id=thread_id, name='unblock', fn=fault.unblock)
+
+    def _register_block_fault(self, fault: Fault) -> None:
+        if isinstance(fault, BlockFault) and not any(f is fault for f in self._block_faults):
+            self._block_faults.append(fault)
+
+    def _unblock_all(self) -> None:
+        for fault in self._block_faults:
+            fault.unblock()
 
     def execute(self, timeout: float = 10.0) -> None:
         """Run the scenario. Raises the first exception encountered in any thread."""
@@ -115,6 +128,9 @@ class MultiThreadedScenario:
                     record_exc(e, step)
                     # stop processing this thread's remaining steps, and signal to other threads to do the same
                     abort.set()
+                    # a thread parked at a fault point waits on an event that no remaining step will set; release it
+                    # so it can unwind its transaction
+                    self._unblock_all()
                     return
                 finally:
                     # always unblock downstream
@@ -139,6 +155,7 @@ class MultiThreadedScenario:
             w.join(timeout=max(remaining, 0))
             if w.is_alive():
                 abort.set()
+                self._unblock_all()
                 check_exceptions()
                 raise TimeoutError(f'Scenario did not finish within {timeout}s')
 

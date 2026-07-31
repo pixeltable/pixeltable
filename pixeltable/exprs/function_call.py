@@ -3,7 +3,7 @@ from __future__ import annotations
 import inspect
 import sys
 from textwrap import dedent
-from typing import Any, Sequence
+from typing import TYPE_CHECKING, Any, Sequence
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -16,6 +16,9 @@ from .literal import Literal
 from .row_builder import RowBuilder
 from .rowid_ref import RowidRef
 from .sql_element_cache import SqlElementCache
+
+if TYPE_CHECKING:
+    from .expr_dict import ExprDict
 
 
 class FunctionCall(Expr):
@@ -311,7 +314,7 @@ class FunctionCall(Expr):
                 raise AssertionError(f'{name}: {idx} (of type `{type(idx)}`)')
         return bound_args
 
-    def substitute(self, spec: dict[Expr, Expr]) -> Expr:
+    def substitute(self, spec: ExprDict[Expr]) -> Expr:
         """
         Substitution of FunctionCall arguments could cause the return value to become more specific, in the case
         where a variable is replaced with a specific value.
