@@ -1300,6 +1300,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                 for col_name, col_md in existing_md['columns'].items()
                 if col_md['defined_in'] == existing_md['name'] and not col_md['is_iterator_col']
             }
+
             ops = []
 
             # create_default_idxs mismatch is unsupported.
@@ -1433,11 +1434,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                         details={},
                     )
                 )
-            # TODO: Bug: indexes present in both the model and the catalog are not compared, only their names are.
-            # Redefining an index while keeping its name (repointing it at another column, or changing an embedding
-            # function or metric) therefore yields no change at all, and the table is reported as up-to-date. Columns
-            # get this treatment via `_ColumnProperties` above, which reports an `alter` change with severity
-            # 'unsupported'; indexes need the equivalent.
+            # TODO(PXT-1258): compare index parameters, not just names
             for idx_name in sorted(model_idxs - existing_idxs):
                 ops.append(_add_index_change(idx_name, model.__indexes__[idx_name]))
             for idx_name in sorted(existing_idxs - model_idxs):
