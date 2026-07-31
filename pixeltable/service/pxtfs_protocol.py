@@ -25,8 +25,8 @@ class GetBucketCredentialsRequest(BaseModel):
     operation_type: Literal[PixeltableStoreOperationType.GET_BUCKET_CREDENTIALS] = (
         PixeltableStoreOperationType.GET_BUCKET_CREDENTIALS
     )
-    org_slug: str
-    db_slug: str
+    org: str
+    db: str
     bucket_name: str = 'home'
     prefix: str | None = None  # Optional path prefix within the home bucket
 
@@ -51,8 +51,8 @@ class GetPresignedUrlRequest(BaseModel):
     operation_type: Literal[PixeltableStoreOperationType.GET_PRESIGNED_URL] = (
         PixeltableStoreOperationType.GET_PRESIGNED_URL
     )
-    org_slug: str
-    db_slug: str
+    org: str
+    db: str
     bucket_name: str = 'home'
     key: str  # Object key within the home bucket
     method: Literal['get', 'put'] = 'get'  # HTTP method for the presigned URL

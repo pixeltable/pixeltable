@@ -124,7 +124,7 @@ def _build_pxt_store_entry(org: str, db: str, bucket: str, prefix: str) -> _PxtS
     _handle_no_space_warning(creds.no_space_left, entry, org, db, bucket)
 
     # Build RefreshableCredentials from the initial fetch, reusing its result
-    # to avoid a redundant control-plane call.
+    # to avoid a redundant management API call.
     expiry_time = datetime.now(tz=timezone.utc) + timedelta(seconds=creds.ttl_seconds)
     initial_metadata = {
         'access_key': creds.access_key_id,
@@ -182,7 +182,7 @@ def _get_or_create_pxt_store_entry(org: str, db: str, bucket: str, prefix: str) 
 
 
 class PxtStore(ObjectStoreBase):
-    """Wraps a provider-specific store with control-plane credential refresh."""
+    """Wraps a provider-specific store with management API credential refresh."""
 
     soa: StorageObjectAddress
     _pxt_store_entry: _PxtStoreCacheEntry
@@ -292,14 +292,14 @@ class PxtStore(ObjectStoreBase):
         return results
 
     def create_presigned_url(self, soa: StorageObjectAddress, expiration_seconds: int) -> str:
-        """Request a presigned GET URL from the control plane."""
+        """Request a presigned GET URL from the management API."""
         if not soa.has_object:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, f'StorageObjectAddress does not contain an object name: {soa}'
             )
         return get_presigned_url_from_cloud(
-            org_slug=soa.account,
-            db_slug=soa.account_extension or '',
+            org=soa.account,
+            db=soa.account_extension or '',
             bucket=soa.container,
             key=soa.key,
             method='get',
