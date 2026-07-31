@@ -133,6 +133,9 @@ class BtreeIndex:
 
     column: Any
 
+    def __repr__(self) -> str:
+        return f'BtreeIndex(column={self.column})'
+
 
 # An index specification declared as a class attribute in a TableModel or ViewModel definition.
 IndexSpec = EmbeddingIndex | BtreeIndex
