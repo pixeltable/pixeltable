@@ -18,7 +18,7 @@ import sqlalchemy.exc as sql_exc
 from sqlalchemy.dialects.postgresql import array as pg_array
 
 import pixeltable.index as index
-from pixeltable import exceptions as excs, func, telemetry
+from pixeltable import exceptions as excs, exprs, func, telemetry
 from pixeltable.catalog import model
 from pixeltable.env import Env
 from pixeltable.metadata import schema
@@ -1818,8 +1818,6 @@ class Catalog(CatalogBase):
 
         Requires that change_sets is ordered topologically, ie, base tables precede their views.
         """
-        from pixeltable.exprs import ColumnRef  # local: exprs imports catalog
-
         # fault point:
         # - the diff that produced updates was computed in an earlier read transaction
         # - this call applies it in a later write transaction
@@ -1910,7 +1908,7 @@ class Catalog(CatalogBase):
             for view_tv in mutable_views.values():
                 if view_tv.predicate is None:
                     continue
-                for col_ref in view_tv.predicate.subexprs(expr_class=ColumnRef, traverse_matches=False):
+                for col_ref in view_tv.predicate.subexprs(expr_class=exprs.ColumnRef, traverse_matches=False):
                     views_by_qid[col_ref.col_md.qcolid].append(view_tv)
             dropped_cols_by_qid = {col.qid: col for col in dropped_col_set}
             view_dependencies = [
