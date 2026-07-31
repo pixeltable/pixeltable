@@ -27,6 +27,7 @@ from pixeltable.types import ColumnSpec
 from pixeltable.utils import fault_injection
 from pixeltable.utils.exception_handler import run_cleanup
 from pixeltable.utils.fault_injection import FaultLocation
+
 from .catalog_base import CatalogBase
 from .column import Column
 from .dir import Dir
@@ -1817,6 +1818,8 @@ class Catalog(CatalogBase):
 
         Requires that change_sets is ordered topologically, ie, base tables precede their views.
         """
+        from pixeltable.exprs import ColumnRef  # local: exprs imports catalog
+
         # fault point:
         # - the diff that produced updates was computed in an earlier read transaction
         # - this call applies it in a later write transaction
@@ -1907,7 +1910,7 @@ class Catalog(CatalogBase):
             for view_tv in mutable_views.values():
                 if view_tv.predicate is None:
                     continue
-                for col_ref in view_tv.predicate.subexprs(expr_class=exprs.ColumnRef, traverse_matches=False):
+                for col_ref in view_tv.predicate.subexprs(expr_class=ColumnRef, traverse_matches=False):
                     views_by_qid[col_ref.col_md.qcolid].append(view_tv)
             dropped_cols_by_qid = {col.qid: col for col in dropped_col_set}
             view_dependencies = [
