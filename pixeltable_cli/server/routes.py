@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import PIL.Image
+import pydantic
 import sqlalchemy as sa
 
 import pixeltable as pxt
@@ -14,7 +15,7 @@ from pixeltable.catalog import Path
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.types import TreeNode
-from pixeltable_cli import models
+from pixeltable_cli import models, schema_types
 from pixeltable_cli.utils import identity
 
 from . import bridge
@@ -26,6 +27,9 @@ _STARTED_AT = datetime.datetime.now(datetime.timezone.utc).isoformat()
 # Freeze the identity fingerprint at import time so /health reports what the daemon was
 # launched with, not what os.environ looks like right now. Used to trigger a daemon restart.
 _IDENTITY: dict[str, Any] = identity()
+
+# schema plans cross as plain dicts; this checks their shape in place of a response model
+_SCHEMA_PLAN = pydantic.TypeAdapter(schema_types.SchemaPlan)
 
 
 @router.get('/api/health')
@@ -440,13 +444,25 @@ def move(req: Request) -> models.MoveResponse:
     return models.MoveResponse(path=src, new_path=dst)
 
 
+@router.post('/api/schema/diff')
+def schema_diff(req: Request) -> schema_types.SchemaPlan:
+    body = req.body(models.SchemaDiffBody)
+    return _SCHEMA_PLAN.validate_python(bridge.schema_diff(body.schema_file, req.resolve_path(body.catalog_dir)))
+
+
+@router.post('/api/schema/prune')
+def schema_prune(req: Request) -> schema_types.SchemaPlan:
+    body = req.body(models.SchemaPruneBody)
+    return _SCHEMA_PLAN.validate_python(bridge.schema_prune(body.schema_file, req.resolve_path(body.catalog_dir)))
+
+
 @router.post('/api/schema/update')
-def schema_update(req: Request) -> models.SchemaUpdateResponse:
+def schema_update(req: Request) -> schema_types.SchemaPlan:
     body = req.body(models.SchemaUpdateBody)
-    created, existed = bridge.schema_update(body.schema_path, req.resolve_path(body.target))
-    tables = [models.SchemaUpdateEntry(path=p, action='created') for p in created]
-    tables += [models.SchemaUpdateEntry(path=p, action='exists') for p in existed]
-    return models.SchemaUpdateResponse(tables=tables)
+    applied = bridge.schema_update(
+        body.schema_file, req.resolve_path(body.catalog_dir), allow_destructive=body.allow_destructive
+    )
+    return _SCHEMA_PLAN.validate_python(applied)
 
 
 @router.get('/api/dashboard/search')

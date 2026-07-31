@@ -1,12 +1,17 @@
 """Tests for pixeltable_cli.server.bridge - the translation layer between Pixeltable APIs and the dashboard REST API."""
 
+import pathlib
+from textwrap import dedent
+
 import pytest
 
 import pixeltable as pxt
+from pixeltable import exceptions as excs
 from pixeltable.functions.video import frame_iterator
 from pixeltable_cli.server import bridge
+from pixeltable_cli.utils import PxtPath
 
-from ..utils import dummy_embedding, get_test_video_files
+from ..utils import dummy_embedding, get_test_video_files, pxt_raises
 
 pytestmark = pytest.mark.local('pxt CLI metadata/data bridge')
 
@@ -348,3 +353,30 @@ class TestBridge:
         view_node = next(n for n in pipeline['nodes'] if n['path'] == 'iv/frames')
         assert 'error' not in view_node
         assert view_node['is_view'] is True
+
+    def test_schema_update_destructive_refusal(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        schema_src = dedent(
+            """
+            from __future__ import annotations
+
+            import pixeltable as pxt
+
+            TableModel = pxt.model_base()
+
+
+            class Docs(TableModel, name='docs'):
+                title: pxt.Required[pxt.String]
+                body: pxt.String
+            """
+        )
+        schema_file = tmp_path / 'app_schema.py'
+        schema_file.write_text(schema_src)
+        target = PxtPath('refusal')
+        bridge.schema_update(str(schema_file), target)
+
+        # dropping a column destroys its data; the refusal tells a CLI user about the flag, not about update_all()
+        schema_file.write_text(schema_src.replace('    body: pxt.String\n', ''))
+        with pxt_raises(excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE, match='--allow-destructive') as info:
+            bridge.schema_update(str(schema_file), target)
+        assert 'update_all()' not in info.value.message
+        assert 'body' in pxt.get_table('refusal/docs').columns()
