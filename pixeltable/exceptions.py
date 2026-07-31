@@ -69,6 +69,7 @@ class ErrorCode(enum.Enum):
     ALREADY_BOUND = 3015, 400, False
     SCHEMA_MISMATCH = 3016, 422, False
     FILE_CACHE_FULL = 3017, 507, False
+    DESTRUCTIVE_SCHEMA_CHANGE = 3018, 422, False
 
     # AuthorizationError (4xxx)
     INSUFFICIENT_PRIVILEGES = 4000, 403, False

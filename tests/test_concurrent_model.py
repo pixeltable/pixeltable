@@ -108,6 +108,34 @@ class TestConcurrentModelUpdate:
         with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=schema_changed('test_table')):
             _run_with_concurrent_apply(lambda: TM2.update_all(ROOT), concurrent)
 
+    def test_partial_apply_names_the_migrations(self, uses_db: None, fault_injection: None) -> None:
+        """A create that loses a race reports the migrations that already committed, not just its own failure."""
+        TM = pxt.model_base()
+
+        class Base(TM, name='test_table'):
+            id: pxt.Required[pxt.Int]
+
+        TM.create_all(ROOT)
+
+        # migrate test_table and create new_table in one update_all()
+        TM2 = pxt.model_base()
+
+        class BaseV2(TM2, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            value: pxt.Float
+
+        class NewTable(TM2, name='new_table'):
+            id: pxt.Required[pxt.Int]
+
+        # someone else creates new_table while the migration is in flight, so only the create fails
+        concurrent = lambda: pxt.create_table(f'{ROOT}new_table', {'id': pxt.Required[pxt.Int]})
+
+        with pxt_raises(excs.ErrorCode.CONCURRENT_MODIFICATION, match=r"already migrated: 'test_table'"):
+            _run_with_concurrent_apply(lambda: TM2.update_all(ROOT), concurrent)
+
+        # the migration is committed, so the error must not read as though nothing happened
+        assert 'value' in pxt.get_table(f'{ROOT}test_table').columns()
+
     @pytest.mark.parametrize('family', ['update_all', 'single_op'])
     def test_add_index_name_collision(self, uses_db: None, fault_injection: None, family: str) -> None:
         """A2: thread 0 adds index ix; a concurrent change adds an index also named ix."""
