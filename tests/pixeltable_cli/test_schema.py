@@ -6,6 +6,7 @@ from textwrap import dedent
 
 import pixeltable as pxt
 
+from ..utils import skip_test_if_not_installed
 from .conftest import PxtRunner
 
 SCHEMA_SRC = dedent(
@@ -354,6 +355,7 @@ class TestSchema:
         assert f'{target}/gone' not in pxt.list_tables(target)
 
     def test_example(self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+        skip_test_if_not_installed('sentence_transformers')
         p = make_catalog_path
         target = p('documented')
 
