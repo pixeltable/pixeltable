@@ -150,6 +150,16 @@ function ResultItem({
 
 // ── Section header ───────────────────────────────────────────────────────────
 
+// A catalog and a table fail differently, so they read differently; both mean results are missing.
+function unavailableSummary(unavailable: SearchResults['unavailable']): string {
+  const catalogs = unavailable.filter(u => u.kind === 'catalog').map(u => u.path)
+  const tables = unavailable.filter(u => u.kind === 'table')
+  const parts: string[] = []
+  if (catalogs.length > 0) parts.push(`could not search ${catalogs.join(', ')}`)
+  if (tables.length > 0) parts.push(`could not read ${tables.length} table${tables.length === 1 ? '' : 's'}`)
+  return parts.join('; ')
+}
+
 function SectionHeader({ label, count }: { label: string; count: number }) {
   return (
     <div className="flex items-center gap-2 px-3 pt-3 pb-1.5">
@@ -295,16 +305,16 @@ export function SearchPanel({ isOpen, onClose, onSelect }: SearchPanelProps) {
               </div>
             )}
 
-            {/* Catalogs that could not be searched; their results are missing, not empty */}
+            {/* Whatever could not be searched; its matches are missing from the sections below */}
             {!loading && results && results.unavailable.length > 0 && (
               <div className="mb-2 rounded border border-amber-500/30 bg-amber-500/5 px-3 py-2">
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-                  <span>Could not search {results.unavailable.map((u) => u.catalog).join(', ')}</span>
+                  <span>{unavailableSummary(results.unavailable)}</span>
                 </div>
                 {results.unavailable.map((u) => (
-                  <div key={u.catalog} className="mt-1 pl-5.5 text-xs text-muted-foreground/70 break-all">
-                    {u.error}
+                  <div key={u.path} className="mt-1 pl-5.5 text-xs text-muted-foreground/70 break-all">
+                    {u.path}: {u.error}
                   </div>
                 ))}
               </div>

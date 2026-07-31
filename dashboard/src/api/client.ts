@@ -62,8 +62,8 @@ export async function getTableData(
 
 // Search the local catalog plus any additional (hosted) catalogs; the daemon always includes the local
 // catalog and returns full, resolvable paths.
-export async function search(query: string, additionalCatalogs?: string[], limit = 50): Promise<SearchResults> {
-  const params = new URLSearchParams({ q: query, limit: String(limit) });
+export async function search(query: string, additionalCatalogs?: string[]): Promise<SearchResults> {
+  const params = new URLSearchParams({ q: query });
   for (const c of additionalCatalogs ?? []) params.append('catalogs', c);
   return fetchJson<SearchResults>(`${API_BASE}/dashboard/search?${params}`);
 }

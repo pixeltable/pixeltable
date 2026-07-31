@@ -168,8 +168,27 @@ class TestBridge:
 
         result = bridge.search('users', additional_db_uris=['pxt://nosuch:db'])
         assert [t['path'] for t in result['tables']] == ['users']
-        assert [u['catalog'] for u in result['unavailable']] == ['pxt://nosuch:db']
+        assert [(u['path'], u['kind']) for u in result['unavailable']] == [('pxt://nosuch:db', 'catalog')]
         assert result['unavailable'][0]['error'] != ''
+
+    def test_search_unreadable_table(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A table that can't be opened is reported, not passed off as a result with made-up metadata."""
+        pxt.create_table('readable', {'c1': pxt.String})
+        pxt.create_table('broken', {'c1': pxt.String})
+
+        get_table = pxt.get_table
+
+        def get_table_or_fail(path: str) -> pxt.Table:
+            if path == 'broken':
+                raise RuntimeError('cannot open')
+            return get_table(path)
+
+        monkeypatch.setattr(bridge.pxt, 'get_table', get_table_or_fail)
+
+        result = bridge.search('able')
+        assert [t['path'] for t in result['tables']] == ['readable']
+        assert [(u['path'], u['kind']) for u in result['unavailable']] == [('broken', 'table')]
+        assert 'cannot open' in result['unavailable'][0]['error']
 
     def test_search_finds_dir_table_column(self, uses_db: None) -> None:
         pxt.create_dir('proj')
@@ -184,11 +203,11 @@ class TestBridge:
         pxt.create_dir('MyDir')
         assert len(bridge.search('mydir')['directories']) == 1
 
-    def test_search_limit(self, uses_db: None) -> None:
+    def test_search_returns_every_match(self, uses_db: None) -> None:
         pxt.create_dir('sl')
         for i in range(5):
             pxt.create_table(f'sl/match_{i}', {'c1': pxt.String})
-        assert len(bridge.search('match', limit=3)['tables']) == 3
+        assert len(bridge.search('match')['tables']) == 5
 
     def test_pipeline(self, uses_db: None) -> None:
         assert bridge.get_pipeline() == {'nodes': [], 'edges': []}

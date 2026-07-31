@@ -107,8 +107,9 @@ export interface SearchResults {
   directories: { path: string; name: string }[];
   tables: { path: string; name: string; kind: string }[];
   columns: { name: string; table: string; type: string; is_computed: boolean }[];
-  // catalogs that could not be listed for this query; their results are missing, not empty
-  unavailable: { catalog: string; error: string }[];
+  // catalogs that could not be listed and tables that could not be opened; their matches are
+  // missing from the results above, not absent from the catalog
+  unavailable: { path: string; kind: 'catalog' | 'table'; error: string }[];
 }
 
 // ── Pipeline Inspector ──────────────────────────────────────────────────────
