@@ -586,20 +586,13 @@ class TableVersion:
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Cannot create a B-tree index on column {col.name!r}, which is produced by an iterator.',
             )
-        if not col.col_type.is_scalar_type() and not col.col_type.is_media_type():
-            return excs.RequestError(
-                excs.ErrorCode.TYPE_MISMATCH,
-                f'Index on column {col.name}: B-tree index requires scalar or media type, got {col.col_type}',
-            )
+        type_err = index.BtreeIndex.type_error(col)
+        if type_err is not None:
+            return type_err
         if col.col_type.is_media_type() and col.is_computed:
             return excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Cannot create a B-tree index on computed media column {col.name!r}.',
-            )
-        if col.col_type.is_bool_type():
-            # B-trees on bools aren't useful
-            return excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, f'A B-tree index on boolean column {col.name!r} is not supported.'
             )
         return None
 

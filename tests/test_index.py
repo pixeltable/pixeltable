@@ -1087,10 +1087,10 @@ class TestIndex:
             t.add_embedding_index('name', idx_name='name_idx2', string_embed=local_embed, if_exists='ignore')
 
         # unsupported column type raises
-        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='requires scalar or media type'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='requires a non-boolean scalar type or a media type'):
             t.add_btree_index('data')
         t.add_column(flag=pxt.Bool)
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='boolean column'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='requires a non-boolean scalar type or a media type'):
             t.add_btree_index(t.flag)
 
         # not supported on unstored columns

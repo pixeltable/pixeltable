@@ -32,12 +32,22 @@ class BtreeIndex(IndexBase):
     def __init__(self) -> None:
         pass
 
+    @classmethod
+    def type_error(cls, c: 'catalog.Column') -> excs.RequestError | None:
+        """Returns None if c's type can be indexed by a B-tree, or an error explaining why not."""
+        # bools are excluded: a B-tree on a two-valued column isn't useful
+        if (c.col_type.is_scalar_type() and not c.col_type.is_bool_type()) or c.col_type.is_media_type():
+            return None
+        return excs.RequestError(
+            excs.ErrorCode.TYPE_MISMATCH,
+            f'Index on column {c.name}: B-tree index requires a non-boolean scalar type or a media type, '
+            f'got {c.col_type}',
+        )
+
     def create_value_expr(self, c: 'catalog.Column') -> 'exprs.Expr':
-        if not c.col_type.is_scalar_type() and not c.col_type.is_media_type():
-            raise excs.RequestError(
-                excs.ErrorCode.TYPE_MISMATCH,
-                f'Index on column {c.name}: B-tree index requires scalar or media type, got {c.col_type}',
-            )
+        err = self.type_error(c)
+        if err is not None:
+            raise err
         col_md = c.column_version_md()
         value_expr: exprs.Expr
         col_ref = exprs.ColumnRef(col_md)

@@ -1466,7 +1466,7 @@ class TestTableModel:
 
             DefaultsPlusBtree._create(p(''))
 
-        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match='boolean column'):
+        with pxt_raises(excs.ErrorCode.TYPE_MISMATCH, match='requires a non-boolean scalar type or a media type'):
 
             class BadBtree(TableModel, name='bad_btree_table'):
                 id: pxt.Required[pxt.Int]
