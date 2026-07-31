@@ -604,15 +604,17 @@ class TableVersion:
         self, col: Column, val_col: Column, undo_col: Column, idx_name: str | None, idx: index.IndexBase
     ) -> int:
         """Create md for given index and update self._tbl_md. Returns index id."""
-        idx_id = self.next_idx_id
-        self.next_idx_id += 1
+        existing_names = {i.name for i in self._tbl_md.index_md.values()}
         if idx_name is None:
-            idx_name = f'idx{idx_id}'
-            while idx_name in self.idxs_by_name:
-                idx_name += '_'
+            # find the next index id whose default name isn't taken by an explicitly named index
+            while f'idx{self.next_idx_id}' in existing_names:
+                self.next_idx_id += 1
+            idx_name = f'idx{self.next_idx_id}'
         else:
             assert is_valid_identifier(idx_name)
-            assert idx_name not in [i.name for i in self._tbl_md.index_md.values()]
+            assert idx_name not in existing_names
+        idx_id = self.next_idx_id
+        self.next_idx_id += 1
 
         # create and register the index metadata
         idx_cls = type(idx)
