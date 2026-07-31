@@ -19,6 +19,7 @@ import {
   CornerDownLeft,
   Zap,
   Loader2,
+  AlertTriangle,
 } from 'lucide-react'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -289,6 +290,21 @@ export function SearchPanel({ isOpen, onClose, onSelect }: SearchPanelProps) {
                       <div className="h-3 w-24 rounded bg-accent" />
                       <div className="h-2.5 w-40 rounded bg-accent/60" />
                     </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Catalogs that could not be searched; their results are missing, not empty */}
+            {!loading && results && results.unavailable.length > 0 && (
+              <div className="mb-2 rounded border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                  <span>Could not search {results.unavailable.map((u) => u.catalog).join(', ')}</span>
+                </div>
+                {results.unavailable.map((u) => (
+                  <div key={u.catalog} className="mt-1 pl-5.5 text-xs text-muted-foreground/70 break-all">
+                    {u.error}
                   </div>
                 ))}
               </div>

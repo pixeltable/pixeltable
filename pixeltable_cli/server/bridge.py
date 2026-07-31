@@ -263,62 +263,73 @@ def export_table_csv(table_path: str, limit: int = 100_000) -> bytes:
     return buf.getvalue().encode('utf-8')
 
 
+def _search_catalog(root: str, query_lower: str, results: dict[str, Any], limit: int) -> None:
+    """Add the matches found under one catalog root to results, in place."""
+    # Search directories
+    for dir_path in pxt.list_dirs(root, recursive=True):
+        if len(results['directories']) >= limit:
+            break
+        if query_lower in dir_path.lower():
+            results['directories'].append({'path': dir_path, 'name': dir_path.split('/')[-1]})
+
+    # Search tables and their columns (single get_table call per table)
+    for tbl_path in pxt.list_tables(root, recursive=True):
+        tbl_name = tbl_path.split('/')[-1]
+        table_matches = query_lower in tbl_path.lower()
+
+        # Only fetch table metadata once, and only when needed
+        tbl_md: TableMetadata | None = None
+        if table_matches or len(results['columns']) < limit:
+            try:
+                tbl = pxt.get_table(tbl_path)
+                tbl_md = tbl.get_metadata()
+            except Exception:
+                # If we can't get metadata, record table match with defaults
+                if table_matches and len(results['tables']) < limit:
+                    results['tables'].append({'path': tbl_path, 'name': tbl_name, 'kind': 'table'})
+                continue
+
+        if table_matches and len(results['tables']) < limit and tbl_md:
+            results['tables'].append({'path': tbl_path, 'name': tbl_name, 'kind': tbl_md['kind']})
+
+        # Search columns within this table (reuse tbl_md)
+        if tbl_md:
+            for col_name, col_info in tbl_md['columns'].items():
+                if len(results['columns']) >= limit:
+                    break
+                if query_lower in col_name.lower():
+                    results['columns'].append(
+                        {
+                            'name': col_name,
+                            'table': tbl_path,
+                            'type': col_info['type_'],
+                            'is_computed': col_info['is_computed'],
+                        }
+                    )
+
+
 def search(query: str, additional_db_uris: list[str] | None = None, limit: int = 50) -> dict[str, Any]:
     """
     Search across directories, tables, and columns in the local catalog and any additional catalogs.
 
     The local (in-process) catalog is always searched; additional_db_uris holds hosted db uris to
     search as well. Result paths are full and resolvable in their catalog.
+
+    A catalog that cannot be listed (eg. a hosted uri that is stale or unreachable) is reported under
+    'unavailable' rather than failing the search, so the catalogs that did answer still return results.
     """
     query_lower = query.lower()
 
-    results: dict[str, Any] = {'query': query, 'directories': [], 'tables': [], 'columns': []}
+    results: dict[str, Any] = {'query': query, 'directories': [], 'tables': [], 'columns': [], 'unavailable': []}
 
     # The local catalog is the empty root; each additional catalog is searched at its hosted-uri root.
     roots = ['', *(additional_db_uris or [])]
 
     for root in roots:
-        # Search directories
-        for dir_path in pxt.list_dirs(root, recursive=True):
-            if len(results['directories']) >= limit:
-                break
-            if query_lower in dir_path.lower():
-                results['directories'].append({'path': dir_path, 'name': dir_path.split('/')[-1]})
-
-        # Search tables and their columns (single get_table call per table)
-        for tbl_path in pxt.list_tables(root, recursive=True):
-            tbl_name = tbl_path.split('/')[-1]
-            table_matches = query_lower in tbl_path.lower()
-
-            # Only fetch table metadata once, and only when needed
-            tbl_md: TableMetadata | None = None
-            if table_matches or len(results['columns']) < limit:
-                try:
-                    tbl = pxt.get_table(tbl_path)
-                    tbl_md = tbl.get_metadata()
-                except Exception:
-                    # If we can't get metadata, record table match with defaults
-                    if table_matches and len(results['tables']) < limit:
-                        results['tables'].append({'path': tbl_path, 'name': tbl_name, 'kind': 'table'})
-                    continue
-
-            if table_matches and len(results['tables']) < limit and tbl_md:
-                results['tables'].append({'path': tbl_path, 'name': tbl_name, 'kind': tbl_md['kind']})
-
-            # Search columns within this table (reuse tbl_md)
-            if tbl_md:
-                for col_name, col_info in tbl_md['columns'].items():
-                    if len(results['columns']) >= limit:
-                        break
-                    if query_lower in col_name.lower():
-                        results['columns'].append(
-                            {
-                                'name': col_name,
-                                'table': tbl_path,
-                                'type': col_info['type_'],
-                                'is_computed': col_info['is_computed'],
-                            }
-                        )
+        try:
+            _search_catalog(root, query_lower, results, limit)
+        except Exception as e:
+            results['unavailable'].append({'catalog': root or 'local', 'error': f'{type(e).__name__}: {e}'})
 
     return results
 

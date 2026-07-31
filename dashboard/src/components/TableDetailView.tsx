@@ -1372,13 +1372,11 @@ function HistoryPanel({ versions }: { versions: Pick<PipelineVersion, 'version' 
                   {v.change_type ? (
                     <span className={cn(
                       'inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium',
-                      v.change_type === 'schema_change' ? 'bg-purple-500/10 text-muted-foreground' :
-                      v.change_type === 'insert' ? 'bg-emerald-500/10 text-muted-foreground' :
-                      v.change_type === 'update' ? 'bg-blue-500/10 text-muted-foreground' :
-                      v.change_type === 'delete' ? 'bg-red-500/10 text-muted-foreground' :
+                      v.change_type === 'schema' ? 'bg-purple-500/10 text-muted-foreground' :
+                      v.change_type === 'data' ? 'bg-emerald-500/10 text-muted-foreground' :
                       'bg-accent text-muted-foreground'
                     )}>
-                      {v.change_type.replace(/_/g, ' ')}
+                      {v.change_type}
                     </span>
                   ) : (
                     <span className="text-muted-foreground">—</span>

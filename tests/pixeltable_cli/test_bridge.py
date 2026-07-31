@@ -155,7 +155,21 @@ class TestBridge:
         assert 'key' in csv_str
 
     def test_search_empty_db(self, uses_db: None) -> None:
-        assert bridge.search('anything') == {'query': 'anything', 'directories': [], 'tables': [], 'columns': []}
+        assert bridge.search('anything') == {
+            'query': 'anything',
+            'directories': [],
+            'tables': [],
+            'columns': [],
+            'unavailable': [],
+        }
+
+    def test_search_unreachable_catalog(self, uses_db: None) -> None:
+        pxt.create_table('users', {'email': pxt.String})
+
+        result = bridge.search('users', additional_db_uris=['pxt://nosuch:db'])
+        assert [t['path'] for t in result['tables']] == ['users']
+        assert [u['catalog'] for u in result['unavailable']] == ['pxt://nosuch:db']
+        assert result['unavailable'][0]['error'] != ''
 
     def test_search_finds_dir_table_column(self, uses_db: None) -> None:
         pxt.create_dir('proj')

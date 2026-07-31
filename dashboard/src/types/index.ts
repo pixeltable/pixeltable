@@ -107,6 +107,8 @@ export interface SearchResults {
   directories: { path: string; name: string }[];
   tables: { path: string; name: string; kind: string }[];
   columns: { name: string; table: string; type: string; is_computed: boolean }[];
+  // catalogs that could not be listed for this query; their results are missing, not empty
+  unavailable: { catalog: string; error: string }[];
 }
 
 // ── Pipeline Inspector ──────────────────────────────────────────────────────
@@ -135,7 +137,7 @@ export interface PipelineIndex {
 export interface PipelineVersion {
   version: number;
   created_at: string | null;
-  change_type: string | null;
+  change_type: 'schema' | 'data' | null;   // Table.get_versions() emits these two
   inserts: number;
   updates: number;
   deletes: number;
