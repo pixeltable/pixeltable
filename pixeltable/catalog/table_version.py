@@ -286,35 +286,37 @@ class TableVersion:
             column_md[col.id] = col_md
             schema_col_md[col.id] = col_schema_md
 
-        # Merge default indexes and additional indexes into a manifest of indexes to create.
-        # Explicit B-tree indexes are not allowed when create_default_idxs is True.
-        index_md: dict[int, schema.IndexMd] = {}
+        # Validate additional b-tree indexes
         explicit_btree_col_qids: set[QColumnId] = set()
         for idx_col, _, idx in additional_idxs:
-            if isinstance(idx, index.BtreeIndex):
-                assert isinstance(idx_col, Column)
-                if idx_col.tbl_handle.id != tbl_id:
-                    raise excs.RequestError(
-                        excs.ErrorCode.UNSUPPORTED_OPERATION,
-                        f'Cannot create a B-tree index on column {idx_col.name!r}: it belongs to a base table. '
-                        'Add the index to the base table instead.',
-                    )
-                err = cls._btree_index_error(idx_col)
-                if err is not None:
-                    raise err
-                if idx_col.qid in explicit_btree_col_qids:
-                    raise excs.AlreadyExistsError(
-                        excs.ErrorCode.INDEX_ALREADY_EXISTS,
-                        f'More than one B-tree index declared on column {idx_col.name!r}.',
-                    )
-                explicit_btree_col_qids.add(idx_col.qid)
+            if not isinstance(idx, index.BtreeIndex):
+                continue
+            assert isinstance(idx_col, Column)
+            if idx_col.tbl_handle.id != tbl_id:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot create a B-tree index on column {idx_col.name!r}: it belongs to a base table. '
+                    'Add the index to the base table instead.',
+                )
+            err = cls._btree_index_error(idx_col)
+            if err is not None:
+                raise err
+            if idx_col.qid in explicit_btree_col_qids:
+                raise excs.AlreadyExistsError(
+                    excs.ErrorCode.INDEX_ALREADY_EXISTS,
+                    f'More than one B-tree index declared on column {idx_col.name!r}.',
+                )
+            explicit_btree_col_qids.add(idx_col.qid)
 
+        # Explicit B-tree indexes are not allowed when create_default_idxs is True.
         if create_default_idxs and len(explicit_btree_col_qids) > 0:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT,
                 'Cannot combine create_default_idxs=True with an explicitly declared B-tree index.',
             )
 
+        # Merge default indexes and additional indexes into a manifest of indexes to create.
+        index_md: dict[int, schema.IndexMd] = {}
         idxs_to_create: list[IndexSpec] = []
         if create_default_idxs and (view_md is None or not view_md.is_snapshot):
             idxs_to_create.extend(
