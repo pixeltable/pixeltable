@@ -917,7 +917,7 @@ class TestTableModel:
                 'kind': 'table',
                 'exists': True,
                 'resolution': 'unsupported',
-                'changes': [
+                'ops': [
                     {
                         'target': 'table',
                         'name': 'comment',
@@ -926,6 +926,7 @@ class TestTableModel:
                         'model': 'after',
                         'existing': 'before',
                         'description': "table property 'comment': model='after', existing='before'",
+                        'details': {},
                     },
                     {
                         'target': 'table',
@@ -936,6 +937,7 @@ class TestTableModel:
                         'existing': {'origin': 'v1'},
                         'description': "table property 'custom_metadata': "
                         "model={'origin': 'v2'}, existing={'origin': 'v1'}",
+                        'details': {},
                     },
                     {
                         'target': 'column',
@@ -956,6 +958,7 @@ class TestTableModel:
                         },
                         'description': "column 'derived' has altered properties: "
                         'value, stored, comment, custom_metadata',
+                        'details': {},
                     },
                     {
                         'target': 'column',
@@ -965,6 +968,7 @@ class TestTableModel:
                         'model': {'media_validation': 'on_read'},
                         'existing': {'media_validation': 'on_write'},
                         'description': "column 'image' has altered properties: media_validation",
+                        'details': {},
                     },
                     {
                         'target': 'column',
@@ -974,6 +978,7 @@ class TestTableModel:
                         'model': {'type': 'Int'},
                         'existing': {'type': 'Float'},
                         'description': "column 'score' has altered properties: type",
+                        'details': {},
                     },
                     {
                         'target': 'column',
@@ -983,6 +988,7 @@ class TestTableModel:
                         'model': "{'type': Int | None}",
                         'existing': None,
                         'description': "column 'extra1' will be added",
+                        'details': {'type': 'Int'},
                     },
                     {
                         'target': 'column',
@@ -992,6 +998,7 @@ class TestTableModel:
                         'model': "{'type': String | None}",
                         'existing': None,
                         'description': "column 'extra2' will be added",
+                        'details': {'type': 'String'},
                     },
                     {
                         'target': 'column',
@@ -1001,6 +1008,7 @@ class TestTableModel:
                         'model': None,
                         'existing': None,
                         'description': "column 'name' will be dropped",
+                        'details': {},
                     },
                     {
                         'target': 'column',
@@ -1010,6 +1018,7 @@ class TestTableModel:
                         'model': None,
                         'existing': None,
                         'description': "column 'value' will be dropped",
+                        'details': {},
                     },
                     {
                         'target': 'index',
@@ -1019,6 +1028,7 @@ class TestTableModel:
                         'model': 'EmbeddingIndex(column=image, embedding=dummy_embedding(text, n=256))',
                         'existing': None,
                         'description': "index 'idx3' will be added",
+                        'details': {'on': 'image'},
                     },
                     {
                         'target': 'index',
@@ -1028,6 +1038,7 @@ class TestTableModel:
                         'model': None,
                         'existing': None,
                         'description': "index 'idx2' will be dropped",
+                        'details': {},
                     },
                 ],
             },
@@ -1037,7 +1048,7 @@ class TestTableModel:
                 'kind': 'view',
                 'exists': True,
                 'resolution': 'unsupported',
-                'changes': [
+                'ops': [
                     {
                         'target': 'table',
                         'name': 'iterator',
@@ -1047,6 +1058,7 @@ class TestTableModel:
                         'existing': 'tile_iterator(image, [256, 256])',
                         'description': "iterator mismatch: model='tile_iterator(image, [128, 128])', "
                         "existing='tile_iterator(image, [256, 256])'",
+                        'details': {},
                     },
                     {
                         'target': 'column',
@@ -1056,6 +1068,7 @@ class TestTableModel:
                         'model': "{'type': Int | None}",
                         'existing': None,
                         'description': "column 'vextra1' will be added",
+                        'details': {'type': 'Int'},
                     },
                     {
                         'target': 'column',
@@ -1065,6 +1078,7 @@ class TestTableModel:
                         'model': "{'type': String | None}",
                         'existing': None,
                         'description': "column 'vextra2' will be added",
+                        'details': {'type': 'String'},
                     },
                     {
                         'target': 'column',
@@ -1074,6 +1088,7 @@ class TestTableModel:
                         'model': None,
                         'existing': None,
                         'description': "column 'vc3' will be dropped",
+                        'details': {},
                     },
                     {
                         'target': 'column',
@@ -1083,6 +1098,7 @@ class TestTableModel:
                         'model': None,
                         'existing': None,
                         'description': "column 'vc4' will be dropped",
+                        'details': {},
                     },
                 ],
             },
@@ -1092,7 +1108,7 @@ class TestTableModel:
                 'kind': 'view',
                 'exists': True,
                 'resolution': 'unsupported',
-                'changes': [
+                'ops': [
                     {
                         'target': 'table',
                         'name': 'view_filter',
@@ -1101,6 +1117,7 @@ class TestTableModel:
                         'model': 'id > 5',
                         'existing': 'id > 0',
                         'description': "view_filter mismatch: model='id > 5', existing='id > 0'",
+                        'details': {},
                     },
                     {
                         'target': 'table',
@@ -1112,6 +1129,7 @@ class TestTableModel:
                         'description': 'view_sample mismatch: '
                         "model='sample(n=20, n_per_stratum=None, fraction=None, seed=2, [])', "
                         "existing='sample(n=10, n_per_stratum=None, fraction=None, seed=1, [])'",
+                        'details': {},
                     },
                     {
                         'target': 'column',
@@ -1121,6 +1139,7 @@ class TestTableModel:
                         'model': "{'value': extra1, 'stored': False}",
                         'existing': None,
                         'description': "column 'extra1' will be added",
+                        'details': {'type': 'Int', 'value': 'extra1'},
                     },
                     {
                         'target': 'column',
@@ -1130,6 +1149,7 @@ class TestTableModel:
                         'model': "{'value': id + 2, 'stored': True}",
                         'existing': None,
                         'description': "column 'plustwo' will be added",
+                        'details': {'type': 'Required[Int]', 'value': 'id + 2'},
                     },
                     {
                         'target': 'column',
@@ -1139,6 +1159,7 @@ class TestTableModel:
                         'model': None,
                         'existing': None,
                         'description': "column 'plusone' will be dropped",
+                        'details': {},
                     },
                 ],
             },
@@ -1148,7 +1169,7 @@ class TestTableModel:
                 'kind': 'table',
                 'exists': True,
                 'resolution': 'unsupported',
-                'changes': [
+                'ops': [
                     {
                         'target': 'table',
                         'name': 'kind',
@@ -1157,6 +1178,7 @@ class TestTableModel:
                         'model': 'table',
                         'existing': 'view',
                         'description': "`ExampleKindV2` specifies a table, but 'test_kind' is a view",
+                        'details': {},
                     },
                     {
                         'target': 'column',
@@ -1166,6 +1188,7 @@ class TestTableModel:
                         'model': {'value': None},
                         'existing': {'value': 'value + 1'},
                         'description': "column 'kc1' has altered properties: value",
+                        'details': {},
                     },
                     {
                         'target': 'column',
@@ -1175,6 +1198,7 @@ class TestTableModel:
                         'model': {'value': None},
                         'existing': {'value': 'value + 2'},
                         'description': "column 'kc2' has altered properties: value",
+                        'details': {},
                     },
                 ],
             },
@@ -1184,7 +1208,7 @@ class TestTableModel:
                 'kind': 'table',
                 'exists': False,
                 'resolution': 'create',
-                'changes': [
+                'ops': [
                     {
                         'target': 'column',
                         'name': 'data',
@@ -1193,6 +1217,7 @@ class TestTableModel:
                         'model': "{'type': String | None}",
                         'existing': None,
                         'description': "column 'data' will be added",
+                        'details': {'type': 'String'},
                     },
                     {
                         'target': 'column',
@@ -1202,6 +1227,7 @@ class TestTableModel:
                         'model': "{'type': Int}",
                         'existing': None,
                         'description': "column 'id' will be added",
+                        'details': {'type': 'Required[Int]'},
                     },
                 ],
             },
@@ -1331,7 +1357,7 @@ class TestTableModel:
             fc1 = ExampleTableV3.id + 1
 
         # Refuses without opt-in, since columns are being dropped.
-        with pxt_raises(excs.ErrorCode.SCHEMA_MISMATCH, match='destructive'):
+        with pxt_raises(excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE, match='destructive'):
             TableModelV3.update_all(root)
 
         # Succeeds with the opt-in.

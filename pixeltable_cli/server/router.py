@@ -13,7 +13,7 @@ from typing import Any, TypeVar, overload
 import pydantic
 
 from pixeltable import exceptions as excs
-from pixeltable_cli.utils import resolve_dot_segments, validate_path_shape
+from pixeltable_cli.utils import PxtPath, resolve_dot_segments, validate_path_shape
 
 T = TypeVar('T', bound=pydantic.BaseModel)
 
@@ -101,7 +101,7 @@ class Request:
             detail = '; '.join(m for m in msgs if m != '') or 'invalid request body'
             raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, detail) from None
 
-    def resolve_path(self, path: str) -> str:
+    def resolve_path(self, path: str) -> PxtPath:
         """Resolve a catalog path against this request's session working directory, then shape-validate it.
 
         As a CLI convention:
@@ -129,7 +129,7 @@ class Request:
             if err is not None:
                 raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, err)
         self.resolved_paths.append(path)
-        return path
+        return PxtPath(path)
 
 
 class Router:

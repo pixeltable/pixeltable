@@ -80,7 +80,7 @@ class TestSnapshot:
         assert 'version is needed' in str(excinfo.value)
 
         # can't drop a table with snapshots
-        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='has dependents'):
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match="the following depend on it: 'snap/snap1'"):
             pxt.drop_table(tbl_path)
 
         pxt.drop_table(snap_path)
