@@ -45,8 +45,8 @@ if TYPE_CHECKING:
 
 TESTS_DIR = Path(os.path.dirname(__file__))
 
-# The catalog backend a test runs against: 'local' (in-process) or 'proxy' (delegated to a local daemon).
-CatalogMode = Literal['local', 'proxy']
+# The catalog backend a test runs against: 'local' (in-process), 'proxy' (local daemon), or 'cloud' (NLB proxy).
+CatalogMode = Literal['local', 'proxy', 'cloud']
 
 
 _ERROR_GROUP_TO_CLS: dict[int, type[pxt.Error]] = {

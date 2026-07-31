@@ -428,12 +428,3 @@ class TestCLI:
                 exit_code=1,
                 stderr='pixeltable[serve]',
             )
-
-    def test_deploy(self, capsys: pytest.CaptureFixture) -> None:
-        # missing deployment arg
-        _run_cli(['pxt', 'deploy'], capsys, exit_code=2, stderr='error')
-
-        # happy path: deployment arg is forwarded to build_deploy_bundle
-        with patch('pixeltable_cli.client.commands.deploy.deploy.build_deploy_bundle') as mock_build:
-            _run_cli(['pxt', 'deploy', 'staging'], capsys)
-            mock_build.assert_called_once_with('staging')

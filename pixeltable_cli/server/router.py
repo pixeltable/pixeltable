@@ -76,6 +76,13 @@ class Request:
             raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f"'{name}' must be <= {le}; got {value}")
         return value
 
+    def required_query_str(self, name: str) -> str:
+        """A query parameter the route cannot run without; raises rather than returning None."""
+        val = self.query_str(name)
+        if val is None or val == '':
+            raise excs.RequestError(excs.ErrorCode.MISSING_REQUIRED, f'{name!r} query parameter is required')
+        return val
+
     def query_bool(self, name: str, default: bool = False) -> bool:
         # Match what FastAPI/Pydantic v2 accepts: '1'/'0', 'true'/'false', 'yes'/'no', 'on'/'off'.
         raw = self.query_str(name)
