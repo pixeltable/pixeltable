@@ -1069,7 +1069,7 @@ class TestIndex:
         t.add_embedding_index('name', idx_name='emb_idx', string_embed=local_embed)
 
         # a name collision with a B-tree index on the same column is an error with 'error', a no-op with 'ignore'
-        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='Duplicate index name'):
+        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match=r'Index.+already exists'):
             t.add_btree_index('name', idx_name='name_idx2')
         t.add_btree_index('name', idx_name='name_idx2', if_exists='ignore')  # no-op
         assert btree_idxs() == {'idx0', 'name_idx2'}

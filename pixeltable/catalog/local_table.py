@@ -823,12 +823,10 @@ class LocalTable(Table):
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, f'Index {idx_name!r} already exists, but is not a B-tree index.'
             )
-        if info.col.qid != col.qid:
+        if info.col.qid != col.qid or if_exists == IfExistsParam.ERROR:
             raise excs.AlreadyExistsError(
                 excs.ErrorCode.INDEX_ALREADY_EXISTS, f'Index {idx_name!r} already exists on column {info.col.name!r}.'
             )
-        if if_exists == IfExistsParam.ERROR:
-            raise excs.AlreadyExistsError(excs.ErrorCode.INDEX_ALREADY_EXISTS, f'Duplicate index name: {idx_name}')
         assert if_exists == IfExistsParam.IGNORE
         return True
 
