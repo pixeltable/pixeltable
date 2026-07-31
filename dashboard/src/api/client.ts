@@ -30,8 +30,9 @@ interface LsResponse {
 // directory. The daemon reports each node's path relative to the queried directory, re-rooted so a hosted
 // path carries its pxt:// prefix.
 export async function getDirectoryTree(path?: string): Promise<TreeNode[]> {
-  const suffix = path && path !== 'local' ? `/${encodeURIComponent(path)}` : '';
-  const res = await fetchJson<LsResponse>(`${API_BASE}/dirs${suffix}?tree=true`);
+  const params = new URLSearchParams({ tree: 'true' });
+  if (path !== undefined && path !== '' && path !== 'local') params.set('path', path);
+  const res = await fetchJson<LsResponse>(`${API_BASE}/dirs?${params}`);
   return res.tree?.entries ?? [];
 }
 

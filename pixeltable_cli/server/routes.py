@@ -352,9 +352,7 @@ def revert(req: Request) -> models.RevertResponse:
 def describe_table(req: Request) -> models.DescribeResponse:
     path = req.resolve_path(req.query_str('path') or '')
     t = pxt.get_table(path)
-    md = dict(t.get_metadata())
-    bridge.format_metadata_computed_with(md)
-    return models.DescribeResponse(text=repr(t), metadata=md)
+    return models.DescribeResponse(text=repr(t), metadata=dict(t.get_metadata()))
 
 
 @router.get('/api/columns')
@@ -372,12 +370,11 @@ def columns(req: Request) -> models.ColumnsResponse:
     entries: list[models.ColumnEntry] = []
     for p in paths:
         try:
-            md: dict[str, Any] = dict(pxt.get_table(p).get_metadata())
+            md = pxt.get_table(p).get_metadata()
         except excs.NotFoundError:
             # a table can disappear between dir-tree traversal and metadata fetch; other
             # pixeltable errors propagate as 500s so real bugs surface
             continue
-        bridge.format_metadata_computed_with(md)
         for name, c in md['columns'].items():
             if computed and not c['is_computed']:
                 continue

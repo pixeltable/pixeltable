@@ -358,6 +358,7 @@ class InvalidGeneratingFunction(GeneratingFunction):
 
     def __init__(self, fqn: str, d: dict[str, Any], error_msg: str) -> None:
         self.fqn = fqn
+        self.name = fqn.rsplit('.', 1)[-1]
         self.fn_dict = d
         self.error_msg = error_msg
 
