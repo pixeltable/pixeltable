@@ -415,16 +415,12 @@ def _revert(request: ProxyRequest, tbl: LocalTable) -> None:
 
 def _add_columns(request: ProxyRequest, tbl: LocalTable) -> Any:
     kwargs = _deserialize_args(request)
-    return tbl.add_columns(
-        kwargs['schema'], if_exists=kwargs['if_exists'], create_default_idxs=kwargs['create_default_idxs']
-    )
+    return tbl.add_columns(kwargs['schema'], if_exists=kwargs['if_exists'])
 
 
 def _add_column(request: ProxyRequest, tbl: LocalTable) -> Any:
     kwargs = _deserialize_args(request)
-    return tbl.add_column(
-        if_exists=kwargs['if_exists'], create_default_idx=kwargs['create_default_idx'], **kwargs['columns']
-    )
+    return tbl.add_column(if_exists=kwargs['if_exists'], **kwargs['columns'])
 
 
 def _add_computed_column(request: ProxyRequest, tbl: LocalTable) -> Any:
@@ -437,7 +433,6 @@ def _add_computed_column(request: ProxyRequest, tbl: LocalTable) -> Any:
         print_stats=kwargs['print_stats'],
         on_error=kwargs['on_error'],
         if_exists=kwargs['if_exists'],
-        create_default_idx=kwargs['create_default_idx'],
         **kwargs['columns'],
     )
 

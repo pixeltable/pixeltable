@@ -192,7 +192,6 @@ class TableProxy(Table):
         self,
         schema: Mapping[str, type | ColumnSpec],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-        create_default_idxs: bool = False,
     ) -> UpdateStatus:
         bound_args = self._dispatch_args(locals())
         self._check_mutable('add columns to')
@@ -204,7 +203,6 @@ class TableProxy(Table):
         self,
         *,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-        create_default_idx: bool = False,
         **kwargs: type | ColumnSpec,
     ) -> UpdateStatus:
         self._check_single_column_kwarg('add_column', '`col_name=col_type`', kwargs)
@@ -224,7 +222,6 @@ class TableProxy(Table):
         print_stats: bool = False,
         on_error: Literal['abort', 'ignore'] = 'abort',
         if_exists: Literal['error', 'ignore', 'replace'] = 'error',
-        create_default_idx: bool = False,
         **kwargs: exprs.Expr,
     ) -> UpdateStatus:
         bound_args = self._dispatch_args(locals())

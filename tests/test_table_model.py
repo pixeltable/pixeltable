@@ -541,22 +541,22 @@ class TestTableModel:
             {'id': pxt.Required[pxt.Int], 'name': pxt.String, 'value': pxt.Float, 'img': pxt.Image},
             create_default_idxs=True,
         )
-        tbl2.add_computed_column(incr=tbl2.value + 1, create_default_idx=True)
-        tbl2.add_computed_column(descr=pxtf.string.format('Name: {name}', name=tbl2.name), create_default_idx=True)
+        tbl2.add_computed_column(incr=tbl2.value + 1)
+        tbl2.add_computed_column(descr=pxtf.string.format('Name: {name}', name=tbl2.name))
         tbl2.add_embedding_index('img', idx_name='clip_idx', embedding=dummy_embedding.using(n=768))
 
         view2 = pxt.create_view(
             p(f'{prefix}test_view_2'), tbl2, additional_columns={'view_col_1': pxt.Image}, create_default_idxs=True
         )
-        view2.add_computed_column(view_col_2=view2.view_col_1.rotate(90), create_default_idx=True)
-        view2.add_computed_column(view_col_3=view2.img.rotate(90), create_default_idx=True)
+        view2.add_computed_column(view_col_2=view2.view_col_1.rotate(90))
+        view2.add_computed_column(view_col_3=view2.img.rotate(90))
         view2.add_embedding_index('view_col_2', idx_name='view_idx', embedding=dummy_embedding.using(n=768))
         view2.add_embedding_index('img', idx_name='view_idx_on_base_tbl_col', embedding=dummy_embedding.using(n=768))
 
         subview2 = pxt.create_view(p(f'{prefix}test_subview_2'), view2, create_default_idxs=True)
-        subview2.add_computed_column(subview_col_1=subview2.img.rotate(180), create_default_idx=True)
-        subview2.add_computed_column(subview_col_2=subview2.view_col_1.rotate(270), create_default_idx=True)
-        subview2.add_computed_column(subview_col_3=subview2.subview_col_2.rotate(30), create_default_idx=True)
+        subview2.add_computed_column(subview_col_1=subview2.img.rotate(180))
+        subview2.add_computed_column(subview_col_2=subview2.view_col_1.rotate(270))
+        subview2.add_computed_column(subview_col_3=subview2.subview_col_2.rotate(30))
 
         view_from_query2 = pxt.create_view(
             p(f'{prefix}test_view_from_query_2'),
@@ -564,9 +564,9 @@ class TestTableModel:
             additional_columns={'view_col_1': pxt.Image},
             create_default_idxs=True,
         )
-        view_from_query2.add_computed_column(view_col_2=view_from_query2.view_col_1.rotate(90), create_default_idx=True)
-        view_from_query2.add_computed_column(view_col_3=view_from_query2.img.rotate(90), create_default_idx=True)
-        view_from_query2.add_computed_column(view_col_4=view_from_query2.plusone + 5, create_default_idx=True)
+        view_from_query2.add_computed_column(view_col_2=view_from_query2.view_col_1.rotate(90))
+        view_from_query2.add_computed_column(view_col_3=view_from_query2.img.rotate(90))
+        view_from_query2.add_computed_column(view_col_4=view_from_query2.plusone + 5)
         view_from_query2.add_embedding_index('view_col_2', idx_name='view_idx', embedding=dummy_embedding.using(n=768))
         view_from_query2.add_embedding_index(
             'img', idx_name='view_idx_on_base_tbl_col', embedding=dummy_embedding.using(n=768)
@@ -577,15 +577,9 @@ class TestTableModel:
             view_from_query2.where(view_from_query2.value > 1.0),
             create_default_idxs=True,
         )
-        subview_from_query2.add_computed_column(
-            subview_col_1=subview_from_query2.img.rotate(180), create_default_idx=True
-        )
-        subview_from_query2.add_computed_column(
-            subview_col_2=subview_from_query2.view_col_1.rotate(270), create_default_idx=True
-        )
-        subview_from_query2.add_computed_column(
-            subview_col_3=subview_from_query2.subview_col_2.rotate(30), create_default_idx=True
-        )
+        subview_from_query2.add_computed_column(subview_col_1=subview_from_query2.img.rotate(180))
+        subview_from_query2.add_computed_column(subview_col_2=subview_from_query2.view_col_1.rotate(270))
+        subview_from_query2.add_computed_column(subview_col_3=subview_from_query2.subview_col_2.rotate(30))
 
         images = get_image_files()
         rows = [

@@ -1104,42 +1104,46 @@ class TestIndex:
         t.drop_index(column='id')
         assert len(btree_idxs()) == 0
 
-    def test_add_columns_create_default_idxs(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_add_columns_default_idxs(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('col_idx_test'), {'id': pxt.Int})
-        t.insert([{'id': i} for i in range(3)])
 
-        def btree_cols() -> set[str]:
+        def btree_cols(t: pxt.Table) -> set[str]:
             return {
                 col for i in t.get_metadata()['indices'].values() if i['index_type'] == 'btree' for col in i['columns']
             }
 
-        # create_table default: no index
-        assert len(btree_cols()) == 0
-
-        # add_columns / add_column / add_computed_column don't index by default
+        # a table created without default indexes doesn't index columns added later
+        t = pxt.create_table(p('no_default_idxs'), {'id': pxt.Int})
+        t.insert([{'id': i} for i in range(3)])
+        assert len(btree_cols(t)) == 0
         t.add_columns({'a': pxt.Int})
         t.add_column(b=pxt.String)
         t.add_computed_column(c=t.id + 1)
-        assert len(btree_cols()) == 0
+        assert len(btree_cols(t)) == 0
 
-        # but do when create_default_idxs=True
-        t.add_columns({'x': pxt.Int}, create_default_idxs=True)
-        assert 'x' in btree_cols()
-        t.add_column(y=pxt.String, create_default_idx=True)
-        assert 'y' in btree_cols()
-        t.add_computed_column(z=t.id + 2, create_default_idx=True)
-        assert 'z' in btree_cols()
+        # a table created with default indexes indexes every eligible column added later
+        t2 = pxt.create_table(p('default_idxs'), {'id': pxt.Int}, create_default_idxs=True)
+        t2.insert([{'id': i} for i in range(3)])
+        assert btree_cols(t2) == {'id'}
+        t2.add_columns({'a': pxt.Int})
+        t2.add_column(b=pxt.String)
+        t2.add_computed_column(c=t2.id + 1)
+        assert btree_cols(t2) == {'id', 'a', 'b', 'c'}
+
+        # ineligible columns are skipped
+        t2.add_column(flag=pxt.Bool)
+        assert 'flag' not in btree_cols(t2)
 
         # dropping an indexed column also drops its index
-        t.drop_column('x')
-        assert 'x' not in btree_cols()
+        t2.drop_column('a')
+        assert 'a' not in btree_cols(t2)
 
         # a default index whose auto-generated name would collide with an existing explicitly-named index is
         # disambiguated rather than clobbering it
-        t.add_btree_index('id', idx_name='idx4')  # occupies the name the next auto-generated index would use
-        t.add_column(w=pxt.Int, create_default_idx=True)
-        assert {'id', 'w'} <= btree_cols()  # both indexes survive the collision
+        t2.drop_index(column='id')
+        t2.add_btree_index('id', idx_name='idx5')  # occupies the name the next auto-generated index would use
+        t2.add_column(w=pxt.Int)
+        assert {'id', 'w'} <= btree_cols(t2)  # both indexes survive the collision
 
     def test_btree_index_on_view(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path

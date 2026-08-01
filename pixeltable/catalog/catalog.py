@@ -1975,11 +1975,11 @@ class Catalog(CatalogBase):
                 f'{subject} {verb} dropped or replaced since update_all() computed its changes; re-run update_all().',
             ) from e
 
-    def add_columns(self, tbl: TableVersionPath, cols: list[Column], create_default_idxs: bool = False) -> None:
+    def add_columns(self, tbl: TableVersionPath, cols: list[Column]) -> None:
         @retry_loop(for_write=True, write_tvps=[tbl], lock_mutable_tree=False)
         def add_fn() -> None:
             tv = self._get_tbl_version(TableVersionKey(tbl.tbl_id, None))
-            md, ops = tv.add_columns_ops(cols, create_default_idxs=create_default_idxs)
+            md, ops = tv.add_columns_ops(cols)
             md.tbl_md.pending_stmt = schema.TableStatement.ADD_COLUMNS
             self.write_tbl_md(
                 tbl.tbl_id,

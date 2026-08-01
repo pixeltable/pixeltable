@@ -531,9 +531,9 @@ class TestTable:
         tbl_path = p('test')
         t = pxt.create_table(tbl_path, {'c1': pxt.Int, 'c2': pxt.Int, 'img': pxt.Image}, create_default_idxs=True)
         # Builtin computed, single dependency
-        t.add_computed_column(plus1=t.c1 + 1, create_default_idx=True)
+        t.add_computed_column(plus1=t.c1 + 1)
         # Builtin computed, multiple dependencies
-        t.add_computed_column(sum12=t.c1 + t.c2, create_default_idx=True)
+        t.add_computed_column(sum12=t.c1 + t.c2)
         # Custom UDF computed
         t.add_computed_column(custom=TestTable.f1(t.c1))
 
@@ -656,6 +656,7 @@ class TestTable:
                     'idx2': {'name': 'idx2', 'columns': ['img'], 'index_type': 'btree', 'parameters': None},
                     'idx3': {'name': 'idx3', 'columns': ['plus1'], 'index_type': 'btree', 'parameters': None},
                     'idx4': {'name': 'idx4', 'columns': ['sum12'], 'index_type': 'btree', 'parameters': None},
+                    'idx5': {'name': 'idx5', 'columns': ['custom'], 'index_type': 'btree', 'parameters': None},
                 },
                 'is_view': False,
                 'is_snapshot': False,
@@ -678,7 +679,8 @@ class TestTable:
         # View: inherits columns from base, adds its own computed column
         view_path = p('test_view')
         v = pxt.create_view(view_path, t)
-        v.add_computed_column(derived=v.c1 * 2, create_default_idx=True)
+        v.add_computed_column(derived=v.c1 * 2)
+        v.add_btree_index('derived')
 
         vmd = v.get_metadata()
         assert_table_metadata_eq(
@@ -822,8 +824,8 @@ class TestTable:
                 'media_validation': 'on_write',
                 'path': view_path,
                 'primary_key': None,
-                'schema_version': 1,
-                'version': 1,
+                'schema_version': 2,
+                'version': 2,
             },
             vmd,
         )
@@ -835,7 +837,8 @@ class TestTable:
         t.insert(n=3)
         view_path = p('iter_view')
         iv = pxt.create_view(view_path, t, iterator=DummyIterator(t.n))
-        iv.add_computed_column(derived=iv.out2 + 1, create_default_idx=True)
+        iv.add_computed_column(derived=iv.out2 + 1)
+        iv.add_btree_index('derived')
 
         assert_table_metadata_eq(
             {
@@ -850,8 +853,8 @@ class TestTable:
                 'view_filter': None,
                 'view_sample': None,
                 'iterator_call': 'DummyIterator(n)',
-                'version': 1,
-                'schema_version': 1,
+                'version': 2,
+                'schema_version': 2,
                 'comment': None,
                 'custom_metadata': None,
                 'primary_key': None,
@@ -3545,8 +3548,9 @@ class TestTable:
     @pytest.mark.local('UDF reads client-process-local class attributes the daemon cannot see')
     def test_recompute_column(self, uses_db: None) -> None:
         t = pxt.create_table('recompute_test', schema={'i': pxt.Int, 's': pxt.String})
-        status = t.add_computed_column(i1=self.recompute_int_udf(t.i), create_default_idx=True)
+        status = t.add_computed_column(i1=self.recompute_int_udf(t.i))
         assert status.num_excs == 0
+        t.add_btree_index('i1')
         status = t.add_computed_column(s1=self.recompute_str_udf(t.s))
         assert status.num_excs == 0
         status = t.add_computed_column(i2=t.i1 * 2)

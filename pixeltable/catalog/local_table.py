@@ -489,7 +489,6 @@ class LocalTable(Table):
         self,
         schema: Mapping[str, type | ColumnSpec],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-        create_default_idxs: bool = False,
     ) -> UpdateStatus:
         from pixeltable.catalog import retry_loop
 
@@ -525,7 +524,7 @@ class LocalTable(Table):
             return UpdateStatus()
 
         assert self._tbl_version is not None
-        get_runtime().catalog.add_columns(self._tbl_version_path, new_cols, create_default_idxs=create_default_idxs)
+        get_runtime().catalog.add_columns(self._tbl_version_path, new_cols)
         FileCache.get().emit_eviction_warnings()
         # TODO: return the row count here?
         return UpdateStatus()
@@ -534,7 +533,6 @@ class LocalTable(Table):
         self,
         *,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-        create_default_idx: bool = False,
         **kwargs: type | ColumnSpec,
     ) -> UpdateStatus:
         # verify kwargs and construct column schema dict
@@ -545,7 +543,7 @@ class LocalTable(Table):
                 excs.ErrorCode.INVALID_ARGUMENT,
                 'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?',
             )
-        return self.add_columns(kwargs, if_exists=if_exists, create_default_idxs=create_default_idx)
+        return self.add_columns(kwargs, if_exists=if_exists)
 
     def add_computed_column(
         self,
@@ -557,7 +555,6 @@ class LocalTable(Table):
         print_stats: bool = False,
         on_error: Literal['abort', 'ignore'] = 'abort',
         if_exists: Literal['error', 'ignore', 'replace'] = 'error',
-        create_default_idx: bool = False,
         **kwargs: exprs.Expr,
     ) -> UpdateStatus:
         from pixeltable.catalog import retry_loop
@@ -605,9 +602,7 @@ class LocalTable(Table):
             new_col = Column.create(col_name, col_schema)
             self._verify_column(new_col)
             assert self._tbl_version is not None
-            result += self._tbl_version.get().add_columns(
-                [new_col], print_stats=print_stats, on_error=on_error, create_default_idxs=create_default_idx
-            )
+            result += self._tbl_version.get().add_columns([new_col], print_stats=print_stats, on_error=on_error)
             FileCache.get().emit_eviction_warnings()
             return result
 
