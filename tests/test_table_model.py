@@ -391,6 +391,109 @@ class TestTableModel:
         ):
             TableModelV3.diff_all(root)
 
+    def test_btree_index_validation_on_update(self, make_catalog_path: Callable[[str], str]) -> None:
+        """`update_all()` enforces the same B-tree eligibility rules as `Table.add_btree_index()`."""
+        p = make_catalog_path
+        root = p('')
+        TableModel = pxt.model_base()
+
+        class Base(TableModel, name='base'):
+            id: pxt.Required[pxt.Int]
+            name: pxt.String
+            img: pxt.Image
+            unstored = Column(value=img.rotate(90), stored=False)
+            id_idx = BtreeIndex(id)
+
+        class V(TableModel, name='v', base=Base):
+            vc: pxt.Int
+
+        TableModel.create_all(root)
+        Base.insert([{'id': 1, 'name': 'a', 'img': get_image_files()[0]}])
+
+        # A second index on an already-indexed column.
+        TM_dup_existing = pxt.model_base()
+
+        class BaseDupExisting(TM_dup_existing, name='base'):
+            id: pxt.Required[pxt.Int]
+            name: pxt.String
+            img: pxt.Image
+            unstored = Column(value=img.rotate(90), stored=False)
+            id_idx = BtreeIndex(id)
+            id_idx2 = BtreeIndex(id)
+
+        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match="already exists on column 'id'"):
+            TM_dup_existing.update_all(root)
+
+        # Two indexes on the same column within a single change set.
+        TM_dup_new = pxt.model_base()
+
+        class BaseDupNew(TM_dup_new, name='base'):
+            id: pxt.Required[pxt.Int]
+            name: pxt.String
+            img: pxt.Image
+            unstored = Column(value=img.rotate(90), stored=False)
+            id_idx = BtreeIndex(id)
+            name_idx_a = BtreeIndex(name)
+            name_idx_b = BtreeIndex(name)
+
+        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match="More than one B-tree index .* on column 'name'"):
+            TM_dup_new.update_all(root)
+
+        # An ineligible column.
+        TM_unstored = pxt.model_base()
+
+        class BaseUnstored(TM_unstored, name='base'):
+            id: pxt.Required[pxt.Int]
+            name: pxt.String
+            img: pxt.Image
+            unstored = Column(value=img.rotate(90), stored=False)
+            id_idx = BtreeIndex(id)
+            unstored_idx = BtreeIndex(unstored)
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="unstored column 'unstored'"):
+            TM_unstored.update_all(root)
+
+        # A view cannot index a base table's column.
+        TM_base_col = pxt.model_base()
+
+        class BaseForView(TM_base_col, name='base'):
+            id: pxt.Required[pxt.Int]
+            name: pxt.String
+            img: pxt.Image
+            unstored = Column(value=img.rotate(90), stored=False)
+            id_idx = BtreeIndex(id)
+
+        class ViewOnBaseCol(TM_base_col, name='v', base=BaseForView):
+            vc: pxt.Int
+            bad_idx = BtreeIndex(BaseForView.name)
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='belongs to a base table'):
+            TM_base_col.update_all(root)
+
+        # None of the rejected changes were applied.
+        assert set(Base.table.get_metadata()['indices'].keys()) == {'id_idx'}
+        assert len(V.table.get_metadata()['indices']) == 0
+
+        # Renaming a column's index in a single change set is allowed: the drop is applied before the add is
+        # validated. An index on a view's own column is also allowed.
+        TM_rename = pxt.model_base()
+
+        class BaseRenamed(TM_rename, name='base'):
+            id: pxt.Required[pxt.Int]
+            name: pxt.String
+            img: pxt.Image
+            unstored = Column(value=img.rotate(90), stored=False)
+            id_idx2 = BtreeIndex(id)  # same column as id_idx, new name
+
+        class ViewOwnCol(TM_rename, name='v', base=BaseRenamed):
+            vc: pxt.Int
+            vc_idx = BtreeIndex(vc)
+
+        TM_rename.update_all(root, allow_destructive=True)
+        assert set(Base.table.get_metadata()['indices'].keys()) == {'id_idx2'}
+        assert set(V.table.get_metadata()['indices'].keys()) == {'vc_idx'}
+        assert Base.table.where(Base.table.id == 1).count() == 1
+
     def test_all_table_exprs(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         TableModel = pxt.model_base()

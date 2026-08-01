@@ -286,30 +286,10 @@ class TableVersion:
             column_md[col.id] = col_md
             schema_col_md[col.id] = col_schema_md
 
-        # Validate additional b-tree indexes
-        explicit_btree_col_qids: set[QColumnId] = set()
-        for idx_col, _, idx in additional_idxs:
-            if not isinstance(idx, index.BtreeIndex):
-                continue
-            assert isinstance(idx_col, Column)
-            if idx_col.tbl_handle.id != tbl_id:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Cannot create a B-tree index on column {idx_col.name!r}: it belongs to a base table. '
-                    'Add the index to the base table instead.',
-                )
-            err = cls._btree_index_error(idx_col)
-            if err is not None:
-                raise err
-            if idx_col.qid in explicit_btree_col_qids:
-                raise excs.AlreadyExistsError(
-                    excs.ErrorCode.INDEX_ALREADY_EXISTS,
-                    f'More than one B-tree index declared on column {idx_col.name!r}.',
-                )
-            explicit_btree_col_qids.add(idx_col.qid)
+        num_explicit_btrees = cls._validate_btree_idxs(tbl_id, additional_idxs)
 
         # Explicit B-tree indexes are not allowed when create_default_idxs is True.
-        if create_default_idxs and len(explicit_btree_col_qids) > 0:
+        if create_default_idxs and num_explicit_btrees > 0:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT,
                 'Cannot combine create_default_idxs=True with an explicitly declared B-tree index.',
@@ -637,6 +617,48 @@ class TableVersion:
     @classmethod
     def _is_btree_indexable(cls, col: Column) -> bool:
         return cls._btree_index_error(col) is None
+
+    @classmethod
+    def _validate_btree_idxs(
+        cls, tbl_id: UUID, idxs: Iterable[IndexSpec], existing_idxs: Iterable[TableVersion.IndexInfo] = ()
+    ) -> int:
+        """Validate the B-tree indexes among idxs; returns how many of them there are.
+
+        existing_idxs: the table's live indexes; a new B-tree index must not duplicate one of those.
+        """
+        # names of the columns that already have a B-tree index; a view's base columns are excluded, because the
+        # ownership check below rules them out as targets anyway
+        indexed_col_names = {
+            info.col.name
+            for info in existing_idxs
+            if isinstance(info.idx, index.BtreeIndex) and info.col.tbl_handle.id == tbl_id
+        }
+        new_col_names: set[str] = set()
+        for idx_col, _, idx in idxs:
+            if not isinstance(idx, index.BtreeIndex):
+                continue
+            assert isinstance(idx_col, Column)
+            assert idx_col.name is not None, repr(idx_col)
+            if idx_col.tbl_handle.id != tbl_id:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot create a B-tree index on column {idx_col.name!r}: it belongs to a base table. '
+                    'Add the index to the base table instead.',
+                )
+            err = cls._btree_index_error(idx_col)
+            if err is not None:
+                raise err
+            if idx_col.name in new_col_names:
+                raise excs.AlreadyExistsError(
+                    excs.ErrorCode.INDEX_ALREADY_EXISTS,
+                    f'More than one B-tree index declared on column {idx_col.name!r}.',
+                )
+            if idx_col.name in indexed_col_names:
+                raise excs.AlreadyExistsError(
+                    excs.ErrorCode.INDEX_ALREADY_EXISTS, f'A B-tree index already exists on column {idx_col.name!r}.'
+                )
+            new_col_names.add(idx_col.name)
+        return len(new_col_names)
 
     def _create_index_md(
         self, col: Column, val_col: Column, undo_col: Column, idx_name: str | None, idx: index.IndexBase
@@ -1014,6 +1036,15 @@ class TableVersion:
             cols_to_drop.extend(self._cascade_drop_column(col))
         if len(cols_to_drop) > 0:
             self._drop_columns(cols_to_drop)
+
+        # Validate the new B-tree indexes against the post-drop state, so that dropping an index and adding another
+        # one on the same column in a single change set is allowed.
+        num_new_btrees = self._validate_btree_idxs(self.id, added_idxs, self.idxs.values())
+        if self.default_idxs_enabled and num_new_btrees > 0:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                'Cannot combine create_default_idxs=True with an explicitly declared B-tree index.',
+            )
 
         status = UpdateStatus()
         if len(added_cols) > 0:
