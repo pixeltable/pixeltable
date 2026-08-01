@@ -300,8 +300,8 @@ class TestTableModel:
             name: pxt.String
             img: pxt.Image
 
-            name_idx = BtreeIndex(name)
-            img_idx = BtreeIndex(img)
+            name_idx = pxt.BtreeIndex(name)
+            img_idx = pxt.BtreeIndex(img)
 
         TableModel.create_all(p(''))
         tbl = ExampleTableModel.table
