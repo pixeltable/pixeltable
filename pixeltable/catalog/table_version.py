@@ -1805,10 +1805,10 @@ class TableVersion:
 
         This is fixed at creation time and is the sole determinant for columns added later.
 
-        Tables created before this property was recorded in the metadata return False.
+        Tables created before this property was recorded in the metadata return True.
         """
         enabled = self._tbl_md.default_idxs_enabled
-        return False if enabled is None else enabled
+        return True if enabled is None else enabled
 
     def bump_version(self, timestamp: float | None = None, *, bump_schema_version: bool) -> None:
         """
