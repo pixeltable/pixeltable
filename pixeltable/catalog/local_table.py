@@ -776,8 +776,14 @@ class LocalTable(Table):
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
-            col = self._resolve_column_parameter(column)
+            if self._tbl_version.get().default_idxs_enabled:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{self._display_str()}: cannot add a B-tree index to a table created with '
+                    'create_default_idxs=True; its eligible columns are indexed automatically.',
+                )
 
+            col = self._resolve_column_parameter(column)
             if col.tbl_handle.id != self._tbl_version.get().id:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,

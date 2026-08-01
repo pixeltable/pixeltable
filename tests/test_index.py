@@ -1104,7 +1104,7 @@ class TestIndex:
         t.drop_index(column='id')
         assert len(btree_idxs()) == 0
 
-    def test_add_columns_default_idxs(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_add_columns_default_idxs(self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> None:
         p = make_catalog_path
 
         def btree_cols(t: pxt.Table) -> set[str]:
@@ -1138,12 +1138,12 @@ class TestIndex:
         t2.drop_column('a')
         assert 'a' not in btree_cols(t2)
 
-        # a default index whose auto-generated name would collide with an existing explicitly-named index is
-        # disambiguated rather than clobbering it
+        # explicit B-tree indexes are not accepted: this table's B-tree indexes are managed automatically
         t2.drop_index(column='id')
-        t2.add_btree_index('id', idx_name='idx5')  # occupies the name the next auto-generated index would use
-        t2.add_column(w=pxt.Int)
-        assert {'id', 'w'} <= btree_cols(t2)  # both indexes survive the collision
+        for kwargs in ({}, {'idx_name': 'id_idx'}, {'if_exists': 'ignore'}):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='create_default_idxs=True'):
+                t2.add_btree_index('id', **kwargs)  # type: ignore[arg-type]
+        assert 'id' not in btree_cols(t2)
 
     def test_btree_index_on_view(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
