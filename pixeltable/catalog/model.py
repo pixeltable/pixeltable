@@ -1007,19 +1007,18 @@ def prepare_model_updates(
         preceding_names.add(name)
         user_cols[name] = catalog_col
 
-    # Resolve each declared embedding index against the model's visible columns.
+    # Resolve each declared index against the model's visible columns.
     resolved_idxs: list[catalog.IndexSpec] = []
     for idx_name, idx_spec in new_idxs.items():
         if not isinstance(idx_spec.column, exprs.ColumnRefByName):
             raise excs.RequestError(
-                excs.ErrorCode.INVALID_SCHEMA,
-                f'Embedding index {idx_name!r} in {display_name} has an invalid column reference.',
+                excs.ErrorCode.INVALID_SCHEMA, f'Index {idx_name!r} in {display_name} has an invalid column reference.'
             )
         col_name = idx_spec.column.name
         if col_name not in user_cols:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA,
-                f'Embedding index {idx_name!r} in {display_name} references unknown column {col_name!r}.',
+                f'Index {idx_name!r} in {display_name} references unknown column {col_name!r}.',
             )
         idx: index.IndexBase
         if isinstance(idx_spec, EmbeddingIndex):
