@@ -316,6 +316,25 @@ class TestTableModel:
         tbl2.add_btree_index('img', idx_name='img_idx')
         assert schema_from_tbl_md(tbl.get_metadata()) == schema_from_tbl_md(tbl2.get_metadata())
 
+    def test_default_idx_name_collision(self, make_catalog_path: Callable[[str], str]) -> None:
+        """A default index's auto-generated name must not collide with an explicitly declared index name."""
+        p = make_catalog_path
+        TableModel = pxt.model_base()
+
+        # the default indexes on 'id' and 'txt' would be named 'idx0' and 'idx1', so the embedding index claims the
+        # second of those names
+        class ExampleTableModel(TableModel, name='test_table', create_default_idxs=True):
+            id: pxt.Required[pxt.Int]
+            txt: pxt.String
+            idx1 = EmbeddingIndex(txt, embedding=dummy_embedding.using(n=32))
+
+        TableModel.create_all(p(''))
+        tbl = ExampleTableModel.table
+
+        indices = tbl.get_metadata()['indices']
+        assert set(indices.keys()) == {'idx0', 'idx1', 'idx2'}
+        assert indices['idx1']['index_type'] == 'embedding'
+
     def test_default_idxs_diff(self, make_catalog_path: Callable[[str], str]) -> None:
         """The diff compares `create_default_idxs` against the table's persisted value, and `update_all()` gives
         newly added columns the same default index treatment the table's original columns got."""

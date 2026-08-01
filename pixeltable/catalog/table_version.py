@@ -314,6 +314,8 @@ class TableVersion:
         )
         idxs_to_create.extend(additional_idxs)
 
+        explicit_idx_names = {spec.idx_name for spec in idxs_to_create if spec.idx_name is not None}
+
         index_cols: list[Column] = []
         for idx_col, idx_name, idx in idxs_to_create:
             assert isinstance(idx_col, Column)
@@ -323,10 +325,17 @@ class TableVersion:
             index_cols.extend([val_col, undo_col])
 
             idx_id = next(index_ids)
+            if idx_name is not None:
+                resolved_idx_name = idx_name
+            else:
+                # skip index ids whose default name an explicitly named index has already claimed
+                while f'idx{idx_id}' in explicit_idx_names:
+                    idx_id = next(index_ids)
+                resolved_idx_name = f'idx{idx_id}'
             idx_cls = type(idx)
             md = schema.IndexMd(
                 id=idx_id,
-                name=idx_name if idx_name is not None else f'idx{idx_id}',
+                name=resolved_idx_name,
                 indexed_col_id=idx_col.id,
                 indexed_col_tbl_id=str(idx_col.tbl_handle.id),
                 index_val_col_id=val_col.id,
