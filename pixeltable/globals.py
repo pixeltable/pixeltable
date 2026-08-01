@@ -88,9 +88,9 @@ def create_table(
         schema_overrides: Must be used in conjunction with a `source`.
             If specified, then columns in `schema_overrides` will be given the specified types.
             (Pixeltable will attempt to infer the types of any columns not specified.)
-        create_default_idxs: If `True`, creates a default B-tree index on each eligible column. Defaults to `False`;
-            see [`Table.add_btree_index()`][pixeltable.Table.add_btree_index] for column eligibility and for adding
-            an index explicitly.
+        create_default_idxs: If `True`, creates a default B-tree index on each eligible column, including future
+            columns. Defaults to `False`; see [`Table.add_btree_index()`][pixeltable.Table.add_btree_index] for column
+            eligibility and for adding an index explicitly.
         on_error: Determines the behavior if an error occurs while evaluating a computed column or detecting an
             invalid media file (such as a corrupt image) for one of the inserted rows.
 
