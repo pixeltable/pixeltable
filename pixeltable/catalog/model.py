@@ -446,6 +446,22 @@ class _ModelNamespace(dict):
         super().__setitem__(name, exprs.ColumnRefByName(name, type_))
 
 
+def _validate_model_declaration(cls_name: str, namespace: _ModelNamespace) -> None:
+    """Validate a model's declarations against each other, once its class body has run."""
+    if len(namespace.known_cols) == 0 and namespace.table_spec['base'] is None:
+        raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, 'Empty table schema not allowed.')
+
+    # A table with default indexes enabled is not allowed to have explicit B-tree indexes.
+    if namespace.table_spec['create_default_idxs']:
+        btree_idx_names = [name for name, idx in namespace.known_idxs.items() if isinstance(idx, BtreeIndex)]
+        if len(btree_idx_names) > 0:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'model `{cls_name}`: cannot combine create_default_idxs=True with explicitly declared B-tree '
+                f'index(es) {btree_idx_names}; eligible columns are indexed automatically.',
+            )
+
+
 class TableModelMeta(type):
     """
     Metaclass that collects annotated column definitions and other table metadata from a class body.
@@ -601,8 +617,7 @@ class TableModelMeta(type):
 
         assert isinstance(namespace, _ModelNamespace)
 
-        if len(namespace.known_cols) == 0 and namespace.table_spec['base'] is None:
-            raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, 'Empty table schema not allowed.')
+        _validate_model_declaration(cls_name, namespace)
 
         # "normalize" the namespace to a plain dict; at this point, we're done with the special namespace treatment
         namespace_dict = dict(namespace)

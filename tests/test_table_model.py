@@ -1799,14 +1799,13 @@ class TestTableModel:
 
             DupBtree._create(p(''))
 
-        with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r'Cannot combine create_default_idxs'):
+        # rejected by the class definition itself, before _create() is ever reached
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'cannot combine create_default_idxs'):
 
             class DefaultsPlusBtree(TableModel, name='defaults_plus_btree_table', create_default_idxs=True):
                 id: pxt.Required[pxt.Int]
                 name: pxt.String
                 name_idx = BtreeIndex(name)
-
-            DefaultsPlusBtree._create(p(''))
 
         with pxt_raises(excs.ErrorCode.TYPE_MISMATCH, match='requires a non-boolean scalar type or a media type'):
 
