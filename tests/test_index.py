@@ -1139,11 +1139,14 @@ class TestIndex:
         assert 'a' not in btree_cols(t2)
 
         # explicit B-tree indexes are not accepted: this table's B-tree indexes are managed automatically
-        t2.drop_index(column='id')
-        for kwargs in ({}, {'idx_name': 'id_idx'}, {'if_exists': 'ignore'}):
+        for add_kwargs in ({}, {'idx_name': 'id_idx'}, {'if_exists': 'ignore'}):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='create_default_idxs'):
+                t2.add_btree_index('id', **add_kwargs)  # type: ignore[arg-type]
+
+        for drop_kwargs in ({'column': 'id'}, {'idx_name': 'idx0'}, {'column': 'id', 'if_not_exists': 'ignore'}):
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='create_default_idxs=True'):
-                t2.add_btree_index('id', **kwargs)  # type: ignore[arg-type]
-        assert 'id' not in btree_cols(t2)
+                t2.drop_index(**drop_kwargs)  # type: ignore[arg-type]
+        assert btree_cols(t2) == {'id', 'b', 'c'}
 
     def test_btree_index_on_view(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
