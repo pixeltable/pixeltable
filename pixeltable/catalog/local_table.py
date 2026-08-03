@@ -798,12 +798,18 @@ class LocalTable(Table):
             if idx_name is not None and self._resolve_btree_index_name_collision(idx_name, col, if_exists_):
                 return
 
-            existing = self._find_existing_btree_idx(col)
-            if existing is not None:
+            existing_btree_idxs = [
+                info
+                for info in self._tbl_version.get().idxs_by_col.get(col.qid, [])
+                if isinstance(info.idx, index.BtreeIndex)
+            ]
+            assert len(existing_btree_idxs) <= 1, repr(col)
+            if len(existing_btree_idxs) > 0:
                 if if_exists_ == IfExistsParam.ERROR:
                     raise excs.AlreadyExistsError(
                         excs.ErrorCode.INDEX_ALREADY_EXISTS,
-                        f'A B-tree index already exists on column {col.name!r} (index {existing.name!r}).',
+                        f'A B-tree index already exists on column {col.name!r} '
+                        f'(index {existing_btree_idxs[0].name!r}).',
                     )
                 assert if_exists_ == IfExistsParam.IGNORE
                 return
@@ -830,16 +836,6 @@ class LocalTable(Table):
             )
         assert if_exists == IfExistsParam.IGNORE
         return True
-
-    def _find_existing_btree_idx(self, col: Column) -> TableVersion.IndexInfo | None:
-        """Return the existing B-tree index on col, if any."""
-        matches = [
-            info
-            for info in self._tbl_version.get().idxs_by_col.get(col.qid, [])
-            if isinstance(info.idx, index.BtreeIndex)
-        ]
-        assert len(matches) <= 1, repr(col)
-        return matches[0] if len(matches) > 0 else None
 
     def add_embedding_index(
         self,
