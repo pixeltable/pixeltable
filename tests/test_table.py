@@ -343,9 +343,7 @@ class TestTable:
                         }
                     },
                     'comment': None,
-                    'indices': {
-                        'idx0': {'name': 'idx0', 'columns': ['col'], 'index_type': 'btree', 'parameters': None}
-                    },
+                    'indices': [{'columns': ['col'], 'index_type': 'btree', 'parameters': None}],
                     'is_view': False,
                     'is_snapshot': False,
                     'is_versioned': True,
@@ -388,11 +386,10 @@ class TestTable:
                         }
                     },
                     'comment': None,
-                    'indices': {
-                        'idx0': {
+                    'indices': [
+                        {
                             'columns': ['col'],
                             'index_type': 'embedding',
-                            'name': 'idx0',
                             'parameters': {
                                 'embedding': 'local_embedding(col, dim=512)',
                                 'embedding_functions': [
@@ -402,7 +399,7 @@ class TestTable:
                                 'metric': 'cosine',
                             },
                         }
-                    },
+                    ],
                     'is_view': True,
                     'is_snapshot': False,
                     'is_versioned': True,
@@ -445,7 +442,7 @@ class TestTable:
                         }
                     },
                     'comment': None,
-                    'indices': {},
+                    'indices': [],
                     'is_view': True,
                     'is_snapshot': True,
                     'is_versioned': True,
@@ -505,7 +502,7 @@ class TestTable:
                         },
                     },
                     'comment': None,
-                    'indices': {},
+                    'indices': [],
                     'is_view': True,
                     'is_snapshot': True,
                     'is_versioned': True,
@@ -650,14 +647,14 @@ class TestTable:
                 },
                 'comment': None,
                 'custom_metadata': None,
-                'indices': {
-                    'idx0': {'name': 'idx0', 'columns': ['c1'], 'index_type': 'btree', 'parameters': None},
-                    'idx1': {'name': 'idx1', 'columns': ['c2'], 'index_type': 'btree', 'parameters': None},
-                    'idx2': {'name': 'idx2', 'columns': ['img'], 'index_type': 'btree', 'parameters': None},
-                    'idx3': {'name': 'idx3', 'columns': ['plus1'], 'index_type': 'btree', 'parameters': None},
-                    'idx4': {'name': 'idx4', 'columns': ['sum12'], 'index_type': 'btree', 'parameters': None},
-                    'idx5': {'name': 'idx5', 'columns': ['custom'], 'index_type': 'btree', 'parameters': None},
-                },
+                'indices': [
+                    {'columns': ['c1'], 'index_type': 'btree', 'parameters': None},
+                    {'columns': ['c2'], 'index_type': 'btree', 'parameters': None},
+                    {'columns': ['img'], 'index_type': 'btree', 'parameters': None},
+                    {'columns': ['plus1'], 'index_type': 'btree', 'parameters': None},
+                    {'columns': ['sum12'], 'index_type': 'btree', 'parameters': None},
+                    {'columns': ['custom'], 'index_type': 'btree', 'parameters': None},
+                ],
                 'is_view': False,
                 'is_snapshot': False,
                 'is_versioned': True,
@@ -809,9 +806,7 @@ class TestTable:
                 },
                 'comment': None,
                 'custom_metadata': None,
-                'indices': {
-                    'idx0': {'name': 'idx0', 'columns': ['derived'], 'index_type': 'btree', 'parameters': None}
-                },
+                'indices': [{'columns': ['derived'], 'index_type': 'btree', 'parameters': None}],
                 'is_view': True,
                 'is_snapshot': False,
                 'is_versioned': True,
@@ -859,9 +854,7 @@ class TestTable:
                 'custom_metadata': None,
                 'primary_key': None,
                 'media_validation': 'on_write',
-                'indices': {
-                    'idx0': {'name': 'idx0', 'columns': ['derived'], 'index_type': 'btree', 'parameters': None}
-                },
+                'indices': [{'columns': ['derived'], 'index_type': 'btree', 'parameters': None}],
                 'columns': {
                     'pos': {
                         'name': 'pos',
@@ -3921,7 +3914,7 @@ class TestTable:
         # test case: view with additional columns
         v2 = pxt.create_view(p('test_subview'), v.where(v.c1 != None), comment='This is an intriguing table comment.')
         v2.add_computed_column(computed1=fill_3x4(v2.c2))
-        v2.add_embedding_index('c1', string_embed=local_embed)
+        v2.add_embedding_index('c1', idx_name='idx0', string_embed=local_embed)
         validate_repr(
             v2,
             f"""

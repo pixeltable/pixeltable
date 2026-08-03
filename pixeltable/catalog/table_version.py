@@ -7,7 +7,7 @@ import logging
 import time
 import warnings
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import sqlalchemy as sql
 from sqlalchemy import exc as sql_exc
@@ -314,7 +314,7 @@ class TableVersion:
         )
         idxs_to_create.extend(additional_idxs)
 
-        explicit_idx_names = {spec.idx_name for spec in idxs_to_create if spec.idx_name is not None}
+        taken_idx_names = {spec.idx_name for spec in idxs_to_create if spec.idx_name is not None}
 
         index_cols: list[Column] = []
         for idx_col, idx_name, idx in idxs_to_create:
@@ -328,10 +328,8 @@ class TableVersion:
             if idx_name is not None:
                 resolved_idx_name = idx_name
             else:
-                # skip index ids whose default name an explicitly named index has already claimed
-                while f'idx{idx_id}' in explicit_idx_names:
-                    idx_id = next(index_ids)
-                resolved_idx_name = f'idx{idx_id}'
+                resolved_idx_name = cls._generate_idx_name(taken_idx_names)
+                taken_idx_names.add(resolved_idx_name)
             idx_cls = type(idx)
             md = schema.IndexMd(
                 id=idx_id,
@@ -669,16 +667,21 @@ class TableVersion:
             new_col_names.add(idx_col.name)
         return len(new_col_names)
 
+    @classmethod
+    def _generate_idx_name(cls, taken_names: set[str]) -> str:
+        """Generates an index name that is not in `taken_names`."""
+        while True:
+            name = f'idx_{uuid4().hex}'
+            if name not in taken_names:
+                return name
+
     def _create_index_md(
         self, col: Column, val_col: Column, undo_col: Column, idx_name: str | None, idx: index.IndexBase
     ) -> int:
         """Create md for given index and update self._tbl_md. Returns index id."""
         existing_names = {i.name for i in self._tbl_md.index_md.values()}
         if idx_name is None:
-            # find the next index id whose default name isn't taken by an explicitly named index
-            while f'idx{self.next_idx_id}' in existing_names:
-                self.next_idx_id += 1
-            idx_name = f'idx{self.next_idx_id}'
+            idx_name = self._generate_idx_name(existing_names)
         else:
             assert is_valid_identifier(idx_name)
             assert idx_name not in existing_names

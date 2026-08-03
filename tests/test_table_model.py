@@ -17,11 +17,11 @@ from pixeltable.catalog.model import BtreeIndex, Column, EmbeddingIndex
 from .utils import (
     assert_resultset_eq,
     assert_table_metadata_eq,
+    assert_tbl_schemas_eq,
     capture_console_output,
     dummy_embedding,
     get_image_files,
     pxt_raises,
-    schema_from_tbl_md,
     skip_test_if_not_installed,
     validate_update_status,
 )
@@ -87,7 +87,7 @@ class TestTableModel:
         tbl2.add_embedding_index(tbl2.img, idx_name='clip_idx', embedding=dummy_embedding.using(n=768))
         metadata2 = tbl2.get_metadata()
 
-        assert schema_from_tbl_md(metadata) == schema_from_tbl_md(metadata2)
+        assert_tbl_schemas_eq(metadata, metadata2)
 
         tbl.insert([{'id': 1, 'name': 'Alice', 'value': 3.14}])
         tbl2.insert([{'id': 1, 'name': 'Alice', 'value': 3.14}])
@@ -260,9 +260,8 @@ class TestTableModel:
                         'destination': None,
                     },
                 },
-                'indices': {
-                    'clip_idx': {
-                        'name': 'clip_idx',
+                'indices': [
+                    {
                         'columns': ['img'],
                         'index_type': 'embedding',
                         'parameters': {
@@ -271,7 +270,7 @@ class TestTableModel:
                             'embedding_functions': ['dummy_embedding(text, n=768)', 'dummy_embedding(img, n=768)'],
                         },
                     }
-                },
+                ],
                 'is_versioned': True,
                 'has_default_idxs': False,
                 'is_view': False,
@@ -314,26 +313,7 @@ class TestTableModel:
         tbl2 = pxt.create_table(p('test_table_2'), {'id': pxt.Required[pxt.Int], 'name': pxt.String, 'img': pxt.Image})
         tbl2.add_btree_index('name', idx_name='name_idx')
         tbl2.add_btree_index('img', idx_name='img_idx')
-        assert schema_from_tbl_md(tbl.get_metadata()) == schema_from_tbl_md(tbl2.get_metadata())
-
-    def test_default_idx_name_collision(self, make_catalog_path: Callable[[str], str]) -> None:
-        """A default index's auto-generated name must not collide with an explicitly declared index name."""
-        p = make_catalog_path
-        TableModel = pxt.model_base()
-
-        # the default indexes on 'id' and 'txt' would be named 'idx0' and 'idx1', so the embedding index claims the
-        # second of those names
-        class ExampleTableModel(TableModel, name='test_table', create_default_idxs=True):
-            id: pxt.Required[pxt.Int]
-            txt: pxt.String
-            idx1 = EmbeddingIndex(txt, embedding=dummy_embedding.using(n=32))
-
-        TableModel.create_all(p(''))
-        tbl = ExampleTableModel.table
-
-        indices = tbl.get_metadata()['indices']
-        assert set(indices.keys()) == {'idx0', 'idx1', 'idx2'}
-        assert indices['idx1']['index_type'] == 'embedding'
+        assert_tbl_schemas_eq(tbl.get_metadata(), tbl2.get_metadata())
 
     def test_default_idxs_diff(self, make_catalog_path: Callable[[str], str]) -> None:
         """The diff compares `create_default_idxs` against the table's persisted value, and `update_all()` gives
@@ -578,7 +558,7 @@ class TestTableModel:
         tbl2.add_computed_column(string_rmul=3 * tbl2.name)
         tbl2.add_computed_column(type_cast=tbl2.arr.astype(pxt.Array[(2, 3), np.float32]))
 
-        assert schema_from_tbl_md(tbl.get_metadata()) == schema_from_tbl_md(tbl2.get_metadata())
+        assert_tbl_schemas_eq(tbl.get_metadata(), tbl2.get_metadata())
 
         sample_arr = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)
         row = {'id': 1, 'name': 'Alice', 'value': 3.14, 'arr': sample_arr, 'img': None}
@@ -718,7 +698,7 @@ class TestTableModel:
             (ExampleViewModelFromQuery.table, view_from_query2),
             (ExampleSubviewModelFromQuery.table, subview_from_query2),
         ):
-            assert schema_from_tbl_md(mtbl.get_metadata()) == schema_from_tbl_md(atbl.get_metadata())
+            assert_tbl_schemas_eq(mtbl.get_metadata(), atbl.get_metadata())
             assert_resultset_eq(mtbl.order_by(mtbl.value).collect(), atbl.order_by(atbl.value).collect())
 
     def test_view_model_shadows_base_column(self, make_catalog_path: Callable[[str], str]) -> None:
@@ -923,9 +903,9 @@ class TestTableModel:
         ExampleTableModel.insert(rows)
         tbl2.insert(rows)
 
-        assert schema_from_tbl_md(tbl.get_metadata()) == schema_from_tbl_md(tbl2.get_metadata())
-        assert schema_from_tbl_md(view.get_metadata()) == schema_from_tbl_md(view2.get_metadata())
-        assert schema_from_tbl_md(view_from_query.get_metadata()) == schema_from_tbl_md(view_from_query2.get_metadata())
+        assert_tbl_schemas_eq(tbl.get_metadata(), tbl2.get_metadata())
+        assert_tbl_schemas_eq(view.get_metadata(), view2.get_metadata())
+        assert_tbl_schemas_eq(view_from_query.get_metadata(), view_from_query2.get_metadata())
 
         assert_resultset_eq(tbl.order_by(tbl.id).collect(), tbl2.order_by(tbl2.id).collect())
         assert_resultset_eq(view.order_by(view.id, view.pos).collect(), view2.order_by(view2.id, view2.pos).collect())
