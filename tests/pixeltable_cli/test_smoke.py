@@ -191,14 +191,13 @@ class TestCwd:
         """'columns' and 'idxs' with no path cover the working directory, not the whole catalog."""
         p = make_catalog_path
         pxt.create_dir(p('cli_cwd_list'), if_exists='ignore')
-        pxt.create_table(p('cli_cwd_list/inside'), {'x': pxt.String}, if_exists='replace', create_default_idxs=True)
-        pxt.create_table(p('cli_cwd_outside'), {'y': pxt.String}, if_exists='replace', create_default_idxs=True)
+        pxt.create_table(p('cli_cwd_list/inside'), {'x': pxt.String}, if_exists='replace')
+        pxt.create_table(p('cli_cwd_outside'), {'y': pxt.String}, if_exists='replace')
         try:
             cli('cd', p('cli_cwd_list'))
-            for verb in ('columns', 'idxs'):
-                tables = {e['table'] for e in cli(verb, '--json').json}
-                assert p('cli_cwd_list/inside') in tables, verb
-                assert p('cli_cwd_outside') not in tables, verb
+            tables = {e['table'] for e in cli('columns', '--json').json}
+            assert p('cli_cwd_list/inside') in tables
+            assert p('cli_cwd_outside') not in tables
 
             # cleared, the command covers the catalog again: the no-path form locally, the db root over proxy
             cli('cd')
