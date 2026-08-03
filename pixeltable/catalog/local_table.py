@@ -795,8 +795,22 @@ class LocalTable(Table):
             if err is not None:
                 raise err
 
-            if idx_name is not None and self._resolve_btree_index_name_collision(idx_name, col, if_exists_):
-                return
+            if idx_name is not None:
+                # check for a name collision
+                existing = self._tbl_version.get().idxs_by_name.get(idx_name)
+                if existing is not None:
+                    if not isinstance(existing.idx, index.BtreeIndex):
+                        raise excs.RequestError(
+                            excs.ErrorCode.UNSUPPORTED_OPERATION,
+                            f'Index {idx_name!r} already exists, but is not a B-tree index.',
+                        )
+                    if existing.col.qid != col.qid or if_exists_ == IfExistsParam.ERROR:
+                        raise excs.AlreadyExistsError(
+                            excs.ErrorCode.INDEX_ALREADY_EXISTS,
+                            f'Index {idx_name!r} already exists on column {existing.col.name!r}.',
+                        )
+                    assert if_exists_ == IfExistsParam.IGNORE
+                    return
 
             existing_btree_idxs = [
                 info
@@ -818,24 +832,6 @@ class LocalTable(Table):
             _ = self._tbl_version.get().add_index(col, idx_name=idx_name, idx=idx)
 
         FileCache.get().emit_eviction_warnings()
-
-    def _resolve_btree_index_name_collision(self, idx_name: str, col: Column, if_exists: IfExistsParam) -> bool:
-        """Returns True if a B-tree addition on col is a no-op, based on if_exists and an existing index of the same
-        name.
-        """
-        info = self._tbl_version.get().idxs_by_name.get(idx_name)
-        if info is None:
-            return False
-        if not isinstance(info.idx, index.BtreeIndex):
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Index {idx_name!r} already exists, but is not a B-tree index.'
-            )
-        if info.col.qid != col.qid or if_exists == IfExistsParam.ERROR:
-            raise excs.AlreadyExistsError(
-                excs.ErrorCode.INDEX_ALREADY_EXISTS, f'Index {idx_name!r} already exists on column {info.col.name!r}.'
-            )
-        assert if_exists == IfExistsParam.IGNORE
-        return True
 
     def add_embedding_index(
         self,
