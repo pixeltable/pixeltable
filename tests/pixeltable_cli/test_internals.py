@@ -25,6 +25,7 @@ from email.message import Message
 from types import ModuleType
 from typing import Any, ClassVar
 
+import pydantic
 import pytest
 import requests
 from typing_extensions import Self
@@ -1794,6 +1795,15 @@ class TestHostedCommandRequests:
         assert _forwarded_request(monkeypatch, server_routes.update_service, body=body) == UpdateServiceRequest(
             org='acme', db='main', service_name='svc', workers_min=4, service_config=svc_config
         )
+
+    @pytest.mark.parametrize('db', ['main', 'my-db', 'db1', 'video-search', 'a' * 29])
+    def test_create_db_accepts_valid_name(self, db: str) -> None:
+        assert CreateDbRequest(org='acme', db=db).db == db
+
+    @pytest.mark.parametrize('db', ['My_DB', 'a_b', 'ACME', 'db-', '-db', 'a' * 30, 'my db', 'my.db'])
+    def test_create_db_rejects_invalid_name(self, db: str) -> None:
+        with pytest.raises(pydantic.ValidationError):
+            CreateDbRequest(org='acme', db=db)
 
 
 class TestHostedUriHelpers:

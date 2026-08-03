@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from enum import Enum
 from typing import Literal, Optional
 
@@ -42,6 +43,22 @@ class ServiceOperationType(str, Enum):
 
 # Db operations
 
+# A hosted database name must be a valid RFC 1123 label: lowercase letters, digits, and
+# hyphens, starting and ending with an alphanumeric, at most 29 characters.
+_HOSTED_NAME_RE = re.compile(r'^[a-z0-9]([a-z0-9-]*[a-z0-9])?$')
+_HOSTED_NAME_MAX_LEN = 29
+
+
+def _validate_hosted_name(value: str, kind: str) -> str:
+    if len(value) > _HOSTED_NAME_MAX_LEN:
+        raise ValueError(f'{kind} must be at most {_HOSTED_NAME_MAX_LEN} characters (got {len(value)}): {value!r}')
+    if not _HOSTED_NAME_RE.match(value):
+        raise ValueError(
+            f'{kind} {value!r} is invalid: use only lowercase letters, digits, and hyphens, and start and end '
+            'with a letter or digit (no underscores, uppercase, spaces, or dots).'
+        )
+    return value
+
 
 class CreateDbRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.CREATE_DB] = ServiceOperationType.CREATE_DB
@@ -53,6 +70,11 @@ class CreateDbRequest(BaseModel):
     cpu: float = 0.5
     memory_mb: int = 512
     disk_gb: int = 10
+
+    @field_validator('db')
+    @classmethod
+    def _validate_db_name(cls, value: str) -> str:
+        return _validate_hosted_name(value, 'Database name')
 
 
 class GetDbRequest(BaseModel):
