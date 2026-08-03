@@ -370,7 +370,7 @@ class TableVersion:
             view_md=view_md,
             additional_md={},
             is_versioned=is_versioned,
-            default_idxs_enabled=create_default_idxs,
+            has_default_idxs=create_default_idxs,
         )
 
         table_version_md = schema.VersionMd(
@@ -796,7 +796,7 @@ class TableVersion:
         all_cols: list[Column] = []
         for col in cols:
             all_cols.append(col)
-            if self.default_idxs_enabled and col.name is not None and self._is_btree_indexable(col):
+            if self.has_default_idxs and col.name is not None and self._is_btree_indexable(col):
                 idx = index.BtreeIndex()
 
                 val_col, undo_col = Column.create_index_columns(
@@ -1049,7 +1049,7 @@ class TableVersion:
         # Validate the new B-tree indexes against the post-drop state, so that dropping an index and adding another
         # one on the same column in a single change set is allowed.
         num_new_btrees = self._validate_btree_idxs(self.id, added_idxs, self.idxs.values())
-        if self.default_idxs_enabled and num_new_btrees > 0:
+        if self.has_default_idxs and num_new_btrees > 0:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT,
                 'Cannot combine create_default_idxs=True with an explicitly declared B-tree index.',
@@ -1113,7 +1113,7 @@ class TableVersion:
         all_cols: list[Column] = []
         for col in cols:
             all_cols.append(col)
-            if self.default_idxs_enabled and col.name is not None and self._is_btree_indexable(col):
+            if self.has_default_idxs and col.name is not None and self._is_btree_indexable(col):
                 idx = index.BtreeIndex()
                 val_col, undo_col = Column.create_index_columns(
                     self.handle, col, idx, self.next_col_id(), self.next_col_id(), self.schema_version
@@ -1840,15 +1840,14 @@ class TableVersion:
         return self._tbl_md.is_versioned
 
     @property
-    def default_idxs_enabled(self) -> bool:
+    def has_default_idxs(self) -> bool:
         """Whether eligible columns of this table get a default B-tree index.
 
         This is fixed at creation time and is the sole determinant for columns added later.
 
         Tables created before this property was recorded in the metadata return True.
         """
-        enabled = self._tbl_md.default_idxs_enabled
-        return True if enabled is None else enabled
+        return self._tbl_md.has_default_idxs
 
     def bump_version(self, timestamp: float | None = None, *, bump_schema_version: bool) -> None:
         """

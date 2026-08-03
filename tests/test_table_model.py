@@ -273,7 +273,7 @@ class TestTableModel:
                     }
                 },
                 'is_versioned': True,
-                'default_idxs_enabled': False,
+                'has_default_idxs': False,
                 'is_view': False,
                 'is_snapshot': False,
                 'version': 1,
@@ -363,7 +363,7 @@ class TestTableModel:
             }
 
         assert btree_cols() == {'id', 'name'}
-        assert tbl.get_metadata()['default_idxs_enabled'] is True
+        assert tbl.get_metadata()['has_default_idxs'] is True
 
         # Adding a column via `update_all()` honors the table's setting: `extra` gets a default index, and the
         # index is not itself reported as a difference (default indexes have no counterpart in `__indexes__`).
@@ -397,16 +397,16 @@ class TestTableModel:
         diff = TableModelV3.get_model_diff(root)['defaults_table']
         assert diff['resolution'] == 'unsupported'
         assert [(c['target'], c['name'], c['model'], c['existing']) for c in diff['ops']] == [
-            ('table', 'default_idxs_enabled', False, True)
+            ('table', 'has_default_idxs', False, True)
         ]
         diff = TableModelV3.get_model_diff(root)['no_defaults_table']
         assert diff['resolution'] == 'unsupported'
         assert [(c['target'], c['name'], c['model'], c['existing']) for c in diff['ops']] == [
-            ('table', 'default_idxs_enabled', True, False)
+            ('table', 'has_default_idxs', True, False)
         ]
         with capture_console_output(
             match=r'the following table properties have changed \(FATAL\):\n'
-            r'\s*default_idxs_enabled: model=False, existing=True'
+            r'\s*has_default_idxs: model=False, existing=True'
         ):
             TableModelV3.diff_all(root)
 

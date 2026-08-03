@@ -174,7 +174,7 @@ class LocalTable(Table):
         if any(col.is_pk for col in columns):
             primary_key = [col.name for col in columns if col.is_pk]
 
-        default_idxs_enabled = self._tbl_version is not None and self._tbl_version.get().default_idxs_enabled
+        has_default_idxs = self._tbl_version is not None and self._tbl_version.get().has_default_idxs
 
         return TableMetadata(
             id=self._id,
@@ -183,7 +183,7 @@ class LocalTable(Table):
             columns=column_info,
             indices=index_info,
             is_versioned=tv.is_versioned,
-            default_idxs_enabled=default_idxs_enabled,
+            has_default_idxs=has_default_idxs,
             is_view=False,
             is_snapshot=False,
             version=self._get_version(),
@@ -776,7 +776,7 @@ class LocalTable(Table):
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
-            if self._tbl_version.get().default_idxs_enabled:
+            if self._tbl_version.get().has_default_idxs:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'{self._display_str()}: cannot add a B-tree index to a table created with '
@@ -1044,7 +1044,7 @@ class LocalTable(Table):
                 )
             idx_info = idx_info_list[0]
 
-        if isinstance(idx_info.idx, index.BtreeIndex) and self._tbl_version.get().default_idxs_enabled:
+        if isinstance(idx_info.idx, index.BtreeIndex) and self._tbl_version.get().has_default_idxs:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Cannot drop B-tree index {idx_info.name!r} from a table created with '

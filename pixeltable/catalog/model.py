@@ -1093,7 +1093,7 @@ class TableDiff(TypedDict):
 
 # Table-level attribute names that are reported as a single grouped diff (as opposed to `kind`/`iterator`/`filter`/
 # `sample`, which each get their own diff line).
-_TABLE_PROP_NAMES: tuple[str, ...] = ('media_validation', 'comment', 'custom_metadata', 'default_idxs_enabled')
+_TABLE_PROP_NAMES: tuple[str, ...] = ('media_validation', 'comment', 'custom_metadata', 'has_default_idxs')
 
 
 def _resolution(exists: bool, ops: list[SchemaChangeOp]) -> DiffResolution:
@@ -1319,12 +1319,12 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
 
             # create_default_idxs mismatch is unsupported.
             model_default_idxs = model.__table_spec__['create_default_idxs']
-            existing_default_idxs = existing_md['default_idxs_enabled']
+            existing_default_idxs = existing_md['has_default_idxs']
             if model_default_idxs != existing_default_idxs:
                 ops.append(
                     SchemaChangeOp(
                         target='table',
-                        name='default_idxs_enabled',
+                        name='has_default_idxs',
                         op='alter',
                         severity='unsupported',
                         model=model_default_idxs,
