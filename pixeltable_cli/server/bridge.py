@@ -25,7 +25,6 @@ from typing import TYPE_CHECKING, Any
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.catalog import Path as CatalogPath, model
-from pixeltable.catalog.table_metadata import TableMetadata
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable_cli import schema_types
@@ -108,6 +107,7 @@ def _build_select(
                 'is_media': is_media,
                 'is_computed': is_computed,
                 'is_stored': is_stored,
+                'is_iterator_col': info['is_iterator_col'],
                 'is_sorted': col_name in sorted_cols,
             }
         )
@@ -262,57 +262,61 @@ def export_table_csv(table_path: str, limit: int = 100_000) -> bytes:
     return buf.getvalue().encode('utf-8')
 
 
-def search(query: str, limit: int = 50) -> dict[str, Any]:
+def _search_catalog(root: str, query_lower: str, results: dict[str, Any]) -> None:
+    """Add the matches found under one catalog root to results, in place."""
+    for dir_path in pxt.list_dirs(root, recursive=True):
+        if query_lower in dir_path.lower():
+            results['directories'].append({'path': dir_path, 'name': dir_path.split('/')[-1]})
+
+    for tbl_path in pxt.list_tables(root, recursive=True):
+        # we get metadata for every table: a column match is only visible in the table's metadata
+        try:
+            tbl_md = pxt.get_table(tbl_path).get_metadata()
+        except Exception as e:
+            _logger.warning(f'Search: could not inspect {tbl_path}: {e}')
+            results['unavailable'].append({'path': tbl_path, 'kind': 'table', 'error': f'{type(e).__name__}: {e}'})
+            continue
+
+        if query_lower in tbl_path.lower():
+            results['tables'].append({'path': tbl_path, 'name': tbl_path.split('/')[-1], 'kind': tbl_md['kind']})
+
+        for col_name, col_info in tbl_md['columns'].items():
+            if query_lower in col_name.lower():
+                results['columns'].append(
+                    {
+                        'name': col_name,
+                        'table': tbl_path,
+                        'type': col_info['type_'],
+                        'is_computed': col_info['is_computed'],
+                    }
+                )
+
+
+def search(query: str, additional_db_uris: list[str] | None = None) -> dict[str, Any]:
     """
-    Search across directories, tables, and columns.
+    Search across directories, tables, and columns in the local catalog and any additional catalogs.
+
+    The local (in-process) catalog is always searched; additional_db_uris holds hosted db uris to
+    search as well. Result paths are full and resolvable in their catalog.
+
+    A catalog that cannot be listed, or an error in get_table(), is reported under 'unavailable'
+    rather than failing the search or appearing in the results with fabricated metadata.
     """
     query_lower = query.lower()
 
-    results: dict[str, Any] = {'query': query, 'directories': [], 'tables': [], 'columns': []}
+    results: dict[str, Any] = {'query': query, 'directories': [], 'tables': [], 'columns': [], 'unavailable': []}
 
-    # Search directories
-    all_dirs = pxt.list_dirs('', recursive=True)
-    for dir_path in all_dirs:
-        if query_lower in dir_path.lower():
-            results['directories'].append({'path': dir_path, 'name': dir_path.split('/')[-1]})
-            if len(results['directories']) >= limit:
-                break
+    # The local catalog is the empty root; each additional catalog is searched at its hosted-uri root.
+    roots = ['', *(additional_db_uris or [])]
 
-    # Search tables and their columns (single get_table call per table)
-    all_tables = pxt.list_tables('', recursive=True)
-    for tbl_path in all_tables:
-        tbl_name = tbl_path.split('/')[-1]
-        table_matches = query_lower in tbl_path.lower()
-
-        # Only fetch table metadata once, and only when needed
-        tbl_md: TableMetadata | None = None
-        if table_matches or len(results['columns']) < limit:
-            try:
-                tbl = pxt.get_table(tbl_path)
-                tbl_md = tbl.get_metadata()
-            except Exception:
-                # If we can't get metadata, record table match with defaults
-                if table_matches and len(results['tables']) < limit:
-                    results['tables'].append({'path': tbl_path, 'name': tbl_name, 'kind': 'table'})
-                continue
-
-        if table_matches and len(results['tables']) < limit and tbl_md:
-            results['tables'].append({'path': tbl_path, 'name': tbl_name, 'kind': tbl_md['kind']})
-
-        # Search columns within this table (reuse tbl_md)
-        if tbl_md and len(results['columns']) < limit:
-            for col_name, col_info in tbl_md['columns'].items():
-                if query_lower in col_name.lower():
-                    results['columns'].append(
-                        {
-                            'name': col_name,
-                            'table': tbl_path,
-                            'type': col_info['type_'],
-                            'is_computed': col_info['is_computed'],
-                        }
-                    )
-                    if len(results['columns']) >= limit:
-                        break
+    for root in roots:
+        try:
+            _search_catalog(root, query_lower, results)
+        except Exception as e:
+            _logger.warning(f'Search: could not list catalog {root or "local"}: {e}')
+            results['unavailable'].append(
+                {'path': root or 'local', 'kind': 'catalog', 'error': f'{type(e).__name__}: {e}'}
+            )
 
     return results
 
@@ -421,7 +425,6 @@ def get_pipeline(tbl_path: str | None = None) -> dict[str, Any]:
                     computed_cols.append(col_name)
                 defined_in = info['defined_in']
 
-                value_expr = value_expr[:200] if value_expr is not None else None
                 func_type: str | None
                 if not is_computed and not is_iter_col:
                     func_type = None

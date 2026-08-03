@@ -1,14 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
 import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelHandle } from 'react-resizable-panels'
 import { Routes, Route, useNavigate, useParams, useLocation } from 'react-router-dom'
-import { DirectoryTree } from '@/components/DirectoryTree'
+import { CatalogTree } from '@/components/CatalogTree'
 import { TableDetailView } from '@/components/TableDetailView'
 import { SearchPanel } from '@/components/SearchPanel'
 import { PipelineInspector } from '@/components/PipelineInspector'
 import { getDirectoryTree, getStatus } from '@/api/client'
 import type { SystemStatus } from '@/api/client'
 import type { TableNode, TreeNode } from '@/types'
-import { cn } from '@/lib/utils'
+import { cn, tableHref, dirHref } from '@/lib/utils'
 import {
   Search,
   GitBranch,
@@ -33,10 +33,10 @@ function TableView() {
   if (!tablePath) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3">
-        <Table2 className="h-12 w-12 text-muted-foreground/15" />
+        <Table2 className="h-12 w-12 text-muted-foreground" />
         <div className="text-center">
           <p className="text-sm font-medium text-muted-foreground">Select a table</p>
-          <p className="text-xs text-muted-foreground/60 mt-1">
+          <p className="text-xs text-muted-foreground mt-1">
             Browse from the sidebar to inspect schema and data
           </p>
         </div>
@@ -49,49 +49,61 @@ function TableView() {
 
 // ── Directory View ──────────────────────────────────────────────────────────
 
-function findTreeNode(nodes: TreeNode[], path: string): TreeNode | null {
-  for (const n of nodes) {
-    if (n.path === path) return n
-    if (n.kind === 'directory') {
-      const found = findTreeNode(n.entries ?? [], path)
-      if (found) return found
-    }
-  }
-  return null
-}
-
-function flattenTables(node: TreeNode): TableNode[] {
-  if (node.kind !== 'directory') return []
+function collectTables(nodes: TreeNode[]): TableNode[] {
   const tables: TableNode[] = []
-  for (const c of node.entries ?? []) {
-    if (c.kind === 'directory') tables.push(...flattenTables(c))
-    else tables.push(c)
+  for (const n of nodes) {
+    if (n.kind === 'directory') tables.push(...collectTables(n.entries ?? []))
+    else tables.push(n)
   }
   return tables
 }
 
-function DirectoryView({ tree }: { tree: TreeNode[] }) {
+function DirectoryView() {
   const { '*': dirPath } = useParams()
   const navigate = useNavigate()
+  const [nodes, setNodes] = useState<TreeNode[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  // Resolve the directory by fetching its contents by path, so a directory in any catalog (local or
+  // hosted) is listed the same way; the daemon re-roots each node's path to its catalog.
+  useEffect(() => {
+    if (!dirPath) return
+    setNodes(null)
+    setError(null)
+    getDirectoryTree(dirPath)
+      .then(setNodes)
+      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load directory'))
+  }, [dirPath])
 
   if (!dirPath) return null
 
-  const dirNode = findTreeNode(tree, dirPath)
-  if (!dirNode) return (
-    <div className="flex flex-col items-center justify-center h-64 gap-2 text-muted-foreground">
-      <FolderOpen className="h-8 w-8 opacity-20" />
-      <p className="text-sm">Directory not found</p>
-    </div>
-  )
+  if (error !== null) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 gap-2 text-muted-foreground">
+        <FolderOpen className="h-8 w-8 opacity-20" />
+        <p className="text-sm">Directory not found</p>
+        <p className="text-[11px] text-muted-foreground/60 font-mono">{error}</p>
+      </div>
+    )
+  }
 
-  const tables = flattenTables(dirNode)
+  if (nodes === null) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="w-5 h-5 border-2 border-k-yellow border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  const name = dirPath.split('/').pop() || dirPath
+  const tables = collectTables(nodes)
   const totalErrors = tables.reduce((s, t) => s + t.error_count, 0)
 
   return (
     <div className="flex flex-col h-full p-6 animate-fade-in">
       <div className="flex items-center gap-3 mb-6">
-        <FolderOpen className="h-5 w-5 text-k-yellow/60" />
-        <h2 className="text-lg font-semibold text-foreground">{dirNode.name}</h2>
+        <FolderOpen className="h-5 w-5 text-foreground" />
+        <h2 className="text-lg font-semibold text-foreground">{name}</h2>
         <span className="text-xs text-muted-foreground font-mono">{dirPath}</span>
       </div>
 
@@ -122,7 +134,7 @@ function DirectoryView({ tree }: { tree: TreeNode[] }) {
             <tbody>
               {tables.map(t => (
                 <tr key={t.path} className="border-b border-border/20 hover:bg-accent/20 transition-colors cursor-pointer"
-                  onClick={() => navigate(`/table/${t.path}`)}>
+                  onClick={() => navigate(tableHref(t.path))}>
                   <td className="py-2 px-3 font-mono text-xs font-medium">{t.name}</td>
                   <td className="py-2 px-3 text-xs text-muted-foreground">{t.kind}</td>
                   <td className="py-2 px-3 text-xs tabular-nums text-right">
@@ -157,7 +169,7 @@ function WelcomeView() {
       <h1 className="text-xl font-semibold text-foreground mb-2">
         Pixeltable Dashboard
       </h1>
-      <p className="text-sm text-muted-foreground/90 max-w-md leading-relaxed">
+      <p className="text-sm text-muted-foreground max-w-md leading-relaxed">
         Explore your directories, tables, views, and snapshots.
         Select an item from the sidebar, or view the full pipeline lineage.
       </p>
@@ -167,7 +179,7 @@ function WelcomeView() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate('/lineage')}
-            className="flex items-center gap-2.5 rounded-lg bg-k-yellow text-background px-5 py-2.5 text-sm font-semibold hover:bg-k-yellow/90 transition-colors shadow-sm"
+            className="flex items-center gap-2.5 rounded-lg bg-k-yellow text-primary-foreground px-5 py-2.5 text-sm font-semibold hover:bg-k-yellow/90 transition-colors shadow-sm"
           >
             <GitBranch className="h-4 w-4" />
             View pipeline lineage
@@ -268,7 +280,7 @@ export default function App() {
   }, [])
 
   const handleSelectItem = (path: string, type: string) => {
-    navigate(type === 'directory' ? `/dir/${path}` : `/table/${path}`)
+    navigate(type === 'directory' ? dirHref(path) : tableHref(path))
   }
 
   const handleSearchSelect = (path: string, type: string) => {
@@ -276,10 +288,12 @@ export default function App() {
     handleSelectItem(path, type)
   }
 
+  // The path is stored as a single encoded URL segment (see tableHref/dirHref), so decode it back to the
+  // raw catalog path the tree nodes carry.
   const selectedPath = location.pathname.startsWith('/table/')
-    ? location.pathname.replace('/table/', '')
+    ? decodeURIComponent(location.pathname.replace('/table/', ''))
     : location.pathname.startsWith('/dir/')
-    ? location.pathname.replace('/dir/', '')
+    ? decodeURIComponent(location.pathname.replace('/dir/', ''))
     : null
 
   const isNavActive = (path: string) => location.pathname === path
@@ -308,12 +322,12 @@ export default function App() {
                 <div className="flex items-center gap-1.5">
                   <span className="text-[13px] font-semibold tracking-tight text-foreground leading-tight">Pixeltable</span>
                   {status && (
-                    <span className="text-[10px] text-muted-foreground/50 font-mono leading-tight">v{status.version.split('+')[0]}</span>
+                    <span className="text-[10px] text-muted-foreground font-mono leading-tight">v{status.version.split('+')[0]}</span>
                   )}
                 </div>
                 {status?.config?.home && (
-                  <span className="flex items-center gap-1 text-[10px] text-muted-foreground/60 leading-tight mt-0.5">
-                    <CircleDot className="h-2 w-2 text-emerald-400 shrink-0" />
+                  <span className="flex items-center gap-1 text-[10px] text-muted-foreground leading-tight mt-0.5">
+                    <CircleDot className="h-2 w-2 text-muted-foreground shrink-0" />
                     <span className="truncate">{status.config.home.replace(/^\/Users\/[^/]+\//, '~/')}</span>
                   </span>
                 )}
@@ -324,7 +338,7 @@ export default function App() {
           {sidebarOpen && status?.config && (
             <div className="absolute top-full left-2 mt-0.5 hidden group-hover:block z-50 min-w-[280px] max-w-sm">
               <div className="rounded-lg border border-border/60 bg-card shadow-lg px-3.5 py-3 text-[11px] space-y-2.5">
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50">Connection</div>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Connection</div>
                 {([
                   ['Home', status.config.home],
                   ['Database', status.config.db_url],
@@ -333,17 +347,17 @@ export default function App() {
                   ['Version', status.version],
                 ] as const).map(([label, val]) => (
                   <div key={label}>
-                    <div className="text-[10px] text-muted-foreground/60 mb-0.5">{label}</div>
+                    <div className="text-[10px] text-muted-foreground mb-0.5">{label}</div>
                     <div className="text-foreground font-mono text-[11px] break-all select-text leading-snug">{val}</div>
                   </div>
                 ))}
                 <div className="flex items-center justify-between pt-1 border-t border-border/30">
-                  <span className="text-[10px] text-muted-foreground/60">Tables</span>
+                  <span className="text-[10px] text-muted-foreground">Tables</span>
                   <span className="text-foreground font-medium tabular-nums">{status.total_tables}</span>
                 </div>
                 {status.total_errors > 0 && (
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-muted-foreground/60">Errors</span>
+                    <span className="text-[10px] text-muted-foreground">Errors</span>
                     <span className="text-destructive font-medium tabular-nums">{status.total_errors}</span>
                   </div>
                 )}
@@ -402,8 +416,8 @@ export default function App() {
                 <div className="w-5 h-5 border-2 border-k-yellow border-t-transparent rounded-full animate-spin" />
             </div>
             ) : sidebarOpen ? (
-            <DirectoryTree
-              nodes={tree}
+            <CatalogTree
+              localTree={tree}
               selectedPath={selectedPath}
               onSelect={handleSelectItem}
             />
@@ -470,7 +484,7 @@ export default function App() {
           <Route path="/" element={<div className="flex-1 overflow-auto h-full"><WelcomeView /></div>} />
           <Route path="/lineage" element={<PipelineInspector />} />
           <Route path="/table/*" element={<div className="flex-1 flex flex-col h-full"><TableView /></div>} />
-          <Route path="/dir/*" element={<div className="flex-1 overflow-auto h-full"><DirectoryView tree={tree} /></div>} />
+          <Route path="/dir/*" element={<div className="flex-1 overflow-auto h-full"><DirectoryView /></div>} />
         </Routes>
         </Panel>
       </PanelGroup>

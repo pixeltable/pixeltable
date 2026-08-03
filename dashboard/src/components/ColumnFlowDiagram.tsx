@@ -124,7 +124,7 @@ function ColumnNodeComponent({ data, selected }: { data: ColumnNodeData; selecte
         {/* Origin tag for inherited columns */}
         {inherited && data.definedIn && (
           <div className="px-3 py-1 bg-muted/20 border-b border-border/20">
-            <span className="text-[8px] uppercase tracking-wider text-muted-foreground/50 font-medium">
+            <span className="text-[8px] uppercase tracking-wider text-muted-foreground font-medium">
               from {data.definedIn}
             </span>
           </div>
@@ -141,25 +141,25 @@ function ColumnNodeComponent({ data, selected }: { data: ColumnNodeData; selecte
           )}>
             <Icon className={cn(
               'h-3 w-3',
-              !inherited && data.isComputed ? 'text-k-yellow' : 'text-muted-foreground',
+              !inherited && data.isComputed ? 'text-foreground' : 'text-muted-foreground',
             )} />
           </div>
           <div className="min-w-0 flex-1">
             <span className={cn(
               'text-[11px] font-semibold truncate block leading-tight',
-              inherited ? 'text-foreground/70' : 'text-foreground',
+              inherited ? 'text-foreground' : 'text-foreground',
             )}>
               {data.name}
             </span>
             <span className={cn(
               'text-[9px] font-mono leading-tight',
-              !inherited && data.isComputed ? 'text-k-yellow/60' : 'text-muted-foreground/50',
+              !inherited && data.isComputed ? 'text-foreground' : 'text-muted-foreground',
             )}>
               {formatType(data.type)}
             </span>
           </div>
           {data.isComputed && (
-            <Zap className={cn('h-2.5 w-2.5 shrink-0', inherited ? 'text-muted-foreground/30' : 'text-k-yellow/60')} />
+            <Zap className={cn('h-2.5 w-2.5 shrink-0', inherited ? 'text-muted-foreground' : 'text-foreground')} />
           )}
         </div>
 
@@ -176,7 +176,7 @@ function ColumnNodeComponent({ data, selected }: { data: ColumnNodeData; selecte
                 </span>
               )}
               {data.funcName && (
-                <code className="text-[9px] font-mono text-muted-foreground/60 truncate">
+                <code className="text-[9px] font-mono text-muted-foreground truncate">
                   {data.funcName.length > 24 ? `${data.funcName.slice(0, 22)}…` : data.funcName}()
                 </code>
               )}
@@ -229,12 +229,12 @@ function ColumnDetailPanel({
             )}>
               <Icon className={cn(
                 'h-3.5 w-3.5',
-                node.isComputed ? 'text-k-yellow' : 'text-muted-foreground',
+                node.isComputed ? 'text-foreground' : 'text-muted-foreground',
               )} />
             </div>
             <div className="min-w-0">
               <h3 className="text-xs font-semibold truncate">{node.name}</h3>
-              <div className="text-[10px] font-mono text-muted-foreground/60">{node.type}</div>
+              <div className="text-[10px] font-mono text-muted-foreground">{node.type}</div>
             </div>
           </div>
           <button
@@ -248,22 +248,22 @@ function ColumnDetailPanel({
 
       {/* Kind + Origin */}
       <div className="px-4 py-2.5 border-b border-border/50">
-        <div className="text-[9px] text-muted-foreground/60 uppercase tracking-wider mb-1">Kind</div>
+        <div className="text-[9px] text-muted-foreground uppercase tracking-wider mb-1">Kind</div>
         <div className="flex items-center gap-1.5 flex-wrap">
           {node.isComputed && funcStyle ? (
             <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded', funcStyle.bg, funcStyle.text)}>
               {funcStyle.label}
             </span>
           ) : (
-            <span className="text-[10px] text-muted-foreground/60 bg-muted/30 px-1.5 py-0.5 rounded">Source</span>
+            <span className="text-[10px] text-muted-foreground bg-muted/30 px-1.5 py-0.5 rounded">Source</span>
           )}
           {!node.definedInSelf && node.definedIn && (
-            <span className="text-[10px] text-muted-foreground/50 bg-muted/20 px-1.5 py-0.5 rounded border border-dashed border-border/40">
+            <span className="text-[10px] text-muted-foreground bg-muted/20 px-1.5 py-0.5 rounded border border-dashed border-border/40">
               from {node.definedIn}
             </span>
           )}
           {node.isIteratorCol && (
-            <span className="text-[10px] text-violet-400 bg-violet-400/10 px-1.5 py-0.5 rounded font-medium">
+            <span className="text-[10px] text-muted-foreground bg-violet-400/10 px-1.5 py-0.5 rounded font-medium">
               iterator
             </span>
           )}
@@ -274,12 +274,12 @@ function ColumnDetailPanel({
       {node.computeExpression && (
         <div className="px-4 py-2.5 border-b border-border/50">
           <div className="flex items-center justify-between mb-1.5">
-            <div className="text-[9px] text-muted-foreground/60 uppercase tracking-wider">Expression</div>
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wider">Expression</div>
             <button
               onClick={handleCopy}
-              className="p-0.5 text-muted-foreground/40 hover:text-foreground transition-colors rounded hover:bg-muted/50"
+              className="p-0.5 text-muted-foreground hover:text-foreground transition-colors rounded hover:bg-muted/50"
             >
-              {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+              {copied ? <Check className="h-3 w-3 text-muted-foreground" /> : <Copy className="h-3 w-3" />}
             </button>
           </div>
           <pre className="text-[10px] font-mono text-muted-foreground bg-accent/50 rounded px-2.5 py-2 whitespace-pre-wrap break-all leading-relaxed max-h-32 overflow-y-auto">
@@ -291,8 +291,8 @@ function ColumnDetailPanel({
       {/* Comment */}
       {node.comment && (
         <div className="px-4 py-2.5 border-b border-border/50">
-          <div className="text-[9px] text-muted-foreground/60 uppercase tracking-wider mb-1">Note</div>
-          <p className="text-[10px] text-muted-foreground/80 italic">{node.comment}</p>
+          <div className="text-[9px] text-muted-foreground uppercase tracking-wider mb-1">Note</div>
+          <p className="text-[10px] text-muted-foreground italic">{node.comment}</p>
         </div>
       )}
 
@@ -300,8 +300,8 @@ function ColumnDetailPanel({
       {node.upstreamColumns.length > 0 && (
         <div className="px-4 py-2.5 border-b border-border/50">
           <div className="flex items-center gap-1.5 mb-1.5">
-            <GitBranch className="h-3 w-3 text-muted-foreground/50" />
-            <div className="text-[9px] text-muted-foreground/60 uppercase tracking-wider">
+            <GitBranch className="h-3 w-3 text-muted-foreground" />
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wider">
               Depends On ({node.upstreamColumns.length})
             </div>
           </div>
@@ -313,8 +313,8 @@ function ColumnDetailPanel({
                 className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-left hover:bg-accent/50 transition-colors group"
               >
                 <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30 group-hover:bg-k-yellow transition-colors" />
-                <span className="text-[10px] text-foreground/80 font-medium truncate">{col}</span>
-                <ChevronRight className="h-2.5 w-2.5 text-muted-foreground/30 ml-auto group-hover:text-foreground transition-colors" />
+                <span className="text-[10px] text-foreground font-medium truncate">{col}</span>
+                <ChevronRight className="h-2.5 w-2.5 text-muted-foreground ml-auto group-hover:text-foreground transition-colors" />
               </button>
             ))}
           </div>
@@ -325,8 +325,8 @@ function ColumnDetailPanel({
       {node.downstreamColumns.length > 0 && (
         <div className="px-4 py-2.5 border-b border-border/50">
           <div className="flex items-center gap-1.5 mb-1.5">
-            <Zap className="h-3 w-3 text-k-yellow/60" />
-            <div className="text-[9px] text-muted-foreground/60 uppercase tracking-wider">
+            <Zap className="h-3 w-3 text-foreground" />
+            <div className="text-[9px] text-muted-foreground uppercase tracking-wider">
               Used By ({node.downstreamColumns.length})
             </div>
           </div>
@@ -337,9 +337,9 @@ function ColumnDetailPanel({
                 onClick={() => onNavigate(col)}
                 className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-left hover:bg-accent/50 transition-colors group"
               >
-                <Zap className="h-2.5 w-2.5 text-k-yellow/30 group-hover:text-k-yellow transition-colors" />
-                <span className="text-[10px] text-foreground/80 font-medium truncate">{col}</span>
-                <ChevronRight className="h-2.5 w-2.5 text-muted-foreground/30 ml-auto group-hover:text-foreground transition-colors" />
+                <Zap className="h-2.5 w-2.5 text-foreground group-hover:text-foreground transition-colors" />
+                <span className="text-[10px] text-foreground font-medium truncate">{col}</span>
+                <ChevronRight className="h-2.5 w-2.5 text-muted-foreground ml-auto group-hover:text-foreground transition-colors" />
               </button>
             ))}
           </div>
@@ -349,7 +349,7 @@ function ColumnDetailPanel({
       {/* Leaf source */}
       {!node.isComputed && node.downstreamColumns.length === 0 && (
         <div className="px-4 py-6 text-center">
-          <p className="text-[10px] text-muted-foreground/40">
+          <p className="text-[10px] text-muted-foreground">
             This source column is not referenced by any computed columns.
           </p>
         </div>
@@ -363,8 +363,8 @@ function ColumnDetailPanel({
 function EmptyState() {
   return (
     <div className="h-40 border border-border/40 rounded-lg bg-accent/20 flex flex-col items-center justify-center text-center p-6">
-      <Layers className="h-5 w-5 text-muted-foreground/30 mb-2" />
-      <p className="text-[10px] text-muted-foreground/50 max-w-[200px]">
+      <Layers className="h-5 w-5 text-muted-foreground mb-2" />
+      <p className="text-[10px] text-muted-foreground max-w-[200px]">
         No column dependencies to visualize. Add computed columns that reference other columns.
       </p>
     </div>
@@ -449,23 +449,23 @@ function ColumnFlowContent({ columns }: { columns: PipelineColumn[] }) {
             <div className="bg-card/90 backdrop-blur-sm border border-border/40 rounded px-2.5 py-1.5 flex items-center gap-2.5">
               <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
                 <span className="font-semibold text-foreground">{sourceCount}</span> source
-                <span className="text-muted-foreground/30">&rarr;</span>
-                <span className="font-semibold text-k-yellow">{computedCount}</span> computed
+                <span className="text-muted-foreground">&rarr;</span>
+                <span className="font-semibold text-foreground">{computedCount}</span> computed
               </div>
             </div>
           </Panel>
           <Panel position="top-right">
             <div className="bg-card/90 backdrop-blur-sm border border-border/40 rounded px-2.5 py-1.5 space-y-1">
-              <div className="text-[8px] text-muted-foreground/50 uppercase tracking-wider font-semibold">Legend</div>
-              <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground/60">
+              <div className="text-[8px] text-muted-foreground uppercase tracking-wider font-semibold">Legend</div>
+              <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground">
                 <div className="w-2.5 h-2.5 rounded-sm border border-border/60 bg-card" />
                 Source Column
               </div>
-              <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground/60">
+              <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground">
                 <div className="w-2.5 h-2.5 rounded-sm border border-k-yellow/40 bg-k-yellow/10" />
                 Computed Column
               </div>
-              <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground/60">
+              <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground">
                 <div className="w-2.5 h-2.5 rounded-sm border border-dashed border-border/50 bg-card/60 opacity-70" />
                 Inherited (base table)
               </div>

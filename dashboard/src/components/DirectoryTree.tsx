@@ -1,13 +1,10 @@
 import { useState, useMemo, useEffect } from 'react'
 import type { TreeNode } from '@/types'
 import { cn } from '@/lib/utils'
+import { KindBadge } from './KindBadge'
 import {
   Folder,
   FolderOpen,
-  Table2,
-  Eye,
-  Camera,
-  Copy,
   ChevronRight,
   ChevronDown,
   Search,
@@ -22,23 +19,10 @@ interface DirectoryTreeProps {
   onSelect: (path: string, type: string) => void
 }
 
-function getNodeIcon(type: string, isOpen: boolean = false) {
-  switch (type) {
-    case 'directory':
-      return isOpen
-        ? <FolderOpen className="h-3.5 w-3.5 text-k-yellow shrink-0" />
-        : <Folder className="h-3.5 w-3.5 text-k-yellow shrink-0" />
-    case 'table':
-      return <Table2 className="h-3.5 w-3.5 text-blue-400 shrink-0" />
-    case 'view':
-      return <Eye className="h-3.5 w-3.5 text-purple-400 shrink-0" />
-    case 'snapshot':
-      return <Camera className="h-3.5 w-3.5 text-orange-400 shrink-0" />
-    case 'replica':
-      return <Copy className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-    default:
-      return <Table2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-  }
+function getDirectoryIcon(isOpen: boolean) {
+  return isOpen
+    ? <FolderOpen className="h-3.5 w-3.5 text-foreground shrink-0" />
+    : <Folder className="h-3.5 w-3.5 text-foreground shrink-0" />
 }
 
 function countDescendants(node: TreeNode): number {
@@ -113,7 +97,9 @@ function TreeItem({ node, level, selectedPath, onSelect, filter, collapsedAll }:
           <span className="w-3.5 h-3.5 shrink-0" />
         )}
 
-        {getNodeIcon(node.kind, isOpen)}
+        {isDirectory
+          ? getDirectoryIcon(isOpen)
+          : <span className="w-3.5 h-3.5 shrink-0" />}
         <span className="flex-1 text-[13px] truncate">{node.name}</span>
 
         {hasErrors && !isDirectory && (
@@ -123,16 +109,13 @@ function TreeItem({ node, level, selectedPath, onSelect, filter, collapsedAll }:
         )}
 
         {isDirectory && descendantCount > 0 && (
-          <span className="text-[10px] text-muted-foreground/50 tabular-nums shrink-0">
+          <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
             {descendantCount}
           </span>
         )}
 
-        {!isDirectory && node.version !== null && (
-          <span className="text-[10px] text-muted-foreground/40 tabular-nums shrink-0">
-            v{node.version}
-          </span>
-        )}
+        {!isDirectory && <KindBadge kind={node.kind} />}
+
       </button>
 
       {isDirectory && hasChildren && isOpen && (
@@ -178,23 +161,23 @@ export function DirectoryTree({ nodes, selectedPath, onSelect }: DirectoryTreePr
       {showFilter && (
         <div className="px-2 pb-1.5 flex items-center gap-1">
           <div className="relative flex-1">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/50" />
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
             <input
               type="text"
               value={filter}
               onChange={e => setFilter(e.target.value)}
               placeholder="Filter…"
-              className="h-6 w-full pl-6 pr-6 text-[11px] rounded border border-border/40 bg-background/50 text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring/30"
+              className="h-6 w-full pl-6 pr-6 text-[11px] rounded border border-border/40 bg-background/50 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/30"
             />
             {filter && (
               <button onClick={() => setFilter('')} className="absolute right-1.5 top-1/2 -translate-y-1/2">
-                <X className="h-3 w-3 text-muted-foreground/50 hover:text-foreground" />
+                <X className="h-3 w-3 text-muted-foreground hover:text-foreground" />
               </button>
             )}
           </div>
           <button
             onClick={() => setCollapsedAll(c => c + 1)}
-            className="h-6 w-6 flex items-center justify-center rounded border border-border/40 bg-background/50 text-muted-foreground/50 hover:text-foreground transition-colors shrink-0"
+            className="h-6 w-6 flex items-center justify-center rounded border border-border/40 bg-background/50 text-muted-foreground hover:text-foreground transition-colors shrink-0"
             title="Collapse all"
           >
             <ChevronsDownUp className="h-3 w-3" />
