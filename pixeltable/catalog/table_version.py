@@ -613,7 +613,7 @@ class TableVersion:
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Cannot create a B-tree index on column {col.name!r}, which is produced by an iterator.',
             )
-        type_err = index.BtreeIndex.type_error(col)
+        type_err = index.BtreeIndex.validate_col_type(col)
         if type_err is not None:
             return type_err
         if col.col_type.is_media_type() and col.is_computed:
