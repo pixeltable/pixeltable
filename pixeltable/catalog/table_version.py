@@ -681,7 +681,6 @@ class TableVersion:
 
         for idx_col, idx_name, idx in idxs:
             if idx_name is not None:
-                # the manifests this validates are keyed by index name, so a name cannot repeat within idxs
                 assert idx_name not in new_names, idx_name
                 existing_info = existing_by_name.get(idx_name)
                 if existing_info is not None:
