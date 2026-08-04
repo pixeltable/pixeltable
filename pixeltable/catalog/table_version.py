@@ -584,6 +584,7 @@ class TableVersion:
 
     def add_index(self, col: Column, idx_name: str | None, idx: index.IndexBase) -> UpdateStatus:
         assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
+        _validate_idxs(self.id, [IndexSpec(col, idx_name, idx)], self.has_default_idxs, self.idxs.values())
         # we're creating a new schema version
         self.bump_version(bump_schema_version=True)
         status = self._add_index(col, idx_name, idx)
@@ -1937,6 +1938,13 @@ class TableVersion:
             )
         return candidates[0] if idx_name is None else next(info for info in candidates if info.name == idx_name)
 
+    def find_btree_index(self, col: Column) -> TableVersion.IndexInfo | None:
+        """Return the B-tree index on col, or None if it doesn't have one."""
+        assert col.tbl_handle.id == self.id
+        infos = [info for info in self.idxs_by_col.get(col.qid, []) if isinstance(info.idx, index.BtreeIndex)]
+        assert len(infos) <= 1, repr(col)  # at most one B-tree index per column
+        return infos[0] if len(infos) > 0 else None
+
     def get_dependent_columns(self, cols: Iterable[Column]) -> set[Column]:
         """
         Return the set of columns that transitively depend on any of the given ones.
@@ -1999,8 +2007,9 @@ def _validate_idxs(
             continue
         if has_default_idxs:
             raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT,
-                'Cannot combine has_default_idxs=True with an explicitly declared B-tree index.',
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                'Cannot create an explicit B-tree index on a table with has_default_idxs=True; '
+                'its eligible columns are indexed automatically.',
             )
         assert isinstance(idx_col, Column)
         assert idx_col.name is not None, repr(idx_col)

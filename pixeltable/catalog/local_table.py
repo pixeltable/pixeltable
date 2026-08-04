@@ -776,53 +776,25 @@ class LocalTable(Table):
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
         ):
-            if self._tbl_version.get().has_default_idxs:
+            tv = self._tbl_version.get()
+            col = self._resolve_column_parameter(column)
+
+            existing_idx_by_name = tv.idxs_by_name.get(idx_name) if idx_name is not None else None
+            if existing_idx_by_name is not None and not isinstance(existing_idx_by_name.idx, index.BtreeIndex):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'{self._display_str()}: cannot add a B-tree index to a table created with '
-                    'has_default_idxs=True; its eligible columns are indexed automatically.',
+                    f'Index {idx_name!r} already exists, but is not a B-tree index.',
                 )
-
-            col = self._resolve_column_parameter(column)
-            err = index.BtreeIndex.validation_error(col, self._tbl_version.get().id)
-            if err is not None:
-                raise err
-
-            if idx_name is not None:
-                # check for a name collision
-                existing = self._tbl_version.get().idxs_by_name.get(idx_name)
-                if existing is not None:
-                    if not isinstance(existing.idx, index.BtreeIndex):
-                        raise excs.RequestError(
-                            excs.ErrorCode.UNSUPPORTED_OPERATION,
-                            f'Index {idx_name!r} already exists, but is not a B-tree index.',
-                        )
-                    if existing.col.qid != col.qid or if_exists_ == IfExistsParam.ERROR:
-                        raise excs.AlreadyExistsError(
-                            excs.ErrorCode.INDEX_ALREADY_EXISTS,
-                            f'Index {idx_name!r} already exists on column {existing.col.name!r}.',
-                        )
-                    assert if_exists_ == IfExistsParam.IGNORE
-                    return
-
-            existing_btree_idxs = [
-                info
-                for info in self._tbl_version.get().idxs_by_col.get(col.qid, [])
-                if isinstance(info.idx, index.BtreeIndex)
-            ]
-            assert len(existing_btree_idxs) <= 1, repr(col)
-            if len(existing_btree_idxs) > 0:
-                if if_exists_ == IfExistsParam.ERROR:
-                    raise excs.AlreadyExistsError(
-                        excs.ErrorCode.INDEX_ALREADY_EXISTS,
-                        f'A B-tree index already exists on column {col.name!r} '
-                        f'(index {existing_btree_idxs[0].name!r}).',
-                    )
-                assert if_exists_ == IfExistsParam.IGNORE
+            # Do nothing if an index already exists, if_exists is 'ignore', and no other error should take precedence.
+            if (
+                if_exists_ == IfExistsParam.IGNORE
+                and not tv.has_default_idxs
+                and (existing_idx_by_name is None or existing_idx_by_name.col.qid == col.qid)
+                and tv.find_btree_index(col) is not None
+            ):
                 return
 
-            idx = index.BtreeIndex()
-            _ = self._tbl_version.get().add_index(col, idx_name=idx_name, idx=idx)
+            _ = tv.add_index(col, idx_name=idx_name, idx=index.BtreeIndex())
 
         FileCache.get().emit_eviction_warnings()
 
