@@ -43,7 +43,7 @@ class make_video(pxt.Aggregator):
         >>> tbl.select(make_video(tbl.img.rotate(45), fps=30)).collect()
 
         For a more extensive example, see the
-        [Object Detection in Videos](https://docs.pixeltable.com/howto/cookbooks/video/object-detection-in-videos)
+        [Object Detection in Videos](https://docs.pixeltable.com/howto/use-cases/object-detection-in-videos)
         cookbook.
     """
 

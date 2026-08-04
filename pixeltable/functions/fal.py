@@ -2,7 +2,7 @@
 Pixeltable UDFs
 that wrap various endpoints from the fal.ai API. In order to use them, you must
 first `pip install fal-client` and configure your fal.ai credentials, as described in
-the [Working with fal.ai](https://docs.pixeltable.com/notebooks/integrations/working-with-fal) tutorial.
+the [Working with fal.ai](https://docs.pixeltable.com/howto/providers/working-with-fal) tutorial.
 """
 
 from typing import TYPE_CHECKING, Any

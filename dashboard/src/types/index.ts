@@ -71,6 +71,7 @@ export interface TableMetadata {
   kind: 'table' | 'view' | 'snapshot' | 'replica';
   base: string | null;
   iterator_call: string | null;
+  row_count: number;
 }
 
 export interface DataColumn {
@@ -79,6 +80,7 @@ export interface DataColumn {
   is_media: boolean;
   is_computed: boolean;
   is_stored: boolean;
+  is_iterator_col: boolean;
   is_sorted: boolean;
 }
 
@@ -105,6 +107,9 @@ export interface SearchResults {
   directories: { path: string; name: string }[];
   tables: { path: string; name: string; kind: string }[];
   columns: { name: string; table: string; type: string; is_computed: boolean }[];
+  // catalogs that could not be listed and tables that could not be opened; their matches are
+  // missing from the results above, not absent from the catalog
+  unavailable: { path: string; kind: 'catalog' | 'table'; error: string }[];
 }
 
 // ── Pipeline Inspector ──────────────────────────────────────────────────────
@@ -133,7 +138,7 @@ export interface PipelineIndex {
 export interface PipelineVersion {
   version: number;
   created_at: string | null;
-  change_type: string | null;
+  change_type: 'schema' | 'data' | null;   // Table.get_versions() emits these two
   inserts: number;
   updates: number;
   deletes: number;
