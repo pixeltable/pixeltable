@@ -325,6 +325,7 @@ class TableVersion:
             index_cols.extend([val_col, undo_col])
 
             idx_id = next(index_ids)
+            resolved_idx_name: str
             if idx_name is not None:
                 resolved_idx_name = idx_name
             else:
