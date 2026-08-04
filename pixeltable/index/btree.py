@@ -1,4 +1,5 @@
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 import sqlalchemy as sql
 
@@ -33,19 +34,54 @@ class BtreeIndex(IndexBase):
         pass
 
     @classmethod
-    def validate_col_type(cls, c: 'catalog.Column') -> excs.RequestError | None:
-        """Returns None if c's type can be indexed by a B-tree, or an error explaining why not."""
+    def validation_error(cls, c: 'catalog.Column', tbl_id: UUID) -> excs.RequestError | None:
+        """Returns None if the table with id tbl_id can have a B-tree index on c, or an error explaining why not."""
+        if c.tbl_handle.id != tbl_id:
+            # PXT-1260 Allow views to create a b-tree index on a base column
+            return excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Cannot create a B-tree index on column {c.name!r}: it belongs to a base table. '
+                'Add the index to the base table instead.',
+            )
+        return cls._column_error(c)
+
+    @classmethod
+    def can_index(cls, c: 'catalog.Column', tbl_id: UUID) -> bool:
+        """True if the table with id tbl_id can have a B-tree index on c."""
+        return cls.validation_error(c, tbl_id) is None
+
+    @classmethod
+    def _column_error(cls, c: 'catalog.Column') -> excs.RequestError | None:
+        """Returns None if c can have a B-tree index, based on its type and other properties, or an error explaining
+        why not.
+        """
+        if not c.stored:
+            # if the column is intentionally not stored, we want to avoid the overhead of an index
+            return excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot create a B-tree index on unstored column {c.name!r}.'
+            )
         # bools are excluded: a B-tree on a two-valued column isn't useful
-        if (c.col_type.is_scalar_type() and not c.col_type.is_bool_type()) or c.col_type.is_media_type():
-            return None
-        return excs.RequestError(
-            excs.ErrorCode.TYPE_MISMATCH,
-            f'Index on column {c.name}: B-tree index requires a non-boolean scalar type or a media type, '
-            f'got {c.col_type}',
-        )
+        if not ((c.col_type.is_scalar_type() and not c.col_type.is_bool_type()) or c.col_type.is_media_type()):
+            return excs.RequestError(
+                excs.ErrorCode.TYPE_MISMATCH,
+                f'Index on column {c.name}: B-tree index requires a non-boolean scalar type or a media type, '
+                f'got {c.col_type}',
+            )
+        if c.col_type.is_media_type():
+            if c.is_iterator_col:
+                return excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot create a B-tree index on column {c.name!r}, which is produced by an iterator.',
+                )
+            if c.is_computed:
+                return excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot create a B-tree index on computed media column {c.name!r}.',
+                )
+        return None
 
     def create_value_expr(self, c: 'catalog.Column') -> 'exprs.Expr':
-        err = self.validate_col_type(c)
+        err = self._column_error(c)
         if err is not None:
             raise err
         col_md = c.column_version_md()

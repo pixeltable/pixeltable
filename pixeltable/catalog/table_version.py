@@ -300,7 +300,7 @@ class TableVersion:
         idxs_to_create: list[IndexSpec] = []
         if has_default_idxs and (view_md is None or not view_md.is_snapshot):
             idxs_to_create.extend(
-                IndexSpec(col, None, index.BtreeIndex()) for col in cols if cls._is_btree_indexable(col)
+                IndexSpec(col, None, index.BtreeIndex()) for col in cols if index.BtreeIndex.can_index(col, tbl_id)
             )
 
         # an index on a column of this table must reference the instance in cols, which is the one that got an id
@@ -599,34 +599,6 @@ class TableVersion:
         return status
 
     @classmethod
-    def _btree_index_error(cls, col: Column) -> excs.RequestError | None:
-        """Returns None if col can have a B-tree index, based on its type and other properties, or an error explaining
-        why not."""
-        if not col.stored:
-            # if the column is intentionally not stored, we want to avoid the overhead of an index
-            return excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot create a B-tree index on unstored column {col.name!r}.'
-            )
-        if col.col_type.is_media_type() and col.is_iterator_col:
-            return excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Cannot create a B-tree index on column {col.name!r}, which is produced by an iterator.',
-            )
-        type_err = index.BtreeIndex.validate_col_type(col)
-        if type_err is not None:
-            return type_err
-        if col.col_type.is_media_type() and col.is_computed:
-            return excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Cannot create a B-tree index on computed media column {col.name!r}.',
-            )
-        return None
-
-    @classmethod
-    def _is_btree_indexable(cls, col: Column) -> bool:
-        return cls._btree_index_error(col) is None
-
-    @classmethod
     def _validate_btree_idxs(
         cls, tbl_id: UUID, idxs: Iterable[IndexSpec], existing_idxs: Iterable[TableVersion.IndexInfo] = ()
     ) -> int:
@@ -635,7 +607,7 @@ class TableVersion:
         existing_idxs: the table's live indexes; a new B-tree index must not duplicate one of those.
         """
         # names of the columns that already have a B-tree index; a view's base columns are excluded, because the
-        # ownership check below rules them out as targets anyway
+        # validation below rejects them as targets anyway
         indexed_col_names = {
             info.col.name
             for info in existing_idxs
@@ -647,13 +619,7 @@ class TableVersion:
                 continue
             assert isinstance(idx_col, Column)
             assert idx_col.name is not None, repr(idx_col)
-            if idx_col.tbl_handle.id != tbl_id:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Cannot create a B-tree index on column {idx_col.name!r}: it belongs to a base table. '
-                    'Add the index to the base table instead.',
-                )
-            err = cls._btree_index_error(idx_col)
+            err = index.BtreeIndex.validation_error(idx_col, tbl_id)
             if err is not None:
                 raise err
             if idx_col.name in new_col_names:
@@ -802,7 +768,7 @@ class TableVersion:
         all_cols: list[Column] = []
         for col in cols:
             all_cols.append(col)
-            if self.has_default_idxs and col.name is not None and self._is_btree_indexable(col):
+            if self.has_default_idxs and col.name is not None and index.BtreeIndex.can_index(col, self.id):
                 idx = index.BtreeIndex()
 
                 val_col, undo_col = Column.create_index_columns(
@@ -1119,7 +1085,7 @@ class TableVersion:
         all_cols: list[Column] = []
         for col in cols:
             all_cols.append(col)
-            if self.has_default_idxs and col.name is not None and self._is_btree_indexable(col):
+            if self.has_default_idxs and col.name is not None and index.BtreeIndex.can_index(col, self.id):
                 idx = index.BtreeIndex()
                 val_col, undo_col = Column.create_index_columns(
                     self.handle, col, idx, self.next_col_id(), self.next_col_id(), self.schema_version

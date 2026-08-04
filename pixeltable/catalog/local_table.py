@@ -784,15 +784,7 @@ class LocalTable(Table):
                 )
 
             col = self._resolve_column_parameter(column)
-            if col.tbl_handle.id != self._tbl_version.get().id:
-                # PXT-1260 Allow views to create a b-tree index on a base column
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Cannot create a B-tree index on column {col.name!r}: it belongs to a base table. '
-                    'Add the index to the base table instead.',
-                )
-
-            err = self._tbl_version.get()._btree_index_error(col)
+            err = index.BtreeIndex.validation_error(col, self._tbl_version.get().id)
             if err is not None:
                 raise err
 
