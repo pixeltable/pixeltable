@@ -306,7 +306,7 @@ class TestTable:
                 tbl_path,
                 {'col': pxt.String},
                 media_validation=media_val,  # type: ignore[arg-type]
-                create_default_idxs=True,
+                has_default_idxs=True,
             )
             view_path = f'{tbl_path}_view'
             view = pxt.create_view(view_path, tbl, media_validation=media_val)  # type: ignore[arg-type]
@@ -526,7 +526,7 @@ class TestTable:
         """Test all ColumnMetadata fields across tables and views with various column types."""
         p = make_catalog_path
         tbl_path = p('test')
-        t = pxt.create_table(tbl_path, {'c1': pxt.Int, 'c2': pxt.Int, 'img': pxt.Image}, create_default_idxs=True)
+        t = pxt.create_table(tbl_path, {'c1': pxt.Int, 'c2': pxt.Int, 'img': pxt.Image}, has_default_idxs=True)
         # Builtin computed, single dependency
         t.add_computed_column(plus1=t.c1 + 1)
         # Builtin computed, multiple dependencies

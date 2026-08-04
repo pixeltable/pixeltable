@@ -316,13 +316,13 @@ class TestTableModel:
         assert_tbl_schemas_eq(tbl.get_metadata(), tbl2.get_metadata())
 
     def test_default_idxs_diff(self, make_catalog_path: Callable[[str], str]) -> None:
-        """The diff compares `create_default_idxs` against the table's persisted value, and `update_all()` gives
+        """The diff compares `has_default_idxs` against the table's persisted value, and `update_all()` gives
         newly added columns the same default index treatment the table's original columns got."""
         p = make_catalog_path
         root = p('')
         TableModel = pxt.model_base()
 
-        class WithDefaults(TableModel, name='defaults_table', create_default_idxs=True):
+        class WithDefaults(TableModel, name='defaults_table', has_default_idxs=True):
             id: pxt.Required[pxt.Int]
             name: pxt.String
 
@@ -349,7 +349,7 @@ class TestTableModel:
         # index is not itself reported as a difference (default indexes have no counterpart in `__indexes__`).
         TableModelV2 = pxt.model_base()
 
-        class WithDefaultsV2(TableModelV2, name='defaults_table', create_default_idxs=True):
+        class WithDefaultsV2(TableModelV2, name='defaults_table', has_default_idxs=True):
             id: pxt.Required[pxt.Int]
             name: pxt.String
             extra: pxt.Int
@@ -361,16 +361,16 @@ class TestTableModel:
         assert btree_cols() == {'id', 'name', 'extra'}
         assert TableModelV2.get_model_diff(root)['defaults_table']['resolution'] == 'up_to_date'
 
-        # A model that disagrees with the table's persisted create_default_idxs setting is an unsupported change.
+        # A model that disagrees with the table's persisted has_default_idxs setting is an unsupported change.
         TableModelV3 = pxt.model_base()
 
-        class WithDefaultsV3(TableModelV3, name='defaults_table', create_default_idxs=False):
+        class WithDefaultsV3(TableModelV3, name='defaults_table', has_default_idxs=False):
             id: pxt.Required[pxt.Int]
             name: pxt.String
             extra: pxt.Int
             name_idx = BtreeIndex(name)
 
-        class NoDefaultsV3(TableModelV3, name='no_defaults_table', create_default_idxs=True):
+        class NoDefaultsV3(TableModelV3, name='no_defaults_table', has_default_idxs=True):
             id: pxt.Required[pxt.Int]
             name: pxt.String
 
@@ -574,7 +574,7 @@ class TestTableModel:
         p = make_catalog_path
         TableModel = pxt.model_base()
 
-        class ExampleTableModel(TableModel, name='test_table', create_default_idxs=True):
+        class ExampleTableModel(TableModel, name='test_table', has_default_idxs=True):
             id: pxt.Required[pxt.Int]
             name: pxt.String
             value: pxt.Float
@@ -584,7 +584,7 @@ class TestTableModel:
 
             clip_idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
 
-        class ExampleViewModel(TableModel, name='test_view', base=ExampleTableModel, create_default_idxs=True):
+        class ExampleViewModel(TableModel, name='test_view', base=ExampleTableModel, has_default_idxs=True):
             view_col_1: pxt.Image
             view_col_2 = view_col_1.rotate(90)
             view_col_3 = ExampleTableModel.img.rotate(90)  # Also try dereferencing a base table column
@@ -592,7 +592,7 @@ class TestTableModel:
             view_idx = EmbeddingIndex(view_col_2, embedding=dummy_embedding.using(n=768))
             view_idx_on_base_tbl_col = EmbeddingIndex(ExampleTableModel.img, embedding=dummy_embedding.using(n=768))
 
-        class ExampleSubviewModel(TableModel, name='test_subview', base=ExampleViewModel, create_default_idxs=True):
+        class ExampleSubviewModel(TableModel, name='test_subview', base=ExampleViewModel, has_default_idxs=True):
             subview_col_1 = ExampleTableModel.img.rotate(180)
             subview_col_2 = ExampleViewModel.view_col_1.rotate(270)
             subview_col_3 = subview_col_2.rotate(30)
@@ -603,7 +603,7 @@ class TestTableModel:
             base=ExampleTableModel.select(
                 ExampleTableModel.value, ExampleTableModel.img, plusone=(ExampleTableModel.value + 1)
             ).where(ExampleTableModel.value > 0.5),
-            create_default_idxs=True,
+            has_default_idxs=True,
         ):
             view_col_1: pxt.Image
             view_col_2 = view_col_1.rotate(90)
@@ -617,7 +617,7 @@ class TestTableModel:
             TableModel,
             name='test_subview_from_query',
             base=ExampleViewModelFromQuery.where(ExampleTableModel.value > 1.0),
-            create_default_idxs=True,
+            has_default_idxs=True,
         ):
             subview_col_1 = ExampleTableModel.img.rotate(180)
             subview_col_2 = ExampleViewModel.view_col_1.rotate(270)
@@ -641,21 +641,21 @@ class TestTableModel:
         tbl2 = pxt.create_table(
             p(f'{prefix}test_table_2'),
             {'id': pxt.Required[pxt.Int], 'name': pxt.String, 'value': pxt.Float, 'img': pxt.Image},
-            create_default_idxs=True,
+            has_default_idxs=True,
         )
         tbl2.add_computed_column(incr=tbl2.value + 1)
         tbl2.add_computed_column(descr=pxtf.string.format('Name: {name}', name=tbl2.name))
         tbl2.add_embedding_index('img', idx_name='clip_idx', embedding=dummy_embedding.using(n=768))
 
         view2 = pxt.create_view(
-            p(f'{prefix}test_view_2'), tbl2, additional_columns={'view_col_1': pxt.Image}, create_default_idxs=True
+            p(f'{prefix}test_view_2'), tbl2, additional_columns={'view_col_1': pxt.Image}, has_default_idxs=True
         )
         view2.add_computed_column(view_col_2=view2.view_col_1.rotate(90))
         view2.add_computed_column(view_col_3=view2.img.rotate(90))
         view2.add_embedding_index('view_col_2', idx_name='view_idx', embedding=dummy_embedding.using(n=768))
         view2.add_embedding_index('img', idx_name='view_idx_on_base_tbl_col', embedding=dummy_embedding.using(n=768))
 
-        subview2 = pxt.create_view(p(f'{prefix}test_subview_2'), view2, create_default_idxs=True)
+        subview2 = pxt.create_view(p(f'{prefix}test_subview_2'), view2, has_default_idxs=True)
         subview2.add_computed_column(subview_col_1=subview2.img.rotate(180))
         subview2.add_computed_column(subview_col_2=subview2.view_col_1.rotate(270))
         subview2.add_computed_column(subview_col_3=subview2.subview_col_2.rotate(30))
@@ -664,7 +664,7 @@ class TestTableModel:
             p(f'{prefix}test_view_from_query_2'),
             tbl2.select(tbl2.value, tbl2.img, plusone=tbl2.value + 1).where(tbl2.value > 0.5),
             additional_columns={'view_col_1': pxt.Image},
-            create_default_idxs=True,
+            has_default_idxs=True,
         )
         view_from_query2.add_computed_column(view_col_2=view_from_query2.view_col_1.rotate(90))
         view_from_query2.add_computed_column(view_col_3=view_from_query2.img.rotate(90))
@@ -677,7 +677,7 @@ class TestTableModel:
         subview_from_query2 = pxt.create_view(
             p(f'{prefix}test_subview_from_query_2'),
             view_from_query2.where(view_from_query2.value > 1.0),
-            create_default_idxs=True,
+            has_default_idxs=True,
         )
         subview_from_query2.add_computed_column(subview_col_1=subview_from_query2.img.rotate(180))
         subview_from_query2.add_computed_column(subview_col_2=subview_from_query2.view_col_1.rotate(270))
@@ -878,7 +878,7 @@ class TestTableModel:
         view_from_query = ExampleViewModelFromQuery.table
 
         # Create analogous tables/views using the "direct construction" method and verify that the schemas (columns
-        # and indices) align with the model-based ones. (The models default to create_default_idxs=True, including
+        # and indices) align with the model-based ones. (The models default to has_default_idxs=True, including
         # for views, whereas pxt.create_view() defaults to False; pass it explicitly to match.)
         tbl2 = pxt.create_table(
             p('test_table_2'), {'id': pxt.Required[pxt.Int], 'name': pxt.String, 'value': pxt.Float, 'image': pxt.Image}
@@ -921,7 +921,7 @@ class TestTableModel:
         p = make_catalog_path
         root = p('')
 
-        # A base with a table model and a view model, 4 columns each. create_default_idxs=False keeps the diff
+        # A base with a table model and a view model, 4 columns each. has_default_idxs=False keeps the diff
         # focused on columns and the iterator (default indexes are not part of a model's declared __indexes__).
         TableModel = pxt.model_base()
 
@@ -929,7 +929,7 @@ class TestTableModel:
         # image (media_validation), and the computed derived (value expression, stored, comment, custom_metadata).
         # It also changes table-level properties (comment, custom_metadata).
         class ExampleTable(
-            TableModel, name='test_table', create_default_idxs=False, comment='before', custom_metadata={'origin': 'v1'}
+            TableModel, name='test_table', has_default_idxs=False, comment='before', custom_metadata={'origin': 'v1'}
         ):
             id: pxt.Required[pxt.Int]
             name: pxt.String
@@ -978,11 +978,7 @@ class TestTableModel:
         TableModelV2 = pxt.model_base()
 
         class ExampleTableV2(
-            TableModelV2,
-            name='test_table',
-            create_default_idxs=False,
-            comment='after',
-            custom_metadata={'origin': 'v2'},
+            TableModelV2, name='test_table', has_default_idxs=False, comment='after', custom_metadata={'origin': 'v2'}
         ):
             id: pxt.Required[pxt.Int]
             image = Column(type=pxt.Image, media_validation='on_read')  # kept, media_validation changed
@@ -1799,9 +1795,9 @@ class TestTableModel:
             DupBtree._create(p(''))
 
         # rejected by the class definition itself, before _create() is ever reached
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'cannot combine create_default_idxs'):
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'cannot combine has_default_idxs'):
 
-            class DefaultsPlusBtree(TableModel, name='defaults_plus_btree_table', create_default_idxs=True):
+            class DefaultsPlusBtree(TableModel, name='defaults_plus_btree_table', has_default_idxs=True):
                 id: pxt.Required[pxt.Int]
                 name: pxt.String
                 name_idx = BtreeIndex(name)

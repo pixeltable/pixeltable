@@ -581,8 +581,8 @@ class Table(SchemaObject):
         media column (`Image`, `Video`, `Audio`, `Document`) is supported; the index on a media column is over the
         file URL. The column must be stored and, if a media column, must not be produced by a view iterator.
 
-        Only tables created with `create_default_idxs=False` (the default) accept explicit B-tree indexes. A table
-        created with `create_default_idxs=True` indexes its eligible columns automatically, and its B-tree indexes
+        Only tables created with `has_default_idxs=False` (the default) accept explicit B-tree indexes. A table
+        created with `has_default_idxs=True` indexes its eligible columns automatically, and its B-tree indexes
         cannot be managed separately from their respective columns.
 
         Args:
@@ -674,7 +674,7 @@ class Table(SchemaObject):
         specified. If a column name or reference is specified, it must be a column containing exactly one index;
         otherwise the specific index name must be provided instead.
 
-        The B-tree indexes of a table created with `create_default_idxs=True` cannot be dropped: they are managed
+        The B-tree indexes of a table created with `has_default_idxs=True` cannot be dropped: they are managed
         automatically, together with the columns they index.
 
         Args:

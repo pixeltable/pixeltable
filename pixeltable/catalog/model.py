@@ -148,7 +148,7 @@ class TableSpec(TypedDict):
     display_name: str
     base: ModelQuery | None
     iterator: func.GeneratingFunctionCall | None
-    create_default_idxs: bool
+    has_default_idxs: bool
     media_validation: MediaValidation
     comment: str | None
     custom_metadata: Any
@@ -452,12 +452,12 @@ def _validate_model_declaration(cls_name: str, namespace: _ModelNamespace) -> No
         raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, 'Empty table schema not allowed.')
 
     # A table with default indexes enabled is not allowed to have explicit B-tree indexes.
-    if namespace.table_spec['create_default_idxs']:
+    if namespace.table_spec['has_default_idxs']:
         btree_idx_names = [name for name, idx in namespace.known_idxs.items() if isinstance(idx, BtreeIndex)]
         if len(btree_idx_names) > 0:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA,
-                f'model `{cls_name}`: cannot combine create_default_idxs=True with explicitly declared B-tree '
+                f'model `{cls_name}`: cannot combine has_default_idxs=True with explicitly declared B-tree '
                 f'index(es) {btree_idx_names}; eligible columns are indexed automatically.',
             )
 
@@ -483,7 +483,7 @@ class TableModelMeta(type):
         name: str,
         base: 'TableModelMeta | ModelQuery | None' = None,
         iterator: func.GeneratingFunctionCall | None = None,
-        create_default_idxs: bool = False,
+        has_default_idxs: bool = False,
         media_validation: Literal['on_read', 'on_write'] = 'on_write',
         comment: str | None = None,
         custom_metadata: Any = None,
@@ -585,7 +585,7 @@ class TableModelMeta(type):
                     'display_name': display_name,
                     'base': base,
                     'iterator': iterator,
-                    'create_default_idxs': create_default_idxs,
+                    'has_default_idxs': has_default_idxs,
                     'media_validation': media_validation_,
                     'comment': comment,
                     'custom_metadata': custom_metadata,
@@ -709,7 +709,7 @@ class TableModelMeta(type):
             path=tbl_path,
             columns=columns,
             display_name=table_spec['display_name'],
-            create_default_idxs=table_spec['create_default_idxs'],
+            has_default_idxs=table_spec['has_default_idxs'],
             media_validation=table_spec['media_validation'],
             comment=table_spec['comment'],
             custom_metadata=table_spec['custom_metadata'],
@@ -1317,8 +1317,8 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
 
             ops = []
 
-            # create_default_idxs mismatch is unsupported.
-            model_default_idxs = model.__table_spec__['create_default_idxs']
+            # has_default_idxs mismatch is unsupported.
+            model_default_idxs = model.__table_spec__['has_default_idxs']
             existing_default_idxs = existing_md['has_default_idxs']
             if model_default_idxs != existing_default_idxs:
                 ops.append(
@@ -1329,17 +1329,17 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                         severity='unsupported',
                         model=model_default_idxs,
                         existing=existing_default_idxs,
-                        description=f'`{model.__name__}` specifies create_default_idxs={model_default_idxs}, '
-                        f'but {name!r} was created with create_default_idxs={existing_default_idxs}',
+                        description=f'`{model.__name__}` specifies has_default_idxs={model_default_idxs}, '
+                        f'but {name!r} was created with has_default_idxs={existing_default_idxs}',
                         details={},
                     )
                 )
 
-            # Default indexes have no counterpart in __indexes__, and create_default_idxs=True is incompatible with
+            # Default indexes have no counterpart in __indexes__, and has_default_idxs=True is incompatible with
             # explicitly declared B-tree indexes. So, if the existing table has default indexes enabled, all of its
             # B-tree indexes are default indexes, and they can all be ignored, because resolving the column diff takes
             # care of the indexes too. Otherwise all B-tree indexes are explicitly declared, so they are diffed and
-            # compared like embedding indexes. If the two sides disagree on create_default_idxs, no meaningful diff of
+            # compared like embedding indexes. If the two sides disagree on has_default_idxs, no meaningful diff of
             # B-tree indexes can be computed, so they are left out.
             include_btree_idxs = not model_default_idxs and not existing_default_idxs
             if not include_btree_idxs:

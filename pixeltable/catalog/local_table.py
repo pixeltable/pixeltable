@@ -780,7 +780,7 @@ class LocalTable(Table):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'{self._display_str()}: cannot add a B-tree index to a table created with '
-                    'create_default_idxs=True; its eligible columns are indexed automatically.',
+                    'has_default_idxs=True; its eligible columns are indexed automatically.',
                 )
 
             col = self._resolve_column_parameter(column)
@@ -1041,7 +1041,7 @@ class LocalTable(Table):
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'Cannot drop B-tree index {idx_info.name!r} from a table created with '
-                'create_default_idxs=True; its eligible columns are indexed automatically.',
+                'has_default_idxs=True; its eligible columns are indexed automatically.',
             )
 
         # Find out if anything depends on this index

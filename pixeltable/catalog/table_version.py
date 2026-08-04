@@ -239,7 +239,7 @@ class TableVersion:
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
-        create_default_idxs: bool,
+        has_default_idxs: bool,
         view_md: schema.ViewMd | None,
         is_versioned: bool,
         additional_idxs: list[IndexSpec],
@@ -288,17 +288,17 @@ class TableVersion:
 
         num_explicit_btrees = cls._validate_btree_idxs(tbl_id, additional_idxs)
 
-        # Explicit B-tree indexes are not allowed when create_default_idxs is True.
-        if create_default_idxs and num_explicit_btrees > 0:
+        # Explicit B-tree indexes are not allowed when has_default_idxs is True.
+        if has_default_idxs and num_explicit_btrees > 0:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT,
-                'Cannot combine create_default_idxs=True with an explicitly declared B-tree index.',
+                'Cannot combine has_default_idxs=True with an explicitly declared B-tree index.',
             )
 
         # Merge default indexes and additional indexes into a manifest of indexes to create.
         index_md: dict[int, schema.IndexMd] = {}
         idxs_to_create: list[IndexSpec] = []
-        if create_default_idxs and (view_md is None or not view_md.is_snapshot):
+        if has_default_idxs and (view_md is None or not view_md.is_snapshot):
             idxs_to_create.extend(
                 IndexSpec(col, None, index.BtreeIndex()) for col in cols if cls._is_btree_indexable(col)
             )
@@ -369,7 +369,7 @@ class TableVersion:
             view_md=view_md,
             additional_md={},
             is_versioned=is_versioned,
-            has_default_idxs=create_default_idxs,
+            has_default_idxs=has_default_idxs,
         )
 
         table_version_md = schema.VersionMd(
@@ -1058,7 +1058,7 @@ class TableVersion:
         if self.has_default_idxs and num_new_btrees > 0:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT,
-                'Cannot combine create_default_idxs=True with an explicitly declared B-tree index.',
+                'Cannot combine has_default_idxs=True with an explicitly declared B-tree index.',
             )
 
         status = UpdateStatus()

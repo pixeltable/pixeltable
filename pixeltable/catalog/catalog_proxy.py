@@ -58,7 +58,7 @@ class CatalogProxy(CatalogBase):
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
-        create_default_idxs: bool,
+        has_default_idxs: bool,
         is_versioned: bool,
     ) -> tuple[Table, bool]:
         args = {
@@ -69,7 +69,7 @@ class CatalogProxy(CatalogBase):
             'comment': comment,
             'custom_metadata': custom_metadata,
             'media_validation': media_validation,
-            'create_default_idxs': create_default_idxs,
+            'has_default_idxs': has_default_idxs,
             'is_versioned': is_versioned,
         }
         md, was_created = self.client.send_request('CatalogBase', 'create_table', args)
@@ -85,7 +85,7 @@ class CatalogProxy(CatalogBase):
         sample_clause: SampleClause | None,
         additional_columns: Mapping[str, ColumnSpec] | None,
         is_snapshot: bool,
-        create_default_idxs: bool,
+        has_default_idxs: bool,
         iterator: func.GeneratingFunctionCall | None,
         comment: str | None,
         custom_metadata: Any,
@@ -100,7 +100,7 @@ class CatalogProxy(CatalogBase):
             'sample_clause': sample_clause,
             'additional_columns': additional_columns or {},
             'is_snapshot': is_snapshot,
-            'create_default_idxs': create_default_idxs,
+            'has_default_idxs': has_default_idxs,
             'iterator': iterator,
             'comment': comment,
             'custom_metadata': custom_metadata,
@@ -115,7 +115,7 @@ class CatalogProxy(CatalogBase):
         path: Path,
         columns: dict[str, ColumnSpec],
         display_name: str,
-        create_default_idxs: bool,
+        has_default_idxs: bool,
         media_validation: MediaValidation,
         comment: str | None,
         custom_metadata: Any,
@@ -127,7 +127,7 @@ class CatalogProxy(CatalogBase):
             'path': path,
             'columns': columns,
             'display_name': display_name,
-            'create_default_idxs': create_default_idxs,
+            'has_default_idxs': has_default_idxs,
             'media_validation': media_validation,
             'comment': comment,
             'custom_metadata': custom_metadata,
