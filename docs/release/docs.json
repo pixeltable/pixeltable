@@ -15,11 +15,19 @@
         "tab": "User Guide",
         "groups": [
           {
-            "group": "Welcome to Pixeltable",
+            "group": "Getting started",
             "pages": [
               "overview/pixeltable",
               "overview/quick-start",
-              "overview/ten-minute-tour"
+              {
+                "group": "Migration Guide",
+                "pages": [
+                  "migrate/from-diy-data-pipeline",
+                  "migrate/from-rdbms-vectordbs",
+                  "migrate/from-agent-frameworks",
+                  "migrate/from-hand-written-endpoints"
+                ]
+              }
             ]
           },
           {
@@ -27,179 +35,34 @@
             "pages": [
               "overview/building-pixeltable-with-llms",
               "platform/dashboard",
-              "platform/cli"
+              "platform/cli",
+              "overview/python-sdk"
             ]
           },
           {
-            "group": "Core Concepts",
-            "pages": [
-              "platform/type-system",
-              "tutorials/tables-and-data-operations",
-              "tutorials/computed-columns",
-              "platform/views",
-              "tutorials/queries-and-expressions",
-              "platform/udfs-in-pixeltable",
-              "platform/iterators",
-              "platform/embedding-indexes",
-              "platform/version-control",
-              "platform/external-files"
-            ]
-          },
-          {
-            "group": "How-To",
+            "group": "How to",
             "pages": [
               "platform/configuration",
               {
-                "group": "Migrating from ...",
+                "group": "Self-hosting",
                 "pages": [
-                  "migrate/from-diy-data-pipeline",
-                  "migrate/from-rdbms-vectordbs",
-                  "migrate/from-agent-frameworks",
-                  "migrate/from-hand-written-endpoints"
+                  "howto/deployment/overview",
+                  "howto/deployment/serving",
+                  "howto/deployment/infrastructure",
+                  "howto/deployment/operations",
+                  "howto/deployment/monitoring",
+                  "howto/deployment/security"
                 ]
               },
-              {
-                "group": "Integrations",
-                "pages": [
-                  "howto/providers/working-with-anthropic",
-                  "howto/providers/working-with-bedrock",
-                  "howto/providers/working-with-bfl",
-                  "howto/providers/working-with-deepseek",
-                  "howto/providers/working-with-fal",
-                  "howto/providers/working-with-fabric",
-                  "howto/providers/working-with-fireworks",
-                  "howto/providers/working-with-gemini",
-                  "howto/providers/working-with-groq",
-                  "howto/providers/working-with-hugging-face",
-                  "howto/providers/working-with-jina",
-                  "howto/providers/working-with-llama-cpp",
-                  "howto/providers/working-with-mistralai",
-                  "howto/providers/working-with-ollama",
-                  "howto/providers/working-with-openai",
-                  "howto/providers/working-with-openrouter",
-                  "howto/providers/working-with-pydantic",
-                  "howto/providers/working-with-replicate",
-                  "howto/providers/working-with-reve",
-                  "howto/providers/working-with-runwayml",
-                  "howto/providers/working-with-tigris",
-                  "howto/providers/working-with-together",
-                  "howto/providers/working-with-twelvelabs",
-                  "howto/providers/working-with-vllm",
-                  "howto/providers/working-with-voyageai",
-                  "howto/working-with-fiftyone"
-                ]
-              },
-              {
-                "group": "Cookbooks",
-                "pages": [
-                  {
-                    "group": "Core Operations",
-                    "pages": [
-                      "howto/cookbooks/core/multimodal_backend",
-                      "howto/cookbooks/core/workflow-api-keys",
-                      "howto/cookbooks/core/dev-iterative-workflow",
-                      "howto/cookbooks/core/working-with-cli",
-                      "howto/cookbooks/core/workflow-json-extraction",
-                      "howto/cookbooks/core/workflow-uuid-identity",
-                      "howto/cookbooks/core/query-join-tables",
-                      "howto/cookbooks/core/version-control-history",
-                      "howto/cookbooks/core/custom-aggregates-uda",
-                      "howto/cookbooks/core/custom-iterators",
-                      "howto/cookbooks/core/data-split-rows",
-                      "howto/cookbooks/core/time-zones"
-                    ]
-                  },
-                  {
-                    "group": "Agents",
-                    "pages": [
-                      "howto/cookbooks/agents/agentic-patterns",
-                      "howto/cookbooks/agents/pattern-rag-pipeline",
-                      "howto/use-cases/rag-demo",
-                      "howto/use-cases/rag-operations",
-                      "howto/cookbooks/agents/pattern-agent-memory",
-                      "howto/cookbooks/agents/pattern-table-as-udf",
-                      "howto/cookbooks/agents/pattern-data-lookup",
-                      "howto/cookbooks/agents/llm-tool-calling"
-                    ]
-                  },
-                  {
-                    "group": "Text",
-                    "pages": [
-                      "howto/cookbooks/text/text-summarize",
-                      "howto/cookbooks/text/text-translate",
-                      "howto/cookbooks/text/text-extract-entities",
-                      "howto/cookbooks/text/doc-chunk-for-rag",
-                      "howto/cookbooks/text/doc-extract-text-from-office-files"
-                    ]
-                  },
-                  {
-                    "group": "Images",
-                    "pages": [
-                      "howto/cookbooks/images/img-detect-objects",
-                      "howto/cookbooks/images/img-detection-vs-segmentation",
-                      "howto/cookbooks/images/img-visualize-detections",
-                      "howto/cookbooks/images/img-promptable-segmentation",
-                      "howto/cookbooks/images/img-generate-captions",
-                      "howto/cookbooks/images/img-image-to-image",
-                      "howto/cookbooks/images/vision-batch-analysis",
-                      "howto/cookbooks/images/vision-structured-output",
-                      "howto/cookbooks/images/img-add-watermarks",
-                      "howto/cookbooks/images/img-adjust-opacity",
-                      "howto/cookbooks/images/img-apply-filters",
-                      "howto/cookbooks/images/img-brightness-contrast",
-                      "howto/cookbooks/images/img-pil-transforms",
-                      "howto/cookbooks/images/img-rgb-to-grayscale"
-                    ]
-                  },
-                  {
-                    "group": "Audio",
-                    "pages": [
-                      "howto/cookbooks/audio/audio-transcribe",
-                      "howto/use-cases/audio-transcriptions",
-                      "howto/cookbooks/audio/audio-summarize-podcast",
-                      "howto/cookbooks/audio/audio-podcast-chapters",
-                      "howto/cookbooks/audio/audio-text-to-speech",
-                      "howto/cookbooks/audio/audio-extract-from-video"
-                    ]
-                  },
-                  {
-                    "group": "Video",
-                    "pages": [
-                      "howto/cookbooks/video/video-extract-frames",
-                      "howto/use-cases/object-detection-in-videos",
-                      "howto/cookbooks/video/video-scene-detection",
-                      "howto/cookbooks/video/video-generate-thumbnails",
-                      "howto/cookbooks/video/video-add-text-overlay",
-                      "howto/cookbooks/video/video-generate-ai",
-                      "howto/cookbooks/video/video-image-slideshow"
-                    ]
-                  },
-                  {
-                    "group": "Search & Embeddings",
-                    "pages": [
-                      "howto/cookbooks/search/embed-text-openai",
-                      "howto/cookbooks/search/search-semantic-text",
-                      "howto/cookbooks/search/search-similar-images"
-                    ]
-                  },
-                  {
-                    "group": "Data Import/Export",
-                    "pages": [
-                      "howto/cookbooks/data/data-import-csv",
-                      "howto/cookbooks/data/data-import-json",
-                      "howto/cookbooks/data/data-import-parquet",
-                      "howto/cookbooks/data/data-import-excel",
-                      "howto/cookbooks/data/data-import-huggingface",
-                      "howto/cookbooks/data/data-import-s3",
-                      "howto/cookbooks/data/data-export-s3",
-                      "howto/cookbooks/data/data-export-pytorch",
-                      "howto/cookbooks/data/data-export-sql",
-                      "howto/cookbooks/data/data-export-analytics",
-                      "howto/cookbooks/data/data-sampling"
-                    ]
-                  }
-                ]
-              }
+              "use-cases/services"
+            ]
+          },
+          {
+            "group": "Resources",
+            "pages": [
+              "resources/starter-kit",
+              "resources/ai-skills",
+              "resources/support"
             ]
           }
         ]
@@ -298,31 +161,154 @@
         ]
       },
       {
-        "tab": "Use Cases & Deployment",
+        "tab": "Cookbooks",
         "groups": [
           {
             "group": "Use Cases",
             "pages": [
-              "use-cases/ml-data-wrangling",
-              "use-cases/ai-applications",
-              "use-cases/agents-mcp"
+              "use-cases/multimodal-backend",
+              "use-cases/agentic-workflows",
+              "use-cases/media-processing"
             ]
           },
           {
-            "group": "Deployment",
+            "group": "Topics",
             "pages": [
-              "howto/deployment/overview",
-              "howto/deployment/serving",
-              "howto/deployment/infrastructure",
-              "howto/deployment/operations",
-              "howto/deployment/monitoring",
-              "howto/deployment/security"
+              {
+                "group": "Core Operations",
+                "expanded": false,
+                "pages": [
+                  "howto/cookbooks/core/multimodal_backend",
+                  "howto/cookbooks/core/workflow-api-keys",
+                  "howto/cookbooks/core/dev-iterative-workflow",
+                  "howto/cookbooks/core/working-with-cli",
+                  "howto/cookbooks/core/workflow-json-extraction",
+                  "howto/cookbooks/core/workflow-uuid-identity",
+                  "howto/cookbooks/core/query-join-tables",
+                  "howto/cookbooks/core/version-control-history",
+                  "howto/cookbooks/core/custom-aggregates-uda",
+                  "howto/cookbooks/core/custom-iterators",
+                  "howto/cookbooks/core/data-split-rows",
+                  "howto/cookbooks/core/time-zones"
+                ]
+              },
+              {
+                "group": "Agents",
+                "expanded": false,
+                "pages": [
+                  "howto/cookbooks/agents/agentic-patterns",
+                  "howto/cookbooks/agents/pattern-rag-pipeline",
+                  "howto/use-cases/rag-demo",
+                  "howto/use-cases/rag-operations",
+                  "howto/cookbooks/agents/pattern-agent-memory",
+                  "howto/cookbooks/agents/pattern-table-as-udf",
+                  "howto/cookbooks/agents/pattern-data-lookup",
+                  "howto/cookbooks/agents/llm-tool-calling"
+                ]
+              },
+              {
+                "group": "Text",
+                "expanded": false,
+                "pages": [
+                  "howto/cookbooks/text/text-summarize",
+                  "howto/cookbooks/text/text-translate",
+                  "howto/cookbooks/text/text-extract-entities",
+                  "howto/cookbooks/text/doc-chunk-for-rag",
+                  "howto/cookbooks/text/doc-extract-text-from-office-files"
+                ]
+              },
+              {
+                "group": "Images",
+                "expanded": false,
+                "pages": [
+                  "howto/cookbooks/images/img-detect-objects",
+                  "howto/cookbooks/images/img-detection-vs-segmentation",
+                  "howto/cookbooks/images/img-visualize-detections",
+                  "howto/cookbooks/images/img-promptable-segmentation",
+                  "howto/cookbooks/images/img-generate-captions",
+                  "howto/cookbooks/images/img-image-to-image",
+                  "howto/cookbooks/images/vision-batch-analysis",
+                  "howto/cookbooks/images/vision-structured-output",
+                  "howto/cookbooks/images/img-add-watermarks",
+                  "howto/cookbooks/images/img-adjust-opacity",
+                  "howto/cookbooks/images/img-apply-filters",
+                  "howto/cookbooks/images/img-brightness-contrast",
+                  "howto/cookbooks/images/img-pil-transforms",
+                  "howto/cookbooks/images/img-rgb-to-grayscale"
+                ]
+              },
+              {
+                "group": "Audio",
+                "expanded": false,
+                "pages": [
+                  "howto/cookbooks/audio/audio-transcribe",
+                  "howto/use-cases/audio-transcriptions",
+                  "howto/cookbooks/audio/audio-summarize-podcast",
+                  "howto/cookbooks/audio/audio-podcast-chapters",
+                  "howto/cookbooks/audio/audio-text-to-speech",
+                  "howto/cookbooks/audio/audio-extract-from-video"
+                ]
+              },
+              {
+                "group": "Video",
+                "expanded": false,
+                "pages": [
+                  "howto/cookbooks/video/video-extract-frames",
+                  "howto/use-cases/object-detection-in-videos",
+                  "howto/cookbooks/video/video-scene-detection",
+                  "howto/cookbooks/video/video-generate-thumbnails",
+                  "howto/cookbooks/video/video-add-text-overlay",
+                  "howto/cookbooks/video/video-generate-ai",
+                  "howto/cookbooks/video/video-image-slideshow"
+                ]
+              },
+              {
+                "group": "Search & Embeddings",
+                "expanded": false,
+                "pages": [
+                  "howto/cookbooks/search/embed-text-openai",
+                  "howto/cookbooks/search/search-semantic-text",
+                  "howto/cookbooks/search/search-similar-images"
+                ]
+              },
+              {
+                "group": "Data Import/Export",
+                "expanded": false,
+                "pages": [
+                  "howto/cookbooks/data/data-import-csv",
+                  "howto/cookbooks/data/data-import-json",
+                  "howto/cookbooks/data/data-import-parquet",
+                  "howto/cookbooks/data/data-import-excel",
+                  "howto/cookbooks/data/data-import-huggingface",
+                  "howto/cookbooks/data/data-import-s3",
+                  "howto/cookbooks/data/data-export-s3",
+                  "howto/cookbooks/data/data-export-pytorch",
+                  "howto/cookbooks/data/data-export-sql",
+                  "howto/cookbooks/data/data-export-analytics",
+                  "howto/cookbooks/data/data-sampling"
+                ]
+              }
             ]
-          },
+          }
+        ]
+      },
+      {
+        "tab": "Tutorials",
+        "pages": [
+          "overview/ten-minute-tour",
           {
-            "group": "Pixeltable Cloud",
+            "group": "Core Concepts",
             "pages": [
-              "use-cases/services"
+              "platform/type-system",
+              "tutorials/tables-and-data-operations",
+              "tutorials/computed-columns",
+              "platform/views",
+              "tutorials/queries-and-expressions",
+              "platform/udfs-in-pixeltable",
+              "platform/iterators",
+              "platform/embedding-indexes",
+              "platform/version-control",
+              "platform/external-files"
             ]
           }
         ]
@@ -333,8 +319,7 @@
           {
             "group": "Built-in Integrations",
             "pages": [
-              "integrations/frameworks",
-              "integrations/models"
+              "integrations/frameworks"
             ]
           },
           {
@@ -347,6 +332,37 @@
             "group": "Bring Your Own",
             "pages": [
               "integrations/embedding-model"
+            ]
+          },
+          {
+            "group": "Providers",
+            "pages": [
+              "howto/providers/working-with-anthropic",
+              "howto/providers/working-with-bedrock",
+              "howto/providers/working-with-bfl",
+              "howto/providers/working-with-deepseek",
+              "howto/providers/working-with-fal",
+              "howto/providers/working-with-fabric",
+              "howto/providers/working-with-fireworks",
+              "howto/providers/working-with-gemini",
+              "howto/providers/working-with-groq",
+              "howto/providers/working-with-hugging-face",
+              "howto/providers/working-with-jina",
+              "howto/providers/working-with-llama-cpp",
+              "howto/providers/working-with-mistralai",
+              "howto/providers/working-with-ollama",
+              "howto/providers/working-with-openai",
+              "howto/providers/working-with-openrouter",
+              "howto/providers/working-with-pydantic",
+              "howto/providers/working-with-replicate",
+              "howto/providers/working-with-reve",
+              "howto/providers/working-with-runwayml",
+              "howto/providers/working-with-tigris",
+              "howto/providers/working-with-together",
+              "howto/providers/working-with-twelvelabs",
+              "howto/providers/working-with-vllm",
+              "howto/providers/working-with-voyageai",
+              "howto/working-with-fiftyone"
             ]
           }
         ]
@@ -391,24 +407,7 @@
     "timestamp": true
   },
   "navbar": {
-    "links": [
-      {
-        "label": "AI Skill",
-        "href": "https://github.com/pixeltable/pixeltable-skill"
-      },
-      {
-        "label": "Discord",
-        "href": "https://discord.com/invite/QPyqFYx2UN"
-      },
-      {
-        "label": "Book a Demo",
-        "href": "https://calendar.google.com/calendar/u/0/appointments/schedules/AcZssZ0BSvx8SRh7HoLdgvGeYUuhdyaifN42nhieCJESo3B1Hmy_buqteAagnSwADXG1lhKFUg3_VTZM"
-      },
-      {
-        "label": "Hiring",
-        "href": "https://jobs.gusto.com/postings/pixeltable-inc-member-of-technical-staff-360acae7-6e57-4aa2-bd03-83c9dafb7bbc"
-      }
-    ],
+    "links": [],
     "primary": {
       "type": "github",
       "href": "https://github.com/pixeltable/pixeltable"
@@ -642,23 +641,155 @@
     },
     {
       "source": "/cloud/use-cases",
-      "destination": "/use-cases/ml-data-wrangling"
+      "destination": "/use-cases/media-processing"
     },
     {
       "source": "/cloud/ml-data-wrangling",
-      "destination": "/use-cases/ml-data-wrangling"
+      "destination": "/use-cases/media-processing"
     },
     {
       "source": "/cloud/ai-applications",
-      "destination": "/use-cases/ai-applications"
+      "destination": "/use-cases/multimodal-backend"
     },
     {
       "source": "/cloud/agents-mcp",
-      "destination": "/use-cases/agents-mcp"
+      "destination": "/use-cases/agentic-workflows"
+    },
+    {
+      "source": "/use-cases/ml-data-wrangling",
+      "destination": "/use-cases/media-processing"
+    },
+    {
+      "source": "/use-cases/ai-applications",
+      "destination": "/use-cases/multimodal-backend"
+    },
+    {
+      "source": "/use-cases/agents-mcp",
+      "destination": "/use-cases/agentic-workflows"
     },
     {
       "source": "/cloud/services",
       "destination": "/use-cases/services"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-bedrock",
+      "destination": "/howto/providers/working-with-bedrock"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-bfl",
+      "destination": "/howto/providers/working-with-bfl"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-deepseek",
+      "destination": "/howto/providers/working-with-deepseek"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-fabric",
+      "destination": "/howto/providers/working-with-fabric"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-fal",
+      "destination": "/howto/providers/working-with-fal"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-fireworks",
+      "destination": "/howto/providers/working-with-fireworks"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-gemini",
+      "destination": "/howto/providers/working-with-gemini"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-groq",
+      "destination": "/howto/providers/working-with-groq"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-hugging-face",
+      "destination": "/howto/providers/working-with-hugging-face"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-jina",
+      "destination": "/howto/providers/working-with-jina"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-llama-cpp",
+      "destination": "/howto/providers/working-with-llama-cpp"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-mistralai",
+      "destination": "/howto/providers/working-with-mistralai"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-ollama",
+      "destination": "/howto/providers/working-with-ollama"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-openrouter",
+      "destination": "/howto/providers/working-with-openrouter"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-pydantic",
+      "destination": "/howto/providers/working-with-pydantic"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-replicate",
+      "destination": "/howto/providers/working-with-replicate"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-reve",
+      "destination": "/howto/providers/working-with-reve"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-runwayml",
+      "destination": "/howto/providers/working-with-runwayml"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-tigris",
+      "destination": "/howto/providers/working-with-tigris"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-twelvelabs",
+      "destination": "/howto/providers/working-with-twelvelabs"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-vllm",
+      "destination": "/howto/providers/working-with-vllm"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-voyageai",
+      "destination": "/howto/providers/working-with-voyageai"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-fiftyone",
+      "destination": "/howto/working-with-fiftyone"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-voxel51",
+      "destination": "/howto/working-with-fiftyone"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-together-ai",
+      "destination": "/howto/providers/working-with-together"
+    },
+    {
+      "source": "/howto/cookbooks/video/object-detection-in-videos",
+      "destination": "/howto/use-cases/object-detection-in-videos"
+    },
+    {
+      "source": "/resources/overview",
+      "destination": "/resources/starter-kit"
+    },
+    {
+      "source": "/overview/resources",
+      "destination": "/resources/starter-kit"
+    },
+    {
+      "source": "/integrations/models",
+      "destination": "/integrations/frameworks"
+    },
+    {
+      "source": "/overview/python-sdk",
+      "destination": "/sdk/latest/pixeltable"
     }
   ]
 }
