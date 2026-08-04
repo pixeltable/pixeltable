@@ -656,10 +656,23 @@ class TableVersion:
         self._create_index(col, val_col, undo_col, idx_name, idx)
         return status
 
+    def _validate_idx_drops(self, idx_ids: Iterable[int]) -> None:
+        """Reject the removal of a default B-tree index."""
+        if not self.has_default_idxs:
+            return
+        for idx_id in idx_ids:
+            info = self.idxs[idx_id]
+            if isinstance(info.idx, index.BtreeIndex):
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot drop B-tree index {info.name!r} from a table with has_default_idxs=True',
+                )
+
     def drop_index(self, idx_id: int) -> None:
         assert self.is_mutable
         assert idx_id in self._tbl_md.index_md
         assert self.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
+        self._validate_idx_drops([idx_id])
 
         idx_name = self._tbl_md.index_md[idx_id].name
         # we're creating a new schema version
@@ -965,6 +978,8 @@ class TableVersion:
                 excs.ErrorCode.CONCURRENT_MODIFICATION,
                 f'Table {self.name!r} was modified since update_all() computed its changes; re-run update_all().',
             )
+
+        self._validate_idx_drops(dropped_idx_ids)
 
         self.bump_version(bump_schema_version=True)
 

@@ -1002,13 +1002,6 @@ class LocalTable(Table):
                 )
             idx_info = idx_info_list[0]
 
-        if isinstance(idx_info.idx, index.BtreeIndex) and self._tbl_version.get().has_default_idxs:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Cannot drop B-tree index {idx_info.name!r} from a table created with '
-                'has_default_idxs=True; its eligible columns are indexed automatically.',
-            )
-
         # Find out if anything depends on this index
         dependent_user_cols = self._get_dependent_user_cols(idx_info.val_col)
         if len(dependent_user_cols) > 0:
