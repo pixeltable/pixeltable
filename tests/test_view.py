@@ -449,7 +449,7 @@ class TestView:
 
         def version(tbl: pxt.Table) -> int:
             v = tbl.get_metadata()['version']
-            assert v is not None  # these tables are all versioned
+            assert v is not None  # these tables are all data-versioned
             return v
 
         # create view with filter and computed columns
@@ -1016,7 +1016,7 @@ class TestView:
                     'indices': {},
                     'is_snapshot': True,
                     'is_view': True,
-                    'is_versioned': True,
+                    'data_versioned': True,
                     'kind': 'snapshot',
                     'media_validation': 'on_write',
                     'name': f'test_tbl:{i}',
@@ -1146,7 +1146,7 @@ class TestView:
                     'indices': {},
                     'is_snapshot': True,
                     'is_view': True,
-                    'is_versioned': True,
+                    'data_versioned': True,
                     'kind': 'snapshot',
                     'media_validation': 'on_write',
                     'name': f'test_view:{i}',
@@ -1242,7 +1242,7 @@ class TestView:
                     'indices': {},
                     'is_snapshot': True,
                     'is_view': True,
-                    'is_versioned': True,
+                    'data_versioned': True,
                     'kind': 'snapshot',
                     'media_validation': 'on_write',
                     'name': f'test_subview:{i}',

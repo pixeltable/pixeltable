@@ -68,7 +68,7 @@ def create_table(
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     extra_args: dict[str, Any] | None = None,  # Additional arguments to data source provider
-    _is_versioned: bool = True,
+    _data_versioned: bool = True,
 ) -> catalog.Table:
     """Create a new base table. Exactly one of `schema` or `source` must be provided.
 
@@ -242,7 +242,7 @@ def create_table(
             custom_metadata=custom_metadata,
             media_validation=media_validation_,
             create_default_idxs=create_default_idxs,
-            is_versioned=_is_versioned,
+            data_versioned=_data_versioned,
         )
     )
 
@@ -384,7 +384,7 @@ def create_view(
         raise excs.RequestError(excs.ErrorCode.TYPE_MISMATCH, '`base` must be an instance of `Table` or `Query`')
     assert isinstance(base, (catalog.Table, Query))
 
-    # assert tbl_version_path.is_versioned(), 'TODO: implement for operational tables [PXT-1101]'
+    assert tbl_path.data_versioned(), 'TODO: implement for operational tables [PXT-1101]'
 
     path_obj = catalog.Path.parse(path)
     if tbl_path.catalog_uri != path_obj.catalog_uri:

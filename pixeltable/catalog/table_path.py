@@ -121,7 +121,7 @@ class TablePath(abc.ABC):
         """True if this table or one of its ancestors is defined with a sample clause."""
 
     @abc.abstractmethod
-    def is_versioned(self) -> bool: ...
+    def data_versioned(self) -> bool: ...
 
     @property
     @abc.abstractmethod
@@ -334,7 +334,7 @@ class TableVersionPath(TablePath):
         return ROOT_PATH
 
     def version(self) -> int | None:
-        if not self.is_versioned():
+        if not self.data_versioned():
             return None
         return self._cached_tv().version
 
@@ -344,8 +344,8 @@ class TableVersionPath(TablePath):
     def schema_version(self) -> int:
         return self._cached_tv().schema_version
 
-    def is_versioned(self) -> bool:
-        return self._cached_tv().is_versioned
+    def data_versioned(self) -> bool:
+        return self._cached_tv().data_versioned
 
     def tbl_name(self) -> str:
         return self._cached_tv().name
@@ -588,7 +588,7 @@ class TableMdPath(TablePath):
         return MediaValidation[self.md.schema_version_md.media_validation.upper()]
 
     def version(self) -> int | None:
-        return self.md.version_md.version if self.md.tbl_md.is_versioned else None
+        return self.md.version_md.version if self.md.tbl_md.data_versioned else None
 
     def effective_version(self) -> int | None:
         return self._effective_version
@@ -617,8 +617,8 @@ class TableMdPath(TablePath):
             return True
         return self.base is not None and self.base.has_sample_clause()
 
-    def is_versioned(self) -> bool:
-        return self.md.tbl_md.is_versioned
+    def data_versioned(self) -> bool:
+        return self.md.tbl_md.data_versioned
 
     @property
     def catalog_uri(self) -> Path:
