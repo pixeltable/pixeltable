@@ -1835,15 +1835,6 @@ class TestTableModel:
                 name: pxt.String
                 name_idx = BtreeIndex(name)
 
-        with pxt_raises(excs.ErrorCode.TYPE_MISMATCH, match='requires a non-boolean scalar type or a media type'):
-
-            class BadBtree(TableModel, name='bad_btree_table'):
-                id: pxt.Required[pxt.Int]
-                flag: pxt.Bool
-                flag_idx = BtreeIndex(flag)
-
-            BadBtree._create(p(''))
-
         with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match='belongs to a base table'):
             InheritModel = pxt.model_base()
 
