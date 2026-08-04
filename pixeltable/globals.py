@@ -384,7 +384,7 @@ def create_view(
         raise excs.RequestError(excs.ErrorCode.TYPE_MISMATCH, '`base` must be an instance of `Table` or `Query`')
     assert isinstance(base, (catalog.Table, Query))
 
-    # assert tbl_version_path.is_versioned(), 'TODO: implement for unversioned tables [PXT-1101]'
+    # assert tbl_version_path.is_versioned(), 'TODO: implement for operational tables [PXT-1101]'
 
     path_obj = catalog.Path.parse(path)
     if tbl_path.catalog_uri != path_obj.catalog_uri:

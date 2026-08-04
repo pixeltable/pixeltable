@@ -766,7 +766,7 @@ class LocalTable(Table):
     ) -> None:
         self._validate_embedding_args(embedding, string_embed, image_embed)
         assert self._tbl_version is None or self._tbl_version.get().is_versioned, (
-            'TODO: implement for unversioned tables [PXT-1101]'
+            'TODO: implement for operational tables [PXT-1101]'
         )
 
         with get_runtime().catalog.begin_xact(
@@ -1164,7 +1164,7 @@ class LocalTable(Table):
         tbl_id = self._id
         # Collect an extra version, if available, to allow for computation of the first version's schema change
         vers_list = get_runtime().catalog.collect_tbl_history(tbl_id, n + 1)
-        assert vers_list[0].tbl_md.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
+        assert vers_list[0].tbl_md.is_versioned, 'TODO: implement for operational tables [PXT-1101]'
 
         # Construct the metadata change description dictionary
         md_list = [(vers_md.version_md.version, vers_md.schema_version_md.columns) for vers_md in vers_list]

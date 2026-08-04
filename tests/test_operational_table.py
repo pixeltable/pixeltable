@@ -5,10 +5,10 @@ import pixeltable.exceptions as excs
 
 from .utils import ReloadTester, validate_update_status
 
-pytestmark = pytest.mark.local('TODO: convert; unversioned-table feature')
+pytestmark = pytest.mark.local('TODO: convert; operational-table feature')
 
 
-class TestUnversionedTable:
+class TestOperationalTable:
     def test_basic_ops(self, uses_db: None, reload_tester: ReloadTester) -> None:
         schema = {'c0': pxt.Int, 'c1': pxt.String}
         tbl = pxt.create_table('test', schema, _is_versioned=False)
@@ -92,14 +92,14 @@ class TestUnversionedTable:
         assert len(rows) == 0
 
     def test_unsupported_ops(self, uses_db: None) -> None:
-        unversioned_tbl = pxt.create_table('t0', {'n': pxt.Int}, _is_versioned=False)
+        operational_tbl = pxt.create_table('t0', {'n': pxt.Int}, _is_versioned=False)
         versioned_tbl = pxt.create_table('t1', {'n': pxt.Int}, _is_versioned=True)
 
-        # Joins between versioned and unversioned tables are not supported.
-        with pytest.raises(excs.Error, match='join is not supported between versioned and unversioned tables'):
-            versioned_tbl.select().join(unversioned_tbl, on=(versioned_tbl.n == unversioned_tbl.n))
-        with pytest.raises(excs.Error, match='join is not supported between versioned and unversioned tables'):
-            unversioned_tbl.select().join(versioned_tbl, on=(versioned_tbl.n == unversioned_tbl.n))
+        # Joins between versioned and operational tables are not supported.
+        with pytest.raises(excs.Error, match='join is not supported between versioned and operational tables'):
+            versioned_tbl.select().join(operational_tbl, on=(versioned_tbl.n == operational_tbl.n))
+        with pytest.raises(excs.Error, match='join is not supported between versioned and operational tables'):
+            operational_tbl.select().join(versioned_tbl, on=(versioned_tbl.n == operational_tbl.n))
 
         with pytest.raises(excs.Error, match='Revert is supported on versioned tables only'):
-            unversioned_tbl.revert()
+            operational_tbl.revert()

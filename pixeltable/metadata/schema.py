@@ -214,7 +214,7 @@ class TableMd:
     user: str | None
 
     # for versioned tables, current_version monotonically increases for both data and schema changes, starting at 0
-    # not used for unversioned tables
+    # not used for operational tables
     current_version: int
     # each version has a corresponding schema version (current_version >= current_schema_version)
     current_schema_version: int

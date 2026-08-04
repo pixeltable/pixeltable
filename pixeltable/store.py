@@ -48,13 +48,13 @@ class StoreBase:
     * pk columns:
 
       * versioned tables: rowid, pos_0, ..., pos_N, v_min
-      * unversioned tables: rowid, pos_0, ..., pos_N
-      * note: at present, the actual primary key constraint is created on unversioned tables only.
+      * operational tables: rowid, pos_0, ..., pos_N
+      * note: at present, the actual primary key constraint is created on operational tables only.
 
     * system columns:
 
       * versioned tables: rowid, pos_0, ..., pos_N, v_min, v_max
-      * unversioned tables: rowid, pos_0, ..., pos_N
+      * operational tables: rowid, pos_0, ..., pos_N
     """
 
     tbl_version: catalog.TableVersionHandle
@@ -133,7 +133,7 @@ class StoreBase:
                     'ORDER BY ordinal_position'
                 )
                 # System columns on a versioned table: rowid, [pos_0, pos_1, ...], v_min, v_max
-                # System columns on an unversioned table: rowid, [pos_0, pos_1, ...]
+                # System columns on an operational table: rowid, [pos_0, pos_1, ...]
                 # System columns are always followed by at least one user column
                 col_names = [row[0] for row in conn.execute(sql.text(q)).fetchall()]
                 if len(col_names) == 0:
@@ -216,7 +216,7 @@ class StoreBase:
         # primary key index: partial unique btree on PK columns where v_max = MAX_VERSION (live rows only)
         primary_index = [col for col in tbl_version.cols_by_id.values() if col.is_pk]
         if len(primary_index) > 0:
-            assert tbl_version.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
+            assert tbl_version.is_versioned, 'TODO: implement for operational tables [PXT-1101]'
             pk_idx_exprs: list[sql.ColumnElement] = []
             for col in primary_index:
                 if col.col_type.is_string_type():
@@ -236,7 +236,7 @@ class StoreBase:
 
         extra_constraints: list[sql.Constraint] = []
         if not tbl_version.is_versioned:
-            # Add a PK constraint for an unversioned table
+            # Add a PK constraint for an operational table
             extra_constraints.append(sql.PrimaryKeyConstraint(*[col.name for col in self._pk_cols]))
 
         self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs, *extra_constraints)
@@ -563,7 +563,7 @@ class StoreBase:
                             # UUID7 appears to be a more performant choice for Postgresql, however for CockroachDB
                             # UUID4 is recommended.
                             assert not Env.get().is_using_cockroachdb, (
-                                'TODO: implement for unversioned tables [PXT-1101]'
+                                'TODO: implement for operational tables [PXT-1101]'
                             )
                             pk = (uuid7(),)
                         assert len(pk) == len(self._pk_cols)
@@ -634,7 +634,7 @@ class StoreBase:
 
     def _versions_clause(self, versions: list[int | None], match_on_vmin: bool) -> sql.ColumnElement[bool]:
         """Return filter for base versions"""
-        assert self.tbl_version.get().is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
+        assert self.tbl_version.get().is_versioned, 'TODO: implement for operational tables [PXT-1101]'
         v = versions[0]
         if v is None:
             # we're looking at live rows
@@ -649,11 +649,11 @@ class StoreBase:
         return sql.and_(clause, self.base._versions_clause(versions[1:], match_on_vmin))
 
     def delete_rows(self, where_clause: sql.ColumnElement[bool] | None) -> int:
-        """Delete rows in an unversioned table. Use soft_delete_rows for versioned tables."""
+        """Delete rows in an operational table. Use soft_delete_rows for versioned tables."""
         assert not self.tbl_version.get().is_versioned
         where_clause = sql.true() if where_clause is None else where_clause
         rowid_join_clause = self._rowid_join_predicate()
-        assert rowid_join_clause.compare(sql.true()), 'TODO: implement for unversioned tables [PXT-1101]'
+        assert rowid_join_clause.compare(sql.true()), 'TODO: implement for operational tables [PXT-1101]'
         conn = get_runtime().conn
         stmt = sql.delete(self.sa_tbl).where(where_clause)
         log_explain(_logger, stmt, conn)
@@ -707,7 +707,7 @@ class StoreBase:
         return status.rowcount
 
     def dump_rows(self, version: int, filter_view: StoreBase, filter_view_version: int) -> Iterator[dict[str, Any]]:
-        assert self.tbl_version.get().is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
+        assert self.tbl_version.get().is_versioned, 'TODO: implement for operational tables [PXT-1101]'
         filter_predicate = sql.and_(
             filter_view.v_min_col <= filter_view_version,
             filter_view.v_max_col > filter_view_version,

@@ -675,14 +675,14 @@ class Query:
     def _create_query_plan(self) -> exec.ExecPlan:
         assert self._from_clause.is_local
         tvps = self._from_clause.tvps
-        has_unversioned_tbl = any(not tbl.tbl_version.get().is_versioned for tbl in tvps)
-        if has_unversioned_tbl:
-            # For now, we only support queries of the simplest form on unversioned tables
-            assert len(self._from_clause.tbls) == 1, 'TODO: implement for unversioned tables [PXT-1101]'
-            assert len(self._from_clause.join_clauses) == 0, 'TODO: implement for unversioned tables [PXT-1101]'
-            assert self.grouping_tbl_key is None, 'TODO: implement for unversioned tables [PXT-1101]'
-            assert self.group_by_clause is None, 'TODO: implement for unversioned tables [PXT-1101]'
-            assert self.sample_clause is None, 'TODO: implement for unversioned tables [PXT-1101]'
+        has_operational_tbl = any(not tbl.tbl_version.get().is_versioned for tbl in tvps)
+        if has_operational_tbl:
+            # For now, we only support queries of the simplest form on operational tables
+            assert len(self._from_clause.tbls) == 1, 'TODO: implement for operational tables [PXT-1101]'
+            assert len(self._from_clause.join_clauses) == 0, 'TODO: implement for operational tables [PXT-1101]'
+            assert self.grouping_tbl_key is None, 'TODO: implement for operational tables [PXT-1101]'
+            assert self.group_by_clause is None, 'TODO: implement for operational tables [PXT-1101]'
+            assert self.sample_clause is None, 'TODO: implement for operational tables [PXT-1101]'
 
         # construct a group-by clause if we're grouping by a table
         group_by_clause = self.group_by_clause
@@ -1339,7 +1339,7 @@ class Query:
         # a join mixing catalogs (e.g. local + hosted) is rejected by FromClause's same-catalog check below
         if self._from_clause.tbls[0].is_versioned() != other._is_versioned():
             raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, 'join is not supported between versioned and unversioned tables'
+                excs.ErrorCode.UNSUPPORTED_OPERATION, 'join is not supported between versioned and operational tables'
             )
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'join() cannot be used with sample()')
