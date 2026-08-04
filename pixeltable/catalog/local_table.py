@@ -785,7 +785,8 @@ class LocalTable(Table):
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'Index {idx_name!r} already exists, but is not a B-tree index.',
                 )
-            # Do nothing if an index already exists, if_exists is 'ignore', and no other error should take precedence.
+            # Do nothing if an index already exists, if_exists is 'ignore', and no other error that TableVersion will
+            # raise should take precedence.
             if (
                 if_exists_ == IfExistsParam.IGNORE
                 and not tv.has_default_idxs
