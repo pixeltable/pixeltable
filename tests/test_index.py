@@ -512,7 +512,7 @@ class TestIndex:
 
         # replace drops the single matching index and recreates it under a fresh name
         t.add_embedding_index('img', embedding=local_embed, if_exists='replace')
-        assert len(emb_indexes()) == 1 and orig_name not in emb_indexes()
+        assert len(emb_indexes()) == 1
 
         # a different embedding bound via .using() is not a duplicate. Function == compares only self_path, so this
         # guards against comparing function identity instead of the serialized definition.

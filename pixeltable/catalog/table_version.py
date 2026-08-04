@@ -7,7 +7,7 @@ import logging
 import time
 import warnings
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, cast
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import sqlalchemy as sql
 from sqlalchemy import exc as sql_exc
@@ -670,10 +670,12 @@ class TableVersion:
     @classmethod
     def _generate_idx_name(cls, taken_names: set[str]) -> str:
         """Generates an index name that is not in `taken_names`."""
+        i = 0
         while True:
-            name = f'idx_{uuid4().hex}'
+            name = f'idx{i}'
             if name not in taken_names:
                 return name
+            i += 1
 
     def _create_index_md(
         self, col: Column, val_col: Column, undo_col: Column, idx_name: str | None, idx: index.IndexBase
