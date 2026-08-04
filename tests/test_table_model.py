@@ -493,6 +493,39 @@ class TestTableModel:
         assert set(V.table.get_metadata()['indices'].keys()) == {'vc_idx'}
         assert Base.table.where(Base.table.id == 1).count() == 1
 
+    def test_index_name_collision_on_update(self, make_catalog_path: Callable[[str], str]) -> None:
+        """`update_all()` rejects a declared index whose name is taken by one of the table's existing indexes."""
+        p = make_catalog_path
+        root = p('')
+        TableModel = pxt.model_base()
+
+        # a table with default indexes; those are named idx0, idx1, ..., which a model is free to declare as well
+        class Defaults(TableModel, name='defaults', has_default_idxs=True):
+            txt: pxt.String
+
+        TableModel.create_all(root)
+        assert set(Defaults.table.get_metadata()['indices'].keys()) == {'idx0'}
+
+        TM_collision = pxt.model_base()
+
+        class DefaultsWithIdx0(TM_collision, name='defaults', has_default_idxs=True):
+            txt: pxt.String
+            idx0 = EmbeddingIndex(txt, embedding=dummy_embedding.using(n=768))
+
+        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match="Index 'idx0' already exists on column 'txt'"):
+            TM_collision.update_all(root)
+        assert set(Defaults.table.get_metadata()['indices'].keys()) == {'idx0'}
+
+        # a different name for the same index is fine
+        TM_renamed = pxt.model_base()
+
+        class DefaultsWithEmbIdx(TM_renamed, name='defaults', has_default_idxs=True):
+            txt: pxt.String
+            emb_idx = EmbeddingIndex(txt, embedding=dummy_embedding.using(n=768))
+
+        TM_renamed.update_all(root)
+        assert set(DefaultsWithEmbIdx.table.get_metadata()['indices'].keys()) == {'idx0', 'emb_idx'}
+
     def test_all_table_exprs(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         TableModel = pxt.model_base()

@@ -286,14 +286,7 @@ class TableVersion:
             column_md[col.id] = col_md
             schema_col_md[col.id] = col_schema_md
 
-        num_explicit_btrees = _validate_btree_idxs(tbl_id, additional_idxs)
-
-        # Explicit B-tree indexes are not allowed when has_default_idxs is True.
-        if has_default_idxs and num_explicit_btrees > 0:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT,
-                'Cannot combine has_default_idxs=True with an explicitly declared B-tree index.',
-            )
+        _validate_idxs(tbl_id, additional_idxs, has_default_idxs)
 
         # Merge default indexes and additional indexes into a manifest of indexes to create.
         index_md: dict[int, schema.IndexMd] = {}
@@ -982,14 +975,9 @@ class TableVersion:
         if len(cols_to_drop) > 0:
             self._drop_columns(cols_to_drop)
 
-        # Validate the new B-tree indexes against the post-drop state, so that dropping an index and adding another
-        # one on the same column in a single change set is allowed.
-        num_new_btrees = _validate_btree_idxs(self.id, added_idxs, self.idxs.values())
-        if self.has_default_idxs and num_new_btrees > 0:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT,
-                'Cannot combine has_default_idxs=True with an explicitly declared B-tree index.',
-            )
+        # Validate the new indexes against the post-drop state, so that dropping an index and adding another one with
+        # the same name, or on the same column, in a single change set is allowed.
+        _validate_idxs(self.id, added_idxs, self.has_default_idxs, self.idxs.values())
 
         status = UpdateStatus()
         if len(added_cols) > 0:
@@ -1974,36 +1962,57 @@ class TableVersion:
         return get_runtime().catalog.get_tbl_version(key)
 
 
-def _validate_btree_idxs(
-    tbl_id: UUID, idxs: Iterable[IndexSpec], existing_idxs: Iterable[TableVersion.IndexInfo] = ()
-) -> bool:
-    """Validate the B-tree indexes among idxs; returns True if at least one B-tree index is present.
+def _validate_idxs(
+    tbl_id: UUID,
+    idxs: Iterable[IndexSpec],
+    has_default_idxs: bool,
+    existing_idxs: Iterable[TableVersion.IndexInfo] = (),
+) -> None:
+    """Validate the indexes in idxs, which are about to be created on the table with id tbl_id.
 
-    existing_idxs: the table's live indexes; a new B-tree index must not duplicate one of those.
+    existing_idxs: the table's live indexes; a new index must not collide with one of those.
     """
+    existing_by_name = {info.name: info for info in existing_idxs}
     # names of the columns that already have a B-tree index; a view's base columns are excluded, because the
     # validation below rejects them as targets anyway
-    indexed_col_names = {
+    btree_col_names = {
         info.col.name
         for info in existing_idxs
         if isinstance(info.idx, index.BtreeIndex) and info.col.tbl_handle.id == tbl_id
     }
-    new_col_names: set[str] = set()
-    for idx_col, _, idx in idxs:
+    new_names: set[str] = set()
+    new_btree_col_names: set[str] = set()
+
+    for idx_col, idx_name, idx in idxs:
+        if idx_name is not None:
+            # the manifests this validates are keyed by index name, so a name cannot repeat within idxs
+            assert idx_name not in new_names, idx_name
+            existing_info = existing_by_name.get(idx_name)
+            if existing_info is not None:
+                raise excs.AlreadyExistsError(
+                    excs.ErrorCode.INDEX_ALREADY_EXISTS,
+                    f'Index {idx_name!r} already exists on column {existing_info.col.name!r}.',
+                )
+            new_names.add(idx_name)
+
         if not isinstance(idx, index.BtreeIndex):
             continue
+        if has_default_idxs:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                'Cannot combine has_default_idxs=True with an explicitly declared B-tree index.',
+            )
         assert isinstance(idx_col, Column)
         assert idx_col.name is not None, repr(idx_col)
         err = index.BtreeIndex.validation_error(idx_col, tbl_id)
         if err is not None:
             raise err
-        if idx_col.name in new_col_names:
+        if idx_col.name in new_btree_col_names:
             raise excs.AlreadyExistsError(
                 excs.ErrorCode.INDEX_ALREADY_EXISTS, f'More than one B-tree index declared on column {idx_col.name!r}.'
             )
-        if idx_col.name in indexed_col_names:
+        if idx_col.name in btree_col_names:
             raise excs.AlreadyExistsError(
                 excs.ErrorCode.INDEX_ALREADY_EXISTS, f'A B-tree index already exists on column {idx_col.name!r}.'
             )
-        new_col_names.add(idx_col.name)
-    return len(new_col_names) > 0
+        new_btree_col_names.add(idx_col.name)
