@@ -14,4 +14,5 @@ from ..utils import skip_test_if_not_installed
 class TestDbDumpTool:
     def test_db_dump_tool(self) -> None:
         skip_test_if_not_installed('transformers')
-        subprocess.run(('python', 'tool/create_test_db_dump.py'), check=True)
+        # A generous timeout to allow for a large HF download
+        subprocess.run(('python', 'tool/create_test_db_dump.py'), check=True, timeout=900)
