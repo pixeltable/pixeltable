@@ -334,6 +334,7 @@ class TableVersionPath(TablePath):
         return ROOT_PATH
 
     def version(self) -> int | None:
+        # TODO(PXT-1101): t.version() for operational tables should just mirror t.schema_version()
         if not self.data_versioned():
             return None
         return self._cached_tv().version
