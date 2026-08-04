@@ -30,7 +30,7 @@ class StoreBase:
     Each Pixeltable table or view is stored as a single store table whose name is derived from the
     table's UUID: ``tbl_<uuid_hex>`` for tables and ``view_<uuid_hex>`` for views.
 
-    ## Physical column layout
+    **Physical column layout**
 
     Columns always appear in this order:
 
@@ -38,9 +38,9 @@ class StoreBase:
     * pos_0, pos_1, ..., pos_N (component views only): the position of a component within its parent row
     * v_min (data-versioned tables only): the table version at which the row was inserted
     * v_max (data-versioned tables only): the table version at which the row was deleted. A row is live at version V
-    when v_min <= V < v_max.
+      when v_min <= V < v_max.
     * col_0, ..., col_N: user columns, i.e. all stored catalog columns, including cellmd columns, index value and undo
-    columns.
+      columns.
 
     The following column groups are recognized and exposed by this class:
 
