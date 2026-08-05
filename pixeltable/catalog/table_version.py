@@ -709,12 +709,7 @@ class TableVersion:
                     'Add the index to the base table instead.',
                 )
             index.BtreeIndex.validate_column(idx_col)
-            if idx_col.name in new_btree_col_names:
-                raise excs.AlreadyExistsError(
-                    excs.ErrorCode.INDEX_ALREADY_EXISTS,
-                    f'More than one B-tree index declared on column {idx_col.name!r}.',
-                )
-            if idx_col.name in btree_col_names:
+            if idx_col.name in new_btree_col_names or idx_col.name in btree_col_names:
                 raise excs.AlreadyExistsError(
                     excs.ErrorCode.INDEX_ALREADY_EXISTS, f'A B-tree index already exists on column {idx_col.name!r}.'
                 )

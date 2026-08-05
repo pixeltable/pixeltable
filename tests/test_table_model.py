@@ -436,7 +436,7 @@ class TestTableModel:
             name_idx_a = BtreeIndex(name)
             name_idx_b = BtreeIndex(name)
 
-        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match="More than one B-tree index .* on column 'name'"):
+        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match="B-tree index already exists on column 'name'"):
             TM_dup_new.update_all(root)
 
         # An ineligible column.
@@ -1818,7 +1818,7 @@ class TestTableModel:
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"references columns that are not in the model's scope"):
             RefsOutOfScope._create(p(''))
 
-        with pxt_raises(excs.ErrorCode.INDEX_ALREADY_EXISTS, match=r'More than one B-tree index'):
+        with pxt_raises(excs.ErrorCode.INDEX_ALREADY_EXISTS, match=r'B-tree index already exists'):
 
             class DupBtree(TableModel, name='dup_btree_table'):
                 id: pxt.Required[pxt.Int]
