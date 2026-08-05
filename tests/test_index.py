@@ -1130,7 +1130,7 @@ class TestIndex:
         v.add_btree_index('segment_start')
         assert set(btree_idxs(v).values()) == {'segment_start'}
 
-    def test_add_columns_default_idxs(self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> None:
+    def test_default_idxs(self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> None:
         p = make_catalog_path
 
         # a table created without default indexes doesn't index columns added later
@@ -1164,7 +1164,8 @@ class TestIndex:
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='has_default_idxs'):
                 t2.add_btree_index('id', **add_kwargs)  # type: ignore[arg-type]
 
-        id_idx_name = next(name for name, col in btree_idxs(t2).items() if col == 'id')  # default index on 'id'
+        # can't drop a default index
+        id_idx_name = next(name for name, col in btree_idxs(t2).items() if col == 'id')
         for drop_kwargs in ({'column': 'id'}, {'idx_name': id_idx_name}, {'column': 'id', 'if_not_exists': 'ignore'}):
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='has_default_idxs=True'):
                 t2.drop_index(**drop_kwargs)  # type: ignore[arg-type]
