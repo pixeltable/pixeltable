@@ -1096,34 +1096,38 @@ class TestIndex:
         p = make_catalog_path
         schema = {'id': pxt.Int, 'flag': pxt.Bool, 'data': pxt.Json, 'img': pxt.Image, 'audio': pxt.Audio}
         t = pxt.create_table(p('ineligible'), schema)
-        t.add_computed_column(rot=t.img.rotate(90))  # stored computed media
-        t.add_computed_column(id_calc=t.id + 1, stored=False)  # unstored
-        t.add_computed_column(id_calc2=t.id + 2)  # stored computed scalar: eligible, unlike its media counterpart
-        v = pxt.create_view(p('ineligible_view'), t, iterator=pxtf.audio.audio_splitter(t.audio, duration=1.0))
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH, match='Index on column flag: .* non-boolean scalar type or a media'
+        ):
+            t.add_btree_index('flag')
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH, match='Index on column data: .* non-boolean scalar type or a media'
+        ):
+            t.add_btree_index('data')
 
-        # (table, column, error code, message fragment); each fragment names its column, so a failure in the loop
-        # identifies the case
-        cases: list[tuple[pxt.Table, str, pxt.ErrorCode, str]] = [
-            (t, 'flag', pxt.ErrorCode.TYPE_MISMATCH, 'Index on column flag: .* non-boolean scalar type or a media'),
-            (t, 'data', pxt.ErrorCode.TYPE_MISMATCH, 'Index on column data: .* non-boolean scalar type or a media'),
-            (t, 'id_calc', pxt.ErrorCode.UNSUPPORTED_OPERATION, "unstored column 'id_calc'"),
-            (t, 'rot', pxt.ErrorCode.UNSUPPORTED_OPERATION, "computed media column 'rot'"),
-            (v, 'audio_segment', pxt.ErrorCode.UNSUPPORTED_OPERATION, "'audio_segment', which is produced by an iter"),
-        ]
-        for tbl, col, code, msg in cases:
-            with pxt_raises(code, match=msg):
-                tbl.add_btree_index(col)
+        t.add_computed_column(id_calc=t.id + 1, stored=False)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="unstored column 'id_calc'"):
+            t.add_btree_index('id_calc')
+
+        t.add_computed_column(rot=t.img.rotate(90))
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="computed media column 'rot'"):
+            t.add_btree_index('rot')
+
+        v = pxt.create_view(p('ineligible_view'), t, iterator=pxtf.audio.audio_splitter(t.audio, duration=1.0))
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'audio_segment', which is produced by an iter"):
+            v.add_btree_index('audio_segment')
 
         # none of the rejections created an index
         assert len(btree_idxs(t)) == 0
         assert len(btree_idxs(v)) == 0
 
         # the eligible columns of the same tables are accepted, including a stored non-media computed column
-        t.add_btree_index('id')
         t.add_btree_index('img')
+        t.add_computed_column(id_calc2=t.id + 2)
         t.add_btree_index('id_calc2')
-        v.add_btree_index('segment_start')
         assert set(btree_idxs(t).values()) == {'id', 'img', 'id_calc2'}
+
+        v.add_btree_index('segment_start')
         assert set(btree_idxs(v).values()) == {'segment_start'}
 
     def test_add_columns_default_idxs(self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> None:
