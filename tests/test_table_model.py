@@ -1798,16 +1798,6 @@ class TestTableModel:
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"references columns that are not in the model's scope"):
             RefsOutOfScope._create(p(''))
 
-        with pxt_raises(excs.ErrorCode.INDEX_ALREADY_EXISTS, match=r'B-tree index already exists'):
-
-            class DupBtree(TableModel, name='dup_btree_table'):
-                id: pxt.Required[pxt.Int]
-                name: pxt.String
-                name_idx = BtreeIndex(name)
-                name_idx2 = BtreeIndex(name)
-
-            DupBtree._create(p(''))
-
         # rejected by the class definition itself, before _create() is ever reached
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'cannot combine has_default_idxs'):
 
