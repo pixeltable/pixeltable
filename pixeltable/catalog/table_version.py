@@ -299,7 +299,6 @@ class TableVersion:
         # an index on a column of this table must reference the instance in cols, which is the one that got an id
         # above; an index on a base column references that column directly
         own_cols = {id(col) for col in cols}
-        assert all(isinstance(spec.indexed_column, Column) for spec in additional_idxs)
         assert all(
             id(spec.indexed_column) in own_cols
             for spec in additional_idxs
