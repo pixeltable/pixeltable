@@ -293,7 +293,7 @@ class TableVersion:
         idxs_to_create: list[IndexSpec] = []
         if has_default_idxs and (view_md is None or not view_md.is_snapshot):
             idxs_to_create.extend(
-                IndexSpec(col, None, index.BtreeIndex()) for col in cols if index.BtreeIndex.can_index(col, tbl_id)
+                IndexSpec(col, None, index.BtreeIndex()) for col in cols if index.BtreeIndex.can_index(col)
             )
 
         # an index on a column of this table must reference the instance in cols, which is the one that got an id
@@ -700,9 +700,14 @@ class TableVersion:
                 )
             assert isinstance(idx_col, Column)
             assert idx_col.name is not None, repr(idx_col)
-            err = index.BtreeIndex.validation_error(idx_col, tbl_id)
-            if err is not None:
-                raise err
+            if idx_col.tbl_handle.id != tbl_id:
+                # PXT-1260 Allow views to create a b-tree index on a base column
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot create a B-tree index on column {idx_col.name!r}: it belongs to a base table. '
+                    'Add the index to the base table instead.',
+                )
+            index.BtreeIndex.validate_column(idx_col)
             if idx_col.name in new_btree_col_names:
                 raise excs.AlreadyExistsError(
                     excs.ErrorCode.INDEX_ALREADY_EXISTS,
@@ -797,7 +802,7 @@ class TableVersion:
         all_cols: list[Column] = []
         for col in cols:
             all_cols.append(col)
-            if self.has_default_idxs and col.name is not None and index.BtreeIndex.can_index(col, self.id):
+            if self.has_default_idxs and col.name is not None and index.BtreeIndex.can_index(col):
                 idx = index.BtreeIndex()
 
                 val_col, undo_col = Column.create_index_columns(
@@ -1111,7 +1116,7 @@ class TableVersion:
         all_cols: list[Column] = []
         for col in cols:
             all_cols.append(col)
-            if self.has_default_idxs and col.name is not None and index.BtreeIndex.can_index(col, self.id):
+            if self.has_default_idxs and col.name is not None and index.BtreeIndex.can_index(col):
                 idx = index.BtreeIndex()
                 val_col, undo_col = Column.create_index_columns(
                     self.handle, col, idx, self.next_col_id(), self.next_col_id(), self.schema_version

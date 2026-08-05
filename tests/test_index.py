@@ -1093,7 +1093,7 @@ class TestIndex:
         assert len(btree_idxs(t)) == 0
 
     def test_btree_ineligible_columns(self, make_catalog_path: Callable[[str], str]) -> None:
-        """One case per rejection in BtreeIndex._column_error, exercised through add_btree_index()."""
+        """One case per rejection in BtreeIndex.validate_column, exercised through add_btree_index()."""
         p = make_catalog_path
         schema = {'id': pxt.Int, 'flag': pxt.Bool, 'data': pxt.Json, 'img': pxt.Image, 'audio': pxt.Audio}
         t = pxt.create_table(p('ineligible'), schema)
