@@ -666,6 +666,7 @@ class TableVersion:
     ) -> None:
         """Validate the indexes in idxs, which are about to be created on the table with id tbl_id.
 
+        idxs: resolved specs, ie. every indexed_column is a Column, not a column name.
         existing_idxs: the table's live indexes; a new index must not collide with one of those.
         """
         existing_by_name = {info.name: info for info in existing_idxs}
@@ -680,6 +681,8 @@ class TableVersion:
         new_btree_col_names: set[str] = set()
 
         for idx_col, idx_name, idx in idxs:
+            assert isinstance(idx_col, Column)
+
             if idx_name is not None:
                 assert idx_name not in new_names, idx_name
                 existing_info = existing_by_name.get(idx_name)
@@ -698,7 +701,6 @@ class TableVersion:
                     'Cannot create an explicit B-tree index on a table with has_default_idxs=True; '
                     'its eligible columns are indexed automatically.',
                 )
-            assert isinstance(idx_col, Column)
             assert idx_col.name is not None, repr(idx_col)
             if idx_col.tbl_handle.id != tbl_id:
                 # PXT-1260 Allow views to create a b-tree index on a base column
