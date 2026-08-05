@@ -1800,7 +1800,7 @@ class TestHostedCommandRequests:
     def test_create_db_accepts_valid_name(self, db: str) -> None:
         assert CreateDbRequest(org='acme', db=db).db == db
 
-    @pytest.mark.parametrize('db', ['My_DB', 'a_b', 'ACME', 'db-', '-db', 'a' * 30, 'my db', 'my.db'])
+    @pytest.mark.parametrize('db', ['My_DB', 'a_b', 'ACME', 'db-', '-db', 'a' * 30, 'my db', 'my.db', 'main\n', ''])
     def test_create_db_rejects_invalid_name(self, db: str) -> None:
         with pytest.raises(pydantic.ValidationError):
             CreateDbRequest(org='acme', db=db)
