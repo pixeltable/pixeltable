@@ -388,8 +388,8 @@ class TestTableModel:
         ):
             TableModelV3.diff_all(root)
 
-    def test_btree_index_validation_on_update(self, make_catalog_path: Callable[[str], str]) -> None:
-        """`update_all()` enforces the same B-tree eligibility rules as `Table.add_btree_index()`."""
+    def test_btree_index_validation(self, make_catalog_path: Callable[[str], str]) -> None:
+        """`update_all()` and `create_all()` enforce the same B-tree eligibility rules as `Table.add_btree_index()`."""
         root = make_catalog_path('')
         TableModel = pxt.model_base()
 
@@ -468,6 +468,20 @@ class TestTableModel:
         # None of the rejected changes were applied.
         assert btree_idxs(Base.table) == {'id_idx': 'id'}
         assert btree_idxs(V.table) == {}
+
+        # The same rule holds when the view declares the index up front (create_all instead update update_all)
+        TM_create = pxt.model_base()
+
+        class BaseAtCreate(TM_create, name='base_at_create'):
+            id: pxt.Required[pxt.Int]
+            name: pxt.String
+
+        class ViewOnBaseColAtCreate(TM_create, name='v_at_create', base=BaseAtCreate):
+            doubled = BaseAtCreate.id * 2
+            bad_idx = BtreeIndex(BaseAtCreate.name)
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='belongs to a base table'):
+            TM_create.create_all(root)
 
     def test_index_name_collision_on_update(self, make_catalog_path: Callable[[str], str]) -> None:
         """`update_all()` rejects a declared index whose name is taken by one of the table's existing indexes."""
@@ -1801,19 +1815,6 @@ class TestTableModel:
                 id: pxt.Required[pxt.Int]
                 name: pxt.String
                 name_idx = BtreeIndex(name)
-
-        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match='belongs to a base table'):
-            InheritModel = pxt.model_base()
-
-            class BtreeIdxBase(InheritModel, name='btree_idx_base'):
-                id: pxt.Required[pxt.Int]
-                name: pxt.String
-
-            class BtreeInheritedView(InheritModel, name='btree_inherited_view', base=BtreeIdxBase):
-                doubled = BtreeIdxBase.id * 2
-                name_idx = BtreeIndex(BtreeIdxBase.name)
-
-            InheritModel.create_all(p(''))
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"Column 'plus': duplicate definition"):
 
