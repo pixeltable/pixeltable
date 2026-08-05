@@ -77,8 +77,8 @@ class TableMetadata(TypedDict):
     """Column metadata for all of the visible columns of the table."""
     indices: dict[str, IndexMetadata]
     """Index metadata for all of the indices of the table."""
-    is_versioned: bool
-    """`True` if this is a versioned table."""
+    data_versioned: bool
+    """`True` if this is a data-versioned table."""
     has_default_idxs: bool
     """`True` if eligible columns of this table get a default B-tree index."""
     is_view: bool
@@ -86,7 +86,7 @@ class TableMetadata(TypedDict):
     is_snapshot: bool
     """`True` if this table is a snapshot."""
     version: int | None
-    """The current version of the table or None if it's not versioned."""
+    """The current version of the table or None if it's not data-versioned."""
     version_created: datetime.datetime
     """The timestamp when this table version was created."""
     schema_version: int

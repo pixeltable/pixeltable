@@ -1528,7 +1528,7 @@ class Catalog(CatalogBase):
         custom_metadata: Any,
         media_validation: MediaValidation,
         has_default_idxs: bool,
-        is_versioned: bool,
+        data_versioned: bool,
     ) -> tuple[LocalTable, bool]:
         """
         Creates a new InsertableTable at the given path.
@@ -1549,7 +1549,7 @@ class Catalog(CatalogBase):
             custom_metadata,
             media_validation,
             has_default_idxs,
-            is_versioned,
+            data_versioned,
         )
 
     def _create_table(
@@ -1562,7 +1562,7 @@ class Catalog(CatalogBase):
         custom_metadata: Any,
         media_validation: MediaValidation,
         has_default_idxs: bool,
-        is_versioned: bool,
+        data_versioned: bool,
         additional_idxs: list[IndexSpec] | None = None,
         explicit_tbl_id: UUID | None = None,
     ) -> tuple[LocalTable, bool]:
@@ -1599,7 +1599,7 @@ class Catalog(CatalogBase):
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,
                 has_default_idxs=has_default_idxs,
-                is_versioned=is_versioned,
+                data_versioned=data_versioned,
                 additional_idxs=additional_idxs,
             )
             assert tbl_id == UUID(md.tbl_md.tbl_id)
@@ -1786,7 +1786,7 @@ class Catalog(CatalogBase):
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,
                 has_default_idxs=has_default_idxs,
-                is_versioned=True,
+                data_versioned=True,
                 additional_idxs=resolved_idxs,
                 explicit_tbl_id=tbl_id,
             )
@@ -2295,10 +2295,10 @@ class Catalog(CatalogBase):
             reload = False
 
             # live table; compare our cached TableMd.current_version/view_sn to what's stored
-            is_versioned = row.md.get('is_versioned', True)
+            data_versioned = row.md.get('data_versioned', True)
             current_version = row.md['current_version']
             view_sn = row.md['view_sn']
-            if (is_versioned and current_version != tv.version) or view_sn != tv.tbl_md.view_sn:
+            if (data_versioned and current_version != tv.version) or view_sn != tv.tbl_md.view_sn:
                 _logger.debug(
                     f'reloading metadata for live table {key.tbl_id} '
                     f'(cached/current version: {tv.version}/{current_version}, '
@@ -3197,7 +3197,7 @@ class Catalog(CatalogBase):
             stmt = (
                 sql.select(*select_list)
                 .select_from(sa_tbl)
-                .where((sa_tbl.c.v_max > tv.version) if tv.is_versioned else sql.true())
+                .where((sa_tbl.c.v_max > tv.version) if tv.data_versioned else sql.true())
                 .where(sql.or_(*conditions))
                 .limit(1)
             )
@@ -3210,7 +3210,7 @@ class Catalog(CatalogBase):
                     f'{stmt}'
                 )
 
-        if tv.is_versioned:
+        if tv.data_versioned:
             # Validate that the index values are NULL for non-latest version rows
             # Example query:
             # SELECT *,

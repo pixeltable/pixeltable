@@ -271,7 +271,7 @@ class TestTableModel:
                         },
                     }
                 ],
-                'is_versioned': True,
+                'data_versioned': True,
                 'has_default_idxs': False,
                 'is_view': False,
                 'is_snapshot': False,

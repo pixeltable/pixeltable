@@ -224,8 +224,8 @@ class View(LocalTable):
             custom_metadata,
             media_validation=media_validation,
             view_md=view_md,
+            data_versioned=base.data_versioned(),
             has_default_idxs=has_default_idxs,
-            is_versioned=base.is_versioned(),
             additional_idxs=resolved_idxs,
         )
         if md.tbl_md.is_pure_snapshot:
