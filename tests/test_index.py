@@ -19,6 +19,7 @@ from .utils import (
     CatalogMode,
     ReloadTester,
     assert_resultset_eq,
+    btree_idxs,
     get_sentences,
     list_store_indexes,
     local_embedding,
@@ -28,13 +29,6 @@ from .utils import (
     skip_test_if_not_installed,
     validate_update_status,
 )
-
-
-def btree_idxs(t: pxt.Table) -> dict[str, str]:
-    """The names of `t`'s B-tree indexes, mapped to the column each one indexes."""
-    btree_md = [info for info in t.get_metadata()['indices'].values() if info['index_type'] == 'btree']
-    assert all(len(info['columns']) == 1 for info in btree_md)
-    return {info['name']: info['columns'][0] for info in btree_md}
 
 
 class TestIndex:

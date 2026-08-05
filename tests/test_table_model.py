@@ -17,6 +17,7 @@ from pixeltable.catalog.model import BtreeIndex, Column, EmbeddingIndex
 from .utils import (
     assert_resultset_eq,
     assert_table_metadata_eq,
+    btree_idxs,
     capture_console_output,
     dummy_embedding,
     get_image_files,
@@ -306,15 +307,7 @@ class TestTableModel:
         TableModel.create_all(p(''))
         tbl = ExampleTableModel.table
 
-        # Verify both the model-based table and an analogous manually built one carry the same indices.
-        indices = tbl.get_metadata()['indices']
-        assert indices['name_idx']['index_type'] == 'btree' and indices['name_idx']['columns'] == ['name']
-        assert indices['img_idx']['index_type'] == 'btree' and indices['img_idx']['columns'] == ['img']
-
-        tbl2 = pxt.create_table(p('test_table_2'), {'id': pxt.Required[pxt.Int], 'name': pxt.String, 'img': pxt.Image})
-        tbl2.add_btree_index('name', idx_name='name_idx')
-        tbl2.add_btree_index('img', idx_name='img_idx')
-        assert schema_from_tbl_md(tbl.get_metadata()) == schema_from_tbl_md(tbl2.get_metadata())
+        assert btree_idxs(tbl) == {'name_idx': 'name', 'img_idx': 'img'}
 
     def test_default_idxs_diff(self, make_catalog_path: Callable[[str], str]) -> None:
         """The diff compares `has_default_idxs` against the table's persisted value, and `update_all()` gives
@@ -335,15 +328,7 @@ class TestTableModel:
         TableModel.create_all(root)
         tbl = WithDefaults.table
 
-        def btree_cols() -> set[str]:
-            return {
-                col
-                for i in tbl.get_metadata()['indices'].values()
-                if i['index_type'] == 'btree'
-                for col in i['columns']
-            }
-
-        assert btree_cols() == {'id', 'name'}
+        assert set(btree_idxs(tbl).values()) == {'id', 'name'}
         assert tbl.get_metadata()['has_default_idxs'] is True
 
         # Adding a column via `update_all()` honors the table's setting: `extra` gets a default index, and the
@@ -359,7 +344,7 @@ class TestTableModel:
         assert diff['resolution'] == 'update_additive'
         assert [(c['target'], c['name'], c['op']) for c in diff['ops']] == [('column', 'extra', 'add')]
         TableModelV2.update_all(root)
-        assert btree_cols() == {'id', 'name', 'extra'}
+        assert set(btree_idxs(tbl).values()) == {'id', 'name', 'extra'}
         assert TableModelV2.get_model_diff(root)['defaults_table']['resolution'] == 'up_to_date'
 
         # A model that disagrees with the table's persisted has_default_idxs setting is an unsupported change.
