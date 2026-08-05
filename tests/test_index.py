@@ -1125,7 +1125,7 @@ class TestIndex:
         t.add_btree_index('img')
         t.add_computed_column(id_calc2=t.id + 2)
         t.add_btree_index('id_calc2')
-        assert set(btree_idxs(t).values()) == {'id', 'img', 'id_calc2'}
+        assert set(btree_idxs(t).values()) == {'img', 'id_calc2'}
 
         v.add_btree_index('segment_start')
         assert set(btree_idxs(v).values()) == {'segment_start'}

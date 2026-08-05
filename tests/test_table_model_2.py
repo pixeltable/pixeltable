@@ -10,7 +10,7 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.catalog.model import Column, EmbeddingIndex
 
-from .utils import assert_resultset_eq, assert_tbl_schemas_eq, capture_console_output, dummy_embedding
+from .utils import assert_resultset_eq, capture_console_output, dummy_embedding, schema_from_tbl_md
 
 # Separate model tests, in a different file from test_table_model.py that is declared without
 # `from __future__ import annotations`
@@ -77,7 +77,7 @@ class TestTableModel2:
         tbl2.add_embedding_index(tbl2.img, idx_name='clip_idx', embedding=dummy_embedding.using(n=768))
         metadata2 = tbl2.get_metadata()
 
-        assert_tbl_schemas_eq(metadata, metadata2)
+        assert schema_from_tbl_md(metadata) == schema_from_tbl_md(metadata2)
 
         tbl.insert([{'id': 1, 'name': 'Alice', 'value': 3.14}])
         tbl2.insert([{'id': 1, 'name': 'Alice', 'value': 3.14}])

@@ -343,7 +343,9 @@ class TestTable:
                         }
                     },
                     'comment': None,
-                    'indices': [{'columns': ['col'], 'index_type': 'btree', 'parameters': None}],
+                    'indices': {
+                        'idx0': {'name': 'idx0', 'columns': ['col'], 'index_type': 'btree', 'parameters': None}
+                    },
                     'is_view': False,
                     'is_snapshot': False,
                     'data_versioned': True,
@@ -386,8 +388,9 @@ class TestTable:
                         }
                     },
                     'comment': None,
-                    'indices': [
-                        {
+                    'indices': {
+                        'idx0': {
+                            'name': 'idx0',
                             'columns': ['col'],
                             'index_type': 'embedding',
                             'parameters': {
@@ -399,7 +402,7 @@ class TestTable:
                                 'metric': 'cosine',
                             },
                         }
-                    ],
+                    },
                     'is_view': True,
                     'is_snapshot': False,
                     'data_versioned': True,
@@ -442,7 +445,7 @@ class TestTable:
                         }
                     },
                     'comment': None,
-                    'indices': [],
+                    'indices': {},
                     'is_view': True,
                     'is_snapshot': True,
                     'data_versioned': True,
@@ -502,7 +505,7 @@ class TestTable:
                         },
                     },
                     'comment': None,
-                    'indices': [],
+                    'indices': {},
                     'is_view': True,
                     'is_snapshot': True,
                     'has_default_idxs': False,
@@ -647,14 +650,14 @@ class TestTable:
                 },
                 'comment': None,
                 'custom_metadata': None,
-                'indices': [
-                    {'columns': ['c1'], 'index_type': 'btree', 'parameters': None},
-                    {'columns': ['c2'], 'index_type': 'btree', 'parameters': None},
-                    {'columns': ['img'], 'index_type': 'btree', 'parameters': None},
-                    {'columns': ['plus1'], 'index_type': 'btree', 'parameters': None},
-                    {'columns': ['sum12'], 'index_type': 'btree', 'parameters': None},
-                    {'columns': ['custom'], 'index_type': 'btree', 'parameters': None},
-                ],
+                'indices': {
+                    'idx0': {'name': 'idx0', 'columns': ['c1'], 'index_type': 'btree', 'parameters': None},
+                    'idx1': {'name': 'idx1', 'columns': ['c2'], 'index_type': 'btree', 'parameters': None},
+                    'idx2': {'name': 'idx2', 'columns': ['img'], 'index_type': 'btree', 'parameters': None},
+                    'idx3': {'name': 'idx3', 'columns': ['plus1'], 'index_type': 'btree', 'parameters': None},
+                    'idx4': {'name': 'idx4', 'columns': ['sum12'], 'index_type': 'btree', 'parameters': None},
+                    'idx5': {'name': 'idx5', 'columns': ['custom'], 'index_type': 'btree', 'parameters': None},
+                },
                 'is_view': False,
                 'is_snapshot': False,
                 'has_default_idxs': True,
@@ -806,7 +809,9 @@ class TestTable:
                 },
                 'comment': None,
                 'custom_metadata': None,
-                'indices': [{'columns': ['derived'], 'index_type': 'btree', 'parameters': None}],
+                'indices': {
+                    'idx0': {'name': 'idx0', 'columns': ['derived'], 'index_type': 'btree', 'parameters': None}
+                },
                 'is_view': True,
                 'is_snapshot': False,
                 'data_versioned': True,
@@ -854,7 +859,9 @@ class TestTable:
                 'custom_metadata': None,
                 'primary_key': None,
                 'media_validation': 'on_write',
-                'indices': [{'columns': ['derived'], 'index_type': 'btree', 'parameters': None}],
+                'indices': {
+                    'idx0': {'name': 'idx0', 'columns': ['derived'], 'index_type': 'btree', 'parameters': None}
+                },
                 'columns': {
                     'pos': {
                         'name': 'pos',

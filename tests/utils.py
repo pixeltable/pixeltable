@@ -16,7 +16,7 @@ import uuid
 from contextlib import contextmanager
 from io import StringIO
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal, Mapping, TypedDict
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, TypedDict
 from unittest import TestCase
 from uuid import uuid4
 
@@ -706,28 +706,21 @@ def __mismatch_err_string(col_name: str, s1: list[Any], s2: list[Any], mismatche
     return '\n'.join(lines)
 
 
-def _unnamed_idx_md(indices: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    """Index metadata without the 'name' entry, in a deterministic order."""
-    return sorted(({k: v for k, v in info.items() if k != 'name'} for info in indices), key=repr)
-
-
 def assert_table_metadata_eq(expected: dict[str, Any], actual: pxt.TableMetadata) -> None:
     """
     Assert that table metadata (user-facing metadata as returned by `tbl.get_metadata()`) matches the expected dict.
     `version_created` will be checked to be less than 1 minute ago; `id` is asserted to be a UUID but its value
-    is not compared; `indices` will be compared ignoring index names (which can be auto-generated); the other fields
-    will be checked for exact equality.
+    is not compared; the other fields will be checked for exact equality.
     """
     now = datetime.datetime.now(tz=datetime.timezone.utc)
     actual_created_at: datetime.datetime = actual['version_created']
     assert (now - actual_created_at).total_seconds() <= (120 if Env.get().is_using_cockroachdb else 60)
     assert isinstance(actual['id'], uuid.UUID)
 
+    trimmed_actual = {k: v for k, v in actual.items() if k not in {'version_created', 'id'}}
     tc = TestCase()
     tc.maxDiff = 25_000
-    trimmed_actual: dict[str, Any] = {k: v for k, v in actual.items() if k not in {'version_created', 'id', 'indices'}}
-    tc.assertListEqual(_unnamed_idx_md(expected['indices']), _unnamed_idx_md(actual['indices'].values()))
-    tc.assertDictEqual({k: v for k, v in expected.items() if k != 'indices'}, trimmed_actual)
+    tc.assertDictEqual(expected, trimmed_actual)
 
 
 def assert_version_metadata_eq(expected: dict[str, Any], actual: pxt.VersionMetadata) -> None:
@@ -1207,7 +1200,7 @@ def _(dim: int) -> ts.ArrayType:
     return ts.ArrayType((dim,), dtype=np.dtype('float32'), nullable=False)
 
 
-def _schema_from_tbl_md(metadata: pxt.TableMetadata) -> dict[str, Any]:
+def schema_from_tbl_md(metadata: pxt.TableMetadata) -> dict[str, str]:
     # Return a dict of schema information about that table that is invariant of table path and version history.
     return {
         'kind': metadata['kind'],
@@ -1232,15 +1225,5 @@ def _schema_from_tbl_md(metadata: pxt.TableMetadata) -> dict[str, Any]:
             }
             for name, info in metadata['columns'].items()
         },
+        'indices': metadata['indices'],
     }
-
-
-def assert_tbl_schemas_eq(md1: pxt.TableMetadata, md2: pxt.TableMetadata) -> None:
-    """
-    Assert that two tables have the same schema (table properties, columns, indices), disregarding table path,
-    version history, and index names (which are auto-generated for unnamed indexes).
-    """
-    tc = TestCase()
-    tc.maxDiff = 25_000
-    tc.assertListEqual(_unnamed_idx_md(md1['indices'].values()), _unnamed_idx_md(md2['indices'].values()))
-    tc.assertDictEqual(_schema_from_tbl_md(md1), _schema_from_tbl_md(md2))

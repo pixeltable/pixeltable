@@ -1013,7 +1013,7 @@ class TestView:
                         for name, (type_, version_added) in expected_schema.items()
                     },
                     'comment': None,
-                    'indices': [],
+                    'indices': {},
                     'is_snapshot': True,
                     'is_view': True,
                     'data_versioned': True,
@@ -1144,7 +1144,7 @@ class TestView:
                         for name, (type_, version_added, computed_with, depends_on) in expected_schema.items()
                     },
                     'comment': None,
-                    'indices': [],
+                    'indices': {},
                     'is_snapshot': True,
                     'is_view': True,
                     'data_versioned': True,
@@ -1241,7 +1241,7 @@ class TestView:
                         for name, (type_, version_added, computed_with, depends_on) in expected_schema.items()
                     },
                     'comment': None,
-                    'indices': [],
+                    'indices': {},
                     'is_snapshot': True,
                     'is_view': True,
                     'data_versioned': True,
