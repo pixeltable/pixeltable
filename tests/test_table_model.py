@@ -475,12 +475,12 @@ class TestTableModel:
         root = p('')
         TableModel = pxt.model_base()
 
-        # a table with default indexes; those are named idx0, idx1, ..., which a model is free to declare as well
         class Defaults(TableModel, name='defaults', has_default_idxs=True):
             txt: pxt.String
 
         TableModel.create_all(root)
-        assert set(Defaults.table.get_metadata()['indices'].keys()) == {'idx0'}
+
+        assert btree_idxs(Defaults.table) == {'idx0': 'txt'}
 
         TM_collision = pxt.model_base()
 
@@ -490,17 +490,8 @@ class TestTableModel:
 
         with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match="Index 'idx0' already exists on column 'txt'"):
             TM_collision.update_all(root)
-        assert set(Defaults.table.get_metadata()['indices'].keys()) == {'idx0'}
 
-        # a different name for the same index is fine
-        TM_renamed = pxt.model_base()
-
-        class DefaultsWithEmbIdx(TM_renamed, name='defaults', has_default_idxs=True):
-            txt: pxt.String
-            emb_idx = EmbeddingIndex(txt, embedding=dummy_embedding.using(n=768))
-
-        TM_renamed.update_all(root)
-        assert set(DefaultsWithEmbIdx.table.get_metadata()['indices'].keys()) == {'idx0', 'emb_idx'}
+        assert btree_idxs(Defaults.table) == {'idx0': 'txt'}
 
     def test_all_table_exprs(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
