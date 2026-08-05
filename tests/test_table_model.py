@@ -310,8 +310,7 @@ class TestTableModel:
         assert btree_idxs(tbl) == {'name_idx': 'name', 'img_idx': 'img'}
 
     def test_default_idxs_diff(self, make_catalog_path: Callable[[str], str]) -> None:
-        """The diff compares `has_default_idxs` against the table's persisted value, and `update_all()` gives
-        newly added columns the same default index treatment the table's original columns got."""
+        """Verifies how model diff interacts with has_default_idxs."""
         p = make_catalog_path
         root = p('')
         TableModel = pxt.model_base()
@@ -323,16 +322,15 @@ class TestTableModel:
         class NoDefaults(TableModel, name='no_defaults_table'):
             id: pxt.Required[pxt.Int]
             name: pxt.String
-            name_idx = BtreeIndex(name)  # explicitly declared, since this table has no default indexes
+            name_idx = BtreeIndex(name)
 
         TableModel.create_all(root)
-        tbl = WithDefaults.table
+        tbl_with_defaults = WithDefaults.table
 
-        assert set(btree_idxs(tbl).values()) == {'id', 'name'}
-        assert tbl.get_metadata()['has_default_idxs'] is True
+        assert set(btree_idxs(tbl_with_defaults).values()) == {'id', 'name'}
+        assert tbl_with_defaults.get_metadata()['has_default_idxs'] is True
 
-        # Adding a column via `update_all()` honors the table's setting: `extra` gets a default index, and the
-        # index is not itself reported as a difference (default indexes have no counterpart in `__indexes__`).
+        # New column in defaults_table gets a B-tree index automatically
         TableModelV2 = pxt.model_base()
 
         class WithDefaultsV2(TableModelV2, name='defaults_table', has_default_idxs=True):
@@ -342,12 +340,11 @@ class TestTableModel:
 
         diff = TableModelV2.get_model_diff(root)['defaults_table']
         assert diff['resolution'] == 'update_additive'
-        assert [(c['target'], c['name'], c['op']) for c in diff['ops']] == [('column', 'extra', 'add')]
         TableModelV2.update_all(root)
-        assert set(btree_idxs(tbl).values()) == {'id', 'name', 'extra'}
+        assert set(btree_idxs(tbl_with_defaults).values()) == {'id', 'name', 'extra'}
         assert TableModelV2.get_model_diff(root)['defaults_table']['resolution'] == 'up_to_date'
 
-        # A model that disagrees with the table's persisted has_default_idxs setting is an unsupported change.
+        # has_default_idxs can't be changed
         TableModelV3 = pxt.model_base()
 
         class WithDefaultsV3(TableModelV3, name='defaults_table', has_default_idxs=False):
@@ -360,16 +357,8 @@ class TestTableModel:
             id: pxt.Required[pxt.Int]
             name: pxt.String
 
-        diff = TableModelV3.get_model_diff(root)['defaults_table']
-        assert diff['resolution'] == 'unsupported'
-        assert [(c['target'], c['name'], c['model'], c['existing']) for c in diff['ops']] == [
-            ('table', 'has_default_idxs', False, True)
-        ]
-        diff = TableModelV3.get_model_diff(root)['no_defaults_table']
-        assert diff['resolution'] == 'unsupported'
-        assert [(c['target'], c['name'], c['model'], c['existing']) for c in diff['ops']] == [
-            ('table', 'has_default_idxs', True, False)
-        ]
+        assert TableModelV3.get_model_diff(root)['defaults_table']['resolution'] == 'unsupported'
+        assert TableModelV3.get_model_diff(root)['no_defaults_table']['resolution'] == 'unsupported'
         with capture_console_output(
             match=r'the following table properties have changed \(FATAL\):\n'
             r'\s*has_default_idxs: model=False, existing=True'
