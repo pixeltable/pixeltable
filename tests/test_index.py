@@ -1093,15 +1093,12 @@ class TestIndex:
         assert len(btree_idxs(t)) == 0
 
     def test_btree_ineligible_columns(self, make_catalog_path: Callable[[str], str]) -> None:
-        """One case per rejection in BtreeIndex.validate_column, exercised through add_btree_index()."""
         p = make_catalog_path
         schema = {'id': pxt.Int, 'flag': pxt.Bool, 'data': pxt.Json, 'img': pxt.Image, 'audio': pxt.Audio}
         t = pxt.create_table(p('ineligible'), schema)
         t.add_computed_column(rot=t.img.rotate(90))  # stored computed media
         t.add_computed_column(id_calc=t.id + 1, stored=False)  # unstored
         t.add_computed_column(id_calc2=t.id + 2)  # stored computed scalar: eligible, unlike its media counterpart
-        # audio_splitter, unlike the tile/frame iterators, declares no unstored_cols, so 'audio_segment' is the one
-        # iterator-produced media column that reaches the is_iterator_col check (an unstored one is rejected earlier)
         v = pxt.create_view(p('ineligible_view'), t, iterator=pxtf.audio.audio_splitter(t.audio, duration=1.0))
 
         # (table, column, error code, message fragment); each fragment names its column, so a failure in the loop
