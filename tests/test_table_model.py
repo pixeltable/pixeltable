@@ -367,8 +367,7 @@ class TestTableModel:
 
     def test_btree_index_validation_on_update(self, make_catalog_path: Callable[[str], str]) -> None:
         """`update_all()` enforces the same B-tree eligibility rules as `Table.add_btree_index()`."""
-        p = make_catalog_path
-        root = p('')
+        root = make_catalog_path('')
         TableModel = pxt.model_base()
 
         class Base(TableModel, name='base'):
@@ -398,7 +397,7 @@ class TestTableModel:
         with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match="already exists on column 'id'"):
             TM_dup_existing.update_all(root)
 
-        # Two indexes on the same column within a single change set.
+        # Two new indexes on the same column within a single change set.
         TM_dup_new = pxt.model_base()
 
         class BaseDupNew(TM_dup_new, name='base'):
@@ -445,8 +444,8 @@ class TestTableModel:
             TM_base_col.update_all(root)
 
         # None of the rejected changes were applied.
-        assert set(Base.table.get_metadata()['indices'].keys()) == {'id_idx'}
-        assert len(V.table.get_metadata()['indices']) == 0
+        assert btree_idxs(Base.table) == {'id_idx': 'id'}
+        assert btree_idxs(V.table) == {}
 
         # Renaming a column's index in a single change set is allowed: the drop is applied before the add is
         # validated. An index on a view's own column is also allowed.
@@ -464,8 +463,8 @@ class TestTableModel:
             vc_idx = BtreeIndex(vc)
 
         TM_rename.update_all(root, allow_destructive=True)
-        assert set(Base.table.get_metadata()['indices'].keys()) == {'id_idx2'}
-        assert set(V.table.get_metadata()['indices'].keys()) == {'vc_idx'}
+        assert btree_idxs(Base.table) == {'id_idx2': 'id'}
+        assert btree_idxs(V.table) == {'vc_idx': 'vc'}
         assert Base.table.where(Base.table.id == 1).count() == 1
 
     def test_index_name_collision_on_update(self, make_catalog_path: Callable[[str], str]) -> None:
