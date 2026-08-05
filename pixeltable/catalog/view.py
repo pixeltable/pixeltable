@@ -225,7 +225,7 @@ class View(LocalTable):
             media_validation=media_validation,
             view_md=view_md,
             create_default_idxs=create_default_idxs,
-            is_versioned=base.is_versioned(),
+            data_versioned=base.data_versioned(),
             additional_idxs=resolved_idxs,
         )
         if md.tbl_md.is_pure_snapshot:
