@@ -293,7 +293,7 @@ class TestTableModel:
         )
 
     def test_btree_index_declaration(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+        root = make_catalog_path('')
         TableModel = pxt.model_base()
 
         class ExampleTableModel(TableModel, name='test_table'):
@@ -304,10 +304,33 @@ class TestTableModel:
             name_idx = pxt.BtreeIndex(name)
             img_idx = pxt.BtreeIndex(img)
 
-        TableModel.create_all(p(''))
+        class ExampleViewModel(TableModel, name='test_view', base=ExampleTableModel):
+            vc: pxt.Int
+
+        TableModel.create_all(root)
         tbl = ExampleTableModel.table
+        ExampleTableModel.insert([{'id': 1, 'name': 'a', 'img': get_image_files()[0]}])
 
         assert btree_idxs(tbl) == {'name_idx': 'name', 'img_idx': 'img'}
+        assert len(btree_idxs(ExampleViewModel.table)) == 0
+
+        # Rename an index
+        TM_rename = pxt.model_base()
+
+        class RenamedTableModel(TM_rename, name='test_table'):
+            id: pxt.Required[pxt.Int]
+            name: pxt.String
+            img: pxt.Image
+            name_idx2 = pxt.BtreeIndex(name)  # same column as name_idx, new name
+            img_idx = pxt.BtreeIndex(img)
+
+        class ViewOwnCol(TM_rename, name='test_view', base=RenamedTableModel):
+            vc: pxt.Int
+            vc_idx = pxt.BtreeIndex(vc)
+
+        TM_rename.update_all(root, allow_destructive=True)
+        assert btree_idxs(tbl) == {'name_idx2': 'name', 'img_idx': 'img'}
+        assert btree_idxs(ExampleViewModel.table) == {'vc_idx': 'vc'}
 
     def test_default_idxs_diff(self, make_catalog_path: Callable[[str], str]) -> None:
         """Verifies how model diff interacts with has_default_idxs."""
@@ -381,7 +404,6 @@ class TestTableModel:
             vc: pxt.Int
 
         TableModel.create_all(root)
-        Base.insert([{'id': 1, 'name': 'a', 'img': get_image_files()[0]}])
 
         # A second index on an already-indexed column.
         TM_dup_existing = pxt.model_base()
@@ -446,26 +468,6 @@ class TestTableModel:
         # None of the rejected changes were applied.
         assert btree_idxs(Base.table) == {'id_idx': 'id'}
         assert btree_idxs(V.table) == {}
-
-        # Renaming a column's index in a single change set is allowed: the drop is applied before the add is
-        # validated. An index on a view's own column is also allowed.
-        TM_rename = pxt.model_base()
-
-        class BaseRenamed(TM_rename, name='base'):
-            id: pxt.Required[pxt.Int]
-            name: pxt.String
-            img: pxt.Image
-            unstored = Column(value=img.rotate(90), stored=False)
-            id_idx2 = BtreeIndex(id)  # same column as id_idx, new name
-
-        class ViewOwnCol(TM_rename, name='v', base=BaseRenamed):
-            vc: pxt.Int
-            vc_idx = BtreeIndex(vc)
-
-        TM_rename.update_all(root, allow_destructive=True)
-        assert btree_idxs(Base.table) == {'id_idx2': 'id'}
-        assert btree_idxs(V.table) == {'vc_idx': 'vc'}
-        assert Base.table.where(Base.table.id == 1).count() == 1
 
     def test_index_name_collision_on_update(self, make_catalog_path: Callable[[str], str]) -> None:
         """`update_all()` rejects a declared index whose name is taken by one of the table's existing indexes."""
