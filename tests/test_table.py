@@ -390,9 +390,9 @@ class TestTable:
                     'comment': None,
                     'indices': {
                         'idx0': {
-                            'name': 'idx0',
                             'columns': ['col'],
                             'index_type': 'embedding',
+                            'name': 'idx0',
                             'parameters': {
                                 'embedding': 'local_embedding(col, dim=512)',
                                 'embedding_functions': [
@@ -1010,7 +1010,7 @@ class TestTable:
 
         on_write_tbl = pxt.create_table(p('write_validated'), schema, media_validation='on_write')
         status = on_write_tbl.insert(rows, on_error='ignore')
-        assert status.num_excs == 1  # 1 row with an exception in the media col (no index on it)
+        assert status.num_excs == 1
         on_write_path_cols = (
             [] if catalog_mode == 'proxy' else [on_write_tbl.media.localpath, on_write_tbl.media.errormsg]
         )
@@ -3614,7 +3614,7 @@ class TestTable:
         TestTable.recompute_udf_error_val = 10
         status = t.recompute_columns('i1')
         assert status.num_rows == 100 + 20
-        assert status.num_excs == 3 * 10  # i1 and its index value col, plus i2
+        assert status.num_excs == 3 * 10  # i1 and its index value col, plus i2 (i2 has no indexes)
         assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2', 'recompute_view.i3'}
         _ = t.select(t.i2.errormsg).where(t.i2.errormsg != None).collect()
         assert t.where(t.i1.errortype != None).count() == 10
