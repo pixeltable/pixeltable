@@ -559,7 +559,10 @@ class document_splitter(pxt.PxtIterator):
                 end_idx = min(start_idx + self._limit, len(section.text))
                 text = section.text[start_idx:end_idx]
                 yield DocumentSection(text=text, metadata=section.metadata)
-                start_idx += self._limit - self._overlap
+                # Ensure we make progress: when overlap >= limit the step would
+                # be <= 0 and the loop would never terminate (_token_chunks has
+                # the same guard).
+                start_idx += max(1, self._limit - self._overlap)
 
     @classmethod
     def validate(cls, bound_args: dict[str, Any]) -> None:
