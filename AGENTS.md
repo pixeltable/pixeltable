@@ -4,10 +4,6 @@
 
 Instructions for AI coding agents working with the Pixeltable codebase.
 
-## Protected Configuration
-
-Never change `integrations.telemetry.enabled` in `docs/release/docs.json`. It must remain set to `true` in every pull request.
-
 ## Project Overview
 
 Pixeltable is an open-source Python library providing declarative data infrastructure for building multimodal AI applications. It enables incremental storage, transformation, indexing, retrieval, and orchestration of data across images, video, audio, and documents.
@@ -44,8 +40,8 @@ pixeltable/
 │   ├── io/               # Tests for import/export
 │   └── data/             # Test fixtures (images, videos, documents)
 ├── docs/
-│   ├── release/          # Mintlify documentation source (notebooks, MDX)
-│   ├── _guidelines/      # Documentation style guides
+│   ├── release/          # Mintlify documentation source (notebooks, MDX); writing craft in docs/release/AGENTS.md
+│   ├── _guidelines/      # Notebook + docstring how-to guides
 │   └── sample-apps/      # Example applications
 └── tool/                 # Development utilities
 ```
@@ -231,7 +227,7 @@ results = t.order_by(sim, asc=False).limit(10).select(t.text, sim).collect()
 
 ### Notebooks
 
-Documentation notebooks are in `docs/release/`. Follow `docs/_guidelines/GUIDELINES_FOR_NOTEBOOKS.md`:
+Documentation notebooks are in `docs/release/`. Follow `docs/_guidelines/GUIDELINES_FOR_NOTEBOOKS.md` for how-to, and `docs/release/AGENTS.md` for writing craft:
 
 - Start with YAML frontmatter in a **Raw cell** (not Markdown)
 - No H1 headers in markdown (title comes from frontmatter)
