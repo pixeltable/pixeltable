@@ -1864,7 +1864,7 @@ class Catalog(CatalogBase):
                     dropped_col_set.add(col)
                     dropped_idxs.extend(tv.idxs_by_col.get(col.qid, []))
                 for idx_info in dropped_idxs:
-                    dropped_col_set.update([idx_info.val_col, idx_info.undo_col])
+                    dropped_col_set.update(idx_info.columns)
 
             def dependent_str(c: Column) -> str:
                 """How a column that blocks a drop is named in the error, which is by index if it belongs to one."""
@@ -1872,13 +1872,17 @@ class Catalog(CatalogBase):
                 if c.name is not None:
                     return c.name
                 tv = c.get_tbl()
-                idx_info = next((i for i in tv.idxs.values() if c.id == i.val_col.id), None)
+                idx_info = next((i for i in tv.idxs.values() if i.val_col is not None and c.id == i.val_col.id), None)
                 assert idx_info is not None
                 return f'index {idx_info.name!r} on {tv.name!r}'
 
             def check_column_dependents(
                 dropped: Column | TableVersion.IndexInfo, drop_target: Literal['index', 'column']
             ) -> None:
+                if isinstance(dropped, TableVersion.IndexInfo) and dropped.val_col is None:
+                    assert dropped.undo_col is None, dropped
+                    # Index without value or undo columns -- nothing to do
+                    return
                 col = dropped.val_col if isinstance(dropped, TableVersion.IndexInfo) else dropped
                 # we exclude dependents that themselves are being dropped
                 remaining_dependents = [
@@ -3178,10 +3182,10 @@ class Catalog(CatalogBase):
         select_list: list[sql.ColumnElement | Literal['*']] = ['*']
         conditions: list[sql.ColumnElement] = []
         for idx_info in tv.idxs.values():
-            if isinstance(idx_info.idx, index.BtreeIndex):
+            if isinstance(idx_info.idx, index.BtreeIndex) and idx_info.val_col is not None:
                 # condition is the invariant violation that we are checking for
                 # add it to where clause, and also to select clause for easier debugging
-                if idx_info.val_col.col_type.is_string_type():
+                if idx_info.col.col_type.is_string_type():
                     condition = (
                         sql.func.left(idx_info.col.sa_col, index.BtreeIndex.MAX_STRING_LEN) != idx_info.val_col.sa_col
                     )
@@ -3236,6 +3240,8 @@ class Catalog(CatalogBase):
             select_list.append('*')
             conditions.clear()
             for idx_info in tv.idxs.values():
+                if idx_info.val_col is None:
+                    continue
                 # condition is the invariant violation that we are checking for
                 # add it to where clause, and also to select clause for easier debugging
                 condition = idx_info.val_col.sa_col != None

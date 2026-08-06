@@ -11,6 +11,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
+import pixeltable.index as index
 import pixeltable.type_system as ts
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip
@@ -980,10 +981,12 @@ class TestIndex:
         assert t.where(t.data >= s).count() == self.BTREE_TEST_NUM_ROWS - idx
         assert t.where(t.data > s).count() == self.BTREE_TEST_NUM_ROWS - idx - 1
 
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
-            assert len(data[56]) == 256
-            _ = t.where(t.data == data[56]).count()
-        assert 'String literal too long' in str(exc_info.value)
+        # Verify Comparison edge cases around max btree value length
+        assert len(data[56]) == index.BtreeIndex.MAX_STRING_LEN
+        assert t.where(t.data == data[56]).count() == 1
+        assert t.where(t.data != data[56]).count() == self.BTREE_TEST_NUM_ROWS - 1
+        assert t.where(t.data == data[56] + 'a').count() == 0
+        assert t.where(t.data == data[56][:-1]).count() == 0
 
         # test that Comparison uses BtreeIndex.MAX_STRING_LEN
         t = pxt.create_table(p('test_max_str_len'), {'data': pxt.String})

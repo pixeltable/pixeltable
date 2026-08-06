@@ -755,10 +755,6 @@ class LocalTable(Table):
         self, column: str | ColumnRef, *, idx_name: str | None = None, if_exists: Literal['error', 'ignore'] = 'error'
     ) -> None:
         self._check_mutable('add an index to')
-        assert self._tbl_version is None or self._tbl_version.get().is_data_versioned, (
-            'TODO: implement for operational tables [PXT-1101]'
-        )
-
         # A B-tree index is parameterless, so replacing one with another achieves nothing; only 'error' and
         # 'ignore' are meaningful.
         if if_exists not in ('error', 'ignore'):
@@ -794,7 +790,7 @@ class LocalTable(Table):
             ):
                 return
 
-            _ = tv.add_index(col, idx_name=idx_name, idx=index.BtreeIndex())
+            _ = tv.add_index(col, idx_name=idx_name, idx=index.BtreeIndex(uses_value_col=tv.is_data_versioned))
 
         FileCache.get().emit_eviction_warnings()
 
@@ -1001,14 +997,16 @@ class LocalTable(Table):
                 )
             idx_info = idx_info_list[0]
 
-        # Find out if anything depends on this index
-        dependent_user_cols = self._get_dependent_user_cols(idx_info.val_col)
-        if len(dependent_user_cols) > 0:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Cannot drop index {idx_info.name!r} because the following columns depend on it:\n'
-                f'{", ".join(c.name for c in dependent_user_cols)}',
-            )
+        # Find out if anything depends on this index. An index that is created directly on the indexed column has no
+        # value column, and therefore nothing that can reference it.
+        if idx_info.val_col is not None:
+            dependent_user_cols = self._get_dependent_user_cols(idx_info.val_col)
+            if len(dependent_user_cols) > 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot drop index {idx_info.name!r} because the following columns depend on it:\n'
+                    f'{", ".join(c.name for c in dependent_user_cols)}',
+                )
         self._tbl_version.get().drop_index(idx_info.id)
 
     @overload

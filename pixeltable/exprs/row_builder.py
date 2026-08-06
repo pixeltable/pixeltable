@@ -545,9 +545,14 @@ class RowBuilder:
             self.table_row_output_error_vals = []
             self.output_row_has_pk = has_pk
             tbl_row_idx = len(self.tbl.store_tbl.pk_columns()) if has_pk else 0
-            # index value columns have name=None; key them by '<indexed col>:<index name>'.
-            idx_map = {info.val_col.id: (info.col.name, name) for name, info in self.tbl.idxs_by_name.items()}
-            undo_col_ids = {info.undo_col.id for info in self.tbl.idxs_by_name.values()}
+            # idx value column id -> (indexed column name, index name)
+            idx_map = {
+                info.val_col.id: (info.col.name, name)
+                for name, info in self.tbl.idxs_by_name.items()
+                if info.val_col is not None
+            }
+            # idx undo column ids
+            undo_col_ids = {c.id for c in self.tbl.idx_undo_cols}
 
             for col in self.table_columns:
                 if col.id in undo_col_ids:
@@ -558,6 +563,7 @@ class RowBuilder:
                     continue
 
                 if col.id in idx_map:
+                    # index value columns have no names; key their output values by '<indexed col>:<index name>'.
                     indexed_col_name, idx_name = idx_map[col.id]
                     display_name = f'{indexed_col_name}:{idx_name}'
                 else:
@@ -601,16 +607,22 @@ class RowBuilder:
             assert self.row_batch_col_types is None
             self.row_batch_output_map = []
             self.row_batch_col_types = {}
-            # index value columns have name=None; key their values by index name (unique within the table)
             tbls = {col.get_tbl().id: col.get_tbl() for col in self.table_columns}
-            idx_names = {info.val_col.qid: name for tbl in tbls.values() for name, info in tbl.idxs_by_name.items()}
-            undo_col_qids = {info.undo_col.qid for tbl in tbls.values() for info in tbl.idxs_by_name.values()}
+            idx_val_col_qid_to_idx_name = {
+                info.val_col.qid: name
+                for tbl in tbls.values()
+                for name, info in tbl.idxs_by_name.items()
+                if info.val_col is not None
+            }
+            undo_col_qids = {c.qid for tbl in tbls.values() for c in tbl.idx_undo_cols}
             for col, slot_idx in self.table_columns.items():
                 if col.qid in undo_col_qids:
                     # skip undo cols
                     continue
-                if col.qid in idx_names:
-                    self.row_batch_output_map.append(OutputMapEntry(col, slot_idx, idx_names[col.qid], True))
+                idx_name = idx_val_col_qid_to_idx_name.get(col.qid)
+                if idx_name is not None:
+                    # index value columns have no names; key their output values by index name (unique within the table)
+                    self.row_batch_output_map.append(OutputMapEntry(col, slot_idx, idx_name, True))
                 elif output_cols is None or col in output_cols:
                     self.row_batch_col_types[col.name] = col.col_type
                     self.row_batch_output_map.append(OutputMapEntry(col, slot_idx, col.name, False))

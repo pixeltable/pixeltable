@@ -285,8 +285,7 @@ class Planner:
         if for_insert:
             return [c for c in tbl.cols_by_id.values() if c.is_stored]
         # for compute(), skip index val/undo cols
-        skipped_col_ids = {info.val_col.id for info in tbl.idxs_by_name.values()}
-        skipped_col_ids |= {info.undo_col.id for info in tbl.idxs_by_name.values()}
+        skipped_col_ids = {c.id for idx_info in tbl.idxs.values() for c in idx_info.columns}
         return [c for c in tbl.cols_by_id.values() if c.id not in skipped_col_ids]
 
     @classmethod
@@ -439,6 +438,8 @@ class Planner:
             - select_list: resolved exprs for evaluated_cols
             - identity_cols: unchanged stored columns
         """
+        # If there's an index with a value column but not undo column, the logic here needs to be updated.
+        assert all(info.undo_col is not None for info in target.idxs.values() if info.val_col is not None)
 
         # We always need to update all indices on any updated/recomputed column
         modified_base_cols = {c for c in updated_cols | recomputed_cols if c.get_tbl().id == target.id}
@@ -446,14 +447,13 @@ class Planner:
         recomputed_cols |= modified_val_cols
 
         # Building exclude lists for non-identity cols
-        unmodified_val_cols = {idx.val_col for idx in target.idxs.values()} - modified_val_cols
-        idx_undo_cols = {info.undo_col for info in target.idxs.values()}
+        unmodified_val_cols = target.idx_val_cols - modified_val_cols
 
         # we only need to recompute stored columns (unstored ones are substituted away)
         recomputed_cols -= {c for c in recomputed_cols if not c.is_stored}
         recomputed_base_cols = {col for col in recomputed_cols if col.get_tbl().id == target.id}
 
-        excluded = updated_cols | recomputed_cols | idx_undo_cols | unmodified_val_cols
+        excluded = updated_cols | recomputed_cols | target.idx_undo_cols | unmodified_val_cols
         identity_cols = [col for col in target.cols_by_id.values() if col.is_stored and col not in excluded]
 
         evaluated_cols: list[Column] = []

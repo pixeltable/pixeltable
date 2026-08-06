@@ -1,9 +1,12 @@
+import random
+import string
+
 import pytest
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 
-from .utils import ReloadTester, validate_update_status
+from .utils import ReloadTester, btree_idxs, pxt_raises, reload_catalog, validate_update_status
 
 pytestmark = pytest.mark.local('TODO: convert; operational-table feature')
 
@@ -90,6 +93,66 @@ class TestOperationalTable:
 
         rows = tbl.select(tbl.n).order_by(tbl.n).limit(10, offset=10).collect()
         assert len(rows) == 0
+
+    def test_default_btree_indexes(self, uses_db: None) -> None:
+        tbl = pxt.create_table(
+            'test',
+            {'c_int': pxt.Int, 'c_str': pxt.String, 'c_bool': pxt.Bool},
+            _is_data_versioned=False,
+            has_default_idxs=True,
+        )
+        # bools aren't eligible for a B-tree index
+        assert btree_idxs(tbl) == {'idx0': 'c_int', 'idx1': 'c_str'}
+
+        validate_update_status(tbl.insert([{'c_int': i, 'c_str': f'str{i}', 'c_bool': True} for i in range(3)]), 3)
+        assert tbl.where(tbl.c_str == 'str1').count() == 1
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_added_btree_index(self, uses_db: None, do_reload_catalog: bool) -> None:
+        tbl = pxt.create_table('test', {'c_int': pxt.Int, 'c_str': pxt.String}, _is_data_versioned=False)
+        assert btree_idxs(tbl) == {}
+
+        validate_update_status(tbl.insert([{'c_int': i, 'c_str': f'str{i}'} for i in range(5)]), 5)
+
+        tbl.add_btree_index('c_int')
+        tbl.add_btree_index(tbl.c_str, idx_name='str_idx')
+
+        reload_catalog(do_reload_catalog)
+        assert btree_idxs(tbl) == {'idx0': 'c_int', 'str_idx': 'c_str'}
+
+        assert tbl.where(tbl.c_int == 2).count() == 1
+        assert tbl.where(tbl.c_int < 2).order_by(tbl.c_int).collect()['c_int'] == [0, 1]
+        assert tbl.where(tbl.c_str > 'str2').order_by(tbl.c_int).collect()['c_int'] == [3, 4]
+
+        assert tbl.where(tbl.c_int == 0).count() == 1
+        validate_update_status(tbl.delete(where=tbl.c_str < 'str1'), 1)
+        assert tbl.where(tbl.c_int == 0).count() == 0
+
+        tbl.drop_index(column=tbl.c_int)
+        reload_catalog(do_reload_catalog)
+        assert btree_idxs(tbl) == {'str_idx': 'c_str'}
+        assert tbl.where(tbl.c_int == 0).count() == 0
+
+    def test_oversized_index_key(self, uses_db: None) -> None:
+        """Indexed string value exceeds the B-tree limit imposed by Postgresql."""
+        # Note: the value has to be incompressible to exceed the limit
+        rng = random.Random(0)
+        long_str = ''.join(rng.choices(string.ascii_letters + string.digits, k=4000))
+
+        tbl = pxt.create_table('test', {'c_str': pxt.String}, _is_data_versioned=False)
+        tbl.add_btree_index('c_str')
+        with pxt_raises(
+            pxt.ErrorCode.CONSTRAINT_VIOLATION, match="Value too large for the btree index on column 'c_str'"
+        ):
+            tbl.insert([{'c_str': long_str}])
+
+        # the same limit applies when the index is built over existing rows
+        tbl.drop_index(column='c_str')
+        validate_update_status(tbl.insert([{'c_str': long_str}]), 1)
+        with pxt_raises(
+            pxt.ErrorCode.CONSTRAINT_VIOLATION, match="Value too large for the btree index on column 'c_str'"
+        ):
+            tbl.add_btree_index('c_str')
 
     def test_unsupported_ops(self, uses_db: None) -> None:
         operational_tbl = pxt.create_table('t0', {'n': pxt.Int}, _is_data_versioned=False)
