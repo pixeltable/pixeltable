@@ -890,7 +890,7 @@ Route type reference:
 
 Manage cloud-hosted Pixeltable databases. A database is a hosted Pixeltable instance with its own compute, storage, and Python runtime.
 
-Database URIs use the form `pxt://org:db`. Valid states: `PROVISIONING`, `AVAILABLE`, `STOPPING`, `STOPPED`, `UPDATING`, `FAILED`.
+Database URIs use the form `pxt://org:db`. Valid states: `PROVISIONING`, `STARTING`, `AVAILABLE`, `UPDATING`, `STOPPING`, `STOPPED`, `FAILED`.
 
 The URI argument is optional: with it omitted, these commands use `db_uri` from the Pixeltable config file (see [Configuration](/platform/configuration)), so a project that sets it can run `pxt db status` and friends with no argument.
 
