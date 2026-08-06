@@ -70,14 +70,14 @@ def generate_matrix(args: argparse.Namespace) -> None:
 
     # Special configs that are always run
     configs = [
-        MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.10', uv_options='--no-dev'),  # Minimal test (no dev deps)
-        MatrixConfig('static-checks', 'lint', MAIN_PLATFORM, '3.10'),  # Linting, type checking, etc.
-        MatrixConfig('random-ops', 'random-ops', MAIN_PLATFORM, '3.10', uv_options='--no-dev'),  # Random operations
-        MatrixConfig('otel', 'otel', MAIN_PLATFORM, '3.10', uv_options='--no-dev --extra otel'),
+        MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.11', uv_options='--no-dev'),  # Minimal test (no dev deps)
+        MatrixConfig('static-checks', 'lint', MAIN_PLATFORM, '3.11'),  # Linting, type checking, etc.
+        MatrixConfig('random-ops', 'random-ops', MAIN_PLATFORM, '3.11', uv_options='--no-dev'),  # Random operations
+        MatrixConfig('otel', 'otel', MAIN_PLATFORM, '3.11', uv_options='--no-dev --extra otel'),
     ]
 
     # Standard configs that are always run
-    configs.extend(MatrixConfig('standard', 'py', os, '3.10') for os in BASIC_PLATFORMS)
+    configs.extend(MatrixConfig('standard', 'py', os, '3.11') for os in BASIC_PLATFORMS)
 
     # All other configs are dependent on the CI scenario. There are three basic scenarios:
     # 1. During a PR, we run a limited set of tests: MAIN_PLATFORM (Ubuntu) identically to the standard configs, and
@@ -89,7 +89,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
 
     if trigger == 'pull_request':
         # Tier 1 only: Just the standard tests on MAIN_PLATFORM.
-        configs.append(MatrixConfig('standard', 'py', MAIN_PLATFORM, '3.10'))
+        configs.append(MatrixConfig('standard', 'py', MAIN_PLATFORM, '3.11'))
         # Notebook tests are not run on PRs (Hugging Face downloads are rate-limited without a token, which is
         # unavailable on PRs). Non-HF notebooks run in the merge queue; all notebooks run on the scheduled tier.
 
@@ -97,19 +97,19 @@ def generate_matrix(args: argparse.Namespace) -> None:
         if force_all or trigger == 'schedule':
             # Tier 3 only: Standard + expensive + very_expensive tests on upgraded platform.
             configs.append(
-                MatrixConfig('standard++', 'py', 'ubuntu-large', '3.10', pytest_options=VERY_EXPENSIVE_PYTEST)
+                MatrixConfig('standard++', 'py', 'ubuntu-large', '3.11', pytest_options=VERY_EXPENSIVE_PYTEST)
             )
-            configs.append(MatrixConfig('notebooks++', 'ipynb', 'ubuntu-large', '3.10'))
+            configs.append(MatrixConfig('notebooks++', 'ipynb', 'ubuntu-large', '3.11'))
 
             # Tier 3 only: Expensive platforms (e.g., GPU runners).
-            configs.extend(MatrixConfig('standard', 'py', os, '3.10') for os in EXPENSIVE_PLATFORMS)
+            configs.extend(MatrixConfig('standard', 'py', os, '3.11') for os in EXPENSIVE_PLATFORMS)
 
         else:
             # Tier 2 only: Standard + expensive (but not very_expensive) tests on upgraded platform.
-            configs.append(MatrixConfig('standard+', 'py', 'ubuntu-large', '3.10', pytest_options=EXPENSIVE_PYTEST))
+            configs.append(MatrixConfig('standard+', 'py', 'ubuntu-large', '3.11', pytest_options=EXPENSIVE_PYTEST))
             # Non-HF notebooks. HF-dependent notebooks are gated behind --include-expensive, which only the
             # scheduled tier passes (see NB_TEST_OPTS in pytest.yml), so they are excluded here.
-            configs.append(MatrixConfig('notebooks+', 'ipynb', 'ubuntu-large', '3.10'))
+            configs.append(MatrixConfig('notebooks+', 'ipynb', 'ubuntu-large', '3.11'))
 
         # Tiers 2 and 3: Various additional configurations.
 
@@ -124,7 +124,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
 
         # Minimal tests on alternative platforms (we don't run the standard suite on these, since dev dependencies
         # can be hit-or-miss)
-        configs.extend(MatrixConfig('minimal', 'py', os, '3.10', uv_options='--no-dev') for os in ALTERNATIVE_PLATFORMS)
+        configs.extend(MatrixConfig('minimal', 'py', os, '3.11', uv_options='--no-dev') for os in ALTERNATIVE_PLATFORMS)
 
         # Minimal tests with S3 media destination. We use a unique bucket name that incorporates today's date, so that
         # different test runs don't interfere with each other and any stale data is easy to clean up.
@@ -134,7 +134,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
                     's3-output-dest',
                     'py',
                     MAIN_PLATFORM,
-                    '3.10',
+                    '3.11',
                     uv_options='--no-dev --group storage-sdks',
                     pre_test_cmd=f'export PIXELTABLE_OUTPUT_MEDIA_DEST={new_bucket_addr()}',
                 )

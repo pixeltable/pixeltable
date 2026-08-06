@@ -3,7 +3,7 @@ name = "pixeltable"
 dynamic = ["version"]
 description = "AI Data Infrastructure: Declarative, Multimodal, and Incremental"
 authors = [{ name = "Pixeltable, Inc.", email = "contact@pixeltable.com" }]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 readme = "README.md"
 license = "Apache-2.0"
 keywords = [
@@ -30,7 +30,6 @@ classifiers = [
     "Operating System :: MacOS",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
