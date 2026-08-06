@@ -40,8 +40,8 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "numpy>=1.25",
-    "pandas>=2.0",
+    "numpy>=2.0",
+    "pandas>=2.2.3",
     "pillow>=10.1",
     "pillow-heif>=0.15.0",
     "rich>=13.0",
@@ -51,9 +51,9 @@ dependencies = [
     "cloudpickle>=2.2.1",
     "fasteners>=0.19",
     "psycopg[binary]>=3.1.18",
-    "sqlalchemy>=2.0.23",
+    "sqlalchemy>=2.0.40",
     "pgvector>=0.4.0",
-    "av>=13.1",
+    "av>=14.1",
     "beautifulsoup4>=4.10",
     "lxml>=5.1",
     "requests>=2.31.0",

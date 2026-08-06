@@ -7,6 +7,10 @@ pin, and hands the resulting requirements to pip in a single invocation so that 
 them all at once. A pin that conflicts with a transitive constraint therefore surfaces as a
 resolution error rather than being silently upgraded away from the minimum.
 
+Every dependency must declare a lower bound. One that does not (`mylib`, `mylib<2`, `mylib>1.0`) is
+a hard error, not a warning: leaving it for pip to resolve would install the newest permitted
+version and quietly exempt it from the test.
+
 The `[project.optional-dependencies]` extras are opt-in via `--extras`; the `otel` extra requires
 `opentelemetry-instrumentation-pixeltable`, which lives in `packages/` and is not published to PyPI
 yet, so pip cannot install it by name. The `[dependency-groups]` (dev, test, ...) are never
@@ -22,77 +26,50 @@ Usage:
 """
 
 import argparse
-import importlib
 import shlex
 import subprocess
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any
 
-if TYPE_CHECKING:
-    from packaging.requirements import Requirement
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
+from packaging.version import Version
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib  # tomllib became part of the stdlib in 3.11
 
 DEFAULT_PYPROJECT = Path(__file__).resolve().parents[1] / 'pyproject.toml'
 
 
-def bootstrap(module: str) -> Any:
-    """Import `module`, pip-installing it first if it isn't present.
-
-    This script is meant to run in an environment that has nothing but pip installed, so it cannot
-    assume its own helpers are available.
-    """
-    try:
-        return importlib.import_module(module)
-    except ImportError:
-        pass
-    print(f'Installing {module} (needed to parse dependency metadata) ...')
-    subprocess.run([sys.executable, '-m', 'pip', 'install', module], check=True)
-    return importlib.import_module(module)
-
-
-def load_toml(path: Path) -> dict[str, Any]:
-    """Parse a TOML file, using whichever parser this interpreter has available."""
-    parser: Any
-    for module in ('tomllib', 'tomli'):  # tomllib is stdlib as of 3.11
-        try:
-            parser = importlib.import_module(module)
-        except ImportError:
-            continue
-        with path.open('rb') as fp:
-            return parser.load(fp)
-    parser = bootstrap('toml')
-    return parser.load(path)
-
-
-def min_version_req(req: 'Requirement') -> tuple['Requirement', Optional[str]]:
+def min_version_req(req: Requirement) -> Requirement:
     """
     Rewrite a requirement so that it pins the minimum version its specifier permits.
 
-    Returns the (possibly rewritten) requirement, along with a warning message if the requirement
-    could not be pinned and was therefore left as-is.
+    Raises ValueError if no minimum version can be determined: pinning what pip happens to resolve
+    instead would install the *newest* permitted version, quietly exempting that dependency from
+    the minimum-version test this script exists to perform.
     """
-    from packaging.requirements import Requirement
-    from packaging.version import Version
-
     if any(spec.operator in ('==', '===') for spec in req.specifier):
-        return req, None  # already an exact pin
+        return req  # already an exact pin
 
     # `>=x` and `~=x` both admit x itself as their smallest version; `>x` does not name any
     # installable version, so it cannot be turned into a pin.
     lower_bounds = [Version(spec.version) for spec in req.specifier if spec.operator in ('>=', '~=')]
     if len(lower_bounds) == 0:
-        reason = 'no lower version bound' if len(req.specifier) == 0 else f'unpinnable specifier {req.specifier}'
-        return req, f'{req.name}: {reason}; installing whatever pip resolves'
+        raise ValueError(f'{req}: no minimum version specified in pyproject.toml; add a >=, ~= or == lower bound')
 
     # Among several lower bounds, the largest is the binding one.
     minimum = max(lower_bounds)
     if not req.specifier.contains(minimum, prereleases=True):
         # Eg. `>=1.0,!=1.0`: the nominal minimum is excluded by another clause of the specifier.
-        return req, f'{req.name}: {minimum} is excluded by {req.specifier}; installing whatever pip resolves'
+        raise ValueError(f'{req}: no installable minimum version, because {minimum} is excluded by {req.specifier}')
 
     extras = f'[{",".join(sorted(req.extras))}]' if len(req.extras) > 0 else ''
     marker = f'; {req.marker}' if req.marker is not None else ''
-    return Requirement(f'{req.name}{extras}=={minimum}{marker}'), None
+    return Requirement(f'{req.name}{extras}=={minimum}{marker}')
 
 
 def select_dependencies(project: dict[str, Any], extras_arg: str) -> tuple[list[str], list[str]]:
@@ -118,7 +95,7 @@ def select_dependencies(project: dict[str, Any], extras_arg: str) -> tuple[list[
     return deps, selected
 
 
-def merge_requirements(reqs: list['Requirement']) -> tuple[list['Requirement'], list[str]]:
+def merge_requirements(reqs: list[Requirement]) -> tuple[list[Requirement], list[str]]:
     """
     Combine requirements that name the same package, so that each package is pinned exactly once.
 
@@ -131,9 +108,6 @@ def merge_requirements(reqs: list['Requirement']) -> tuple[list['Requirement'], 
     Returns the merged requirements along with a note for each package that was listed more than
     once.
     """
-    from packaging.requirements import Requirement
-    from packaging.utils import canonicalize_name
-
     merged: dict[tuple[str, str], Requirement] = {}
     notes: list[str] = []
     for req in reqs:
@@ -166,26 +140,28 @@ def main() -> int:
     parser.add_argument('pip_args', nargs='*', help='additional arguments for `pip install` (pass after `--`)')
     args = parser.parse_args()
 
-    bootstrap('packaging')
-    from packaging.requirements import Requirement
-
-    dependencies, extras = select_dependencies(load_toml(args.pyproject)['project'], args.extras)
+    with args.pyproject.open('rb') as fp:
+        project = tomllib.load(fp)['project']
+    dependencies, extras = select_dependencies(project, args.extras)
     requirements, notes = merge_requirements([Requirement(dep) for dep in dependencies])
 
+    # Report every unpinnable dependency at once, rather than one per run.
     pinned: list[str] = []
-    warnings: list[str] = notes
+    errors: list[str] = []
     for req in requirements:
-        pinned_req, warning = min_version_req(req)
-        pinned.append(str(pinned_req))
-        if warning is not None:
-            warnings.append(warning)
+        try:
+            pinned.append(str(min_version_req(req)))
+        except ValueError as exc:
+            errors.append(str(exc))
+    if len(errors) > 0:
+        raise SystemExit('\n'.join(f'ERROR: {error}' for error in errors))
 
     included = f'required + extras: {", ".join(extras)}' if len(extras) > 0 else 'required only'
     print(f'{len(pinned)} dependencies from {args.pyproject} ({included}):')
     for requirement in pinned:
         print(f'  {requirement}')
-    for warning in warnings:
-        print(f'WARNING: {warning}', file=sys.stderr)
+    for note in notes:
+        print(f'WARNING: {note}', file=sys.stderr)
 
     if args.output is not None:
         args.output.write_text('\n'.join(pinned) + '\n')
