@@ -20,7 +20,7 @@ import pgvector.sqlalchemy
 import PIL.Image
 import pydantic
 import sqlalchemy as sql
-from typing_extensions import _AnnotatedAlias
+from typing_extensions import TypeForm
 
 import pixeltable.exceptions as excs
 from pixeltable.utils import parse_local_file_path
@@ -519,7 +519,7 @@ class ColumnType:
 
     @classmethod
     def normalize_type(
-        cls, t: ColumnType | type | _AnnotatedAlias, nullable_default: bool = False, allow_builtin_types: bool = True
+        cls, t: ColumnType | TypeForm, nullable_default: bool = False, allow_builtin_types: bool = True
     ) -> ColumnType:
         """
         Convert any type recognizable by Pixeltable to its corresponding ColumnType.
@@ -546,7 +546,7 @@ class ColumnType:
     ]
 
     @classmethod
-    def __raise_exc_for_invalid_type(cls, t: type | _AnnotatedAlias) -> None:
+    def __raise_exc_for_invalid_type(cls, t: TypeForm) -> None:
         for builtin_type, suggestion in cls.__TYPE_SUGGESTIONS:
             if t is builtin_type or (isinstance(t, type) and issubclass(t, builtin_type)):
                 name = t.__name__ if t.__module__ == 'builtins' else f'{t.__module__}.{t.__name__}'
@@ -1881,7 +1881,7 @@ Binary = typing.Annotated[bytes, BinaryType(nullable=False)]
 
 
 class Json(_PxtType):
-    def __class_getitem__(cls, item: Any) -> _AnnotatedAlias:
+    def __class_getitem__(cls, item: Any) -> TypeForm:
         """
         `item` (the type subscript) must be a valid Pixeltable JSON type specifier (see from_json_type_arg
         docstring for details).
@@ -1894,7 +1894,7 @@ class Json(_PxtType):
 
 
 class Array(np.ndarray, _PxtType):
-    def __class_getitem__(cls, item: Any) -> _AnnotatedAlias:
+    def __class_getitem__(cls, item: Any) -> TypeForm:  # type: ignore[override]
         """
         `item` (the type subscript) must be a tuple with at most two elements (in any order):
         - An optional tuple of `int | None`s, specifying the shape of the array
@@ -1933,7 +1933,7 @@ class Array(np.ndarray, _PxtType):
 
 
 class Image(PIL.Image.Image, _PxtType):
-    def __class_getitem__(cls, item: Any) -> _AnnotatedAlias:
+    def __class_getitem__(cls, item: Any) -> TypeForm:
         """
         `item` (the type subscript) must be one of the following, or a tuple containing either or both in any order:
         - A 2-tuple of `int`s, specifying the size of the image
