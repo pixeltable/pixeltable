@@ -2,6 +2,7 @@
 # ruff: noqa: RUF031
 
 import datetime
+import typing
 import uuid
 from typing import Any, Dict, List, Literal, Optional, Tuple, TypedDict, Union
 
@@ -9,7 +10,6 @@ import numpy as np
 import PIL.Image
 import pydantic
 import pytest
-import typing_extensions
 
 from pixeltable import exceptions as excs
 from pixeltable.type_system import (
@@ -69,11 +69,9 @@ class TypedDict3(TypedDict):
     f: List[int]  # Python 3.8-style List
 
 
-# typing_extensions.TypedDict honors the Required/NotRequired markers when computing __optional_keys__ on all
-# supported Python versions (typing.TypedDict only does so on 3.11+)
-class TypedDict4(typing_extensions.TypedDict, total=False):
-    a: typing_extensions.Required[int]  # explicit Required field marker (value type is Int; key is required)
-    b: typing_extensions.NotRequired[str]  # explicit NotRequired field marker
+class TypedDict4(TypedDict, total=False):
+    a: typing.Required[int]  # explicit Required field marker (value type is Int; key is required)
+    b: typing.NotRequired[str]  # explicit NotRequired field marker
     c: float  # optional by total=False
 
 

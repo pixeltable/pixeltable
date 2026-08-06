@@ -7,13 +7,12 @@ import inspect
 import json
 import sys
 import typing
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, NoReturn, TypeVar, overload
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, NoReturn, Self, TypeVar, overload
 from uuid import UUID
 
 import numpy as np
 import sqlalchemy as sql
 from deprecated import deprecated
-from typing_extensions import Self, _AnnotatedAlias
 
 from pixeltable import catalog, exceptions as excs, func, type_system as ts
 

@@ -5,12 +5,11 @@ import builtins
 import datetime
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence, overload
 from uuid import UUID
 
 import pandas as pd
 import pydantic
-from typing_extensions import overload
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, exprs, index, type_system as ts

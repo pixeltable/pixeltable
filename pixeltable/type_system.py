@@ -12,32 +12,19 @@ import typing
 import urllib.request
 import uuid
 from pathlib import Path
-from typing import Any, ClassVar, Iterable, Literal, Mapping, Sequence, Union
-
-import pgvector.sqlalchemy
-
-from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
+from typing import Any, ClassVar, Iterable, Literal, Mapping, Sequence, Union, _AnnotatedAlias, is_typeddict
 
 import av
 import numpy as np
+import pgvector.sqlalchemy
 import PIL.Image
 import pydantic
 import sqlalchemy as sql
-import typing_extensions
-from typing_extensions import NotRequired, _AnnotatedAlias, is_typeddict
 
 import pixeltable.exceptions as excs
 from pixeltable.utils import parse_local_file_path
 
-# The TypedDict field markers Required/NotRequired affect a key's presence (recorded in __optional_keys__), not
-# the field's value type. They may be imported from typing_extensions or, on Python 3.11+, from typing; treat all
-# of those as equivalent.
-_TYPED_DICT_FIELD_MARKERS = {
-    NotRequired,
-    typing_extensions.Required,
-    getattr(typing, 'NotRequired', None),
-    getattr(typing, 'Required', None),
-} - {None}
+from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
 
 class ColumnType:
@@ -368,7 +355,7 @@ class ColumnType:
             if underlying is None:
                 return None
             return underlying.copy(nullable=False)
-        elif origin in _TYPED_DICT_FIELD_MARKERS:
+        elif origin is typing.Required or origin is typing.NotRequired:
             # Required[T]/NotRequired[T] mark a TypedDict field's key presence (recorded in __optional_keys__), so
             # the field's value type is simply T
             assert len(type_args) == 1
@@ -388,8 +375,7 @@ class ColumnType:
                     return origin.as_col_type(nullable=nullable_default)
 
                 if is_typeddict(origin):
-                    # We always allow TypedDicts, including typing_extensions.TypedDict and TypedDict
-                    # subclasses (the pattern for mixing required and optional fields)
+                    # We always allow TypedDicts
                     assert isinstance(origin, type)
                     return cls.__from_typed_dict(nullable_default, origin)
 
