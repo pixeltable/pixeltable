@@ -10,7 +10,7 @@ would surface as a worker exception (nonzero exit).
 Media is served from a local HTTP server so the run is self-contained and offline. An isolated temporary
 home (with its own embedded Postgres) is created and removed per run, so this never touches a real instance.
 
-    python scripts/filecache_multiprocess_stress.py [--procs 4] [--images 100] [--rows 25] [--rounds 20]
+    python tool/filecache_multiprocess_stress.py [--procs 4] [--images 100] [--rows 25] [--rounds 20]
 
 Exits 0 if every worker succeeded, 1 otherwise.
 """
