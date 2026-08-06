@@ -2,6 +2,8 @@
 
 **Purpose**: Best practices for creating educational and functional Jupyter notebooks for Pixeltable documentation
 
+For voice, callouts, cross-references, and other docs writing craft, follow [`docs/release/AGENTS.md`](../release/AGENTS.md).
+
 ---
 
 ## Overview
@@ -24,23 +26,23 @@ Every notebook MUST start with a **raw cell** (not markdown) containing YAML fro
 
 **This is the exact format to use for every notebook.** Simply replace:
 - `Your Notebook Title` with your notebook's title
-- `path/to/your-notebook.ipynb` with the actual path (e.g., `use-cases/rag-operations.ipynb`)
+- `path/to/your-notebook.ipynb` with the actual path under `docs/release/` (e.g., `howto/providers/working-with-fabric.ipynb`)
 
 ```yaml
 ---
 title: "Your Notebook Title"
 icon: "notebook"
-description: "[Open in Kaggle](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/path/to/your-notebook.ipynb) | [Open in Colab](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/path/to/your-notebook.ipynb) | [View on GitHub](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/path/to/your-notebook.ipynb)"
+description: "[Open in Kaggle](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/release/docs/release/path/to/your-notebook.ipynb) | [Open in Colab](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/path/to/your-notebook.ipynb) | [View on GitHub](https://github.com/pixeltable/pixeltable/blob/release/docs/release/path/to/your-notebook.ipynb)"
 ---
 ```
 
-**Example for a notebook at `docs/notebooks/use-cases/rag-operations.ipynb`:**
+**Example for a notebook at `docs/release/howto/providers/working-with-fabric.ipynb`:**
 
 ```yaml
 ---
-title: "RAG Operations"
+title: "Working with Microsoft Fabric"
 icon: "notebook"
-description: "[Open in Kaggle](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/rag-operations.ipynb) | [Open in Colab](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/rag-operations.ipynb) | [View on GitHub](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/rag-operations.ipynb)"
+description: "[Open in Kaggle](https://kaggle.com/kernels/welcome?src=https://github.com/pixeltable/pixeltable/blob/release/docs/release/howto/providers/working-with-fabric.ipynb) | [Open in Colab](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/providers/working-with-fabric.ipynb) | [View on GitHub](https://github.com/pixeltable/pixeltable/blob/release/docs/release/howto/providers/working-with-fabric.ipynb)"
 ---
 ```
 
@@ -55,7 +57,7 @@ description: "[Open in Kaggle](https://kaggle.com/kernels/welcome?src=https://gi
   - **Colab link**: Opens notebook in Google Colab
   - **GitHub link**: Views notebook source on GitHub
   - All three links use the `release` branch for stability
-  - Path must be relative to `docs/notebooks/` directory
+  - Path in GitHub/Kaggle/Colab URLs must include the full `docs/release/...` path from the repo root
 
 ## Required: Remove H1 Headers from Markdown
 
