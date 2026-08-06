@@ -12,7 +12,7 @@ import typing
 import urllib.request
 import uuid
 from pathlib import Path
-from typing import Any, ClassVar, Iterable, Literal, Mapping, Sequence, Union, _AnnotatedAlias, is_typeddict
+from typing import Any, ClassVar, Iterable, Literal, Mapping, Sequence, Union, is_typeddict
 
 import av
 import numpy as np
@@ -20,6 +20,7 @@ import pgvector.sqlalchemy
 import PIL.Image
 import pydantic
 import sqlalchemy as sql
+from typing_extensions import _AnnotatedAlias
 
 import pixeltable.exceptions as excs
 from pixeltable.utils import parse_local_file_path
@@ -1906,7 +1907,7 @@ class Array(np.ndarray, _PxtType):
         params = item if isinstance(item, tuple) else (item,)
         shape: tuple | None = None
         dtype: ColumnType | np.dtype | None = None
-        if not any(isinstance(param, (type, _AnnotatedAlias)) for param in params):
+        if not any(typing.get_origin(param) is typing.Annotated or isinstance(param, type) for param in params):
             raise TypeError('Array type parameter must include a dtype.')
         for param in params:
             if isinstance(param, tuple):
@@ -1915,7 +1916,7 @@ class Array(np.ndarray, _PxtType):
                 if shape is not None:
                     raise TypeError(f'Duplicate Array type parameter: {param}')
                 shape = param
-            elif isinstance(param, (type, _AnnotatedAlias)):
+            elif typing.get_origin(param) is typing.Annotated or isinstance(param, type):
                 if dtype is not None:
                     raise TypeError(f'Duplicate Array type parameter: {param}')
                 if isinstance(param, type) and param in ARRAY_SUPPORTED_NUMPY_DTYPES:
