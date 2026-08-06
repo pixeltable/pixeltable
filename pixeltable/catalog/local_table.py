@@ -180,7 +180,7 @@ class LocalTable(Table):
             path=str(self._path()),
             columns=column_info,
             indices=index_info,
-            data_versioned=tv.data_versioned,
+            is_data_versioned=tv.is_data_versioned,
             is_view=False,
             is_snapshot=False,
             version=self._get_version(),
@@ -317,8 +317,8 @@ class LocalTable(Table):
     def _effective_base_versions(self) -> list[int | None]:
         """The effective versions of the ancestor bases, starting with its immediate base."""
 
-    def _data_versioned(self) -> bool:
-        return self._tbl_version_path.data_versioned()
+    def _is_data_versioned(self) -> bool:
+        return self._tbl_version_path.is_data_versioned()
 
     def _get_comment(self) -> str:
         return self._tbl_version_path.comment()
@@ -768,7 +768,7 @@ class LocalTable(Table):
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> None:
         self._validate_embedding_args(embedding, string_embed, image_embed)
-        assert self._tbl_version is None or self._tbl_version.get().data_versioned, (
+        assert self._tbl_version is None or self._tbl_version.get().is_data_versioned, (
             'TODO: implement for operational tables [PXT-1101]'
         )
 
@@ -1143,7 +1143,7 @@ class LocalTable(Table):
         ):
             self._check_mutable('revert')
             tv = self._tbl_version.get()
-            if not tv.data_versioned:
+            if not tv.is_data_versioned:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION, 'Revert is supported on data-versioned tables only'
                 )
@@ -1167,7 +1167,7 @@ class LocalTable(Table):
         tbl_id = self._id
         # Collect an extra version, if available, to allow for computation of the first version's schema change
         vers_list = get_runtime().catalog.collect_tbl_history(tbl_id, n + 1)
-        assert vers_list[0].tbl_md.data_versioned, 'TODO: implement for operational tables [PXT-1101]'
+        assert vers_list[0].tbl_md.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
 
         # Construct the metadata change description dictionary
         md_list = [(vers_md.version_md.version, vers_md.schema_version_md.columns) for vers_md in vers_list]
