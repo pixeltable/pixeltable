@@ -77,7 +77,7 @@ class TableMetadata(TypedDict):
     """Column metadata for all of the visible columns of the table."""
     indices: dict[str, IndexMetadata]
     """Index metadata for all of the indices of the table."""
-    data_versioned: bool
+    is_data_versioned: bool
     """`True` if this is a data-versioned table."""
     is_view: bool
     """`True` if this table is a view."""

@@ -21,6 +21,8 @@ env:
 jobs:
   random-ops:
     strategy:
+      # A failure in one random-ops variant should not cancel the others
+      fail-fast: false
       matrix:
         options: [ '', '--read-only' ]
     runs-on: ubuntu-latest
