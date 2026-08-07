@@ -123,8 +123,8 @@ class TableProxy(Table):
     def _get_version(self) -> int | None:
         return self._tbl_md_path.version()
 
-    def _data_versioned(self) -> bool:
-        return self._tbl_md_path.data_versioned()
+    def _is_data_versioned(self) -> bool:
+        return self._tbl_md_path.is_data_versioned()
 
     def _dir_id(self) -> UUID | None:
         raise NotImplementedError

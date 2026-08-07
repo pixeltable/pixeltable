@@ -59,7 +59,7 @@ class CatalogProxy(CatalogBase):
         custom_metadata: Any,
         media_validation: MediaValidation,
         has_default_idxs: bool,
-        data_versioned: bool,
+        is_data_versioned: bool,
     ) -> tuple[Table, bool]:
         args = {
             'path': path,
@@ -70,7 +70,7 @@ class CatalogProxy(CatalogBase):
             'custom_metadata': custom_metadata,
             'media_validation': media_validation,
             'has_default_idxs': has_default_idxs,
-            'data_versioned': data_versioned,
+            'is_data_versioned': is_data_versioned,
         }
         md, was_created = self.client.send_request('CatalogBase', 'create_table', args)
         # effective_version=None: this is a live table

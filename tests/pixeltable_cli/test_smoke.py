@@ -4,6 +4,7 @@ Each class focuses on one cli command. Methods bundle related scenarios so a sin
 table can serve multiple assertions (JSON + text + flag variants) without re-creating it.
 """
 
+import importlib.metadata
 import json
 import os
 import subprocess
@@ -43,7 +44,10 @@ class TestHealth:
         assert out['ok'] is True
         assert out['pid'] > 0
         assert out['service'] == 'pxt'
-        assert out['pxt_version'] == pxt.__version__
+        # Compare against the same source the daemon reports (installed distribution metadata), not
+        # pxt.__version__: with an editable install, _version.py tracks the checkout while dist-info is
+        # stamped at install time, so equating the two would assert install freshness, not daemon behavior.
+        assert out['pxt_version'] == importlib.metadata.version('pixeltable')
 
 
 class TestLs:

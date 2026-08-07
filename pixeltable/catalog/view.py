@@ -224,7 +224,7 @@ class View(LocalTable):
             custom_metadata,
             media_validation=media_validation,
             view_md=view_md,
-            data_versioned=base.data_versioned(),
+            is_data_versioned=base.is_data_versioned(),
             has_default_idxs=has_default_idxs,
             additional_idxs=resolved_idxs,
         )

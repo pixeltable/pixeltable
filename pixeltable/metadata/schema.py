@@ -248,7 +248,7 @@ class TableMd:
 
     # Data-versioned tables keep their full row history, and support time travel and rollback.
     # TODO when the catalog migration happens, let's backfill and get rid of the default.
-    data_versioned: bool = True
+    is_data_versioned: bool = True
 
     # Indicates if default b-tree indexes are enabled for this table.
     has_default_idxs: bool = True
