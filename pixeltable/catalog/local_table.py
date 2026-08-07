@@ -44,9 +44,6 @@ from .table_path import TableVersionPath
 from .table_version_handle import TableVersionHandle
 from .update_status import UpdateStatus
 
-from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
-
-
 if TYPE_CHECKING:
     import torch.utils.data
 
@@ -537,7 +534,7 @@ class LocalTable(Table):
         # verify kwargs and construct column schema dict
         self._check_single_column_kwarg('add_column', '`col_name=col_type`', kwargs)
         col_type = next(iter(kwargs.values()))
-        if not isinstance(col_type, (ts.ColumnType, type, _GenericAlias, dict)):
+        if not isinstance(col_type, (ts.ColumnType, dict)) and not ts.is_type_expr(col_type):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT,
                 'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?',

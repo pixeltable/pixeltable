@@ -297,7 +297,8 @@ class TestTypes:
             (Literal[1, 2.0, 3], FloatType(nullable=False), 'Float'),
             (Literal['a', 'b', None], StringType(nullable=True), 'String'),  # noqa: PYI061
         )
-        for py_type, pxt_type, string in test_cases:
+        for x, pxt_type, string in test_cases:
+            py_type: Any = x  # We need to explicitly type this as Any to avoid a silly mypy subscripting bug
             print(py_type)
             non_nullable_pxt_type = pxt_type.copy(nullable=False)
             nullable_pxt_type = pxt_type.copy(nullable=True)

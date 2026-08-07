@@ -4,9 +4,7 @@ import dataclasses
 import enum
 import itertools
 from collections.abc import Mapping
-
-from typing import NamedTuple, _GenericAlias  # type: ignore[attr-defined]  # isort: skip
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 from uuid import UUID
 
 import pixeltable.exceptions as excs
@@ -277,7 +275,7 @@ def normalize_schema(schema: Mapping[str, type | ColumnSpec | exprs.Expr]) -> di
         if isinstance(spec, dict):
             col_spec: dict[str, Any] = dict(spec)
             Column._validate_column_spec(name, cast(ColumnSpec, col_spec))
-        elif isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
+        elif isinstance(spec, ts.ColumnType) or ts.is_type_expr(spec):
             col_spec = {'type': spec}
         else:
             raise excs.RequestError(excs.ErrorCode.TYPE_MISMATCH, f'Invalid spec for column {name!r}: {spec!r}')

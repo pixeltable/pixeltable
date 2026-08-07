@@ -20,12 +20,21 @@ import pgvector.sqlalchemy
 import PIL.Image
 import pydantic
 import sqlalchemy as sql
-from typing_extensions import TypeForm
+from typing_extensions import TypeForm, TypeIs
 
 import pixeltable.exceptions as excs
 from pixeltable.utils import parse_local_file_path
 
-from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
+
+def is_type_expr(x: object) -> TypeIs[TypeForm]:
+    """
+    Return True if `x` is a Python type expression, ie. something that can appear in an annotation.
+
+    That covers a bare class such as `int`, and any subscripted form: `list[int]`, `int | None`, and
+    `Annotated[int, ...]` (the form the `pxt.Int`-style aliases take). `TypeForm` itself has no runtime meaning,
+    so this is the runtime counterpart to accepting a `TypeForm` parameter.
+    """
+    return isinstance(x, type) or typing.get_origin(x) is not None
 
 
 class ColumnType:
@@ -316,7 +325,7 @@ class ColumnType:
     @classmethod
     def from_python_type(
         cls,
-        t: type | _GenericAlias,
+        t: TypeForm,
         nullable_default: bool = False,
         allow_builtin_types: bool = True,
         infer_pydantic_json: bool = False,
@@ -472,7 +481,7 @@ class ColumnType:
         )
 
     @classmethod
-    def __from_python_type_or_exc(cls, t: type | _GenericAlias | None) -> ColumnType:
+    def __from_python_type_or_exc(cls, t: TypeForm | None) -> ColumnType:
         col_type = cls.from_python_type(t)
         if col_type is None:
             raise excs.RequestError(
@@ -565,7 +574,7 @@ class ColumnType:
         return cls.from_python_type(py_type) if py_type is not None else None
 
     @classmethod
-    def __json_schema_to_py_type(cls, schema: dict[str, Any]) -> type | _GenericAlias | None:
+    def __json_schema_to_py_type(cls, schema: dict[str, Any]) -> TypeForm | None:
         if 'type' in schema:
             if schema['type'] == 'null':
                 return type(None)
@@ -580,7 +589,8 @@ class ColumnType:
             if schema['type'] in ('array', 'object'):
                 return list
         elif 'anyOf' in schema:
-            subscripts = tuple(cls.__json_schema_to_py_type(subschema) for subschema in schema['anyOf'])
+            # We need to explicitly type `subscripts` as `Any` due to a silly mypy subscripting bug
+            subscripts: Any = tuple(cls.__json_schema_to_py_type(subschema) for subschema in schema['anyOf'])
             if all(subscript is not None for subscript in subscripts):
                 return Union[subscripts]
 
