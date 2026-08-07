@@ -83,6 +83,15 @@ def pxt_daemon(init_env: None, tmp_path_factory: pytest.TempPathFactory) -> Iter
 
 PxtRunner = Callable[..., PxtResult]
 
+_RUN_TIMEOUT_SECS = 300
+
+
+def _as_text(stream: bytes | str | None) -> str:
+    """Normalize captured output: TimeoutExpired carries bytes even when the run was text=True."""
+    if stream is None:
+        return ''
+    return stream if isinstance(stream, str) else stream.decode(errors='replace')
+
 
 @pytest.fixture
 def cli(pxt_daemon: int, make_catalog_path: Callable[[str], str]) -> PxtRunner:
@@ -92,9 +101,24 @@ def cli(pxt_daemon: int, make_catalog_path: Callable[[str], str]) -> PxtRunner:
     def _run(*args: str, check: bool = True, cwd: str | os.PathLike[str] | None = None) -> PxtResult:
         # BROWSER=true prevents an actual browser tab open on `pxt dashboard` when tests are run on a dev machine.
         env = {**os.environ, 'PXT_PORT': str(pxt_daemon), 'BROWSER': 'true'}
-        r = subprocess.run(
-            ['pxt', *args], capture_output=True, text=True, env=env, check=False, stdin=subprocess.DEVNULL, cwd=cwd
-        )
+        try:
+            r = subprocess.run(
+                ['pxt', *args],
+                capture_output=True,
+                text=True,
+                env=env,
+                check=False,
+                stdin=subprocess.DEVNULL,
+                cwd=cwd,
+                timeout=_RUN_TIMEOUT_SECS,
+            )
+        except subprocess.TimeoutExpired as exc:
+            # subprocess.run has already killed the client; report whatever it managed to emit
+            raise AssertionError(
+                f'pxt {args} did not finish within {_RUN_TIMEOUT_SECS}s\n'
+                f'--- stdout ---\n{_as_text(exc.stdout)}\n'
+                f'--- stderr ---\n{_as_text(exc.stderr)}'
+            ) from exc
         if check and r.returncode != 0:
             raise AssertionError(f'pxt {args} failed (rc={r.returncode}): {r.stderr}')
         return PxtResult(r.returncode, r.stdout, r.stderr)
