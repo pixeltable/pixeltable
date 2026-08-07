@@ -115,7 +115,7 @@ def cli(pxt_daemon: int, make_catalog_path: Callable[[str], str]) -> PxtRunner:
         except subprocess.TimeoutExpired as exc:
             # subprocess.run has already killed the client; report whatever it managed to emit
             raise AssertionError(
-                f"{' '.join(('pxt', *args))} did not finish within {_RUN_TIMEOUT_SECS}s\n"
+                f'{" ".join(("pxt", *args))} did not finish within {_RUN_TIMEOUT_SECS}s\n'
                 f'--- stdout ---\n{_as_text(exc.stdout)}\n'
                 f'--- stderr ---\n{_as_text(exc.stderr)}'
             ) from exc
