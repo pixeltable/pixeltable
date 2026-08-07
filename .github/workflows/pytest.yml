@@ -185,6 +185,9 @@ jobs:
           curl -fsSL https://ollama.com/install.sh | sh
           sleep 10  # Wait for the ollama server to start
           # Pull the models used for testing now, with retries, to safeguard against connection issues
+          if ! curl -fsS --max-time 2 http://127.0.0.1:11434 > /dev/null 2>&1; then
+            nohup ollama serve > /dev/null 2>&1 &
+          fi
           ./scripts/retry.sh 3 30 ollama pull 'qwen3:0.6b'
           ./scripts/retry.sh 3 30 ollama pull 'qwen3-embedding:0.6b'
       - name: Install uv

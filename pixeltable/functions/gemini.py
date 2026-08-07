@@ -394,11 +394,13 @@ async def generate_videos(
         The generated video.
 
     Examples:
-        Add a computed column that applies the model `veo-3.0-generate-001`
+        Add a computed column that applies the model `veo-3.1-fast-generate-preview`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> tbl.add_computed_column(
-        ...     response=generate_videos(tbl.prompt, model='veo-3.0-generate-001')
+        ...     response=generate_videos(
+        ...         tbl.prompt, model='veo-3.1-fast-generate-preview'
+        ...     )
         ... )
 
         Use reference images with Veo 3.1 to guide video generation:

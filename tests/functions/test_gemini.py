@@ -208,7 +208,7 @@ class TestGemini:
         t = pxt.create_table('test_tbl', {'prompt': pxt.String, 'image': pxt.Image, 'video': pxt.Video})
         t.add_computed_column(
             output=generate_videos(
-                t.prompt, t.image, model='veo-3.0-generate-001', config={'duration_seconds': duration}
+                t.prompt, t.image, model='veo-3.1-fast-generate-preview', config={'duration_seconds': duration}
             )
         )
         prompts = [

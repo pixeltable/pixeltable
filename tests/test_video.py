@@ -266,7 +266,6 @@ class TestVideo:
                     'metadata': {
                         'language': 'und',
                         'handler_name': 'L-SMASH Video Handler',
-                        'vendor_id': '[0][0][0][0]',
                         'encoder': 'Lavc60.31.102 libx264',
                     },
                     'codec_context': {'name': 'h264', 'codec_tag': 'avc1', 'profile': 'High', 'pix_fmt': 'yuv420p'},
