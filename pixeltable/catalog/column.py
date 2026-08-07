@@ -214,7 +214,7 @@ class Column:
 
         sa_col_type: sql.types.TypeEngine | None = None
         # TODO: Should we fully deprecate passing ts.ColumnType here?
-        if isinstance(spec, ts.ColumnType) or ts.is_type_expr(spec):
+        if isinstance(spec, ts.ColumnType) or ts.is_type_form(spec):
             col_type = ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)
             sa_col_type = col_type.to_sa_type()
         elif isinstance(spec, exprs.Expr):
@@ -283,7 +283,7 @@ class Column:
                 excs.ErrorCode.MISSING_REQUIRED, f"Column {name!r}: 'type' or 'value' must be specified"
             )
 
-        if 'type' in spec and not isinstance(spec['type'], ts.ColumnType) and not ts.is_type_expr(spec['type']):
+        if 'type' in spec and not isinstance(spec['type'], ts.ColumnType) and not ts.is_type_form(spec['type']):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT, f"Column {name!r}: 'type' must be a type; got {spec['type']}"
             )

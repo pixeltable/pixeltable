@@ -534,7 +534,7 @@ class LocalTable(Table):
         # verify kwargs and construct column schema dict
         self._check_single_column_kwarg('add_column', '`col_name=col_type`', kwargs)
         col_type = next(iter(kwargs.values()))
-        if not isinstance(col_type, (ts.ColumnType, dict)) and not ts.is_type_expr(col_type):
+        if not isinstance(col_type, (ts.ColumnType, dict)) and not ts.is_type_form(col_type):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT,
                 'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?',

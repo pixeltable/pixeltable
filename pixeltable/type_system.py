@@ -26,13 +26,13 @@ import pixeltable.exceptions as excs
 from pixeltable.utils import parse_local_file_path
 
 
-def is_type_expr(x: object) -> TypeIs[TypeForm]:
+def is_type_form(x: object) -> TypeIs[TypeForm]:
     """
-    Return True if `x` is a Python type expression, ie. something that can appear in an annotation.
+    Return True if `x` is a bare class such as `int`, or a subscripted form such as `list[int]`, `int | None`, or
+    `Annotated[int, ...]` (the form the `pxt.Int`-style aliases take).
 
-    That covers a bare class such as `int`, and any subscripted form: `list[int]`, `int | None`, and
-    `Annotated[int, ...]` (the form the `pxt.Int`-style aliases take). `TypeForm` itself has no runtime meaning,
-    so this is the runtime counterpart to accepting a `TypeForm` parameter.
+    This is narrower than the set of valid annotations: bare `None` returns False. `TypeForm` has no runtime
+    meaning, so this is the runtime counterpart to accepting a `TypeForm` parameter.
     """
     return isinstance(x, type) or typing.get_origin(x) is not None
 

@@ -275,7 +275,7 @@ def normalize_schema(schema: Mapping[str, type | ColumnSpec | exprs.Expr]) -> di
         if isinstance(spec, dict):
             col_spec: dict[str, Any] = dict(spec)
             Column._validate_column_spec(name, cast(ColumnSpec, col_spec))
-        elif isinstance(spec, ts.ColumnType) or ts.is_type_expr(spec):
+        elif isinstance(spec, ts.ColumnType) or ts.is_type_form(spec):
             col_spec = {'type': spec}
         else:
             raise excs.RequestError(excs.ErrorCode.TYPE_MISMATCH, f'Invalid spec for column {name!r}: {spec!r}')
