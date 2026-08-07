@@ -647,6 +647,15 @@ class TestFunction:
         res = queries.select(queries.i, out=retrieval_scalar(queries.query_text, queries.i)).collect()
         assert all(len(out) == 2 and all(isinstance(x, str) for x in out) for out in res['out'])
 
+    # This tests a specific edge case where calling drop_dir() as the first action after a catalog reload can lead
+    # to a circular initialization failure.
+    # It is currently broken, because it depends on the order in which tables are being dropped, which in turn
+    # depends on the order in which table ids are being returned by the query that identifies which tables to drop.
+    # If 'tbl' is dropped before 'retrieval', we get an error when trying to drop 'retrieval' (it tries to load
+    # the required TableVersion, which requires deserializing the value expr for the 'result' column, which
+    # references 'view', which no longer exists).
+    # TODO: find a general solution
+    @pytest.mark.filterwarnings("ignore:The computed column 'result' in table 'retrieval' is no longer valid")
     def test_query_over_view(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         pxt.create_dir(p('test'))
@@ -671,15 +680,7 @@ class TestFunction:
         assert len(res) == 1
         assert len(res[0]['result']) == 20
 
-        # This tests a specific edge case where calling drop_dir() as the first action after a catalog reload can lead
-        # to a circular initialization failure.
-        # It is currently broken, because it depends on the order in which tables are being dropped, which in turn
-        # depends on the order in which table ids are being returned by the query that identifies which tables to drop.
-        # If 'tbl' is dropped before 'retrieval', we get an error when trying to drop 'retrieval' (it tries to load
-        # the required TableVersion, which requires deserializing the value expr for the 'result' column, which
-        # references 'view', which no longer exists).
-        # TODO: find a general solution
-        # reload_catalog()
+        reload_catalog()
         pxt.drop_dir(p('test'), force=True)
 
     def test_query_with_limit(self, test_tbl: pxt.Table) -> None:

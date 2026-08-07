@@ -7,7 +7,7 @@ from pixeltable import exceptions as excs
 
 from .globals import is_valid_identifier
 
-# pxt://<org>[:<db>][/<rest>] — org is a required slug, db an optional slug, rest the in-db path part
+# pxt://<org>[:<db>][/<rest>]: org is a required name, db an optional name, rest the in-db path part
 # (which may carry a trailing :version). The org:db colon lives in the netloc and never collides with
 # the version colon, which is in rest.
 _URI_RE = re.compile(r'^pxt://(?P<org>[^:/]+)(?::(?P<db>[^/]+))?(?:/(?P<rest>.*))?$')
@@ -31,7 +31,7 @@ class Path:
     Construct via parse() or from_components(), which apply context-specific rules.
     """
 
-    org: str | None = None  # None => in-process catalog (catalog_uri ''); a slug => remote/proxied catalog
+    org: str | None = None  # None: in-process catalog (catalog_uri ''); otherwise: hosted catalog
     db: str | None = None  # database within the org; always None when org is None, optional otherwise
     components: tuple[str, ...] = ()  # the empty tuple denotes the catalog root
     version: int | None = None
@@ -79,12 +79,13 @@ class Path:
             except ValueError:
                 raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path: {path}') from None
 
-        # Split the in-db path part into components (dotted form accepted for backward compatibility).
+        # Split the in-db path part into components. Slash-separated is canonical;
+        # dotted form is accepted only when no slashes are present (backward compatibility).
         components: tuple[str, ...]
-        if '.' in path_part:
-            components = tuple(path_part.split('.'))
-        elif '/' in path_part:
+        if '/' in path_part:
             components = tuple(path_part.split('/'))
+        elif '.' in path_part:
+            components = tuple(path_part.split('.'))
         else:
             components = (path_part,) if path_part else ()
 
@@ -101,11 +102,6 @@ class Path:
         cls, components: tuple[str, ...], *, version: int | None = None, org: str | None = None, db: str | None = None
     ) -> Path:
         return cls(org=org, db=db, components=tuple(components), version=version)
-
-    @classmethod
-    def is_pxt_uri(cls, s: str) -> bool:
-        """Return True if the string is a pxt:// URI or a recognized Pixeltable web URL."""
-        return s.startswith('pxt://') or any(s.startswith(p) for p in _URL_PREFIXES)
 
     @classmethod
     def _normalize(cls, s: str) -> str:

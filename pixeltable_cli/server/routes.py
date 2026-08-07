@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import PIL.Image
+import pydantic
 import sqlalchemy as sa
 
 import pixeltable as pxt
@@ -13,8 +14,28 @@ from pixeltable import exceptions as excs
 from pixeltable.catalog import Path
 from pixeltable.config import Config
 from pixeltable.env import Env
+from pixeltable.service import management_client
+from pixeltable.service.management_protocol import (
+    CreateDbRequest,
+    CreateServiceRequest,
+    DeleteDbRequest,
+    DeleteServiceRequest,
+    GetBundleUploadUrlRequest,
+    GetDbRequest,
+    GetServiceRequest,
+    ListDbRequest,
+    ListOrgsRequest,
+    ListServicesRequest,
+    StartDbRequest,
+    StartServiceRequest,
+    StopDbRequest,
+    StopServiceRequest,
+    UpdateDbRequest,
+    UpdateRuntimeRequest,
+    UpdateServiceRequest,
+)
 from pixeltable.types import TreeNode
-from pixeltable_cli import models
+from pixeltable_cli import models, schema_types
 from pixeltable_cli.utils import identity
 
 from . import bridge
@@ -26,6 +47,9 @@ _STARTED_AT = datetime.datetime.now(datetime.timezone.utc).isoformat()
 # Freeze the identity fingerprint at import time so /health reports what the daemon was
 # launched with, not what os.environ looks like right now. Used to trigger a daemon restart.
 _IDENTITY: dict[str, Any] = identity()
+
+# schema plans cross as plain dicts; this checks their shape in place of a response model
+_SCHEMA_PLAN = pydantic.TypeAdapter(schema_types.SchemaPlan)
 
 
 @router.get('/api/health')
@@ -437,28 +461,41 @@ def move(req: Request) -> models.MoveResponse:
     return models.MoveResponse(path=src, new_path=dst)
 
 
+@router.post('/api/schema/diff')
+def schema_diff(req: Request) -> schema_types.SchemaPlan:
+    body = req.body(models.SchemaDiffBody)
+    return _SCHEMA_PLAN.validate_python(bridge.schema_diff(body.schema_file, req.resolve_path(body.catalog_dir)))
+
+
+@router.post('/api/schema/prune')
+def schema_prune(req: Request) -> schema_types.SchemaPlan:
+    body = req.body(models.SchemaPruneBody)
+    return _SCHEMA_PLAN.validate_python(bridge.schema_prune(body.schema_file, req.resolve_path(body.catalog_dir)))
+
+
 @router.post('/api/schema/update')
-def schema_update(req: Request) -> models.SchemaUpdateResponse:
+def schema_update(req: Request) -> schema_types.SchemaPlan:
     body = req.body(models.SchemaUpdateBody)
-    created, existed = bridge.schema_update(body.schema_path, req.resolve_path(body.target))
-    tables = [models.SchemaUpdateEntry(path=p, action='created') for p in created]
-    tables += [models.SchemaUpdateEntry(path=p, action='exists') for p in existed]
-    return models.SchemaUpdateResponse(tables=tables)
+    applied = bridge.schema_update(
+        body.schema_file, req.resolve_path(body.catalog_dir), allow_destructive=body.allow_destructive
+    )
+    return _SCHEMA_PLAN.validate_python(applied)
 
 
 @router.get('/api/dashboard/search')
 def dashboard_search(req: Request) -> dict[str, Any]:
     q = req.query_str('q', default='') or ''
-    limit = req.query_int('limit', default=50, ge=1, le=100)
-    if q == '':
-        return {'query': '', 'directories': [], 'tables': [], 'columns': []}
-    return bridge.search(q, limit=limit)
+    additional_catalogs = req.query_list('catalogs')
+    return bridge.search(q, additional_db_uris=additional_catalogs or None)
 
 
 @router.get('/api/dashboard/tables/meta')
 def dashboard_table_meta(req: Request) -> dict[str, Any]:
     path = req.resolve_path(req.query_str('path') or '')
-    return dict(pxt.get_table(path).get_metadata())
+    tbl = pxt.get_table(path)
+    md = dict(tbl.get_metadata())
+    md['row_count'] = tbl.count()
+    return md
 
 
 @router.get('/api/dashboard/tables/pipeline')
@@ -646,3 +683,112 @@ def _redact_db_password(url: str | None) -> str | None:
         return sa.make_url(url).render_as_string(hide_password=True)
     except Exception:
         return None
+
+
+# Cloud management API proxy routes
+
+
+@router.get('/api/orgs')
+def list_orgs(_req: Request) -> dict[str, Any]:
+    return management_client.api_call(ListOrgsRequest())
+
+
+@router.get('/api/org')
+def get_org(req: Request) -> dict[str, Any]:
+    org = req.required_query_str('org')
+    # the management API has no single-org read; pick the requested one out of the accessible orgs
+    resp = management_client.api_call(ListOrgsRequest())
+    result = next((o for o in resp.get('orgs', []) if o.get('org') == org), None)
+    if result is None:
+        raise excs.NotFoundError(excs.ErrorCode.PATH_NOT_FOUND, f"Org '{org}' not found")
+    return {'org': result}
+
+
+@router.get('/api/dbs')
+def list_dbs(req: Request) -> dict[str, Any]:
+    return management_client.api_call(ListDbRequest(org=req.required_query_str('org')))
+
+
+@router.post('/api/dbs')
+def create_db(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(CreateDbRequest))
+
+
+@router.get('/api/db')
+def get_db(req: Request) -> dict[str, Any]:
+    return management_client.api_call(GetDbRequest(org=req.required_query_str('org'), db=req.required_query_str('db')))
+
+
+@router.post('/api/db/delete')
+def delete_db(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(DeleteDbRequest))
+
+
+@router.post('/api/db/start')
+def start_db(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(StartDbRequest))
+
+
+@router.post('/api/db/stop')
+def stop_db(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(StopDbRequest))
+
+
+@router.post('/api/db/update')
+def update_db(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(UpdateDbRequest))
+
+
+@router.get('/api/db/upload-url')
+def get_upload_url(req: Request) -> dict[str, Any]:
+    return management_client.api_call(
+        GetBundleUploadUrlRequest(org=req.required_query_str('org'), db=req.required_query_str('db'))
+    )
+
+
+@router.post('/api/db/update-runtime')
+def trigger_runtime_update(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(UpdateRuntimeRequest))
+
+
+@router.get('/api/services')
+def list_services(req: Request) -> dict[str, Any]:
+    return management_client.api_call(
+        ListServicesRequest(org=req.required_query_str('org'), db=req.required_query_str('db'))
+    )
+
+
+@router.post('/api/services')
+def create_service(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(CreateServiceRequest))
+
+
+@router.get('/api/service')
+def get_service(req: Request) -> dict[str, Any]:
+    return management_client.api_call(
+        GetServiceRequest(
+            org=req.required_query_str('org'),
+            db=req.required_query_str('db'),
+            service_name=req.required_query_str('service_name'),
+        )
+    )
+
+
+@router.post('/api/service/delete')
+def delete_service(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(DeleteServiceRequest))
+
+
+@router.post('/api/service/start')
+def start_service(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(StartServiceRequest))
+
+
+@router.post('/api/service/stop')
+def stop_service(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(StopServiceRequest))
+
+
+@router.post('/api/service/update')
+def update_service(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(UpdateServiceRequest))

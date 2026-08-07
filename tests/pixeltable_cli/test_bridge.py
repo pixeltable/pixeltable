@@ -1,12 +1,17 @@
 """Tests for pixeltable_cli.server.bridge - the translation layer between Pixeltable APIs and the dashboard REST API."""
 
+import pathlib
+from textwrap import dedent
+
 import pytest
 
 import pixeltable as pxt
+from pixeltable import exceptions as excs
 from pixeltable.functions.video import frame_iterator
 from pixeltable_cli.server import bridge
+from pixeltable_cli.utils import PxtPath
 
-from ..utils import dummy_embedding, get_test_video_files
+from ..utils import dummy_embedding, get_test_video_files, pxt_raises
 
 pytestmark = pytest.mark.local('pxt CLI metadata/data bridge')
 
@@ -150,7 +155,40 @@ class TestBridge:
         assert 'key' in csv_str
 
     def test_search_empty_db(self, uses_db: None) -> None:
-        assert bridge.search('anything') == {'query': 'anything', 'directories': [], 'tables': [], 'columns': []}
+        assert bridge.search('anything') == {
+            'query': 'anything',
+            'directories': [],
+            'tables': [],
+            'columns': [],
+            'unavailable': [],
+        }
+
+    def test_search_unreachable_catalog(self, uses_db: None) -> None:
+        pxt.create_table('users', {'email': pxt.String})
+
+        result = bridge.search('users', additional_db_uris=['pxt://nosuch:db'])
+        assert [t['path'] for t in result['tables']] == ['users']
+        assert [(u['path'], u['kind']) for u in result['unavailable']] == [('pxt://nosuch:db', 'catalog')]
+        assert result['unavailable'][0]['error'] != ''
+
+    def test_search_unreadable_table(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A table that can't be opened is reported, not passed off as a result with made-up metadata."""
+        pxt.create_table('readable', {'c1': pxt.String})
+        pxt.create_table('broken', {'c1': pxt.String})
+
+        get_table = pxt.get_table
+
+        def get_table_or_fail(path: str) -> pxt.Table:
+            if path == 'broken':
+                raise RuntimeError('cannot open')
+            return get_table(path)
+
+        monkeypatch.setattr(bridge.pxt, 'get_table', get_table_or_fail)
+
+        result = bridge.search('able')
+        assert [t['path'] for t in result['tables']] == ['readable']
+        assert [(u['path'], u['kind']) for u in result['unavailable']] == [('broken', 'table')]
+        assert 'cannot open' in result['unavailable'][0]['error']
 
     def test_search_finds_dir_table_column(self, uses_db: None) -> None:
         pxt.create_dir('proj')
@@ -165,11 +203,11 @@ class TestBridge:
         pxt.create_dir('MyDir')
         assert len(bridge.search('mydir')['directories']) == 1
 
-    def test_search_limit(self, uses_db: None) -> None:
+    def test_search_returns_every_match(self, uses_db: None) -> None:
         pxt.create_dir('sl')
         for i in range(5):
             pxt.create_table(f'sl/match_{i}', {'c1': pxt.String})
-        assert len(bridge.search('match', limit=3)['tables']) == 3
+        assert len(bridge.search('match')['tables']) == 5
 
     def test_pipeline(self, uses_db: None) -> None:
         assert bridge.get_pipeline() == {'nodes': [], 'edges': []}
@@ -348,3 +386,30 @@ class TestBridge:
         view_node = next(n for n in pipeline['nodes'] if n['path'] == 'iv/frames')
         assert 'error' not in view_node
         assert view_node['is_view'] is True
+
+    def test_schema_update_destructive_refusal(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        schema_src = dedent(
+            """
+            from __future__ import annotations
+
+            import pixeltable as pxt
+
+            TableModel = pxt.model_base()
+
+
+            class Docs(TableModel, name='docs'):
+                title: pxt.Required[pxt.String]
+                body: pxt.String
+            """
+        )
+        schema_file = tmp_path / 'app_schema.py'
+        schema_file.write_text(schema_src)
+        target = PxtPath('refusal')
+        bridge.schema_update(str(schema_file), target)
+
+        # dropping a column destroys its data; the refusal tells a CLI user about the flag, not about update_all()
+        schema_file.write_text(schema_src.replace('    body: pxt.String\n', ''))
+        with pxt_raises(excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE, match='--allow-destructive') as info:
+            bridge.schema_update(str(schema_file), target)
+        assert 'update_all()' not in info.value.message
+        assert 'body' in pxt.get_table('refusal/docs').columns()

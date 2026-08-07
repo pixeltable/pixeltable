@@ -1,6 +1,6 @@
 """Primitives shared by the client and the in-process daemon: port, pidfile path,
-config-resolution helpers, and the identity fingerprint. Stdlib-only so the client side
-can import without pulling in pxt or pydantic."""
+config-resolution helpers, and the identity fingerprint. Stdlib-only so the client side can import without
+pulling in pxt or pydantic."""
 
 import hashlib
 import importlib.metadata
@@ -8,9 +8,13 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple, NewType
 
 DEFAULT_PORT = 22089
+
+# a Pixeltable path encoded as a string. Distinct from str so that a filesystem path cannot be passed where one of
+# these is expected.
+PxtPath = NewType('PxtPath', str)
 
 # Mirrors pixeltable.catalog.path._URI_RE (duplicated so this module stays stdlib-only): a hosted path is
 # pxt://<org>:<db>/<in-catalog path>.
@@ -48,6 +52,26 @@ def pidfile_path() -> str:
     return os.path.join(_resolve_pixeltable_home(), f'pxt-daemon-{get_port()}.pid')
 
 
+class PxtUriParts(NamedTuple):
+    """The components of a pxt://<org>[:<db>][/<path>] URI.
+
+    path is returned as written: None when the URI has nothing past the org and db, and '' for a trailing '/'
+    with nothing after it.
+    """
+
+    org: str
+    db: str | None
+    path: str | None
+
+
+def split_pxt_uri(uri: str) -> PxtUriParts | None:
+    """Split a pxt:// URI into its components. Returns None if uri isn't a pxt:// URI."""
+    m = _PXT_URI_RE.match(uri)
+    if m is None:
+        return None
+    return PxtUriParts(m.group('org'), m.group('db'), m.group('rest'))
+
+
 def validate_path_shape(path: str) -> str | None:
     """Return an error message if path violates pxt path shape rules, else None. Empty is allowed.
 
@@ -60,10 +84,10 @@ def validate_path_shape(path: str) -> str | None:
     if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in path):
         return f'pxt paths must not contain control characters; got {path!r}'
     if path.startswith('pxt://'):
-        m = _PXT_URI_RE.match(path)
-        if m is None:
+        parts = split_pxt_uri(path)
+        if parts is None:
             return f'invalid URI; expected pxt://<org>:<db>/<path>, got {path!r}'
-        in_catalog = m.group('rest') or ''
+        in_catalog = parts.path or ''
     else:
         in_catalog = path
         if in_catalog.startswith('/'):
@@ -88,12 +112,11 @@ def resolve_dot_segments(path: str) -> str:
     prefix = ''
     in_catalog = path
     if path.startswith('pxt://'):
-        m = _PXT_URI_RE.match(path)
-        if m is None:
+        parts = split_pxt_uri(path)
+        if parts is None:
             return path  # malformed URI; validate_path_shape() reports it
-        db = m.group('db')
-        prefix = f'pxt://{m.group("org")}' + ('' if db is None else f':{db}')
-        in_catalog = m.group('rest') or ''
+        prefix = f'pxt://{parts.org}' + ('' if parts.db is None else f':{parts.db}')
+        in_catalog = parts.path or ''
     if '.' not in in_catalog:
         return path
 

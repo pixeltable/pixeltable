@@ -13,9 +13,11 @@ import uuid
 from datetime import datetime, timezone
 from typing import Literal, NamedTuple, NoReturn
 
-DEFAULT_PYTEST = "-m 'not expensive and not very_expensive and not benchmark'"
-EXPENSIVE_PYTEST = "-m 'not very_expensive and not benchmark'"
-VERY_EXPENSIVE_PYTEST = "-m 'not benchmark'"
+# cloud_e2e is excluded from every tier: it provisions hosted databases and services against a live
+# Pixeltable cloud deployment, and is run on demand rather than from the matrix
+DEFAULT_PYTEST = "-m 'not expensive and not very_expensive and not benchmark and not cloud_e2e'"
+EXPENSIVE_PYTEST = "-m 'not very_expensive and not benchmark and not cloud_e2e'"
+VERY_EXPENSIVE_PYTEST = "-m 'not benchmark and not cloud_e2e'"
 
 MAIN_PLATFORM = 'ubuntu-24.04'
 BASIC_PLATFORMS = ('macos-15', 'windows-2025')

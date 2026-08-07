@@ -69,6 +69,7 @@ class TableVersionHandle:
         if self.effective_version is not None:
             cached_tv = cat._tbl_versions.get(self.key)
             if cached_tv is not None:
+                cat._tbl_versions.move_to_end(self.key)
                 return cached_tv
 
         return cat.get_tbl_version(self.key)

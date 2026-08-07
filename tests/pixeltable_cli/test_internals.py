@@ -6,8 +6,10 @@ Covers things that aren't reachable through the daemon smoke tests:
   - parser.py / main.py error and help paths
   - the client HTTP get/post error branches
   - the interactive shell REPL (driven via subprocess.Popen)
+  - management_client's retry of a dropped management API connection
 """
 
+import http.client
 import importlib.metadata
 import io
 import json
@@ -17,18 +19,52 @@ import signal
 import socket
 import subprocess
 import sys
+import typing
 import urllib.error
 from collections.abc import Callable, Iterator
 from email.message import Message
-from typing import Any
+from types import ModuleType
+from typing import Any, ClassVar
 
 import pytest
+import requests
 from typing_extensions import Self
 
 from pixeltable import exceptions as excs
-from pixeltable_cli import utils
-from pixeltable_cli.client import confirm, main as client_main, parser as client_parser, utils as client_utils
-from pixeltable_cli.client.commands import daemon as daemon_cmd, shell as shell_cmd, status as status_cmd
+from pixeltable.catalog import model
+from pixeltable.config import ServiceConfig
+from pixeltable.service import management_client
+from pixeltable.service.management_protocol import (
+    CreateDbRequest,
+    CreateServiceRequest,
+    DeleteDbRequest,
+    DeleteServiceRequest,
+    GetBundleUploadUrlRequest,
+    GetDbRequest,
+    GetServiceRequest,
+    ListDbRequest,
+    ListOrgsRequest,
+    ListServicesRequest,
+    ServiceOperationType,
+    StartDbRequest,
+    StartServiceRequest,
+    StopDbRequest,
+    StopServiceRequest,
+    UpdateDbRequest,
+    UpdateRuntimeRequest,
+    UpdateServiceRequest,
+)
+from pixeltable.serving import _config as serving_config
+from pixeltable_cli import schema_types as wire, utils
+from pixeltable_cli.client import confirm, hosted, main as client_main, parser as client_parser, utils as client_utils
+from pixeltable_cli.client.commands import (
+    daemon as daemon_cmd,
+    db as db_cmd,
+    org as org_cmd,
+    service as service_cmd,
+    shell as shell_cmd,
+    status as status_cmd,
+)
 from pixeltable_cli.server import daemon as server_daemon, router as server_router, routes as server_routes
 
 
@@ -413,6 +449,22 @@ class TestProbe:
         monkeypatch.setattr('urllib.request.urlopen', boom)
         assert client_utils.fetch_health() is None
 
+    def test_fetch_health_truncated_response(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A daemon that sends headers and then drops the connection isn't healthy, it isn't a crash."""
+
+        class FakeResp:
+            def __enter__(self) -> Self:
+                return self
+
+            def __exit__(self, *a: object) -> None:
+                pass
+
+            def read(self) -> bytes:
+                raise http.client.IncompleteRead(b'', 1020)
+
+        monkeypatch.setattr('urllib.request.urlopen', lambda *a, **kw: FakeResp())
+        assert client_utils.fetch_health() is None
+
     def test_client_pxt_version_unknown(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def boom(name: str) -> str:
             raise importlib.metadata.PackageNotFoundError(name)
@@ -731,33 +783,34 @@ class TestConfirm:
         confirm.confirm_or_exit('drop something?', force=True)
 
     def test_no_tty_refuses(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        monkeypatch.setattr(confirm, '_stdin_is_real_tty', lambda: False)
+        monkeypatch.setattr(confirm, 'stdin_is_a_tty', lambda: False)
         with pytest.raises(SystemExit) as ei:
             confirm.confirm_or_exit('drop something?', force=False)
         assert ei.value.code == 2
         assert '--force' in capsys.readouterr().err
 
     def test_tty_yes(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(confirm, '_stdin_is_real_tty', lambda: True)
+        monkeypatch.setattr(confirm, 'stdin_is_a_tty', lambda: True)
         monkeypatch.setattr(confirm.sys, 'stdin', io.StringIO('y\n'))
         # Should not raise.
         confirm.confirm_or_exit('drop something?', force=False)
 
     def test_tty_no(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        monkeypatch.setattr(confirm, '_stdin_is_real_tty', lambda: True)
+        monkeypatch.setattr(confirm, 'stdin_is_a_tty', lambda: True)
         monkeypatch.setattr(confirm.sys, 'stdin', io.StringIO('n\n'))
         with pytest.raises(SystemExit) as ei:
-            confirm.confirm_or_exit('drop something?', force=False)
-        assert ei.value.code == 1
+            confirm.confirm_or_exit('drop something?', force=False, refused_exit_code=3)
+        # answering no is refusal, same as the non-tty path
+        assert ei.value.code == 3
         assert 'aborted' in capsys.readouterr().err
 
     def test_tty_empty_aborts(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(confirm, '_stdin_is_real_tty', lambda: True)
+        monkeypatch.setattr(confirm, 'stdin_is_a_tty', lambda: True)
         monkeypatch.setattr(confirm.sys, 'stdin', io.StringIO('\n'))
         with pytest.raises(SystemExit):
             confirm.confirm_or_exit('drop something?', force=False)
 
-    def test_stdin_is_real_tty_posix(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_stdin_is_a_tty_posix(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Non-Windows path: isatty() True -> returns True without touching ctypes."""
 
         class FakeStdin:
@@ -766,15 +819,15 @@ class TestConfirm:
 
         monkeypatch.setattr(confirm.sys, 'stdin', FakeStdin())
         monkeypatch.setattr(confirm.sys, 'platform', 'linux')
-        assert confirm._stdin_is_real_tty() is True
+        assert confirm.stdin_is_a_tty() is True
 
-    def test_stdin_is_real_tty_not_a_tty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_stdin_is_a_tty_not_a_tty(self, monkeypatch: pytest.MonkeyPatch) -> None:
         class FakeStdin:
             def isatty(self) -> bool:
                 return False
 
         monkeypatch.setattr(confirm.sys, 'stdin', FakeStdin())
-        assert confirm._stdin_is_real_tty() is False
+        assert confirm.stdin_is_a_tty() is False
 
 
 class TestParser:
@@ -886,6 +939,27 @@ class TestHttp:
         err = capsys.readouterr().err
         # falls back to e.reason when the body isn't JSON
         assert 'Internal Server Error' in err
+
+    def test_truncated_response(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+        monkeypatch.setattr(client_utils, 'ensure_running', lambda: 'http://127.0.0.1:1')
+
+        class FakeResp:
+            def __enter__(self) -> Self:
+                return self
+
+            def __exit__(self, *a: object) -> None:
+                pass
+
+            def read(self) -> bytes:
+                raise http.client.IncompleteRead(b'', 1020)
+
+        monkeypatch.setattr(client_utils.urllib.request, 'urlopen', lambda *a, **kw: FakeResp())
+        with pytest.raises(SystemExit) as ei:
+            client_utils.get_request('/api/health')
+        assert ei.value.code == 1
+        err = capsys.readouterr().err
+        assert 'bad response from daemon' in err
+        assert 'IncompleteRead' in err
 
     def test_url_error_unreachable(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
         monkeypatch.setattr(client_utils, 'ensure_running', lambda: 'http://127.0.0.1:1')
@@ -1392,32 +1466,6 @@ class TestDashboardCommand:
         assert 'cannot reach daemon' in capsys.readouterr().err
 
 
-class TestDeployCommand:
-    """`pxt deploy` build-bundle error handling."""
-
-    def _run_with_error(self, args: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
-        import pixeltable as pxt
-        from pixeltable_cli.client.commands import deploy as deploy_cmd
-
-        def boom(_name: str) -> None:
-            raise pxt.RequestError(pxt.ErrorCode.INVALID_ARGUMENT, 'no such deployment')
-
-        monkeypatch.setattr(deploy_cmd.deploy, 'build_deploy_bundle', boom)
-        with pytest.raises(SystemExit) as info:
-            deploy_cmd.run(args)
-        assert info.value.code == 1
-
-    def test_deploy_failure_human(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        self._run_with_error(['prod'], monkeypatch)
-        assert 'no such deployment' in capsys.readouterr().err
-
-    def test_deploy_failure_json(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        self._run_with_error(['prod', '--json'], monkeypatch)
-        payload = json.loads(capsys.readouterr().err)
-        assert payload['status'] == 'error'
-        assert 'no such deployment' in payload['message']
-
-
 class TestBadPathArgRejection:
     """Each path-taking command rejects malformed paths client-side with argparse exit 2."""
 
@@ -1536,6 +1584,436 @@ class TestPerPortPaths:
         assert '54321' in p2
 
 
+class TestHostedCommandHelp:
+    """Subcommands and options offered by `pxt db`, `pxt service` and `pxt org`."""
+
+    @pytest.mark.parametrize(
+        ('module', 'argv', 'expected'),
+        [
+            (db_cmd, ['--help'], ['create', 'list', 'update', 'update-runtime', 'status']),
+            (db_cmd, ['update', '--help'], ['--workers', '--cpu']),
+            (service_cmd, ['--help'], ['create', 'update', 'stop', 'start', 'status']),
+            (service_cmd, ['update', '--help'], ['--workers']),
+            (org_cmd, ['--help'], ['list', 'status']),
+        ],
+    )
+    def test_help(
+        self, module: ModuleType, argv: list[str], expected: list[str], capsys: pytest.CaptureFixture
+    ) -> None:
+        with pytest.raises(SystemExit) as info:
+            module.run(argv)
+        assert info.value.code == 0
+        out = capsys.readouterr().out
+        assert all(token in out for token in expected), out
+
+
+def _forwarded_request(
+    monkeypatch: pytest.MonkeyPatch,
+    handler: Callable[[server_router.Request], Any],
+    *,
+    body: dict[str, Any] | None = None,
+    query: dict[str, list[str]] | None = None,
+) -> Any:
+    """Call a daemon route with the given body/query and return the management API request it sent."""
+    sent: list[Any] = []
+
+    def api_call(request: Any) -> dict[str, Any]:
+        sent.append(request)
+        return {}
+
+    monkeypatch.setattr(management_client, 'api_call', api_call)
+    req = server_router.Request(
+        query={} if query is None else query, body_bytes=b'' if body is None else json.dumps(body).encode()
+    )
+    handler(req)
+    assert len(sent) == 1, sent
+    return sent[0]
+
+
+_POST_ROUTE_REQUESTS = [
+    (
+        server_routes.create_db,
+        {'org': 'acme', 'db': 'main', 'location': 'aws', 'region': 'us-east-1'},
+        CreateDbRequest(org='acme', db='main', location='aws', region='us-east-1'),
+    ),
+    (server_routes.delete_db, {'org': 'acme', 'db': 'main'}, DeleteDbRequest(org='acme', db='main')),
+    (server_routes.start_db, {'org': 'acme', 'db': 'main'}, StartDbRequest(org='acme', db='main')),
+    (server_routes.stop_db, {'org': 'acme', 'db': 'main'}, StopDbRequest(org='acme', db='main')),
+    (
+        server_routes.update_db,
+        {'org': 'acme', 'db': 'main', 'workers': 2, 'cpu': 1.5, 'memory_mb': 1024, 'disk_gb': 20},
+        UpdateDbRequest(org='acme', db='main', workers=2, cpu=1.5, memory_mb=1024, disk_gb=20),
+    ),
+    (
+        server_routes.trigger_runtime_update,
+        {'org': 'acme', 'db': 'main', 'bundle_s3_key': 'bundles/acme/main.tar.gz'},
+        UpdateRuntimeRequest(org='acme', db='main', bundle_s3_key='bundles/acme/main.tar.gz'),
+    ),
+    (
+        server_routes.create_service,
+        {
+            'org': 'acme',
+            'db': 'main',
+            'service_name': 'svc',
+            'base_path': 'dir',
+            'workers_min': 3,
+            'cpu': 1.5,
+            'memory_mb': 1024,
+            'disk_gb': 20,
+            'service_config': ServiceConfig(name='svc').model_dump_json(),
+        },
+        CreateServiceRequest(
+            org='acme',
+            db='main',
+            service_name='svc',
+            base_path='dir',
+            workers_min=3,
+            cpu=1.5,
+            memory_mb=1024,
+            disk_gb=20,
+            service_config=ServiceConfig(name='svc'),
+        ),
+    ),
+    (
+        server_routes.update_service,
+        {'org': 'acme', 'db': 'main', 'service_name': 'svc', 'workers_min': 4, 'service_config': None},
+        UpdateServiceRequest(org='acme', db='main', service_name='svc', workers_min=4),
+    ),
+    (
+        server_routes.delete_service,
+        {'org': 'acme', 'db': 'main', 'service_name': 'svc'},
+        DeleteServiceRequest(org='acme', db='main', service_name='svc'),
+    ),
+    (
+        server_routes.start_service,
+        {'org': 'acme', 'db': 'main', 'service_name': 'svc'},
+        StartServiceRequest(org='acme', db='main', service_name='svc'),
+    ),
+    (
+        server_routes.stop_service,
+        {'org': 'acme', 'db': 'main', 'service_name': 'svc'},
+        StopServiceRequest(org='acme', db='main', service_name='svc'),
+    ),
+]
+
+_GET_ROUTE_REQUESTS = [
+    (server_routes.list_orgs, {}, ListOrgsRequest()),
+    (server_routes.list_dbs, {'org': ['acme']}, ListDbRequest(org='acme')),
+    (server_routes.get_db, {'org': ['acme'], 'db': ['main']}, GetDbRequest(org='acme', db='main')),
+    (server_routes.get_upload_url, {'org': ['acme'], 'db': ['main']}, GetBundleUploadUrlRequest(org='acme', db='main')),
+    (server_routes.list_services, {'org': ['acme'], 'db': ['main']}, ListServicesRequest(org='acme', db='main')),
+    (
+        server_routes.get_service,
+        {'org': ['acme'], 'db': ['main'], 'service_name': ['svc']},
+        GetServiceRequest(org='acme', db='main', service_name='svc'),
+    ),
+]
+
+
+class TestCloudRouteRequests:
+    """The management API request each cloud route builds from its body or query string."""
+
+    @pytest.mark.parametrize(('handler', 'body', 'expected'), _POST_ROUTE_REQUESTS)
+    def test_post_route(
+        self,
+        handler: Callable[[server_router.Request], Any],
+        body: dict[str, Any],
+        expected: Any,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        assert _forwarded_request(monkeypatch, handler, body=body) == expected
+
+    @pytest.mark.parametrize(('handler', 'query', 'expected'), _GET_ROUTE_REQUESTS)
+    def test_get_route(
+        self,
+        handler: Callable[[server_router.Request], Any],
+        query: dict[str, list[str]],
+        expected: Any,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        assert _forwarded_request(monkeypatch, handler, query=query) == expected
+
+    def test_get_org_picks_one_org_out_of_the_list(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        orgs = {'orgs': [{'org': 'other', 'org_id': 'o0'}, {'org': 'acme', 'org_id': 'o1'}]}
+        monkeypatch.setattr(management_client, 'api_call', lambda request: orgs)
+        assert server_routes.get_org(server_router.Request(query={'org': ['acme']}, body_bytes=b'')) == {
+            'org': {'org': 'acme', 'org_id': 'o1'}
+        }
+        with pytest.raises(excs.NotFoundError, match="Org 'nope' not found"):
+            server_routes.get_org(server_router.Request(query={'org': ['nope']}, body_bytes=b''))
+
+
+class TestHostedCommandRequests:
+    """The bodies `pxt db` and `pxt service` post, as the cloud routes read them."""
+
+    def _posted_body(self, monkeypatch: pytest.MonkeyPatch, module: ModuleType, argv: list[str]) -> dict[str, Any]:
+        """Run one CLI command with the daemon stubbed out, and return the body it posted."""
+        posted: list[dict[str, Any]] = []
+
+        # each command checks that its resource reached the state the operation aims for, so the stubs
+        # report the state that operation ends in
+        def post_request(path: str, body: dict[str, Any]) -> dict[str, Any]:
+            posted.append(body)
+            return {'state': 'STOPPED' if path.endswith('/stop') else 'AVAILABLE'}
+
+        def poll(org: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
+            pending = next((a for a in args if isinstance(a, set)), set())
+            return {'state': 'STOPPED' if 'STOPPING' in pending else 'AVAILABLE'}
+
+        monkeypatch.setattr(module, 'post_request', post_request)
+        monkeypatch.setattr(module, 'get_request', lambda path, params=None: {})
+        monkeypatch.setattr(module, 'poll_db', poll, raising=False)
+        monkeypatch.setattr(module, 'poll_svc', poll, raising=False)
+        module.run(argv)
+        assert len(posted) == 1, posted
+        return posted[0]
+
+    @pytest.mark.parametrize(
+        ('module', 'argv', 'handler', 'expected'),
+        [
+            (
+                db_cmd,
+                ['create', 'pxt://acme:main'],
+                server_routes.create_db,
+                CreateDbRequest(org='acme', db='main', location='aws', region='us-east-1'),
+            ),
+            (
+                db_cmd,
+                ['update', 'pxt://acme:main', '--workers', '2'],
+                server_routes.update_db,
+                UpdateDbRequest(org='acme', db='main', workers=2),
+            ),
+            (db_cmd, ['start', 'pxt://acme:main'], server_routes.start_db, StartDbRequest(org='acme', db='main')),
+            (db_cmd, ['stop', 'pxt://acme:main'], server_routes.stop_db, StopDbRequest(org='acme', db='main')),
+            (db_cmd, ['delete', 'pxt://acme:main'], server_routes.delete_db, DeleteDbRequest(org='acme', db='main')),
+            (
+                service_cmd,
+                ['start', 'pxt://acme:main/services/svc'],
+                server_routes.start_service,
+                StartServiceRequest(org='acme', db='main', service_name='svc'),
+            ),
+            (
+                service_cmd,
+                ['stop', 'pxt://acme:main/services/svc'],
+                server_routes.stop_service,
+                StopServiceRequest(org='acme', db='main', service_name='svc'),
+            ),
+            (
+                service_cmd,
+                ['delete', 'pxt://acme:main/services/svc'],
+                server_routes.delete_service,
+                DeleteServiceRequest(org='acme', db='main', service_name='svc'),
+            ),
+        ],
+    )
+    def test_command_body(
+        self,
+        module: ModuleType,
+        argv: list[str],
+        handler: Callable[[server_router.Request], Any],
+        expected: Any,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        body = self._posted_body(monkeypatch, module, argv)
+        assert _forwarded_request(monkeypatch, handler, body=body) == expected
+
+    def test_service_create_and_update_bodies(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        svc_config = ServiceConfig(name='svc')
+        monkeypatch.setattr(serving_config, 'lookup_service_config', lambda name: svc_config)
+
+        argv = ['create', 'svc', '--base-uri', 'pxt://acme:main/dir', '--workers', '3']
+        body = self._posted_body(monkeypatch, service_cmd, argv)
+        assert _forwarded_request(monkeypatch, server_routes.create_service, body=body) == CreateServiceRequest(
+            org='acme', db='main', service_name='svc', base_path='dir', workers_min=3, service_config=svc_config
+        )
+
+        argv = ['update', 'pxt://acme:main/services/svc', '--workers', '4']
+        body = self._posted_body(monkeypatch, service_cmd, argv)
+        assert _forwarded_request(monkeypatch, server_routes.update_service, body=body) == UpdateServiceRequest(
+            org='acme', db='main', service_name='svc', workers_min=4, service_config=svc_config
+        )
+
+
+class TestHostedUriHelpers:
+    """URI parsing / printing helpers shared by the hosted-CLI commands."""
+
+    def test_split_pxt_uri(self) -> None:
+        assert utils.split_pxt_uri('pxt://acme') == ('acme', None, None)
+        assert utils.split_pxt_uri('pxt://acme:main') == ('acme', 'main', None)
+        assert utils.split_pxt_uri('pxt://acme:main/services/foo') == ('acme', 'main', 'services/foo')
+        assert utils.split_pxt_uri('pxt://acme:main/') == ('acme', 'main', '')
+        assert utils.split_pxt_uri('not-a-uri') is None
+
+    def test_parse_db_uri(self) -> None:
+        assert hosted.parse_db_uri('pxt://acme:main') == ('acme', 'main')
+
+    @pytest.mark.parametrize('bad', ['pxt://acme', 'pxt://acme:main/tbl', 'pxt://acme:main/', 'nope'])
+    def test_parse_db_uri_rejects(self, bad: str, capsys: pytest.CaptureFixture) -> None:
+        with pytest.raises(SystemExit) as info:
+            hosted.parse_db_uri(bad)
+        assert info.value.code == 2
+        assert 'pxt://org:db' in capsys.readouterr().err
+
+    def test_parse_org_uri(self) -> None:
+        assert hosted.parse_org_uri('pxt://acme') == 'acme'
+
+    @pytest.mark.parametrize('bad', ['pxt://acme:main', 'pxt://acme:main/x', 'pxt://acme/', 'nope'])
+    def test_parse_org_uri_rejects(self, bad: str) -> None:
+        with pytest.raises(SystemExit) as info:
+            hosted.parse_org_uri(bad)
+        assert info.value.code == 2
+
+    def test_parse_base_uri(self) -> None:
+        assert hosted.parse_base_uri('pxt://acme:main') == ('acme', 'main', '')
+        assert hosted.parse_base_uri('pxt://acme:main/dir/sub') == ('acme', 'main', 'dir/sub')
+
+    @pytest.mark.parametrize('bad', ['pxt://acme', 'nope'])
+    def test_parse_base_uri_rejects(self, bad: str) -> None:
+        with pytest.raises(SystemExit) as info:
+            hosted.parse_base_uri(bad)
+        assert info.value.code == 2
+
+    def test_parse_service_uri(self) -> None:
+        assert hosted.parse_service_uri('pxt://acme:main/services/foo') == ('acme', 'main', 'foo')
+
+    @pytest.mark.parametrize(
+        'bad',
+        [
+            'pxt://acme:main/tables/foo',
+            'pxt://acme:main/services/',
+            'pxt://acme:main/services/foo/bar',  # extra path component rejected
+            'pxt://acme:main',
+            'pxt://acme',
+        ],
+    )
+    def test_parse_service_uri_rejects(self, bad: str) -> None:
+        with pytest.raises(SystemExit) as info:
+            hosted.parse_service_uri(bad)
+        assert info.value.code == 2
+
+    @pytest.mark.parametrize(
+        ('age_s', 'expected'),
+        [(0, '0s'), (45, '45s'), (90, '1m'), (3600, '1h'), (3660, '1h1m'), (86400, '1d'), (90000, '1d1h')],
+    )
+    def test_fmt_age(self, age_s: int, expected: str) -> None:
+        assert hosted._fmt_age(age_s) == expected
+
+    def test_print_org(self, capsys: pytest.CaptureFixture) -> None:
+        hosted.print_org({'org': 'acme', 'org_id': 'o1', 'default_db': 'main'})
+        out = capsys.readouterr().out
+        assert 'acme' in out and 'id=o1' in out and 'default_db=main' in out
+
+    def test_print_db(self, capsys: pytest.CaptureFixture) -> None:
+        hosted.print_db({'db': 'main', 'state': 'AVAILABLE', 'location': 'aws', 'region': 'us-east-1'})
+        out = capsys.readouterr().out
+        assert 'main' in out and 'state=AVAILABLE' in out and 'aws/us-east-1' in out
+
+    def test_print_service_prints_routes(self, capsys: pytest.CaptureFixture) -> None:
+        hosted.print_service(
+            {
+                'service_name': 'svc',
+                'state': 'AVAILABLE',
+                'base_path': 'main',
+                'workers_min': 1,
+                'endpoint': 'https://svc.example',
+                'service_config': json.dumps({'prefix': '/v1', 'routes': [{'method': 'post', 'path': '/insert'}]}),
+            }
+        )
+        out = capsys.readouterr().out
+        assert 'svc' in out and 'state=AVAILABLE' in out
+        assert 'POST  https://svc.example/v1/insert' in out
+
+    def test_print_workers(self, capsys: pytest.CaptureFixture) -> None:
+        hosted._print_workers(
+            [{'pod_id': 'pod-1', 'status': 'Running', 'ready': 1, 'total': 1, 'restarts': 0, 'age_s': 45}]
+        )
+        out = capsys.readouterr().out
+        assert 'POD ID' in out and 'pod-1' in out and 'Running' in out
+        hosted._print_workers([])  # empty prints nothing
+        assert capsys.readouterr().out == ''
+
+
+class TestPrintAligned:
+    def test_widths_fit_the_widest_cell(self, capsys: pytest.CaptureFixture) -> None:
+        client_utils.print_aligned(['NAME', 'N'], [['a-very-long-name', '1'], ['b', '200']], right_align={1})
+        header, first, second = capsys.readouterr().out.splitlines()
+        assert header == 'NAME                N'
+        assert first == 'a-very-long-name    1'
+        assert second == 'b                 200'
+
+    def test_indent(self, capsys: pytest.CaptureFixture) -> None:
+        client_utils.print_aligned(['NAME'], [['a']], right_align=set(), indent='  ')
+        assert capsys.readouterr().out.splitlines() == ['  NAME', '  a']
+
+    def test_no_rows_prints_nothing(self, capsys: pytest.CaptureFixture) -> None:
+        client_utils.print_aligned(['NAME'], [], right_align=set())
+        assert capsys.readouterr().out == ''
+
+
+class TestPollState:
+    """poll_state() waits out a resource's pending states, tolerating transient read failures."""
+
+    def _poll(self, responses: list[Any], monkeypatch: pytest.MonkeyPatch, timeout: float = 5) -> dict[str, Any]:
+        """Run poll_state() against a canned sequence of get_request() results; an exception item is raised."""
+        remaining = list(responses)
+
+        def fake_get_request(path: str, params: dict[str, Any] | None = None) -> Any:
+            resp = remaining.pop(0)
+            if isinstance(resp, BaseException):
+                raise resp
+            return resp
+
+        monkeypatch.setattr(hosted, 'get_request', fake_get_request)
+        return hosted.poll_state('/api/db', {}, 'database', {'PENDING'}, 0, timeout, None)
+
+    def test_returns_once_state_leaves_pending(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        responses = [{'database': {'state': 'PENDING'}}, {'database': {'state': 'AVAILABLE'}}]
+        assert self._poll(responses, monkeypatch) == {'state': 'AVAILABLE'}
+
+    def test_retries_a_failed_read(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        responses = [RuntimeError('connection refused'), {'database': {'state': 'AVAILABLE'}}]
+        assert self._poll(responses, monkeypatch) == {'state': 'AVAILABLE'}
+
+    def test_daemon_exit_propagates(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        with pytest.raises(SystemExit):
+            self._poll([SystemExit(1)], monkeypatch)
+
+    def test_returns_last_read_on_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        responses: list[Any] = [{'database': {'state': 'PENDING'}}] * 1000
+        assert self._poll(responses, monkeypatch, timeout=0.05) == {'state': 'PENDING'}
+
+
+class TestWireTypes:
+    """The CLI's schema types mirror the catalog's diff types under the same names.
+
+    Two identically-named TypedDicts in different modules are unrelated as far as mypy is concerned, so a field
+    renamed on one side would otherwise reach the wire under a name that no longer matches its counterpart.
+    """
+
+    # what the wire adds on its own, and what the catalog keeps to itself
+    WIRE_ONLY: ClassVar[set[str]] = {'destructive', 'status'}
+    CATALOG_ONLY: ClassVar[dict[str, set[str]]] = {
+        'SchemaChangeOp': {'model', 'existing'},
+        'TableDiff': {'tbl_id', 'schema_versions'},
+    }
+
+    @pytest.mark.parametrize('name', ['SchemaChangeOp', 'TableDiff'])
+    def test_fields_match(self, name: str) -> None:
+        catalog_fields = set(typing.get_type_hints(getattr(model, name)))
+        wire_fields = set(typing.get_type_hints(getattr(wire, name)))
+        assert wire_fields - self.WIRE_ONLY == catalog_fields - self.CATALOG_ONLY[name]
+
+    @pytest.mark.parametrize('name', ['SchemaChangeOp', 'TableDiff'])
+    def test_shared_fields_have_the_same_type(self, name: str) -> None:
+        catalog_hints = typing.get_type_hints(getattr(model, name))
+        wire_hints = typing.get_type_hints(getattr(wire, name))
+        shared = set(catalog_hints) & set(wire_hints) - {'ops'}  # ops holds the mirrored op type on each side
+        assert all(catalog_hints[f] == wire_hints[f] for f in shared)
+
+    def test_resolutions_match(self) -> None:
+        assert typing.get_args(wire.DiffResolution) == typing.get_args(model.DiffResolution)
+
+
 class TestDotSegments:
     """'.' and '..' are CLI path conventions, resolved before a path reaches pixeltable, where a dot is
     still the legacy component separator."""
@@ -1568,3 +2046,74 @@ class TestDotSegments:
         for bad in ('a.b', 'a/...', '...'):
             err = utils.validate_path_shape(bad)
             assert err is not None and 'separator' in err, bad
+
+
+class _StubResponse:
+    """Minimal HTTP response: status code, body text, and the parsed body."""
+
+    status_code: int
+    text: str
+
+    def __init__(self, status_code: int, payload: dict[str, Any]) -> None:
+        self.status_code = status_code
+        self.text = json.dumps(payload)
+
+    def json(self) -> dict[str, Any]:
+        return json.loads(self.text)
+
+
+class _FlakySession:
+    """Session stub whose first n_failures post() calls raise a dropped-connection error."""
+
+    n_failures: int
+    payload: dict[str, Any]
+    n_calls: int
+
+    def __init__(self, n_failures: int, payload: dict[str, Any]) -> None:
+        self.n_failures = n_failures
+        self.payload = payload
+        self.n_calls = 0
+
+    def post(self, url: str, *, data: str, headers: dict[str, str], timeout: int) -> _StubResponse:
+        self.n_calls += 1
+        if self.n_calls <= self.n_failures:
+            raise requests.exceptions.ConnectionError('Connection aborted: RemoteDisconnected')
+        return _StubResponse(200, self.payload)
+
+
+class TestManagementClient:
+    """Management API calls whose connection drops before a response is read."""
+
+    def _install_session(
+        self, monkeypatch: pytest.MonkeyPatch, n_failures: int, payload: dict[str, Any]
+    ) -> _FlakySession:
+        session = _FlakySession(n_failures, payload)
+        monkeypatch.setattr(management_client, '_SESSION', session)
+        return session
+
+    def test_dropped_connection(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv('PIXELTABLE_API_KEY', 'test-key')
+
+        # a read operation is sent a second time, on a new connection
+        session = self._install_session(monkeypatch, 1, {'database': {'db': 'main', 'state': 'AVAILABLE'}})
+        get_db = GetDbRequest(org='acme', db='main')
+        assert management_client.api_call(get_db) == {'database': {'db': 'main', 'state': 'AVAILABLE'}}
+        assert session.n_calls == 2
+
+        # only once, though: a second drop surfaces as an error
+        session = self._install_session(monkeypatch, 2, {'database': {}})
+        with pytest.raises(requests.exceptions.ConnectionError, match='RemoteDisconnected'):
+            management_client.api_call(get_db)
+        assert session.n_calls == 2
+
+        # a mutating operation is never sent again: the management API may have applied it already
+        session = self._install_session(monkeypatch, 1, {'database': {}})
+        with pytest.raises(requests.exceptions.ConnectionError, match='RemoteDisconnected'):
+            management_client.api_call(CreateDbRequest(org='acme', db='main'))
+        assert session.n_calls == 1
+
+    def test_read_ops_are_known_operation_types(self) -> None:
+        # _READ_OPS holds operation_type strings; a rename on the protocol side must not leave stale ones
+        op_values = {op.value for op in ServiceOperationType}
+        stale = management_client._READ_OPS - op_values
+        assert len(stale) == 0, stale

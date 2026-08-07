@@ -193,7 +193,10 @@ class TableVersion:
         self.num_iterator_cols = 0
         if self.view_md is not None and self.view_md.iterator_call is not None:
             self.iterator_call = GeneratingFunctionCall.from_dict(self.view_md.iterator_call)
-            self.num_iterator_cols = len(self.iterator_call.outputs)
+            # outputs is None: this catches views created before iterator outputs were persisted;
+            # for those, num_iterator_cols stays 0, which keeps the view loadable and its stored data readable
+            if self.iterator_call.outputs is not None:
+                self.num_iterator_cols = len(self.iterator_call.outputs)
 
         self.mutable_views = frozenset(mutable_views)
         assert self.is_mutable or len(self.mutable_views) == 0

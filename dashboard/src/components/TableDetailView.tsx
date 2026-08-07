@@ -14,18 +14,19 @@ import type {
   TableMetadata, TableData, DataColumn, ColumnInfo, IndexInfo,
   PipelineNode as PipelineNodeType, PipelineEdge, PipelineVersion,
 } from '@/types'
-import { cn } from '@/lib/utils'
+import { cn, tableHref } from '@/lib/utils'
 import {
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronUp, ChevronDown,
   ImageIcon, Film, Music, FileText,
   Rows3, Table2, Filter, X, Search,
-  RefreshCw, Zap, Key, Download,
-  Info, Eye, Camera, Copy,
+  RefreshCw, Key, Download, SquareFunction,
+  Copy,
   GitBranch, ArrowRight, ExternalLink,
   AlertTriangle, Clock,
 } from 'lucide-react'
 import { ColumnFlowDiagram } from './ColumnFlowDiagram'
-import { ColumnTypeBadge, ColumnTypeIcon, getColumnTypeMeta } from '@/lib/column-types'
+import { ColumnTypeBadge } from '@/lib/column-types'
+import { KindBadge } from './KindBadge'
 import { PythonExpr } from '@/lib/python-highlight'
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -83,7 +84,7 @@ function MediaPreview({ url, type, onExpand }: { url: string; type: MediaType; o
   const isExternal = /^https?:\/\//i.test(url)
   if (isExternal) {
     return (
-      <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[11px] text-k-yellow hover:underline cursor-pointer">
+      <a href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[11px] text-foreground hover:underline cursor-pointer">
         <ExternalLink className="h-3 w-3" />
         <span className="truncate max-w-24">{url.split('/').pop()}</span>
       </a>
@@ -91,7 +92,7 @@ function MediaPreview({ url, type, onExpand }: { url: string; type: MediaType; o
   }
 
   return (
-    <button onClick={onExpand} className="flex items-center gap-1 text-[11px] text-k-yellow hover:underline cursor-pointer">
+    <button onClick={onExpand} className="flex items-center gap-1 text-[11px] text-foreground hover:underline cursor-pointer">
       <FileText className="h-3.5 w-3.5" />
       <span className="truncate max-w-24">{url.split('/').pop()}</span>
     </button>
@@ -119,7 +120,7 @@ function MediaLightbox({ url, type, index, total, onClose, onPrev, onNext }: {
   return (
     <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50" onClick={onClose}>
       {/* Close */}
-      <button className="absolute top-4 right-4 text-white/70 hover:text-k-yellow transition-colors z-10" onClick={onClose}>
+      <button className="absolute top-4 right-4 text-white/70 hover:text-foreground transition-colors z-10" onClick={onClose}>
         <X className="h-7 w-7" />
       </button>
 
@@ -152,10 +153,10 @@ function MediaLightbox({ url, type, index, total, onClose, onPrev, onNext }: {
         {type === 'video' && <video src={url} controls autoPlay className="max-h-[85vh] max-w-[90vw] rounded-lg" />}
         {type === 'document' && (/^https?:\/\//i.test(url) ? (
           <div className="flex flex-col items-center gap-4 bg-card rounded-lg p-10 border border-border/60">
-            <FileText className="h-12 w-12 text-muted-foreground/40" />
+            <FileText className="h-12 w-12 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">External documents cannot be previewed inline</p>
             <a href={url} target="_blank" rel="noopener noreferrer"
-              className="flex items-center gap-1.5 text-sm text-k-yellow hover:underline">
+              className="flex items-center gap-1.5 text-sm text-foreground hover:underline">
               <ExternalLink className="h-4 w-4" />Open in new tab
             </a>
           </div>
@@ -226,23 +227,23 @@ function JsonNode({ keyName, value, depth, expandLevel, searchMatch, path }: {
 
   if (!isObj) {
     const color =
-      value === null ? 'text-muted-foreground/50 italic' :
-      typeof value === 'string' ? 'text-emerald-400' :
-      typeof value === 'number' ? 'text-blue-400' :
-      typeof value === 'boolean' ? 'text-amber-400' : 'text-foreground'
+      value === null ? 'text-muted-foreground italic' :
+      typeof value === 'string' ? 'text-muted-foreground' :
+      typeof value === 'number' ? 'text-muted-foreground' :
+      typeof value === 'boolean' ? 'text-muted-foreground' : 'text-foreground'
     const display = typeof value === 'string' ? `"${valStr}"` : valStr
     return (
       <div className="group/node flex items-baseline gap-1 py-[1px] hover:bg-accent/20 rounded-sm" style={{ paddingLeft: depth * 16 }}>
         {keyName !== undefined && (
-          <span className={cn('text-purple-300 opacity-80 shrink-0', keyMatches && HL)} title={currentPath} onClick={copyPath} role="button">
-            {keyName}<span className="text-muted-foreground/40">:</span>
+          <span className={cn('text-muted-foreground opacity-80 shrink-0', keyMatches && HL)} title={currentPath} onClick={copyPath} role="button">
+            {keyName}<span className="text-muted-foreground">:</span>
           </span>
         )}
         <span className={cn(color, 'break-all', valMatches && HL)}>{display}</span>
         <button onClick={copyPath} className="opacity-0 group-hover/node:opacity-100 ml-1 p-0.5 rounded hover:bg-accent transition-opacity shrink-0" title={`Copy path: ${currentPath}`}>
-          <Copy className="h-2.5 w-2.5 text-muted-foreground/50" />
+          <Copy className="h-2.5 w-2.5 text-muted-foreground" />
         </button>
-        {pathCopied && <span className="text-[9px] text-k-yellow animate-in fade-in">Copied</span>}
+        {pathCopied && <span className="text-[9px] text-foreground animate-in fade-in">Copied</span>}
       </div>
     )
   }
@@ -258,18 +259,18 @@ function JsonNode({ keyName, value, depth, expandLevel, searchMatch, path }: {
         style={{ paddingLeft: depth * 16 }}
         onClick={() => setManualOpen(isOpen ? false : true)}
       >
-        <ChevronRight className={cn('h-3 w-3 shrink-0 text-muted-foreground/40 transition-transform duration-150', isOpen && 'rotate-90')} />
+        <ChevronRight className={cn('h-3 w-3 shrink-0 text-muted-foreground transition-transform duration-150', isOpen && 'rotate-90')} />
         {keyName !== undefined && (
-          <span className={cn('text-purple-300 opacity-80 shrink-0', keyMatches && HL)} title={currentPath}>
-            {keyName}<span className="text-muted-foreground/40">:</span>
+          <span className={cn('text-muted-foreground opacity-80 shrink-0', keyMatches && HL)} title={currentPath}>
+            {keyName}<span className="text-muted-foreground">:</span>
           </span>
         )}
-        <span className="text-muted-foreground/40">
-          {bracket[0]}{!isOpen && <span className="text-muted-foreground/30"> {summary} {bracket[1]}</span>}
+        <span className="text-muted-foreground">
+          {bracket[0]}{!isOpen && <span className="text-muted-foreground"> {summary} {bracket[1]}</span>}
         </span>
         {keyName !== undefined && (
           <button onClick={copyPath} className="opacity-0 group-hover/node:opacity-100 ml-1 p-0.5 rounded hover:bg-accent transition-opacity shrink-0" title={`Copy path: ${currentPath}`}>
-            <Copy className="h-2.5 w-2.5 text-muted-foreground/50" />
+            <Copy className="h-2.5 w-2.5 text-muted-foreground" />
           </button>
         )}
       </div>
@@ -278,7 +279,7 @@ function JsonNode({ keyName, value, depth, expandLevel, searchMatch, path }: {
           {entries.map(([k, v]) => (
             <JsonNode key={String(k)} keyName={isArray ? undefined : String(k)} value={v} depth={depth + 1} expandLevel={expandLevel} searchMatch={searchMatch} path={isArray ? `${currentPath}[${k}]` : currentPath} />
           ))}
-          <div className="text-muted-foreground/40 py-[1px]" style={{ paddingLeft: depth * 16 + 16 }}>{bracket[1]}</div>
+          <div className="text-muted-foreground py-[1px]" style={{ paddingLeft: depth * 16 + 16 }}>{bracket[1]}</div>
         </>
       )}
     </div>
@@ -327,19 +328,19 @@ function CellDetail({ value, onClose, pythonHighlight = false }: {
       >
         {/* Toolbar */}
         <div className="flex items-center gap-2 px-3 py-2 border-b border-border/60 shrink-0">
-          <span className="text-[10px] font-medium text-muted-foreground/60 shrink-0">
+          <span className="text-[10px] font-medium text-muted-foreground shrink-0">
             {value.length.toLocaleString()} chars
           </span>
 
           {isJson && (
             <div className="relative flex-1 max-w-xs">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/50" />
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
               <input
                 type="text"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Search keys & values…"
-                className="h-7 w-full pl-7 pr-2 text-[11px] rounded border border-border/40 bg-background/50 text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring/30"
+                className="h-7 w-full pl-7 pr-2 text-[11px] rounded border border-border/40 bg-background/50 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/30"
               />
             </div>
           )}
@@ -396,11 +397,11 @@ function CellDetail({ value, onClose, pythonHighlight = false }: {
           {isJson && !viewRaw ? (
             <JsonNode value={parsed} depth={0} expandLevel={expandLevel} searchMatch={searchLower} path="$" />
           ) : pythonHighlight && !viewRaw ? (
-            <div className="whitespace-pre-wrap break-all text-foreground/90">
+            <div className="whitespace-pre-wrap text-foreground">
               <PythonExpr code={value} />
             </div>
           ) : (
-            <pre className="whitespace-pre-wrap break-words text-foreground/90">{formatted}</pre>
+            <pre className="whitespace-pre-wrap break-words text-foreground">{formatted}</pre>
           )}
         </div>
       </div>
@@ -417,7 +418,7 @@ function Cell({ value, column, error, onMediaExpand }: { value: unknown; column:
   const [expanded, setExpanded] = useState(false)
 
   if (!column.is_stored) {
-    return <span className="text-muted-foreground/40 italic text-[11px]" title="Unstored column — value not loaded">unstored</span>
+    return <span className="text-muted-foreground italic text-[11px]" title="Unstored column — value not loaded">unstored</span>
   }
   if (error) {
     return (
@@ -433,7 +434,7 @@ function Cell({ value, column, error, onMediaExpand }: { value: unknown; column:
       </div>
     )
   }
-  if (value === null || value === undefined) return <span className="text-muted-foreground/70 italic text-[11px]">null</span>
+  if (value === null || value === undefined) return <span className="text-muted-foreground italic text-[11px]">null</span>
   if (column.is_media && typeof value === 'string') return <MediaPreview url={value} type={getMediaType(column.type)} onExpand={onMediaExpand} />
 
   if (typeof value === 'object') {
@@ -457,8 +458,8 @@ function Cell({ value, column, error, onMediaExpand }: { value: unknown; column:
     )
   }
 
-  if (typeof value === 'boolean') return <span className={cn('text-[11px] font-medium', value ? 'text-emerald-400' : 'text-destructive')}>{String(value)}</span>
-  if (typeof value === 'number') return <span className="font-mono text-xs text-foreground/90 tabular-nums">{value.toLocaleString()}</span>
+  if (typeof value === 'boolean') return <span className={cn('text-[11px] font-medium', value ? 'text-muted-foreground' : 'text-destructive')}>{String(value)}</span>
+  if (typeof value === 'number') return <span className="font-mono text-xs text-foreground tabular-nums">{value.toLocaleString()}</span>
 
   const str = String(value)
   if (str.length <= TRUNCATE_CHARS) return <span className="text-xs">{str}</span>
@@ -471,7 +472,7 @@ function Cell({ value, column, error, onMediaExpand }: { value: unknown; column:
         title="Click to expand"
       >
         <span>{str.slice(0, TRUNCATE_CHARS)}</span>
-        <span className="text-muted-foreground/60 group-hover/cell:text-k-yellow transition-colors"> …more</span>
+        <span className="text-muted-foreground group-hover/cell:text-foreground transition-colors"> …more</span>
       </button>
       {expanded && <CellDetail value={str} onClose={() => setExpanded(false)} />}
     </>
@@ -498,8 +499,8 @@ function GalleryCard({ row, columns, mediaCol, onClick }: {
         {url ? (
           type === 'image' ? <img src={url} alt="" className="w-full h-full object-cover" /> :
           type === 'video' ? <video src={url} className="w-full h-full object-cover" muted preload="metadata" /> :
-          <div className="w-full h-full flex items-center justify-center text-muted-foreground/40"><FileText className="h-12 w-12" /></div>
-        ) : <div className="w-full h-full flex items-center justify-center text-muted-foreground/40"><ImageIcon className="h-12 w-12" /></div>}
+          <div className="w-full h-full flex items-center justify-center text-muted-foreground"><FileText className="h-12 w-12" /></div>
+        ) : <div className="w-full h-full flex items-center justify-center text-muted-foreground"><ImageIcon className="h-12 w-12" /></div>}
         {hasErrors && (
           <div className="absolute top-1.5 right-1.5 flex items-center gap-1 bg-destructive/90 text-white text-[10px] font-medium rounded px-1.5 py-0.5">
             <AlertTriangle className="h-2.5 w-2.5" />
@@ -518,7 +519,7 @@ function GalleryCard({ row, columns, mediaCol, onClick }: {
                   <AlertTriangle className="h-2.5 w-2.5 shrink-0" />{cellErr.error_type}
                 </span>
               ) : (
-                <span className="truncate text-foreground/90">{row[c.name] != null ? String(row[c.name]).slice(0, 20) : 'null'}</span>
+                <span className="truncate text-foreground">{row[c.name] != null ? String(row[c.name]).slice(0, 20) : 'null'}</span>
               )}
             </div>
           )
@@ -559,7 +560,7 @@ function FilterControl({ col, filter, rows, onUpdate, onClear }: {
         value={current}
         onChange={e => e.target.value ? onUpdate({ type: 'contains', value: e.target.value }) : onClear()}
         placeholder="Contains…"
-        className="h-7 w-full px-2 text-[11px] rounded border border-border/40 bg-background/50 text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring/30"
+        className="h-7 w-full px-2 text-[11px] rounded border border-border/40 bg-background/50 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/30"
       />
     )
   }
@@ -578,9 +579,9 @@ function FilterControl({ col, filter, rows, onUpdate, onClear }: {
             else onUpdate({ type: 'range', min: v, max })
           }}
           placeholder="Min"
-          className="h-7 w-full px-2 text-[11px] rounded border border-border/40 bg-background/50 text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring/30"
+          className="h-7 w-full px-2 text-[11px] rounded border border-border/40 bg-background/50 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/30"
         />
-        <span className="text-muted-foreground/40 text-[10px]">–</span>
+        <span className="text-muted-foreground text-[10px]">–</span>
         <input
           type="number"
           value={max}
@@ -590,7 +591,7 @@ function FilterControl({ col, filter, rows, onUpdate, onClear }: {
             else onUpdate({ type: 'range', min, max: v })
           }}
           placeholder="Max"
-          className="h-7 w-full px-2 text-[11px] rounded border border-border/40 bg-background/50 text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring/30"
+          className="h-7 w-full px-2 text-[11px] rounded border border-border/40 bg-background/50 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/30"
         />
       </div>
     )
@@ -654,7 +655,7 @@ function FilterControl({ col, filter, rows, onUpdate, onClear }: {
           value={enumSearch}
           onChange={e => setEnumSearch(e.target.value)}
           placeholder="Search values…"
-          className="h-6 w-full px-2 text-[10px] rounded border border-border/30 bg-background/50 text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring/30"
+          className="h-6 w-full px-2 text-[10px] rounded border border-border/30 bg-background/50 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/30"
         />
       )}
       <div className="max-h-32 overflow-y-auto space-y-px">
@@ -675,10 +676,10 @@ function FilterControl({ col, filter, rows, onUpdate, onClear }: {
           )
         })}
         {filtered.length === 0 && (
-          <span className="text-[10px] text-muted-foreground/50 px-1">No values</span>
+          <span className="text-[10px] text-muted-foreground px-1">No values</span>
         )}
         {uniqueVals.length >= MAX_ENUM_VALUES && (
-          <span className="text-[10px] text-muted-foreground/40 px-1 block">Showing top {MAX_ENUM_VALUES}</span>
+          <span className="text-[10px] text-muted-foreground px-1 block">Showing top {MAX_ENUM_VALUES}</span>
         )}
       </div>
     </div>
@@ -724,7 +725,7 @@ function FilterPanel({ columns, data, filters, onChange, onClose }: {
             <div key={col.name} className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] text-muted-foreground font-medium truncate">{col.name}</span>
-                <span className="text-[9px] text-muted-foreground/40 uppercase shrink-0">{ft}</span>
+                <span className="text-[9px] text-muted-foreground uppercase shrink-0">{ft}</span>
               </div>
               <FilterControl
                 col={col}
@@ -740,7 +741,7 @@ function FilterPanel({ columns, data, filters, onChange, onClose }: {
               {hasFilter && (
                 <button
                   onClick={() => { const next = { ...filters }; delete next[col.name]; onChange(next) }}
-                  className="text-[10px] text-muted-foreground/60 hover:text-foreground transition-colors"
+                  className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
                 >
                   Clear
                 </button>
@@ -757,13 +758,12 @@ function FilterPanel({ columns, data, filters, onChange, onClose }: {
 
 const SCHEMA_FILTER_THRESHOLD = 20
 
-type SchemaColKey = 'name' | 'type'
+type SchemaColKey = 'name' | 'type' | 'expr'
 type SchemaColWidths = Record<SchemaColKey, number>
-const SCHEMA_COL_DEFAULTS: SchemaColWidths = { name: 200, type: 280 }
-const SCHEMA_COL_MIN: SchemaColWidths = { name: 80, type: 120 }
+const SCHEMA_COL_DEFAULTS: SchemaColWidths = { name: 160, type: 140, expr: 360 }
+const SCHEMA_COL_MIN: SchemaColWidths = { name: 80, type: 80, expr: 120 }
 const SCHEMA_COL_MAX = 800
-// v3: Type is fixed/resizable; Expression is the fluid column.
-const SCHEMA_COLS_STORAGE_KEY = 'pxt-schema-cols-v3'
+const SCHEMA_COLS_STORAGE_KEY = 'pxt-schema-cols'
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n))
@@ -775,10 +775,10 @@ function loadSchemaColWidths(): SchemaColWidths {
     if (!raw) return SCHEMA_COL_DEFAULTS
     const parsed = JSON.parse(raw) as Partial<SchemaColWidths>
     if (!parsed || typeof parsed !== 'object') return SCHEMA_COL_DEFAULTS
-    // Ignore stale `expr` width from older layouts; Expression is now the fluid column.
     return {
       name: Number.isFinite(parsed.name) ? clamp(parsed.name as number, SCHEMA_COL_MIN.name, SCHEMA_COL_MAX) : SCHEMA_COL_DEFAULTS.name,
       type: Number.isFinite(parsed.type) ? clamp(parsed.type as number, SCHEMA_COL_MIN.type, SCHEMA_COL_MAX) : SCHEMA_COL_DEFAULTS.type,
+      expr: Number.isFinite(parsed.expr) ? clamp(parsed.expr as number, SCHEMA_COL_MIN.expr, SCHEMA_COL_MAX) : SCHEMA_COL_DEFAULTS.expr,
     }
   } catch {
     return SCHEMA_COL_DEFAULTS
@@ -826,11 +826,11 @@ function ColResizeHandle({ atMin, getStartWidth, onResize, onReset }: {
   )
 }
 
-function ColumnChips({ columns, indices, expanded, onToggle }: {
-  columns: ColumnInfo[]; indices: IndexInfo[]; expanded: boolean; onToggle: () => void
+function ColumnChips({ columns, indices, tableMediaValidation, expanded, onToggle }: {
+  columns: ColumnInfo[]; indices: IndexInfo[]; tableMediaValidation: 'on_read' | 'on_write'; expanded: boolean; onToggle: () => void
 }) {
   const [filter, setFilter] = useState('')
-  const [detailModal, setDetailModal] = useState<{ value: string; python?: boolean } | null>(null)
+  const [expandedExpr, setExpandedExpr] = useState<string | null>(null)
   const [colWidths, setColWidths] = useState<SchemaColWidths>(() => loadSchemaColWidths())
   useEffect(() => {
     localStorage.setItem(SCHEMA_COLS_STORAGE_KEY, JSON.stringify(colWidths))
@@ -848,8 +848,10 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
     (key: SchemaColKey) => setColWidths(w => ({ ...w, [key]: SCHEMA_COL_DEFAULTS[key] })),
     [],
   )
-  const sourceCount = columns.filter(c => !c.is_computed).length
-  const computedCount = columns.filter(c => c.is_computed).length
+  const isDerived = (c: ColumnInfo) => c.is_computed || c.is_iterator_col
+  const mutableCount = columns.filter(c => !isDerived(c)).length
+  const computedCount = columns.filter(isDerived).length
+  const computedStoredCount = columns.filter(c => isDerived(c) && c.is_stored).length
   const showFilter = columns.length >= SCHEMA_FILTER_THRESHOLD
 
   const filtered = useMemo(() => {
@@ -866,32 +868,34 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
           className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
         >
           <ChevronDown className={cn('h-3 w-3 transition-transform', !expanded && '-rotate-90')} />
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             Columns
           </span>
         </button>
-        <span className="text-[11px] text-muted-foreground tabular-nums">{columns.length}</span>
-        <span className="text-[11px] text-muted-foreground/60">·</span>
-        <span className="text-[11px] text-muted-foreground tabular-nums">{sourceCount} stored</span>
+        <span className="text-[11px] text-muted-foreground tabular-nums">{columns.length} columns</span>
+        <span className="text-[11px] text-muted-foreground">·</span>
+        <span className="text-[11px] text-muted-foreground tabular-nums">{mutableCount} mutable</span>
         {computedCount > 0 && (
           <>
-            <span className="text-[11px] text-muted-foreground/60">·</span>
-            <span className="text-[11px] text-k-yellow/80 tabular-nums">{computedCount} computed</span>
+            <span className="text-[11px] text-muted-foreground">·</span>
+            <span className="text-[11px] text-muted-foreground tabular-nums">
+              {computedCount} computed ({computedStoredCount} stored)
+            </span>
           </>
         )}
         {showFilter && (
           <div className="ml-auto relative">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/50" />
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
             <input
               type="text"
               value={filter}
               onChange={e => setFilter(e.target.value)}
               placeholder={`Filter ${columns.length} columns…`}
-              className="h-6 w-44 pl-7 pr-2 text-[11px] rounded border border-border/40 bg-background/50 text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring/30"
+              className="h-6 w-44 pl-7 pr-2 text-[11px] rounded border border-border/40 bg-background/50 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/30"
             />
             {filter && (
               <button onClick={() => setFilter('')} className="absolute right-1.5 top-1/2 -translate-y-1/2">
-                <X className="h-3 w-3 text-muted-foreground/50 hover:text-foreground" />
+                <X className="h-3 w-3 text-muted-foreground hover:text-foreground" />
               </button>
             )}
           </div>
@@ -901,50 +905,52 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
       {!expanded && (
         <div data-schema-scroll className="overflow-y-auto px-4 pb-2.5 flex-1 min-h-0">
           <div className="flex flex-wrap gap-1.5">
-            {filtered.map(col => {
-              const typeLabel = getColumnTypeMeta(col.type_).label
-              return (
+            {filtered.map(col => (
               <div
                 key={col.name}
                 className={cn(
-                  'group flex items-center gap-1 max-w-[14rem] rounded-md px-2 py-0.5 text-[10px] border transition-colors',
+                  'group flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] border transition-colors',
                   col.is_computed
-                    ? 'border-amber-500/20 bg-amber-500/5 text-amber-400 hover:bg-amber-500/10'
+                    ? 'border-amber-500/20 bg-amber-500/5 text-muted-foreground hover:bg-amber-500/10'
                     : 'border-border/40 bg-muted/20 text-muted-foreground hover:bg-muted/40',
                 )}
                 title={[
                   col.is_computed && col.computed_with ? `${col.name}: ${col.computed_with}` : col.name,
-                  col.type_,
                   col.destination ? `→ ${col.destination}` : '',
                   col.media_validation ? `validation: ${col.media_validation}` : '',
                 ].filter(Boolean).join('\n')}
               >
-                {col.is_primary_key && <Key className="h-2.5 w-2.5 text-k-yellow shrink-0" />}
-                {col.is_computed && !col.is_primary_key && <Zap className="h-2.5 w-2.5 shrink-0" />}
-                {!col.is_computed && !col.is_primary_key && <ColumnTypeIcon type={col.type_} className="h-2.5 w-2.5" />}
-                <span className="font-mono font-medium truncate">{col.name}</span>
-                <span className="text-[10px] opacity-60 shrink-0">{typeLabel}</span>
-                {col.destination && <ExternalLink className="h-2.5 w-2.5 text-orange-400/70 shrink-0" />}
+                {col.is_primary_key && <Key className="h-2.5 w-2.5 text-foreground shrink-0" />}
+                {!col.is_primary_key && col.is_iterator_col && (
+                  <KindBadge kind="iterator" className="h-2.5 w-2.5 text-muted-foreground" />
+                )}
+                {!col.is_primary_key && !col.is_iterator_col && col.is_computed && (
+                  <SquareFunction
+                    className={cn('h-2.5 w-2.5 text-muted-foreground shrink-0', !col.is_stored && 'opacity-50')}
+                    aria-label={col.is_stored ? 'computed' : 'computed on demand (not stored)'}
+                  />
+                )}
+                <span className="font-mono font-medium">{col.name}</span>
+                <span className="text-[10px] opacity-70">{col.type_}</span>
+                {col.destination && <ExternalLink className="h-2.5 w-2.5 text-muted-foreground shrink-0" />}
               </div>
-              )
-            })}
+            ))}
             {filter && filtered.length === 0 && (
-              <span className="text-[11px] text-muted-foreground/60 py-1">No columns match "{filter}"</span>
+              <span className="text-[11px] text-muted-foreground py-1">No columns match "{filter}"</span>
             )}
           </div>
         </div>
       )}
 
       {expanded && (
-        <div data-schema-scroll className="border-t border-border/30 overflow-y-auto overflow-x-hidden flex-1 min-h-0">
-          <div className="px-4 py-1 min-w-0">
-            <table className="w-full max-w-full text-[11px] table-fixed">
+        <div data-schema-scroll className="border-t border-border/30 overflow-y-auto overflow-x-auto flex-1 min-h-0">
+          <div className="px-4 py-1">
+            <table className="w-full text-[11px] table-fixed">
               <colgroup>
                 <col style={{ width: colWidths.name }} />
                 <col style={{ width: colWidths.type }} />
-                <col className="min-w-0" />
-                {/* Fixed width: table-fixed ignores shrink-wrap; w-px collapses Info to 1px. */}
-                <col style={{ width: 120 }} />
+                <col style={{ width: colWidths.expr }} />
+                <col />
               </colgroup>
               <thead className="sticky top-0 bg-background z-10">
                 <tr className="border-b border-border/30 text-left text-muted-foreground">
@@ -966,8 +972,16 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
                       onReset={() => resetCol('type')}
                     />
                   </th>
-                  <th className="py-1.5 px-2 font-medium min-w-0">Expression</th>
-                  <th className="py-1.5 px-2 font-medium text-right whitespace-nowrap">Info</th>
+                  <th className="relative py-1.5 px-2 font-medium overflow-visible">
+                    Computed With
+                    <ColResizeHandle
+                      atMin={colWidths.expr <= SCHEMA_COL_MIN.expr}
+                      getStartWidth={() => colWidths.expr}
+                      onResize={handleResize('expr')}
+                      onReset={() => resetCol('expr')}
+                    />
+                  </th>
+                  <th className="py-1.5 px-2 font-medium">Info</th>
                 </tr>
               </thead>
               <tbody>
@@ -975,27 +989,26 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
                   <tr key={col.name} className="border-b border-border/20 hover:bg-accent/20 transition-colors">
                     <td className="py-1.5 px-2 overflow-hidden" title={col.name}>
                       <div className="flex items-center gap-1.5">
-                        {col.is_primary_key && <Key className="h-3 w-3 text-k-yellow shrink-0" />}
-                        {col.is_computed && <Zap className="h-3 w-3 text-k-yellow/60 shrink-0" />}
+                        {col.is_primary_key && <Key className="h-3 w-3 text-foreground shrink-0" />}
+                        {col.is_iterator_col && (
+                          <KindBadge kind="iterator" className="h-3 w-3 text-muted-foreground" />
+                        )}
+                        {col.is_computed && (
+                          <SquareFunction
+                            className={cn('h-3 w-3 text-muted-foreground shrink-0', !col.is_stored && 'opacity-50')}
+                            aria-label={col.is_stored ? 'computed' : 'computed on demand (not stored)'}
+                          />
+                        )}
                         <span className="font-mono font-medium text-foreground truncate">{col.name}</span>
                       </div>
                     </td>
                     <td className="py-1.5 px-2 overflow-hidden" title={col.type_}>
-                      {(() => {
-                        const isLong = col.type_.length > 48
-                        return (
-                          <ColumnTypeBadge
-                            type={col.type_}
-                            clamp={isLong}
-                            onExpand={isLong ? () => setDetailModal({ value: col.type_ }) : undefined}
-                          />
-                        )
-                      })()}
+                      <ColumnTypeBadge type={col.type_} />
                     </td>
-                    <td className="py-1.5 px-2 w-full max-w-0 min-w-0 overflow-hidden">
+                    <td className="py-1.5 px-2 overflow-hidden">
                       {col.is_computed && col.computed_with ? (() => {
                         const expr = col.computed_with
-                        const isLong = expr.length > 60
+                        const isLong = expr.includes('\n') || expr.length > 60
                         return (
                           <div
                             className={cn(
@@ -1003,51 +1016,35 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
                               isLong && 'cursor-pointer hover:bg-accent/80 transition-colors',
                             )}
                             title={isLong ? 'Click to expand' : expr}
-                            onClick={isLong ? () => setDetailModal({ value: expr, python: true }) : undefined}
+                            onClick={isLong ? () => setExpandedExpr(expr) : undefined}
                           >
-                            <PythonExpr code={expr} className="text-[11px] font-mono leading-relaxed break-all" />
+                            <PythonExpr code={expr} className="text-[11px] font-mono leading-relaxed whitespace-pre-wrap" />
                           </div>
                         )
                       })() : (
-                        <span className="text-muted-foreground/60 text-[11px]">—</span>
+                        <span className="text-muted-foreground text-[11px]">—</span>
                       )}
                     </td>
-                    <td className="py-1.5 px-2 overflow-hidden text-[11px] text-muted-foreground whitespace-nowrap text-right">
-                      <div className="flex flex-wrap items-center justify-end gap-x-1.5 gap-y-0.5">
-                        <span className="tabular-nums">v{col.version_added}</span>
-                        {col.is_iterator_col && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-violet-400/10 text-violet-400 font-medium">iterator</span>
+                    <td className="py-1.5 px-2 text-[11px] text-muted-foreground">
+                      <div className="flex flex-col gap-y-0.5">
+                        {col.comment && (
+                          <span className="italic" title={col.comment}>{col.comment}</span>
                         )}
-                        {!col.is_stored && col.is_computed && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-sky-400/10 text-sky-400 font-medium" title="Computed on demand, not stored">dynamic</span>
+                        {col.media_validation && col.media_validation !== tableMediaValidation && (
+                          <span>media validation: {col.media_validation.replace(/_/g, ' ')}</span>
                         )}
-                        {col.media_validation && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-teal-400/10 text-teal-400 font-medium" title={`Media validated ${col.media_validation}`}>{col.media_validation}</span>
+                        {col.is_computed && !col.is_stored && (
+                          <span>stored: False</span>
                         )}
                         {col.destination && (
-                          <span
-                            className="px-1.5 py-0.5 rounded text-[10px] bg-orange-400/10 text-orange-400 font-mono font-medium truncate max-w-[200px]"
-                            title={col.destination}
-                          >
-                            → {col.destination}
-                          </span>
-                        )}
-                        {col.comment && (
-                          <span className="text-muted-foreground/60 italic" title={col.comment}>
-                            {col.comment.length > 40 ? col.comment.slice(0, 40) + '…' : col.comment}
-                          </span>
-                        )}
-                        {col.custom_metadata != null && (
-                          <span className="text-muted-foreground/50" title={JSON.stringify(col.custom_metadata)}>
-                            [meta]
-                          </span>
+                          <span className="font-mono truncate" title={col.destination}>destination: {col.destination}</span>
                         )}
                       </div>
                     </td>
                   </tr>
                 ))}
                 {filter && filtered.length === 0 && (
-                  <tr><td colSpan={4} className="py-3 text-center text-muted-foreground/60 text-[11px]">
+                  <tr><td colSpan={4} className="py-3 text-center text-muted-foreground text-[11px]">
                     No columns match "{filter}"
                   </td></tr>
                 )}
@@ -1057,8 +1054,8 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
             {indices.length > 0 && (
               <div className="mt-3 pt-3 border-t border-border/30">
                 <div className="flex items-center gap-1.5 mb-2">
-                  <Search className="h-3 w-3 text-blue-400" />
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                  <Search className="h-3 w-3 text-muted-foreground" />
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                     Indices
                   </span>
                   <span className="text-[11px] text-muted-foreground tabular-nums">{indices.length}</span>
@@ -1067,11 +1064,11 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
                   {indices.map(idx => (
                     <div key={idx.name} className="flex items-center gap-2 text-[11px] px-2 py-1 rounded bg-accent/30">
                       <span className="font-mono font-medium text-foreground">{idx.name}</span>
-                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-500/10 text-blue-400">{idx.index_type}</span>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-500/10 text-muted-foreground">{idx.index_type}</span>
                       <span className="text-muted-foreground">on</span>
-                      <span className="font-mono text-k-yellow">{idx.columns.join(', ')}</span>
+                      <span className="font-mono text-foreground">{idx.columns.join(', ')}</span>
                       {idx.parameters && Object.keys(idx.parameters).length > 0 && (
-                        <span className="text-[10px] text-muted-foreground/60 ml-auto">
+                        <span className="text-[10px] text-muted-foreground ml-auto">
                           {Object.entries(idx.parameters)
                             .filter(([k]) => k === 'metric' || k === 'embedding')
                             .map(([k, v]) => `${k}: ${String(v).slice(0, 30)}`)
@@ -1088,17 +1085,11 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
       )}
 
       {filter && (
-        <div className="px-4 pb-1.5 text-[10px] text-muted-foreground/50">
+        <div className="px-4 pb-1.5 text-[10px] text-muted-foreground">
           Showing {filtered.length} of {columns.length} columns
         </div>
       )}
-      {detailModal && (
-        <CellDetail
-          value={detailModal.value}
-          onClose={() => setDetailModal(null)}
-          pythonHighlight={detailModal.python}
-        />
-      )}
+      {expandedExpr && <CellDetail value={expandedExpr} onClose={() => setExpandedExpr(null)} pythonHighlight />}
     </div>
   )
 }
@@ -1132,67 +1123,54 @@ function SdkSnippet({ metadata }: { metadata: TableMetadata }) {
           {copied ? 'Copied' : 'Copy'}
         </button>
       </div>
-      <pre className="px-3 py-2 text-[11px] font-mono text-foreground/80 leading-relaxed select-text overflow-x-auto">{snippet}</pre>
+      <pre className="px-3 py-2 text-[11px] font-mono text-foreground leading-relaxed select-text overflow-x-auto">{snippet}</pre>
     </div>
   )
 }
 
-function TableHeader({ metadata, onTableClick }: { metadata: TableMetadata; onTableClick: (path: string) => void }) {
+function TableHeader({ metadata, versions, rowCount }: { metadata: TableMetadata; versions: PipelineVersion[]; rowCount: number | null }) {
   const [showSnippet, setShowSnippet] = useState(false)
   const kind = metadata.kind
-
-  const Icon = {
-    table: Table2,
-    view: Eye,
-    snapshot: Camera,
-    replica: Copy,
-  }[kind] ?? Table2
-
-  const typeClasses: Record<string, string> = {
-    table: 'bg-blue-500/10 text-blue-400 border-blue-400/20',
-    view: 'bg-purple-500/10 text-purple-400 border-purple-400/20',
-    snapshot: 'bg-orange-500/10 text-orange-400 border-orange-400/20',
-    replica: 'bg-muted text-muted-foreground border-border',
+  const columnCount = Object.keys(metadata.columns).length
+  const lastSchemaChange = versions.find(v => v.change_type === 'schema')?.created_at ?? null
+  const lastDataChange = versions.find(v => v.change_type === 'data')?.created_at ?? null
+  const formatRelative = (s: string): string => {
+    const diffMs = Date.now() - new Date(s).getTime()
+    const diffMin = Math.floor(diffMs / 60_000)
+    if (diffMin < 1) return '< 1 min ago'
+    if (diffMin < 60) return `${diffMin} min ago`
+    const diffHr = Math.floor(diffMin / 60)
+    if (diffHr < 24) return `${diffHr} hour${diffHr === 1 ? '' : 's'} ago`
+    const diffDay = Math.floor(diffHr / 24)
+    if (diffDay <= 30) return `${diffDay} day${diffDay === 1 ? '' : 's'} ago`
+    return '> 30 days ago'
   }
 
   return (
     <div className="px-4 pt-3 pb-2.5 border-b border-border/40 shrink-0">
       <div className="flex items-center gap-2.5 mb-0.5">
-        <Icon className="h-4 w-4 text-muted-foreground/60" />
+        <KindBadge kind={kind} className="h-4 w-4 text-muted-foreground" />
         <h2 className="text-sm font-semibold text-foreground">{metadata.name}</h2>
-        <span className={cn(
-          'px-2 py-0.5 rounded-full text-[10px] font-medium border',
-          typeClasses[kind] ?? typeClasses.replica,
-        )}>
-          {kind}
+        <span className="text-xs font-mono text-muted-foreground">({metadata.path})</span>
+        <span className="text-[11px] text-muted-foreground tabular-nums">
+          {rowCount != null ? rowCount.toLocaleString() : '—'} rows × {columnCount} columns
         </span>
-        {metadata.version !== null && (
-          <span className="text-xs text-muted-foreground tabular-nums">v{metadata.version}</span>
-        )}
-        {(() => {
-          const embeddingIdxCount = Object.values(metadata.indices).filter(i => i.index_type === 'embedding').length
-          return embeddingIdxCount > 0 && (
-            <span className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Info className="h-3 w-3" />
-              <span className="tabular-nums">{embeddingIdxCount} idx</span>
+        {(lastSchemaChange || lastDataChange) && (
+          <>
+            <span className="text-[11px] text-muted-foreground">·</span>
+            <span className="text-[11px] text-muted-foreground">
+            {lastSchemaChange && <>last schema change: <span className="tabular-nums">{formatRelative(lastSchemaChange)}</span></>}
+            {lastSchemaChange && lastDataChange && <span className="mx-2">·</span>}
+            {lastDataChange && <>last data change: <span className="tabular-nums">{formatRelative(lastDataChange)}</span></>}
             </span>
-          )
-        })()}
-        {metadata.media_validation && (
-          <span className="text-[10px] text-muted-foreground/70 bg-muted/30 px-1.5 py-0.5 rounded border border-border/30"
-            title={`Media validation: ${metadata.media_validation}`}>
-            {metadata.media_validation}
-          </span>
-        )}
-        {metadata.version_created && (
-          <span className="text-[11px] text-muted-foreground">{new Date(metadata.version_created).toLocaleDateString()}</span>
+          </>
         )}
         <button
           onClick={() => setShowSnippet(!showSnippet)}
           className={cn(
             'ml-auto flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium transition-colors border',
             showSnippet
-              ? 'bg-k-yellow/10 text-k-yellow border-k-yellow/20'
+              ? 'bg-k-yellow/10 text-foreground border-k-yellow/20'
               : 'bg-accent/50 text-muted-foreground border-border/40 hover:text-foreground hover:bg-accent',
           )}
           title="Show Python SDK snippet"
@@ -1200,33 +1178,9 @@ function TableHeader({ metadata, onTableClick }: { metadata: TableMetadata; onTa
           {'</>'}
         </button>
       </div>
-      <div className="flex items-center gap-1.5 ml-6.5 mt-0.5 text-[11px] font-mono flex-wrap">
-        {metadata.path.split('/').slice(0, -1).map((seg, i) => (
-          <span key={i} className="flex items-center gap-1.5">
-            <span className="text-muted-foreground/50">{seg}</span>
-            <ArrowRight className="h-2.5 w-2.5 text-muted-foreground/30 shrink-0" />
-          </span>
-        ))}
-        {metadata.base ? (
-          <>
-            <button className="text-k-yellow hover:underline" onClick={() => onTableClick(metadata.base!)}>
-              {metadata.base.split('/').pop()}
-            </button>
-            <ArrowRight className="h-2.5 w-2.5 text-muted-foreground/30 shrink-0" />
-            <span className="text-foreground font-medium">{metadata.name}</span>
-          </>
-        ) : (
-          <span className="text-foreground">{metadata.name}</span>
-        )}
-        {metadata.comment && (
-          <span className="text-muted-foreground/60 font-sans ml-1">— {metadata.comment}</span>
-        )}
-        {metadata.iterator_call && (
-          <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] bg-violet-400/10 text-violet-400 font-medium border border-violet-400/20">
-            {metadata.iterator_call}
-          </span>
-        )}
-      </div>
+      {metadata.comment && (
+        <div className="ml-6.5 mt-0.5 text-[11px] text-muted-foreground">— {metadata.comment}</div>
+      )}
       {showSnippet && <SdkSnippet metadata={metadata} />}
     </div>
   )
@@ -1234,7 +1188,8 @@ function TableHeader({ metadata, onTableClick }: { metadata: TableMetadata; onTa
 
 // ── Lineage Panel ─────────────────────────────────────────────────────────
 
-function LineagePanel({ tablePath, pipelineData, pipelineColumns, onTableClick, onViewFullLineage }: {
+function LineagePanel({ mode, tablePath, pipelineData, pipelineColumns, onTableClick, onViewFullLineage }: {
+  mode: 'table' | 'column'
   tablePath: string
   pipelineData: { nodes: PipelineNodeType[]; edges: PipelineEdge[] } | null
   pipelineColumns: PipelineColumn[] | null
@@ -1249,96 +1204,119 @@ function LineagePanel({ tablePath, pipelineData, pipelineColumns, onTableClick, 
     )
   }
 
-  const currentNode = pipelineData.nodes.find(n => n.path === tablePath)
-  const baseNode = currentNode?.base ? pipelineData.nodes.find(n => n.path === currentNode.base) : null
-  const derivedNodes = pipelineData.nodes.filter(n => n.base === tablePath)
+  const nodeByPath = new Map(pipelineData.nodes.map(n => [n.path, n]))
+  const currentNode = nodeByPath.get(tablePath) ?? null
+  // Walk base chain root-first.
+  const ancestorChain: PipelineNodeType[] = []
+  let cursor = currentNode?.base ? nodeByPath.get(currentNode.base) : null
+  while (cursor) {
+    ancestorChain.unshift(cursor)
+    cursor = cursor.base ? nodeByPath.get(cursor.base) ?? null : null
+  }
+  const childrenOf = (path: string) => pipelineData.nodes.filter(n => n.base === path)
   const hasColumnDeps = pipelineColumns?.some(c => c.depends_on && c.depends_on.length > 0)
 
   const NodeCard = ({ node, label, isCurrent }: { node: PipelineNodeType; label?: string; isCurrent?: boolean }) => {
-    const Icon = node.is_view ? Eye : Table2
     return (
       <div
         className={cn(
           'rounded-lg border p-3 min-w-[180px] transition-colors',
           isCurrent
-            ? 'border-k-yellow/40 bg-k-yellow/5'
+            ? 'border-foreground/40 bg-muted/40'
             : 'border-border/60 bg-card/50 hover:border-border cursor-pointer',
         )}
         onClick={() => !isCurrent && onTableClick(node.path)}
       >
-        {label && <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1.5">{label}</div>}
+        {label && <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">{label}</div>}
         <div className="flex items-center gap-2">
-          <Icon className={cn('h-3.5 w-3.5 shrink-0', node.is_view ? 'text-purple-400' : 'text-blue-400')} />
-          <span className={cn('text-xs font-medium font-mono', isCurrent ? 'text-foreground' : 'text-k-yellow hover:underline')}>
+          <KindBadge kind={node.is_view ? 'view' : 'table'} className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className={cn('text-xs font-medium font-mono', isCurrent ? 'text-foreground' : 'text-foreground hover:underline')}>
             {node.name}
           </span>
-          {node.is_view && <span className="px-1.5 py-0.5 rounded text-[10px] bg-purple-500/10 text-purple-400">view</span>}
         </div>
         <div className="flex items-center gap-3 mt-1.5 text-[11px] text-muted-foreground">
           <span className="tabular-nums">{node.row_count.toLocaleString()} rows</span>
-          {node.version !== null && <span>v{node.version}</span>}
         </div>
         <div className="flex items-center gap-1 mt-1 text-[11px] text-muted-foreground">
-          <span>{node.insertable_count} stored</span>
+          <span className="tabular-nums">{node.insertable_count} mutable</span>
           {node.computed_count > 0 && (
-            <span className="text-k-yellow/70">+ {node.computed_count} computed</span>
+            <>
+              <span className="text-muted-foreground">·</span>
+              <span className="tabular-nums">{node.computed_count} computed</span>
+            </>
           )}
         </div>
       </div>
     )
   }
 
-  return (
-    <div className="flex flex-col h-full overflow-auto">
-      {/* Table relationship chain */}
-      <div className="px-5 py-4 border-b border-border/40">
-        <div className="flex items-center gap-3 mb-3">
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">Table Relationships</h3>
-          <button onClick={onViewFullLineage} className="flex items-center gap-1 text-[11px] text-k-yellow hover:underline transition-colors">
-            <GitBranch className="h-3 w-3" />
-            View full pipeline
-          </button>
+  if (mode === 'table') {
+    const DescendantTree = ({ path }: { path: string }) => {
+      const children = childrenOf(path)
+      if (children.length === 0) return null
+      return (
+        <div className="flex flex-col gap-2">
+          {children.map(child => (
+            <div key={child.path} className="flex items-start gap-3">
+              <NodeCard node={child} />
+              {childrenOf(child.path).length > 0 && (
+                <>
+                  <ArrowRight className="h-4 w-4 text-muted-foreground mt-6 shrink-0" />
+                  <DescendantTree path={child.path} />
+                </>
+              )}
+            </div>
+          ))}
         </div>
-        <div className="flex items-start gap-3 flex-wrap">
-          {baseNode && (
-            <>
-              <NodeCard node={baseNode} label="Base table" />
-              <ArrowRight className="h-4 w-4 text-muted-foreground/40 mt-6 shrink-0" />
-            </>
-          )}
-          {currentNode && <NodeCard node={currentNode} label={baseNode ? 'Current' : undefined} isCurrent />}
-          {derivedNodes.length > 0 && (
-            <>
-              <ArrowRight className="h-4 w-4 text-muted-foreground/40 mt-6 shrink-0" />
-              <div className="flex flex-col gap-2">
-                {derivedNodes.map(n => (
-                  <NodeCard key={n.path} node={n} label="Derived" />
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-        {!baseNode && derivedNodes.length === 0 && currentNode && (
-          <p className="text-[11px] text-muted-foreground mt-2">This is a standalone table with no base or derived views.</p>
-        )}
-      </div>
+      )
+    }
+    const hasAncestors = ancestorChain.length > 0
+    const hasDescendants = currentNode != null && childrenOf(currentNode.path).length > 0
 
-      {/* Column flow diagram */}
-      {hasColumnDeps && pipelineColumns ? (
-        <div className="flex-1 min-h-[400px]">
-          <div className="px-5 pt-3 pb-1">
-            <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">Column Data Flow</h3>
+    return (
+      <div className="flex flex-col h-full overflow-auto">
+        <div className="px-5 py-4">
+          <div className="flex items-center justify-end mb-3">
+            <button onClick={onViewFullLineage} className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
+              <GitBranch className="h-3 w-3" />
+              View full pipeline
+            </button>
           </div>
-          <div className="h-[calc(100%-36px)]">
-            <ColumnFlowDiagram columns={pipelineColumns} />
+          <div className="flex items-start gap-3 flex-wrap">
+            {ancestorChain.map((n, i) => (
+              <div key={n.path} className="flex items-start gap-3">
+                <NodeCard node={n} label={i === 0 ? 'Root' : 'Base'} />
+                <ArrowRight className="h-4 w-4 text-muted-foreground mt-6 shrink-0" />
+              </div>
+            ))}
+            {currentNode && <NodeCard node={currentNode} label={hasAncestors ? 'Current' : undefined} isCurrent />}
+            {hasDescendants && currentNode && (
+              <>
+                <ArrowRight className="h-4 w-4 text-muted-foreground mt-6 shrink-0" />
+                <DescendantTree path={currentNode.path} />
+              </>
+            )}
           </div>
+          {!hasAncestors && !hasDescendants && currentNode && (
+            <p className="text-[11px] text-muted-foreground mt-2">This is a standalone table with no base or derived views.</p>
+          )}
         </div>
-      ) : (
-        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-          <GitBranch className="h-8 w-8 text-muted-foreground/20 mb-2" />
-          <p className="text-xs">No computed column dependencies to visualize</p>
-        </div>
-      )}
+      </div>
+    )
+  }
+
+  // mode === 'column'
+  if (hasColumnDeps && pipelineColumns) {
+    return (
+      <div className="h-full min-h-0">
+        <ColumnFlowDiagram columns={pipelineColumns} />
+      </div>
+    )
+  }
+  return (
+    <div className="h-full flex flex-col items-center justify-center py-16 text-muted-foreground">
+      <GitBranch className="h-8 w-8 text-muted-foreground mb-2" />
+      <p className="text-xs">No computed column dependencies to visualize</p>
     </div>
   )
 }
@@ -1349,7 +1327,7 @@ function HistoryPanel({ versions }: { versions: Pick<PipelineVersion, 'version' 
   if (versions.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-        <Clock className="h-8 w-8 text-muted-foreground/20 mb-2" />
+        <Clock className="h-8 w-8 text-muted-foreground mb-2" />
         <p className="text-xs">No version history available</p>
       </div>
     )
@@ -1361,7 +1339,7 @@ function HistoryPanel({ versions }: { versions: Pick<PipelineVersion, 'version' 
   return (
     <div className="flex flex-col h-full overflow-auto">
       <div className="px-5 py-3 border-b border-border/30 flex items-center gap-4">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           Version History
         </span>
         <span className="text-[11px] text-muted-foreground tabular-nums">{versions.length} versions</span>
@@ -1394,33 +1372,31 @@ function HistoryPanel({ versions }: { versions: Pick<PipelineVersion, 'version' 
                   {v.change_type ? (
                     <span className={cn(
                       'inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium',
-                      v.change_type === 'schema_change' ? 'bg-purple-500/10 text-purple-400' :
-                      v.change_type === 'insert' ? 'bg-emerald-500/10 text-emerald-400' :
-                      v.change_type === 'update' ? 'bg-blue-500/10 text-blue-400' :
-                      v.change_type === 'delete' ? 'bg-red-500/10 text-red-400' :
+                      v.change_type === 'schema' ? 'bg-purple-500/10 text-muted-foreground' :
+                      v.change_type === 'data' ? 'bg-emerald-500/10 text-muted-foreground' :
                       'bg-accent text-muted-foreground'
                     )}>
-                      {v.change_type.replace(/_/g, ' ')}
+                      {v.change_type}
                     </span>
                   ) : (
-                    <span className="text-muted-foreground/50">—</span>
+                    <span className="text-muted-foreground">—</span>
                   )}
                 </td>
                 <td className="py-1.5 px-2 text-right tabular-nums">
-                  {v.inserts > 0 ? <span className="text-emerald-400">+{v.inserts.toLocaleString()}</span> : <span className="text-muted-foreground/50">0</span>}
+                  {v.inserts > 0 ? <span className="text-muted-foreground">+{v.inserts.toLocaleString()}</span> : <span className="text-muted-foreground">0</span>}
                 </td>
                 <td className="py-1.5 px-2 text-right tabular-nums">
-                  {v.updates > 0 ? <span className="text-blue-400">{v.updates.toLocaleString()}</span> : <span className="text-muted-foreground/50">0</span>}
+                  {v.updates > 0 ? <span className="text-muted-foreground">{v.updates.toLocaleString()}</span> : <span className="text-muted-foreground">0</span>}
                 </td>
                 <td className="py-1.5 px-2 text-right tabular-nums">
-                  {v.deletes > 0 ? <span className="text-red-400">-{v.deletes.toLocaleString()}</span> : <span className="text-muted-foreground/50">0</span>}
+                  {v.deletes > 0 ? <span className="text-muted-foreground">-{v.deletes.toLocaleString()}</span> : <span className="text-muted-foreground">0</span>}
                 </td>
                 <td className="py-1.5 px-2 text-right tabular-nums">
                   {v.errors > 0 ? (
                     <span className="text-destructive flex items-center justify-end gap-1">
                       <AlertTriangle className="h-3 w-3" />{v.errors.toLocaleString()}
                     </span>
-                  ) : <span className="text-muted-foreground/50">0</span>}
+                  ) : <span className="text-muted-foreground">0</span>}
                 </td>
                 <td className="py-1.5 px-2 text-right text-muted-foreground">
                   {v.created_at ? new Date(v.created_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
@@ -1483,12 +1459,12 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
   }, [])
   const [pipelineColumns, setPipelineColumns] = useState<PipelineColumn[] | null>(null)
   const [pipelineData, setPipelineData] = useState<{ nodes: PipelineNodeType[]; edges: PipelineEdge[] } | null>(null)
-  const [contentTab, setContentTab] = useState<'data' | 'lineage' | 'history'>('data')
+  const [contentTab, setContentTab] = useState<'data' | 'lineage-table' | 'lineage-column' | 'history'>('data')
   const [searchQuery, setSearchQuery] = useState('')
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
-  const PAGE_SIZE_OPTIONS = viewMode === 'gallery' ? [12, 24, 48, 96] : [25, 50, 100, 250, 500]
-  const [pageSize, setPageSize] = useState(viewMode === 'gallery' ? 24 : 50)
+  const PAGE_SIZE_OPTIONS = viewMode === 'gallery' ? [12, 24, 48, 96] : [10, 25, 50, 100]
+  const [pageSize, setPageSize] = useState(viewMode === 'gallery' ? 24 : 25)
 
   // Fetch metadata
   useEffect(() => {
@@ -1545,13 +1521,6 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
     setContentTab('data'); setSearchQuery('')
     mountedRef.current = false
   }, [tablePath])
-
-  // After layout restore (autoSaveId), sync chevron/content mode with the panel's physical state.
-  useLayoutEffect(() => {
-    if (!metadata) return
-    const p = schemaPanelRef.current
-    if (p) setSchemaExpanded(!p.isCollapsed())
-  }, [metadata])
 
   // Fit schema panel to its natural content height the first time we open this table.
   // Subsequent visits restore the user's last drag via autoSaveId.
@@ -1667,7 +1636,16 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
   return (
     <div className="flex flex-col h-full animate-fade-in">
       {/* ── Header ──────────────────────────────────────────────────── */}
-      <TableHeader metadata={metadata} onTableClick={(path) => navigate(`/table/${path}`)} />
+      {(() => {
+        const node = pipelineData?.nodes.find(n => n.path === tablePath)
+        return (
+          <TableHeader
+            metadata={metadata}
+            versions={node?.versions ?? []}
+            rowCount={metadata.row_count}
+          />
+        )
+      })()}
 
       <div ref={groupContainerRef} className="flex-1 min-h-0 flex flex-col">
       <PanelGroup
@@ -1701,6 +1679,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
           <ColumnChips
             columns={Object.values(metadata.columns)}
             indices={Object.values(metadata.indices).filter(idx => idx.index_type === 'embedding')}
+            tableMediaValidation={metadata.media_validation}
             expanded={schemaExpanded}
             onToggle={toggleSchema}
           />
@@ -1726,12 +1705,20 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
               Data
             </button>
             <button
-              onClick={() => setContentTab('lineage')}
+              onClick={() => setContentTab('lineage-table')}
               className={cn('flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium transition-colors',
-                contentTab === 'lineage' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
+                contentTab === 'lineage-table' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
             >
               <GitBranch className="h-3 w-3" />
-              Lineage
+              Table lineage
+            </button>
+            <button
+              onClick={() => setContentTab('lineage-column')}
+              className={cn('flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium transition-colors',
+                contentTab === 'lineage-column' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
+            >
+              <GitBranch className="h-3 w-3" />
+              Column lineage
             </button>
             <button
               onClick={() => setContentTab('history')}
@@ -1753,7 +1740,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
                 <span> of </span>
                 <span className="text-foreground font-medium tabular-nums">{data.total_count.toLocaleString()}</span>
                 {(searchQuery || Object.keys(filters).length > 0) && (
-                  <span className="text-muted-foreground/60 ml-1" title="Filters and search apply to the current page of data only">
+                  <span className="text-muted-foreground ml-1" title="Filters and search apply to the current page of data only">
                     (this page)
                   </span>
                 )}
@@ -1773,7 +1760,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
           {/* Inline search (data tab only) */}
           {contentTab === 'data' && (
             <div className="relative flex-1 max-w-xs">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/70" />
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
               <input
                 ref={searchInputRef}
                 type="text"
@@ -1814,7 +1801,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
             className={cn(
               'flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium transition-colors',
               autoRefresh
-                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                ? 'bg-emerald-500/10 text-muted-foreground border border-emerald-500/20'
                 : 'text-muted-foreground hover:bg-accent hover:text-foreground',
             )}
           >
@@ -1910,13 +1897,14 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
       </div>
 
       {/* ── Content Area ─────────────────────────────────────────────── */}
-      {contentTab === 'lineage' ? (
+      {contentTab === 'lineage-table' || contentTab === 'lineage-column' ? (
         <div className="flex-1 min-h-0 overflow-hidden">
           <LineagePanel
+            mode={contentTab === 'lineage-table' ? 'table' : 'column'}
             tablePath={tablePath}
             pipelineData={pipelineData}
             pipelineColumns={pipelineColumns}
-            onTableClick={(path) => navigate(`/table/${path}`)}
+            onTableClick={(path) => navigate(tableHref(path))}
             onViewFullLineage={() => navigate('/lineage')}
           />
         </div>
@@ -1956,14 +1944,22 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
                           onClick={sortable ? () => handleSort(col.name) : undefined}
                           className={cn(
                             'text-left px-3.5 py-2 font-medium text-muted-foreground transition-colors group whitespace-nowrap font-mono',
-                            sortable ? 'cursor-pointer hover:text-foreground' : 'cursor-default text-muted-foreground/60',
+                            sortable ? 'cursor-pointer hover:text-foreground' : 'cursor-default text-muted-foreground',
                           )}
                           title={sortable ? undefined : (col.is_stored ? 'Not indexed - cannot sort' : 'Unstored - cannot sort')}
                         >
                         <div className="flex items-center gap-1">
-                          <ColumnTypeIcon type={col.type} className="h-3 w-3" />
+                          {col.is_iterator_col && (
+                            <KindBadge kind="iterator" className="h-3 w-3 text-muted-foreground" />
+                          )}
+                          {col.is_computed && (
+                            <SquareFunction
+                              className={cn('h-3 w-3 text-muted-foreground shrink-0', !col.is_stored && 'opacity-50')}
+                              aria-label={col.is_stored ? 'computed' : 'computed on demand (not stored)'}
+                            />
+                          )}
                           {col.name}
-                          {orderBy === col.name && (orderDesc ? <ChevronDown className="h-3 w-3 text-k-yellow" /> : <ChevronUp className="h-3 w-3 text-k-yellow" />)}
+                          {orderBy === col.name && (orderDesc ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronUp className="h-3 w-3 text-muted-foreground" />)}
                         </div>
                         </th>
                       )
@@ -1991,14 +1987,14 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
 
           {data && filteredRows.length === 0 && (
             <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-              <Rows3 className="h-8 w-8 text-muted-foreground/30 mb-2" />
+              <Rows3 className="h-8 w-8 text-muted-foreground mb-2" />
               <p className="text-xs">
                 {searchQuery ? `No rows matching "${searchQuery}"` :
                  Object.keys(filters).length ? 'No rows match filters' :
                  'This table is empty'}
               </p>
               {searchQuery && (
-                <button onClick={() => setSearchQuery('')} className="mt-2 text-[11px] text-k-yellow hover:underline">
+                <button onClick={() => setSearchQuery('')} className="mt-2 text-[11px] text-foreground hover:underline">
                   Clear search
                 </button>
               )}
@@ -2022,7 +2018,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
       {/* Expanded Row Modal with arrow navigation */}
       {expandedRow !== null && data && filteredRows[expandedRow] && (
         <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center" onClick={() => setExpandedRow(null)}>
-          <button className="absolute top-4 right-4 text-white/70 hover:text-k-yellow transition-colors z-10" onClick={() => setExpandedRow(null)}>
+          <button className="absolute top-4 right-4 text-white/70 hover:text-foreground transition-colors z-10" onClick={() => setExpandedRow(null)}>
             <X className="h-7 w-7" />
           </button>
           <div className="absolute top-4 left-1/2 -translate-x-1/2 text-[11px] text-white/50 tabular-nums z-10">

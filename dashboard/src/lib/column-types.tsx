@@ -4,7 +4,6 @@ import {
   Braces, List, Binary, Fingerprint,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { cn } from '@/lib/utils'
 
 type TypeMeta = {
   icon: LucideIcon
@@ -14,19 +13,19 @@ type TypeMeta = {
 }
 
 const TYPE_MAP: [RegExp, TypeMeta][] = [
-  [/^image/i,      { icon: ImageIcon,    color: 'text-pink-400',    bg: 'bg-pink-500/10',    label: 'Image' }],
-  [/^video/i,      { icon: Film,         color: 'text-violet-400',  bg: 'bg-violet-500/10',  label: 'Video' }],
-  [/^audio/i,      { icon: Music,        color: 'text-teal-400',    bg: 'bg-teal-500/10',    label: 'Audio' }],
-  [/^document/i,   { icon: FileText,     color: 'text-orange-400',  bg: 'bg-orange-500/10',  label: 'Document' }],
-  [/^string/i,     { icon: Type,         color: 'text-emerald-400', bg: 'bg-emerald-500/10', label: 'String' }],
-  [/^int/i,        { icon: Hash,         color: 'text-blue-400',    bg: 'bg-blue-500/10',    label: 'Int' }],
-  [/^float/i,      { icon: Hash,         color: 'text-sky-400',     bg: 'bg-sky-500/10',     label: 'Float' }],
-  [/^bool/i,       { icon: ToggleLeft,   color: 'text-amber-400',   bg: 'bg-amber-500/10',   label: 'Bool' }],
-  [/^timestamp/i,  { icon: Calendar,     color: 'text-orange-400',  bg: 'bg-orange-500/10',  label: 'Timestamp' }],
-  [/^date/i,       { icon: CalendarDays, color: 'text-orange-300',  bg: 'bg-orange-500/10',  label: 'Date' }],
-  [/^uuid/i,       { icon: Fingerprint,  color: 'text-indigo-400',  bg: 'bg-indigo-500/10',  label: 'UUID' }],
-  [/^json/i,       { icon: Braces,       color: 'text-yellow-400',  bg: 'bg-yellow-500/10',  label: 'Json' }],
-  [/^array/i,      { icon: List,         color: 'text-cyan-400',    bg: 'bg-cyan-500/10',    label: 'Array' }],
+  [/^image/i,      { icon: ImageIcon,    color: 'text-muted-foreground',    bg: 'bg-pink-500/10',    label: 'Image' }],
+  [/^video/i,      { icon: Film,         color: 'text-muted-foreground',  bg: 'bg-violet-500/10',  label: 'Video' }],
+  [/^audio/i,      { icon: Music,        color: 'text-muted-foreground',    bg: 'bg-teal-500/10',    label: 'Audio' }],
+  [/^document/i,   { icon: FileText,     color: 'text-muted-foreground',  bg: 'bg-orange-500/10',  label: 'Document' }],
+  [/^string/i,     { icon: Type,         color: 'text-muted-foreground', bg: 'bg-emerald-500/10', label: 'String' }],
+  [/^int/i,        { icon: Hash,         color: 'text-muted-foreground',    bg: 'bg-blue-500/10',    label: 'Int' }],
+  [/^float/i,      { icon: Hash,         color: 'text-muted-foreground',     bg: 'bg-sky-500/10',     label: 'Float' }],
+  [/^bool/i,       { icon: ToggleLeft,   color: 'text-muted-foreground',   bg: 'bg-amber-500/10',   label: 'Bool' }],
+  [/^timestamp/i,  { icon: Calendar,     color: 'text-muted-foreground',  bg: 'bg-orange-500/10',  label: 'Timestamp' }],
+  [/^date/i,       { icon: CalendarDays, color: 'text-muted-foreground',  bg: 'bg-orange-500/10',  label: 'Date' }],
+  [/^uuid/i,       { icon: Fingerprint,  color: 'text-muted-foreground',  bg: 'bg-indigo-500/10',  label: 'UUID' }],
+  [/^json/i,       { icon: Braces,       color: 'text-muted-foreground',  bg: 'bg-yellow-500/10',  label: 'Json' }],
+  [/^array/i,      { icon: List,         color: 'text-muted-foreground',    bg: 'bg-cyan-500/10',    label: 'Array' }],
 ]
 
 const FALLBACK: TypeMeta = { icon: Binary, color: 'text-muted-foreground', bg: 'bg-accent', label: '?' }
@@ -36,13 +35,6 @@ export function getColumnTypeMeta(type: string): TypeMeta {
   for (const [re, meta] of TYPE_MAP) {
     if (re.test(clean)) return meta
   }
-  // Match core type inside Required[...] / Optional[...] wrappers
-  const wrapped = clean.match(/^(?:Required|Optional)\[(.+)\]$/i)
-  if (wrapped) {
-    for (const [re, meta] of TYPE_MAP) {
-      if (re.test(wrapped[1].trim())) return meta
-    }
-  }
   return FALLBACK
 }
 
@@ -51,27 +43,10 @@ export function ColumnTypeIcon({ type, className = 'h-3.5 w-3.5' }: { type: stri
   return <Icon className={`${className} ${color} shrink-0`} />
 }
 
-export function ColumnTypeBadge({ type, clamp, onExpand }: {
-  type: string
-  clamp?: boolean
-  onExpand?: () => void
-}) {
-  const { icon: Icon, color, bg } = getColumnTypeMeta(type)
-  const interactive = Boolean(onExpand)
+export function ColumnTypeBadge({ type }: { type: string }) {
   return (
-    <span
-      className={cn(
-        `inline-flex items-start gap-1 w-fit max-w-full min-w-0 overflow-hidden px-1.5 py-0.5 rounded text-[11px] font-mono ${bg} ${color}`,
-        interactive && 'cursor-pointer hover:brightness-110 transition-[filter]',
-      )}
-      title={interactive ? 'Click to expand' : undefined}
-      onClick={onExpand}
-      role={interactive ? 'button' : undefined}
-    >
-      <Icon className="h-3 w-3 shrink-0 mt-0.5" />
-      <span className={cn('min-w-0 overflow-hidden break-all', clamp ? 'line-clamp-2' : 'truncate')}>
-        {type}
-      </span>
+    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-mono bg-muted/40 text-muted-foreground">
+      {type}
     </span>
   )
 }

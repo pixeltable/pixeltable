@@ -13,7 +13,7 @@ from typing import Any, TypeVar, overload
 import pydantic
 
 from pixeltable import exceptions as excs
-from pixeltable_cli.utils import resolve_dot_segments, validate_path_shape
+from pixeltable_cli.utils import PxtPath, resolve_dot_segments, validate_path_shape
 
 T = TypeVar('T', bound=pydantic.BaseModel)
 
@@ -76,6 +76,13 @@ class Request:
             raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f"'{name}' must be <= {le}; got {value}")
         return value
 
+    def required_query_str(self, name: str) -> str:
+        """A query parameter the route cannot run without; raises rather than returning None."""
+        val = self.query_str(name)
+        if val is None or val == '':
+            raise excs.RequestError(excs.ErrorCode.MISSING_REQUIRED, f'{name!r} query parameter is required')
+        return val
+
     def query_bool(self, name: str, default: bool = False) -> bool:
         # Match what FastAPI/Pydantic v2 accepts: '1'/'0', 'true'/'false', 'yes'/'no', 'on'/'off'.
         raw = self.query_str(name)
@@ -101,7 +108,7 @@ class Request:
             detail = '; '.join(m for m in msgs if m != '') or 'invalid request body'
             raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, detail) from None
 
-    def resolve_path(self, path: str) -> str:
+    def resolve_path(self, path: str) -> PxtPath:
         """Resolve a catalog path against this request's session working directory, then shape-validate it.
 
         As a CLI convention:
@@ -129,7 +136,7 @@ class Request:
             if err is not None:
                 raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, err)
         self.resolved_paths.append(path)
-        return path
+        return PxtPath(path)
 
 
 class Router:
