@@ -37,7 +37,7 @@ class CatalogBase(abc.ABC):
         custom_metadata: Any,
         media_validation: MediaValidation,
         create_default_idxs: bool,
-        data_versioned: bool,
+        is_data_versioned: bool,
     ) -> tuple[Table, bool]: ...
 
     @abc.abstractmethod
