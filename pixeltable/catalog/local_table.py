@@ -5,12 +5,11 @@ import builtins
 import datetime
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence, overload
 from uuid import UUID
 
 import pandas as pd
 import pydantic
-from typing_extensions import overload
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, exprs, index, type_system as ts
@@ -44,9 +43,6 @@ from .table import Table
 from .table_path import TableVersionPath
 from .table_version_handle import TableVersionHandle
 from .update_status import UpdateStatus
-
-from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
-
 
 if TYPE_CHECKING:
     import torch.utils.data
@@ -180,7 +176,7 @@ class LocalTable(Table):
             path=str(self._path()),
             columns=column_info,
             indices=index_info,
-            data_versioned=tv.data_versioned,
+            is_data_versioned=tv.is_data_versioned,
             is_view=False,
             is_snapshot=False,
             version=self._get_version(),
@@ -317,8 +313,8 @@ class LocalTable(Table):
     def _effective_base_versions(self) -> list[int | None]:
         """The effective versions of the ancestor bases, starting with its immediate base."""
 
-    def _data_versioned(self) -> bool:
-        return self._tbl_version_path.data_versioned()
+    def _is_data_versioned(self) -> bool:
+        return self._tbl_version_path.is_data_versioned()
 
     def _get_comment(self) -> str:
         return self._tbl_version_path.comment()
@@ -538,7 +534,7 @@ class LocalTable(Table):
         # verify kwargs and construct column schema dict
         self._check_single_column_kwarg('add_column', '`col_name=col_type`', kwargs)
         col_type = next(iter(kwargs.values()))
-        if not isinstance(col_type, (ts.ColumnType, type, _GenericAlias, dict)):
+        if not isinstance(col_type, (ts.ColumnType, dict)) and not ts.is_type_form(col_type):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT,
                 'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?',
@@ -768,7 +764,7 @@ class LocalTable(Table):
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> None:
         self._validate_embedding_args(embedding, string_embed, image_embed)
-        assert self._tbl_version is None or self._tbl_version.get().data_versioned, (
+        assert self._tbl_version is None or self._tbl_version.get().is_data_versioned, (
             'TODO: implement for operational tables [PXT-1101]'
         )
 
@@ -1143,7 +1139,7 @@ class LocalTable(Table):
         ):
             self._check_mutable('revert')
             tv = self._tbl_version.get()
-            if not tv.data_versioned:
+            if not tv.is_data_versioned:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION, 'Revert is supported on data-versioned tables only'
                 )
@@ -1167,7 +1163,7 @@ class LocalTable(Table):
         tbl_id = self._id
         # Collect an extra version, if available, to allow for computation of the first version's schema change
         vers_list = get_runtime().catalog.collect_tbl_history(tbl_id, n + 1)
-        assert vers_list[0].tbl_md.data_versioned, 'TODO: implement for operational tables [PXT-1101]'
+        assert vers_list[0].tbl_md.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
 
         # Construct the metadata change description dictionary
         md_list = [(vers_md.version_md.version, vers_md.schema_version_md.columns) for vers_md in vers_list]

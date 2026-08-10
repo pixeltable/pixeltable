@@ -6,10 +6,9 @@ import itertools
 import typing
 from abc import ABC, abstractmethod
 from copy import copy
-from typing import TYPE_CHECKING, Any, Callable, Sequence, cast
+from typing import TYPE_CHECKING, Any, Callable, Self, Sequence, cast
 
 import sqlalchemy as sql
-from typing_extensions import Self
 
 from pixeltable import exceptions as excs, type_system as ts
 

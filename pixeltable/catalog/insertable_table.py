@@ -50,7 +50,7 @@ class InsertableTable(LocalTable):
         custom_metadata: Any,
         media_validation: MediaValidation,
         create_default_idxs: bool,
-        data_versioned: bool,
+        is_data_versioned: bool,
         additional_idxs: list[IndexSpec],
     ) -> tuple[TableVersionMd, list[TableOp]]:
         cls._verify_schema(columns)
@@ -85,7 +85,7 @@ class InsertableTable(LocalTable):
             media_validation,
             create_default_idxs=create_default_idxs,
             view_md=None,
-            data_versioned=data_versioned,
+            is_data_versioned=is_data_versioned,
             additional_idxs=resolved_idxs,
         )
 

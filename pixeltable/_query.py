@@ -19,6 +19,7 @@ from typing import (
     Iterator,
     Literal,
     NoReturn,
+    Self,
     Sequence,
     TypeVar,
     cast,
@@ -30,7 +31,6 @@ import pandas as pd
 import PIL.Image
 import pydantic
 import sqlalchemy.exc as sql_exc
-from typing_extensions import Self
 
 from pixeltable import catalog, exceptions as excs, exec, exprs, type_system as ts
 from pixeltable.catalog import is_valid_identifier
@@ -668,14 +668,14 @@ class Query:
         for tbl in self._from_clause.tvps:
             for tvh in tbl.get_tbl_versions():
                 tv = tvh.get()
-                if tv.data_versioned:
+                if tv.is_data_versioned:
                     out[tvh.id] = tv.version
         return out
 
     def _create_query_plan(self) -> exec.ExecPlan:
         assert self._from_clause.is_local
         tvps = self._from_clause.tvps
-        has_operational_tbl = any(not tbl.tbl_version.get().data_versioned for tbl in tvps)
+        has_operational_tbl = any(not tbl.tbl_version.get().is_data_versioned for tbl in tvps)
         if has_operational_tbl:
             # For now, we only support queries of the simplest form on operational tables
             assert len(self._from_clause.tbls) == 1, 'TODO: implement for operational tables [PXT-1101]'
@@ -1337,7 +1337,7 @@ class Query:
         """
         assert len(self._from_clause.tbls) > 0
         # a join mixing catalogs (e.g. local + hosted) is rejected by FromClause's same-catalog check below
-        if self._from_clause.tbls[0].data_versioned() != other._data_versioned():
+        if self._from_clause.tbls[0].is_data_versioned() != other._is_data_versioned():
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 'join is not supported between data-versioned and operational tables',

@@ -6,14 +6,10 @@ environment variable, or as `api_key` in the `jina` section of the Pixeltable co
 
 import logging
 import re
-from typing import Any, Literal
+from typing import Any, Literal, NotRequired, TypedDict
 
 import aiohttp
 import numpy as np
-
-# we're importing TypedDict and NotRequired from typing_extensions, not typing: on Python 3.10 the stdlib TypedDict
-# does not register typing_extensions.NotRequired into __optional_keys__
-from typing_extensions import NotRequired, TypedDict
 
 import pixeltable as pxt
 from pixeltable import type_system as ts

@@ -1,8 +1,8 @@
 name: tests
 
 # On PR updates, the basic test configurations are run:
-#   - Python 3.10 on ubuntu-24.04, macos-15, and windows-2025 runners.
-#   - A minimal installation of Pixeltable (--no-dev) with Python 3.10 on ubuntu-24.04.
+#   - Python 3.11 on ubuntu-24.04, macos-15, and windows-2025 runners.
+#   - A minimal installation of Pixeltable (--no-dev) with Python 3.11 on ubuntu-24.04.
 #   - An installation of Pixeltable with the 'otel' extra and Python 3.10 on ubuntu-24.04.
 #   - An installation of Pixeltable with all required dependencies pinned to their minimums.
 #   - Linting, type-checking, docstring validation, etc.
@@ -12,11 +12,11 @@ name: tests
 #   - Python 3.14 on ubuntu-24.04, macos-15, and windows-2025 runners.
 #   - Python 3.11, 3.12, and 3.13 on ubuntu-24.04.
 #   - Minimal Pixeltable with Python 3.14 on ubuntu-24.04.
-#   - Minimal Pixeltable with Python 3.10 on ubuntu-24.04-arm and macos-15-intel.
+#   - Minimal Pixeltable with Python 3.11 on ubuntu-24.04-arm and macos-15-intel.
 #   - Notebook tests, excluding Hugging Face-dependent notebooks.
 #
 # On a weekly schedule, all of the above configurations are run (against branch 'main'), and additionally:
-#   - Python 3.10 on ubuntu-t4 (equipped with an NVIDIA T4 GPU).
+#   - Python 3.11 on ubuntu-t4 (equipped with an NVIDIA T4 GPU).
 #   - Hugging Face-dependent and other expensive notebook tests.
 #
 # A workflow_dispatch trigger will emulate the merge queue tests by default, but can be optionally
@@ -183,7 +183,7 @@ jobs:
         # cmake is needed for certain CI environments where it is not preinstalled.
         run: ./scripts/retry.sh 3 30 conda install -y -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==6.1.1=gpl*'
       - name: Install ollama
-        if: ${{ matrix.uv-options == '' && startsWith(matrix.os, 'ubuntu') && matrix.python-version == '3.10' }}
+        if: ${{ matrix.uv-options == '' && startsWith(matrix.os, 'ubuntu') && matrix.python-version == '3.11' }}
         run: |
           curl -fsSL https://ollama.com/install.sh | sh
           sleep 10  # Wait for the ollama server to start
@@ -243,7 +243,7 @@ jobs:
           # are measured; other triggers avoid the tracing overhead.
           PYTEST_COVERAGE_OPTS: >-
             ${{ github.event_name == 'schedule' && '--cov=pixeltable --cov-report=term-missing' || '' }}
-        # Run the tests with the 'expensive' marker only once, on ubuntu-24.04 with Python 3.10. The other tests
+        # Run the tests with the 'expensive' marker only once, on ubuntu-24.04 with Python 3.11. The other tests
         # (including tests with the 'remote_api' marker that are not also marked 'expensive') will run on all matrix
         # configurations.
         # --basetemp pins pytest's temp root dir so that the Archive step below works on all platforms
@@ -274,7 +274,7 @@ jobs:
         run: ./scripts/stress-tests.sh 12 1800
       - name: Run file cache stress test
         if: ${{ matrix.test-category == 'random-ops' }}
-        run: python -u scripts/filecache_multiprocess_stress.py --procs 4 --threads 4 --images 50 --rows 10 --rounds 40 --cache-gb 0.0003 --lease-s 0.5 --img-px 64
+        run: python -u tool/filecache_multiprocess_stress.py --procs 4 --threads 4 --images 50 --rows 10 --rounds 40 --cache-gb 0.0003 --lease-s 0.5 --img-px 64
       - name: Type check
         if: ${{ matrix.test-category == 'lint' }}
         run: |

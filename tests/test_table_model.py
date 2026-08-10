@@ -284,7 +284,7 @@ class TestTableModel:
                         },
                     },
                 },
-                'data_versioned': True,
+                'is_data_versioned': True,
                 'is_view': False,
                 'is_snapshot': False,
                 'version': 1,

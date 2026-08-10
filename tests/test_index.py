@@ -3,7 +3,7 @@ import random
 import string
 import sys
 from pathlib import Path
-from typing import Any, Callable, Literal, _GenericAlias  # type: ignore[attr-defined]
+from typing import Any, Callable, Literal
 
 import numpy as np
 import PIL.Image
@@ -930,7 +930,7 @@ class TestIndex:
         ):
             test_tbl.add_embedding_index(test_tbl.c1, embedding=local_embedding.using(dim=0), precision='fp16')
 
-    def run_btree_test(self, p: Callable[[str], str], data: list, data_type: type | _GenericAlias) -> pxt.Table:
+    def run_btree_test(self, p: Callable[[str], str], data: list, data_type: type) -> pxt.Table:
         t = pxt.create_table(p('btree_test'), {'data': data_type})
         num_rows = len(data)
         rows = [{'data': value} for value in data]
