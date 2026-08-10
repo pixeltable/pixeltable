@@ -138,7 +138,7 @@ class BtreeIndex:
 
 
 # An index specification declared as a class attribute in a TableModel or ViewModel definition.
-IndexSpec = EmbeddingIndex | BtreeIndex
+IndexDeclaration = EmbeddingIndex | BtreeIndex
 
 
 class TableSpec(TypedDict):
@@ -338,7 +338,7 @@ class _ModelNamespace(dict):
 
     table_spec: TableSpec
     known_cols: dict[str, ColumnSpec]
-    known_idxs: dict[str, IndexSpec]
+    known_idxs: dict[str, IndexDeclaration]
 
     # Names that are produced by the base query or iterator; these cannot be redefined in the model.
     reserved_cols: dict[str, Literal['base query', 'iterator']]
@@ -469,7 +469,7 @@ class TableModelMeta(type):
 
     __table_spec__: TableSpec
     __columns__: dict[str, ColumnSpec]
-    __indexes__: dict[str, IndexSpec]
+    __indexes__: dict[str, IndexDeclaration]
     __bound_table__: Table | None
 
     _catalog_dir: str | None
@@ -753,7 +753,7 @@ def prepare_model(
     display_name: str,
     iterator: func.GeneratingFunctionCall | None,
     base: 'pxt.Query | None',
-    idxs: dict[str, IndexSpec],
+    idxs: dict[str, IndexDeclaration],
 ) -> tuple[func.GeneratingFunctionCall | None, list[catalog.Column], list[catalog.IndexSpec]]:
     """
     Given model declarations in the form of columns, base, iterator, and index specifications, along with
@@ -917,7 +917,7 @@ class TableSchemaChangeSet(TypedDict):
     # against the base table's columns; a 'model_body' column resolves against the view's own visible columns.
     new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]]
     dropped_columns: list[str]
-    new_idxs: dict[str, IndexSpec]
+    new_idxs: dict[str, IndexDeclaration]
     dropped_idxs: list[str]
 
     # tbl_id of the table to update, and {tbl_id: schema_version} for its version path, captured when the diff was
@@ -930,7 +930,7 @@ def prepare_model_updates(
     tvp: catalog.TableVersionPath,
     display_name: str,
     new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]],
-    new_idxs: dict[str, IndexSpec],
+    new_idxs: dict[str, IndexDeclaration],
 ) -> tuple[list[catalog.Column], list[catalog.IndexSpec]]:
     """
     Given `new_columns` and `new_idxs` as declared by a model, resolves them into proper catalog abstractions
@@ -1240,7 +1240,7 @@ def _add_column_change(col_name: str, spec: ColumnSpec) -> SchemaChangeOp:
     )
 
 
-def _add_index_change(idx_name: str, idx: IndexSpec) -> SchemaChangeOp:
+def _add_index_change(idx_name: str, idx: IndexDeclaration) -> SchemaChangeOp:
     # str(), not .name: a ModelColumnRef renders as its bare column name, and a spec holding anything else
     # is reported as it stands rather than dropped from the plan
     details = {'on': str(idx.column)}
