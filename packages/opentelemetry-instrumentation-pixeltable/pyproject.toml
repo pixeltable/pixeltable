@@ -3,13 +3,12 @@ name = "opentelemetry-instrumentation-pixeltable"
 dynamic = ["version"]
 description = "OpenTelemetry instrumentation for Pixeltable"
 authors = [{ name = "Pixeltable, Inc.", email = "contact@pixeltable.com" }]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 readme = "README.md"
 license = "Apache-2.0"
 classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",

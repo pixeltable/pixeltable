@@ -1,6 +1,6 @@
 from typing import Literal
 
-from typing_extensions import TypedDict
+from typing_extensions import TypedDict  # pydantic requires importing this from typing_extensions on Python < 3.12
 
 from pixeltable_cli.utils import PxtPath
 

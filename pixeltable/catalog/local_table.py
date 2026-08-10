@@ -5,12 +5,11 @@ import builtins
 import datetime
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence, overload
 from uuid import UUID
 
 import pandas as pd
 import pydantic
-from typing_extensions import overload
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, exprs, index, type_system as ts
@@ -44,9 +43,6 @@ from .table import Table
 from .table_path import TableVersionPath
 from .table_version_handle import TableVersionHandle
 from .update_status import UpdateStatus
-
-from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
-
 
 if TYPE_CHECKING:
     import torch.utils.data
@@ -541,7 +537,7 @@ class LocalTable(Table):
         # verify kwargs and construct column schema dict
         self._check_single_column_kwarg('add_column', '`col_name=col_type`', kwargs)
         col_type = next(iter(kwargs.values()))
-        if not isinstance(col_type, (ts.ColumnType, type, _GenericAlias, dict)):
+        if not isinstance(col_type, (ts.ColumnType, dict)) and not ts.is_type_form(col_type):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT,
                 'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?',

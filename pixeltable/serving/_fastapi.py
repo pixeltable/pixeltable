@@ -26,8 +26,6 @@ from typing import (
     get_type_hints,
 )
 
-from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
-
 import fastapi
 import numpy as np
 import PIL.Image
@@ -36,6 +34,7 @@ import sqlalchemy as sql
 from fastapi import Body, File, Form, HTTPException, Query as QueryParam, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic.fields import FieldInfo
+from typing_extensions import TypeForm
 
 import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
@@ -161,9 +160,7 @@ def _get_type_hints(user_fn: Callable, fn_name: str, error_prefix: str) -> dict[
         ) from e
 
 
-def _validate_type_hint(
-    annot: type | _GenericAlias, col_type: ts.ColumnType, *, subject: str, error_prefix: str
-) -> None:
+def _validate_type_hint(annot: TypeForm, col_type: ts.ColumnType, *, subject: str, error_prefix: str) -> None:
     """Check that a type annotation is interpretable and compatible with a ColumnType."""
     annot_col_type = ts.ColumnType.from_python_type(annot)
     if annot_col_type is None:

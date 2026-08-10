@@ -3,9 +3,7 @@ from __future__ import annotations
 import enum
 import traceback
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, ClassVar, Iterator, NoReturn
-
-from typing_extensions import Self
+from typing import TYPE_CHECKING, Any, ClassVar, Iterator, NoReturn, Self
 
 if TYPE_CHECKING:
     from pixeltable import exprs

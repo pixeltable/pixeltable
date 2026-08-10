@@ -5,9 +5,7 @@ import asyncio
 import queue
 import threading
 from types import TracebackType
-from typing import Any, AsyncIterator, Iterable, Iterator, TypeVar
-
-from typing_extensions import Self
+from typing import Any, AsyncIterator, Iterable, Iterator, Self, TypeVar
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts

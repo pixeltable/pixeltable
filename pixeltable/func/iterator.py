@@ -7,9 +7,7 @@ import typing
 from dataclasses import dataclass
 from textwrap import dedent
 from types import MethodType
-from typing import TYPE_CHECKING, Any, Callable, Generic, Iterator, TypeVar, overload
-
-from typing_extensions import Self
+from typing import TYPE_CHECKING, Any, Callable, Generic, Iterator, Self, TypeVar, overload
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
 from pixeltable.catalog.globals import _POS_COLUMN_NAME

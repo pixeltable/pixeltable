@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Self
 from uuid import UUID
 
 import numpy as np
 import sqlalchemy as sql
-from typing_extensions import Self
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
