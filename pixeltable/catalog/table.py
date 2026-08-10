@@ -589,7 +589,7 @@ class Table(SchemaObject):
             column: The name of, or reference to, the column to be indexed; must be an indexable scalar or media
                 column (see above).
             idx_name: An optional name for the index. If not specified, a unique name will be generated automatically.
-            If specified, the name must be unique for this table and a valid pixeltable column name.
+                If specified, the name must be unique for this table and a valid pixeltable column name.
             if_exists: Directive for handling an existing B-tree index on the same column, or an existing index with
                 the same name. Must be one of `'error'`, `'ignore'`.
 
