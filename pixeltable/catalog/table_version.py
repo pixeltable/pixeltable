@@ -684,7 +684,28 @@ class TableVersion:
 
         for idx_col, idx_name, idx in idxs:
             assert isinstance(idx_col, Column)
-
+            if isinstance(idx, index.BtreeIndex):
+                assert idx_col.name is not None, repr(idx_col)
+                if has_default_idxs:
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        'Cannot create an explicit B-tree index on a table with has_default_idxs=True; '
+                        'its eligible columns are indexed automatically.',
+                    )
+                index.BtreeIndex.validate_column(idx_col)
+                if idx_col.name in new_btree_col_names or idx_col.name in btree_col_names:
+                    raise excs.AlreadyExistsError(
+                        excs.ErrorCode.INDEX_ALREADY_EXISTS,
+                        f'A B-tree index already exists on column {idx_col.name!r}.',
+                    )
+                new_btree_col_names.add(idx_col.name)
+                if idx_col.tbl_handle.id != tbl_id:
+                    # PXT-1260 Allow views to create a b-tree index on a base column
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'Cannot create a B-tree index on column {idx_col.name!r}: it belongs to a base table. '
+                        'Add the index to the base table instead.',
+                    )
             if idx_name is not None:
                 assert idx_name not in new_names, idx_name
                 existing_info = existing_by_name.get(idx_name)
@@ -694,29 +715,6 @@ class TableVersion:
                         f'Index {idx_name!r} already exists on column {existing_info.col.name!r}.',
                     )
                 new_names.add(idx_name)
-
-            if not isinstance(idx, index.BtreeIndex):
-                continue
-            if has_default_idxs:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    'Cannot create an explicit B-tree index on a table with has_default_idxs=True; '
-                    'its eligible columns are indexed automatically.',
-                )
-            assert idx_col.name is not None, repr(idx_col)
-            if idx_col.tbl_handle.id != tbl_id:
-                # PXT-1260 Allow views to create a b-tree index on a base column
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Cannot create a B-tree index on column {idx_col.name!r}: it belongs to a base table. '
-                    'Add the index to the base table instead.',
-                )
-            index.BtreeIndex.validate_column(idx_col)
-            if idx_col.name in new_btree_col_names or idx_col.name in btree_col_names:
-                raise excs.AlreadyExistsError(
-                    excs.ErrorCode.INDEX_ALREADY_EXISTS, f'A B-tree index already exists on column {idx_col.name!r}.'
-                )
-            new_btree_col_names.add(idx_col.name)
 
     def _validate_idx_drops(self, idx_ids: Iterable[int]) -> None:
         """Reject the removal of a default B-tree index."""

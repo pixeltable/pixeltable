@@ -1021,8 +1021,10 @@ class TestIndex:
 
     def test_add_btree_index(self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('add_index_test'), {'id': pxt.Int, 'name': pxt.String, 'data': pxt.Json})
-        t.insert([{'id': i, 'name': f'n{i}', 'data': {'k': i}} for i in range(10)])
+        t = pxt.create_table(
+            p('add_index_test'), {'id': pxt.Int, 'name': pxt.String, 'data': pxt.Json, 'extra': pxt.String}
+        )
+        t.insert([{'id': i, 'name': f'n{i}', 'data': {'k': i}, 'extra': f'e{i}'} for i in range(10)])
 
         # no index is created by default
         assert len(btree_idxs(t)) == 0
@@ -1062,8 +1064,9 @@ class TestIndex:
 
         t.add_embedding_index('name', idx_name='emb_idx', string_embed=local_embed)
 
-        # a name collision with a B-tree index on the same column is an error with 'error', a no-op with 'ignore'
-        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match=r'Index.+already exists'):
+        # a name collision with the B-tree index on the same column: the one-index-per-column check takes
+        # precedence over the name check, and 'ignore' still makes it a no-op
+        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='B-tree index already exists'):
             t.add_btree_index('name', idx_name='name_idx2')
         t.add_btree_index('name', idx_name='name_idx2', if_exists='ignore')  # no-op
         assert btree_idxs(t).keys() == {id_idx_name, 'name_idx2'}
@@ -1071,7 +1074,10 @@ class TestIndex:
         # a name collision with a B-tree index on a different column is an error, regardless of if_exists
         for ie in ('error', 'ignore'):
             with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match="Index.+already exists on column 'id'"):
-                t.add_btree_index('name', idx_name=id_idx_name, if_exists=ie)
+                t.add_btree_index('extra', idx_name=id_idx_name, if_exists=ie)
+        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match="Index.+already exists on column 'name'"):
+            t.add_btree_index('extra', idx_name='name_idx2')
+        assert btree_idxs(t).keys() == {id_idx_name, 'name_idx2'}
 
         # a name collision with an index of a different type is an error, regardless of if_exists
         for ie in ('error', 'ignore'):
