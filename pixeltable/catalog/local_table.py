@@ -793,6 +793,7 @@ class LocalTable(Table):
                 if_exists_ == IfExistsParam.IGNORE
                 and not tv.has_default_idxs
                 and (existing_idx_by_name is None or existing_idx_by_name.col.qid == col.qid)
+                and col.tbl_handle.id == tv.id
                 and tv.find_btree_index(col) is not None
             ):
                 return

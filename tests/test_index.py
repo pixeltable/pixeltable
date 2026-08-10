@@ -1188,8 +1188,9 @@ class TestIndex:
         t.insert([{'id': 10, 'name': 'n10'}])
         assert v.where(v.id2 == 20).collect()['id'] == [10]
 
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='belongs to a base table'):
-            v.add_btree_index(v.name)
+        for ie in ('error', 'ignore'):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='belongs to a base table'):
+                v.add_btree_index(v.name, if_exists=ie)
 
     @pytest.mark.parametrize('reload_cat', [True, False], ids=['reload_cat', 'no_reload_cat'])
     @pytest.mark.parametrize('metric', ['l2', 'cosine', 'ip'])
