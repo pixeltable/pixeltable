@@ -251,7 +251,7 @@ class TableMd:
     is_data_versioned: bool = True
 
     # Indicates if default b-tree indexes are enabled for this table.
-    has_default_idxs: bool = True
+    has_default_idxs: bool | None = None
 
     @property
     def is_snapshot(self) -> bool:

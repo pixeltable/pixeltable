@@ -1845,8 +1845,11 @@ class TableVersion:
 
         This is fixed at creation time and is the sole determinant for columns added later.
 
-        Tables created before this property was recorded in the metadata return True.
+        For tables created before this property was recorded in the metadata, fall back to the default that was in
+        effect at the time: True for base tables, False for views and snapshots.
         """
+        if self._tbl_md.has_default_idxs is None:
+            return self._tbl_md.view_md is None
         return self._tbl_md.has_default_idxs
 
     def bump_version(self, timestamp: float | None = None, *, bump_schema_version: bool) -> None:
