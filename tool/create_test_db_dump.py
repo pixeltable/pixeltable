@@ -93,12 +93,6 @@ class Dumper:
     output_dir: pathlib.Path
 
     def __init__(self, output_dir: str = 'target', db_name: str = 'pxtdump') -> None:
-        if sys.version_info >= (3, 11):
-            raise RuntimeError(
-                'This script must be run on Python 3.10. '
-                'DB dumps are incompatible across versions due to issues with pickling anonymous UDFs.'
-            )
-
         self.output_dir = pathlib.Path(output_dir)
         shared_home = pathlib.Path(os.environ.get('PIXELTABLE_HOME', '~/.pixeltable')).expanduser()
         mock_home_dir = self.output_dir / '.pixeltable'

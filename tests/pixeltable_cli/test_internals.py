@@ -24,11 +24,10 @@ import urllib.error
 from collections.abc import Callable, Iterator
 from email.message import Message
 from types import ModuleType
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Self
 
 import pytest
 import requests
-from typing_extensions import Self
 
 from pixeltable import exceptions as excs
 from pixeltable.catalog import model

@@ -3,7 +3,7 @@ name = "pixeltable"
 dynamic = ["version"]
 description = "AI Data Infrastructure: Declarative, Multimodal, and Incremental"
 authors = [{ name = "Pixeltable, Inc.", email = "contact@pixeltable.com" }]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 readme = "README.md"
 license = "Apache-2.0"
 keywords = [
@@ -30,7 +30,6 @@ classifiers = [
     "Operating System :: MacOS",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -73,6 +72,7 @@ dependencies = [
     "pypdfium2>=4.30.0",
     "pathspec>=0.10.2",
     "psutil>=5.9",
+    "typing-extensions>=4.15",
 ]
 
 [project.optional-dependencies]
@@ -281,6 +281,7 @@ disallow_any_unimported = true
 check_untyped_defs = true
 disallow_incomplete_defs = true
 disallow_untyped_defs = true
+enable_incomplete_feature = ["TypeForm"]
 follow_imports = "silent"
 plugins = "pydantic.mypy, pixeltable.mypy"
 show_error_codes = true

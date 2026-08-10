@@ -7,13 +7,12 @@ import inspect
 import json
 import sys
 import typing
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, NoReturn, TypeVar, overload
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, NoReturn, Self, TypeVar, overload
 from uuid import UUID
 
 import numpy as np
 import sqlalchemy as sql
 from deprecated import deprecated
-from typing_extensions import Self, _AnnotatedAlias
 
 from pixeltable import catalog, exceptions as excs, func, type_system as ts
 
@@ -659,7 +658,7 @@ class Expr(abc.ABC):
         else:
             return InPredicate(self, value_set_literal=value_set)
 
-    def astype(self, new_type: ts.ColumnType | type | _AnnotatedAlias) -> 'exprs.TypeCast':
+    def astype(self, new_type: ts.ColumnType | type) -> 'exprs.TypeCast':
         """
         Return a new expression that casts this expression to a different type.
 
@@ -695,9 +694,7 @@ class Expr(abc.ABC):
         version='0.5.17',
         category=excs.PixeltableDeprecationWarning,
     )
-    def apply(
-        self, fn: Callable, *, col_type: ts.ColumnType | type | _AnnotatedAlias | None = None
-    ) -> 'exprs.FunctionCall':
+    def apply(self, fn: Callable, *, col_type: ts.ColumnType | type | None = None) -> 'exprs.FunctionCall':
         if col_type is not None:
             col_type = ts.ColumnType.normalize_type(col_type)
         function = self._make_applicator_function(fn, col_type)
