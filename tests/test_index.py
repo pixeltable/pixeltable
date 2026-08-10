@@ -1191,10 +1191,6 @@ class TestIndex:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='belongs to a base table'):
             v.add_btree_index(v.name)
 
-        snap = pxt.create_snapshot(p('view_snap'), t)
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot add an index to a snapshot'):
-            snap.add_btree_index('name')
-
     @pytest.mark.parametrize('reload_cat', [True, False], ids=['reload_cat', 'no_reload_cat'])
     @pytest.mark.parametrize('metric', ['l2', 'cosine', 'ip'])
     @pytest.mark.parametrize('precision', ['fp16', 'fp32'])

@@ -273,6 +273,8 @@ class TestSnapshot:
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot create default indexes on a snapshot'):
             _ = pxt.create_view(p('default_snap'), tbl, is_snapshot=True, has_default_idxs=True)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot add an index to a snapshot.'):
+            snap.add_btree_index('c2')
 
     @pytest.mark.parametrize('anonymous', [True, False])
     def test_views_of_snapshots(self, anonymous: bool, make_catalog_path: Callable[[str], str]) -> None:
