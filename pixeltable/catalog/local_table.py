@@ -758,6 +758,7 @@ class LocalTable(Table):
     def add_btree_index(
         self, column: str | ColumnRef, *, idx_name: str | None = None, if_exists: Literal['error', 'ignore'] = 'error'
     ) -> None:
+        self._check_mutable('add an index to')
         assert self._tbl_version is None or self._tbl_version.get().is_data_versioned, (
             'TODO: implement for operational tables [PXT-1101]'
         )
@@ -769,8 +770,6 @@ class LocalTable(Table):
                 excs.ErrorCode.INVALID_ARGUMENT, f"if_exists must be one of: ['error', 'ignore']; got {if_exists!r}"
             )
         if_exists_ = IfExistsParam.validated(if_exists, 'if_exists')
-
-        self._check_mutable('add an index to')
 
         if idx_name is not None:
             # Index name must be a valid pixeltable column name
