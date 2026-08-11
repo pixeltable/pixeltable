@@ -55,6 +55,7 @@
             <outline text="method|pixeltable.Table.batch_update" />
             <outline text="method|pixeltable.Table.delete" />
             <outline text="method|pixeltable.Table.compute" />
+            <outline text="method|pixeltable.Table.add_btree_index" />
             <outline text="method|pixeltable.Table.add_embedding_index" />
             <outline text="method|pixeltable.Table.drop_embedding_index" />
             <outline text="method|pixeltable.Table.drop_index" />
