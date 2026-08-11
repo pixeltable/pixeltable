@@ -74,7 +74,7 @@ Do **not** use square-letter KindBadge glyphs in the tree.
 
 ### Accept (fits this design)
 
-- Multi-catalog browse, `pxt-catalogs` persistence, lazy fetch of hosted trees
+- Multi-catalog browse, `pxt-catalogs` / `pxt-active-catalog` persistence, fetch of the **active** catalog tree
 - Cross-catalog search and `unavailable` reporting
 - Path-safe routing (`tableHref` / `dirHref`) and path-fetched directory views
 - `is_iterator_col`, richer schema Info, `Computed With`, mutable / computed / stored counts
@@ -114,9 +114,7 @@ The PyPI 0.7.1 bundled SPA may still show KindBadge + in-tree Add catalog. Treat
 
 ## Future work
 
-Visual restore (colored Lucide + `vN`, KindBadge removed, type/func accents, green status, sticky switcher) is in progress on the local-ui draft. Remaining polish:
+Kind language, sticky switcher, and accents match this doc. Remaining polish only:
 
-1. Keep refining light/dark surface ladder and dense data-toolbar wrap at mid widths.
-2. Never reintroduce KindBadge as the primary kind language.
-3. Never reintroduce `+ Add catalog` inside the scrolling tree; keep the sticky switcher.
-4. Ensure sidebar rows show `vN` whenever `version !== null`.
+1. Light/dark surface ladder (schema vs data vs chrome).
+2. Dense data-toolbar wrap at mid widths.

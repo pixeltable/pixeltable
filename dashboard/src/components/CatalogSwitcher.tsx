@@ -40,11 +40,11 @@ export function CatalogSwitcher({ activeCatalog, onSelect, collapsed = false }: 
     saveExtraCatalogs(catalogs)
   }, [catalogs])
 
+  // Keep the switcher list in sync when the parent activates a hosted catalog (e.g. from search).
   useEffect(() => {
-    if (activeCatalog !== LOCAL_CATALOG && !catalogs.includes(activeCatalog)) {
-      onSelect(LOCAL_CATALOG)
-    }
-  }, [activeCatalog, catalogs, onSelect])
+    if (activeCatalog === LOCAL_CATALOG || catalogs.includes(activeCatalog)) return
+    setCatalogs(prev => (prev.includes(activeCatalog) ? prev : [...prev, activeCatalog]))
+  }, [activeCatalog, catalogs])
 
   useEffect(() => {
     if (!open) return

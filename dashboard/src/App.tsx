@@ -9,7 +9,16 @@ import { PipelineInspector } from '@/components/PipelineInspector'
 import { getDirectoryTree, getStatus } from '@/api/client'
 import type { SystemStatus } from '@/api/client'
 import type { TableNode, TreeNode } from '@/types'
-import { cn, tableHref, dirHref, loadActiveCatalog, saveActiveCatalog } from '@/lib/utils'
+import {
+  cn,
+  tableHref,
+  dirHref,
+  loadActiveCatalog,
+  saveActiveCatalog,
+  loadExtraCatalogs,
+  saveExtraCatalogs,
+  catalogRootFromPath,
+} from '@/lib/utils'
 import {
   Search,
   GitBranch,
@@ -310,6 +319,14 @@ export default function App() {
 
   const handleSearchSelect = (path: string, type: string) => {
     setSearchOpen(false)
+    // Keep chrome aligned with one active catalog when opening a hosted search hit.
+    const root = catalogRootFromPath(path)
+    if (root !== null) {
+      const extras = loadExtraCatalogs()
+      if (!extras.includes(root)) saveExtraCatalogs([...extras, root])
+      setActiveCatalog(root)
+      saveActiveCatalog(root)
+    }
     handleSelectItem(path, type)
   }
 

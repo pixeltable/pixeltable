@@ -50,7 +50,7 @@ export function catalogLabel(uri: string): string {
   return uri
 }
 
-/** Accept `pxt://org:db…` or bare `org:db`; null if invalid. */
+/** Catalog root only: `pxt://org:db` or bare `org:db`. Rejects paths with `/…`. */
 export function normalizeCloudCatalogUri(raw: string): string | null {
   const trimmed = raw.trim()
   if (trimmed === '' || trimmed === LOCAL_CATALOG) return null
@@ -62,6 +62,16 @@ export function normalizeCloudCatalogUri(raw: string): string | null {
   }
 
   const rest = uri.slice('pxt://'.length)
-  if (!/^[^:\s]+:[^:\s]+/.test(rest)) return null
+  // Root only — no nested path after org:db.
+  if (!/^[^:\s/]+:[^:\s/]+$/.test(rest)) return null
   return uri
+}
+
+/** Hosted catalog root for a path (`pxt://org:db/t` → `pxt://org:db`), or null. */
+export function catalogRootFromPath(path: string): string | null {
+  if (!path.startsWith('pxt://')) return null
+  const rest = path.slice('pxt://'.length)
+  const slash = rest.indexOf('/')
+  const root = slash === -1 ? rest : rest.slice(0, slash)
+  return normalizeCloudCatalogUri(`pxt://${root}`)
 }

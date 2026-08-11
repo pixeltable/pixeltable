@@ -273,12 +273,7 @@ make docs-deploy TARGET=stage
 
 ### Local Dashboard UI
 
-Before changing `dashboard/` or dashboard-facing APIs in `pixeltable_cli/server/`, read:
-
-- [`dashboard/DESIGN.md`](dashboard/DESIGN.md) — visual/UX source of truth (required)
-- [`dashboard/ARCHITECTURE.md`](dashboard/ARCHITECTURE.md) — stack, file map, APIs
-
-Follow DESIGN.md: colored Lucide kinds, yellow accent, green healthy status, sticky catalog switcher, `vN` when version exists. Do **not** reintroduce KindBadge-as-primary or `+ Add catalog` inside the scrolling tree. If proposing a visual departure, call it out explicitly and justify against DESIGN.md.
+Before changing `dashboard/` or dashboard-facing APIs in `pixeltable_cli/server/`, read [`dashboard/DESIGN.md`](dashboard/DESIGN.md) (required) and [`dashboard/ARCHITECTURE.md`](dashboard/ARCHITECTURE.md). Follow DESIGN.md; justify any visual departure explicitly.
 
 ## Testing Against Remote APIs
 
