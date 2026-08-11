@@ -68,7 +68,7 @@ class BtreeIndex(IndexBase):
                     f'Cannot create a B-tree index on computed media column {c.name!r}.',
                 )
 
-    def create_value_expr(self, c: 'catalog.ColumnVersionMd') -> 'exprs.Expr':
+    def create_value_expr(self, c: 'catalog.ColumnVersionMd') -> exprs.Expr:
         if not c.col_type.is_scalar_type() and not c.col_type.is_media_type():
             raise excs.RequestError(
                 excs.ErrorCode.TYPE_MISMATCH,

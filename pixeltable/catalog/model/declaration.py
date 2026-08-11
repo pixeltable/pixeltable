@@ -279,7 +279,7 @@ class ModelQuery:
                     'Aggregates are not allowed in a view definition.',
                 )
 
-    def _bind_to_table(self, catalog_dir: str) -> 'pxt.Query':
+    def _bind_to_table(self, catalog_dir: str) -> pxt.Query:
         """Resolve against the tables under catalog_dir."""
         tbl: Table = self.from_clause._bind(catalog_dir)
         subst_dict: exprs.ExprDict[exprs.Expr] = exprs.ExprDict()
@@ -287,7 +287,7 @@ class ModelQuery:
             subst_dict[ColumnRefByName(col_name)] = getattr(tbl, col_name)
         return self._create_query(tbl._tbl_path, subst_dict)
 
-    def _bind_to_model(self) -> 'pxt.Query':
+    def _bind_to_model(self) -> pxt.Query:
         """Resolve against the model itself.
 
         The result is a query over synthesized metadata: its column references identify columns of a declared
@@ -299,7 +299,7 @@ class ModelQuery:
             subst_dict[ColumnRefByName(col_md.name)] = exprs.ColumnRef(col_md)
         return self._create_query(base_path, subst_dict)
 
-    def _create_query(self, from_path: catalog.TablePath, subst_dict: 'exprs.ExprDict[exprs.Expr]') -> 'pxt.Query':
+    def _create_query(self, from_path: catalog.TablePath, subst_dict: exprs.ExprDict[exprs.Expr]) -> pxt.Query:
         """Apply the clauses to a query over from_path, substituting the placeholder column references."""
         import pixeltable as pxt
 
@@ -360,7 +360,7 @@ class _ModelNamespace(dict):
     reserved_cols: dict[str, Literal['base query', 'iterator']]
 
     # The scope in which the class body is defined; used to evaluate stringized type annotations (see
-    # `set_col_type`). Populated from the defining frame in `TableModelMeta.__prepare__`.
+    # set_col_type). Populated from the defining frame in TableModelMeta.__prepare__.
     eval_globals: dict[str, Any]
     eval_locals: dict[str, Any]
 
@@ -443,7 +443,7 @@ class _ModelNamespace(dict):
     def set_col_type(self, name: str, type_: Any) -> None:
         self._check_reserved(name)
         if isinstance(type_, str):
-            # Under `from __future__ import annotations` (PEP 563) -- and mandatory on Python 3.14+, where
+            # Under from __future__ import annotations (PEP 563) -- and mandatory on Python 3.14+, where
             # PEP 649 otherwise defers annotation evaluation entirely -- annotations arrive as strings. Evaluate
             # the string in the scope where the model class is defined to recover the actual type.
             try:
@@ -457,13 +457,13 @@ class _ModelNamespace(dict):
         if name in self.known_idxs:
             raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'Cannot set a type annotation for index {name!r}.')
         if name in self.known_cols:
-            # We previously processed this column via `set_col_value()`. Sanity check the type.
+            # We previously processed this column via set_col_value(). Sanity check the type.
             if col_type_from_spec(self.known_cols[name]) != type_:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA, f'Conflicting type annotation for column {name!r}.'
                 )
             return
-        # Bare annotation (`col: SomeType`): record the spec and make the name referenceable in the body.
+        # Bare annotation (col: SomeType): record the spec and make the name referenceable in the body.
         self.known_cols[name] = {'type': type_}  # type: ignore[typeddict-item]
         super().__setitem__(name, exprs.ColumnRefByName(name, type_))
 
@@ -576,13 +576,13 @@ class TableModelMeta(type):
             media_validation_ = MediaValidation.validated(media_validation, '`media_validation`')
 
             # Capture the scope in which the class body is being defined, so that stringized type annotations
-            # (see `_ModelNamespace.set_col_type`) can be evaluated. `sys._getframe(1)` is the frame executing
-            # the `class ...:` statement (`__build_class__` is a C function and creates no frame).
+            # (see _ModelNamespace.set_col_type) can be evaluated. sys._getframe(1) is the frame executing
+            # the class ...: statement (__build_class__ is a C function and creates no frame).
             caller = sys._getframe(1)
 
             # On Python 3.14+, annotations are not evaluated eagerly (PEP 649), so the model's column annotations
-            # would be dropped and body references to them would raise `NameError` *before* we ever reach
-            # `__new__`. `from __future__ import annotations` restores the eager (stringized) behavior the model
+            # would be dropped and body references to them would raise NameError *before* we ever reach
+            # __new__. from __future__ import annotations restores the eager (stringized) behavior the model
             # relies on. Detect its absence here -- before the body runs -- and fail with an actionable message.
             future_annotations = bool(caller.f_code.co_flags & __future__.annotations.compiler_flag)
             if sys.version_info >= (3, 14) and not future_annotations:
@@ -697,7 +697,7 @@ class TableModelMeta(type):
         if table_spec['base'] is not None:
             base = table_spec['base']._bind_to_table(catalog_dir)
 
-        # The model's own column specs, with `type` annotations resolved to ColumnTypes (so they're serializable
+        # The model's own column specs, with type annotations resolved to ColumnTypes (so they're serializable
         # for a proxied catalog). Computed value expressions still carry ColumnRefByNames referencing
         # sibling and base columns; those are substituted by the catalog that owns the table (create_from_model).
         columns: dict[str, ColumnSpec] = {}

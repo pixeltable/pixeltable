@@ -327,11 +327,11 @@ class TestSample:
         t = self.create_sample_data(p, 4, 6, False)
 
         query = t.select().sample(fraction=0.1, stratify_by=[t.cat1, t.cat2], seed=0)
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be created with'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='can only be defined by'):
             _ = pxt.create_view(p('v1'), query)
 
         query = t.select().sample(n=20, seed=0)
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be created with'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='can only be defined by'):
             _ = pxt.create_view(p('v1'), query)
 
         query = t.select().sample(fraction=0.01, seed=0)

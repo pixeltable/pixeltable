@@ -171,7 +171,7 @@ class Column:
     def create_index_columns(
         cls,
         tbl_handle: TableVersionHandle,
-        col: 'catalog.ColumnVersionMd',
+        col: catalog.ColumnVersionMd,
         idx: index.IndexBase,
         val_col_id: int,
         undo_col_id: int,

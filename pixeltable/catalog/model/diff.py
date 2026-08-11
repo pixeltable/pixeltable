@@ -66,8 +66,8 @@ class TableDiff(TypedDict):
     schema_versions: dict[UUID, int] | None
 
 
-# Table-level attribute names that are reported as a single grouped diff (as opposed to `kind`/`iterator`/`filter`/
-# `sample`, which each get their own diff line).
+# Table-level attribute names that are reported as a single grouped diff (as opposed to kind/iterator/filter/
+# sample, which each get their own diff line).
 _TABLE_PROP_NAMES: tuple[str, ...] = ('media_validation', 'comment', 'custom_metadata', 'has_default_idxs')
 
 

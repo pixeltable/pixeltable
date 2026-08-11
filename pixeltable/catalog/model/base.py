@@ -48,7 +48,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
     def _create_all(catalog_dir: str = '') -> dict[str, TableDiff]:
         """Returns the diff that was applied, per model: 'create' for the tables created now, 'up_to_date'
         for those that already matched. Raises rather than returning a partially applied diff."""
-        # `create_all()` only creates tables; it never mutates an existing one. If any existing table differs from
+        # create_all() only creates tables; it never mutates an existing one. If any existing table differs from
         # its model, refuse.
         diffs = validate_models(registered_models, catalog_dir)
         changed = [(name, d) for name, d in diffs.items() if d['exists'] and d['resolution'] != 'up_to_date']
@@ -110,7 +110,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                 f'The following updates would result in destructive catalog changes.\n{detail}\n{PY_DESTRUCTIVE_HINT}',
             )
 
-        # Apply column/index changes to existing tables. Brand-new tables are handled by `_create_all()` below.
+        # Apply column/index changes to existing tables. New tables are handled by _create_all() below.
         update_diffs = [
             (name, d) for name, d in diffs.items() if d['resolution'] in ('update_additive', 'update_destructive')
         ]
@@ -124,7 +124,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                 dropped_col_names = [c['name'] for c in d['ops'] if c['target'] == 'column' and c['op'] == 'drop']
                 new_idx_names = [c['name'] for c in d['ops'] if c['target'] == 'index' and c['op'] == 'add']
                 dropped_idx_names = [c['name'] for c in d['ops'] if c['target'] == 'index' and c['op'] == 'drop']
-                # Resolve `type` annotations to ColumnTypes, mirroring `_create()`, and tag each column's origin.
+                # Resolve type annotations to ColumnTypes, mirroring _create(), and tag each column's origin.
                 # Iterate in declaration order (not the diff's sorted order), so a new column may depend on an
                 # earlier new column, as it can at create time.
                 user_cols = user_columns(model)
@@ -157,7 +157,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                     )
                 )
 
-            # All models share `catalog_dir`, hence a single catalog; apply every table's changes in one transaction.
+            # All models share catalog_dir, hence a single catalog; apply every table's changes in one transaction.
             cat = get_runtime().get_catalog(change_sets[0]['path'])
             cat.update_from_model(change_sets)
 

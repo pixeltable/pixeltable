@@ -187,7 +187,7 @@ class TableSchemaChangeSet(TypedDict):
 
     path: catalog.Path
 
-    # name -> (spec, origin). A 'base_query' column comes from the view's base query `select()` list and resolves
+    # name -> (spec, origin). A 'base_query' column comes from the view's base query select() list and resolves
     # against the base table's columns; a 'model_body' column resolves against the view's own visible columns.
     new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]]
     dropped_columns: list[str]
@@ -230,7 +230,7 @@ def prepare_model_updates(
         )
 
     # Base-query columns are projections of the base query and resolve against the base table's columns (which,
-    # for a `select()` view, are not among the view's own visible columns above).
+    # for a select() view, are not among the view's own visible columns above).
     has_base_query_cols = any(origin == 'base_query' for _, origin in new_columns.values())
     base_subst_dict: exprs.ExprDict[exprs.Expr] = exprs.ExprDict()
     if has_base_query_cols:

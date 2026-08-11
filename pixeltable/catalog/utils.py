@@ -1,5 +1,3 @@
-"""Assembly of a table's initial metadata, independent of any catalog object."""
-
 from __future__ import annotations
 
 import itertools
@@ -81,12 +79,12 @@ def validate_idxs(
             new_names.add(idx_name)
 
 
-def generate_idx_name(taken_names: set[str]) -> str:
-    """Generates an index name that is not in `taken_names`."""
+def generate_idx_name(existing_names: set[str]) -> str:
+    """Generates an index name that is not in existing_names."""
     i = 0
     while True:
         name = f'idx{i}'
-        if name not in taken_names:
+        if name not in existing_names:
             return name
         i += 1
 

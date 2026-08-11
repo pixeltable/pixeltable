@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal, TypedDict
 
-# Extends the severities a schema change uses with 'blocked': an operation that `service update` cannot carry
+# Extends the severities a schema change uses with 'blocked': an operation that service update cannot carry
 # out because the database, not the deployment, has to satisfy it. The command that does so is in details.
 # Mirrored by pixeltable_cli.service_types.Severity.
 Severity = Literal['additive', 'destructive', 'unsupported', 'blocked']
