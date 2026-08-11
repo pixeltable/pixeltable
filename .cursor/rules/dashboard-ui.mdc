@@ -1,7 +1,7 @@
 ---
 description: Pixeltable local dashboard UI — follow DESIGN.md theme and UX
 globs: dashboard/**/*
-alwaysApply: false
+alwaysApply: true
 ---
 
 # Local Dashboard UI

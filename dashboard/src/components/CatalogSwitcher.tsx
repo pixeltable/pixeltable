@@ -40,7 +40,6 @@ export function CatalogSwitcher({ activeCatalog, onSelect, collapsed = false }: 
     saveExtraCatalogs(catalogs)
   }, [catalogs])
 
-  // Drop a stale active selection if the saved list no longer contains it.
   useEffect(() => {
     if (activeCatalog !== LOCAL_CATALOG && !catalogs.includes(activeCatalog)) {
       onSelect(LOCAL_CATALOG)
@@ -52,10 +51,7 @@ export function CatalogSwitcher({ activeCatalog, onSelect, collapsed = false }: 
     const onDoc = (e: MouseEvent) => {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
         setOpen(false)
-        setAdding(false)
-        setDraft('')
-        setAddError(null)
-        setAddingBusy(false)
+        cancelAdd()
       }
     }
     document.addEventListener('mousedown', onDoc)
@@ -73,11 +69,6 @@ export function CatalogSwitcher({ activeCatalog, onSelect, collapsed = false }: 
     setAddingBusy(false)
   }
 
-  const handleDraftChange = (v: string) => {
-    setDraft(v)
-    if (addError) setAddError(null)
-  }
-
   const commitAdd = async () => {
     if (addingBusy) return
     const raw = draft.trim()
@@ -85,20 +76,16 @@ export function CatalogSwitcher({ activeCatalog, onSelect, collapsed = false }: 
       cancelAdd()
       return
     }
-
     const uri = normalizeCloudCatalogUri(raw)
     if (uri === null) {
       setAddError(URI_HINT)
       return
     }
-
     setAddingBusy(true)
     setAddError(null)
     try {
       await getDirectoryTree(uri)
-      if (!catalogs.includes(uri)) {
-        setCatalogs(prev => [...prev, uri])
-      }
+      if (!catalogs.includes(uri)) setCatalogs(prev => [...prev, uri])
       onSelect(uri)
       setOpen(false)
       cancelAdd()
@@ -108,86 +95,71 @@ export function CatalogSwitcher({ activeCatalog, onSelect, collapsed = false }: 
     }
   }
 
-  const removeCatalog = (uri: string) => {
-    setCatalogs(prev => prev.filter(c => c !== uri))
-    if (activeCatalog === uri) onSelect(LOCAL_CATALOG)
-  }
-
   const select = (uri: string) => {
     onSelect(uri)
     setOpen(false)
     cancelAdd()
   }
 
-  const startAdd = () => {
-    setAdding(true)
-    setAddError(null)
+  const removeCatalog = (uri: string) => {
+    setCatalogs(prev => prev.filter(c => c !== uri))
+    if (activeCatalog === uri) onSelect(LOCAL_CATALOG)
   }
 
   const isCloud = activeCatalog !== LOCAL_CATALOG
   const Icon = isCloud ? Cloud : HardDrive
-  const draftInvalid = draft.trim() !== '' && normalizeCloudCatalogUri(draft) === null
-
-  const dropdown = open ? (
-    <Dropdown
-      activeCatalog={activeCatalog}
-      catalogs={catalogs}
-      adding={adding}
-      draft={draft}
-      addError={addError}
-      addingBusy={addingBusy}
-      draftInvalid={draftInvalid}
-      inputRef={inputRef}
-      onSelect={select}
-      onRemove={removeCatalog}
-      onStartAdd={startAdd}
-      onDraftChange={handleDraftChange}
-      onCommitAdd={() => { void commitAdd() }}
-      onCancelAdd={cancelAdd}
-      align={collapsed ? 'left' : 'stretch'}
-    />
-  ) : null
-
-  if (collapsed) {
-    return (
-      <div ref={rootRef} className="relative mb-1 flex justify-center">
-        <button
-          type="button"
-          onClick={() => setOpen(o => !o)}
-          title={catalogLabel(activeCatalog)}
-          className={cn(
-            'flex items-center justify-center rounded-lg px-2.5 py-[7px] transition-colors',
-            'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
-            open && 'bg-accent text-foreground ring-1 ring-k-yellow/30',
-          )}
-        >
-          <Icon className="h-[15px] w-[15px]" />
-        </button>
-        {dropdown}
-      </div>
-    )
-  }
+  const invalidDraft = addError !== null || (draft.trim() !== '' && normalizeCloudCatalogUri(draft) === null)
 
   return (
-    <div ref={rootRef} className="relative mb-1 shrink-0">
+    <div ref={rootRef} className={cn('relative mb-1 shrink-0', collapsed && 'flex justify-center')}>
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
+        title={collapsed ? catalogLabel(activeCatalog) : (activeCatalog === LOCAL_CATALOG ? 'Local catalog' : activeCatalog)}
         className={cn(
-          'flex w-full items-center gap-2 rounded-lg border bg-background/40 px-2.5 py-[7px]',
-          'text-[13px] font-medium text-foreground transition-colors',
-          'hover:bg-accent/50',
-          open
-            ? 'border-k-yellow/40 bg-accent/60 ring-1 ring-k-yellow/30'
-            : 'border-border/40',
+          'flex items-center rounded-lg transition-colors',
+          collapsed
+            ? cn(
+                'justify-center px-2.5 py-[7px] text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+                open && 'bg-accent text-foreground ring-1 ring-k-yellow/30',
+              )
+            : cn(
+                'w-full gap-2 border bg-background/40 px-2.5 py-[7px] text-[13px] font-medium text-foreground hover:bg-accent/50',
+                open ? 'border-k-yellow/40 bg-accent/60 ring-1 ring-k-yellow/30' : 'border-border/40',
+              ),
         )}
-        title={activeCatalog === LOCAL_CATALOG ? 'Local catalog' : activeCatalog}
       >
-        <Icon className={cn('h-3.5 w-3.5 shrink-0', isCloud ? 'text-sky-400' : 'text-k-yellow')} />
-        <span className="flex-1 truncate text-left">{catalogLabel(activeCatalog)}</span>
-        <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} />
+        <Icon className={cn(
+          'shrink-0',
+          collapsed ? 'h-[15px] w-[15px]' : cn('h-3.5 w-3.5', isCloud ? 'text-sky-400' : 'text-k-yellow'),
+        )} />
+        {!collapsed && (
+          <>
+            <span className="flex-1 truncate text-left">{catalogLabel(activeCatalog)}</span>
+            <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} />
+          </>
+        )}
       </button>
-      {dropdown}
+
+      {open && (
+        <Dropdown
+          activeCatalog={activeCatalog}
+          catalogs={catalogs}
+          adding={adding}
+          draft={draft}
+          addError={addError}
+          addingBusy={addingBusy}
+          invalidDraft={invalidDraft}
+          inputRef={inputRef}
+          align={collapsed ? 'left' : 'stretch'}
+          onSelect={select}
+          onRemove={removeCatalog}
+          onStartAdd={() => { setAdding(true); setAddError(null) }}
+          onDraftChange={v => { setDraft(v); if (addError) setAddError(null) }}
+          onCommitAdd={() => { void commitAdd() }}
+          onCancelAdd={cancelAdd}
+        />
+      )}
     </div>
   )
 }
@@ -199,15 +171,15 @@ function Dropdown({
   draft,
   addError,
   addingBusy,
-  draftInvalid,
+  invalidDraft,
   inputRef,
+  align,
   onSelect,
   onRemove,
   onStartAdd,
   onDraftChange,
   onCommitAdd,
   onCancelAdd,
-  align = 'stretch',
 }: {
   activeCatalog: string
   catalogs: string[]
@@ -215,21 +187,16 @@ function Dropdown({
   draft: string
   addError: string | null
   addingBusy: boolean
-  draftInvalid: boolean
+  invalidDraft: boolean
   inputRef: RefObject<HTMLInputElement>
+  align: 'stretch' | 'left'
   onSelect: (uri: string) => void
   onRemove: (uri: string) => void
   onStartAdd: () => void
   onDraftChange: (v: string) => void
   onCommitAdd: () => void
   onCancelAdd: () => void
-  align?: 'stretch' | 'left'
 }) {
-  const showError = addError !== null
-  const inputBorder = showError || draftInvalid
-    ? 'border-destructive/50 focus:ring-destructive/30'
-    : 'border-border/40 focus:ring-ring/30'
-
   return (
     <div
       className={cn(
@@ -269,37 +236,29 @@ function Dropdown({
                 if (e.key === 'Escape') onCancelAdd()
               }}
               placeholder="pxt://org:db"
-              aria-invalid={showError || draftInvalid}
+              aria-invalid={invalidDraft}
               className={cn(
                 'h-7 flex-1 rounded border bg-background/50 px-1.5 text-[11px] text-foreground',
                 'placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 disabled:opacity-60',
-                inputBorder,
+                invalidDraft
+                  ? 'border-destructive/50 focus:ring-destructive/30'
+                  : 'border-border/40 focus:ring-ring/30',
               )}
             />
             <button
               type="button"
               disabled={addingBusy}
-              onMouseDown={e => {
-                e.preventDefault()
-                onCommitAdd()
-              }}
+              onMouseDown={e => { e.preventDefault(); onCommitAdd() }}
               title="Add cloud catalog"
               className={cn(
                 'shrink-0 p-1 transition-colors disabled:opacity-50',
-                showError || draftInvalid
-                  ? 'text-destructive/70 hover:text-destructive'
-                  : 'text-muted-foreground/60 hover:text-foreground',
+                invalidDraft ? 'text-destructive/70 hover:text-destructive' : 'text-muted-foreground/60 hover:text-foreground',
               )}
             >
-              {addingBusy
-                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                : <Plus className="h-3.5 w-3.5" />}
+              {addingBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
             </button>
           </div>
-          <p className={cn(
-            'text-[10px] px-0.5 leading-snug',
-            showError ? 'text-destructive' : 'text-muted-foreground',
-          )}>
+          <p className={cn('text-[10px] px-0.5 leading-snug', addError ? 'text-destructive' : 'text-muted-foreground')}>
             {addError ?? URI_HINT}
           </p>
         </div>
