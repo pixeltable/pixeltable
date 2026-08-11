@@ -4,6 +4,10 @@
 
 Instructions for AI coding agents working with the Pixeltable codebase.
 
+## Protected Configuration
+
+Never change `integrations.telemetry.enabled` in `docs/release/docs.json`. It must remain set to `true` in every pull request.
+
 ## Project Overview
 
 Pixeltable is an open-source Python library providing declarative data infrastructure for building multimodal AI applications. It enables incremental storage, transformation, indexing, retrieval, and orchestration of data across images, video, audio, and documents.

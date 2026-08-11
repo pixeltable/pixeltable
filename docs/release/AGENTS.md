@@ -138,7 +138,7 @@ One page owns the full explanation; every other page that touches the topic link
 Sweep the docs for related touchpoints before assuming you're done:
 
 ```bash
-grep -rln "<feature-name>\|<related-keyword>" docs/release --include="*.mdx" --include="*.ipynb"
+rg -l '<feature-name>|<related-keyword>' docs/release -g '*.mdx' -g '*.ipynb'
 ```
 
 Then read each candidate to find the natural insertion point. Common targets:
@@ -171,12 +171,13 @@ Reserve `<Tip>` and `<Card>` callouts for genuinely orthogonal pointers — a tu
 
 ### Frame by function, not by plumbing
 
-Lead the cross-reference with what each feature *does* and how they complement or differ. Don't headline the connection with shared config infrastructure — same YAML key, sibling files in the same directory, same lifecycle.
+Lead the cross-reference with what each feature *does* and how they complement or differ. Don't headline the connection with shared machinery — the same `config.toml` key, both implemented as computed columns, both views over an iterator, sibling modules under `pixeltable/functions/`.
 
 - Good: "X decides A; Y decides B." Contrast on function.
-- Bad: "Y is also configured under the same `agents` key." Contrast on plumbing.
+- Bad: "The media destination is also set in `config.toml`." Contrast on plumbing.
+- Bad: "Embedding indexes, like computed columns, are maintained automatically." Contrast on plumbing.
 
-If the only thing linking two features is that they live in the same key, that's not a cross-reference worth writing. Config mechanics belong on the page that is itself about configuration.
+If the only thing linking two features is shared machinery, that's not a cross-reference worth writing. Implementation and config mechanics belong on the page that is itself about implementation or configuration.
 
 ### Bidirectional links
 
@@ -209,7 +210,7 @@ When adding a new MDX guide or cookbook/tutorial notebook, follow the structure 
 
 ### Page structure
 
-1. **Frontmatter**: `title` and `description` (one sentence starting with a verb). Notebooks also require `icon: "notebook"` and Kaggle/Colab/GitHub links in `description` (see [`GUIDELINES_FOR_NOTEBOOKS.md`](../_guidelines/GUIDELINES_FOR_NOTEBOOKS.md)).
+1. **Frontmatter**: `title` and `description` (one sentence starting with a verb). Notebooks also require `icon: "notebook"` and Kaggle/Colab/GitHub links in `description` (see `docs/_guidelines/GUIDELINES_FOR_NOTEBOOKS.md`).
 2. **Intro paragraph**: One or two sentences explaining what the page covers and when to use it.
 3. **Sections** (`##` / `###`): Mirror the closest existing page of the same type (MDX guide vs cookbook notebook).
 4. **Working examples**: Prefer executable Pixeltable code. In notebooks, keep cells focused; in MDX, use fenced code blocks.
@@ -236,7 +237,7 @@ When a hub page already uses `<CardGroup>` / `<Card>` (for example `docs/release
 
 ## LLM-oriented docs
 
-Mintlify does **not** use Fern's `<llms-only>` / `<llms-ignore>` tags. Mintlify serves `llms.txt` / `llms-full.txt` automatically. Do not invent those Fern tags in Pixeltable docs.
+Mintlify does **not** support `<llms-only>` / `<llms-ignore>` tags. It serves `llms.txt` / `llms-full.txt` automatically. Do not invent those tags in Pixeltable docs.
 
 Write content that works for humans and agents in the normal page body:
 
@@ -258,11 +259,11 @@ See `docs/release/overview/building-pixeltable-with-llms.mdx` for Pixeltable's a
 
 ## Notebooks
 
-Documentation notebooks live under `docs/release/**/*.ipynb`. For notebook how-to (raw-cell YAML frontmatter, no H1 in markdown, Kaggle/Colab/GitHub links, code/markdown conventions, testing checklist), **read and follow** [`docs/_guidelines/GUIDELINES_FOR_NOTEBOOKS.md`](../_guidelines/GUIDELINES_FOR_NOTEBOOKS.md) before editing notebooks. Apply the writing craft in this file to notebook prose.
+Documentation notebooks live under `docs/release/**/*.ipynb`. For notebook how-to (raw-cell YAML frontmatter, no H1 in markdown, Kaggle/Colab/GitHub links, code/markdown conventions, testing checklist), **read and follow** `docs/_guidelines/GUIDELINES_FOR_NOTEBOOKS.md` before editing notebooks. Apply the writing craft in this file to notebook prose.
 
 ## Docstrings
 
-Docstrings live in Python source under `pixeltable/`, not under `docs/release/`. For MDX-safe docstring rules, follow [`docs/_guidelines/GUIDELINES_FOR_DOCSTRINGS.md`](../_guidelines/GUIDELINES_FOR_DOCSTRINGS.md). After docstring edits that affect SDK pages, run `make docs` (or `make docs-serve`).
+Docstrings live in Python source under `pixeltable/`, not under `docs/release/`. For MDX-safe docstring rules, follow `docs/_guidelines/GUIDELINES_FOR_DOCSTRINGS.md`. After docstring edits that affect SDK pages, run `make docs` (or `make docs-serve`).
 
 ## Protected Configuration
 
