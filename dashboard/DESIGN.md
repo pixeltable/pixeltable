@@ -59,9 +59,10 @@ This document locks decisions relative to the pre–[#1494](https://github.com/p
 ## Information architecture
 
 ```
-Header (logo, version, home)
-Search / Lineage
+Header: brand left | Search + Lineage icons right    ← stacked icons when collapsed
+──────────────── hairline ──────────────────────────  ← same as footer (border-t)
 Catalog switcher (Local | cloud URIs | Add cloud…)   ← sticky
+Filter… + Collapse all (when tree ≥ 10 nodes)        ← sticky under switcher
 Directory tree (active catalog only)                 ← scroll
 ──────────────── hairline ──────────────────────────
 Docs / Feedback / Theme                              ← sticky footer
@@ -125,7 +126,7 @@ Do **not** use square-letter KindBadge glyphs in the tree.
 
 | Concern | Source of truth |
 |---------|-----------------|
-| Tree icons + `vN` | [`src/components/DirectoryTree.tsx`](src/components/DirectoryTree.tsx) — colored `getNodeIcon`; `vN` when version exists; no KindBadge |
+| Tree icons + `vN` | [`src/components/DirectoryTree.tsx`](src/components/DirectoryTree.tsx) — `DirectoryTreePanel`: sticky Filter/Collapse; colored `getNodeIcon`; `vN` when version exists; no KindBadge |
 | Catalog switcher | [`src/components/CatalogSwitcher.tsx`](src/components/CatalogSwitcher.tsx) |
 | Catalog persistence | [`src/lib/utils.ts`](src/lib/utils.ts) (`pxt-catalogs` / active catalog) |
 | Column type colors | [`src/lib/column-types.tsx`](src/lib/column-types.tsx) — media AA light/dark; quiet scalars; collapsed chip parity |

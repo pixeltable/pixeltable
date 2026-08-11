@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelHandle } from 'react-resizable-panels'
 import { Routes, Route, useNavigate, useParams, useLocation } from 'react-router-dom'
-import { DirectoryTree } from '@/components/DirectoryTree'
+import { DirectoryTreePanel } from '@/components/DirectoryTree'
 import { CatalogSwitcher } from '@/components/CatalogSwitcher'
 import { TableDetailView } from '@/components/TableDetailView'
 import { SearchPanel } from '@/components/SearchPanel'
@@ -297,7 +297,8 @@ export default function App() {
   const [treeReload, setTreeReload] = useState(0)
   const [connOpen, setConnOpen] = useState(false)
   const [connPos, setConnPos] = useState<{ top: number; left: number } | null>(null)
-  const headerRef = useRef<HTMLDivElement>(null)
+  /** Brand/home hit target only — not Search/Lineage. */
+  const brandRef = useRef<HTMLButtonElement>(null)
   const connCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const openConnection = () => {
@@ -305,10 +306,10 @@ export default function App() {
       clearTimeout(connCloseTimer.current)
       connCloseTimer.current = null
     }
-    const el = headerRef.current
+    const el = brandRef.current
     if (!el) return
     const r = el.getBoundingClientRect()
-    setConnPos({ top: r.bottom - 1, left: r.left + 8 })
+    setConnPos({ top: r.bottom - 1, left: r.left })
     setConnOpen(true)
   }
 
@@ -411,14 +412,20 @@ export default function App() {
           onExpand={() => setSidebarOpen(true)}
           className="flex flex-col border-r border-border/60 bg-card/40"
         >
-        {/* Header: logo + connection (popover portaled — escapes sidebar overflow/stacking) */}
+        {/* Header: brand left (connection hover); Search + Lineage right (no connection hover) */}
         <div
-          ref={headerRef}
-          className={cn('relative shrink-0 px-3 pt-3 pb-2', !sidebarOpen && 'flex justify-center pt-3 pb-2')}
-          onMouseEnter={() => { if (sidebarOpen && status?.config) openConnection() }}
-          onMouseLeave={scheduleCloseConnection}
+          className={cn(
+            'relative shrink-0 px-3 pt-3 pb-2',
+            sidebarOpen ? 'flex items-start justify-between gap-1' : 'flex flex-col items-center pt-3 pb-2',
+          )}
         >
-          <button onClick={() => navigate('/')} className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
+          <button
+            ref={brandRef}
+            onClick={() => navigate('/')}
+            className="flex min-w-0 items-center gap-2.5 hover:opacity-80 transition-opacity"
+            onMouseEnter={() => { if (sidebarOpen && status?.config) openConnection() }}
+            onMouseLeave={scheduleCloseConnection}
+          >
             <img src="/logo.png?v=3" alt="Pixeltable" className="h-7 w-7 shrink-0 rounded-lg" />
             {sidebarOpen && (
               <div className="flex flex-col min-w-0">
@@ -437,6 +444,53 @@ export default function App() {
               </div>
             )}
           </button>
+          {sidebarOpen ? (
+            <div className="flex shrink-0 items-center gap-0.5 pt-0.5">
+              <button
+                onClick={() => setSearchOpen(true)}
+                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
+                title="Search (⌘K)"
+                aria-label="Search"
+              >
+                <Search className="h-[15px] w-[15px]" />
+              </button>
+              <button
+                onClick={() => navigate('/lineage')}
+                className={cn(
+                  'flex h-7 w-7 items-center justify-center rounded-md transition-colors',
+                  isNavActive('/lineage')
+                    ? 'bg-accent text-foreground'
+                    : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+                )}
+                title="Lineage"
+                aria-label="Lineage"
+              >
+                <GitBranch className="h-[15px] w-[15px]" />
+              </button>
+            </div>
+          ) : (
+            <div className="mt-1 flex flex-col items-center gap-0.5">
+              <button
+                onClick={() => setSearchOpen(true)}
+                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
+                title="Search (⌘K)"
+              >
+                <Search className="h-[15px] w-[15px]" />
+              </button>
+              <button
+                onClick={() => navigate('/lineage')}
+                className={cn(
+                  'flex h-7 w-7 items-center justify-center rounded-md transition-colors',
+                  isNavActive('/lineage')
+                    ? 'bg-accent text-foreground'
+                    : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+                )}
+                title="Lineage"
+              >
+                <GitBranch className="h-[15px] w-[15px]" />
+              </button>
+            </div>
+          )}
           {sidebarOpen && status?.config && connOpen && connPos && createPortal(
             <div
               className="fixed z-[200] min-w-[280px] max-w-sm"
@@ -474,50 +528,9 @@ export default function App() {
           )}
         </div>
 
-        {/* Navigation */}
-        <nav className="flex flex-1 flex-col px-2 pt-1 min-h-0 overflow-hidden">
-          {/* Search button */}
-          {sidebarOpen ? (
-            <button
-              onClick={() => setSearchOpen(true)}
-              className="flex items-center gap-2.5 w-full rounded-lg px-2.5 py-[7px] mb-1 text-[13px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
-            >
-              <Search className="h-[15px] w-[15px] shrink-0" />
-              <span className="flex-1 text-left">Search…</span>
-              <kbd className="text-[11px] bg-accent px-1.5 py-0.5 rounded border border-border/60 text-muted-foreground">⌘K</kbd>
-            </button>
-          ) : (
-            <button
-              onClick={() => setSearchOpen(true)}
-              className="flex items-center justify-center rounded-lg px-2.5 py-[7px] mb-1 text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
-              title="Search (⌘K)"
-            >
-              <Search className="h-[15px] w-[15px]" />
-            </button>
-          )}
-
-          {/* Lineage nav */}
-          <button
-            onClick={() => navigate('/lineage')}
-            className={cn(
-              'group flex items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] font-medium transition-colors',
-              sidebarOpen ? '' : 'justify-center',
-              isNavActive('/lineage')
-                ? 'bg-accent text-foreground'
-                : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
-            )}
-            title={sidebarOpen ? undefined : 'Lineage'}
-          >
-            <GitBranch className="h-[15px] w-[15px] shrink-0" />
-            {sidebarOpen && <span>Lineage</span>}
-          </button>
-
-          {/* Divider */}
-          <div className={cn('my-1', sidebarOpen ? 'mx-2.5' : 'mx-1')}>
-            <div className="h-px bg-border/40" />
-          </div>
-
-          {/* Sticky catalog switcher (Local / Cloud) — outside the scroll region */}
+        {/* Navigation: hairline under header (same language as footer) */}
+        <nav className="flex min-h-0 flex-1 flex-col overflow-hidden border-t border-border/40 px-2 pt-1.5">
+          {/* Sticky catalog switcher (Local / Cloud) */}
           <CatalogSwitcher
             activeCatalog={activeCatalog}
             onSelect={handleCatalogSelect}
@@ -525,33 +538,31 @@ export default function App() {
             onExpandRequest={() => sidebarPanelRef.current?.expand()}
           />
 
-          {/* Directory tree for the active catalog only */}
-          <div className="flex-1 overflow-y-auto min-h-0">
-            {loading ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="w-5 h-5 border-2 border-k-yellow border-t-transparent rounded-full animate-spin" />
+          {/* Filter sticky under switcher; tree scrolls inside the panel */}
+          {loading ? (
+            <div className="flex flex-1 items-center justify-center py-8">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-k-yellow border-t-transparent" />
+            </div>
+          ) : treeError ? (
+            sidebarOpen ? (
+              <div className="flex-1 space-y-2 overflow-y-auto px-2 py-3">
+                <div className="break-words text-[11px] text-destructive">{treeError}</div>
+                <button
+                  type="button"
+                  onClick={() => setTreeReload(n => n + 1)}
+                  className="text-[11px] font-medium text-foreground underline-offset-2 hover:underline"
+                >
+                  Retry
+                </button>
               </div>
-            ) : treeError ? (
-              sidebarOpen ? (
-                <div className="px-2 py-3 space-y-2">
-                  <div className="text-[11px] text-destructive break-words">{treeError}</div>
-                  <button
-                    type="button"
-                    onClick={() => setTreeReload(n => n + 1)}
-                    className="text-[11px] font-medium text-foreground underline-offset-2 hover:underline"
-                  >
-                    Retry
-                  </button>
-                </div>
-              ) : null
-            ) : sidebarOpen ? (
-              <DirectoryTree
-                nodes={tree}
-                selectedPath={selectedPath}
-                onSelect={handleSelectItem}
-              />
-            ) : null}
-          </div>
+            ) : null
+          ) : sidebarOpen ? (
+            <DirectoryTreePanel
+              nodes={tree}
+              selectedPath={selectedPath}
+              onSelect={handleSelectItem}
+            />
+          ) : null}
         </nav>
 
         {/* ── Sidebar Footer ─────────────────────────────────────────── */}
