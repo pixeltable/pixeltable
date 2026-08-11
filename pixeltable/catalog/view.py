@@ -19,9 +19,9 @@ from .local_table import LocalTable
 from .metadata_types import ColumnVersionMd, TableVersionMd
 from .table_path import TablePath, TableVersionPath
 from .table_version_handle import TableVersionHandle
-from .table_version_md import create_table_version_md
 from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, LoadViewOp, TableOp, TableOpsBuilder
 from .update_status import UpdateStatus
+from .utils import create_table_version_md
 
 if TYPE_CHECKING:
     from pixeltable._query import Query

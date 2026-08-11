@@ -21,7 +21,7 @@ from ..globals import MediaValidation, col_type_from_spec, is_valid_identifier
 from ..metadata_types import TableVersionMd
 from ..table import Table
 from ..table_version_handle import TableVersionHandle
-from ..table_version_md import create_table_version_md
+from ..utils import create_table_version_md
 
 if TYPE_CHECKING:
     import pixeltable as pxt
