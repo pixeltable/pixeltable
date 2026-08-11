@@ -10,8 +10,11 @@ Before editing files under `dashboard/`, read and follow [`dashboard/DESIGN.md`]
 
 ## Required
 
-- Preserve the established theme: colored Lucide kind icons, yellow folders/accents, green healthy connection status, semantic type colors.
+- Preserve the established theme: colored Lucide kind icons, yellow folders/accents, green healthy connection status; type color is **media-only** in main content (quiet scalar badges).
+- Object headers: Lucide + kind word (`Table`/`View`/…); inspector pane is one `bg-card` surface (no grey title band).
 - Catalog chrome: sticky Local/Cloud switcher above the scroll region; one active catalog tree.
+- App utilities (Docs / Feedback / theme) in the sidebar footer above Collapse, separated from the tree by a hairline — no main-panel top utility bar.
+- Lineage DetailPanel: no yellow/tan promo CTA; yellow reserved for Zap/UDF.
 - Show sidebar `vN` when `version !== null`.
 - Keep WCAG AA muted-foreground contrast; do not use a11y as a reason to strip semantic color.
 
@@ -19,6 +22,7 @@ Before editing files under `dashboard/`, read and follow [`dashboard/DESIGN.md`]
 
 - KindBadge T/V/S/R as the primary kind language (do not combine with Lucide icons).
 - `+ Add catalog` buried inside the scrolling directory tree / stacked multi-root forest as default chrome.
+- Rainbow scalar type badges or repeating computed/iterator icons on data-grid headers.
 - Silent visual redesigns or one-off themes that diverge from DESIGN.md.
 
 If you propose a departure, state it explicitly and justify against DESIGN.md.

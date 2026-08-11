@@ -24,9 +24,16 @@ interface CatalogSwitcherProps {
   activeCatalog: string
   onSelect: (uri: string) => void
   collapsed?: boolean
+  /** When collapsed, trigger expands the sidebar instead of opening a cramped menu. */
+  onExpandRequest?: () => void
 }
 
-export function CatalogSwitcher({ activeCatalog, onSelect, collapsed = false }: CatalogSwitcherProps) {
+export function CatalogSwitcher({
+  activeCatalog,
+  onSelect,
+  collapsed = false,
+  onExpandRequest,
+}: CatalogSwitcherProps) {
   const [catalogs, setCatalogs] = useState<string[]>(loadExtraCatalogs)
   const [open, setOpen] = useState(false)
   const [adding, setAdding] = useState(false)
@@ -68,6 +75,15 @@ export function CatalogSwitcher({ activeCatalog, onSelect, collapsed = false }: 
     setAddError(null)
     setAddingBusy(false)
   }
+
+  useEffect(() => {
+    if (!collapsed) return
+    setOpen(false)
+    setAdding(false)
+    setDraft('')
+    setAddError(null)
+    setAddingBusy(false)
+  }, [collapsed])
 
   const commitAdd = async () => {
     if (addingBusy) return
@@ -114,15 +130,18 @@ export function CatalogSwitcher({ activeCatalog, onSelect, collapsed = false }: 
     <div ref={rootRef} className={cn('relative mb-1 shrink-0', collapsed && 'flex justify-center')}>
       <button
         type="button"
-        onClick={() => setOpen(o => !o)}
-        title={collapsed ? catalogLabel(activeCatalog) : (activeCatalog === LOCAL_CATALOG ? 'Local catalog' : activeCatalog)}
+        onClick={() => {
+          if (collapsed) {
+            onExpandRequest?.()
+            return
+          }
+          setOpen(o => !o)
+        }}
+        title={collapsed ? `Expand sidebar · ${catalogLabel(activeCatalog)}` : (activeCatalog === LOCAL_CATALOG ? 'Local catalog' : activeCatalog)}
         className={cn(
           'flex items-center rounded-lg transition-colors',
           collapsed
-            ? cn(
-                'justify-center px-2.5 py-[7px] text-muted-foreground hover:bg-accent/50 hover:text-foreground',
-                open && 'bg-accent text-foreground ring-1 ring-k-yellow/30',
-              )
+            ? 'justify-center px-2.5 py-[7px] text-muted-foreground hover:bg-accent/50 hover:text-foreground'
             : cn(
                 'w-full gap-2 border bg-background/40 px-2.5 py-[7px] text-[13px] font-medium text-foreground hover:bg-accent/50',
                 open ? 'border-k-yellow/40 bg-accent/60 ring-1 ring-k-yellow/30' : 'border-border/40',
@@ -151,7 +170,6 @@ export function CatalogSwitcher({ activeCatalog, onSelect, collapsed = false }: 
           addingBusy={addingBusy}
           invalidDraft={invalidDraft}
           inputRef={inputRef}
-          align={collapsed ? 'left' : 'stretch'}
           onSelect={select}
           onRemove={removeCatalog}
           onStartAdd={() => { setAdding(true); setAddError(null) }}
@@ -173,7 +191,6 @@ function Dropdown({
   addingBusy,
   invalidDraft,
   inputRef,
-  align,
   onSelect,
   onRemove,
   onStartAdd,
@@ -189,7 +206,6 @@ function Dropdown({
   addingBusy: boolean
   invalidDraft: boolean
   inputRef: RefObject<HTMLInputElement>
-  align: 'stretch' | 'left'
   onSelect: (uri: string) => void
   onRemove: (uri: string) => void
   onStartAdd: () => void
@@ -198,12 +214,7 @@ function Dropdown({
   onCancelAdd: () => void
 }) {
   return (
-    <div
-      className={cn(
-        'absolute z-50 mt-1 rounded-lg border border-border/60 bg-card shadow-lg py-1',
-        align === 'stretch' ? 'left-0 right-0' : 'left-0 min-w-[220px]',
-      )}
-    >
+    <div className="absolute z-50 mt-1 left-0 right-0 rounded-lg border border-border/60 bg-card shadow-lg py-1">
       <CatalogRow
         label="Local"
         icon={<HardDrive className="h-3.5 w-3.5 text-k-yellow shrink-0" />}

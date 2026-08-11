@@ -248,9 +248,12 @@ function DetailPanel({
             ) : (
               <Table2 className="h-4 w-4 text-blue-400 shrink-0" />
             )}
+            <span className="text-[11px] font-medium text-muted-foreground shrink-0">
+              {node.is_view ? 'View' : 'Table'}
+            </span>
             <h3 className="text-sm font-semibold truncate">{node.name}</h3>
           </div>
-          <div className="flex items-center gap-2 mt-1 ml-6">
+          <div className="flex items-center gap-2 mt-1">
             <button
               className="text-xs text-foreground hover:underline font-mono flex items-center gap-1"
               onClick={() => onViewTable(node.path)}
@@ -292,9 +295,9 @@ function DetailPanel({
         <div className="px-5 py-3 border-b border-border">
           <button
             onClick={onShowColumnFlow}
-            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-k-yellow/20 bg-k-yellow/5 hover:bg-k-yellow/10 transition-colors text-left group"
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-border/40 bg-muted/20 hover:bg-accent/50 transition-colors text-left group"
           >
-            <GitBranch className="h-4 w-4 text-foreground shrink-0" />
+            <GitBranch className="h-4 w-4 text-muted-foreground group-hover:text-foreground shrink-0" />
             <div className="min-w-0 flex-1">
               <div className="text-[11px] font-semibold text-foreground">Column Data Flow</div>
               <div className="text-[11px] text-muted-foreground">Visualize column dependencies</div>
