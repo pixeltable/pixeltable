@@ -33,8 +33,7 @@ Media: bridge selects `.fileurl` for media columns and rewrites `file://` to the
 | `api/client.ts` | Typed fetch wrappers (`getDirectoryTree`, meta/data/search/pipeline/status) |
 | `types/index.ts` | TS interfaces matching API shapes |
 | `hooks/useDebounce.ts` | Debounce for search / filters |
-| `lib/catalogs.ts` | `LOCAL_CATALOG`, `pxt-catalogs` / active-catalog localStorage |
-| `lib/utils.ts` | `cn()` class merge |
+| `lib/utils.ts` | `cn()`, path hrefs, multi-catalog localStorage helpers |
 | `lib/column-types.tsx` | Column type → icon/color map |
 | `lib/func-styles.ts` | Computed-function kind accents (UDF / query / iterator) |
 | `lib/python-highlight.tsx` | Python syntax highlighter |

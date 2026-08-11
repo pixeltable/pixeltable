@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
-import { cn } from '@/lib/utils'
-import { getDirectoryTree } from '@/api/client'
 import {
+  cn,
   LOCAL_CATALOG,
   catalogLabel,
   loadExtraCatalogs,
   normalizeCloudCatalogUri,
   saveExtraCatalogs,
-} from '@/lib/catalogs'
+} from '@/lib/utils'
+import { getDirectoryTree } from '@/api/client'
 import {
   Check,
   ChevronDown,

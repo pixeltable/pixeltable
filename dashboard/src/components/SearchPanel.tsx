@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { search } from '@/api/client'
-import { loadExtraCatalogs } from '@/lib/catalogs'
 import { useDebounce } from '@/hooks/useDebounce'
-import { cn } from '@/lib/utils'
+import { cn, loadExtraCatalogs } from '@/lib/utils'
 import type { SearchResults } from '@/types'
 import {
   Search,

@@ -9,11 +9,7 @@ import { PipelineInspector } from '@/components/PipelineInspector'
 import { getDirectoryTree, getStatus } from '@/api/client'
 import type { SystemStatus } from '@/api/client'
 import type { TableNode, TreeNode } from '@/types'
-import { cn, tableHref, dirHref } from '@/lib/utils'
-import {
-  loadActiveCatalog,
-  saveActiveCatalog,
-} from '@/lib/catalogs'
+import { cn, tableHref, dirHref, loadActiveCatalog, saveActiveCatalog } from '@/lib/utils'
 import {
   Search,
   GitBranch,

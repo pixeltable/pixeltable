@@ -105,7 +105,7 @@ Do **not** use square-letter KindBadge glyphs in the tree.
 |---------|-----------------|
 | Tree icons + `vN` | [`src/components/DirectoryTree.tsx`](src/components/DirectoryTree.tsx) — colored `getNodeIcon`; `vN` when version exists; no KindBadge |
 | Catalog switcher | [`src/components/CatalogSwitcher.tsx`](src/components/CatalogSwitcher.tsx) |
-| Catalog persistence | [`src/lib/catalogs.ts`](src/lib/catalogs.ts) |
+| Catalog persistence | [`src/lib/utils.ts`](src/lib/utils.ts) (`pxt-catalogs` / active catalog) |
 | Column type colors | [`src/lib/column-types.tsx`](src/lib/column-types.tsx) |
 | Func accents | [`src/lib/func-styles.ts`](src/lib/func-styles.ts) |
 | Shell / routing | [`src/App.tsx`](src/App.tsx) |
