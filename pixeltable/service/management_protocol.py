@@ -52,12 +52,12 @@ _HOSTED_NAME_MAX_LEN = 29
 def _validate_hosted_name(value: str, kind: str) -> str:
     if len(value) > _HOSTED_NAME_MAX_LEN:
         raise ValueError(f'{kind} must be at most {_HOSTED_NAME_MAX_LEN} characters (got {len(value)})')
-    # fullmatch, not match: match() anchors only the start, and `$` matches before a trailing newline,
-    # so 'main\n' would pass and then corrupt URI / namespace construction downstream.
+    # fullmatch anchors both ends; match() + `$` would let a trailing newline
+    # through ('main\n'), which corrupts the URI we build from this downstream.
     if not _HOSTED_NAME_RE.fullmatch(value):
         raise ValueError(
-            f'{kind} {value!r} is invalid: use only lowercase letters, digits, and hyphens, and start and end '
-            'with a letter or digit (no underscores, uppercase, spaces, or dots).'
+            f'{kind} {value!r} is invalid: use only lowercase letters, digits, and hyphens, '
+            'starting and ending with a letter or digit.'
         )
     return value
 
@@ -66,8 +66,6 @@ class CreateDbRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.CREATE_DB] = ServiceOperationType.CREATE_DB
     org: Optional[str] = None
     db: str
-    # db_name is a human-facing display label (defaults to `db`); the identifier used in URIs,
-    # namespaces, and PlanetScale is `db`, so db_name is intentionally not name-validated.
     db_name: Optional[str] = None
     location: Optional[str] = None
     region: Optional[str] = None
@@ -96,7 +94,7 @@ class UpdateDbRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.UPDATE_DB] = ServiceOperationType.UPDATE_DB
     org: Optional[str] = None
     db: str
-    db_name: Optional[str] = None  # display label only (see CreateDbRequest.db_name); not the URI identifier
+    db_name: Optional[str] = None
     default_bucket: Optional[str] = None
     workers: Optional[int] = None
     cpu: Optional[float] = None
