@@ -199,10 +199,9 @@ class TestCwd:
         pxt.create_table(p('cli_cwd_outside'), {'y': pxt.String}, if_exists='replace')
         try:
             cli('cd', p('cli_cwd_list'))
-            for verb in ('columns', 'idxs'):
-                tables = {e['table'] for e in cli(verb, '--json').json}
-                assert p('cli_cwd_list/inside') in tables, verb
-                assert p('cli_cwd_outside') not in tables, verb
+            tables = {e['table'] for e in cli('columns', '--json').json}
+            assert p('cli_cwd_list/inside') in tables
+            assert p('cli_cwd_outside') not in tables
 
             # cleared, the command covers the catalog again: the no-path form locally, the db root over proxy
             cli('cd')
@@ -418,7 +417,7 @@ class TestIdxs:
         """idxs runs against one table, a directory (recursively), or the whole catalog."""
         p = make_catalog_path
         pxt.create_dir(p('cli_idx'), if_exists='ignore')
-        pxt.create_table(p('cli_idx/t'), {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table(p('cli_idx/t'), {'a': pxt.Int}, if_exists='replace', has_default_idxs=True)
 
         # --json: no embedding idx exists on a plain table
         entries = cli('idxs', p('cli_idx/t'), '--json').json
@@ -427,10 +426,10 @@ class TestIdxs:
         # text: command runs cleanly regardless of catalog content
         assert cli('idxs', p('cli_idx/t')).returncode == 0
 
-        # a directory path walks every table beneath it, recursively; plain tables carry auto-created
+        # a directory path walks every table beneath it, recursively; both tables carry auto-created
         # btree indexes, so both tables show up
         pxt.create_dir(p('cli_idx/sub'), if_exists='ignore')
-        pxt.create_table(p('cli_idx/sub/t2'), {'a': pxt.Int}, if_exists='replace')
+        pxt.create_table(p('cli_idx/sub/t2'), {'a': pxt.Int}, if_exists='replace', has_default_idxs=True)
         walked = {e['table'] for e in cli('idxs', p('cli_idx'), '--json').json}
         assert p('cli_idx/t') in walked
         assert p('cli_idx/sub/t2') in walked

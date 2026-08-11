@@ -248,6 +248,13 @@ class TableProxy(Table):
         bound_args['type_'] = ts.ColumnType.normalize_type(type_, nullable_default=True, allow_builtin_types=False)
         self._dispatch('alter_column', bound_args)
 
+    def add_btree_index(
+        self, column: str | ColumnRef, *, idx_name: str | None = None, if_exists: Literal['error', 'ignore'] = 'error'
+    ) -> None:
+        bound_args = self._dispatch_args(locals())
+        self._check_mutable('add an index to')
+        self._dispatch('add_btree_index', bound_args)
+
     def add_embedding_index(
         self,
         column: str | ColumnRef,

@@ -250,6 +250,9 @@ class TableMd:
     # TODO when the catalog migration happens, let's backfill and get rid of the default.
     is_data_versioned: bool = True
 
+    # Indicates if default b-tree indexes are enabled for this table.
+    has_default_idxs: bool | None = None
+
     @property
     def is_snapshot(self) -> bool:
         return self.view_md is not None and self.view_md.is_snapshot

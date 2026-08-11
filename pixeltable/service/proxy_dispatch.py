@@ -452,6 +452,11 @@ def _alter_column(request: ProxyRequest, tbl: LocalTable) -> None:
     tbl.alter_column(kwargs['column'], type_=kwargs['type_'])
 
 
+def _add_btree_index(request: ProxyRequest, tbl: LocalTable) -> None:
+    kwargs = _deserialize_args(request)
+    tbl.add_btree_index(kwargs['column'], idx_name=kwargs['idx_name'], if_exists=kwargs['if_exists'])
+
+
 def _add_embedding_index(request: ProxyRequest, tbl: LocalTable) -> None:
     kwargs = _deserialize_args(request)
     tbl.add_embedding_index(
@@ -601,6 +606,7 @@ _MUTATION_METHODS: frozenset[str] = frozenset(
         'add_computed_column',
         'drop_column',
         'rename_column',
+        'add_btree_index',
         'add_embedding_index',
         'drop_embedding_index',
         'drop_index',
@@ -631,6 +637,7 @@ _TABLE_HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest, 'LocalTable'], An
     ('Table', 'add_computed_column'): _add_computed_column,
     ('Table', 'drop_column'): _drop_column,
     ('Table', 'rename_column'): _rename_column,
+    ('Table', 'add_btree_index'): _add_btree_index,
     ('Table', 'add_embedding_index'): _add_embedding_index,
     ('Table', 'drop_embedding_index'): _drop_embedding_index,
     ('Table', 'drop_index'): _drop_index,
