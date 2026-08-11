@@ -8,7 +8,6 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-from pixeltable.catalog.model import Column, EmbeddingIndex
 
 from .utils import assert_resultset_eq, capture_console_output, dummy_embedding, schema_from_tbl_md
 
@@ -34,16 +33,16 @@ class TestTableModel2:
             descr = pxtf.string.format('Name: {name}', name=name)
 
             # Test all the custom `Column` properties
-            column_with_special_props = Column(
+            column_with_special_props = pxt.Column(
                 type=pxt.Video,
                 media_validation='on_read',
                 custom_metadata={'chicken': 'eggs'},
                 comment='This is a column with special properties',
             )
-            computed_with_special_props = Column(value=(value / 3), stored=False)
-            computed_with_special_props_2 = Column(value=img.rotate(90))
+            computed_with_special_props = pxt.Column(value=(value / 3), stored=False)
+            computed_with_special_props_2 = pxt.Column(value=img.rotate(90))
 
-            clip_idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
+            clip_idx = pxt.EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
 
         expected_path = f'{p("")}/test_table'.lstrip('/')
 

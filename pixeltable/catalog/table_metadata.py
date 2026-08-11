@@ -37,7 +37,11 @@ class ColumnMetadata(TypedDict):
     is_iterator_col: bool
     """`True` if this column is produced by an iterator (only applicable to views)."""
     destination: str | None
-    """An object store reference for computed files, if one is configured."""
+    """An object store destination for computed files, if one is configured.
+
+    A destination declared as a config var reads as '$<name>' rather than as the location it currently
+    resolves to.
+    """
 
 
 class EmbeddingIndexParams(TypedDict):

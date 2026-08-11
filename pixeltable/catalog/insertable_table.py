@@ -13,9 +13,10 @@ from pixeltable.utils.filecache import FileCache
 from .column import Column
 from .globals import IndexSpec, MediaValidation, OnErrorParam
 from .local_table import LocalTable
+from .metadata_types import TableVersionMd
 from .table_path import TableVersionPath
-from .table_version import TableVersion, TableVersionMd
 from .table_version_handle import TableVersionHandle
+from .table_version_md import create_table_version_md
 from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, TableOp, TableOpsBuilder
 from .update_status import UpdateStatus
 
@@ -76,7 +77,7 @@ class InsertableTable(LocalTable):
             for spec in additional_idxs
         ]
 
-        md = TableVersion.create_initial_md(
+        md = create_table_version_md(
             tbl_id,
             name,
             columns,

@@ -11,7 +11,6 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
-from pixeltable.catalog.model import EmbeddingIndex
 from pixeltable.utils.fault_injection import FaultLocation
 
 from .coordinator import MultiThreadedScenario
@@ -153,7 +152,7 @@ class TestConcurrentModelUpdate:
         class BaseV2(TM2, name='test_table'):
             id: pxt.Required[pxt.Int]
             text: pxt.String
-            ix = EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))
+            ix = pxt.EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))
 
         if family == 'update_all':
             TMc = pxt.model_base()
@@ -161,7 +160,7 @@ class TestConcurrentModelUpdate:
             class BaseC(TMc, name='test_table'):
                 id: pxt.Required[pxt.Int]
                 text: pxt.String
-                ix = EmbeddingIndex(text, embedding=dummy_embedding.using(n=512))
+                ix = pxt.EmbeddingIndex(text, embedding=dummy_embedding.using(n=512))
 
             concurrent = lambda: TMc.update_all(ROOT)
         else:
@@ -314,7 +313,7 @@ class TestConcurrentModelUpdate:
         class BaseV2(TM2, name='test_table'):
             id: pxt.Required[pxt.Int]
             text: pxt.String
-            ix = EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))
+            ix = pxt.EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))
 
         if family == 'update_all':
             TMc = pxt.model_base()
@@ -372,7 +371,7 @@ class TestConcurrentModelUpdate:
         class Base(TM, name='test_table'):
             id: pxt.Required[pxt.Int]
             text: pxt.String
-            ix = EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))
+            ix = pxt.EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))
 
         TM.create_all(ROOT)
         Base.insert([{'id': 1, 'text': 'one'}, {'id': 2, 'text': 'two'}])
@@ -484,7 +483,7 @@ class TestConcurrentModelUpdate:
         class Base(TM, name='test_table'):
             id: pxt.Required[pxt.Int]
             text: pxt.String
-            ix = EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))
+            ix = pxt.EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))
 
         class View(TM, name='test_view', base=Base):
             vc1 = Base.id + 1
@@ -852,7 +851,7 @@ class TestConcurrentModelUpdate:
                 id: pxt.Required[pxt.Int]
                 value: pxt.Float
                 text: pxt.String
-                ix = EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))
+                ix = pxt.EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))
 
             concurrent = lambda: TMc.update_all(ROOT)
         else:

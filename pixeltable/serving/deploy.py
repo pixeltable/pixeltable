@@ -15,7 +15,7 @@ from pathspec import PathSpec
 
 from pixeltable import config, exceptions as excs, metadata
 from pixeltable.env import Env
-from pixeltable.serving._config import lookup_database_runtime_config
+from pixeltable.serving._config import lookup_database_config
 
 _logger = logging.getLogger(__name__)
 
@@ -97,7 +97,7 @@ def _export_conda_env() -> bytes | None:
     return ''.join(filtered).encode('utf-8')
 
 
-def _load_database_runtime_config(project_dir: Path) -> config.DatabaseRuntimeConfig | None:
+def _load_database_config(project_dir: Path) -> config.DatabaseConfig | None:
     """Read [pixeltable.database] config from project_dir/pixeltable.toml; fall back to Config singleton."""
     toml_path = project_dir / 'pixeltable.toml'
     if toml_path.is_file():
@@ -110,12 +110,12 @@ def _load_database_runtime_config(project_dir: Path) -> config.DatabaseRuntimeCo
         db_raw = parsed.get('pixeltable', {}).get('database')
         if db_raw is not None:
             try:
-                return config.DatabaseRuntimeConfig.model_validate(db_raw)
+                return config.DatabaseConfig.model_validate(db_raw)
             except Exception as e:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid [pixeltable.database] configuration: {e}'
                 ) from e
-    return lookup_database_runtime_config()
+    return lookup_database_config()
 
 
 def __add_tarfile(tf: tarfile.TarFile, name: str, content: bytes) -> None:
@@ -146,7 +146,7 @@ def build_db_runtime_bundle(project_dir: Path | None = None) -> Path:
     if not project_dir.is_dir():
         raise FileNotFoundError(f'Project directory does not exist: {project_dir}')
 
-    runtime_cfg = _load_database_runtime_config(project_dir)
+    runtime_cfg = _load_database_config(project_dir)
     include = runtime_cfg.include if runtime_cfg else None
     exclude = runtime_cfg.exclude if runtime_cfg else None
     system_dependencies: list[str] = (runtime_cfg.system_dependencies or []) if runtime_cfg else []

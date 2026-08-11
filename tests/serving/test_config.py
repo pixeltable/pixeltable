@@ -6,7 +6,7 @@ import sys
 import tempfile
 import textwrap
 import types
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import pytest
@@ -21,7 +21,15 @@ from tests.utils import skip_test_if_not_installed
 
 
 class TestConfig:
-    def test_load_valid_config(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    @pytest.fixture(autouse=True)
+    def restore_config(self) -> Iterator[None]:
+        """Rebuild the Config singleton after a test that repointed PIXELTABLE_CONFIG at its own file."""
+        yield
+        config.Config.init(reinit=True)
+
+    def test_load_valid_config(
+        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Load a valid TOML config, create an app, and exercise the routes via TestClient."""
         skip_test_if_not_installed('fastapi')
         from fastapi.testclient import TestClient
@@ -83,7 +91,8 @@ class TestConfig:
             config_path = fp.name
 
         try:
-            config.Config.get().init({}, additional_config_files=[config_path], reinit=True)
+            monkeypatch.setenv('PIXELTABLE_CONFIG', config_path)
+            config.Config.init(reinit=True)
             services = config.Config.get().get_value('service', list[config.ServiceConfig])
             assert len(services) == 1
             cfg = services[0]
@@ -133,7 +142,9 @@ class TestConfig:
         finally:
             os.unlink(config_path)
 
-    def test_query_route_from_config(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_query_route_from_config(
+        self, make_catalog_path: Callable[[str], str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Query route resolves a dotted-path reference to a @pxt.query function."""
         skip_test_if_not_installed('fastapi')
         from fastapi.testclient import TestClient
@@ -178,7 +189,8 @@ class TestConfig:
             config_path = f.name
 
         try:
-            config.Config.get().init({}, additional_config_files=[config_path], reinit=True)
+            monkeypatch.setenv('PIXELTABLE_CONFIG', config_path)
+            config.Config.init(reinit=True)
             cfg = lookup_service_config('query-service')
             app = create_service_from_config(cfg)
             client = TestClient(app)
@@ -192,7 +204,7 @@ class TestConfig:
             del sys.modules['_test_query_mod']
 
     @pytest.mark.local('config validation fails before any table is resolved; not catalog-specific')
-    def test_validation_errors(self, init_env: None) -> None:
+    def test_validation_errors(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
         """Invalid TOML configs produce clear pxt.Error messages."""
         skip_test_if_not_installed('fastapi')
 
@@ -270,7 +282,8 @@ class TestConfig:
             try:
                 print(config_dict)
                 with pytest.raises(pxt.Error, match=expected_substring):
-                    config.Config.get().init({}, additional_config_files=[config_path], reinit=True)
+                    monkeypatch.setenv('PIXELTABLE_CONFIG', config_path)
+                    config.Config.init(reinit=True)
                     lookup_service_config('test-service')
             finally:
                 os.unlink(config_path)

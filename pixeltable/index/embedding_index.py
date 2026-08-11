@@ -66,7 +66,9 @@ class EmbeddingIndex(IndexBase):
         audio_embed: func.Function | None = None,
         video_embed: func.Function | None = None,
         document_embed: func.Function | None = None,
-        column: catalog.Column | None = None,  # Column being indexed; None during deserialization.
+        # the column being indexed, as an instance being built or as the metadata of one that exists;
+        # None during deserialization
+        column: 'catalog.Column | catalog.ColumnVersionMd | None' = None,
     ):
         if (
             column is not None
@@ -161,7 +163,7 @@ class EmbeddingIndex(IndexBase):
                 excs.ErrorCode.INVALID_ARGUMENT, f"Invalid precision '{precision}'. Must be one of: {valid_values}"
             ) from None
 
-    def create_value_expr(self, c: catalog.Column) -> exprs.Expr:
+    def create_value_expr(self, c: catalog.ColumnVersionMd) -> exprs.Expr:
         if c.col_type._type not in (
             ts.ColumnType.Type.STRING,
             ts.ColumnType.Type.IMAGE,
@@ -175,11 +177,9 @@ class EmbeddingIndex(IndexBase):
                 f'Type `{c.col_type}` of column {c.name!r} is not a valid type for an embedding index.',
             )
 
-        col_md = c.column_version_md()
-
         # For ARRAY columns, return column reference directly - array already contains the embeddings.
         if c.col_type.is_array_type():
-            return exprs.ColumnRef(col_md)
+            return exprs.ColumnRef(c)
         # For non-array columns, apply the embedding function
         if c.col_type._type not in self.embeddings:
             raise excs.RequestError(
@@ -188,7 +188,7 @@ class EmbeddingIndex(IndexBase):
             )
 
         embed_fn = self.embeddings[c.col_type._type]
-        return embed_fn(exprs.ColumnRef(col_md))
+        return embed_fn(exprs.ColumnRef(c))
 
     def records_value_errors(self) -> bool:
         return True

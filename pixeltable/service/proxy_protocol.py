@@ -24,7 +24,8 @@ from pydantic import BaseModel, PrivateAttr
 
 from pixeltable import exprs, func, type_system as ts
 from pixeltable.catalog.dir import Dir
-from pixeltable.catalog.globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation, TableVersionMd
+from pixeltable.catalog.globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation
+from pixeltable.catalog.metadata_types import TableVersionMd
 from pixeltable.catalog.model import EmbeddingIndex
 from pixeltable.catalog.path import Path
 from pixeltable.catalog.table_path import TablePath, TablePathKey, TableVersionPath

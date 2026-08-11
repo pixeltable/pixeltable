@@ -40,16 +40,13 @@ if TYPE_CHECKING:
 _logger = logging.getLogger(__name__)
 
 
-def init(config_overrides: dict[str, Any] | None = None, additional_config_files: list[str] | None = None) -> None:
+def init() -> None:
     """Initializes the Pixeltable environment.
 
-    Args:
-        config_overrides: Optional dictionary of configuration overrides.
-        additional_config_files: Optional list of additional TOML config file paths to load.
+    Settings come from the config file of the Pixeltable instance ($PIXELTABLE_HOME/config.toml) and from
+    environment variables.
     """
-    if config_overrides is None:
-        config_overrides = {}
-    Config.init(config_overrides, additional_config_files=additional_config_files)
+    Config.init()
     _ = get_runtime().catalog
 
 

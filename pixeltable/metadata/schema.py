@@ -123,8 +123,8 @@ class ColumnMd:
     # For stored columns, this is a serialized sqlalchemy type of the store column. For unstored columns, it's None.
     sa_col_type: dict | None = None
 
-    # If present, the URI for the destination for column values
-    destination: str | None = None
+    # If present, the destination for column values: a URI, or a serialized ConfigVar
+    destination: str | dict | None = None
 
     def is_visible_in_version(self, schema_version: int) -> bool:
         return self.schema_version_add <= schema_version and (

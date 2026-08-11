@@ -507,8 +507,16 @@ class Expr(abc.ABC):
         """
         Try to turn a literal object into an Expr.
         """
+        from pixeltable.config import ConfigVar
+
         from .inline_expr import InlineDict, InlineList
         from .literal import Literal
+
+        if isinstance(o, ConfigVar):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                'ConfigVars cannot be used in an expression. Use a literal value instead.',
+            )
 
         # Try to create a literal. We need to check for InlineList/InlineDict
         # first, to prevent them from inappropriately being interpreted as JsonType

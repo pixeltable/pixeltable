@@ -13,10 +13,11 @@ from pixeltable import type_system as ts
 from pixeltable.utils import parse_local_file_path
 
 from ..exprs import ColumnRef
-from .globals import normalize_schema
+from .globals import TableVersionKey, normalize_schema
+from .metadata_types import TableVersionMd
 from .path import Path as CatalogPath
 from .table import Table
-from .table_path import TableMdPath, TablePathKey, TableVersionKey
+from .table_path import TableMdPath, TablePathKey
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -30,7 +31,6 @@ if TYPE_CHECKING:
     from pixeltable.types import ColumnSpec
 
     from ..globals import TableDataSource
-    from .globals import TableVersionMd
     from .table_metadata import TableMetadata, VersionMetadata
     from .update_status import UpdateStatus
 

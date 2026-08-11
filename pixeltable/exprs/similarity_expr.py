@@ -9,8 +9,6 @@ import sqlalchemy as sql
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-from pixeltable.catalog.globals import QColumnId
-from pixeltable.catalog.table_version import TableVersionKey
 
 from ..runtime import get_runtime
 from .data_row import DataRow
@@ -29,13 +27,13 @@ class SimilarityExpr(Expr):
     A similarity expression against an embedding index.
     """
 
-    table_version_key: TableVersionKey
+    table_version_key: catalog.TableVersionKey
     idx_name: str | None = None  # index name; None if not specified by the user
-    qcol_id: QColumnId | None = None  # identifies the indexed column
+    qcol_id: catalog.QColumnId | None = None  # identifies the indexed column
     _embedding: np.ndarray | None = None  # populated by prepare()
 
     def __init__(
-        self, item: Expr, idx_name: str | None, qcol_id: QColumnId, table_version_key: TableVersionKey
+        self, item: Expr, idx_name: str | None, qcol_id: catalog.QColumnId, table_version_key: catalog.TableVersionKey
     ) -> None:
         super().__init__(ts.FloatType())
         self.components = [item]
@@ -208,12 +206,12 @@ class SimilarityExpr(Expr):
     def _from_dict(
         cls, d: dict, components: list[Expr], tbl_versions: dict[UUID, catalog.TableVersion] | None = None
     ) -> 'SimilarityExpr':
-        tvk_from_dict = TableVersionKey.from_dict(d['table_version_key'])
+        tvk_from_dict = catalog.TableVersionKey.from_dict(d['table_version_key'])
         if tbl_versions is not None:
             # Ignore table version key from the dict, retarget to the provided table version instead
             table_version_key = tbl_versions[tvk_from_dict.tbl_id].key
         else:
             table_version_key = tvk_from_dict
         idx_name = d.get('idx_name')
-        qcol_id = QColumnId(tbl_id=UUID(d['qcol_id']['tbl_id']), col_id=d['qcol_id']['col_id'])
+        qcol_id = catalog.QColumnId(tbl_id=UUID(d['qcol_id']['tbl_id']), col_id=d['qcol_id']['col_id'])
         return cls(item=components[0], idx_name=idx_name, table_version_key=table_version_key, qcol_id=qcol_id)

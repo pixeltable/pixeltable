@@ -6,7 +6,7 @@ import itertools
 import logging
 import time
 import warnings
-from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, cast
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -25,7 +25,8 @@ from pixeltable.runtime import get_runtime
 from pixeltable.utils.object_stores import ObjectOps
 
 from .column import Column
-from .globals import _ROWID_COLUMN_NAME, IndexSpec, MediaValidation, QColumnId, TableVersionMd, is_valid_identifier
+from .globals import _ROWID_COLUMN_NAME, IndexSpec, MediaValidation, QColumnId, TableVersionKey, is_valid_identifier
+from .metadata_types import TableVersionMd
 from .tbl_ops import (
     CreateColumnMdOp,
     CreateStoreColumnsOp,
@@ -49,25 +50,6 @@ if TYPE_CHECKING:
     from .table_path import TableVersionPath
 
 _logger = logging.getLogger(__name__)
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class TableVersionKey:
-    tbl_id: UUID
-    effective_version: int | None
-
-    # Allow unpacking as a tuple
-    def __iter__(self) -> Iterator[Any]:
-        return iter((self.tbl_id, self.effective_version))
-
-    def as_dict(self) -> dict:
-        return {'id': str(self.tbl_id), 'effective_version': self.effective_version}
-
-    @classmethod
-    def from_dict(cls, d: dict) -> TableVersionKey:
-        tbl_id = UUID(d['id'])
-        effective_version = d['effective_version']
-        return cls(tbl_id, effective_version)
 
 
 class TableVersion:
@@ -232,152 +214,6 @@ class TableVersion:
         from .table_version_handle import TableVersionHandle
 
         return TableVersionHandle(self.key)
-
-    @classmethod
-    def create_initial_md(
-        cls,
-        tbl_id: UUID,
-        name: str,
-        cols: list[Column],
-        comment: str | None,
-        custom_metadata: Any,
-        media_validation: MediaValidation,
-        create_default_idxs: bool,
-        view_md: schema.ViewMd | None,
-        is_data_versioned: bool,
-        additional_idxs: list[IndexSpec],
-    ) -> TableVersionMd:
-        from .table_version_handle import TableVersionHandle
-
-        user = Env.get().user
-        timestamp = time.time()
-
-        tbl_id_str = str(tbl_id)
-        tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
-        column_ids = itertools.count()
-        index_ids = itertools.count()
-
-        # assign ids
-        for col in cols:
-            col.tbl_handle = tbl_handle
-            col.id = next(column_ids)
-            col.schema_version_add = 0
-
-        # resolve ColumnRefByName's to ColumnRefs in computed columns
-        subst = exprs.ExprDict[exprs.Expr](
-            (
-                exprs.ColumnRefByName(col.name),
-                exprs.ColumnRef(
-                    col.column_version_md(),
-                    perform_validation=(col._media_validation or media_validation) == MediaValidation.ON_READ,
-                ),
-            )
-            for col in cols
-            if col.name is not None
-        )
-
-        # create metadata
-        column_md: dict[int, schema.ColumnMd] = {}
-        schema_col_md: dict[int, schema.SchemaColumn] = {}
-        for pos, col in enumerate(cols):
-            value_expr = col.value_expr
-            if value_expr is not None:
-                col.set_value_expr(value_expr.substitute(subst))
-            if col.is_computed:
-                col.check_value_expr()
-            col_md, col_schema_md = col.to_md(pos)
-            column_md[col.id] = col_md
-            schema_col_md[col.id] = col_schema_md
-
-        # Merge default indexes and additional indexes into a manifest of indexes to create.
-        index_md: dict[int, schema.IndexMd] = {}
-        idxs_to_create: list[IndexSpec] = []
-        if create_default_idxs and (view_md is None or not view_md.is_snapshot):
-            idxs_to_create.extend(
-                IndexSpec(col, None, index.BtreeIndex()) for col in cols if cls._is_btree_indexable(col)
-            )
-
-        # an index on a column of this table must reference the instance in cols, which is the one that got an id
-        # above; an index on a base column references that column directly
-        own_cols = {id(col) for col in cols}
-        assert all(isinstance(spec.indexed_column, Column) for spec in additional_idxs)
-        assert all(
-            id(spec.indexed_column) in own_cols
-            for spec in additional_idxs
-            if cast(Column, spec.indexed_column).tbl_handle.id == tbl_id
-        )
-        idxs_to_create.extend(additional_idxs)
-
-        index_cols: list[Column] = []
-        for idx_col, idx_name, idx in idxs_to_create:
-            assert isinstance(idx_col, Column)
-            val_col, undo_col = Column.create_index_columns(
-                tbl_handle, idx_col, idx, next(column_ids), next(column_ids), 0
-            )
-            index_cols.extend([val_col, undo_col])
-
-            idx_id = next(index_ids)
-            idx_cls = type(idx)
-            md = schema.IndexMd(
-                id=idx_id,
-                name=idx_name if idx_name is not None else f'idx{idx_id}',
-                indexed_col_id=idx_col.id,
-                indexed_col_tbl_id=str(idx_col.tbl_handle.id),
-                index_val_col_id=val_col.id,
-                index_val_undo_col_id=undo_col.id,
-                schema_version_add=0,
-                schema_version_drop=None,
-                class_fqn=idx_cls.__module__ + '.' + idx_cls.__name__,
-                init_args=idx.as_dict(),
-            )
-            index_md[idx_id] = md
-
-        for col in index_cols:
-            col_md, col_schema_md = col.to_md(pos=None)
-            column_md[col.id] = col_md
-            schema_col_md[col.id] = col_schema_md
-
-        assert all(column_md[col_id].id == col_id for col_id in column_md)
-        assert all(index_md[idx_id].id == idx_id for idx_id in index_md)
-
-        tbl_md = schema.TableMd(
-            tbl_id=tbl_id_str,
-            name=name,
-            user=user,
-            current_version=0,
-            current_schema_version=0,
-            next_col_id=next(column_ids),
-            next_idx_id=next(index_ids),
-            next_row_id=0,
-            view_sn=0,
-            column_md=column_md,
-            index_md=index_md,
-            view_md=view_md,
-            additional_md={},
-            is_data_versioned=is_data_versioned,
-        )
-
-        table_version_md = schema.VersionMd(
-            tbl_id=tbl_id_str,
-            created_at=timestamp,
-            version=0,
-            schema_version=0,
-            user=user,
-            update_status=None,
-            additional_md={},
-        )
-
-        schema_version_md = schema.SchemaVersionMd(
-            tbl_id=tbl_id_str,
-            schema_version=0,
-            preceding_schema_version=None,
-            columns=schema_col_md,
-            comment=comment,
-            custom_metadata=custom_metadata,
-            media_validation=media_validation.name.lower(),
-            additional_md={},
-        )
-        return TableVersionMd(tbl_md, table_version_md, schema_version_md)
 
     def delete_media(self, tbl_version: int | None = None) -> None:
         # Assemble a set of column destinations and delete objects from all of them
@@ -583,25 +419,9 @@ class TableVersion:
         _logger.info(f'Added index {idx_name} on column {col.name} to table {self.name}')
         return status
 
-    @classmethod
-    def _is_btree_indexable(cls, col: Column) -> bool:
-        if not col.stored:
-            # if the column is intentionally not stored, we want to avoid the overhead of an index
-            return False
-        # Skip index for stored media columns produced by an iterator
-        if col.col_type.is_media_type() and col.is_iterator_col:
-            return False
-        if not col.col_type.is_scalar_type() and not (col.col_type.is_media_type() and not col.is_computed):
-            # wrong type for a B-tree
-            return False
-        if col.col_type.is_bool_type():  # noqa : SIM103 Supress `Return the negated condition directly` check
-            # B-trees on bools aren't useful
-            return False
-        return True
-
     def _add_default_index(self, col: Column) -> UpdateStatus | None:
         """Add a B-tree index on this column if it has a compatible type"""
-        if not self._is_btree_indexable(col):
+        if not col.is_btree_indexable:
             return None
         status = self._add_index(col, idx_name=None, idx=index.BtreeIndex())
         return status
@@ -649,7 +469,7 @@ class TableVersion:
 
     def _add_index(self, col: Column, idx_name: str | None, idx: index.IndexBase) -> UpdateStatus:
         val_col, undo_col = Column.create_index_columns(
-            self.handle, col, idx, self.next_col_id(), self.next_col_id(), self.schema_version
+            self.handle, col.column_version_md(), idx, self.next_col_id(), self.next_col_id(), self.schema_version
         )
         # add the columns and update the metadata
         # TODO support on_error='abort' for indices; it's tricky because of the way metadata changes are entangled
@@ -729,11 +549,16 @@ class TableVersion:
         all_cols: list[Column] = []
         for col in cols:
             all_cols.append(col)
-            if col.name is not None and self._is_btree_indexable(col):
+            if col.name is not None and col.is_btree_indexable:
                 idx = index.BtreeIndex()
 
                 val_col, undo_col = Column.create_index_columns(
-                    self.handle, col, idx, self.next_col_id(), self.next_col_id(), self.schema_version
+                    self.handle,
+                    col.column_version_md(),
+                    idx,
+                    self.next_col_id(),
+                    self.next_col_id(),
+                    self.schema_version,
                 )
                 index_cols[col] = (idx, val_col, undo_col)
                 all_cols.append(val_col)
@@ -1037,10 +862,15 @@ class TableVersion:
         all_cols: list[Column] = []
         for col in cols:
             all_cols.append(col)
-            if col.name is not None and self._is_btree_indexable(col):
+            if col.name is not None and col.is_btree_indexable:
                 idx = index.BtreeIndex()
                 val_col, undo_col = Column.create_index_columns(
-                    self.handle, col, idx, self.next_col_id(), self.next_col_id(), self.schema_version
+                    self.handle,
+                    col.column_version_md(),
+                    idx,
+                    self.next_col_id(),
+                    self.next_col_id(),
+                    self.schema_version,
                 )
                 index_cols[col] = (idx, val_col, undo_col)
                 all_cols.append(val_col)

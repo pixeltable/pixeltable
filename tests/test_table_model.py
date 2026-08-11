@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import os
+import pathlib
 import textwrap
 from typing import Callable
 
@@ -12,7 +14,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import exceptions as excs
-from pixeltable.catalog.model import Column, EmbeddingIndex
+from pixeltable.config import Config
 
 from .utils import (
     assert_resultset_eq,
@@ -21,13 +23,67 @@ from .utils import (
     dummy_embedding,
     get_image_files,
     pxt_raises,
+    reload_catalog,
     schema_from_tbl_md,
     skip_test_if_not_installed,
     validate_update_status,
 )
 
 
+@pxt.udf
+def tag(s: str, label: str) -> str:
+    return f'{label}: {s}'
+
+
 class TestTableModel:
+    def test_table_path(self, make_catalog_path: Callable[[str], str]) -> None:
+        """A model describes its shape before the table exists, and the description matches what gets created."""
+        p = make_catalog_path
+        from pixeltable.functions.video import frame_iterator
+
+        TableModel = pxt.model_base()
+
+        class Base(TableModel, name='base'):
+            vid: pxt.Video
+            val: pxt.Required[pxt.Int]
+
+        class Plain(TableModel, name='plain', base=Base):
+            doubled = Base.val * 2
+
+        class Filtered(TableModel, name='filtered', base=Base.where(Base.val > 10)):
+            tripled = Base.val * 3
+
+        class Projected(TableModel, name='projected', base=Base.select(v=Base.val)):
+            plus = v + 1  # type: ignore[name-defined]  # the select() alias, referenceable in the body
+
+        class Frames(TableModel, name='frames', base=Base, iterator=frame_iterator(video=Base.vid, fps=1)):
+            pass
+
+        models = [Base, Plain, Filtered, Projected, Frames]
+        declared = {m: m.table_path() for m in models}
+
+        assert not declared[Base].is_view()
+        assert all(declared[m].is_view() for m in (Plain, Filtered, Projected, Frames))
+        assert declared[Frames].has_iterator()
+        assert not any(declared[m].has_iterator() for m in (Plain, Filtered, Projected))
+        # a select() view projects the base rather than inheriting it
+        assert [c.name for c in declared[Projected].column_md()] == ['v', 'plus']
+        assert [c.name for c in declared[Plain].column_md()] == ['doubled', 'vid', 'val']
+
+        TableModel.create_all(p(''))
+
+        for m in models:
+            actual = m.table._tbl_path
+            assert [c.name for c in declared[m].column_md()] == [c.name for c in actual.column_md()], m.__name__
+            assert [c.col_type for c in declared[m].column_md()] == [c.col_type for c in actual.column_md()], m.__name__
+            assert declared[m].is_view() == actual.is_view(), m.__name__
+            assert declared[m].has_iterator() == actual.has_iterator(), m.__name__
+            # the ids are synthesized, so the description is of a shape and not of anything in the catalog
+            assert declared[m].tbl_id != actual.tbl_id, m.__name__
+
+        # inspecting a model leaves its declaration alone: the same shape is reported after the tables exist
+        assert all(m.table_path() is declared[m] for m in models)
+
     @pytest.mark.parametrize('root', ['', 'dir/subdir'])
     def test_table_model_basic(self, root: str, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
@@ -42,16 +98,16 @@ class TestTableModel:
             descr = pxtf.string.format('Name: {name}', name=name)
 
             # Test all the custom Column properties
-            column_with_special_props = Column(
+            column_with_special_props = pxt.Column(
                 type=pxt.Video,
                 media_validation='on_read',
                 custom_metadata={'chicken': 'eggs'},
                 comment='This is a column with special properties',
             )
-            computed_with_special_props = Column(value=(value / 3), stored=False)
-            computed_with_special_props_2 = Column(value=img.rotate(90))
+            computed_with_special_props = pxt.Column(value=(value / 3), stored=False)
+            computed_with_special_props_2 = pxt.Column(value=img.rotate(90))
 
-            clip_idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
+            clip_idx = pxt.EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
 
         expected_path = f'{p(root)}/test_table'.lstrip('/')
         if root != '':
@@ -391,15 +447,15 @@ class TestTableModel:
             incr = value + 1
             descr = pxtf.string.format('Name: {name}', name=name)
 
-            clip_idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
+            clip_idx = pxt.EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
 
         class ExampleViewModel(TableModel, name='test_view', base=ExampleTableModel):
             view_col_1: pxt.Image
             view_col_2 = view_col_1.rotate(90)
             view_col_3 = ExampleTableModel.img.rotate(90)  # Also try dereferencing a base table column
 
-            view_idx = EmbeddingIndex(view_col_2, embedding=dummy_embedding.using(n=768))
-            view_idx_on_base_tbl_col = EmbeddingIndex(ExampleTableModel.img, embedding=dummy_embedding.using(n=768))
+            view_idx = pxt.EmbeddingIndex(view_col_2, embedding=dummy_embedding.using(n=768))
+            view_idx_on_base_tbl_col = pxt.EmbeddingIndex(ExampleTableModel.img, embedding=dummy_embedding.using(n=768))
 
         class ExampleSubviewModel(TableModel, name='test_subview', base=ExampleViewModel):
             subview_col_1 = ExampleTableModel.img.rotate(180)
@@ -418,8 +474,8 @@ class TestTableModel:
             view_col_3 = ExampleTableModel.img.rotate(90)
             view_col_4 = plusone + 5  # type: ignore[name-defined]
 
-            view_idx = EmbeddingIndex(view_col_2, embedding=dummy_embedding.using(n=768))
-            view_idx_on_base_tbl_col = EmbeddingIndex(ExampleTableModel.img, embedding=dummy_embedding.using(n=768))
+            view_idx = pxt.EmbeddingIndex(view_col_2, embedding=dummy_embedding.using(n=768))
+            view_idx_on_base_tbl_col = pxt.EmbeddingIndex(ExampleTableModel.img, embedding=dummy_embedding.using(n=768))
 
         class ExampleSubviewModelFromQuery(
             TableModel,
@@ -575,7 +631,7 @@ class TestTableModel:
             iterator=pxtf.string.string_splitter(ExampleTableModel.doc_text, separators='sentence'),
         ):
             # text is an output column of the iterator, not one declared by this model
-            ix = EmbeddingIndex(text, embedding=dummy_embedding.using(n=32))  # type: ignore[name-defined]
+            ix = pxt.EmbeddingIndex(text, embedding=dummy_embedding.using(n=32))  # type: ignore[name-defined]
 
         TableModel.create_all(p(''))
         ExampleTableModel.insert([{'id': 1, 'doc_text': 'One sentence. Two sentence.'}])
@@ -604,7 +660,7 @@ class TestTableModel:
             base=ExampleTableModel,
             iterator=pxtf.string.string_splitter(ExampleTableModel.text, separators='sentence'),
         ):
-            ix = EmbeddingIndex(text, embedding=dummy_embedding.using(n=32))  # type: ignore[name-defined]
+            ix = pxt.EmbeddingIndex(text, embedding=dummy_embedding.using(n=32))  # type: ignore[name-defined]
 
         TableModel.create_all(p(''))
         ExampleTableModel.insert([{'id': 1, 'text': 'One sentence. Two sentence.'}])
@@ -746,9 +802,9 @@ class TestTableModel:
             value: pxt.Float
             image: pxt.Image
             score: pxt.Float
-            derived = Column(value=id + 1, comment='before', custom_metadata={'v': 1})
-            idx1 = EmbeddingIndex(image, embedding=dummy_embedding.using(n=768))
-            idx2 = EmbeddingIndex(image, embedding=dummy_embedding.using(n=512))
+            derived = pxt.Column(value=id + 1, comment='before', custom_metadata={'v': 1})
+            idx1 = pxt.EmbeddingIndex(image, embedding=dummy_embedding.using(n=768))
+            idx2 = pxt.EmbeddingIndex(image, embedding=dummy_embedding.using(n=512))
 
         class ExampleView(
             TableModel,
@@ -795,14 +851,16 @@ class TestTableModel:
             custom_metadata={'origin': 'v2'},
         ):
             id: pxt.Required[pxt.Int]
-            image = Column(type=pxt.Image, media_validation='on_read')  # kept, media_validation changed
+            image = pxt.Column(type=pxt.Image, media_validation='on_read')  # kept, media_validation changed
             score: pxt.Int  # kept, but its type changed (Float -> Int)
-            derived = Column(value=id + 100, stored=False, comment='after', custom_metadata={'v': 2})  # 4 props changed
+            derived = pxt.Column(
+                value=id + 100, stored=False, comment='after', custom_metadata={'v': 2}
+            )  # 4 props changed
             extra1: pxt.Int  # added
             extra2: pxt.String  # added
             # 'name' and 'value' dropped
-            idx1 = EmbeddingIndex(image, embedding=dummy_embedding.using(n=768))  # kept
-            idx3 = EmbeddingIndex(image, embedding=dummy_embedding.using(n=256))  # added
+            idx1 = pxt.EmbeddingIndex(image, embedding=dummy_embedding.using(n=768))  # kept
+            idx3 = pxt.EmbeddingIndex(image, embedding=dummy_embedding.using(n=256))  # added
             # 'idx2' dropped
 
         class ExampleViewV2(
@@ -823,7 +881,7 @@ class TestTableModel:
             .where(ExampleTableV2.id > 5)
             .sample(n=20, seed=2),
         ):
-            id_copy = Column(value=ExampleTableV2.id, stored=False)
+            id_copy = pxt.Column(value=ExampleTableV2.id, stored=False)
             fc1 = ExampleTableV2.id + 1
 
         # Redeclares 'test_kind' (created above as a view) as a table, with the same columns; only the kind differs.
@@ -1254,7 +1312,7 @@ class TestTableModel:
             id: pxt.Required[pxt.Int]
             value: pxt.Float
             image: pxt.Image
-            embed_a = EmbeddingIndex(image, embedding=dummy_embedding.using(n=768))
+            embed_a = pxt.EmbeddingIndex(image, embedding=dummy_embedding.using(n=768))
 
         class ExampleView(TableModel, name='test_view', base=ExampleTable):
             vc1 = ExampleTable.value + 1
@@ -1287,9 +1345,9 @@ class TestTableModel:
             note: pxt.String  # new (plain) column
             new_image: pxt.Image
 
-            embed_a = EmbeddingIndex(image, embedding=dummy_embedding.using(n=768))
-            embed_b = EmbeddingIndex(image, embedding=dummy_embedding.using(n=512))  # new index
-            embed_c = EmbeddingIndex(new_image, embedding=dummy_embedding.using(n=256))  # new index on new column
+            embed_a = pxt.EmbeddingIndex(image, embedding=dummy_embedding.using(n=768))
+            embed_b = pxt.EmbeddingIndex(image, embedding=dummy_embedding.using(n=512))  # new index
+            embed_c = pxt.EmbeddingIndex(new_image, embedding=dummy_embedding.using(n=256))  # new index on new column
 
         class ExampleViewV2(TableModelV2, name='test_view', base=ExampleTableV2):
             vc1 = ExampleTableV2.value + 1
@@ -1338,7 +1396,7 @@ class TestTableModel:
             label: pxt.String  # added
             # 'plus_ten', 'plus_fifteen', and 'note' dropped
 
-            embed_b = EmbeddingIndex(image, embedding=dummy_embedding.using(n=512))
+            embed_b = pxt.EmbeddingIndex(image, embedding=dummy_embedding.using(n=512))
             # embed_a and embed_c dropped
 
         class ExampleViewV3(TableModelV3, name='test_view', base=ExampleTableV3):
@@ -1392,7 +1450,7 @@ class TestTableModel:
             value: pxt.Float
             img: pxt.Image
 
-            idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
+            idx = pxt.EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
 
         TableModel.create_all(p(''))
 
@@ -1408,7 +1466,7 @@ class TestTableModel:
             id: pxt.Required[pxt.Int]
             img: pxt.Image
 
-            idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
+            idx = pxt.EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -1532,7 +1590,7 @@ class TestTableModel:
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"Conflicting type annotation for column 'name'."):
 
             class TypeConflict(TableModel, name='type_conflict'):
-                name: pxt.Int = Column(type=pxt.String)  # type: ignore[assignment]
+                name: pxt.Int = pxt.Column(type=pxt.String)  # type: ignore[assignment]
 
         with pxt_raises(
             excs.ErrorCode.INVALID_ARGUMENT,
@@ -1575,13 +1633,13 @@ class TestTableModel:
 
             class BadColSpec(TableModel, name='bad_col_spec'):
                 id: pxt.Int
-                bad = Column()
+                bad = pxt.Column()
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'Cannot set a type annotation for index'):
 
             class IdxTypeConflict(TableModel, name='idx_type_conflict'):
                 img: pxt.Image
-                my_idx: pxt.Int = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))  # type: ignore[assignment]
+                my_idx: pxt.Int = pxt.EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))  # type: ignore[assignment]
 
         # `references columns that are not in the model's scope` is raised at `create()` time, when a computed
         # column refers to a column outside the model (here, a column belonging to a different, unbound model).
@@ -1606,8 +1664,8 @@ class TestTableModel:
 
             class DuplicateIndex(TableModel, name='duplicate_index'):
                 img: pxt.Image
-                dup_idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
-                dup_idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
+                dup_idx = pxt.EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
+                dup_idx = pxt.EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"Column 'bad': invalid value"):
 
@@ -1657,14 +1715,39 @@ class TestTableModel:
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`where\(\)` clause already specified'):
             ValidTableModel.where(ValidTableModel.id > 0).where(ValidTableModel.id > 0)  # type: ignore[arg-type]
 
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`group_by\(\)` clause already specified'):
-            ValidTableModel.group_by(ValidTableModel.id).group_by(ValidTableModel.id)  # type: ignore[call-overload]
-
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`limit\(\)` clause already specified'):
-            ValidTableModel.limit(10).limit(5)
-
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`sample\(\)` clause already specified'):
             ValidTableModel.sample(n=10).sample(n=5)
+
+        # a base query is refused the clauses a view cannot be maintained from, with the message create_view()
+        # gives for the same query
+        for verb in ('group_by', 'order_by', 'limit'):
+            with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=rf'Cannot use `create_view` after `{verb}`.'):
+                getattr(ValidTableModel, verb)(ValidTableModel.id)
+
+    def test_aggregation_rejected(self) -> None:
+        """A view is maintained one base row at a time, so nothing in a model may aggregate."""
+        TableModel = pxt.model_base()
+
+        class Base(TableModel, name='base'):
+            grp: pxt.String
+            val: pxt.Required[pxt.Int]
+
+        with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r"select\(\) item 'total' aggregates over the base"):
+
+            class AggBase(TableModel, name='agg_base', base=Base.select(total=pxtf.sum(Base.val))):
+                pass
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"Column 'total' aggregates over the table"):
+
+            class AggCol(TableModel, name='agg_col'):
+                val: pxt.Required[pxt.Int]
+                total = pxtf.sum(val)
+
+        # the same shapes without an aggregate are unaffected
+        class Projected(TableModel, name='projected', base=Base.select(v=Base.val)):
+            plus = v + 1  # type: ignore[name-defined]
+
+        assert [c.name for c in Projected.table_path().column_md()] == ['v', 'plus']
 
     def test_table_model_validation_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """Errors that arise from a schema mismatch between a model and an existing table."""
@@ -1744,3 +1827,74 @@ class TestTableModel:
         # `create_all()` only creates; it refuses to run when any existing table differs from its model.
         with pxt_raises(excs.ErrorCode.SCHEMA_MISMATCH, match=r'Call `update_all\(\)` instead'):
             TableModel.create_all(p(''))
+
+    @pytest.mark.local('a local filesystem destination is rejected for a hosted table')
+    def test_config_var_destination(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+        """A column destination declared as a pxt.ConfigVar follows whatever the target binds it to."""
+        p = make_catalog_path
+        media_dir = tmp_path / 'media'
+        media_dir.mkdir()
+        other_dir = tmp_path / 'other'
+        other_dir.mkdir()
+        config_file = tmp_path / 'config.toml'
+        config_file.write_text(f'[pixeltable.database.vars]\nmedia_dest = "{media_dir.as_posix()}"\n')
+
+        MEDIA_DEST = pxt.ConfigVar('media_dest', pxt.URI)
+        MISSING = pxt.ConfigVar('no_such_var', pxt.URI)
+
+        original_config = os.environ.get('PIXELTABLE_CONFIG')
+        os.environ['PIXELTABLE_CONFIG'] = str(config_file)
+        Config.init(reinit=True)
+        try:
+            TableModel = pxt.model_base()
+
+            class Docs(TableModel, name='docs'):
+                img: pxt.Image
+                thumbnail = pxt.Column(value=img.rotate(90), destination=MEDIA_DEST)
+                fixed = pxt.Column(value=img.rotate(180), destination=str(other_dir))
+
+            TableModel.create_all(p(''))
+
+            # metadata reports the variable, not the location it happens to point at
+            md = pxt.get_table(p('docs')).get_metadata()
+            assert md['columns']['thumbnail']['destination'] == '$media_dest'
+            assert md['columns']['fixed']['destination'] == str(other_dir)
+
+            # reading the table back from stored metadata reconstitutes the reference, and files still land
+            # where it is bound
+            reload_catalog()
+            tbl = pxt.get_table(p('docs'))
+            assert tbl.get_metadata()['columns']['thumbnail']['destination'] == '$media_dest'
+            tbl.insert(img=get_image_files()[0])
+            assert media_dir.as_uri() in tbl.select(url=tbl.thumbnail.fileurl).collect()[0]['url']
+
+            # rebinding the variable is not a schema change
+            config_file.write_text(f'[pixeltable.database.vars]\nmedia_dest = "{other_dir.as_posix()}"\n')
+            Config.init(reinit=True)
+            reload_catalog()
+            diffs = TableModel.get_model_diff(p(''))
+            assert [d['resolution'] for d in diffs.values()] == ['up_to_date']
+
+            # a name the target has no binding for reports itself
+            with pxt_raises(excs.ErrorCode.MISSING_REQUIRED, match=r"'no_such_var' is not set"):
+                MISSING.value()
+
+            # the declared type validates the binding: a value that is not a storage address is rejected
+            config_file.write_text('[pixeltable.database.vars]\nmedia_dest = "s4://typo/bucket"\n')
+            Config.init(reinit=True)
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='media_dest'):
+                MEDIA_DEST.value()
+
+            # an expression is evaluated per row, so a config var cannot appear in one
+            with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match='ConfigVars cannot be used in an expression'):
+
+                class Bad(TableModel, name='bad'):
+                    title: pxt.String
+                    tagged = tag(title, MEDIA_DEST)
+        finally:
+            if original_config is None:
+                os.environ.pop('PIXELTABLE_CONFIG', None)
+            else:
+                os.environ['PIXELTABLE_CONFIG'] = original_config
+            Config.init(reinit=True)
+            reload_catalog()

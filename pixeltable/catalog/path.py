@@ -52,6 +52,13 @@ class Path:
             raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path: {"/".join(self.components)}')
 
     @classmethod
+    def dir_prefix(cls, catalog_dir: str) -> str:
+        """Validate a directory path and return it in the form a child path is appended to (empty, or ending in '/')."""
+        catalog_dir = catalog_dir.rstrip('/')
+        _ = cls.parse(catalog_dir, allow_empty_path=True)  # validate
+        return f'{catalog_dir}/' if catalog_dir != '' else ''
+
+    @classmethod
     def parse(cls, path: str, *, allow_empty_path: bool = False, allow_versioned_path: bool = False) -> Path:
         normalized = cls._normalize(path)
 

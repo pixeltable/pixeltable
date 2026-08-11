@@ -138,7 +138,7 @@ class LocalTable(Table):
                 comment=col.comment,
                 custom_metadata=col.custom_metadata,
                 is_iterator_col=False,
-                destination=col._explicit_destination,
+                destination=col.display_destination,
             )
 
         indices = tv.idxs_by_name.values()
@@ -811,7 +811,7 @@ class LocalTable(Table):
                 document_embed=document_embed,
                 column=col,  # Pass column for shape validation
             )
-            _ = idx.create_value_expr(col)  # validation only; result discarded
+            _ = idx.create_value_expr(col.column_version_md())  # validation only; result discarded
 
             if idx_name is None:
                 # Unnamed index: duplicate detection is by index definition on this column.

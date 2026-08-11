@@ -2855,6 +2855,251 @@ class TestFastAPI:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='table has no primary key'):
             router.add_delete_route(t_no_pk, path='/e')
 
+    def test_column_ref_args(self, make_catalog_path: Callable[[str], str]) -> None:
+        """Routes accept ColumnRefs wherever they accept column names."""
+        p = make_catalog_path
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter
+
+        pxt.create_dir(p('test_serve'))
+        t = pxt.create_table(
+            p('test_serve.items'), {'id': pxt.Required[pxt.Int], 'val': pxt.Int, 'img': pxt.Image}, primary_key='id'
+        )
+        t.add_computed_column(incr=add_one(t.val))
+
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/ins', inputs=[t.id, t.val], outputs=[t.id, t.incr])
+        router.add_compute_route(t, path='/comp', inputs=[t.id, t.val], outputs=[t.incr])
+        router.add_update_route(t, path='/upd', inputs=[t.val], outputs=[t.id, t.incr])
+        router.add_delete_route(t, path='/del', match_columns=[t.id])
+        router.add_insert_route(
+            t, path='/upload', inputs=[t.id], uploadfile_inputs=[t.img], outputs=[t.id], background=False
+        )
+        client = make_test_client(router)
+
+        assert client.post('/ins', json={'id': 1, 'val': 10}).json() == {'id': 1, 'incr': 11}
+        assert client.post('/comp', json={'id': 2, 'val': 20}).json() == {'incr': 21}
+        assert client.post('/upd', json={'id': 1, 'val': 40}).json() == {'id': 1, 'incr': 41}
+        assert client.post('/del', json={'id': 1}).json() == {'num_rows': 1}
+
+        with open(get_image_files()[0], 'rb') as f:
+            resp = client.post('/upload', data={'id': 7}, files={'img': ('x.jpg', f, 'image/jpeg')})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {'id': 7}
+
+    def test_model_target(self, make_catalog_path: Callable[[str], str]) -> None:
+        """Routes can be declared against a model before the table it describes exists."""
+        p = make_catalog_path
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter
+
+        TableModel = pxt.model_base()  # noqa: N806
+
+        class Notes(TableModel, name='notes'):
+            note_id = pxt.Column(type=pxt.Required[pxt.Int], primary_key=True)
+            val: pxt.Required[pxt.Int]
+            incr = add_one(val)  # noqa: F821
+
+        # a model attribute is a ColumnRefByName at runtime, but a type checker sees the column's declared value
+        # type, so these do not satisfy the declared argument types; the ignores go away with the mypy plugin fix
+        router = FastAPIRouter()
+        router.add_insert_route(
+            Notes,
+            path='/ins',
+            inputs=[Notes.note_id, Notes.val],  # type: ignore[arg-type]
+            outputs=[Notes.incr],  # type: ignore[arg-type]
+        )
+        router.add_compute_route(
+            Notes,
+            path='/comp',
+            inputs=[Notes.note_id, Notes.val],  # type: ignore[arg-type]
+            outputs=[Notes.incr],  # type: ignore[arg-type]
+        )
+        router.add_update_route(
+            Notes,
+            path='/upd',
+            inputs=[Notes.val],  # type: ignore[arg-type]
+            outputs=[Notes.note_id, Notes.incr],  # type: ignore[arg-type]
+        )
+        router.add_delete_route(
+            Notes,
+            path='/del',
+            match_columns=[Notes.note_id],  # type: ignore[arg-type]
+        )
+        client = make_test_client(router)
+
+        # the routes are fully described before the table exists
+        schema = client.get('/openapi.json').json()
+        assert sorted(path for path in schema['paths'] if not path.startswith('/media')) == [
+            '/comp',
+            '/del',
+            '/ins',
+            '/jobs/{job_id}',
+            '/upd',
+        ]
+
+        TableModel.create_all(p(''))
+        router.bind(p(''))
+
+        assert client.post('/ins', json={'note_id': 1, 'val': 10}).json() == {'incr': 11}
+        assert client.post('/comp', json={'note_id': 2, 'val': 20}).json() == {'incr': 21}
+        assert client.post('/upd', json={'note_id': 1, 'val': 40}).json() == {'note_id': 1, 'incr': 41}
+        assert client.post('/del', json={'note_id': 1}).json() == {'num_rows': 1}
+
+        # the contract is frozen against the schema seen at bind time
+        Notes.table.add_column(extra=pxt.String)
+        resp = client.post('/ins', json={'note_id': 3, 'val': 30})
+        assert resp.status_code == 409, resp.text
+        assert 'schema changed' in resp.json()['detail']
+
+    def test_model_target_errors(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter
+
+        TableModel = pxt.model_base()  # noqa: N806
+
+        class Notes(TableModel, name='notes'):
+            note_id = pxt.Column(type=pxt.Required[pxt.Int], primary_key=True)
+            val: pxt.Required[pxt.Int]
+
+        class BigNotes(TableModel, name='big_notes', base=Notes.where(Notes.val > 10)):
+            doubled = Notes.val * 2
+
+        router = FastAPIRouter()
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="unknown column 'nosuchcol'"):
+            router.add_delete_route(Notes, path='/e', match_columns=['nosuchcol'])
+        # a view cannot be inserted into or deleted from, whether it is named by a model or by a table
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot insert into view'):
+            router.add_insert_route(BigNotes, path='/e')
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot delete from view'):
+            router.add_delete_route(BigNotes, path='/e')
+
+        # serving a route whose router was never bound names the route and its model
+        router.add_insert_route(Notes, path='/ins')
+        client = make_test_client(router)
+        resp = client.post('/ins', json={'note_id': 1, 'val': 10})
+        assert resp.status_code == 503, resp.text
+        assert 'has not been bound' in resp.json()['detail']
+        assert '`Notes`' in resp.json()['detail']
+
+        TableModel.create_all(p(''))
+        router.bind(p(''))
+        assert client.post('/ins', json={'note_id': 1, 'val': 10}).status_code == 200
+
+    def test_view_model_target(self, make_catalog_path: Callable[[str], str]) -> None:
+        """A compute route can be declared against a view model before either table exists."""
+        p = make_catalog_path
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter
+
+        TableModel = pxt.model_base()  # noqa: N806
+
+        class Notes(TableModel, name='notes'):
+            note_id = pxt.Column(type=pxt.Required[pxt.Int], primary_key=True)
+            val: pxt.Required[pxt.Int]
+
+        class BigNotes(TableModel, name='big_notes', base=Notes.where(Notes.val > 10)):
+            doubled = Notes.val * 2
+
+        router = FastAPIRouter()
+        router.add_compute_route(BigNotes, path='/big', inputs=['note_id', 'val'], outputs=['doubled'])
+        client = make_test_client(router)
+
+        # the request takes the base's columns and the response the view's own, before either table exists
+        schemas = client.get('/openapi.json').json()['components']['schemas']
+        assert sorted(schemas['Body_compute_big_big_post']['properties']) == ['note_id', 'val']
+        assert sorted(schemas['BigResponse']['properties']) == ['doubled']
+
+        TableModel.create_all(p(''))
+        router.bind(p(''))
+
+        # the filter admits this row, so the view computes one
+        assert client.post('/big', json={'note_id': 1, 'val': 20}).json() == {'doubled': 40}
+        # and drops this one
+        assert client.post('/big', json={'note_id': 2, 'val': 5}).json() is None
+
+    def test_bind(self, make_catalog_path: Callable[[str], str]) -> None:
+        """bind() resolves model targets, reports what the tables cannot serve, and rejects a second target."""
+        p = make_catalog_path
+        skip_test_if_not_installed('fastapi')
+        import fastapi
+        from fastapi.testclient import TestClient
+
+        from pixeltable.serving import FastAPIRouter
+
+        TableModel = pxt.model_base()  # noqa: N806
+
+        class Notes(TableModel, name='notes'):
+            note_id = pxt.Column(type=pxt.Required[pxt.Int], primary_key=True)
+            val: pxt.Required[pxt.Int]
+            note: pxt.String
+
+        router = FastAPIRouter()
+        router.add_insert_route(Notes, path='/ins', inputs=['note_id', 'val', 'note'], outputs=['note_id'])
+
+        # before the table exists, the route is blocked on a schema change, and the diff says which command
+        ops = router.get_service_diff(p(''))
+        assert len(ops) == 1, ops
+        assert ops[0]['target'] == 'route'
+        assert ops[0]['name'] == 'POST /ins'
+        assert ops[0]['severity'] == 'blocked'
+        assert "table 'notes' does not exist" in ops[0]['description']
+        assert ops[0]['details']['command'].startswith('pxt schema update')
+
+        with pxt_raises(pxt.ErrorCode.SCHEMA_MISMATCH, match="table 'notes' does not exist"):
+            router.bind(p(''))
+
+        # an unbound router refuses to start, rather than failing once per request
+        app = fastapi.FastAPI()
+        app.include_router(router)
+        with pxt_raises(pxt.ErrorCode.NOT_BOUND, match="'POST /ins'"), TestClient(app):
+            pass
+
+        TableModel.create_all(p(''))
+        assert router.get_service_diff(p('')) == []
+        router.bind(p(''))
+        resp = make_test_client(router).post('/ins', json={'note_id': 1, 'val': 10, 'note': 'hi'})
+        assert resp.status_code == 200, resp.text
+
+        # binding is to one place: a second target would silently retarget the routes already being served
+        with pxt_raises(pxt.ErrorCode.ALREADY_BOUND, match='already bound'):
+            router.bind(p('elsewhere'))
+
+        # a diff against another target reports what is there, rather than raising over the existing binding
+        pxt.create_dir(p('elsewhere'))
+        ops = router.get_service_diff(p('elsewhere'))
+        assert len(ops) == 1, ops
+        assert "table 'notes' does not exist" in ops[0]['description']
+
+        # a column the route names, dropped from the table, blocks it; one it does not name is ignored
+        Notes.table.add_column(unrelated=pxt.String)
+        assert router.get_service_diff(p('')) == []
+        Notes.table.drop_column('note')
+        ops = router.get_service_diff(p(''))
+        assert len(ops) == 1, ops
+        assert "has no column 'note'" in ops[0]['description']
+
+    def test_bind_table_targets(self, make_catalog_path: Callable[[str], str]) -> None:
+        """A route declared against a Table needs no binding: it already names the table it serves."""
+        p = make_catalog_path
+        skip_test_if_not_installed('fastapi')
+        import fastapi
+        from fastapi.testclient import TestClient
+
+        from pixeltable.serving import FastAPIRouter
+
+        t = pxt.create_table(p('items'), {'id': pxt.Required[pxt.Int], 'val': pxt.Int}, primary_key='id')
+
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/ins', inputs=['id', 'val'], outputs=['id'])
+        assert router.get_service_diff(p('')) == []
+
+        app = fastapi.FastAPI()
+        app.include_router(router)
+        with TestClient(app) as client:
+            assert client.post('/ins', json={'id': 1, 'val': 10}).json() == {'id': 1}
+
     @pytest.mark.parametrize(
         ('op_name', 'first_body', 'retry_body'),
         [('insert', {'id': 2, 'val': 20}, {'id': 3, 'val': 30}), ('delete', {'id': 1}, {'id': 2})],

@@ -8,16 +8,18 @@ import shutil
 import threading
 import typing
 from pathlib import Path
-from typing import Annotated, Any, ClassVar, Literal, NamedTuple, TypeVar
+from typing import Annotated, Any, ClassVar, Generic, Literal, NamedTuple, TypeVar
 
 import pydantic
 import toml
+from typing_extensions import Self
 
 from pixeltable import exceptions as excs
 
 _logger = logging.getLogger(__name__)
 
 T = TypeVar('T')
+ConfVarT = TypeVar('ConfVarT', bound=str)
 
 
 # Pydantic models for service and deployment configuration.
@@ -160,7 +162,9 @@ class PixeltableSource(pydantic.BaseModel):
     tag: str | None = None
 
 
-class DatabaseRuntimeConfig(pydantic.BaseModel):
+class DatabaseConfig(pydantic.BaseModel):
+    """Complete specification of the 'database' resource container."""
+
     model_config = pydantic.ConfigDict(extra='forbid')
 
     include: list[str] | None = None
@@ -169,6 +173,10 @@ class DatabaseRuntimeConfig(pydantic.BaseModel):
     # Override the runtime Python version.
     python_version: str | None = None
     pixeltable_source: PixeltableSource | None = None
+
+    # variable/secret bindings, from the VAR_/SECRET_SECTIONs
+    vars: dict[str, str] | None = None
+    secrets: dict[str, str] | None = None
 
     @pydantic.field_validator('system_dependencies')
     @classmethod
@@ -194,6 +202,118 @@ class DatabaseRuntimeConfig(pydantic.BaseModel):
         return v
 
 
+# config section names for database variables and secrets
+VAR_SECTION = 'pixeltable.database.vars'
+SECRET_SECTION = 'pixeltable.database.secrets'
+
+
+class URI(str):
+    """A storage destination: an object-store URI, or a local filesystem path. Validates at construction."""
+
+    def __new__(cls, value: str) -> Self:
+        # avoid circular import
+        from pixeltable.utils.object_stores import ObjectPath
+
+        if value.strip() == '':
+            raise ValueError('a destination cannot be empty')
+        ObjectPath.parse_object_storage_addr(value, allow_obj_name=True)
+        return super().__new__(cls, value)
+
+
+class Secret(str):
+    """A configuration value that is redacted wherever it is shown.
+
+    The value is an ordinary string, usable wherever one is; only its repr is redacted. The type marks
+    the declaration, selecting the section the binding is read from.
+    """
+
+    def __repr__(self) -> str:
+        return "Secret('<redacted>')"
+
+
+class ConfigVar(Generic[ConfVarT]):
+    """A reference to a database variable or secret, declared at module scope.
+
+    A declaration names the variable; the target it is applied to supplies the value:
+
+        MEDIA_DEST = pxt.ConfigVar('media_dest', pxt.URI)
+
+        class Videos(TableModel, name='videos'):
+            clip = pxt.Column(value=..., destination=MEDIA_DEST)
+
+    Code reads it, because code runs on the target:
+
+        @pxt.udf
+        def summarize(text: str) -> str:
+            return _call(text, key=API_KEY.value())
+    """
+
+    TAG = '$confvar'
+
+    # types a ConfigVar may declare, by name, so that a stored reference can be reconstituted
+    _CONFVAR_TYPES: ClassVar[dict[str, type[str]]] = {'str': str, 'URI': URI, 'Secret': Secret}
+
+    name: str
+    type_: type[ConfVarT]
+
+    def __init__(self, name: str, type_: type[ConfVarT]) -> None:
+        self.name = name
+        self.type_ = type_
+
+    @property
+    def section(self) -> str:
+        """The configuration section this variable's binding is read from."""
+        return SECRET_SECTION if issubclass(self.type_, Secret) else VAR_SECTION
+
+    def value(self) -> ConfVarT:
+        """The bound value, converted to the declared type. Raises if the target has no binding for it."""
+        v = Config.get().get_value(self.name, self.type_, section=self.section)
+        if v is None:
+            raise excs.RequestError(
+                excs.ErrorCode.MISSING_REQUIRED,
+                f'Config var {self.name!r} is not set.\nAdd it under [{self.section}] in {Config.get().config_file}.',
+            )
+        return v
+
+    def _as_dict(self) -> dict[str, str]:
+        """The serialized form of a ConfigVar.
+
+        The declared type travels with the name: it selects the section the binding is read from, and
+        converts the raw string.
+        """
+        return {self.TAG: self.name, 'type': self.type_.__name__}
+
+    @classmethod
+    def _from_dict(cls, ref: dict[str, Any]) -> ConfigVar:
+        """Reconstruct the ConfigVar a stored reference names, as produced by ConfigVar._as_dict()."""
+        name = ref[cls.TAG]
+        type_name = ref.get('type', 'str')
+        type_ = cls._CONFVAR_TYPES.get(type_name)
+        if type_ is None:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'Config var {name!r} refers to unknown type {type_name!r}; it may have been written by a newer '
+                'version of Pixeltable.',
+            )
+        return ConfigVar(name, type_)
+
+    def __repr__(self) -> str:
+        return f'ConfigVar({self.name!r}, {self.type_.__name__})'
+
+    def __str__(self) -> str:
+        """The reference form, '$<name>', which is how a declared config var reads in metadata."""
+        return f'${self.name}'
+
+    def __format__(self, format_spec: str) -> str:
+        # Interpolation is how a config var would be built into a larger value, which cannot work: the
+        # value is not known where the declaration is written. A composed value needs its own config var.
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f'Config var {self.name!r} cannot be interpolated into a string.\n'
+            'Declare a config var for the whole value, or call value() to read this one.',
+        )
+
+
 class ConfigKey(NamedTuple):
     """An individual configuration setting from the known-schema registry."""
 
@@ -210,7 +330,7 @@ class ConfigKey(NamedTuple):
 
 class Config:
     """
-    The (global) Pixeltable configuration, as loaded from `config.toml`. Provides methods for retrieving
+    The (global) Pixeltable configuration, as loaded from PIXELTABLE_HOME/config.toml. Provides methods for retrieving
     configuration values, which can be set in the config file or as environment variables.
     """
 
@@ -219,21 +339,15 @@ class Config:
 
     __home: Path
     __config_file: Path
-    __config_overrides: dict[str, Any]
+
+    # modification time and size of the config file when it was last read, needed for reload_if_changed()
+    __stamp: tuple[float, int] | None
 
     # section -> key -> (value, source_path); source_path is None for settings that don't come from a file
     __config_dict: dict[str, dict[str, tuple[Any, Path | None]]]
 
-    def __init__(self, config_overrides: dict[str, Any], additional_config_files: list[str]) -> None:
+    def __init__(self) -> None:
         assert self.__instance is None, 'Config is a singleton; use Config.get() to access the instance'
-
-        for var in config_overrides:
-            if var not in KNOWN_CONFIG_OVERRIDES:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_CONFIGURATION, f'Unrecognized configuration variable: {var}'
-                )
-
-        self.__config_overrides = config_overrides
 
         self.__home = Path(self.lookup_env('pixeltable', 'home', str(Path.home() / '.pixeltable')))
         if self.__home.exists() and not self.__home.is_dir():
@@ -243,23 +357,8 @@ class Config:
             self.__home.mkdir()
 
         self.__config_file = Path(self.lookup_env('pixeltable', 'config', str(self.__home / 'config.toml')))
-
-        # Load configuration from (in order of precedence, highest to lowest):
-        #   1. additional_config_files
-        #   2. ./pixeltable.toml, if present
-        #   3. The `[tool.pixeltable]` section of ./pyproject.toml, if present
-        #   4. The user's config file (~/.pixeltable/config.toml by default)
-
-        project_config = self.__load_project_config(Path.cwd() / 'pixeltable.toml')
-        pyproject_config = self.__load_pyproject_config(Path.cwd() / 'pyproject.toml')
-        user_config = self.__load_user_config()
-        additional_configs = [self.__load_project_config(Path(f)) for f in additional_config_files]
-
-        self.__config_dict = {}
-
-        # Load lowest precedence first (for additional configs, last specified = highest precedence).
-        for source in (user_config, pyproject_config, project_config, *additional_configs):
-            self.__merge_config(self.__config_dict, source)
+        self.__config_dict = self.__load_user_config()
+        self.__stamp = self.__file_stamp()
 
     @property
     def home(self) -> Path:
@@ -273,25 +372,39 @@ class Config:
     def get(cls) -> Config:
         if cls.__instance is not None:
             return cls.__instance
-        cls.init({})
+        cls.init()
         return cls.__instance
 
     @classmethod
-    def init(
-        cls, config_overrides: dict[str, Any], additional_config_files: list[str] | None = None, reinit: bool = False
-    ) -> None:
-        if additional_config_files is None:
-            additional_config_files = []
+    def init(cls, reinit: bool = False) -> None:
         with cls.__init_lock:
             if reinit:
                 cls.__instance = None
             if cls.__instance is None:
-                cls.__instance = cls(config_overrides, additional_config_files)
-            elif len(config_overrides) > 0 or len(additional_config_files) > 0:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_STATE,
-                    'Pixeltable has already been initialized; cannot specify new config values in the same session',
-                )
+                cls.__instance = cls()
+
+    @classmethod
+    def reload_if_changed(cls) -> bool:
+        """Reload the config file if it changed since it was read. Returns True if it was reloaded.
+
+        home and config_file are not re-read; they are fixed for the life of the process.
+        """
+        with cls.__init_lock:
+            if cls.__instance is None:
+                return False
+            if cls.__instance.__file_stamp() == cls.__instance.__stamp:
+                return False
+            cls.__instance = None
+            cls.__instance = cls()
+            return True
+
+    def __file_stamp(self) -> tuple[float, int] | None:
+        """Modification time and size of the config file, or None if it is absent."""
+        try:
+            st = self.__config_file.stat()
+        except OSError:
+            return None
+        return (st.st_mtime, st.st_size)
 
     @classmethod
     def __create_default_config(cls, config_path: Path) -> dict[str, Any]:
@@ -322,30 +435,6 @@ class Config:
             for section, section_dict in config_dict.items()
             if isinstance(section_dict, dict)
         }
-
-    @classmethod
-    def __load_project_config(cls, path: Path) -> dict[str, dict[str, tuple[Any, Path]]]:
-        """Load ./pixeltable.toml, if it exists. Same structure as the user config file."""
-        config_dict = cls.__read_toml_file(path)
-        cls.__validate_config(config_dict, path)
-        return cls.__add_path(config_dict, path)
-
-    @classmethod
-    def __load_pyproject_config(cls, path: Path) -> dict[str, dict[str, tuple[Any, Path]]]:
-        """Load the `[tool.pixeltable]` table from ./pyproject.toml, if it exists.
-
-        Subsections are expressed as `[tool.pixeltable.<section>]` (e.g. `[tool.pixeltable.openai]`).
-
-        `[tool.pixeltable.pixeltable]` is shortened to `[tool.pixeltable]`.
-        """
-        pyproject = cls.__read_toml_file(path)
-        config_dict = pyproject.get('tool', {}).get('pixeltable', {})
-        if not isinstance(config_dict, dict):
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_CONFIGURATION, f"Expected a table for '[tool.pixeltable]' in config file: {path}"
-            )
-        cls.__validate_config(config_dict, path)
-        return cls.__add_path(config_dict, path)
 
     def __load_user_config(self) -> dict[str, dict[str, tuple[Any, Path]]]:
         """Load the user's config file, creating a default one if it does not exist."""
@@ -440,19 +529,8 @@ class Config:
                 names.add(name)
         return validated_config
 
-    @classmethod
-    def __merge_config(
-        cls, base: dict[str, dict[str, tuple[Any, Path | None]]], overlay: dict[str, dict[str, tuple[Any, Path]]]
-    ) -> None:
-        """Merge `overlay` into `base` at the section.key level; `overlay` values take precedence."""
-        for section, section_dict in overlay.items():
-            base.setdefault(section, {}).update(section_dict)
-
     def lookup_env(self, section: str, key: str, default: Any = None) -> Any:
-        override_var = f'{section}.{key}'
         env_var = f'{section.upper()}_{key.upper()}'
-        if override_var in self.__config_overrides:
-            return self.__config_overrides[override_var]
         if env_var in os.environ and len(os.environ[env_var]) > 0:
             return os.environ[env_var]
         return default
@@ -539,10 +617,9 @@ class Config:
 
     def get_value_source(self, key: str, section: str = 'pixeltable') -> Path | Literal['env', 'unset']:
         """Return the source of the config value returned by get_value():
-        - 'env': environment variable (or programmatic config override) is set
-        - Path: the file the value came from (one of user config, project pixeltable.toml,
-          pyproject.toml, or one of additional_config_files)
-        - 'unset': no layer carries the value
+        - 'env': an environment variable is set
+        - Path: the config file the value came from
+        - 'unset': neither carries the value
         """
         if self.lookup_env(section, key) is not None:
             return 'env'
@@ -573,7 +650,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'b2_profile': 'AWS config profile name used to access Backblaze B2 storage',
         'tigris_profile': 'AWS config profile name used to access Tigris object storage',
         'service': ('Service configurations', list[ServiceConfig]),
-        'database': 'Database runtime configuration',
+        'database': 'Database configuration: runtime image, and variable/secret bindings',
         'daemon_host': 'Listen address for the proxy daemon in fixed-address mode (e.g. 0.0.0.0)',
         'daemon_port': ('Listen port for the proxy daemon in fixed-address mode (e.g. 8000)', int),
         'db_uri': 'Base pxt:// URI for remote catalog access (e.g. pxt://myorg:mydb)',
@@ -644,10 +721,4 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
     'veo': {'rate_limits': 'Per-model rate limits for Veo API requests'},
     'voyage': {'api_key': 'Voyage AI API key', 'rate_limit': 'Rate limit for Voyage AI API requests'},
     'pypi': {'api_key': 'PyPI API key (for internal use only)'},
-}
-
-KNOWN_CONFIG_OVERRIDES = {
-    f'{section}.{key}': info
-    for section, section_dict in KNOWN_CONFIG_OPTIONS.items()
-    for key, info in section_dict.items()
 }

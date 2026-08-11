@@ -25,6 +25,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 import pydantic
 
 from pixeltable import exceptions as excs
+from pixeltable.config import Config
 
 from .router import RawResponse, Request
 from .routes import router
@@ -70,6 +71,11 @@ class _DaemonHandler(BaseHTTPRequestHandler):
         self._dispatch('POST')
 
     def _dispatch(self, method: str) -> None:
+        # Users edit the config file directly, so pick up an edit here rather than at the next daemon
+        # restart. Doing it once per request means a request sees one consistent set of values.
+        if Config.reload_if_changed():
+            _logger.info('Reloaded %s', Config.get().config_file)
+
         parsed = urlparse(self.path)
         url_path = unquote(parsed.path)
         query = parse_qs(parsed.query, keep_blank_values=True)

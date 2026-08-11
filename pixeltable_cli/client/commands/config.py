@@ -14,10 +14,9 @@ Examples:
   pxt config --json
 
 Notes:
-  Source 'env' means an environment variable (or programmatic override) supplies the value.
-  A file path means the value came from that file (one of the user config, project
-  pixeltable.toml, pyproject.toml's [tool.pixeltable], or an additional_config_files entry).
-  Source 'unset' means no layer carries the value; pixeltable falls back to its own default.
+  Source 'env' means an environment variable supplies the value.
+  A file path means the value came from the config file of this Pixeltable instance.
+  Source 'unset' means neither carries the value; pixeltable falls back to its own default.
   Credential values (api_key, api_token, api_secret, auth_token) show '<redacted>' when set;
   use the source field to tell set from unset for sensitive keys."""
 

@@ -478,3 +478,38 @@ class TestSchema:
         r = cli('schema', 'update', 'app_schema.py', target, cwd=tmp_path)
         assert r.stdout.count('created') == 2
         assert pxt.get_table(f'{target}/docs') is not None
+
+    def test_update_unbound_config_var(
+        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+    ) -> None:
+        """A schema referencing a value the target has not bound fails before any table is created."""
+        p = make_catalog_path
+        schema_file = tmp_path / 'app_schema.py'
+        schema_file.write_text(
+            dedent(
+                """
+                from __future__ import annotations
+
+                import pixeltable as pxt
+
+                MEDIA_DEST = pxt.ConfigVar('no_such_media_dest', pxt.URI)
+
+                TableModel = pxt.model_base()
+
+
+                class Docs(TableModel, name='docs'):
+                    img: pxt.Image
+                    thumbnail = pxt.Column(value=img.rotate(90), destination=MEDIA_DEST.value())
+                """
+            )
+        )
+        target = p('app')
+
+        # diff shares the plan path with update, so it must report the same thing rather than succeed
+        for verb in ('diff', 'update'):
+            r = cli('schema', verb, str(schema_file), target, check=False)
+            assert r.returncode == 1, verb
+            assert 'no_such_media_dest' in r.stderr, verb
+            assert 'is not set' in r.stderr, verb
+
+        assert pxt.get_table(f'{target}/docs', if_not_exists='ignore') is None

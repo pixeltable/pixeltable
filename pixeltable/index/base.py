@@ -19,7 +19,7 @@ class IndexBase(abc.ABC):
     """
 
     @abc.abstractmethod
-    def create_value_expr(self, c: catalog.Column) -> exprs.Expr:
+    def create_value_expr(self, c: catalog.ColumnVersionMd) -> exprs.Expr:
         """
         Validates that the index can be created on column c and returns an expression that computes the index value.
         """
