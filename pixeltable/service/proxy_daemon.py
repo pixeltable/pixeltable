@@ -263,7 +263,7 @@ def reinitialize(db: str) -> None:
 
 
 def configure_test_logging(db: str) -> None:
-    """Test only. Switch the running daemon's logging for test."""
+    """Test only. Switch the running daemon's logging for tests."""
     ep = endpoint(db)
     if ep is None:
         raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'No running proxy daemon for {db!r}')
