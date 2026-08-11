@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelHandle } from 'react-resizable-panels'
 import { Routes, Route, useNavigate, useParams, useLocation } from 'react-router-dom'
-import { CatalogTree } from '@/components/CatalogTree'
+import { DirectoryTree } from '@/components/DirectoryTree'
+import { CatalogSwitcher } from '@/components/CatalogSwitcher'
 import { TableDetailView } from '@/components/TableDetailView'
 import { SearchPanel } from '@/components/SearchPanel'
 import { PipelineInspector } from '@/components/PipelineInspector'
@@ -9,6 +10,10 @@ import { getDirectoryTree, getStatus } from '@/api/client'
 import type { SystemStatus } from '@/api/client'
 import type { TableNode, TreeNode } from '@/types'
 import { cn, tableHref, dirHref } from '@/lib/utils'
+import {
+  loadActiveCatalog,
+  saveActiveCatalog,
+} from '@/lib/catalogs'
 import {
   Search,
   GitBranch,
@@ -242,11 +247,13 @@ function useTheme() {
 export default function App() {
   const [tree, setTree] = useState<TreeNode[]>([])
   const [loading, setLoading] = useState(true)
+  const [treeError, setTreeError] = useState<string | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const sidebarPanelRef = useRef<ImperativePanelHandle>(null)
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [dark, toggleTheme] = useTheme()
+  const [activeCatalog, setActiveCatalog] = useState(loadActiveCatalog)
 
   const toggleSidebar = () => {
     const panel = sidebarPanelRef.current
@@ -257,12 +264,33 @@ export default function App() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  useEffect(() => {
-    getDirectoryTree()
-      .then(setTree)
-      .catch(console.error)
-      .finally(() => setLoading(false))
+  const handleCatalogSelect = useCallback((uri: string) => {
+    setActiveCatalog(uri)
+    saveActiveCatalog(uri)
+    navigate('/')
+  }, [navigate])
 
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setTreeError(null)
+    getDirectoryTree(activeCatalog)
+      .then(nodes => {
+        if (!cancelled) setTree(nodes)
+      })
+      .catch(err => {
+        if (!cancelled) {
+          setTree([])
+          setTreeError(err instanceof Error ? err.message : String(err))
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [activeCatalog])
+
+  useEffect(() => {
     getStatus().then(setStatus).catch(console.error)
   }, [])
 
@@ -409,18 +437,31 @@ export default function App() {
             <div className="h-px bg-border/40" />
           </div>
 
-        {/* Directory tree */}
-          <div className="flex-1 overflow-y-auto">
-          {loading ? (
-            <div className="flex items-center justify-center py-8">
+          {/* Sticky catalog switcher (Local / Cloud) — outside the scroll region */}
+          <CatalogSwitcher
+            activeCatalog={activeCatalog}
+            onSelect={handleCatalogSelect}
+            collapsed={!sidebarOpen}
+          />
+
+          {/* Directory tree for the active catalog only */}
+          <div className="flex-1 overflow-y-auto min-h-0">
+            {loading ? (
+              <div className="flex items-center justify-center py-8">
                 <div className="w-5 h-5 border-2 border-k-yellow border-t-transparent rounded-full animate-spin" />
-            </div>
+              </div>
+            ) : treeError ? (
+              sidebarOpen ? (
+                <div className="px-2 py-3 text-[11px] text-destructive break-words">
+                  {treeError}
+                </div>
+              ) : null
             ) : sidebarOpen ? (
-            <CatalogTree
-              localTree={tree}
-              selectedPath={selectedPath}
-              onSelect={handleSelectItem}
-            />
+              <DirectoryTree
+                nodes={tree}
+                selectedPath={selectedPath}
+                onSelect={handleSelectItem}
+              />
             ) : null}
           </div>
         </nav>

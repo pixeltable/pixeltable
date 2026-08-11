@@ -260,6 +260,15 @@ make docs-serve
 make docs-deploy TARGET=stage
 ```
 
+### Local Dashboard UI
+
+Before changing `dashboard/` or dashboard-facing APIs in `pixeltable_cli/server/`, read:
+
+- [`dashboard/DESIGN.md`](dashboard/DESIGN.md) — visual/UX source of truth (required)
+- [`dashboard/ARCHITECTURE.md`](dashboard/ARCHITECTURE.md) — stack, file map, APIs
+
+Follow DESIGN.md: colored Lucide kinds, yellow accent, green healthy status, sticky catalog switcher, `vN` when version exists. Do **not** reintroduce KindBadge-as-primary or `+ Add catalog` inside the scrolling tree. If proposing a visual departure, call it out explicitly and justify against DESIGN.md.
+
 ## Testing Against Remote APIs
 
 For tests that call external APIs (OpenAI, Anthropic, etc.):
@@ -323,11 +332,13 @@ def safe_process(value: Optional[str]) -> str:
 | `pixeltable/__init__.py` | Public API exports |
 | `pixeltable/catalog/table.py` | Table class implementation |
 | `pixeltable/catalog/view.py` | View class implementation |
-| `pixeltable/dashboard/` | Local web UI backend (server, bridge) |
 | `pixeltable/func/udf.py` | UDF decorator implementation |
 | `pixeltable/functions/` | AI provider integrations |
 | `pixeltable/io/` | Import/export functionality |
-| `dashboard/` | Local web UI frontend (React/Vite) |
+| `pixeltable_cli/` | CLI + daemon (serves dashboard API and static SPA) |
+| `dashboard/` | Local web UI frontend (React/Vite); see `dashboard/DESIGN.md` |
+| `dashboard/DESIGN.md` | Dashboard visual/UX source of truth (required for UI changes) |
+| `dashboard/ARCHITECTURE.md` | Dashboard stack and API map |
 | `pyproject.toml` | Dependencies and tool config |
 | `Makefile` | Build and test commands |
 
