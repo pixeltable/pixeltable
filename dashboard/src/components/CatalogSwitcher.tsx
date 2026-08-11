@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { cn } from '@/lib/utils'
+import { getDirectoryTree } from '@/api/client'
 import {
   LOCAL_CATALOG,
   catalogLabel,
   loadExtraCatalogs,
+  normalizeCloudCatalogUri,
   saveExtraCatalogs,
 } from '@/lib/catalogs'
 import {
@@ -11,9 +13,12 @@ import {
   ChevronDown,
   Cloud,
   HardDrive,
+  Loader2,
   Plus,
   X,
 } from 'lucide-react'
+
+const URI_HINT = 'Use a hosted URI like pxt://org:db'
 
 interface CatalogSwitcherProps {
   activeCatalog: string
@@ -26,6 +31,8 @@ export function CatalogSwitcher({ activeCatalog, onSelect, collapsed = false }: 
   const [open, setOpen] = useState(false)
   const [adding, setAdding] = useState(false)
   const [draft, setDraft] = useState('')
+  const [addError, setAddError] = useState<string | null>(null)
+  const [addingBusy, setAddingBusy] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -47,6 +54,8 @@ export function CatalogSwitcher({ activeCatalog, onSelect, collapsed = false }: 
         setOpen(false)
         setAdding(false)
         setDraft('')
+        setAddError(null)
+        setAddingBusy(false)
       }
     }
     document.addEventListener('mousedown', onDoc)
@@ -60,22 +69,43 @@ export function CatalogSwitcher({ activeCatalog, onSelect, collapsed = false }: 
   const cancelAdd = () => {
     setAdding(false)
     setDraft('')
+    setAddError(null)
+    setAddingBusy(false)
   }
 
-  const commitAdd = () => {
-    const uri = draft.trim()
-    if (uri === '' || uri === LOCAL_CATALOG) {
+  const handleDraftChange = (v: string) => {
+    setDraft(v)
+    if (addError) setAddError(null)
+  }
+
+  const commitAdd = async () => {
+    if (addingBusy) return
+    const raw = draft.trim()
+    if (raw === '') {
       cancelAdd()
       return
     }
-    // Hosted catalogs must use the pxt:// URI form the daemon expects.
-    if (!uri.startsWith('pxt://')) return
-    if (!catalogs.includes(uri)) {
-      setCatalogs(prev => [...prev, uri])
+
+    const uri = normalizeCloudCatalogUri(raw)
+    if (uri === null) {
+      setAddError(URI_HINT)
+      return
     }
-    onSelect(uri)
-    setOpen(false)
-    cancelAdd()
+
+    setAddingBusy(true)
+    setAddError(null)
+    try {
+      await getDirectoryTree(uri)
+      if (!catalogs.includes(uri)) {
+        setCatalogs(prev => [...prev, uri])
+      }
+      onSelect(uri)
+      setOpen(false)
+      cancelAdd()
+    } catch (e) {
+      setAddError(e instanceof Error ? e.message : 'Could not open catalog')
+      setAddingBusy(false)
+    }
   }
 
   const removeCatalog = (uri: string) => {
@@ -89,8 +119,34 @@ export function CatalogSwitcher({ activeCatalog, onSelect, collapsed = false }: 
     cancelAdd()
   }
 
+  const startAdd = () => {
+    setAdding(true)
+    setAddError(null)
+  }
+
   const isCloud = activeCatalog !== LOCAL_CATALOG
   const Icon = isCloud ? Cloud : HardDrive
+  const draftInvalid = draft.trim() !== '' && normalizeCloudCatalogUri(draft) === null
+
+  const dropdown = open ? (
+    <Dropdown
+      activeCatalog={activeCatalog}
+      catalogs={catalogs}
+      adding={adding}
+      draft={draft}
+      addError={addError}
+      addingBusy={addingBusy}
+      draftInvalid={draftInvalid}
+      inputRef={inputRef}
+      onSelect={select}
+      onRemove={removeCatalog}
+      onStartAdd={startAdd}
+      onDraftChange={handleDraftChange}
+      onCommitAdd={() => { void commitAdd() }}
+      onCancelAdd={cancelAdd}
+      align={collapsed ? 'left' : 'stretch'}
+    />
+  ) : null
 
   if (collapsed) {
     return (
@@ -102,27 +158,12 @@ export function CatalogSwitcher({ activeCatalog, onSelect, collapsed = false }: 
           className={cn(
             'flex items-center justify-center rounded-lg px-2.5 py-[7px] transition-colors',
             'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
-            open && 'bg-accent text-foreground',
+            open && 'bg-accent text-foreground ring-1 ring-k-yellow/30',
           )}
         >
           <Icon className="h-[15px] w-[15px]" />
         </button>
-        {open && (
-          <Dropdown
-            activeCatalog={activeCatalog}
-            catalogs={catalogs}
-            adding={adding}
-            draft={draft}
-            inputRef={inputRef}
-            onSelect={select}
-            onRemove={removeCatalog}
-            onStartAdd={() => setAdding(true)}
-            onDraftChange={setDraft}
-            onCommitAdd={commitAdd}
-            onCancelAdd={cancelAdd}
-            align="left"
-          />
-        )}
+        {dropdown}
       </div>
     )
   }
@@ -133,10 +174,12 @@ export function CatalogSwitcher({ activeCatalog, onSelect, collapsed = false }: 
         type="button"
         onClick={() => setOpen(o => !o)}
         className={cn(
-          'flex w-full items-center gap-2 rounded-lg border border-border/40 bg-background/40 px-2.5 py-[7px]',
+          'flex w-full items-center gap-2 rounded-lg border bg-background/40 px-2.5 py-[7px]',
           'text-[13px] font-medium text-foreground transition-colors',
           'hover:bg-accent/50',
-          open && 'bg-accent/60',
+          open
+            ? 'border-k-yellow/40 bg-accent/60 ring-1 ring-k-yellow/30'
+            : 'border-border/40',
         )}
         title={activeCatalog === LOCAL_CATALOG ? 'Local catalog' : activeCatalog}
       >
@@ -144,21 +187,7 @@ export function CatalogSwitcher({ activeCatalog, onSelect, collapsed = false }: 
         <span className="flex-1 truncate text-left">{catalogLabel(activeCatalog)}</span>
         <ChevronDown className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} />
       </button>
-      {open && (
-        <Dropdown
-          activeCatalog={activeCatalog}
-          catalogs={catalogs}
-          adding={adding}
-          draft={draft}
-          inputRef={inputRef}
-          onSelect={select}
-          onRemove={removeCatalog}
-          onStartAdd={() => setAdding(true)}
-          onDraftChange={setDraft}
-          onCommitAdd={commitAdd}
-          onCancelAdd={cancelAdd}
-        />
-      )}
+      {dropdown}
     </div>
   )
 }
@@ -168,6 +197,9 @@ function Dropdown({
   catalogs,
   adding,
   draft,
+  addError,
+  addingBusy,
+  draftInvalid,
   inputRef,
   onSelect,
   onRemove,
@@ -181,6 +213,9 @@ function Dropdown({
   catalogs: string[]
   adding: boolean
   draft: string
+  addError: string | null
+  addingBusy: boolean
+  draftInvalid: boolean
   inputRef: RefObject<HTMLInputElement>
   onSelect: (uri: string) => void
   onRemove: (uri: string) => void
@@ -190,6 +225,11 @@ function Dropdown({
   onCancelAdd: () => void
   align?: 'stretch' | 'left'
 }) {
+  const showError = addError !== null
+  const inputBorder = showError || draftInvalid
+    ? 'border-destructive/50 focus:ring-destructive/30'
+    : 'border-border/40 focus:ring-ring/30'
+
   return (
     <div
       className={cn(
@@ -217,29 +257,51 @@ function Dropdown({
       ))}
       <div className="my-1 mx-2 h-px bg-border/40" />
       {adding ? (
-        <div className="flex items-center gap-1 px-2 py-1">
-          <input
-            ref={inputRef}
-            value={draft}
-            onChange={e => onDraftChange(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter') onCommitAdd()
-              if (e.key === 'Escape') onCancelAdd()
-            }}
-            placeholder="pxt://org:db"
-            className="h-7 flex-1 rounded border border-border/40 bg-background/50 px-1.5 text-[11px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring/30"
-          />
-          <button
-            type="button"
-            onMouseDown={e => {
-              e.preventDefault()
-              onCommitAdd()
-            }}
-            title="Add cloud catalog"
-            className="shrink-0 text-muted-foreground/60 hover:text-foreground p-1"
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </button>
+        <div className="px-2 py-1.5 space-y-1">
+          <div className="flex items-center gap-1">
+            <input
+              ref={inputRef}
+              value={draft}
+              disabled={addingBusy}
+              onChange={e => onDraftChange(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') onCommitAdd()
+                if (e.key === 'Escape') onCancelAdd()
+              }}
+              placeholder="pxt://org:db"
+              aria-invalid={showError || draftInvalid}
+              className={cn(
+                'h-7 flex-1 rounded border bg-background/50 px-1.5 text-[11px] text-foreground',
+                'placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 disabled:opacity-60',
+                inputBorder,
+              )}
+            />
+            <button
+              type="button"
+              disabled={addingBusy}
+              onMouseDown={e => {
+                e.preventDefault()
+                onCommitAdd()
+              }}
+              title="Add cloud catalog"
+              className={cn(
+                'shrink-0 p-1 transition-colors disabled:opacity-50',
+                showError || draftInvalid
+                  ? 'text-destructive/70 hover:text-destructive'
+                  : 'text-muted-foreground/60 hover:text-foreground',
+              )}
+            >
+              {addingBusy
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : <Plus className="h-3.5 w-3.5" />}
+            </button>
+          </div>
+          <p className={cn(
+            'text-[10px] px-0.5 leading-snug',
+            showError ? 'text-destructive' : 'text-muted-foreground',
+          )}>
+            {addError ?? URI_HINT}
+          </p>
         </div>
       ) : (
         <button

@@ -38,3 +38,23 @@ export function catalogLabel(uri: string): string {
   if (uri.startsWith('pxt://')) return uri.slice('pxt://'.length)
   return uri
 }
+
+/**
+ * Normalize a user-entered hosted catalog URI.
+ * Accepts `pxt://org:db…` or bare `org:db` (no spaces); returns null when invalid.
+ */
+export function normalizeCloudCatalogUri(raw: string): string | null {
+  const trimmed = raw.trim()
+  if (trimmed === '' || trimmed === LOCAL_CATALOG) return null
+
+  let uri = trimmed
+  if (!uri.startsWith('pxt://')) {
+    // Bare org:db form — single colon separating two non-empty segments, no spaces.
+    if (!/^[^:\s]+:[^:\s]+$/.test(uri)) return null
+    uri = `pxt://${uri}`
+  }
+
+  const rest = uri.slice('pxt://'.length)
+  if (!/^[^:\s]+:[^:\s]+/.test(rest)) return null
+  return uri
+}
