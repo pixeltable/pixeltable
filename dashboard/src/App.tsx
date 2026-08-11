@@ -254,6 +254,7 @@ export default function App() {
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [dark, toggleTheme] = useTheme()
   const [activeCatalog, setActiveCatalog] = useState(loadActiveCatalog)
+  const [treeReload, setTreeReload] = useState(0)
 
   const toggleSidebar = () => {
     const panel = sidebarPanelRef.current
@@ -288,7 +289,7 @@ export default function App() {
         if (!cancelled) setLoading(false)
       })
     return () => { cancelled = true }
-  }, [activeCatalog])
+  }, [activeCatalog, treeReload])
 
   useEffect(() => {
     getStatus().then(setStatus).catch(console.error)
@@ -355,7 +356,7 @@ export default function App() {
                 </div>
                 {status?.config?.home && (
                   <span className="flex items-center gap-1 text-[10px] text-muted-foreground leading-tight mt-0.5">
-                    <CircleDot className="h-2 w-2 text-muted-foreground shrink-0" />
+                    <CircleDot className="h-2 w-2 text-emerald-400 shrink-0" />
                     <span className="truncate">{status.config.home.replace(/^\/Users\/[^/]+\//, '~/')}</span>
                   </span>
                 )}
@@ -452,8 +453,15 @@ export default function App() {
               </div>
             ) : treeError ? (
               sidebarOpen ? (
-                <div className="px-2 py-3 text-[11px] text-destructive break-words">
-                  {treeError}
+                <div className="px-2 py-3 space-y-2">
+                  <div className="text-[11px] text-destructive break-words">{treeError}</div>
+                  <button
+                    type="button"
+                    onClick={() => setTreeReload(n => n + 1)}
+                    className="text-[11px] font-medium text-foreground underline-offset-2 hover:underline"
+                  >
+                    Retry
+                  </button>
                 </div>
               ) : null
             ) : sidebarOpen ? (

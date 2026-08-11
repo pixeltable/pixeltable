@@ -114,10 +114,9 @@ The PyPI 0.7.1 bundled SPA may still show KindBadge + in-tree Add catalog. Treat
 
 ## Future work
 
-When merging or reconciling #1494 UI bits into `dashboard/src`:
+Visual restore (colored Lucide + `vN`, KindBadge removed, type/func accents, green status, sticky switcher) is in progress on the local-ui draft. Remaining polish:
 
-1. Keep multi-catalog, search, routing, schema Info, lineage depth, a11y contrast, backend fixes.
-2. Restore any remaining desaturation (type badges, cell colors, pipeline/func accents, green status).
-3. Never reintroduce KindBadge as the primary kind language.
-4. Never reintroduce `+ Add catalog` inside the scrolling tree; keep the sticky switcher.
-5. Ensure sidebar rows show `vN` whenever `version !== null`.
+1. Keep refining light/dark surface ladder and dense data-toolbar wrap at mid widths.
+2. Never reintroduce KindBadge as the primary kind language.
+3. Never reintroduce `+ Add catalog` inside the scrolling tree; keep the sticky switcher.
+4. Ensure sidebar rows show `vN` whenever `version !== null`.

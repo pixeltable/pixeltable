@@ -47,13 +47,13 @@ const RESULT_META: Record<string, {
   color: string
   bg: string
 }> = {
-  directory:  { icon: Folder,  color: 'text-foreground',      bg: 'bg-k-yellow/10' },
-  table:      { icon: Table2,  color: 'text-muted-foreground',      bg: 'bg-blue-400/10' },
-  view:       { icon: Eye,     color: 'text-muted-foreground',    bg: 'bg-purple-400/10' },
-  snapshot:   { icon: Camera,  color: 'text-muted-foreground',    bg: 'bg-orange-400/10' },
+  directory:  { icon: Folder,  color: 'text-k-yellow',         bg: 'bg-k-yellow/10' },
+  table:      { icon: Table2,  color: 'text-blue-400',         bg: 'bg-blue-400/10' },
+  view:       { icon: Eye,     color: 'text-purple-400',       bg: 'bg-purple-400/10' },
+  snapshot:   { icon: Camera,  color: 'text-orange-400',       bg: 'bg-orange-400/10' },
   replica:    { icon: Copy,    color: 'text-muted-foreground', bg: 'bg-muted' },
-  column:     { icon: Hash,    color: 'text-muted-foreground',   bg: 'bg-emerald-400/10' },
-  computed:   { icon: Zap,     color: 'text-foreground',      bg: 'bg-k-yellow/10' },
+  column:     { icon: Hash,    color: 'text-emerald-400',      bg: 'bg-emerald-400/10' },
+  computed:   { icon: Zap,     color: 'text-k-yellow',         bg: 'bg-k-yellow/10' },
 }
 
 function getResultMeta(item: SearchResultItem) {

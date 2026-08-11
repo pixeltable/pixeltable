@@ -1,10 +1,13 @@
 import { useState, useMemo, useEffect } from 'react'
 import type { TreeNode } from '@/types'
 import { cn } from '@/lib/utils'
-import { KindBadge } from './KindBadge'
 import {
   Folder,
   FolderOpen,
+  Table2,
+  Eye,
+  Camera,
+  Copy,
   ChevronRight,
   ChevronDown,
   Search,
@@ -19,10 +22,23 @@ interface DirectoryTreeProps {
   onSelect: (path: string, type: string) => void
 }
 
-function getDirectoryIcon(isOpen: boolean) {
-  return isOpen
-    ? <FolderOpen className="h-3.5 w-3.5 text-foreground shrink-0" />
-    : <Folder className="h-3.5 w-3.5 text-foreground shrink-0" />
+function getNodeIcon(type: string, isOpen: boolean = false) {
+  switch (type) {
+    case 'directory':
+      return isOpen
+        ? <FolderOpen className="h-3.5 w-3.5 text-k-yellow shrink-0" />
+        : <Folder className="h-3.5 w-3.5 text-k-yellow shrink-0" />
+    case 'table':
+      return <Table2 className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+    case 'view':
+      return <Eye className="h-3.5 w-3.5 text-purple-400 shrink-0" />
+    case 'snapshot':
+      return <Camera className="h-3.5 w-3.5 text-orange-400 shrink-0" />
+    case 'replica':
+      return <Copy className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+    default:
+      return <Table2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+  }
 }
 
 function countDescendants(node: TreeNode): number {
@@ -97,9 +113,7 @@ function TreeItem({ node, level, selectedPath, onSelect, filter, collapsedAll }:
           <span className="w-3.5 h-3.5 shrink-0" />
         )}
 
-        {isDirectory
-          ? getDirectoryIcon(isOpen)
-          : <span className="w-3.5 h-3.5 shrink-0" />}
+        {getNodeIcon(node.kind, isOpen)}
         <span className="flex-1 text-[13px] truncate">{node.name}</span>
 
         {hasErrors && !isDirectory && (
@@ -114,8 +128,11 @@ function TreeItem({ node, level, selectedPath, onSelect, filter, collapsedAll }:
           </span>
         )}
 
-        {!isDirectory && <KindBadge kind={node.kind} />}
-
+        {!isDirectory && node.version !== null && (
+          <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
+            v{node.version}
+          </span>
+        )}
       </button>
 
       {isDirectory && hasChildren && isOpen && (
@@ -147,7 +164,7 @@ export function DirectoryTree({ nodes, selectedPath, onSelect }: DirectoryTreePr
   if (nodes.length === 0) {
     return (
       <div className="text-center py-8 text-muted-foreground">
-        <Folder className="h-8 w-8 mx-auto mb-2 opacity-50" />
+        <Folder className="h-8 w-8 mx-auto mb-2 opacity-50 text-k-yellow" />
         <p className="text-xs">No directories or tables found</p>
         <p className="text-[11px] mt-1 text-muted-foreground">
           Create tables using the Python SDK

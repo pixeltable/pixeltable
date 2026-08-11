@@ -23,8 +23,9 @@ export function saveExtraCatalogs(uris: string[]): void {
 
 export function loadActiveCatalog(): string {
   const saved = localStorage.getItem(ACTIVE_KEY)
-  if (saved === null || saved === '') return LOCAL_CATALOG
-  return saved
+  if (saved === null || saved === '' || saved === LOCAL_CATALOG) return LOCAL_CATALOG
+  if (loadExtraCatalogs().includes(saved)) return saved
+  return LOCAL_CATALOG
 }
 
 export function saveActiveCatalog(uri: string): void {

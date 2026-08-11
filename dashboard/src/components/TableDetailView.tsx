@@ -20,14 +20,26 @@ import {
   ImageIcon, Film, Music, FileText,
   Rows3, Table2, Filter, X, Search,
   RefreshCw, Key, Download, SquareFunction,
-  Copy,
+  Copy, Eye, Camera,
   GitBranch, ArrowRight, ExternalLink,
   AlertTriangle, Clock,
 } from 'lucide-react'
 import { ColumnFlowDiagram } from './ColumnFlowDiagram'
 import { ColumnTypeBadge } from '@/lib/column-types'
-import { KindBadge } from './KindBadge'
 import { PythonExpr } from '@/lib/python-highlight'
+
+function KindIcon({ kind, className = 'h-4 w-4' }: { kind: string; className?: string }) {
+  switch (kind) {
+    case 'view':
+      return <Eye className={`${className} text-purple-400 shrink-0`} />
+    case 'snapshot':
+      return <Camera className={`${className} text-orange-400 shrink-0`} />
+    case 'replica':
+      return <Copy className={`${className} text-muted-foreground shrink-0`} />
+    default:
+      return <Table2 className={`${className} text-blue-400 shrink-0`} />
+  }
+}
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -922,11 +934,14 @@ function ColumnChips({ columns, indices, tableMediaValidation, expanded, onToggl
               >
                 {col.is_primary_key && <Key className="h-2.5 w-2.5 text-foreground shrink-0" />}
                 {!col.is_primary_key && col.is_iterator_col && (
-                  <KindBadge kind="iterator" className="h-2.5 w-2.5 text-muted-foreground" />
+                  <SquareFunction
+                    className="h-2.5 w-2.5 text-violet-400 shrink-0"
+                    aria-label="iterator"
+                  />
                 )}
                 {!col.is_primary_key && !col.is_iterator_col && col.is_computed && (
                   <SquareFunction
-                    className={cn('h-2.5 w-2.5 text-muted-foreground shrink-0', !col.is_stored && 'opacity-50')}
+                    className={cn('h-2.5 w-2.5 text-k-yellow shrink-0', !col.is_stored && 'opacity-50')}
                     aria-label={col.is_stored ? 'computed' : 'computed on demand (not stored)'}
                   />
                 )}
@@ -991,11 +1006,14 @@ function ColumnChips({ columns, indices, tableMediaValidation, expanded, onToggl
                       <div className="flex items-center gap-1.5">
                         {col.is_primary_key && <Key className="h-3 w-3 text-foreground shrink-0" />}
                         {col.is_iterator_col && (
-                          <KindBadge kind="iterator" className="h-3 w-3 text-muted-foreground" />
+                          <SquareFunction
+                            className="h-3 w-3 text-violet-400 shrink-0"
+                            aria-label="iterator"
+                          />
                         )}
                         {col.is_computed && (
                           <SquareFunction
-                            className={cn('h-3 w-3 text-muted-foreground shrink-0', !col.is_stored && 'opacity-50')}
+                            className={cn('h-3 w-3 text-k-yellow shrink-0', !col.is_stored && 'opacity-50')}
                             aria-label={col.is_stored ? 'computed' : 'computed on demand (not stored)'}
                           />
                         )}
@@ -1149,7 +1167,7 @@ function TableHeader({ metadata, versions, rowCount }: { metadata: TableMetadata
   return (
     <div className="px-4 pt-3 pb-2.5 border-b border-border/40 shrink-0">
       <div className="flex items-center gap-2.5 mb-0.5">
-        <KindBadge kind={kind} className="h-4 w-4 text-muted-foreground" />
+        <KindIcon kind={kind} className="h-4 w-4" />
         <h2 className="text-sm font-semibold text-foreground">{metadata.name}</h2>
         <span className="text-xs font-mono text-muted-foreground">({metadata.path})</span>
         <span className="text-[11px] text-muted-foreground tabular-nums">
@@ -1229,7 +1247,7 @@ function LineagePanel({ mode, tablePath, pipelineData, pipelineColumns, onTableC
       >
         {label && <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">{label}</div>}
         <div className="flex items-center gap-2">
-          <KindBadge kind={node.is_view ? 'view' : 'table'} className="h-3.5 w-3.5 text-muted-foreground" />
+          <KindIcon kind={node.is_view ? 'view' : 'table'} className="h-3.5 w-3.5" />
           <span className={cn('text-xs font-medium font-mono', isCurrent ? 'text-foreground' : 'text-foreground hover:underline')}>
             {node.name}
           </span>
@@ -1691,9 +1709,9 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
         {/* ── Data Panel ────────────────────────────────────────────── */}
         <Panel className="flex flex-col min-h-0 overflow-hidden">
       {/* ── Content Tab Toggle + Toolbar ──────────────────────────── */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-border/40 gap-3 shrink-0">
+      <div className="flex flex-wrap items-center justify-between px-4 py-2 border-b border-border/40 gap-x-3 gap-y-2 shrink-0">
         {/* Left: tab toggle + row count/search */}
-        <div className="flex items-center gap-3 flex-1 min-w-0">
+        <div className="flex flex-wrap items-center gap-3 flex-1 min-w-0">
           {/* Data / Lineage tabs */}
           <div className="flex bg-accent/50 rounded-md p-0.5 shrink-0">
             <button
@@ -1782,7 +1800,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
         </div>
 
         {/* Right: controls (data tab only) */}
-        {contentTab === 'data' && <div className="flex items-center gap-1.5 shrink-0">
+        {contentTab === 'data' && <div className="flex flex-wrap items-center gap-1.5 shrink-0">
           {/* Refresh */}
           {lastRefreshed && (
             <span className="text-[11px] text-muted-foreground tabular-nums">
@@ -1950,11 +1968,14 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
                         >
                         <div className="flex items-center gap-1">
                           {col.is_iterator_col && (
-                            <KindBadge kind="iterator" className="h-3 w-3 text-muted-foreground" />
+                            <SquareFunction
+                              className="h-3 w-3 text-violet-400 shrink-0"
+                              aria-label="iterator"
+                            />
                           )}
                           {col.is_computed && (
                             <SquareFunction
-                              className={cn('h-3 w-3 text-muted-foreground shrink-0', !col.is_stored && 'opacity-50')}
+                              className={cn('h-3 w-3 text-k-yellow shrink-0', !col.is_stored && 'opacity-50')}
                               aria-label={col.is_stored ? 'computed' : 'computed on demand (not stored)'}
                             />
                           )}

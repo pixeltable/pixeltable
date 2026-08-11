@@ -68,6 +68,8 @@ export function CatalogSwitcher({ activeCatalog, onSelect, collapsed = false }: 
       cancelAdd()
       return
     }
+    // Hosted catalogs must use the pxt:// URI form the daemon expects.
+    if (!uri.startsWith('pxt://')) return
     if (!catalogs.includes(uri)) {
       setCatalogs(prev => [...prev, uri])
     }

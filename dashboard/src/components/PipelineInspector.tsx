@@ -135,9 +135,9 @@ function PipelineTableNode({ data }: { data: TableNodeData }) {
       <div className="px-3 py-2 border-b border-border/40">
         <div className="flex items-center gap-1.5">
           {data.is_view ? (
-            <Eye className="h-3 w-3 text-muted-foreground shrink-0" />
+            <Eye className="h-3 w-3 text-purple-400 shrink-0" />
           ) : (
-            <Table2 className="h-3 w-3 text-muted-foreground shrink-0" />
+            <Table2 className="h-3 w-3 text-blue-400 shrink-0" />
           )}
           <span className="text-xs font-semibold text-foreground truncate">{data.name}</span>
         </div>
@@ -191,7 +191,7 @@ function PipelineTableNode({ data }: { data: TableNodeData }) {
               const ft = col.func_type ? FUNC_STYLES[col.func_type] : null
               return (
                 <div key={col.name} className="flex items-center gap-1">
-                  <Zap className="h-2 w-2 shrink-0 text-foreground" />
+                  <Zap className="h-2 w-2 shrink-0 text-k-yellow" />
                   <span className="text-[10px] truncate text-foreground">{col.name}</span>
                   {col.func_name && ft && (
                     <span className={cn('text-[9px] shrink-0 font-mono', ft.text)}>
@@ -244,9 +244,9 @@ function DetailPanel({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             {node.is_view ? (
-              <Eye className="h-4 w-4 text-muted-foreground shrink-0" />
+              <Eye className="h-4 w-4 text-purple-400 shrink-0" />
             ) : (
-              <Table2 className="h-4 w-4 text-muted-foreground shrink-0" />
+              <Table2 className="h-4 w-4 text-blue-400 shrink-0" />
             )}
             <h3 className="text-sm font-semibold truncate">{node.name}</h3>
           </div>
@@ -378,7 +378,7 @@ function DetailPanel({
       {computed.length > 0 && (
         <div className="px-5 py-3 border-b border-border">
           <div className="flex items-center gap-1.5 mb-2">
-            <Zap className="h-3 w-3 text-foreground" />
+            <Zap className="h-3 w-3 text-k-yellow" />
             <SectionLabel className="mb-0">Computed Pipeline ({computed.length})</SectionLabel>
           </div>
           <div className="space-y-1.5">
@@ -637,9 +637,9 @@ function NodeFinder({
                   onClick={() => handlePick(n.path)}
                 >
                   {n.is_view ? (
-                    <Eye className="h-3 w-3 text-muted-foreground shrink-0" />
+                    <Eye className="h-3 w-3 text-purple-400 shrink-0" />
                   ) : (
-                    <Table2 className="h-3 w-3 text-muted-foreground shrink-0" />
+                    <Table2 className="h-3 w-3 text-blue-400 shrink-0" />
                   )}
                   <div className="min-w-0 flex-1">
                     <div className="text-xs text-foreground truncate">{n.name}</div>
