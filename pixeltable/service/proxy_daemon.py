@@ -267,7 +267,7 @@ def configure_test_logging(db: str) -> None:
     ep = endpoint(db)
     if ep is None:
         raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'No running proxy daemon for {db!r}')
-    response = httpx.post(f'{ep}/configure_test_logging', timeout=1.0)
+    response = httpx.post(f'{ep}/configure_test_logging', timeout=10.0)
     response.raise_for_status()
 
 
