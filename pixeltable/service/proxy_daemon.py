@@ -400,7 +400,7 @@ def _serve() -> None:
     daemon_port = config.get_int_value('daemon_port')
 
     # log_config=None suppresses uvicorn's own logging setup which results in closing every handler registered so far.
-    # Note: uvicorn logging is configured separately during Env set up. 
+    # Note: uvicorn logging is configured separately during Env set up.
     log_level = (config.get_string_value('log_level') or 'info').lower()
     if daemon_host is not None or daemon_port is not None:
         uvicorn.run(
