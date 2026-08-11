@@ -268,9 +268,11 @@ make docs
 # Serve locally for development
 make docs-serve
 
-# Deploy to staging
-make docs-deploy TARGET=stage
+# Deploy to the dev environment for preview
+make docs-deploy TARGET=dev
 ```
+
+`TARGET=dev` is the only deploy target agents may use or suggest. `TARGET=stage` and `TARGET=prod` are reserved for humans outside agent workflows.
 
 ## Testing Against Remote APIs
 
