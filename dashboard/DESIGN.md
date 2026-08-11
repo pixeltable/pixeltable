@@ -40,7 +40,7 @@ This document locks decisions relative to the pre–[#1494](https://github.com/p
 | App utilities | Docs / Feedback / theme live in the **sidebar footer** above Collapse — no main-panel top utility bar. Hairline (`border-t`) separates footer from the catalog tree. |
 | Object header kind | Lucide + quiet kind word (`Table` / `View` / `Snapshot` / `Replica`) — not KindBadge letters. Same in lineage DetailPanel. |
 | Object header meta | Kind + name + path + **row count** only. Column breakdown stays under COLUMNS; schema/data freshness lives in **History**. |
-| COLUMNS collapse | Chevron toggles expanded schema table ↔ chip summary; panel height fits that content (never a clipped 5% strip). |
+| COLUMNS collapse | Chevron toggles expanded schema table ↔ chip summary; panel height fits that content (never a clipped 5% strip). Table switch preserves expand/collapse and always content-fits (ignore stale drag/`autoSaveId`). |
 | Computed With modal | Pretty-printed expression + Raw toggle; Copy keeps the original string. Schema cell stays a compact one-liner. |
 | Inspector content surface | Table detail, directory, and main content pane use one `bg-card` surface; object title is not a separate grey chrome band (light and dark). Sidebar stays tinted chrome. |
 | Lineage detail CTA | Column Data Flow is a quiet bordered secondary control — **no** yellow/tan promo wash. Yellow stays for Zap / UDF emphasis only. |

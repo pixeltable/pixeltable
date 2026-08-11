@@ -1464,6 +1464,16 @@ const SCHEMA_PANEL_ABS_MAX = 70
 const SCHEMA_PANEL_MIN = 5
 /** Extra pixels so the last schema row isn’t flush against the resize handle. */
 const SCHEMA_PANEL_PAD_PX = 8
+/** Persists COLUMNS expanded (table) vs collapsed (chips) across table switches. */
+const SCHEMA_EXPANDED_KEY = 'pxt-schema-expanded'
+
+function loadSchemaExpanded(): boolean {
+  try {
+    return localStorage.getItem(SCHEMA_EXPANDED_KEY) !== '0'
+  } catch {
+    return true
+  }
+}
 
 /** Natural schema panel height: fixed chrome + inner content (not the flex-grown scrollport). */
 function measureSchemaNaturalHeight(
@@ -1530,7 +1540,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [errorsOnly, setErrorsOnly] = useState(false)
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
-  const [schemaExpanded, setSchemaExpanded] = useState(true)
+  const [schemaExpanded, setSchemaExpanded] = useState(loadSchemaExpanded)
   const [schemaMinSize, setSchemaMinSize] = useState(SCHEMA_PANEL_MIN)
   const [schemaMaxSize, setSchemaMaxSize] = useState(SCHEMA_PANEL_ABS_MAX)
   const groupRef = useRef<ImperativePanelGroupHandle>(null)
@@ -1538,8 +1548,6 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
   const schemaContentRef = useRef<HTMLDivElement>(null)
   const fittingRef = useRef(false)
   const mountedRef = useRef(false)
-  /** After chevron toggle, refit the panel to the table or chip-summary content. */
-  const pendingSchemaFitRef = useRef(false)
   /** While true, ResizeObserver may grow an undersized panel (defeats stale autoSave clamp). */
   const forceSchemaFitRef = useRef(false)
   const schemaFitRafRef = useRef<number | null>(null)
@@ -1592,11 +1600,15 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
     })
   }, [])
 
-  // Chevron toggles expanded table ↔ chip summary; size the panel to that content.
-  // Do not use Panel.collapse() — collapsedSize (~5%) clips the summarize chips.
+  // Chevron toggles expanded table ↔ chip summary; panel refits via the metadata/expand effect.
   const toggleSchema = useCallback(() => {
-    pendingSchemaFitRef.current = true
-    setSchemaExpanded(prev => !prev)
+    setSchemaExpanded(prev => {
+      const next = !prev
+      try {
+        localStorage.setItem(SCHEMA_EXPANDED_KEY, next ? '1' : '0')
+      } catch { /* ignore */ }
+      return next
+    })
   }, [])
   const [pipelineColumns, setPipelineColumns] = useState<PipelineColumn[] | null>(null)
   const [pipelineData, setPipelineData] = useState<{ nodes: PipelineNodeType[]; edges: PipelineEdge[] } | null>(null)
@@ -1654,13 +1666,11 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
     }
   }, [autoRefresh, fetchData])
 
-  // Reset on table change
+  // Reset on table change (keep schemaExpanded — preference persists across tables).
   useEffect(() => {
     setPage(0); setFilters({}); setAutoRefresh(false); setErrorsOnly(false)
-    setSchemaExpanded(true)
     setSchemaMinSize(SCHEMA_PANEL_MIN)
     setSchemaMaxSize(SCHEMA_PANEL_ABS_MAX)
-    pendingSchemaFitRef.current = false
     forceSchemaFitRef.current = false
     if (schemaFitRafRef.current != null) {
       cancelAnimationFrame(schemaFitRafRef.current)
@@ -1671,29 +1681,10 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
     mountedRef.current = false
   }, [tablePath])
 
-  // Fit schema panel to its natural content height the first time we open this table.
-  // Subsequent visits restore the user's last drag via autoSaveId.
+  // Always content-fit when metadata loads or COLUMNS expand mode changes (same path as chevron).
+  // Do not skip for pxt-table-layout-customized — table switch must land under the last row/chip.
   useLayoutEffect(() => {
     if (!metadata) return
-    if (localStorage.getItem(`pxt-table-layout-customized-${metadata.id}`) === '1') return
-    const group = groupRef.current
-    const groupEl = groupContainerRef.current
-    const wrapperEl = schemaContentRef.current
-    if (!group || !groupEl || !wrapperEl) return
-    const measured = measureSchemaNaturalHeight(groupEl, wrapperEl)
-    if (!measured) return
-    const pct = schemaHeightToPct(measured.naturalHeight, measured.groupHeight, SCHEMA_PANEL_PAD_PX)
-    setSchemaMaxSize(pct)
-    setSchemaMinSize(SCHEMA_PANEL_MIN)
-    fittingRef.current = true
-    group.setLayout([pct, 100 - pct])
-    queueMicrotask(() => { fittingRef.current = false })
-  }, [metadata])
-
-  // After COLUMNS chevron toggle: size to expanded table or chip summary.
-  useLayoutEffect(() => {
-    if (!metadata || !pendingSchemaFitRef.current) return
-    pendingSchemaFitRef.current = false
     fitSchemaToContent(!schemaExpanded)
   }, [metadata, schemaExpanded, fitSchemaToContent])
 
