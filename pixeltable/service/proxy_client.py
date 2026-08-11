@@ -88,12 +88,6 @@ class Transport(abc.ABC):
         """Release any transport resources."""
 
 
-_CONNECT_TIMEOUT = 30.0
-# An RPC runs a catalog operation to completion server-side (inserts, computed-column population, drops of
-# tables with many media files), so this bounds job execution, not request latency.
-_RPC_TIMEOUT = 1800.0
-
-
 class HttpTransport(Transport):
     """Direct HTTP to a reachable proxy daemon endpoint."""
 
@@ -119,6 +113,8 @@ class HttpTransport(Transport):
         self._http.close()
 
 
+_CONNECT_TIMEOUT = 30.0
+_RPC_TIMEOUT = 1800.0
 _MAX_POOL_SIZE = 16  # matches the fetch_media download threadpool
 
 # The server can restart and drop the connection mid-call; retry transient transport failures with backoff.
