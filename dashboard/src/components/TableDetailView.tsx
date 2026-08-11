@@ -1672,13 +1672,16 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
     setSchemaMinSize(SCHEMA_PANEL_MIN)
     setSchemaMaxSize(SCHEMA_PANEL_ABS_MAX)
     forceSchemaFitRef.current = false
-    if (schemaFitRafRef.current != null) {
-      cancelAnimationFrame(schemaFitRafRef.current)
-      schemaFitRafRef.current = null
-    }
     setPipelineColumns(null); setPipelineData(null)
     setContentTab('data'); setSearchQuery('')
     mountedRef.current = false
+    // Cancel pending content-fit RAF on table switch and on unmount.
+    return () => {
+      if (schemaFitRafRef.current != null) {
+        cancelAnimationFrame(schemaFitRafRef.current)
+        schemaFitRafRef.current = null
+      }
+    }
   }, [tablePath])
 
   // Always content-fit when metadata loads or COLUMNS expand mode changes (same path as chevron).

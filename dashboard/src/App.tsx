@@ -318,6 +318,10 @@ export default function App() {
     connCloseTimer.current = setTimeout(() => setConnOpen(false), 120)
   }
 
+  useEffect(() => () => {
+    if (connCloseTimer.current) clearTimeout(connCloseTimer.current)
+  }, [])
+
   const toggleSidebar = () => {
     const panel = sidebarPanelRef.current
     if (!panel) return
