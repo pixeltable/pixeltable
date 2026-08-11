@@ -385,10 +385,7 @@ class Config:
 
     @classmethod
     def reload_if_changed(cls) -> bool:
-        """Reload the config file if it changed since it was read. Returns True if it was reloaded.
-
-        home and config_file are not re-read; they are fixed for the life of the process.
-        """
+        """Reload the config file if it changed since it was read. Returns True if it was reloaded."""
         with cls.__init_lock:
             if cls.__instance is None:
                 return False

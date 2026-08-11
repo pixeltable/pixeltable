@@ -80,11 +80,15 @@ class TestConfig:
             tmp,
         )
 
-        # 2. source-path tracking: get_value_source returns the file path the value came from
+        # 2. source-path tracking: get_value_source returns the file path the value came from. The subprocess
+        # reads the expected path from the environment; interpolating it into the source would make a Windows
+        # path's backslashes into escape sequences.
         spawn_cmd_ok(
+            'import os\n'
             'from pathlib import Path\n'
             's = Config.get().get_value_source("gpt-4", section="openai.rate_limits")\n'
-            f'assert s == Path("{tmp}"), f"expected source {tmp}, got {{s!r}}"\n',
+            'expected = Path(os.environ["PIXELTABLE_CONFIG"])\n'
+            'assert s == expected, f"expected source {expected}, got {s!r}"\n',
             tmp,
         )
 

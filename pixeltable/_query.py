@@ -1753,7 +1753,7 @@ class Query:
 
             >>> person.where(t.year == 2014).update({'age': 30})
         """
-        self._validate_mutable('update', False)
+        self._validate_mutable('update')
         return self._mutation_target().update(value_spec, where=self.where_clause, cascade=cascade)
 
     def recompute_columns(
@@ -1776,7 +1776,7 @@ class Query:
 
             >>> query = person.where(t.age < 18).recompute_columns(person.height)
         """
-        self._validate_mutable('recompute_columns', False)
+        self._validate_mutable('recompute_columns')
         return self._mutation_target().recompute_columns(
             *columns, where=self.where_clause, errors_only=errors_only, cascade=cascade
         )
@@ -1794,19 +1794,27 @@ class Query:
 
             >>> person.where(t.age < 18).delete()
         """
-        self._validate_mutable('delete', False)
+        self._validate_mutable('delete')
         if self._from_clause.tbls[0].is_view():
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot use `delete` on a view.')
         return self._mutation_target().delete(where=self.where_clause)
 
-    def _validate_mutable(self, op_name: str, allow_select: bool) -> None:
+    def _validate_mutable(self, op_name: str) -> None:
         """Tests whether this Query can be mutated (such as by an update operation).
 
         Args:
             op_name: The name of the operation for which the test is being performed.
-            allow_select: If True, allow a select() specification in the Query.
         """
-        self._validate_mutable_op_sequence(op_name, allow_select)
+        if self.group_by_clause is not None or self.grouping_tbl_key is not None:
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `group_by`.')
+        if self.order_by_clause is not None:
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `order_by`.')
+        if self.select_list is not None:
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `select`.')
+        if self.limit_val is not None:
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `limit`.')
+        if self._has_joins():
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `join`.')
 
         # TODO: Reconcile these with Table.__check_mutable()
         assert len(self._from_clause.tbls) == 1
@@ -1815,19 +1823,6 @@ class Query:
         from_tbl = self._from_clause.tbls[0]
         if from_tbl.is_snapshot() or from_tbl.effective_version() is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` on a snapshot.')
-
-    def _validate_mutable_op_sequence(self, op_name: str, allow_select: bool) -> None:
-        """Tests whether the sequence of operations on this Query is valid for a mutation operation."""
-        if self.group_by_clause is not None or self.grouping_tbl_key is not None:
-            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `group_by`.')
-        if self.order_by_clause is not None:
-            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `order_by`.')
-        if self.select_list is not None and not allow_select:
-            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `select`.')
-        if self.limit_val is not None:
-            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `limit`.')
-        if self._has_joins():
-            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `join`.')
 
     def as_dict(self) -> dict[str, Any]:
         """

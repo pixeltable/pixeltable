@@ -822,7 +822,7 @@ class TestTableModel:
             name='test_query_view',
             base=ExampleTable.select(ExampleTable.id, id_copy=ExampleTable.id, plusone=(ExampleTable.value + 1))
             .where(ExampleTable.id > 0)
-            .sample(n=10, seed=1),
+            .sample(fraction=0.5, seed=1),
         ):
             fc1 = ExampleTable.id + 1
 
@@ -879,7 +879,7 @@ class TestTableModel:
             name='test_query_view',
             base=ExampleTableV2.select(ExampleTableV2.id, ExampleTableV2.extra1, plustwo=(ExampleTableV2.id + 2))
             .where(ExampleTableV2.id > 5)
-            .sample(n=20, seed=2),
+            .sample(fraction=0.25, seed=2),
         ):
             id_copy = pxt.Column(value=ExampleTableV2.id, stored=False)
             fc1 = ExampleTableV2.id + 1
@@ -935,8 +935,8 @@ class TestTableModel:
                 model filter   : id > 5
                 existing filter: id > 0
               sample mismatch (FATAL):
-                model sample   : sample(n=20, n_per_stratum=None, fraction=None, seed=2, [])
-                existing sample: sample(n=10, n_per_stratum=None, fraction=None, seed=1, [])
+                model sample   : sample(n=None, n_per_stratum=None, fraction=0.25, seed=2, [])
+                existing sample: sample(n=None, n_per_stratum=None, fraction=0.5, seed=1, [])
               the following columns are new to the model, and will be ADDED:
                 'extra1' = {'value': extra1, 'stored': False}
                 'plustwo' = {'value': id + 2, 'stored': True}
@@ -1182,11 +1182,11 @@ class TestTableModel:
                         'name': 'view_sample',
                         'op': 'alter',
                         'severity': 'unsupported',
-                        'model': 'sample(n=20, n_per_stratum=None, fraction=None, seed=2, [])',
-                        'existing': 'sample(n=10, n_per_stratum=None, fraction=None, seed=1, [])',
+                        'model': 'sample(n=None, n_per_stratum=None, fraction=0.25, seed=2, [])',
+                        'existing': 'sample(n=None, n_per_stratum=None, fraction=0.5, seed=1, [])',
                         'description': 'view_sample mismatch: '
-                        "model='sample(n=20, n_per_stratum=None, fraction=None, seed=2, [])', "
-                        "existing='sample(n=10, n_per_stratum=None, fraction=None, seed=1, [])'",
+                        "model='sample(n=None, n_per_stratum=None, fraction=0.25, seed=2, [])', "
+                        "existing='sample(n=None, n_per_stratum=None, fraction=0.5, seed=1, [])'",
                         'details': {},
                     },
                     {
@@ -1322,7 +1322,7 @@ class TestTableModel:
             name='test_query_view',
             base=ExampleTable.select(ExampleTable.id, ExampleTable.value, plusone=(ExampleTable.value + 1))
             .where(ExampleTable.value > 0.5)
-            .sample(n=10, seed=1),
+            .sample(fraction=1.0, seed=1),
         ):
             fc1 = ExampleTable.id + 1
 
@@ -1365,7 +1365,7 @@ class TestTableModel:
                 plustwo=(ExampleTableV2.value + 2),
             )
             .where(ExampleTableV2.value > 0.5)
-            .sample(n=10, seed=1),
+            .sample(fraction=1.0, seed=1),
         ):
             fc1 = ExampleTableV2.id + 1
 
@@ -1410,7 +1410,7 @@ class TestTableModel:
             # 'note' and 'plusone' dropped from the query
             base=ExampleTableV3.select(ExampleTableV3.id, ExampleTableV3.value, plustwo=(ExampleTableV3.value + 2))
             .where(ExampleTableV3.value > 0.5)
-            .sample(n=10, seed=1),
+            .sample(fraction=1.0, seed=1),
         ):
             fc1 = ExampleTableV3.id + 1
 
@@ -1718,11 +1718,30 @@ class TestTableModel:
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`sample\(\)` clause already specified'):
             ValidTableModel.sample(n=10).sample(n=5)
 
-        # a base query is refused the clauses a view cannot be maintained from, with the message create_view()
-        # gives for the same query
-        for verb in ('group_by', 'order_by', 'limit'):
-            with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=rf'Cannot use `create_view` after `{verb}`.'):
-                getattr(ValidTableModel, verb)(ValidTableModel.id)
+        # a base query cannot contain the clauses a view cannot be defined by
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r'model `GroupedBase`: The following clauses cannot be used in a view definition: group_by\(\)',
+        ):
+
+            class GroupedBase(TableModel, name='grouped_base', base=ValidTableModel.group_by(ValidTableModel.id)):
+                pass
+
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r'model `OrderedBase`: The following clauses cannot be used in a view definition: order_by\(\)',
+        ):
+
+            class OrderedBase(TableModel, name='ordered_base', base=ValidTableModel.order_by(ValidTableModel.id)):
+                pass
+
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r'model `LimitedBase`: The following clauses cannot be used in a view definition: limit\(\)',
+        ):
+
+            class LimitedBase(TableModel, name='limited_base', base=ValidTableModel.limit(10)):
+                pass
 
     def test_aggregation_rejected(self) -> None:
         """A view is maintained one base row at a time, so nothing in a model may aggregate."""
@@ -1732,7 +1751,9 @@ class TestTableModel:
             grp: pxt.String
             val: pxt.Required[pxt.Int]
 
-        with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r"select\(\) item 'total' aggregates over the base"):
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, match=r"`select\(\)` item 'total' aggregates over the base table"
+        ):
 
             class AggBase(TableModel, name='agg_base', base=Base.select(total=pxtf.sum(Base.val))):
                 pass

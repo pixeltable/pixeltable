@@ -157,7 +157,7 @@ class ModelQuery:
     A placeholder query used in ViewModel definitions,
     which gets substituted with an actual Query during Table creation or binding.
 
-    Restricted to the clauses allowed in the definition, which excludes group_by/order_by/limit.
+    Records every clause it is given; validate() decides which of them a view can be defined by.
     """
 
     from_clause: TableModelMeta
@@ -167,6 +167,9 @@ class ModelQuery:
 
     where_clause: exprs.Expr | None = None
     sample_clause: SampleClause | None = None
+
+    # clauses a view cannot be defined by; recorded so that validate() can report them
+    prohibited_clauses: list[str] = dataclasses.field(default_factory=list)
 
     def select(self, *items: Any, **named_items: Any) -> ModelQuery:
         if self.select_list is not None:
@@ -188,13 +191,13 @@ class ModelQuery:
         return dataclasses.replace(self, where_clause=pred)
 
     def group_by(self, *grouping_items: exprs.Expr) -> ModelQuery:
-        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot use `create_view` after `group_by`.')
+        return dataclasses.replace(self, prohibited_clauses=[*self.prohibited_clauses, 'group_by'])
 
     def order_by(self, *expr_list: exprs.Expr, asc: bool = True) -> ModelQuery:
-        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot use `create_view` after `order_by`.')
+        return dataclasses.replace(self, prohibited_clauses=[*self.prohibited_clauses, 'order_by'])
 
     def limit(self, n: int, offset: int | None = None) -> ModelQuery:
-        raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot use `create_view` after `limit`.')
+        return dataclasses.replace(self, prohibited_clauses=[*self.prohibited_clauses, 'limit'])
 
     def sample(
         self,
@@ -217,14 +220,27 @@ class ModelQuery:
         return dataclasses.replace(self, sample_clause=sample_clause)
 
     def validate(self, model_name: str) -> None:
-        """Validate that this query can be used to define a view.
+        """Validate that this query can be used to define a view."""
+        prefix = f'{model_name}: '
+        if len(self.prohibited_clauses) > 0:
+            clauses_str = [f'{clause}()' for clause in self.prohibited_clauses]
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'{prefix}The following clauses cannot be used in a view definition: {", ".join(clauses_str)}',
+            )
 
-        `display_name` identifies the model in the message.
-        """
+        if self.sample_clause is not None and not self.sample_clause.is_repeatable:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'{prefix}A view that is not a snapshot can only be defined by fractional, unstratified sampling.',
+            )
+
         if self.select_list is None:
             return
-        items, named_items = self.select_list
-        for item in items:
+        unnamed_items, named_items = self.select_list
+
+        # a view model turns each select() item into a class attribute, so every item needs a name
+        for item in unnamed_items:
             if not isinstance(item, exprs.ColumnRefByName):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT,
@@ -232,12 +248,13 @@ class ModelQuery:
                     f'or named expressions, but contains an anonymous compound expression: {item}\n'
                     f'Use kwargs syntax to give it an explicit name: select(my_name=...)',
                 )
-        for item_name, item_expr in named_items.items():
-            if _contains_aggregate(item_expr):
+
+        for name, expr in named_items.items():
+            if _contains_aggregate(expr):
                 raise excs.RequestError(
-                    excs.ErrorCode.INVALID_ARGUMENT,
-                    f'{model_name}: `base` select() item {item_name!r} aggregates over the base table: '
-                    f'{item_expr}\nAggregates are not allowed in views.',
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{prefix}`select()` item {name!r} aggregates over the base table: {expr}\n'
+                    'Aggregates are not allowed in a view definition.',
                 )
 
     def _bind_to_table(self, catalog_dir: str) -> 'pxt.Query':

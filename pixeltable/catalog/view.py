@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 import dataclasses
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 from uuid import UUID
 
 import pixeltable.exceptions as excs
@@ -24,6 +24,7 @@ from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, LoadViewOp, TableOp, T
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
+    from pixeltable._query import Query
     from pixeltable.globals import TableDataSource
     from pixeltable.plan import SampleClause
 
@@ -55,6 +56,36 @@ class View(LocalTable):
         if self._tbl_version_path.is_view():
             return 'view'
         return 'table'
+
+    @classmethod
+    def validate_view_query(cls, query: Query, *, is_snapshot: bool = False) -> None:
+        """Verify that a view can be defined by query."""
+        for clause_name, is_present in (
+            ('group_by', query.group_by_clause is not None or query.grouping_tbl_key is not None),
+            ('order_by', query.order_by_clause is not None),
+            ('limit', query.limit_val is not None or query.offset_val is not None),
+            ('join', query._has_joins()),
+        ):
+            if is_present:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'`{clause_name}` cannot be used in a view definition.'
+                )
+
+        if query.select_list is not None:
+            for expr, name in query.select_list:
+                if expr.contains_(cls=exprs.FunctionCall, filter=lambda e: cast(exprs.FunctionCall, e).is_agg_fn_call):
+                    item = 'the `select()` list' if name is None else f'`select()` item {name!r}'
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'{item} aggregates over the base table: {expr}\n'
+                        'Aggregates are not allowed in a view definition.',
+                    )
+
+        if query.sample_clause is not None and not is_snapshot and not query.sample_clause.is_repeatable:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                'A view that is not a snapshot can only be defined by fractional, unstratified sampling.',
+            )
 
     @classmethod
     def select_list_to_additional_columns(

@@ -367,16 +367,11 @@ def create_view(
         tbl_path = base._tbl_path
         sample_clause = None
     elif isinstance(base, Query):
-        base._validate_mutable_op_sequence('create_view', allow_select=True)
+        catalog.View.validate_view_query(base, is_snapshot=is_snapshot)
         tbl_path = base._from_clause.tbls[0]
         where = base.where_clause
         sample_clause = base.sample_clause
         select_list = base.select_list
-        if sample_clause is not None and not is_snapshot and not sample_clause.is_repeatable:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                'Non-snapshot views cannot be created with non-fractional or stratified sampling',
-            )
     else:
         raise excs.RequestError(excs.ErrorCode.TYPE_MISMATCH, '`base` must be an instance of `Table` or `Query`')
     assert isinstance(base, (catalog.Table, Query))
