@@ -19,7 +19,7 @@ from .catalog import (
 )
 
 # the schema-model DSL: catalog.column.Column is the internal storage column and stays unexported
-from .catalog.model import Column, EmbeddingIndex
+from .catalog.model import BtreeIndex, Column, EmbeddingIndex
 from .exceptions import (
     AlreadyExistsError,
     AuthorizationError,

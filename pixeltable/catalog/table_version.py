@@ -242,7 +242,7 @@ class TableVersion:
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
-        create_default_idxs: bool,
+        has_default_idxs: bool,
         view_md: schema.ViewMd | None,
         is_data_versioned: bool,
         additional_idxs: list[IndexSpec],
@@ -289,24 +289,27 @@ class TableVersion:
             column_md[col.id] = col_md
             schema_col_md[col.id] = col_schema_md
 
+        cls._validate_idxs(tbl_id, additional_idxs, has_default_idxs)
+
         # Merge default indexes and additional indexes into a manifest of indexes to create.
         index_md: dict[int, schema.IndexMd] = {}
         idxs_to_create: list[IndexSpec] = []
-        if create_default_idxs and (view_md is None or not view_md.is_snapshot):
+        if has_default_idxs and (view_md is None or not view_md.is_snapshot):
             idxs_to_create.extend(
-                IndexSpec(col, None, index.BtreeIndex()) for col in cols if cls._is_btree_indexable(col)
+                IndexSpec(col, None, index.BtreeIndex()) for col in cols if index.BtreeIndex.can_index(col)
             )
 
         # an index on a column of this table must reference the instance in cols, which is the one that got an id
         # above; an index on a base column references that column directly
         own_cols = {id(col) for col in cols}
-        assert all(isinstance(spec.indexed_column, Column) for spec in additional_idxs)
         assert all(
             id(spec.indexed_column) in own_cols
             for spec in additional_idxs
             if cast(Column, spec.indexed_column).tbl_handle.id == tbl_id
         )
         idxs_to_create.extend(additional_idxs)
+
+        taken_idx_names = {spec.idx_name for spec in idxs_to_create if spec.idx_name is not None}
 
         index_cols: list[Column] = []
         for idx_col, idx_name, idx in idxs_to_create:
@@ -317,10 +320,16 @@ class TableVersion:
             index_cols.extend([val_col, undo_col])
 
             idx_id = next(index_ids)
+            resolved_idx_name: str
+            if idx_name is not None:
+                resolved_idx_name = idx_name
+            else:
+                resolved_idx_name = cls._generate_idx_name(taken_idx_names)
+                taken_idx_names.add(resolved_idx_name)
             idx_cls = type(idx)
             md = schema.IndexMd(
                 id=idx_id,
-                name=idx_name if idx_name is not None else f'idx{idx_id}',
+                name=resolved_idx_name,
                 indexed_col_id=idx_col.id,
                 indexed_col_tbl_id=str(idx_col.tbl_handle.id),
                 index_val_col_id=val_col.id,
@@ -355,6 +364,7 @@ class TableVersion:
             view_md=view_md,
             additional_md={},
             is_data_versioned=is_data_versioned,
+            has_default_idxs=has_default_idxs,
         )
 
         table_version_md = schema.VersionMd(
@@ -576,6 +586,7 @@ class TableVersion:
 
     def add_index(self, col: Column, idx_name: str | None, idx: index.IndexBase) -> UpdateStatus:
         assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
+        self._validate_idxs(self.id, [IndexSpec(col, idx_name, idx)], self.has_default_idxs, self.idxs.values())
         # we're creating a new schema version
         self.bump_version(bump_schema_version=True)
         status = self._add_index(col, idx_name, idx)
@@ -584,39 +595,27 @@ class TableVersion:
         return status
 
     @classmethod
-    def _is_btree_indexable(cls, col: Column) -> bool:
-        if not col.stored:
-            # if the column is intentionally not stored, we want to avoid the overhead of an index
-            return False
-        # Skip index for stored media columns produced by an iterator
-        if col.col_type.is_media_type() and col.is_iterator_col:
-            return False
-        if not col.col_type.is_scalar_type() and not (col.col_type.is_media_type() and not col.is_computed):
-            # wrong type for a B-tree
-            return False
-        if col.col_type.is_bool_type():  # noqa : SIM103 Supress `Return the negated condition directly` check
-            # B-trees on bools aren't useful
-            return False
-        return True
-
-    def _add_default_index(self, col: Column) -> UpdateStatus | None:
-        """Add a B-tree index on this column if it has a compatible type"""
-        if not self._is_btree_indexable(col):
-            return None
-        status = self._add_index(col, idx_name=None, idx=index.BtreeIndex())
-        return status
+    def _generate_idx_name(cls, taken_names: set[str]) -> str:
+        """Generates an index name that is not in `taken_names`."""
+        i = 0
+        while True:
+            name = f'idx{i}'
+            if name not in taken_names:
+                return name
+            i += 1
 
     def _create_index_md(
         self, col: Column, val_col: Column, undo_col: Column, idx_name: str | None, idx: index.IndexBase
     ) -> int:
         """Create md for given index and update self._tbl_md. Returns index id."""
-        idx_id = self.next_idx_id
-        self.next_idx_id += 1
+        existing_names = {i.name for i in self._tbl_md.index_md.values()}
         if idx_name is None:
-            idx_name = f'idx{idx_id}'
+            idx_name = self._generate_idx_name(existing_names)
         else:
             assert is_valid_identifier(idx_name)
-            assert idx_name not in [i.name for i in self._tbl_md.index_md.values()]
+            assert idx_name not in existing_names
+        idx_id = self.next_idx_id
+        self.next_idx_id += 1
 
         # create and register the index metadata
         idx_cls = type(idx)
@@ -659,10 +658,81 @@ class TableVersion:
         self._create_index(col, val_col, undo_col, idx_name, idx)
         return status
 
+    @classmethod
+    def _validate_idxs(
+        cls,
+        tbl_id: UUID,
+        idxs: Iterable[IndexSpec],
+        has_default_idxs: bool,
+        existing_idxs: Iterable[TableVersion.IndexInfo] = (),
+    ) -> None:
+        """Validate the indexes in idxs, which are about to be created on the table with id tbl_id.
+
+        idxs: resolved specs, ie. every indexed_column is a Column, not a column name.
+        existing_idxs: the table's live indexes; a new index must not collide with one of those.
+        """
+        existing_by_name = {info.name: info for info in existing_idxs}
+        # names of the columns that already have a B-tree index; a view's base columns are excluded, because the
+        # validation below rejects them as targets anyway
+        btree_col_names = {
+            info.col.name
+            for info in existing_idxs
+            if isinstance(info.idx, index.BtreeIndex) and info.col.tbl_handle.id == tbl_id
+        }
+        new_names: set[str] = set()
+        new_btree_col_names: set[str] = set()
+
+        for idx_col, idx_name, idx in idxs:
+            assert isinstance(idx_col, Column)
+            if isinstance(idx, index.BtreeIndex):
+                assert idx_col.name is not None, repr(idx_col)
+                if has_default_idxs:
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        'Cannot create an explicit B-tree index on a table with has_default_idxs=True; '
+                        'its eligible columns are indexed automatically.',
+                    )
+                index.BtreeIndex.validate_column(idx_col)
+                if idx_col.name in new_btree_col_names or idx_col.name in btree_col_names:
+                    raise excs.AlreadyExistsError(
+                        excs.ErrorCode.INDEX_ALREADY_EXISTS,
+                        f'A B-tree index already exists on column {idx_col.name!r}.',
+                    )
+                new_btree_col_names.add(idx_col.name)
+                if idx_col.tbl_handle.id != tbl_id:
+                    # PXT-1260 Allow views to create a b-tree index on a base column
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'Cannot create a B-tree index on column {idx_col.name!r}: it belongs to a base table. '
+                        'Add the index to the base table instead.',
+                    )
+            if idx_name is not None:
+                assert idx_name not in new_names, idx_name
+                existing_info = existing_by_name.get(idx_name)
+                if existing_info is not None:
+                    raise excs.AlreadyExistsError(
+                        excs.ErrorCode.INDEX_ALREADY_EXISTS,
+                        f'Index {idx_name!r} already exists on column {existing_info.col.name!r}.',
+                    )
+                new_names.add(idx_name)
+
+    def _validate_idx_drops(self, idx_ids: Iterable[int]) -> None:
+        """Reject the removal of a default B-tree index."""
+        if not self.has_default_idxs:
+            return
+        for idx_id in idx_ids:
+            info = self.idxs[idx_id]
+            if isinstance(info.idx, index.BtreeIndex):
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot drop B-tree index {info.name!r} from a table with has_default_idxs=True',
+                )
+
     def drop_index(self, idx_id: int) -> None:
         assert self.is_mutable
         assert idx_id in self._tbl_md.index_md
         assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
+        self._validate_idx_drops([idx_id])
 
         idx_name = self._tbl_md.index_md[idx_id].name
         # we're creating a new schema version
@@ -698,7 +768,7 @@ class TableVersion:
         return [idx_info.val_col, idx_info.undo_col]
 
     def add_columns_ops(self, cols: Iterable[Column]) -> tuple[TableVersionMd, list[TableOp]]:
-        """Adds columns to the table."""
+        """Applies the column-addition metadata changes and builds the TableOps to execute them in the store."""
         assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
         assert self.is_mutable
         assert all(is_valid_identifier(col.name) for col in cols if col.name is not None)
@@ -729,7 +799,7 @@ class TableVersion:
         all_cols: list[Column] = []
         for col in cols:
             all_cols.append(col)
-            if col.name is not None and self._is_btree_indexable(col):
+            if self.has_default_idxs and col.name is not None and index.BtreeIndex.can_index(col):
                 idx = index.BtreeIndex()
 
                 val_col, undo_col = Column.create_index_columns(
@@ -969,6 +1039,8 @@ class TableVersion:
                 f'Table {self.name!r} was modified since update_all() computed its changes; re-run update_all().',
             )
 
+        self._validate_idx_drops(dropped_idx_ids)
+
         self.bump_version(bump_schema_version=True)
 
         cols_to_drop: list[Column] = []
@@ -978,6 +1050,10 @@ class TableVersion:
             cols_to_drop.extend(self._cascade_drop_column(col))
         if len(cols_to_drop) > 0:
             self._drop_columns(cols_to_drop)
+
+        # Validate the new indexes against the post-drop state, so that dropping an index and adding another one with
+        # the same name, or on the same column, in a single change set is allowed.
+        self._validate_idxs(self.id, added_idxs, self.has_default_idxs, self.idxs.values())
 
         status = UpdateStatus()
         if len(added_cols) > 0:
@@ -994,7 +1070,7 @@ class TableVersion:
     def _add_columns_in_version(
         self, cols: list[Column], print_stats: bool, on_error: Literal['abort', 'ignore']
     ) -> UpdateStatus:
-        """Add cols, each with a default btree index if its type has one, within the current schema version.
+        """Add cols within the current schema version, each with a default btree index if the table enables those.
 
         - the caller is responsible for recording the schema version change
         - value expressions that carry ColumnRefByName placeholders are resolved against cols, which need to be in
@@ -1037,7 +1113,7 @@ class TableVersion:
         all_cols: list[Column] = []
         for col in cols:
             all_cols.append(col)
-            if col.name is not None and self._is_btree_indexable(col):
+            if self.has_default_idxs and col.name is not None and index.BtreeIndex.can_index(col):
                 idx = index.BtreeIndex()
                 val_col, undo_col = Column.create_index_columns(
                     self.handle, col, idx, self.next_col_id(), self.next_col_id(), self.schema_version
@@ -1763,6 +1839,19 @@ class TableVersion:
     def is_data_versioned(self) -> bool:
         return self._tbl_md.is_data_versioned
 
+    @property
+    def has_default_idxs(self) -> bool:
+        """Whether eligible columns of this table get a default B-tree index.
+
+        This is fixed at creation time and is the sole determinant for columns added later.
+
+        For tables created before this property was recorded in the metadata, fall back to True except for snapshots
+        (that are not allowed to have indexes).
+        """
+        if self._tbl_md.has_default_idxs is None:
+            return not self._tbl_md.is_snapshot
+        return self._tbl_md.has_default_idxs
+
     def bump_version(self, timestamp: float | None = None, *, bump_schema_version: bool) -> None:
         """
         Increments the table version and adjusts all associated metadata. This will *not* trigger a database action;
@@ -1911,11 +2000,7 @@ class TableVersion:
     def get_idx(self, col: Column, idx_name: str | None, idx_cls: type[index.IndexBase]) -> TableVersion.IndexInfo:
         if not self.supports_idxs:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Snapshot does not support indices')
-        if col.qid not in self.idxs_by_col:
-            raise excs.NotFoundError(
-                excs.ErrorCode.INDEX_NOT_FOUND, f'Column {col.name!r} does not have a {idx_cls.display_name()} index'
-            )
-        candidates = [info for info in self.idxs_by_col[col.qid] if isinstance(info.idx, idx_cls)]
+        candidates = [info for info in self.idxs_by_col.get(col.qid, []) if isinstance(info.idx, idx_cls)]
         if len(candidates) == 0:
             raise excs.NotFoundError(
                 excs.ErrorCode.INDEX_NOT_FOUND, f'No {idx_cls.display_name()} index found for column {col.name!r}'
@@ -1930,6 +2015,13 @@ class TableVersion:
                 excs.ErrorCode.INDEX_NOT_FOUND, f'Index {idx_name!r} not found for column {col.name!r}'
             )
         return candidates[0] if idx_name is None else next(info for info in candidates if info.name == idx_name)
+
+    def find_btree_index(self, col: Column) -> TableVersion.IndexInfo | None:
+        """Return the B-tree index on col, or None if it doesn't have one."""
+        assert col.tbl_handle.id == self.id
+        infos = [info for info in self.idxs_by_col.get(col.qid, []) if isinstance(info.idx, index.BtreeIndex)]
+        assert len(infos) <= 1, repr(col)  # at most one B-tree index per column
+        return infos[0] if len(infos) > 0 else None
 
     def get_dependent_columns(self, cols: Iterable[Column]) -> set[Column]:
         """

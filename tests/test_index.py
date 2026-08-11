@@ -19,6 +19,7 @@ from .utils import (
     CatalogMode,
     ReloadTester,
     assert_resultset_eq,
+    btree_idxs,
     get_sentences,
     list_store_indexes,
     local_embedding,
@@ -316,12 +317,12 @@ class TestIndex:
             _ = t.order_by(t.split.similarity(string='red truck')).limit(1).collect()
 
         t = small_img_tbl
-        t.add_embedding_index('img', image_embed=local_embed)
+        t.add_embedding_index('img', idx_name='img_idx', image_embed=local_embed)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = t.order_by(t.img.similarity(string='red truck')).limit(1).collect()
         assert 'does not have a string embedding' in str(exc_info.value).lower()
 
-        t.add_embedding_index('img', embedding=local_embed)
+        t.add_embedding_index('img', idx_name='img_idx2', embedding=local_embed)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="Column 'img' has multiple embedding indices"):
             _ = t.order_by(t.img.similarity(string='red truck')).limit(1).collect()
 
@@ -334,8 +335,8 @@ class TestIndex:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Snapshot does not support indices'):
             _ = t_s.select(t_s.img.embedding(idx='other_idx')).limit(2)
 
-        t.drop_embedding_index(idx_name='idx0')
-        t.drop_embedding_index(idx_name='idx1')
+        t.drop_embedding_index(idx_name='img_idx')
+        t.drop_embedding_index(idx_name='img_idx2')
         t.add_embedding_index('split', string_embed=local_embed)
         sample_img = t.select(t.img).head(1)[0, 'img']
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
@@ -465,16 +466,11 @@ class TestIndex:
         t.add_embedding_index('img', idx_name='clip_idx', embedding=self.bad_embed, if_exists='ignore')
         assert 'clip_idx' in emb_idxs() and len(emb_idxs()) == 3
 
-        # cannot use if_exists to ignore or replace an existing index
-        # that is not an embedding (like, default btree indexes).
-        btree_name = next(
-            name
-            for name, idx in t.get_metadata()['indices'].items()
-            if idx['index_type'] == 'btree' and idx['columns'] == ['img']
-        )
+        # cannot use if_exists to ignore or replace an existing index that is not an embedding (e.g. a btree index).
+        t.add_btree_index('img', idx_name='btree_img')
         for ie in ('ignore', 'replace', 'replace_force'):
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not an embedding index'):
-                t.add_embedding_index('img', idx_name=btree_name, embedding=local_embed, if_exists=ie)
+                t.add_embedding_index('img', idx_name='btree_img', embedding=local_embed, if_exists=ie)
         assert 'clip_idx' in emb_idxs() and len(emb_idxs()) == 3
 
         # if_exists='replace' replaces the existing index with the new one (here, with a different metric).
@@ -510,7 +506,7 @@ class TestIndex:
 
         # replace drops the single matching index and recreates it under a fresh name
         t.add_embedding_index('img', embedding=local_embed, if_exists='replace')
-        assert len(emb_indexes()) == 1 and orig_name not in emb_indexes()
+        assert len(emb_indexes()) == 1
 
         # a different embedding bound via .using() is not a duplicate. Function == compares only self_path, so this
         # guards against comparing function identity instead of the serialized definition.
@@ -632,6 +628,7 @@ class TestIndex:
         tbl_name = p('index_test')
         img_t = pxt.create_table(tbl_name, schema)
         img_t.insert(rows[:30])
+        img_t.add_btree_index(img_t.img, idx_name='img_btree')
         dummy_img_t = pxt.create_table(p('dummy'), schema)
         dummy_img_t.insert(rows[:10])
 
@@ -640,7 +637,7 @@ class TestIndex:
             img_t.add_embedding_index(dummy_img_t.img, embedding=local_embed)
         assert 'unknown column: dummy.img' in str(exc_info.value).lower()
 
-        img_t.add_embedding_index('img', embedding=local_embed)
+        img_t.add_embedding_index('img', idx_name='img_emb_idx', embedding=local_embed)
 
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND) as exc_info:
             # cannot pass another table's column reference
@@ -657,10 +654,10 @@ class TestIndex:
 
         with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS) as exc_info:
             # duplicate name
-            img_t.add_embedding_index('img', idx_name='idx0', image_embed=local_embed)
+            img_t.add_embedding_index('img', idx_name='img_btree', image_embed=local_embed)
         assert 'duplicate index name' in str(exc_info.value).lower()
         with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS) as exc_info:
-            img_t.add_embedding_index(img_t.img, idx_name='idx0', image_embed=local_embed)
+            img_t.add_embedding_index(img_t.img, idx_name='img_emb_idx', image_embed=local_embed)
         assert 'duplicate index name' in str(exc_info.value).lower()
 
         img_t.add_embedding_index(img_t.category, idx_name='cat_idx', string_embed=local_embed)
@@ -707,8 +704,8 @@ class TestIndex:
 
         # multiple indices
         img_t.add_embedding_index(img_t.img, idx_name='other_idx', embedding=local_embed)
-        # lookup using the first index, how called idx3
-        sim = img_t.img.similarity(string='red truck', idx='idx3')
+        # lookup using the first index
+        sim = img_t.img.similarity(string='red truck', idx='img_emb_idx')
         res = img_t.order_by(sim, asc=False).limit(1).collect()
         assert len(res) == 1
         # lookup using the second index
@@ -753,7 +750,7 @@ class TestIndex:
         # dropping the indexed column also drops indices
         img_t.drop_column('img')
         with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND) as exc_info:
-            img_t.drop_embedding_index(idx_name='idx0')
+            img_t.drop_embedding_index(idx_name='img_emb_idx')
         assert 'does not exist' in str(exc_info.value).lower()
 
         _ = reload_tester.run_query(img_t.select())
@@ -932,6 +929,7 @@ class TestIndex:
 
     def run_btree_test(self, p: Callable[[str], str], data: list, data_type: type) -> pxt.Table:
         t = pxt.create_table(p('btree_test'), {'data': data_type})
+        t.add_btree_index('data')
         num_rows = len(data)
         rows = [{'data': value} for value in data]
         validate_update_status(t.insert(rows), expected_rows=num_rows)
@@ -989,6 +987,7 @@ class TestIndex:
 
         # test that Comparison uses BtreeIndex.MAX_STRING_LEN
         t = pxt.create_table(p('test_max_str_len'), {'data': pxt.String})
+        t.add_btree_index('data')
         rows = [{'data': s}, {'data': s + 'a'}]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
         assert t.where(t.data >= s).count() == 2
@@ -1019,6 +1018,179 @@ class TestIndex:
             start + datetime.timedelta(days=random.randint(0, int(delta_days))) for _ in range(self.BTREE_TEST_NUM_ROWS)
         ]
         self.run_btree_test(p, data, pxt.Date)
+
+    def test_add_btree_index(self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(
+            p('add_index_test'), {'id': pxt.Int, 'name': pxt.String, 'data': pxt.Json, 'extra': pxt.String}
+        )
+        t.insert([{'id': i, 'name': f'n{i}', 'data': {'k': i}, 'extra': f'e{i}'} for i in range(10)])
+
+        # no index is created by default
+        assert len(btree_idxs(t)) == 0
+
+        # add an unnamed index
+        t.add_btree_index('id')
+        assert t.where(t.id == 3).collect()['name'] == ['n3']
+        id_idx_name = next(iter(btree_idxs(t)))
+
+        # add an index with explicit name, and specify the column by reference
+        t.add_btree_index(t.name, idx_name='name_idx')
+        assert t.where(t.name == 'n5').collect()['id'] == [5]
+        assert btree_idxs(t).keys() == {id_idx_name, 'name_idx'}
+
+        # revert add_btree_index
+        t.revert()
+        assert btree_idxs(t).keys() == {id_idx_name}
+
+        # add the index back with a different name
+        t.add_btree_index(t.name, idx_name='name_idx2')
+        assert t.where(t.name == 'n5').collect()['id'] == [5]
+        assert btree_idxs(t).keys() == {id_idx_name, 'name_idx2'}
+
+        # at most one B-tree index per column
+        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='B-tree index already exists'):
+            t.add_btree_index('id')
+        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='B-tree index already exists'):
+            t.add_btree_index('id', idx_name='id_idx2')
+        t.add_btree_index('id', if_exists='ignore')  # no-op
+        t.add_btree_index('id', idx_name='id_idx2', if_exists='ignore')  # no-op
+        assert btree_idxs(t).keys() == {id_idx_name, 'name_idx2'}
+
+        # 'replace' / 'replace_force' are not supported for B-tree indexes
+        for ie in ('replace', 'replace_force'):
+            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='if_exists'):
+                t.add_btree_index('id', if_exists=ie)  # type: ignore[arg-type]
+
+        t.add_embedding_index('name', idx_name='emb_idx', string_embed=local_embed)
+
+        # a name collision with the B-tree index on the same column: the one-index-per-column check takes
+        # precedence over the name check, and 'ignore' still makes it a no-op
+        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='B-tree index already exists'):
+            t.add_btree_index('name', idx_name='name_idx2')
+        t.add_btree_index('name', idx_name='name_idx2', if_exists='ignore')  # no-op
+        assert btree_idxs(t).keys() == {id_idx_name, 'name_idx2'}
+
+        # a name collision with a B-tree index on a different column is an error, regardless of if_exists
+        for ie in ('error', 'ignore'):
+            with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match="Index.+already exists on column 'id'"):
+                t.add_btree_index('extra', idx_name=id_idx_name, if_exists=ie)
+        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match="Index.+already exists on column 'name'"):
+            t.add_btree_index('extra', idx_name='name_idx2')
+        assert btree_idxs(t).keys() == {id_idx_name, 'name_idx2'}
+
+        # a name collision with an index of a different type is an error, regardless of if_exists
+        for ie in ('error', 'ignore'):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not a B-tree index'):
+                t.add_btree_index('id', idx_name='emb_idx', if_exists=ie)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not an embedding index'):
+            t.add_embedding_index('name', idx_name='name_idx2', string_embed=local_embed, if_exists='ignore')
+
+        # drop by name and by column
+        t.drop_index(idx_name='name_idx2')
+        assert 'name_idx2' not in btree_idxs(t)
+        t.drop_index(column='id')
+        assert len(btree_idxs(t)) == 0
+
+    def test_btree_ineligible_columns(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        schema = {'id': pxt.Int, 'flag': pxt.Bool, 'data': pxt.Json, 'img': pxt.Image, 'audio': pxt.Audio}
+        t = pxt.create_table(p('ineligible'), schema)
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH, match='Index on column flag: .* non-boolean scalar type or a media'
+        ):
+            t.add_btree_index('flag')
+        with pxt_raises(
+            pxt.ErrorCode.TYPE_MISMATCH, match='Index on column data: .* non-boolean scalar type or a media'
+        ):
+            t.add_btree_index('data')
+
+        t.add_computed_column(id_calc=t.id + 1, stored=False)
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="unstored column 'id_calc'"):
+            t.add_btree_index('id_calc')
+
+        t.add_computed_column(rot=t.img.rotate(90))
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="computed media column 'rot'"):
+            t.add_btree_index('rot')
+
+        v = pxt.create_view(p('ineligible_view'), t, iterator=pxtf.audio.audio_splitter(t.audio, duration=1.0))
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'audio_segment', which is produced by an iter"):
+            v.add_btree_index('audio_segment')
+
+        # none of the rejections created an index
+        assert len(btree_idxs(t)) == 0
+        assert len(btree_idxs(v)) == 0
+
+        # the eligible columns of the same tables are accepted, including a stored non-media computed column
+        t.add_btree_index('img')
+        t.add_computed_column(id_calc2=t.id + 2)
+        t.add_btree_index('id_calc2')
+        assert set(btree_idxs(t).values()) == {'img', 'id_calc2'}
+
+        v.add_btree_index('segment_start')
+        assert set(btree_idxs(v).values()) == {'segment_start'}
+
+    def test_default_idxs(self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> None:
+        p = make_catalog_path
+
+        # a table created without default indexes doesn't index columns added later
+        t = pxt.create_table(p('no_default_idxs'), {'id': pxt.Int})
+        t.insert([{'id': i} for i in range(3)])
+        assert len(btree_idxs(t)) == 0
+        t.add_columns({'a': pxt.Int})
+        t.add_column(b=pxt.String)
+        t.add_computed_column(c=t.id + 1)
+        assert len(btree_idxs(t)) == 0
+
+        # a table created with default indexes indexes every eligible column added later
+        t2 = pxt.create_table(p('default_idxs'), {'id': pxt.Int}, has_default_idxs=True)
+        t2.insert([{'id': i} for i in range(3)])
+        assert set(btree_idxs(t2).values()) == {'id'}
+        t2.add_columns({'a': pxt.Int})
+        t2.add_column(b=pxt.String)
+        t2.add_computed_column(c=t2.id + 1)
+        assert set(btree_idxs(t2).values()) == {'id', 'a', 'b', 'c'}
+
+        # ineligible columns are skipped
+        t2.add_column(flag=pxt.Bool)
+        assert 'flag' not in btree_idxs(t2).values()
+
+        # dropping an indexed column also drops its index
+        t2.drop_column('a')
+        assert 'a' not in btree_idxs(t2).values()
+
+        # explicit B-tree indexes are not accepted: this table's B-tree indexes are managed automatically
+        for add_kwargs in ({}, {'idx_name': 'id_idx'}, {'if_exists': 'ignore'}):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='has_default_idxs'):
+                t2.add_btree_index('id', **add_kwargs)  # type: ignore[arg-type]
+
+        # can't drop a default index
+        id_idx_name = next(name for name, col in btree_idxs(t2).items() if col == 'id')
+        for drop_kwargs in ({'column': 'id'}, {'idx_name': id_idx_name}, {'column': 'id', 'if_not_exists': 'ignore'}):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='has_default_idxs=True'):
+                t2.drop_index(**drop_kwargs)  # type: ignore[arg-type]
+        assert set(btree_idxs(t2).values()) == {'id', 'b', 'c'}
+
+    def test_btree_index_on_view(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+        t = pxt.create_table(p('view_base'), {'id': pxt.Int, 'name': pxt.String})
+        t.insert([{'id': i, 'name': f'n{i}'} for i in range(10)])
+
+        v = pxt.create_view(p('view_v'), t)
+        v.add_computed_column(id2=v.id * 2)
+
+        # index on the view's own (computed) column
+        v.add_btree_index('id2', idx_name='id2_idx')
+        assert 'id2_idx' in btree_idxs(v)
+        assert v.where(v.id2 == 6).collect()['id'] == [3]
+
+        # view's index is maintained as base table changes
+        t.insert([{'id': 10, 'name': 'n10'}])
+        assert v.where(v.id2 == 20).collect()['id'] == [10]
+
+        for ie in ('error', 'ignore'):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='belongs to a base table'):
+                v.add_btree_index(v.name, if_exists=ie)
 
     @pytest.mark.parametrize('reload_cat', [True, False], ids=['reload_cat', 'no_reload_cat'])
     @pytest.mark.parametrize('metric', ['l2', 'cosine', 'ip'])
@@ -1186,20 +1358,13 @@ class TestIndex:
         t = pxt.create_table(p('index_drop_test'), {'id': pxt.Int, 'text': pxt.String}, if_exists='replace')
         t.insert([{'id': 1, 'text': 'hello world'}, {'id': 2, 'text': 'goodbye'}])
 
-        # Find or create an index to drop, identified by name through the public metadata
+        # Create an index to drop
+        idx_name = 'text_idx'
         if index_type == 'btree':
-            # the table auto-creates a btree index on 'text'
-            btree_names = [
-                name
-                for name, info in t.get_metadata()['indices'].items()
-                if info['index_type'] == 'btree' and 'text' in info['columns']
-            ]
-            assert len(btree_names) == 1, "Should have one B-tree index on 'text'"
-            idx_name = btree_names[0]
+            t.add_btree_index('text', idx_name=idx_name)
         else:
             local_embed = request.getfixturevalue('local_embed')
-            t.add_embedding_index('text', idx_name='text_idx', string_embed=local_embed)
-            idx_name = 'text_idx'
+            t.add_embedding_index('text', idx_name=idx_name, string_embed=local_embed)
 
         assert idx_name in t.get_metadata()['indices']
 
@@ -1213,7 +1378,7 @@ class TestIndex:
         if index_type == 'btree':
             t.drop_index(column='text')
         else:
-            t.drop_embedding_index(idx_name='text_idx')
+            t.drop_embedding_index(idx_name=idx_name)
 
         assert idx_name not in t.get_metadata()['indices']
         if catalog_mode == 'local':

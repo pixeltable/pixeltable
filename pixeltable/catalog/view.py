@@ -83,7 +83,7 @@ class View(LocalTable):
         predicate: 'exprs.Expr' | None,
         sample_clause: 'SampleClause' | None,
         is_snapshot: bool,
-        create_default_idxs: bool,
+        has_default_idxs: bool,
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
@@ -224,8 +224,8 @@ class View(LocalTable):
             custom_metadata,
             media_validation=media_validation,
             view_md=view_md,
-            create_default_idxs=create_default_idxs,
             is_data_versioned=base.is_data_versioned(),
+            has_default_idxs=has_default_idxs,
             additional_idxs=resolved_idxs,
         )
         if md.tbl_md.is_pure_snapshot:
