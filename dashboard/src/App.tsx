@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelHandle } from 'react-resizable-panels'
 import { Routes, Route, useNavigate, useParams, useLocation } from 'react-router-dom'
 import { DirectoryTree } from '@/components/DirectoryTree'
@@ -260,6 +261,27 @@ export default function App() {
   const [dark, toggleTheme] = useTheme()
   const [activeCatalog, setActiveCatalog] = useState(loadActiveCatalog)
   const [treeReload, setTreeReload] = useState(0)
+  const [connOpen, setConnOpen] = useState(false)
+  const [connPos, setConnPos] = useState<{ top: number; left: number } | null>(null)
+  const headerRef = useRef<HTMLDivElement>(null)
+  const connCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const openConnection = () => {
+    if (connCloseTimer.current) {
+      clearTimeout(connCloseTimer.current)
+      connCloseTimer.current = null
+    }
+    const el = headerRef.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    setConnPos({ top: r.bottom - 1, left: r.left + 8 })
+    setConnOpen(true)
+  }
+
+  const scheduleCloseConnection = () => {
+    if (connCloseTimer.current) clearTimeout(connCloseTimer.current)
+    connCloseTimer.current = setTimeout(() => setConnOpen(false), 120)
+  }
 
   const toggleSidebar = () => {
     const panel = sidebarPanelRef.current
@@ -355,8 +377,13 @@ export default function App() {
           onExpand={() => setSidebarOpen(true)}
           className="flex flex-col border-r border-border/60 bg-card/40"
         >
-        {/* Header: logo + connection */}
-        <div className={cn('group relative shrink-0 px-3 pt-3 pb-2', !sidebarOpen && 'flex justify-center pt-3 pb-2')}>
+        {/* Header: logo + connection (popover portaled — escapes sidebar overflow/stacking) */}
+        <div
+          ref={headerRef}
+          className={cn('relative shrink-0 px-3 pt-3 pb-2', !sidebarOpen && 'flex justify-center pt-3 pb-2')}
+          onMouseEnter={() => { if (sidebarOpen && status?.config) openConnection() }}
+          onMouseLeave={scheduleCloseConnection}
+        >
           <button onClick={() => navigate('/')} className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
             <img src="/logo.png" alt="Pixeltable" className="h-7 w-7 shrink-0 rounded-lg" />
             {sidebarOpen && (
@@ -376,9 +403,13 @@ export default function App() {
               </div>
             )}
           </button>
-          {/* Hover tooltip with full connection details */}
-          {sidebarOpen && status?.config && (
-            <div className="absolute top-full left-2 mt-0.5 hidden group-hover:block z-50 min-w-[280px] max-w-sm">
+          {sidebarOpen && status?.config && connOpen && connPos && createPortal(
+            <div
+              className="fixed z-[200] min-w-[280px] max-w-sm"
+              style={{ top: connPos.top, left: connPos.left }}
+              onMouseEnter={openConnection}
+              onMouseLeave={scheduleCloseConnection}
+            >
               <div className="rounded-lg border border-border/60 bg-card shadow-lg px-3.5 py-3 text-[11px] space-y-2.5">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Connection</div>
                 {([
@@ -404,7 +435,8 @@ export default function App() {
                   </div>
                 )}
               </div>
-            </div>
+            </div>,
+            document.body,
           )}
         </div>
 
