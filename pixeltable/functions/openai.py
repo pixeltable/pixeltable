@@ -290,11 +290,6 @@ async def speech(input: str, *, model: str, voice: str, model_kwargs: dict[str, 
 # pad-with-None to a fixed shape. Nullability inside each field matches the SDK Pydantic model.
 # usage is a discriminated union in the SDK (tokens vs duration); kept as dict to avoid committing
 # to one variant.
-#
-# Note: if a future TypedDict here needs a mix of Required and NotRequired fields, import both
-# TypedDict and NotRequired from typing_extensions (not stdlib typing). On Python 3.10 the stdlib
-# TypedDict does not register typing_extensions.NotRequired into __optional_keys__, which would
-# silently mark the field as required for JsonType validation.
 
 
 class TranscriptionWord(TypedDict):
