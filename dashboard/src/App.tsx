@@ -175,7 +175,7 @@ function WelcomeView() {
   return (
     <div className="flex flex-col items-center justify-center h-full text-center p-8">
       <div className="mb-6">
-        <img src="/logo.png" alt="Pixeltable" className="h-14 w-14 rounded-xl" />
+        <img src="/logo.png" alt="Pixeltable" className="h-14 w-14 rounded-xl bg-card ring-1 ring-border/60" />
       </div>
       <h1 className="text-xl font-semibold text-foreground mb-2">
         Pixeltable Dashboard
@@ -385,7 +385,7 @@ export default function App() {
           onMouseLeave={scheduleCloseConnection}
         >
           <button onClick={() => navigate('/')} className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
-            <img src="/logo.png" alt="Pixeltable" className="h-7 w-7 shrink-0 rounded-lg" />
+            <img src="/logo.png" alt="Pixeltable" className="h-7 w-7 shrink-0 rounded-lg bg-card ring-1 ring-border/50" />
             {sidebarOpen && (
               <div className="flex flex-col min-w-0">
                 <div className="flex items-center gap-1.5">
