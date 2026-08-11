@@ -1743,6 +1743,40 @@ class TestTableModel:
             class LimitedBase(TableModel, name='limited_base', base=ValidTableModel.limit(10)):
                 pass
 
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r'model `JoinedBase`: The following clauses cannot be used in a view definition: join\(\)',
+        ):
+
+            class JoinedBase(
+                TableModel,
+                name='joined_base',
+                base=ValidTableModel.join(OtherModel, on=ValidTableModel.id == OtherModel.x),
+            ):
+                pass
+
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r'model `DistinctBase`: The following clauses cannot be used in a view definition: distinct\(\)',
+        ):
+
+            class DistinctBase(TableModel, name='distinct_base', base=ValidTableModel.distinct()):
+                pass
+
+        # every prohibited clause is reported, in the order it was specified
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r'model `MultiBase`: The following clauses cannot be used in a view definition: '
+            r'order_by\(\), join\(\), limit\(\)',
+        ):
+
+            class MultiBase(
+                TableModel,
+                name='multi_base',
+                base=ValidTableModel.order_by(ValidTableModel.id).join(OtherModel).limit(10),
+            ):
+                pass
+
     def test_aggregation_rejected(self) -> None:
         """A view is maintained one base row at a time, so nothing in a model may aggregate."""
         TableModel = pxt.model_base()

@@ -13,7 +13,7 @@ from pixeltable import catalog, exceptions as excs, exprs, func, type_system as 
 from pixeltable.config import URI, ConfigVar
 from pixeltable.env import Env
 from pixeltable.exprs import ColumnRefByName
-from pixeltable.query_clauses import FromClause, SampleClause
+from pixeltable.query_clauses import FromClause, JoinType, SampleClause
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 
@@ -198,6 +198,14 @@ class ModelQuery:
 
     def limit(self, n: int, offset: int | None = None) -> ModelQuery:
         return dataclasses.replace(self, prohibited_clauses=[*self.prohibited_clauses, 'limit'])
+
+    def join(
+        self, other: TableModelMeta | Table, *, on: exprs.Expr | None = None, how: JoinType.LiteralType = 'inner'
+    ) -> ModelQuery:
+        return dataclasses.replace(self, prohibited_clauses=[*self.prohibited_clauses, 'join'])
+
+    def distinct(self) -> ModelQuery:
+        return dataclasses.replace(self, prohibited_clauses=[*self.prohibited_clauses, 'distinct'])
 
     def sample(
         self,
