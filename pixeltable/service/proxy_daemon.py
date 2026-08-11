@@ -14,6 +14,7 @@ a given database, and locating a running one via the port.lock file in its home 
 
 import atexit
 import json
+import logging
 import os
 import shutil
 import signal
@@ -38,6 +39,9 @@ from .proxy_protocol import decode_body, encode_body
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
+
+# Logger name is spelled out because __name__ here is '__main__' when daemon runs.
+_logger = logging.getLogger('pixeltable.service.proxy_daemon')
 
 _LOCK_NAME = 'port.lock'
 _STARTUP_TIMEOUT = 60.0  # generous: the daemon creates/migrates its db on first init
@@ -258,6 +262,15 @@ def reinitialize(db: str) -> None:
     response.raise_for_status()
 
 
+def configure_test_logging(db: str) -> None:
+    """Test only. Switch the running daemon's logging for test."""
+    ep = endpoint(db)
+    if ep is None:
+        raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'No running proxy daemon for {db!r}')
+    response = httpx.post(f'{ep}/configure_test_logging', timeout=1.0)
+    response.raise_for_status()
+
+
 def delete(db: str) -> None:
     """Stop the daemon, drop its database, and remove its home directory."""
     stop(db)
@@ -273,6 +286,16 @@ def _reinitialize() -> None:
     """
     reset_runtime()
     pxt.init()
+
+
+def _configure_test_logging() -> None:
+    """Test only. Runs inside the daemon process.
+
+    Log at DEBUG, matching the local test behavior.
+    """
+    for name in ('pixeltable', 'sqlalchemy.engine'):
+        logging.getLogger(name).setLevel(logging.DEBUG)
+    _logger.info('Test only: logging at DEBUG')
 
 
 def _drop_database(db: str) -> None:
@@ -323,6 +346,11 @@ def _build_app() -> 'FastAPI':
         await run_in_threadpool(_reinitialize)
         return Response(content='{"status": "ok"}', media_type='application/json')
 
+    @app.post('/configure_test_logging')
+    async def configure_test_logging_endpoint() -> Response:
+        _configure_test_logging()
+        return Response(content='{"status": "ok"}', media_type='application/json')
+
     @app.get('/health')
     def health() -> dict[str, str]:
         return {'status': 'ok'}
@@ -371,9 +399,13 @@ def _serve() -> None:
     daemon_host = config.get_string_value('daemon_host')
     daemon_port = config.get_int_value('daemon_port')
 
+    # log_config=None suppresses uvicorn's own logging setup which results in closing every handler registered so far.
+    # Note: uvicorn logging is configured separately during Env set up. 
     log_level = (config.get_string_value('log_level') or 'info').lower()
     if daemon_host is not None or daemon_port is not None:
-        uvicorn.run(app, host=daemon_host or '127.0.0.1', port=daemon_port or 8000, log_level=log_level)
+        uvicorn.run(
+            app, host=daemon_host or '127.0.0.1', port=daemon_port or 8000, log_level=log_level, log_config=None
+        )
         return
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -391,7 +423,7 @@ def _serve() -> None:
     atexit.register(lambda: lock.unlink(missing_ok=True))
     signal.signal(signal.SIGTERM, _cleanup)
 
-    uvicorn.Server(uvicorn.Config(app, log_level='warning')).run(sockets=[sock])
+    uvicorn.Server(uvicorn.Config(app, log_level='warning', log_config=None)).run(sockets=[sock])
 
 
 if __name__ == '__main__':

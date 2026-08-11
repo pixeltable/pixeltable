@@ -286,6 +286,7 @@ def proxy_daemon_db(init_env: None, worker_id: str) -> Iterator[str]:
 
     db = _worker_db_name(worker_id)
     proxy_daemon.start(db)
+    proxy_daemon.configure_test_logging(db)
     try:
         yield db
     finally:
