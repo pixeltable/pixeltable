@@ -13,7 +13,7 @@ from ..globals import col_type_from_spec
 from ..table_metadata import ColumnMetadata, TableMetadata
 
 if TYPE_CHECKING:
-    from .declaration import EmbeddingIndex, TableModelMeta
+    from .declaration import IndexDeclaration, TableModelMeta
 
 
 class SchemaChangeOp(TypedDict):
@@ -68,7 +68,7 @@ class TableDiff(TypedDict):
 
 # Table-level attribute names that are reported as a single grouped diff (as opposed to `kind`/`iterator`/`filter`/
 # `sample`, which each get their own diff line).
-_TABLE_PROP_NAMES: tuple[str, ...] = ('media_validation', 'comment', 'custom_metadata')
+_TABLE_PROP_NAMES: tuple[str, ...] = ('media_validation', 'comment', 'custom_metadata', 'has_default_idxs')
 
 
 def _resolution(exists: bool, ops: list[SchemaChangeOp]) -> DiffResolution:
@@ -219,7 +219,7 @@ def _add_column_change(col_name: str, spec: ColumnSpec) -> SchemaChangeOp:
     )
 
 
-def _add_index_change(idx_name: str, idx: EmbeddingIndex) -> SchemaChangeOp:
+def _add_index_change(idx_name: str, idx: IndexDeclaration) -> SchemaChangeOp:
     # str(), not .name: a ModelColumnRef renders as its bare column name, and a spec holding anything else
     # is reported as it stands rather than dropped from the plan
     details = {'on': str(idx.column)}
@@ -244,6 +244,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
     state it was computed against.
     """
     from ..catalog import retry_loop
+    from .declaration import BtreeIndex
 
     catalog_dir = catalog.Path.dir_prefix(catalog_dir)
 
@@ -293,11 +294,42 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                 for col_name, col_md in existing_md['columns'].items()
                 if col_md['defined_in'] == existing_md['name'] and not col_md['is_iterator_col']
             }
-            existing_idxs = {
-                idx_name for idx_name, info in existing_md['indices'].items() if info['index_type'] == 'embedding'
-            }
-
             ops = []
+
+            # has_default_idxs mismatch is unsupported.
+            model_default_idxs = model.__table_spec__['has_default_idxs']
+            existing_default_idxs = existing_md['has_default_idxs']
+            if model_default_idxs != existing_default_idxs:
+                ops.append(
+                    SchemaChangeOp(
+                        target='table',
+                        name='has_default_idxs',
+                        op='alter',
+                        severity='unsupported',
+                        model=model_default_idxs,
+                        existing=existing_default_idxs,
+                        description=f'`{model.__name__}` specifies has_default_idxs={model_default_idxs}, '
+                        f'but {name!r} was created with has_default_idxs={existing_default_idxs}',
+                        details={},
+                    )
+                )
+
+            # Default indexes have no counterpart in __indexes__, and has_default_idxs=True is incompatible with
+            # explicitly declared B-tree indexes. So, if the existing table has default indexes enabled, all of its
+            # B-tree indexes are default indexes, and they can all be ignored, because resolving the column diff takes
+            # care of the indexes too. Otherwise all B-tree indexes are explicitly declared, so they are diffed and
+            # compared like embedding indexes. If the two sides disagree on has_default_idxs, no meaningful diff of
+            # B-tree indexes can be computed, so they are left out.
+            include_btree_idxs = not model_default_idxs and not existing_default_idxs
+            if not include_btree_idxs:
+                model_idxs = {
+                    idx_name for idx_name, idx in model.__indexes__.items() if not isinstance(idx, BtreeIndex)
+                }
+            existing_idxs = {
+                idx_name
+                for idx_name, info in existing_md['indices'].items()
+                if info['index_type'] == 'embedding' or (include_btree_idxs and info['index_type'] == 'btree')
+            }
 
             # Structural mismatches (kind/iterator/filter/sample); each is unsupported (requires a manual migration).
             if model_kind != existing_md['kind']:
@@ -395,6 +427,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                         details={},
                     )
                 )
+            # TODO(PXT-1258): compare index parameters, not just names
             for idx_name in sorted(model_idxs - existing_idxs):
                 ops.append(_add_index_change(idx_name, model.__indexes__[idx_name]))
             for idx_name in sorted(existing_idxs - model_idxs):

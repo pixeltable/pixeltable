@@ -543,22 +543,6 @@ class Column:
         return self.stored
 
     @property
-    def is_btree_indexable(self) -> bool:
-        if not self.stored:
-            # if the column is intentionally not stored, we want to avoid the overhead of an index
-            return False
-        # Skip index for stored media columns produced by an iterator
-        if self.col_type.is_media_type() and self.is_iterator_col:
-            return False
-        if not self.col_type.is_scalar_type() and not (self.col_type.is_media_type() and not self.is_computed):
-            # wrong type for a B-tree
-            return False
-        if self.col_type.is_bool_type():  # noqa : SIM103 Supress `Return the negated condition directly` check
-            # B-trees on bools aren't useful
-            return False
-        return True
-
-    @property
     def qualified_name(self) -> str:
         assert self.get_tbl() is not None
         return f'{self.get_tbl().name}.{self.name}'

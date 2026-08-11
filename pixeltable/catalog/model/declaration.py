@@ -133,6 +133,20 @@ class EmbeddingIndex:
         return f'EmbeddingIndex({", ".join(parts)})'
 
 
+@dataclasses.dataclass(frozen=True)
+class BtreeIndex:
+    """A B-tree index specification used in a TableModel or ViewModel definition."""
+
+    column: Any
+
+    def __repr__(self) -> str:
+        return f'BtreeIndex(column={self.column})'
+
+
+# An index specification declared as a class attribute in a TableModel or ViewModel definition.
+IndexDeclaration = EmbeddingIndex | BtreeIndex
+
+
 class TableSpec(TypedDict):
     """Table specification from a TableModel or ViewModel."""
 
@@ -140,7 +154,7 @@ class TableSpec(TypedDict):
     display_name: str
     base: ModelQuery | None
     iterator: func.GeneratingFunctionCall | None
-    create_default_idxs: bool
+    has_default_idxs: bool
     media_validation: MediaValidation
     comment: str | None
     custom_metadata: Any
@@ -334,13 +348,13 @@ class _AnnotationRecorder(dict):
 class _ModelNamespace(dict):
     """
     Class namespace that manages placeholder column references, ensuring that all declarations (bare annotations,
-    computed column expressions, Column and EmbeddingIndex specifications) are registered promptly and in the exact
+    computed column expressions, Column and index specifications) are registered promptly and in the exact
     order of declaration.
     """
 
     table_spec: TableSpec
     known_cols: dict[str, ColumnSpec]
-    known_idxs: dict[str, EmbeddingIndex]
+    known_idxs: dict[str, IndexDeclaration]
 
     # Names that are produced by the base query or iterator; these cannot be redefined in the model.
     reserved_cols: dict[str, Literal['base query', 'iterator']]
@@ -391,7 +405,7 @@ class _ModelNamespace(dict):
 
     def set_col_value(self, name: str, value: Any) -> None:
         self._check_reserved(name)
-        if isinstance(value, EmbeddingIndex):
+        if isinstance(value, (EmbeddingIndex, BtreeIndex)):
             if name in self.known_cols or name in self.known_idxs:
                 raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'Index {name!r}: duplicate definition.')
             self.known_idxs[name] = value
@@ -454,6 +468,22 @@ class _ModelNamespace(dict):
         super().__setitem__(name, exprs.ColumnRefByName(name, type_))
 
 
+def _validate_model_declaration(cls_name: str, namespace: _ModelNamespace) -> None:
+    """Validate a model's declarations against each other, once its class body has run."""
+    if len(namespace.known_cols) == 0 and namespace.table_spec['base'] is None:
+        raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, 'Empty table schema not allowed.')
+
+    # A table with default indexes enabled is not allowed to have explicit B-tree indexes.
+    if namespace.table_spec['has_default_idxs']:
+        btree_idx_names = [name for name, idx in namespace.known_idxs.items() if isinstance(idx, BtreeIndex)]
+        if len(btree_idx_names) > 0:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'model `{cls_name}`: cannot combine has_default_idxs=True with explicitly declared B-tree '
+                f'index(es) {btree_idx_names}; eligible columns are indexed automatically.',
+            )
+
+
 class TableModelMeta(type):
     """
     Metaclass that collects annotated column definitions and other table metadata from a class body.
@@ -461,7 +491,7 @@ class TableModelMeta(type):
 
     __table_spec__: TableSpec
     __columns__: dict[str, ColumnSpec]
-    __indexes__: dict[str, EmbeddingIndex]
+    __indexes__: dict[str, IndexDeclaration]
     __bound_table__: Table | None
 
     _catalog_dir: str | None
@@ -476,7 +506,7 @@ class TableModelMeta(type):
         name: str,
         base: 'TableModelMeta | ModelQuery | None' = None,
         iterator: func.GeneratingFunctionCall | None = None,
-        create_default_idxs: bool = True,
+        has_default_idxs: bool = False,
         media_validation: Literal['on_read', 'on_write'] = 'on_write',
         comment: str | None = None,
         custom_metadata: Any = None,
@@ -568,7 +598,7 @@ class TableModelMeta(type):
                     'display_name': display_name,
                     'base': base,
                     'iterator': iterator,
-                    'create_default_idxs': create_default_idxs,
+                    'has_default_idxs': has_default_idxs,
                     'media_validation': media_validation_,
                     'comment': comment,
                     'custom_metadata': custom_metadata,
@@ -600,8 +630,7 @@ class TableModelMeta(type):
 
         assert isinstance(namespace, _ModelNamespace)
 
-        if len(namespace.known_cols) == 0 and namespace.table_spec['base'] is None:
-            raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, 'Empty table schema not allowed.')
+        _validate_model_declaration(cls_name, namespace)
 
         # "normalize" the namespace to a plain dict; at this point, we're done with the special namespace treatment
         namespace_dict = dict(namespace)
@@ -688,13 +717,13 @@ class TableModelMeta(type):
             path=tbl_path,
             columns=columns,
             display_name=table_spec['display_name'],
-            create_default_idxs=table_spec['create_default_idxs'],
+            has_default_idxs=table_spec['has_default_idxs'],
             media_validation=table_spec['media_validation'],
             comment=table_spec['comment'],
             custom_metadata=table_spec['custom_metadata'],
             iterator=table_spec['iterator'],
             base=base,
-            embedding_idxs=cls.__indexes__,
+            idxs=cls.__indexes__,
         )
 
         if was_created:
@@ -747,7 +776,7 @@ class TableModelMeta(type):
                 comment=spec['comment'],
                 custom_metadata=spec['custom_metadata'],
                 media_validation=spec['media_validation'],
-                create_default_idxs=spec['create_default_idxs'],
+                has_default_idxs=spec['has_default_idxs'],
                 view_md=None,
                 is_data_versioned=True,
                 additional_idxs=idxs,
@@ -764,7 +793,7 @@ class TableModelMeta(type):
                 predicate=base.where_clause,
                 sample_clause=base.sample_clause,
                 is_snapshot=False,  # a model has no way to declare one
-                create_default_idxs=spec['create_default_idxs'],
+                has_default_idxs=spec['has_default_idxs'],
                 comment=spec['comment'],
                 custom_metadata=spec['custom_metadata'],
                 media_validation=spec['media_validation'],

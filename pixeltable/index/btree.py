@@ -32,6 +32,42 @@ class BtreeIndex(IndexBase):
     def __init__(self) -> None:
         pass
 
+    @classmethod
+    def can_index(cls, c: 'catalog.Column') -> bool:
+        """True if c is eligible for a B-tree index, based on its type and other properties."""
+        try:
+            cls.validate_column(c)
+        except excs.RequestError:
+            return False
+        return True
+
+    @classmethod
+    def validate_column(cls, c: 'catalog.Column') -> None:
+        """Raises if c isn't eligible for a B-tree index, based on its type and other properties."""
+        if not c.stored:
+            # if the column is intentionally not stored, we want to avoid the overhead of an index
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot create a B-tree index on unstored column {c.name!r}.'
+            )
+        # bools are excluded: a B-tree on a two-valued column isn't useful
+        if not ((c.col_type.is_scalar_type() and not c.col_type.is_bool_type()) or c.col_type.is_media_type()):
+            raise excs.RequestError(
+                excs.ErrorCode.TYPE_MISMATCH,
+                f'Index on column {c.name}: B-tree index requires a non-boolean scalar type or a media type, '
+                f'got {c.col_type}',
+            )
+        if c.col_type.is_media_type():
+            if c.is_iterator_col:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot create a B-tree index on column {c.name!r}, which is produced by an iterator.',
+                )
+            if c.is_computed:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot create a B-tree index on computed media column {c.name!r}.',
+                )
+
     def create_value_expr(self, c: 'catalog.ColumnVersionMd') -> 'exprs.Expr':
         if not c.col_type.is_scalar_type() and not c.col_type.is_media_type():
             raise excs.RequestError(

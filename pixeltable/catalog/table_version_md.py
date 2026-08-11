@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import itertools
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any, Iterable
 from uuid import UUID
 
+import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
 import pixeltable.index as index
 from pixeltable.env import Env
@@ -15,7 +16,79 @@ from pixeltable.metadata import schema
 from .column import Column
 from .globals import IndexSpec, MediaValidation, TableVersionKey
 from .metadata_types import TableVersionMd
-from .table_version_handle import TableVersionHandle
+
+if TYPE_CHECKING:
+    from .table_version import TableVersion
+
+
+def validate_idxs(
+    tbl_id: UUID,
+    idxs: Iterable[IndexSpec],
+    has_default_idxs: bool,
+    existing_idxs: Iterable[TableVersion.IndexInfo] = (),
+) -> None:
+    """Validate the indexes in idxs, which are about to be created on the table with id tbl_id.
+
+    idxs: resolved specs, ie. every indexed_column identifies a column rather than naming one.
+    existing_idxs: the table's live indexes; a new index must not collide with one of those.
+    """
+    existing_by_name = {info.name: info for info in existing_idxs}
+    # names of the columns that already have a B-tree index; a view's base columns are excluded, because the
+    # validation below rejects them as targets anyway
+    btree_col_names = {
+        info.col.name
+        for info in existing_idxs
+        if isinstance(info.idx, index.BtreeIndex) and info.col.tbl_handle.id == tbl_id
+    }
+    new_names: set[str] = set()
+    new_btree_col_names: set[str] = set()
+
+    for idx_col, idx_name, idx in idxs:
+        assert not isinstance(idx_col, str), repr(idx_col)
+        if isinstance(idx, index.BtreeIndex):
+            assert idx_col.name is not None, repr(idx_col)
+            if has_default_idxs:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    'Cannot create an explicit B-tree index on a table with has_default_idxs=True; '
+                    'its eligible columns are indexed automatically.',
+                )
+            # a spec that carries metadata instead of a Column identifies a column that already exists, which
+            # for the table being created is one of a base
+            owner_tbl_id = idx_col.tbl_handle.id if isinstance(idx_col, Column) else idx_col.qcolid.tbl_id
+            if owner_tbl_id != tbl_id:
+                # PXT-1260 Allow views to create a b-tree index on a base column
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot create a B-tree index on column {idx_col.name!r}: it belongs to a base table. '
+                    'Add the index to the base table instead.',
+                )
+            assert isinstance(idx_col, Column), repr(idx_col)
+            index.BtreeIndex.validate_column(idx_col)
+            if idx_col.name in new_btree_col_names or idx_col.name in btree_col_names:
+                raise excs.AlreadyExistsError(
+                    excs.ErrorCode.INDEX_ALREADY_EXISTS, f'A B-tree index already exists on column {idx_col.name!r}.'
+                )
+            new_btree_col_names.add(idx_col.name)
+        if idx_name is not None:
+            assert idx_name not in new_names, idx_name
+            existing_info = existing_by_name.get(idx_name)
+            if existing_info is not None:
+                raise excs.AlreadyExistsError(
+                    excs.ErrorCode.INDEX_ALREADY_EXISTS,
+                    f'Index {idx_name!r} already exists on column {existing_info.col.name!r}.',
+                )
+            new_names.add(idx_name)
+
+
+def generate_idx_name(taken_names: set[str]) -> str:
+    """Generates an index name that is not in `taken_names`."""
+    i = 0
+    while True:
+        name = f'idx{i}'
+        if name not in taken_names:
+            return name
+        i += 1
 
 
 def create_table_version_md(
@@ -25,11 +98,15 @@ def create_table_version_md(
     comment: str | None,
     custom_metadata: Any,
     media_validation: MediaValidation,
-    create_default_idxs: bool,
+    has_default_idxs: bool,
     view_md: schema.ViewMd | None,
     is_data_versioned: bool,
     additional_idxs: list[IndexSpec],
 ) -> TableVersionMd:
+    # imported here rather than at module scope: table_version_handle imports TableVersion, whose module imports
+    # this one
+    from .table_version_handle import TableVersionHandle
+
     user = Env.get().user
     timestamp = time.time()
 
@@ -70,11 +147,15 @@ def create_table_version_md(
         column_md[col.id] = col_md
         schema_col_md[col.id] = col_schema_md
 
+    validate_idxs(tbl_id, additional_idxs, has_default_idxs)
+
     # Merge default indexes and additional indexes into a manifest of indexes to create.
     index_md: dict[int, schema.IndexMd] = {}
     idxs_to_create: list[IndexSpec] = []
-    if create_default_idxs and (view_md is None or not view_md.is_snapshot):
-        idxs_to_create.extend(IndexSpec(col, None, index.BtreeIndex()) for col in cols if col.is_btree_indexable)
+    if has_default_idxs and (view_md is None or not view_md.is_snapshot):
+        idxs_to_create.extend(
+            IndexSpec(col, None, index.BtreeIndex()) for col in cols if index.BtreeIndex.can_index(col)
+        )
 
     # an index on a column of this table must reference the instance in cols, which is the one that got an id
     # above; an index on a column that already exists carries its metadata instead
@@ -87,6 +168,8 @@ def create_table_version_md(
     )
     idxs_to_create.extend(additional_idxs)
 
+    taken_idx_names = {spec.idx_name for spec in idxs_to_create if spec.idx_name is not None}
+
     index_cols: list[Column] = []
     for idx_col, idx_name, idx in idxs_to_create:
         assert not isinstance(idx_col, str)
@@ -98,10 +181,16 @@ def create_table_version_md(
         index_cols.extend([val_col, undo_col])
 
         idx_id = next(index_ids)
+        resolved_idx_name: str
+        if idx_name is not None:
+            resolved_idx_name = idx_name
+        else:
+            resolved_idx_name = generate_idx_name(taken_idx_names)
+            taken_idx_names.add(resolved_idx_name)
         idx_cls = type(idx)
         md = schema.IndexMd(
             id=idx_id,
-            name=idx_name if idx_name is not None else f'idx{idx_id}',
+            name=resolved_idx_name,
             indexed_col_id=idx_col_md.id,
             indexed_col_tbl_id=str(idx_col_md.qcolid.tbl_id),
             index_val_col_id=val_col.id,
@@ -136,6 +225,7 @@ def create_table_version_md(
         view_md=view_md,
         additional_md={},
         is_data_versioned=is_data_versioned,
+        has_default_idxs=has_default_idxs,
     )
 
     table_version_md = schema.VersionMd(

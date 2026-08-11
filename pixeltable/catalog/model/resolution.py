@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     import pixeltable as pxt
 
 if TYPE_CHECKING:
-    from .declaration import EmbeddingIndex
+    from .declaration import IndexDeclaration
 
 
 def prepare_model(
@@ -24,16 +24,19 @@ def prepare_model(
     display_name: str,
     iterator: func.GeneratingFunctionCall | None,
     base: 'pxt.Query | None',
-    embedding_idxs: dict[str, EmbeddingIndex],
+    idxs: dict[str, IndexDeclaration],
 ) -> tuple[func.GeneratingFunctionCall | None, list[catalog.Column], list[catalog.IndexSpec]]:
     """
-    Given model declarations in the form of columns, base, iterator, and embedding_idx specifications, along with
+    Given model declarations in the form of columns, base, iterator, and index specifications, along with
     the relevant metadata, assembles lists of additional columns and additional indices to be created in the table.
-    The outputs will be fully resolved (ColumnRefByNames replaced with actual ColumnRefs and EmbeddingIndex
+    The outputs will be fully resolved (ColumnRefByNames replaced with actual ColumnRefs and the index-spec
     dataclass instances replaced with actual instances of index.IndexBase).
 
     Returns: a tuple of (rebound iterator, additional columns, additional idxs).
     """
+
+    # imported here rather than at module scope: declaration imports this module
+    from .declaration import BtreeIndex, EmbeddingIndex
 
     # View columns always go in a specific order:
     # - iterator columns first
@@ -141,31 +144,35 @@ def prepare_model(
         user_cols[name] = catalog_col
         preceding_names.add(name)
 
-    # Resolve each declared embedding index against the model's visible columns.
+    # Resolve each declared index against the model's visible columns.
     resolved_idxs: list[catalog.IndexSpec] = []
-    for idx_name, idx_spec in embedding_idxs.items():
+    for idx_name, idx_spec in idxs.items():
         if not isinstance(idx_spec.column, exprs.ColumnRefByName):
             raise excs.RequestError(
-                excs.ErrorCode.INVALID_SCHEMA,
-                f'Embedding index {idx_name!r} in {display_name} has an invalid column reference.',
+                excs.ErrorCode.INVALID_SCHEMA, f'Index {idx_name!r} in {display_name} has an invalid column reference.'
             )
         col_name = idx_spec.column.name
         if col_name not in user_cols:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA,
-                f'Embedding index {idx_name!r} in {display_name} references unknown column {col_name!r}.',
+                f'Index {idx_name!r} in {display_name} references unknown column {col_name!r}.',
             )
-        idx = index.EmbeddingIndex(
-            metric=idx_spec.metric,
-            precision=idx_spec.precision,
-            embed=idx_spec.embedding,
-            string_embed=idx_spec.string_embed,
-            image_embed=idx_spec.image_embed,
-            audio_embed=idx_spec.audio_embed,
-            video_embed=idx_spec.video_embed,
-            document_embed=idx_spec.document_embed,
-            column=user_cols[col_name],
-        )
+        idx: index.IndexBase
+        if isinstance(idx_spec, EmbeddingIndex):
+            idx = index.EmbeddingIndex(
+                metric=idx_spec.metric,
+                precision=idx_spec.precision,
+                embed=idx_spec.embedding,
+                string_embed=idx_spec.string_embed,
+                image_embed=idx_spec.image_embed,
+                audio_embed=idx_spec.audio_embed,
+                video_embed=idx_spec.video_embed,
+                document_embed=idx_spec.document_embed,
+                column=user_cols[col_name],
+            )
+        else:
+            assert isinstance(idx_spec, BtreeIndex)
+            idx = index.BtreeIndex()
         resolved_idxs.append(catalog.IndexSpec(col_name, idx_name, idx))
 
     return iterator, additional_cols, resolved_idxs
@@ -184,7 +191,7 @@ class TableSchemaChangeSet(TypedDict):
     # against the base table's columns; a 'model_body' column resolves against the view's own visible columns.
     new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]]
     dropped_columns: list[str]
-    new_idxs: dict[str, EmbeddingIndex]
+    new_idxs: dict[str, IndexDeclaration]
     dropped_idxs: list[str]
 
     # tbl_id of the table to update, and {tbl_id: schema_version} for its version path, captured when the diff was
@@ -197,7 +204,7 @@ def prepare_model_updates(
     tvp: catalog.TableVersionPath,
     display_name: str,
     new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]],
-    new_idxs: dict[str, EmbeddingIndex],
+    new_idxs: dict[str, IndexDeclaration],
 ) -> tuple[list[catalog.Column], list[catalog.IndexSpec]]:
     """
     Given `new_columns` and `new_idxs` as declared by a model, resolves them into proper catalog abstractions
@@ -207,6 +214,9 @@ def prepare_model_updates(
     `select()` list and is resolved against the base table's columns; a 'model_body' column is resolved against the
     view's own visible columns.
     """
+
+    # imported here rather than at module scope: declaration imports this module
+    from .declaration import BtreeIndex, EmbeddingIndex
 
     user_cols: dict[str, catalog.Column] = {}
     subst_dict: exprs.ExprDict[exprs.Expr] = exprs.ExprDict()  # ColumnRefByName -> ColumnRef
@@ -274,31 +284,35 @@ def prepare_model_updates(
         preceding_names.add(name)
         user_cols[name] = catalog_col
 
-    # Resolve each declared embedding index against the model's visible columns.
+    # Resolve each declared index against the model's visible columns.
     resolved_idxs: list[catalog.IndexSpec] = []
     for idx_name, idx_spec in new_idxs.items():
         if not isinstance(idx_spec.column, exprs.ColumnRefByName):
             raise excs.RequestError(
-                excs.ErrorCode.INVALID_SCHEMA,
-                f'Embedding index {idx_name!r} in {display_name} has an invalid column reference.',
+                excs.ErrorCode.INVALID_SCHEMA, f'Index {idx_name!r} in {display_name} has an invalid column reference.'
             )
         col_name = idx_spec.column.name
         if col_name not in user_cols:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA,
-                f'Embedding index {idx_name!r} in {display_name} references unknown column {col_name!r}.',
+                f'Index {idx_name!r} in {display_name} references unknown column {col_name!r}.',
             )
-        idx = index.EmbeddingIndex(
-            metric=idx_spec.metric,
-            precision=idx_spec.precision,
-            embed=idx_spec.embedding,
-            string_embed=idx_spec.string_embed,
-            image_embed=idx_spec.image_embed,
-            audio_embed=idx_spec.audio_embed,
-            video_embed=idx_spec.video_embed,
-            document_embed=idx_spec.document_embed,
-            column=user_cols[col_name],
-        )
+        idx: index.IndexBase
+        if isinstance(idx_spec, EmbeddingIndex):
+            idx = index.EmbeddingIndex(
+                metric=idx_spec.metric,
+                precision=idx_spec.precision,
+                embed=idx_spec.embedding,
+                string_embed=idx_spec.string_embed,
+                image_embed=idx_spec.image_embed,
+                audio_embed=idx_spec.audio_embed,
+                video_embed=idx_spec.video_embed,
+                document_embed=idx_spec.document_embed,
+                column=user_cols[col_name],
+            )
+        else:
+            assert isinstance(idx_spec, BtreeIndex)
+            idx = index.BtreeIndex()
         resolved_idxs.append(catalog.IndexSpec(user_cols[col_name], idx_name, idx))
 
     return resolved_cols, resolved_idxs
