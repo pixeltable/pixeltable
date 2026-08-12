@@ -366,7 +366,6 @@ def _serve(test_mode: bool = False) -> None:
     # mark this process as a hosted-catalog server (no client-accessible local store) before the catalog inits
     os.environ['PIXELTABLE_PROXY_DAEMON'] = '1'
     if test_mode:
-        _logger.info('Test mode enabled')
         # Enable verbose logging
         for name in ('pixeltable', 'sqlalchemy.engine'):
             logging.getLogger(name).setLevel(logging.DEBUG)
@@ -412,7 +411,10 @@ def _serve(test_mode: bool = False) -> None:
     atexit.register(lambda: lock.unlink(missing_ok=True))
     signal.signal(signal.SIGTERM, _cleanup)
 
-    log_level = 'debug' if test_mode else 'warning'
+    log_level = 'warning'
+    if test_mode:
+        log_level = 'debug'
+        _logger.info('Test mode enabled')
     uvicorn.Server(uvicorn.Config(app, log_level=log_level, log_config=None)).run(sockets=[sock])
 
 
