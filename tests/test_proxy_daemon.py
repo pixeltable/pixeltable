@@ -151,10 +151,9 @@ class TestProxyDaemon:
         assert proxy_protocol.collect_remote_keys(args) == expected
 
     def test_prepare_once_on_stale_retry(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from pixeltable.catalog.path import Path as CatalogPath
         from pixeltable.service.proxy_client import ProxyClient
 
-        client = ProxyClient('http://127.0.0.1:1', CatalogPath.parse('pxt://local:somedb', allow_empty_path=True))
+        client = ProxyClient.local('http://127.0.0.1:1')
         prepare_calls = 0
         orig_prepare = ProxyClient._prepare
 
