@@ -1517,9 +1517,9 @@ class TestTableModel:
         tbl_md = ExampleTableV2.get_metadata()
         assert 'plus_ten' in tbl_md['columns']
         assert 'note' in tbl_md['columns']
-        assert {'embed_a', 'embed_b'} <= set(tbl_md['indices'].keys())
-        assert tbl_md['indices']['b_tree_a']['index_type'] == 'btree'
-        assert tbl_md['indices']['b_tree_a']['columns'] == ['id']
+        assert set(tbl_md['indices'].keys()) == {'embed_a', 'embed_b', 'embed_c', 'idx0'}
+        assert tbl_md['indices']['idx0']['index_type'] == 'btree'
+        assert tbl_md['indices']['idx0']['columns'] == ['id']
         assert 'vc2' in ExampleViewV2.get_metadata()['columns']
 
         # The new computed column is backfilled for the existing rows.
@@ -1542,7 +1542,7 @@ class TestTableModel:
             __indexes__ = [
                 EmbeddingIndex(image, embedding=dummy_embedding.using(n=512), name='embed_b')
             ]
-            # embed_a, embed_c, and b_tree_a are dropped
+            # embed_a, embed_c, and idx0 are dropped
 
         class ExampleViewV3(TableModelV3, name='test_view', base=ExampleTableV3):
             vc2 = ExampleTableV3.value + 2  # kept
