@@ -4,7 +4,7 @@ import __future__
 import dataclasses
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, MutableMapping, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, MutableMapping, Sequence, TypedDict
 from uuid import UUID
 
 from pixeltable import catalog, exceptions as excs, exprs, func, index, type_system as ts
@@ -104,6 +104,7 @@ class EmbeddingIndex:
     document_embed: func.Function | None = None
     metric: Literal['cosine', 'ip', 'l2'] = 'cosine'
     precision: Literal['fp16', 'fp32'] = 'fp16'
+    name: str | None = None
 
     def __repr__(self) -> str:
         embeds = [
@@ -124,6 +125,8 @@ class EmbeddingIndex:
             parts.append(f'metric={self.metric!r}')
         if self.precision != 'fp16':
             parts.append(f'precision={self.precision!r}')
+        if self.name is not None:
+            parts.append(f'name={self.name!r}')
         return f'EmbeddingIndex({", ".join(parts)})'
 
 
@@ -338,7 +341,6 @@ class _ModelNamespace(dict):
 
     table_spec: TableSpec
     known_cols: dict[str, ColumnSpec]
-    known_idxs: dict[str, IndexDeclaration]
 
     # Names that are produced by the base query or iterator; these cannot be redefined in the model.
     reserved_cols: dict[str, Literal['base query', 'iterator']]
@@ -353,7 +355,6 @@ class _ModelNamespace(dict):
 
         self.table_spec = table_spec
         self.known_cols = {}
-        self.known_idxs = {}
         self.reserved_cols = {}
         self.eval_globals = eval_globals
         self.eval_locals = eval_locals
@@ -389,34 +390,28 @@ class _ModelNamespace(dict):
 
     def set_col_value(self, name: str, value: Any) -> None:
         self._check_reserved(name)
-        if isinstance(value, (EmbeddingIndex, BtreeIndex)):
-            if name in self.known_cols or name in self.known_idxs:
-                raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'Index {name!r}: duplicate definition.')
-            self.known_idxs[name] = value
-
+        if name in self.known_cols:
+            raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'Column {name!r}: duplicate definition.')
+        spec: ColumnSpec
+        if isinstance(value, Column):
+            spec = value.to_column_spec()
+            if ('type' in spec) == ('value' in spec):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'Column specification for {name!r} must define `type` or `value`, but not both',
+                )
         else:
-            if name in self.known_cols or name in self.known_idxs:
-                raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'Column {name!r}: duplicate definition.')
-            spec: ColumnSpec
-            if isinstance(value, Column):
-                spec = value.to_column_spec()
-                if ('type' in spec) == ('value' in spec):
-                    raise excs.RequestError(
-                        excs.ErrorCode.INVALID_SCHEMA,
-                        f'Column specification for {name!r} must define `type` or `value`, but not both',
-                    )
-            else:
-                # Computed column expression.
-                expr = exprs.Expr.from_object(value)
-                if expr is None:
-                    raise excs.RequestError(
-                        excs.ErrorCode.INVALID_SCHEMA,
-                        f'Column {name!r}: invalid value (not a literal or expression recognized by Pixeltable).',
-                    )
-                spec = {'value': expr}
-            self.known_cols[name] = spec
-            # Add the column to the namespace so that it can be referenced in subsequent expressions in the class body.
-            super().__setitem__(name, exprs.ColumnRefByName(name, _col_type_from_spec(spec)))
+            # Computed column expression.
+            expr = exprs.Expr.from_object(value)
+            if expr is None:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'Column {name!r}: invalid value (not a literal or expression recognized by Pixeltable).',
+                )
+            spec = {'value': expr}
+        self.known_cols[name] = spec
+        # Add the column to the namespace so that it can be referenced in subsequent expressions in the class body.
+        super().__setitem__(name, exprs.ColumnRefByName(name, _col_type_from_spec(spec)))
 
     def set_col_type(self, name: str, type_: Any) -> None:
         self._check_reserved(name)
@@ -432,8 +427,6 @@ class _ModelNamespace(dict):
                     f'Could not resolve the type annotation {type_!r} for column {name!r}: {exc}',
                 ) from exc
         type_ = ts.ColumnType.normalize_type(type_, nullable_default=True, allow_builtin_types=False)
-        if name in self.known_idxs:
-            raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'Cannot set a type annotation for index {name!r}.')
         if name in self.known_cols:
             # We previously processed this column via `set_col_value()`. Sanity check the type.
             if _col_type_from_spec(self.known_cols[name]) != type_:
@@ -446,22 +439,6 @@ class _ModelNamespace(dict):
         super().__setitem__(name, exprs.ColumnRefByName(name, type_))
 
 
-def _validate_model_declaration(cls_name: str, namespace: _ModelNamespace) -> None:
-    """Validate a model's declarations against each other, once its class body has run."""
-    if len(namespace.known_cols) == 0 and namespace.table_spec['base'] is None:
-        raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, 'Empty table schema not allowed.')
-
-    # A table with default indexes enabled is not allowed to have explicit B-tree indexes.
-    if namespace.table_spec['has_default_idxs']:
-        btree_idx_names = [name for name, idx in namespace.known_idxs.items() if isinstance(idx, BtreeIndex)]
-        if len(btree_idx_names) > 0:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_SCHEMA,
-                f'model `{cls_name}`: cannot combine has_default_idxs=True with explicitly declared B-tree '
-                f'index(es) {btree_idx_names}; eligible columns are indexed automatically.',
-            )
-
-
 class TableModelMeta(type):
     """
     Metaclass that collects annotated column definitions and other table metadata from a class body.
@@ -469,7 +446,7 @@ class TableModelMeta(type):
 
     __table_spec__: TableSpec
     __columns__: dict[str, ColumnSpec]
-    __indexes__: dict[str, IndexDeclaration]
+    __indexes__: list[IndexDeclaration]
     __bound_table__: Table | None
 
     _catalog_dir: str | None
@@ -617,15 +594,30 @@ class TableModelMeta(type):
 
         assert isinstance(namespace, _ModelNamespace)
 
-        _validate_model_declaration(cls_name, namespace)
+        if len(namespace.known_cols) == 0 and namespace.table_spec['base'] is None:
+            raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, 'Empty table schema not allowed.')
 
         # "normalize" the namespace to a plain dict; at this point, we're done with the special namespace treatment
         namespace_dict = dict(namespace)
         namespace_dict['__table_spec__'] = namespace.table_spec
         namespace_dict['__columns__'] = namespace.known_cols
-        namespace_dict['__indexes__'] = namespace.known_idxs
         namespace_dict['__bound_table__'] = None
         namespace_dict['_catalog_dir'] = None
+
+        known_idxs = namespace_dict.get('__indexes__', [])
+        if not isinstance(known_idxs, Sequence) or not all(isinstance(idx, IndexDeclaration) for idx in known_idxs):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'model `{cls_name}`: `__indexes__` must be a sequence of EmbeddingIndex or BtreeIndex instances.',
+            )
+        # A table with default indexes enabled is not allowed to have explicit B-tree indexes.
+        if namespace.table_spec['has_default_idxs'] and any(isinstance(idx, BtreeIndex) for idx in known_idxs):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'model `{cls_name}`: cannot combine `has_default_idxs=True` with explicitly declared B-tree '
+                f'index(es); eligible columns are indexed automatically.',
+            )
+        namespace_dict['__indexes__'] = list(known_idxs)  # normalize
 
         cls = super().__new__(mcs, cls_name, bases, namespace_dict)
         assert hasattr(bases[0], '__registered_models__')  # This was checked in __prepare__()
@@ -753,7 +745,7 @@ def prepare_model(
     display_name: str,
     iterator: func.GeneratingFunctionCall | None,
     base: 'pxt.Query | None',
-    idxs: dict[str, IndexDeclaration],
+    idxs: list[IndexDeclaration],
 ) -> tuple[func.GeneratingFunctionCall | None, list[catalog.Column], list[catalog.IndexSpec]]:
     """
     Given model declarations in the form of columns, base, iterator, and index specifications, along with
@@ -871,19 +863,20 @@ def prepare_model(
 
     # Resolve each declared index against the model's visible columns.
     resolved_idxs: list[catalog.IndexSpec] = []
-    for idx_name, idx_spec in idxs.items():
+    for idx_spec in idxs:
         if not isinstance(idx_spec.column, exprs.ColumnRefByName):
             raise excs.RequestError(
-                excs.ErrorCode.INVALID_SCHEMA, f'Index {idx_name!r} in {display_name} has an invalid column reference.'
+                excs.ErrorCode.INVALID_SCHEMA, f'Index in {display_name} has an invalid column reference.'
             )
         col_name = idx_spec.column.name
         if col_name not in user_cols:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA,
-                f'Index {idx_name!r} in {display_name} references unknown column {col_name!r}.',
+                f'Index in {display_name} references unknown column {col_name!r}.',
             )
         col = user_cols[col_name]
         idx: index.IndexBase
+        idx_name: str | None
         if isinstance(idx_spec, EmbeddingIndex):
             idx = index.EmbeddingIndex(
                 metric=idx_spec.metric,
@@ -896,9 +889,11 @@ def prepare_model(
                 document_embed=idx_spec.document_embed,
                 column=user_cols[col_name],
             )
+            idx_name = idx_spec.name
         else:
             assert isinstance(idx_spec, BtreeIndex)
             idx = index.BtreeIndex()
+            idx_name = None
         resolved_idxs.append(catalog.IndexSpec(col_name, idx_name, idx))
 
     return iterator, additional_cols, resolved_idxs
@@ -1240,18 +1235,19 @@ def _add_column_change(col_name: str, spec: ColumnSpec) -> SchemaChangeOp:
     )
 
 
-def _add_index_change(idx_name: str, idx: IndexDeclaration) -> SchemaChangeOp:
+def _add_index_change(idx: IndexDeclaration) -> SchemaChangeOp:
     # str(), not .name: a ModelColumnRef renders as its bare column name, and a spec holding anything else
     # is reported as it stands rather than dropped from the plan
     details = {'on': str(idx.column)}
+    name = idx.name if isinstance(idx, EmbeddingIndex) else None
     return SchemaChangeOp(
         target='index',
-        name=idx_name,
+        name=name,
         op='add',
         severity='additive',
         model=str(idx),
         existing=None,
-        description=f'index {idx_name!r} will be added',
+        description=(f'{type(idx).name} {name!r} will be added' if name is not None else f'{type(idx).name} on column {idx.column!r} will be added'),
         details=details,
     )
 
@@ -1275,7 +1271,6 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
         for name, model in registered_models.items():
             user_cols = _user_columns(model)
             model_cols = set(user_cols.keys())
-            model_idxs = set(model.__indexes__.keys())
             base = model.__table_spec__['base']
             model_kind: Literal['table', 'view'] = 'table' if base is None else 'view'
             iterator = model.__table_spec__['iterator']
@@ -1291,7 +1286,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
             if existing is None:
                 # The table does not yet exist; every column and index is an addition.
                 ops = [_add_column_change(col_name, user_cols[col_name]) for col_name in sorted(model_cols)]
-                ops += [_add_index_change(idx_name, model.__indexes__[idx_name]) for idx_name in sorted(model_idxs)]
+                ops += [_add_index_change(idx) for idx in model.__indexes__]
                 results[name] = TableDiff(
                     path=bound_path,
                     model_cls=model.__name__,

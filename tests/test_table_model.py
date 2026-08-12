@@ -52,7 +52,9 @@ class TestTableModel:
             computed_with_special_props = Column(value=(value / 3), stored=False)
             computed_with_special_props_2 = Column(value=img.rotate(90))
 
-            clip_idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
+            __indexes__ = [
+                EmbeddingIndex(img, embedding=dummy_embedding.using(n=768), name='clip_idx')
+            ]
 
         expected_path = f'{p(root)}/test_table'.lstrip('/')
         if root != '':
