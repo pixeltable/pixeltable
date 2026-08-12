@@ -302,9 +302,7 @@ class TestTableModel:
             name: pxt.String
             img: pxt.Image
 
-            __indexes__ = [
-                BtreeIndex(name), BtreeIndex(img)
-            ]
+            __indexes__ = [BtreeIndex(name), BtreeIndex(img)]
 
         class ExampleViewModel(TableModel, name='test_view', base=ExampleTableModel):
             vc: pxt.Int
@@ -586,7 +584,9 @@ class TestTableModel:
 
             __indexes__ = [
                 EmbeddingIndex(view_col_2, embedding=dummy_embedding.using(n=768), name='view_idx'),
-                EmbeddingIndex(ExampleTableModel.img, embedding=dummy_embedding.using(n=768), name='view_idx_on_base_tbl_col'),
+                EmbeddingIndex(
+                    ExampleTableModel.img, embedding=dummy_embedding.using(n=768), name='view_idx_on_base_tbl_col'
+                ),
             ]
 
         class ExampleSubviewModel(TableModel, name='test_subview', base=ExampleViewModel, has_default_idxs=True):
@@ -609,7 +609,9 @@ class TestTableModel:
 
             __indexes__ = [
                 EmbeddingIndex(view_col_2, embedding=dummy_embedding.using(n=768), name='view_idx'),
-                EmbeddingIndex(ExampleTableModel.img, embedding=dummy_embedding.using(n=768), name='view_idx_on_base_tbl_col'),
+                EmbeddingIndex(
+                    ExampleTableModel.img, embedding=dummy_embedding.using(n=768), name='view_idx_on_base_tbl_col'
+                ),
             ]
 
         class ExampleSubviewModelFromQuery(
@@ -1448,9 +1450,7 @@ class TestTableModel:
             value: pxt.Float
             image: pxt.Image
 
-            __indexes__ = [
-                EmbeddingIndex(image, embedding=dummy_embedding.using(n=768), name='embed_a')
-            ]
+            __indexes__ = [EmbeddingIndex(image, embedding=dummy_embedding.using(n=768), name='embed_a')]
 
         class ExampleView(TableModel, name='test_view', base=ExampleTable):
             vc1 = ExampleTable.value + 1
@@ -1539,9 +1539,7 @@ class TestTableModel:
             label: pxt.String  # added
             # 'plus_ten', 'plus_fifteen', and 'note' dropped
 
-            __indexes__ = [
-                EmbeddingIndex(image, embedding=dummy_embedding.using(n=512), name='embed_b')
-            ]
+            __indexes__ = [EmbeddingIndex(image, embedding=dummy_embedding.using(n=512), name='embed_b')]
             # embed_a, embed_c, and idx0 are dropped
 
         class ExampleViewV3(TableModelV3, name='test_view', base=ExampleTableV3):
@@ -1596,9 +1594,7 @@ class TestTableModel:
             value: pxt.Float
             img: pxt.Image
 
-            __indexes__ = [
-                EmbeddingIndex(img, embedding=dummy_embedding.using(n=768), name='idx')
-            ]
+            __indexes__ = [EmbeddingIndex(img, embedding=dummy_embedding.using(n=768), name='idx')]
 
         TableModel.create_all(p(''))
 
@@ -1614,9 +1610,7 @@ class TestTableModel:
             id: pxt.Required[pxt.Int]
             img: pxt.Image
 
-            __indexes__ = [
-                EmbeddingIndex(img, embedding=dummy_embedding.using(n=768), name='idx')
-            ]
+            __indexes__ = [EmbeddingIndex(img, embedding=dummy_embedding.using(n=768), name='idx')]
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -1812,7 +1806,7 @@ class TestTableModel:
                 plus = id + 1
                 plus = id + 2
 
-        with pxt.raises(pxt.ErrorCode.INVALID_SCHEMA, match="zarg"):
+        with pxt.raises(pxt.ErrorCode.INVALID_SCHEMA, match='zarg'):
 
             class DuplicateBtreeIndex(TableModel, name='duplicate_btree_index'):
                 id: pxt.Required[pxt.Int]
