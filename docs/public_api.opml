@@ -470,9 +470,6 @@
         <outline text="module|pixeltable.functions.replicate">
           <outline text="udf|pixeltable.functions.replicate.run" />
         </outline>
-        <outline text="module|pixeltable.functions.reve">
-          <outline text="udf|pixeltable.functions.reve.create" />
-        </outline>
         <outline text="module|pixeltable.functions.runwayml">
           <outline text="udf|pixeltable.functions.runwayml.text_to_image" />
           <outline text="udf|pixeltable.functions.runwayml.text_to_video" />
