@@ -40,7 +40,7 @@ from .proxy_protocol import decode_body, encode_body
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
-# Logger name is spelled out because __name__ here is '__main__' when daemon runs.
+# Logger name is spelled out because __name__ is '__main__'
 _logger = logging.getLogger('pixeltable.service.proxy_daemon')
 
 _LOCK_NAME = 'port.lock'
@@ -159,8 +159,12 @@ def create(db: str) -> None:
     proxy_home(db).mkdir(parents=True, exist_ok=True)
 
 
-def start(db: str) -> str:
-    """Ensure a daemon for db is running and ready; return its endpoint."""
+def start(db: str, test_mode: bool = False) -> str:
+    """Ensure a daemon for db is running and ready; return its endpoint.
+
+    test_mode starts the daemon with --test (DEBUG logging + test-only endpoints). It only takes effect if this
+    call actually launches the daemon; an already-running one is returned as is.
+    """
     create(db)
     ep = endpoint(db)
     if ep is not None and _health_ok(ep):
@@ -181,14 +185,12 @@ def start(db: str) -> str:
     log_dir = proxy_home(db) / 'logs'
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / 'daemon.log'
+    argv = [sys.executable, '-m', 'pixeltable.service.proxy_daemon']
+    if test_mode:
+        argv.append('--test')
     with open(log_path, 'a', encoding='utf-8') as log_file:
         proc = subprocess.Popen(
-            [sys.executable, '-m', 'pixeltable.service.proxy_daemon'],
-            env=env,
-            stdin=subprocess.DEVNULL,
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
+            argv, env=env, stdin=subprocess.DEVNULL, stdout=log_file, stderr=subprocess.STDOUT, start_new_session=True
         )
 
     deadline = time.monotonic() + _STARTUP_TIMEOUT
@@ -262,15 +264,6 @@ def reinitialize(db: str) -> None:
     response.raise_for_status()
 
 
-def configure_test_logging(db: str) -> None:
-    """Test only. Switch the running daemon's logging for tests."""
-    ep = endpoint(db)
-    if ep is None:
-        raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'No running proxy daemon for {db!r}')
-    response = httpx.post(f'{ep}/configure_test_logging', timeout=10.0)
-    response.raise_for_status()
-
-
 def delete(db: str) -> None:
     """Stop the daemon, drop its database, and remove its home directory."""
     stop(db)
@@ -286,16 +279,6 @@ def _reinitialize() -> None:
     """
     reset_runtime()
     pxt.init()
-
-
-def _configure_test_logging() -> None:
-    """Test only. Runs inside the daemon process.
-
-    Log at DEBUG, matching the local test behavior.
-    """
-    for name in ('pixeltable', 'sqlalchemy.engine'):
-        logging.getLogger(name).setLevel(logging.DEBUG)
-    _logger.info('Test only: logging at DEBUG')
 
 
 def _drop_database(db: str) -> None:
@@ -317,8 +300,10 @@ def _drop_database(db: str) -> None:
         engine.dispose()
 
 
-def _build_app() -> 'FastAPI':
+def _build_app(test_mode: bool = False) -> 'FastAPI':
     """The app served by the daemon: a /rpc endpoint running the generic dispatch and a /health endpoint.
+
+    test_mode enables the test-only endpoints.
 
     fastapi is imported here rather than at module level because it is an optional dependency, needed
     only when the daemon is actually served.
@@ -340,16 +325,13 @@ def _build_app() -> 'FastAPI':
             content=encode_body(response_json.encode(), response_parts), media_type='application/octet-stream'
         )
 
-    @app.post('/reinitialize')
-    async def reinitialize_endpoint() -> Response:
-        # _reinitialize() rebuilds the runtime, which is synchronous; keep it off the event loop
-        await run_in_threadpool(_reinitialize)
-        return Response(content='{"status": "ok"}', media_type='application/json')
+    if test_mode:
 
-    @app.post('/configure_test_logging')
-    async def configure_test_logging_endpoint() -> Response:
-        _configure_test_logging()
-        return Response(content='{"status": "ok"}', media_type='application/json')
+        @app.post('/reinitialize')
+        async def reinitialize_endpoint() -> Response:
+            # _reinitialize() rebuilds the runtime, which is synchronous; keep it off the event loop
+            await run_in_threadpool(_reinitialize)
+            return Response(content='{"status": "ok"}', media_type='application/json')
 
     @app.get('/health')
     def health() -> dict[str, str]:
@@ -369,7 +351,7 @@ def _build_app() -> 'FastAPI':
     return app
 
 
-def _serve() -> None:
+def _serve(test_mode: bool = False) -> None:
     """Daemon entrypoint.
 
     Local mode (default): binds to a random loopback port, writes a port.lock file
@@ -378,9 +360,16 @@ def _serve() -> None:
     Fixed-address mode: when PIXELTABLE_DAEMON_HOST or PIXELTABLE_DAEMON_PORT is set,
     binds to that address and port instead and skips the lock file. Used when an
     external orchestrator (e.g. a sidecar) handles routing and discovery.
+
+    test_mode: logs at DEBUG and exposes the test-only endpoints.
     """
     # mark this process as a hosted-catalog server (no client-accessible local store) before the catalog inits
     os.environ['PIXELTABLE_PROXY_DAEMON'] = '1'
+    if test_mode:
+        _logger.info('Test mode enabled')
+        # Enable verbose logging
+        for name in ('pixeltable', 'sqlalchemy.engine'):
+            logging.getLogger(name).setLevel(logging.DEBUG)
     try:
         import uvicorn
     except ModuleNotFoundError as e:
@@ -390,7 +379,7 @@ def _serve() -> None:
             'Install them with: pip install pixeltable[serve]',
         ) from e
 
-    app = _build_app()
+    app = _build_app(test_mode)
 
     # eagerly create/migrate this daemon's database before announcing readiness
     _ = get_runtime().catalog
@@ -400,7 +389,7 @@ def _serve() -> None:
     daemon_port = config.get_int_value('daemon_port')
 
     # log_config=None suppresses uvicorn's own logging setup which results in closing every handler registered so far.
-    # Note: uvicorn logging is configured separately during Env set up.
+    # Note: at this point, uvicorn logging has already been configured by Env.
     log_level = (config.get_string_value('log_level') or 'info').lower()
     if daemon_host is not None or daemon_port is not None:
         uvicorn.run(
@@ -423,8 +412,10 @@ def _serve() -> None:
     atexit.register(lambda: lock.unlink(missing_ok=True))
     signal.signal(signal.SIGTERM, _cleanup)
 
-    uvicorn.Server(uvicorn.Config(app, log_level='warning', log_config=None)).run(sockets=[sock])
+    log_level = 'debug' if test_mode else 'warning'
+    uvicorn.Server(uvicorn.Config(app, log_level=log_level, log_config=None)).run(sockets=[sock])
 
 
 if __name__ == '__main__':
-    _serve()
+    test_mode = '--test' in sys.argv[1:]
+    _serve(test_mode=test_mode)
