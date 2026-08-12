@@ -43,6 +43,8 @@ class ColumnMetadata(TypedDict):
 class EmbeddingIndexParams(TypedDict):
     metric: Literal['cosine', 'ip', 'l2']
     """Index metric."""
+    precision: Literal['fp32', 'fp16']
+    """The precision of the index."""
     embedding: str
     """The index embedding."""
     embedding_functions: list[str]

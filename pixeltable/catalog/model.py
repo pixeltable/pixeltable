@@ -2,6 +2,7 @@ from __future__ import annotations
 import __future__
 
 import dataclasses
+import itertools
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, MutableMapping, Sequence, TypedDict
@@ -95,7 +96,7 @@ class Column:
 class EmbeddingIndex:
     """An embedding index specification used in a TableModel or ViewModel definition."""
 
-    column: Any
+    column: ColumnRefByName
     embedding: func.Function | None = None
     string_embed: func.Function | None = None
     image_embed: func.Function | None = None
@@ -134,7 +135,7 @@ class EmbeddingIndex:
 class BtreeIndex:
     """A B-tree index specification used in a TableModel or ViewModel definition."""
 
-    column: Any
+    column: ColumnRefByName
 
     def __repr__(self) -> str:
         return f'BtreeIndex(column={self.column})'
@@ -585,6 +586,40 @@ class TableModelMeta(type):
 
             return namespace
 
+    @classmethod
+    def _validate_indexes(mcs, cls_name: str, namespace: _ModelNamespace, known_idxs: Sequence[IndexDeclaration]) -> None:
+        # A table with default indexes enabled is not allowed to have explicit B-tree indexes.
+        if namespace.table_spec['has_default_idxs'] and any(isinstance(idx, BtreeIndex) for idx in known_idxs):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'model `{cls_name}`: cannot combine `has_default_idxs=True` with explicitly declared B-tree '
+                f'index(es); eligible columns are indexed automatically.',
+            )
+        idxs_by_col = itertools.groupby(known_idxs, key=lambda idx: idx.column.name)
+        for col_name, idxs in idxs_by_col:
+            btree_idxs = [idx for idx in idxs if isinstance(idx, BtreeIndex)]
+            embedding_idxs = [idx for idx in idxs if isinstance(idx, EmbeddingIndex)]
+            if len(btree_idxs) > 1:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'model `{cls_name}`: multiple B-tree indexes for column {col_name!r}.',
+                )
+            if len(embedding_idxs) > 1:
+                if any(idx.name is None for idx in embedding_idxs):
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_SCHEMA,
+                        f'model `{cls_name}`: column {col_name!r} has multiple embedding indexes; they must be '
+                        'given explicit names'
+                    )
+                # Check for duplicate names
+                names = [idx.name for idx in embedding_idxs]
+                if len(names) != len(set(names)):
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_SCHEMA,
+                        f'model `{cls_name}`: column {col_name!r} has multiple embedding indexes; '
+                        'their names must be distinct',
+                    )
+
     def __new__(
         mcs, cls_name: str, bases: tuple[type, ...], namespace: dict[str, Any], **kwargs: Any
     ) -> TableModelMeta:
@@ -610,13 +645,7 @@ class TableModelMeta(type):
                 excs.ErrorCode.INVALID_SCHEMA,
                 f'model `{cls_name}`: `__indexes__` must be a sequence of EmbeddingIndex or BtreeIndex instances.',
             )
-        # A table with default indexes enabled is not allowed to have explicit B-tree indexes.
-        if namespace.table_spec['has_default_idxs'] and any(isinstance(idx, BtreeIndex) for idx in known_idxs):
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_SCHEMA,
-                f'model `{cls_name}`: cannot combine `has_default_idxs=True` with explicitly declared B-tree '
-                f'index(es); eligible columns are indexed automatically.',
-            )
+        mcs._validate_indexes(cls_name, namespace, known_idxs)
         namespace_dict['__indexes__'] = list(known_idxs)  # normalize
 
         cls = super().__new__(mcs, cls_name, bases, namespace_dict)
@@ -871,8 +900,7 @@ def prepare_model(
         col_name = idx_spec.column.name
         if col_name not in user_cols:
             raise excs.RequestError(
-                excs.ErrorCode.INVALID_SCHEMA,
-                f'Index in {display_name} references unknown column {col_name!r}.',
+                excs.ErrorCode.INVALID_SCHEMA, f'Index in {display_name} references unknown column {col_name!r}.'
             )
         col = user_cols[col_name]
         idx: index.IndexBase
@@ -912,7 +940,7 @@ class TableSchemaChangeSet(TypedDict):
     # against the base table's columns; a 'model_body' column resolves against the view's own visible columns.
     new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]]
     dropped_columns: list[str]
-    new_idxs: dict[str, IndexDeclaration]
+    new_idxs: list[IndexDeclaration]
     dropped_idxs: list[str]
 
     # tbl_id of the table to update, and {tbl_id: schema_version} for its version path, captured when the diff was
@@ -925,7 +953,7 @@ def prepare_model_updates(
     tvp: catalog.TableVersionPath,
     display_name: str,
     new_columns: dict[str, tuple[ColumnSpec, Literal['base_query', 'model_body']]],
-    new_idxs: dict[str, IndexDeclaration],
+    new_idxs: list[IndexDeclaration],
 ) -> tuple[list[catalog.Column], list[catalog.IndexSpec]]:
     """
     Given `new_columns` and `new_idxs` as declared by a model, resolves them into proper catalog abstractions
@@ -1004,16 +1032,17 @@ def prepare_model_updates(
 
     # Resolve each declared index against the model's visible columns.
     resolved_idxs: list[catalog.IndexSpec] = []
-    for idx_name, idx_spec in new_idxs.items():
+    for idx_spec in new_idxs:
+        idx_display_name = f'Index {idx_spec.name!r}' if isinstance(idx_spec, EmbeddingIndex) and idx_spec.name is not None else f'Index on column {idx_spec.column.name!r}'
         if not isinstance(idx_spec.column, exprs.ColumnRefByName):
             raise excs.RequestError(
-                excs.ErrorCode.INVALID_SCHEMA, f'Index {idx_name!r} in {display_name} has an invalid column reference.'
+                excs.ErrorCode.INVALID_SCHEMA, f'{idx_display_name} in {display_name} has an invalid column reference.'
             )
         col_name = idx_spec.column.name
         if col_name not in user_cols:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA,
-                f'Index {idx_name!r} in {display_name} references unknown column {col_name!r}.',
+                f'{idx_display_name} in {display_name} references unknown column {col_name!r}.',
             )
         idx: index.IndexBase
         if isinstance(idx_spec, EmbeddingIndex):
@@ -1031,7 +1060,7 @@ def prepare_model_updates(
         else:
             assert isinstance(idx_spec, BtreeIndex)
             idx = index.BtreeIndex()
-        resolved_idxs.append(catalog.IndexSpec(user_cols[col_name], idx_name, idx))
+        resolved_idxs.append(catalog.IndexSpec(user_cols[col_name], idx_spec.name if isinstance(idx_spec, EmbeddingIndex) else None, idx))
 
     return resolved_cols, resolved_idxs
 
@@ -1245,9 +1274,13 @@ def _add_index_change(idx: IndexDeclaration) -> SchemaChangeOp:
         name=name,
         op='add',
         severity='additive',
-        model=str(idx),
+        model=idx,
         existing=None,
-        description=(f'{type(idx).name} {name!r} will be added' if name is not None else f'{type(idx).name} on column {idx.column!r} will be added'),
+        description=(
+            f'{type(idx).__name__} {name!r} will be added'
+            if name is not None
+            else f'{type(idx).__name__} on column {idx.column.name!r} will be added'
+        ),
         details=details,
     )
 
@@ -1287,6 +1320,8 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                 # The table does not yet exist; every column and index is an addition.
                 ops = [_add_column_change(col_name, user_cols[col_name]) for col_name in sorted(model_cols)]
                 ops += [_add_index_change(idx) for idx in model.__indexes__]
+                print('========')
+                print(ops)
                 results[name] = TableDiff(
                     path=bound_path,
                     model_cls=model.__name__,
@@ -1330,22 +1365,14 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                     )
                 )
 
-            # Default indexes have no counterpart in __indexes__, and has_default_idxs=True is incompatible with
-            # explicitly declared B-tree indexes. So, if the existing table has default indexes enabled, all of its
-            # B-tree indexes are default indexes, and they can all be ignored, because resolving the column diff takes
-            # care of the indexes too. Otherwise all B-tree indexes are explicitly declared, so they are diffed and
-            # compared like embedding indexes. If the two sides disagree on has_default_idxs, no meaningful diff of
-            # B-tree indexes can be computed, so they are left out.
-            include_btree_idxs = not model_default_idxs and not existing_default_idxs
-            if not include_btree_idxs:
-                model_idxs = {
-                    idx_name for idx_name, idx in model.__indexes__.items() if not isinstance(idx, BtreeIndex)
-                }
-            existing_idxs = {
-                idx_name
-                for idx_name, info in existing_md['indices'].items()
-                if info['index_type'] == 'embedding' or (include_btree_idxs and info['index_type'] == 'btree')
-            }
+            model_idxs = model.__indexes__
+            existing_idxs = existing_md['indices']
+
+            if model_default_idxs or existing_default_idxs:
+                # If has_default_idxs is declared, then we don't need to compare B-tree indexes, since B-tree index
+                # comparison is implicit in column comparison.
+                model_idxs = [idx for idx in model_idxs if not isinstance(idx, BtreeIndex)]
+                existing_idxs = {name: info for name, info in existing_idxs.items() if info['index_type'] != 'btree'}
 
             # Structural mismatches (kind/iterator/filter/sample); each is unsupported (requires a manual migration).
             if model_kind != existing_md['kind']:
@@ -1443,22 +1470,68 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                         details={},
                     )
                 )
-            # TODO(PXT-1258): compare index parameters, not just names
-            for idx_name in sorted(model_idxs - existing_idxs):
-                ops.append(_add_index_change(idx_name, model.__indexes__[idx_name]))
-            for idx_name in sorted(existing_idxs - model_idxs):
-                ops.append(
-                    SchemaChangeOp(
-                        target='index',
-                        name=idx_name,
-                        op='drop',
-                        severity='destructive',
-                        model=None,
-                        existing=None,
-                        description=f'index {idx_name!r} will be dropped',
-                        details={},
+
+            model_idxs_by_col = {k: list(v) for k, v in itertools.groupby(model_idxs, key=lambda idx: idx.column.name)}
+            # TODO: The IndexMetadata structure technically allows for multicol indexes, but they're not supported yet;
+            #     here we assume a single column
+            existing_idxs_by_col = {k: list(v) for k, v in itertools.groupby(existing_idxs.items(), key=lambda item: item[1]['columns'][0])}
+
+            all_indexed_cols = sorted(set(model_idxs_by_col.keys()) | set(existing_idxs_by_col.keys()))
+            all_idxs = [  # normalized tuples of (col_name, model_idxs, existing_idxs)
+                (col_name, list(model_idxs_by_col.get(col_name, [])), list(existing_idxs_by_col.get(col_name, [])))
+                for col_name in all_indexed_cols
+            ]
+
+            for col_name, col_model_idxs, col_existing_idxs in all_idxs:
+                for idx in col_model_idxs:
+                    if isinstance(idx, BtreeIndex):
+                        # Btree index: they're parameterless, so we simply check if a btree index exists in the catalog.
+                        existing_btree_idxs = [i for i, (_, info) in enumerate(col_existing_idxs) if info['index_type'] == 'btree']
+                        assert len(existing_btree_idxs) <= 1
+                        if len(existing_btree_idxs) == 0:
+                            ops.append(_add_index_change(idx))
+                        else:
+                            col_existing_idxs.pop(existing_btree_idxs[0])
+                    elif idx.name is not None:
+                        # Named embedding index: check if an index of the same name exists in the catalog.
+                        # TODO: Allow for renaming embedding indexes?
+                        existing_named_idxs = [i for i, (name, info) in enumerate(col_existing_idxs) if name == idx.name and info['index_type'] == 'embedding']
+                        assert len(existing_named_idxs) <= 1
+                        if len(existing_named_idxs) == 0:
+                            ops.append(_add_index_change(idx))
+                        else:
+                            col_existing_idxs.pop(existing_named_idxs[0])
+                    else:
+                        # Unnamed embedding index: check if an index of identical structure exists in the catalog.
+                        matching_idxs = [
+                            i
+                            for i, (_, info) in enumerate(col_existing_idxs)
+                            if info['index_type'] == 'embedding'
+                            and info['parameters']['metric'] == idx.metric
+                            and info['parameters']['precision'] == idx.precision
+                            and info['parameters']['embedding'] == str(idx.embedding)
+                        ]
+                        assert len(matching_idxs) <= 1
+                        if len(matching_idxs) == 0:
+                            ops.append(_add_index_change(idx))
+                        else:
+                            col_existing_idxs.pop(matching_idxs[0])
+
+            for (_, _, col_existing_idxs) in all_idxs:
+                # Any remaining items in col_existing_idxs are indexes that exist in the catalog but not in the model.
+                for idx_name, _ in col_existing_idxs:
+                    ops.append(
+                        SchemaChangeOp(
+                            target='index',
+                            name=idx_name,
+                            op='drop',
+                            severity='destructive',
+                            model=None,
+                            existing=None,
+                            description=f'index {idx_name!r} will be dropped',
+                            details={},
+                        )
                     )
-                )
 
             results[name] = TableDiff(
                 path=bound_path,
@@ -1654,7 +1727,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                 model = registered_models[name]
                 new_col_names = {c['name'] for c in d['ops'] if c['target'] == 'column' and c['op'] == 'add'}
                 dropped_col_names = [c['name'] for c in d['ops'] if c['target'] == 'column' and c['op'] == 'drop']
-                new_idx_names = [c['name'] for c in d['ops'] if c['target'] == 'index' and c['op'] == 'add']
+                new_idxs: list[IndexDeclaration] = [c['model'] for c in d['ops'] if c['target'] == 'index' and c['op'] == 'add']
                 dropped_idx_names = [c['name'] for c in d['ops'] if c['target'] == 'index' and c['op'] == 'drop']
                 # Resolve `type` annotations to ColumnTypes, mirroring `_create()`, and tag each column's origin.
                 # Iterate in declaration order (not the diff's sorted order), so a new column may depend on an
@@ -1682,7 +1755,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                         path=catalog.Path.parse(f'{catalog_dir}{name}'),
                         new_columns=new_columns,
                         dropped_columns=dropped_col_names,
-                        new_idxs={idx_name: model.__indexes__[idx_name] for idx_name in new_idx_names},
+                        new_idxs=new_idxs,
                         dropped_idxs=dropped_idx_names,
                         tbl_id=d['tbl_id'],
                         schema_versions=d['schema_versions'],

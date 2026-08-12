@@ -157,6 +157,7 @@ class LocalTable(Table):
                     index_type='embedding',
                     parameters=EmbeddingIndexParams(
                         metric=info.idx.metric.name.lower(),  # type: ignore[typeddict-item]
+                        precision=info.idx.precision.name.lower(),  # type: ignore[typeddict-item]
                         embedding=str(embedding_fncall),
                         embedding_functions=[str(fn) for fn in info.idx.embeddings.values()],
                     ),

@@ -52,9 +52,7 @@ class TestTableModel:
             computed_with_special_props = Column(value=(value / 3), stored=False)
             computed_with_special_props_2 = Column(value=img.rotate(90))
 
-            __indexes__ = [
-                EmbeddingIndex(img, embedding=dummy_embedding.using(n=768), name='clip_idx')
-            ]
+            __indexes__ = [EmbeddingIndex(img, embedding=dummy_embedding.using(n=768), name='clip_idx')]
 
         expected_path = f'{p(root)}/test_table'.lstrip('/')
         if root != '':
@@ -270,6 +268,7 @@ class TestTableModel:
                         'index_type': 'embedding',
                         'parameters': {
                             'metric': 'cosine',
+                            'precision': 'fp16',
                             'embedding': 'dummy_embedding(img, n=768)',
                             'embedding_functions': ['dummy_embedding(text, n=768)', 'dummy_embedding(img, n=768)'],
                         },
@@ -303,8 +302,9 @@ class TestTableModel:
             name: pxt.String
             img: pxt.Image
 
-            name_idx = pxt.BtreeIndex(name)
-            img_idx = pxt.BtreeIndex(img)
+            __indexes__ = [
+                BtreeIndex(name), BtreeIndex(img)
+            ]
 
         class ExampleViewModel(TableModel, name='test_view', base=ExampleTableModel):
             vc: pxt.Int
@@ -313,7 +313,7 @@ class TestTableModel:
         tbl = ExampleTableModel.table
         ExampleTableModel.insert([{'id': 1, 'name': 'a', 'img': get_image_files()[0]}])
 
-        assert btree_idxs(tbl) == {'name_idx': 'name', 'img_idx': 'img'}
+        assert btree_idxs(tbl) == {'idx0': 'name', 'idx1': 'img'}
         assert len(btree_idxs(ExampleViewModel.table)) == 0
 
         # Rename an index
@@ -323,16 +323,17 @@ class TestTableModel:
             id: pxt.Required[pxt.Int]
             name: pxt.String
             img: pxt.Image
-            name_idx2 = pxt.BtreeIndex(name)  # same column as name_idx, new name
-            img_idx = pxt.BtreeIndex(img)
+
+            __indexes__ = [BtreeIndex(name), BtreeIndex(img)]
 
         class ViewOwnCol(TM_rename, name='test_view', base=RenamedTableModel):
             vc: pxt.Int
-            vc_idx = pxt.BtreeIndex(vc)
+
+            __indexes__ = [BtreeIndex(vc)]
 
         TM_rename.update_all(root, allow_destructive=True)
-        assert btree_idxs(tbl) == {'name_idx2': 'name', 'img_idx': 'img'}
-        assert btree_idxs(ExampleViewModel.table) == {'vc_idx': 'vc'}
+        assert btree_idxs(tbl) == {'idx0': 'name', 'idx1': 'img'}
+        assert btree_idxs(ExampleViewModel.table) == {'idx0': 'vc'}
 
     def test_default_idxs_diff(self, make_catalog_path: Callable[[str], str]) -> None:
         """Verifies how model diff interacts with has_default_idxs."""
@@ -347,7 +348,8 @@ class TestTableModel:
         class NoDefaults(TableModel, name='no_defaults_table'):
             id: pxt.Required[pxt.Int]
             name: pxt.String
-            name_idx = BtreeIndex(name)
+
+            __indexes__ = [BtreeIndex(name)]
 
         TableModel.create_all(root)
         tbl_with_defaults = WithDefaults.table
@@ -376,7 +378,8 @@ class TestTableModel:
             id: pxt.Required[pxt.Int]
             name: pxt.String
             extra: pxt.Int
-            name_idx = BtreeIndex(name)
+
+            __indexes__ = [BtreeIndex(name)]
 
         class NoDefaultsV3(TableModelV3, name='no_defaults_table', has_default_idxs=True):
             id: pxt.Required[pxt.Int]
@@ -400,41 +403,13 @@ class TestTableModel:
             name: pxt.String
             img: pxt.Image
             unstored = Column(value=img.rotate(90), stored=False)
-            id_idx = BtreeIndex(id)
+
+            __indexes__ = [BtreeIndex(id)]
 
         class V(TableModel, name='v', base=Base):
             vc: pxt.Int
 
         TableModel.create_all(root)
-
-        # A second index on an already-indexed column.
-        TM_dup_existing = pxt.model_base()
-
-        class BaseDupExisting(TM_dup_existing, name='base'):
-            id: pxt.Required[pxt.Int]
-            name: pxt.String
-            img: pxt.Image
-            unstored = Column(value=img.rotate(90), stored=False)
-            id_idx = BtreeIndex(id)
-            id_idx2 = BtreeIndex(id)
-
-        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match="already exists on column 'id'"):
-            TM_dup_existing.update_all(root)
-
-        # Two new indexes on the same column within a single change set.
-        TM_dup_new = pxt.model_base()
-
-        class BaseDupNew(TM_dup_new, name='base'):
-            id: pxt.Required[pxt.Int]
-            name: pxt.String
-            img: pxt.Image
-            unstored = Column(value=img.rotate(90), stored=False)
-            id_idx = BtreeIndex(id)
-            name_idx_a = BtreeIndex(name)
-            name_idx_b = BtreeIndex(name)
-
-        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match="B-tree index already exists on column 'name'"):
-            TM_dup_new.update_all(root)
 
         # An ineligible column.
         TM_unstored = pxt.model_base()
@@ -444,8 +419,8 @@ class TestTableModel:
             name: pxt.String
             img: pxt.Image
             unstored = Column(value=img.rotate(90), stored=False)
-            id_idx = BtreeIndex(id)
-            unstored_idx = BtreeIndex(unstored)
+
+            __indexes__ = [BtreeIndex(id), BtreeIndex(unstored)]
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="unstored column 'unstored'"):
             TM_unstored.update_all(root)
@@ -458,17 +433,19 @@ class TestTableModel:
             name: pxt.String
             img: pxt.Image
             unstored = Column(value=img.rotate(90), stored=False)
-            id_idx = BtreeIndex(id)
+
+            __indexes__ = [BtreeIndex(id)]
 
         class ViewOnBaseCol(TM_base_col, name='v', base=BaseForView):
             vc: pxt.Int
-            bad_idx = BtreeIndex(BaseForView.name)
+
+            __indexes__ = [BtreeIndex(BaseForView.name)]
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='belongs to a base table'):
             TM_base_col.update_all(root)
 
         # None of the rejected changes were applied.
-        assert btree_idxs(Base.table) == {'id_idx': 'id'}
+        assert btree_idxs(Base.table) == {'idx0': 'id'}
         assert btree_idxs(V.table) == {}
 
         # The same rule holds when the view declares the index up front (create_all instead update update_all)
@@ -480,7 +457,8 @@ class TestTableModel:
 
         class ViewOnBaseColAtCreate(TM_create, name='v_at_create', base=BaseAtCreate):
             doubled = BaseAtCreate.id * 2
-            bad_idx = BtreeIndex(BaseAtCreate.name)
+
+            __indexes__ = [BtreeIndex(BaseAtCreate.name)]
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='belongs to a base table'):
             TM_create.create_all(root)
@@ -502,7 +480,8 @@ class TestTableModel:
 
         class DefaultsWithIdx0(TM_collision, name='defaults', has_default_idxs=True):
             txt: pxt.String
-            idx0 = EmbeddingIndex(txt, embedding=dummy_embedding.using(n=768))
+
+            __indexes__ = [EmbeddingIndex(txt, embedding=dummy_embedding.using(n=768), name='idx0')]
 
         with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match="Index 'idx0' already exists on column 'txt'"):
             TM_collision.update_all(root)
@@ -598,15 +577,17 @@ class TestTableModel:
             incr = value + 1
             descr = pxtf.string.format('Name: {name}', name=name)
 
-            clip_idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
+            __indexes__ = [EmbeddingIndex(img, embedding=dummy_embedding.using(n=768), name='clip_idx')]
 
         class ExampleViewModel(TableModel, name='test_view', base=ExampleTableModel, has_default_idxs=True):
             view_col_1: pxt.Image
             view_col_2 = view_col_1.rotate(90)
             view_col_3 = ExampleTableModel.img.rotate(90)  # Also try dereferencing a base table column
 
-            view_idx = EmbeddingIndex(view_col_2, embedding=dummy_embedding.using(n=768))
-            view_idx_on_base_tbl_col = EmbeddingIndex(ExampleTableModel.img, embedding=dummy_embedding.using(n=768))
+            __indexes__ = [
+                EmbeddingIndex(view_col_2, embedding=dummy_embedding.using(n=768), name='view_idx'),
+                EmbeddingIndex(ExampleTableModel.img, embedding=dummy_embedding.using(n=768), name='view_idx_on_base_tbl_col'),
+            ]
 
         class ExampleSubviewModel(TableModel, name='test_subview', base=ExampleViewModel, has_default_idxs=True):
             subview_col_1 = ExampleTableModel.img.rotate(180)
@@ -626,8 +607,10 @@ class TestTableModel:
             view_col_3 = ExampleTableModel.img.rotate(90)
             view_col_4 = plusone + 5  # type: ignore[name-defined]
 
-            view_idx = EmbeddingIndex(view_col_2, embedding=dummy_embedding.using(n=768))
-            view_idx_on_base_tbl_col = EmbeddingIndex(ExampleTableModel.img, embedding=dummy_embedding.using(n=768))
+            __indexes__ = [
+                EmbeddingIndex(view_col_2, embedding=dummy_embedding.using(n=768), name='view_idx'),
+                EmbeddingIndex(ExampleTableModel.img, embedding=dummy_embedding.using(n=768), name='view_idx_on_base_tbl_col'),
+            ]
 
         class ExampleSubviewModelFromQuery(
             TableModel,
@@ -784,7 +767,9 @@ class TestTableModel:
             iterator=pxtf.string.string_splitter(ExampleTableModel.doc_text, separators='sentence'),
         ):
             # text is an output column of the iterator, not one declared by this model
-            ix = EmbeddingIndex(text, embedding=dummy_embedding.using(n=32))  # type: ignore[name-defined]
+            __indexes__ = [
+                EmbeddingIndex(text, embedding=dummy_embedding.using(n=32), name='ix')  # type: ignore[name-defined]
+            ]
 
         TableModel.create_all(p(''))
         ExampleTableModel.insert([{'id': 1, 'doc_text': 'One sentence. Two sentence.'}])
@@ -813,7 +798,9 @@ class TestTableModel:
             base=ExampleTableModel,
             iterator=pxtf.string.string_splitter(ExampleTableModel.text, separators='sentence'),
         ):
-            ix = EmbeddingIndex(text, embedding=dummy_embedding.using(n=32))  # type: ignore[name-defined]
+            __indexes__ = [
+                EmbeddingIndex(text, embedding=dummy_embedding.using(n=32), name='ix')  # type: ignore[name-defined]
+            ]
 
         TableModel.create_all(p(''))
         ExampleTableModel.insert([{'id': 1, 'text': 'One sentence. Two sentence.'}])
@@ -953,8 +940,11 @@ class TestTableModel:
             image: pxt.Image
             score: pxt.Float
             derived = Column(value=id + 1, comment='before', custom_metadata={'v': 1})
-            idx1 = EmbeddingIndex(image, embedding=dummy_embedding.using(n=768))
-            idx2 = EmbeddingIndex(image, embedding=dummy_embedding.using(n=512))
+
+            __indexes__ = [
+                EmbeddingIndex(image, embedding=dummy_embedding.using(n=768), name='idx1'),
+                EmbeddingIndex(image, embedding=dummy_embedding.using(n=512), name='idx2'),
+            ]
 
         class ExampleView(
             TableModel,
@@ -1003,9 +993,12 @@ class TestTableModel:
             extra1: pxt.Int  # added
             extra2: pxt.String  # added
             # 'name' and 'value' dropped
-            idx1 = EmbeddingIndex(image, embedding=dummy_embedding.using(n=768))  # kept
-            idx3 = EmbeddingIndex(image, embedding=dummy_embedding.using(n=256))  # added
-            # 'idx2' dropped
+
+            __indexes__ = [
+                EmbeddingIndex(image, embedding=dummy_embedding.using(n=768), name='idx1'),  # kept
+                EmbeddingIndex(image, embedding=dummy_embedding.using(n=256), name='idx3'),  # added
+                # 'idx2' dropped
+            ]
 
         class ExampleViewV2(
             TableModelV2,
@@ -1454,7 +1447,10 @@ class TestTableModel:
             id: pxt.Required[pxt.Int]
             value: pxt.Float
             image: pxt.Image
-            embed_a = EmbeddingIndex(image, embedding=dummy_embedding.using(n=768))
+
+            __indexes__ = [
+                EmbeddingIndex(image, embedding=dummy_embedding.using(n=768), name='embed_a')
+            ]
 
         class ExampleView(TableModel, name='test_view', base=ExampleTable):
             vc1 = ExampleTable.value + 1
@@ -1487,11 +1483,12 @@ class TestTableModel:
             note: pxt.String  # new (plain) column
             new_image: pxt.Image
 
-            embed_a = EmbeddingIndex(image, embedding=dummy_embedding.using(n=768))
-            embed_b = EmbeddingIndex(image, embedding=dummy_embedding.using(n=512))  # new index
-            embed_c = EmbeddingIndex(new_image, embedding=dummy_embedding.using(n=256))  # new index on new column
-
-            b_tree_a = BtreeIndex(id)  # new b-tree index
+            __indexes__ = [
+                EmbeddingIndex(image, embedding=dummy_embedding.using(n=768), name='embed_a'),  # kept
+                EmbeddingIndex(image, embedding=dummy_embedding.using(n=512), name='embed_b'),  # new index
+                EmbeddingIndex(new_image, embedding=dummy_embedding.using(n=256), name='embed_c'),  # new on new column
+                BtreeIndex(id),  # new
+            ]
 
         class ExampleViewV2(TableModelV2, name='test_view', base=ExampleTableV2):
             vc1 = ExampleTableV2.value + 1
@@ -1542,7 +1539,9 @@ class TestTableModel:
             label: pxt.String  # added
             # 'plus_ten', 'plus_fifteen', and 'note' dropped
 
-            embed_b = EmbeddingIndex(image, embedding=dummy_embedding.using(n=512))
+            __indexes__ = [
+                EmbeddingIndex(image, embedding=dummy_embedding.using(n=512), name='embed_b')
+            ]
             # embed_a, embed_c, and b_tree_a are dropped
 
         class ExampleViewV3(TableModelV3, name='test_view', base=ExampleTableV3):
@@ -1597,7 +1596,9 @@ class TestTableModel:
             value: pxt.Float
             img: pxt.Image
 
-            idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
+            __indexes__ = [
+                EmbeddingIndex(img, embedding=dummy_embedding.using(n=768), name='idx')
+            ]
 
         TableModel.create_all(p(''))
 
@@ -1613,7 +1614,9 @@ class TestTableModel:
             id: pxt.Required[pxt.Int]
             img: pxt.Image
 
-            idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
+            __indexes__ = [
+                EmbeddingIndex(img, embedding=dummy_embedding.using(n=768), name='idx')
+            ]
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -1782,12 +1785,6 @@ class TestTableModel:
                 id: pxt.Int
                 bad = Column()
 
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'Cannot set a type annotation for index'):
-
-            class IdxTypeConflict(TableModel, name='idx_type_conflict'):
-                img: pxt.Image
-                my_idx: pxt.Int = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))  # type: ignore[assignment]
-
         # `references columns that are not in the model's scope` is raised at `create()` time, when a computed
         # column refers to a column outside the model (here, a column belonging to a different, unbound model).
         class OtherModel(TableModel, name='other_model'):
@@ -1815,12 +1812,25 @@ class TestTableModel:
                 plus = id + 1
                 plus = id + 2
 
+        with pxt.raises(pxt.ErrorCode.INVALID_SCHEMA, match="zarg"):
+
+            class DuplicateBtreeIndex(TableModel, name='duplicate_btree_index'):
+                id: pxt.Required[pxt.Int]
+                name: pxt.String
+                img: pxt.Image
+                unstored = Column(value=img.rotate(90), stored=False)
+
+                __indexes__ = [BtreeIndex(id), BtreeIndex(id)]
+
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"Index 'dup_idx': duplicate definition"):
 
             class DuplicateIndex(TableModel, name='duplicate_index'):
                 img: pxt.Image
-                dup_idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
-                dup_idx = EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
+
+                __indexes__ = [
+                    EmbeddingIndex(img, embedding=dummy_embedding.using(n=768), name='dup_idx'),
+                    EmbeddingIndex(img, embedding=dummy_embedding.using(n=768), name='dup_idx'),
+                ]
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"Column 'bad': invalid value"):
 
