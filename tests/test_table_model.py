@@ -48,6 +48,9 @@ class TestTableModel:
         class Base(TableModel, name='base'):
             vid: pxt.Video
             val: pxt.Required[pxt.Int]
+            note: pxt.String
+            embed_note = pxt.EmbeddingIndex(note, embedding=dummy_embedding.using(n=768))
+            val_idx = BtreeIndex(val)
 
         class Plain(TableModel, name='plain', base=Base):
             doubled = Base.val * 2
@@ -68,9 +71,16 @@ class TestTableModel:
         assert all(declared[m].is_view() for m in (Plain, Filtered, Projected, Frames))
         assert declared[Frames].has_iterator()
         assert not any(declared[m].has_iterator() for m in (Plain, Filtered, Projected))
+        # the declared path carries the indexes the model declares, resolved to the columns they index
+        base_idxs = {idx.name: idx for idx in declared[Base].md.tbl_md.index_md.values()}
+        assert set(base_idxs.keys()) == {'embed_note', 'val_idx'}
+        base_cols = {c.id: c.name for c in declared[Base].column_md()}
+        assert base_cols[base_idxs['embed_note'].indexed_col_id] == 'note'
+        assert base_cols[base_idxs['val_idx'].indexed_col_id] == 'val'
+
         # a select() view projects the base rather than inheriting it
         assert [c.name for c in declared[Projected].column_md()] == ['v', 'plus']
-        assert [c.name for c in declared[Plain].column_md()] == ['doubled', 'vid', 'val']
+        assert [c.name for c in declared[Plain].column_md()] == ['doubled', 'vid', 'val', 'note']
 
         TableModel.create_all(p(''))
 

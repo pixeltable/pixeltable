@@ -769,6 +769,14 @@ class TableModelMeta(type):
         md: TableVersionMd
         base_md: list[TableVersionMd] = []
         if base is None:
+            cols_by_name = {col.name: col for col in cols if col.name is not None}
+            assert all(isinstance(idx_spec.indexed_column, str) for idx_spec in idxs)  # indexed cols identified by name
+            resolved_idxs = [
+                catalog.IndexSpec(
+                    indexed_column=cols_by_name[cast(str, spec_.indexed_column)], idx_name=spec_.idx_name, idx=spec_.idx
+                )
+                for spec_ in idxs
+            ]
             md = create_table_version_md(
                 tbl_id=tbl_id,
                 name=spec['name'],
@@ -779,7 +787,7 @@ class TableModelMeta(type):
                 has_default_idxs=spec['has_default_idxs'],
                 view_md=None,
                 is_data_versioned=True,
-                additional_idxs=idxs,
+                additional_idxs=resolved_idxs,
             )
         else:
             base_path = base._from_clause._first_tbl

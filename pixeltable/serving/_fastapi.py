@@ -122,32 +122,48 @@ _EMBEDDED_OBJECT_TYPES: tuple[type, ...] = (np.ndarray, np.generic, PIL.Image.Im
 
 @dataclasses.dataclass(frozen=True)
 class _RouteSpec:
-    """What a route declares about the table it operates on.
+    """
+    Full specification of a route:
+    - against a table
+    - against a model: resolved to Table in bind()
+    - a query route has no table target
 
-    Declared against either a Table, which is already resolved, or a model, which resolves when the router is
-    bound. The column names are the ones the route's request/response contract is built from; they are what a
-    target table has to supply for the route to be servable.
+    Two routes that agree on every field here serve the same contract.
     """
 
     route_id: int
-    method: str
+    method: Literal['GET', 'POST']
     path: str
-    route_type: Literal['insert', 'update', 'delete', 'compute']
+    route_type: Literal['insert', 'update', 'delete', 'compute', 'query']
 
-    # exactly one of these is set
+    # at most one of these is set; both are None for a query route
     tbl: pxt.Table | None
     model_cls: model.TableModelMeta | None
 
-    # the declared shape: a model's is synthesized from its declaration, a table's is its own
-    table_path: catalog.TablePath
+    table_path: catalog.TablePath | None  # None for query routes
     input_cols: tuple[str, ...]
     output_cols: tuple[str, ...]
     match_cols: tuple[str, ...]
+    uploadfile_inputs: tuple[str, ...]  # the subset of input_cols that arrives as a file upload
+
+    background: bool
+    return_fileresponse: bool
+    export_sql: SqlExport | None
+
+    # query routes only: the fully-qualified path of the function the route calls, and whether it returns a
+    # single row rather than a list
+    query_fn: str | None
+    one_row: bool
 
     @property
     def display_name(self) -> str:
         """The route as it reads in a diff, eg 'POST /v1/ingest'."""
         return f'{self.method} {self.path}'
+
+    @property
+    def has_table_target(self) -> bool:
+        """Whether the route operates on a table; False for a query route."""
+        return self.route_type != 'query'
 
     def referenced_col_names(self) -> tuple[str, ...]:
         """Every column the route's contract depends on."""
@@ -332,34 +348,33 @@ class PxtEndpoint:
     Wrapper for an endpoint `Callable` that carries additional metadata about the endpoint operation.
     """
 
-    router: 'FastAPIRouter'
-    uploadfile_inputs: list[str]
-    background: bool
+    router: FastAPIRouter
+    spec: _RouteSpec
     endpoint_op: Callable[..., Any]
-    route_id: int | None
-    route_type: Literal['insert', 'update', 'delete', 'query', 'compute']
 
     def __init__(
         self,
-        router: 'FastAPIRouter',
+        router: FastAPIRouter,
         name: str,
         signature: inspect.Signature,
-        uploadfile_inputs: list[str],
-        background: bool,
+        spec: _RouteSpec,
         endpoint_op: Callable[..., Any],
-        route_id: int | None,
-        route_type: Literal['insert', 'update', 'delete', 'query', 'compute'],
     ) -> None:
         self.router = router
-        self.uploadfile_inputs = uploadfile_inputs
-        self.background = background
+        self.spec = spec
         self.endpoint_op = endpoint_op
-        self.route_id = route_id
-        self.route_type = route_type
 
         # FastAPI needs the correct signature and a name
         self.__signature__ = signature
         self.__name__ = name
+
+    @property
+    def route_id(self) -> int:
+        return self.spec.route_id
+
+    @property
+    def route_type(self) -> Literal['insert', 'update', 'delete', 'compute', 'query']:
+        return self.spec.route_type
 
     def __call__(self, request: Request, **kwargs: Any) -> Any:
         sample_url = str(request.url_for(_MEDIA_ROUTE_NAME, path='_'))
@@ -370,15 +385,15 @@ class PxtEndpoint:
 
         # write out uploads while the request is still alive
         tmp_paths: list[Path] = []
-        if len(self.uploadfile_inputs) > 0:
+        if len(self.spec.uploadfile_inputs) > 0:
             # list(...): make sure that the sequence of name/val pairs can't change underneath us
             for input_name, val in list(kwargs.items()):
-                if input_name in self.uploadfile_inputs:
+                if input_name in self.spec.uploadfile_inputs:
                     path = self.router._write_to_temp(val)
                     tmp_paths.append(path)
                     kwargs[input_name] = str(path)
 
-        if self.background:
+        if self.spec.background:
             job_id = uuid.uuid4().hex
             fut = self.router._executor.submit(_run_endpoint_op, self.endpoint_op, kwargs, tmp_paths, url_for_media)
             with self.router._jobs_lock:
@@ -404,6 +419,7 @@ class FastAPIRouter(fastapi.APIRouter):
     _allowed_media_dirs: list[Path]
     _engine_cache: dict[str, sql.Engine]  # keyed by SqlExport.db_connect; shared across routes
     _base_path: str | None  # the path the router was bound at; None until bind() runs
+    _name: str | None  # the service name this router declares; None if it was not given one
 
     _route_specs: list[_RouteSpec]
 
@@ -411,7 +427,15 @@ class FastAPIRouter(fastapi.APIRouter):
     # as it is declared, one declared against a model when the router is bound
     _route_bindings: dict[int, tuple[pxt.Table, int]]
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, name: str | None = None, **kwargs: Any) -> None:
+        # TODO: allow _?
+        if name is not None and not catalog.is_valid_identifier(name, allow_hyphens=True):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'FastAPIRouter(): {name!r} is not a valid service name; use letters, digits, underscores and '
+                'hyphens, starting with a letter or digit',
+            )
+        self._name = name
         super().__init__(*args, **kwargs)
         self._executor = ThreadPoolExecutor(max_workers=16, thread_name_prefix='pxt-serve-background')
         self._jobs = {}
@@ -435,6 +459,11 @@ class FastAPIRouter(fastapi.APIRouter):
         # on_startup list, so a deployment that forgot to bind fails to start instead of failing per request.
         self.add_event_handler('startup', self.__check_bound)
 
+    @property
+    def name(self) -> str | None:
+        """The service name given to the constructor, or None if it was omitted."""
+        return self._name
+
     def get_service_diff(self, base_path: str = '') -> list[ServiceChangeOp]:
         """Report what the tables under `base_path` cannot serve, as the operations that would fix it.
 
@@ -449,7 +478,7 @@ class FastAPIRouter(fastapi.APIRouter):
         ops: list[ServiceChangeOp] = []
         for spec in self._route_specs:
             if spec.model_cls is None:
-                continue  # already resolved to the table it serves
+                continue  # a query route, or already resolved to the table it serves
 
             # resolve by path rather than through the model: enforcing the model's one-binding rule is bind()'s
             # job, and a report has to describe any target, including one the model is not bound to
@@ -517,7 +546,7 @@ class FastAPIRouter(fastapi.APIRouter):
             )
 
         for spec in self._route_specs:
-            if spec.route_id in self._route_bindings:
+            if not spec.has_table_target or spec.route_id in self._route_bindings:
                 continue
             assert spec.model_cls is not None
             tbl = spec.model_cls._bind(base_path)
@@ -526,15 +555,21 @@ class FastAPIRouter(fastapi.APIRouter):
 
     def _register_spec(
         self,
-        target: RouteTarget,
+        target: RouteTarget | None,
         *,
-        method: str,
+        method: Literal['GET', 'POST'],
         path: str,
-        route_type: Literal['insert', 'update', 'delete', 'compute'],
-        declared_path: catalog.TablePath,
+        route_type: Literal['insert', 'update', 'delete', 'compute', 'query'],
+        declared_path: catalog.TablePath | None,
         input_cols: Sequence[str] = (),
         output_cols: Sequence[str] = (),
         match_cols: Sequence[str] = (),
+        uploadfile_inputs: Sequence[str] = (),
+        background: bool = False,
+        return_fileresponse: bool = False,
+        export_sql: SqlExport | None = None,
+        query_fn: str | None = None,
+        one_row: bool = False,
     ) -> _RouteSpec:
         is_model = isinstance(target, model.TableModelMeta)
         spec = _RouteSpec(
@@ -542,12 +577,18 @@ class FastAPIRouter(fastapi.APIRouter):
             method=method,
             path=self.prefix + path,
             route_type=route_type,
-            tbl=None if is_model else cast(pxt.Table, target),
+            tbl=None if is_model else cast(pxt.Table | None, target),
             model_cls=cast(model.TableModelMeta, target) if is_model else None,
             table_path=declared_path,
             input_cols=tuple(input_cols),
             output_cols=tuple(output_cols),
             match_cols=tuple(match_cols),
+            uploadfile_inputs=tuple(uploadfile_inputs),
+            background=background,
+            return_fileresponse=return_fileresponse,
+            export_sql=export_sql,
+            query_fn=query_fn,
+            one_row=one_row,
         )
         self._route_specs.append(spec)
         if spec.tbl is not None:
@@ -570,7 +611,11 @@ class FastAPIRouter(fastapi.APIRouter):
         return binding
 
     def __check_bound(self) -> None:
-        unbound = [spec.display_name for spec in self._route_specs if spec.route_id not in self._route_bindings]
+        unbound = [
+            spec.display_name
+            for spec in self._route_specs
+            if spec.has_table_target and spec.route_id not in self._route_bindings
+        ]
         if len(unbound) > 0:
             raise excs.RequestError(
                 excs.ErrorCode.NOT_BOUND,
@@ -956,6 +1001,7 @@ class FastAPIRouter(fastapi.APIRouter):
             uploadfile_inputs=uploadfile_inputs,
             return_fileresponse=return_fileresponse,
             background=background,
+            export_sql=export_sql,
             endpoint_name=f'{route_type}_{path.strip("/").replace("/", "_") or "root"}',
             rows_processor=rows_processor,
             response_model=response_model,
@@ -1268,6 +1314,7 @@ class FastAPIRouter(fastapi.APIRouter):
                 uploadfile_inputs=uploadfile_inputs,
                 return_fileresponse=False,
                 background=background,
+                export_sql=export_sql,
                 endpoint_name=f'{route_type}_{path.strip("/").replace("/", "_") or "root"}',
                 rows_processor=rows_processor,
                 response_model=response_model,
@@ -1424,6 +1471,7 @@ class FastAPIRouter(fastapi.APIRouter):
             uploadfile_inputs=[],
             return_fileresponse=return_fileresponse,
             background=background,
+            export_sql=export_sql,
             endpoint_name=f'update_{path.strip("/").replace("/", "_") or "root"}',
             rows_processor=rows_processor,
             response_model=update_response_model,
@@ -1581,6 +1629,7 @@ class FastAPIRouter(fastapi.APIRouter):
                 uploadfile_inputs=[],
                 return_fileresponse=False,
                 background=background,
+                export_sql=export_sql,
                 endpoint_name=f'update_{path.strip("/").replace("/", "_") or "root"}',
                 rows_processor=rows_processor,
                 response_model=response_model,
@@ -1655,6 +1704,7 @@ class FastAPIRouter(fastapi.APIRouter):
             route_type='delete',
             declared_path=declared_path,
             match_cols=match_col_names,
+            background=background,
         )
 
         def run_delete(
@@ -1677,14 +1727,7 @@ class FastAPIRouter(fastapi.APIRouter):
         match_cols = [cols_by_name[name] for name in match_col_names]
         sig = self._create_endpoint_signature(input_cols=match_cols)
         endpoint = PxtEndpoint(
-            self,
-            f'delete_{path.strip("/").replace("/", "_") or "root"}',
-            sig,
-            uploadfile_inputs=[],
-            background=background,
-            endpoint_op=run_delete,
-            route_id=spec.route_id,
-            route_type='delete',
+            self, f'delete_{path.strip("/").replace("/", "_") or "root"}', sig, spec=spec, endpoint_op=run_delete
         )
         self.add_api_route(path, endpoint, methods=['POST'], response_model=endpoint_model)
 
@@ -1934,15 +1977,21 @@ class FastAPIRouter(fastapi.APIRouter):
             is_post=(method == 'post'),
             defaults=input_defaults,
         )
-        endpoint = PxtEndpoint(
-            self,
-            f'query_{path.strip("/").replace("/", "_") or "root"}',
-            sig,
+        spec = self._register_spec(
+            None,
+            method='GET' if method == 'get' else 'POST',
+            path=path,
+            route_type='query',
+            declared_path=None,
+            input_cols=list(input_schema.keys()),
             uploadfile_inputs=uploadfile_inputs,
             background=background,
-            endpoint_op=run_query,
-            route_id=None,
-            route_type='query',
+            return_fileresponse=return_fileresponse,
+            query_fn=query.self_path,
+            one_row=one_row,
+        )
+        endpoint = PxtEndpoint(
+            self, f'query_{path.strip("/").replace("/", "_") or "root"}', sig, spec=spec, endpoint_op=run_query
         )
 
         api_kwargs: dict[str, Any] = {'methods': [method.upper()]}
@@ -2007,6 +2056,7 @@ class FastAPIRouter(fastapi.APIRouter):
         uploadfile_inputs: list[str],
         return_fileresponse: bool,
         background: bool,
+        export_sql: SqlExport | None,
         endpoint_name: str,
         rows_processor: Callable[[Sequence[Mapping[str, Any]], Callable[[str], str]], Any],
         response_model: Any | None,
@@ -2028,6 +2078,10 @@ class FastAPIRouter(fastapi.APIRouter):
             declared_path=declared_path,
             input_cols=pk_col_names + input_col_names,
             output_cols=output_col_names,
+            uploadfile_inputs=uploadfile_inputs,
+            background=background,
+            return_fileresponse=return_fileresponse,
+            export_sql=export_sql,
         )
 
         # use the metadata path (works for both local and hosted tables); skip system columns (name is None)
@@ -2059,16 +2113,7 @@ class FastAPIRouter(fastapi.APIRouter):
             return rows_processor(rows, url_for_media)
 
         sig = self._create_endpoint_signature(input_cols=pk_cols + input_cols, upload_col_names=uploadfile_inputs)
-        endpoint = PxtEndpoint(
-            self,
-            endpoint_name,
-            sig,
-            uploadfile_inputs=uploadfile_inputs,
-            background=background,
-            endpoint_op=run_dml,
-            route_id=spec.route_id,
-            route_type=route_type,
-        )
+        endpoint = PxtEndpoint(self, endpoint_name, sig, spec=spec, endpoint_op=run_dml)
         api_kwargs: dict[str, Any] = {'methods': ['POST']}
         if background:
             api_kwargs['response_model'] = BackgroundJobResponse

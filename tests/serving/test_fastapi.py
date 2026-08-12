@@ -331,6 +331,15 @@ class TestFastAPI:
         # engine cache reuse: three export_sql routes against the same db_connect share one engine
         assert len(router._engine_cache) == 1
 
+        # each route records what it declares; there is no public accessor for that yet
+        specs = {spec.path: spec for spec in router._route_specs}
+        assert specs['/all'].route_type == ('insert' if route_type == 'insert' else 'compute')
+        assert specs['/all'].export_sql is not None and specs['/all'].export_sql.table == 'out_all'
+        assert specs['/all'].has_table_target
+        assert specs['/partial-in'].input_cols == ('id', 'str_col', 'int_col')
+        assert specs['/partial-in'].export_sql is None
+        assert specs['/partial-out'].output_cols == ('id', 'str_upper', 'int_plus1')
+
         with make_test_client(router) as client:
             all_input = {
                 'id': 1,
@@ -1170,6 +1179,18 @@ class TestFastAPI:
         router = FastAPIRouter()
         router.add_query_route(path='/by-id', query=by_id, one_row=True)
         router.add_query_route(path='/text-by-id', query=text_by_id, one_row=True)
+
+        # a query route declares a function rather than a table, so it has nothing to bind; entering the
+        # client's context runs the startup handlers, which must not refuse a router of query routes alone
+        spec = next(spec for spec in router._route_specs if spec.path == '/by-id')
+        assert (spec.route_type, spec.method) == ('query', 'POST')
+        assert spec.one_row
+        assert spec.query_fn is not None and spec.query_fn.endswith('by_id')
+        assert not spec.has_table_target
+        assert (spec.tbl, spec.model_cls, spec.table_path) == (None, None, None)
+        with make_test_client(router):
+            pass
+
         client = make_test_client(router)
 
         # non-scalar one_row: flat JSON object, NOT wrapped in {'rows': [...]}
@@ -2273,6 +2294,12 @@ class TestFastAPI:
             assert thumb is not None
             return UplResp(thumb_url=thumb)
 
+        # uploads are recorded apart from the plain inputs, and both are part of the route's contract
+        spec = next(spec for spec in router._route_specs if spec.path == '/upl')
+        assert spec.uploadfile_inputs == (('image',) if use_uploadfile else ())
+        assert spec.input_cols == ('id', 'image')
+        assert 'image' in spec.referenced_col_names()
+
         client = make_test_client(router)
 
         image_path = get_image_files()[0]
@@ -2956,6 +2983,15 @@ class TestFastAPI:
         p = make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
+
+        # a router names the service it declares, validated like a Pixeltable identifier
+        assert FastAPIRouter(name='docs-api').name == 'docs-api'
+        assert FastAPIRouter().name is None
+        # name is consumed by FastAPIRouter; APIRouter's own parameters still work
+        assert FastAPIRouter(name='ingest', prefix='/v1').prefix == '/v1'
+        for bad_name in ('-lead', '_lead', 'has space', 'has.dot', ''):
+            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='is not a valid service name'):
+                FastAPIRouter(name=bad_name)
 
         TableModel = pxt.model_base()  # noqa: N806
 
