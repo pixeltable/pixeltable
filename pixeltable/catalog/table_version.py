@@ -705,7 +705,7 @@ class TableVersion:
         is_data_versioned: bool,
         next_col_id: Callable[[], int],
     ) -> tuple[Column | None, Column | None]:
-        """Create the columns that idx needs in order to index col, as far as it needs any.
+        """Create the columns that idx needs in order to index col.
 
         Returns (value column, undo column), both of which are optional.
         """
