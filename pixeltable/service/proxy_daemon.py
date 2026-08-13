@@ -14,6 +14,7 @@ a given database, and locating a running one via the port.lock file in its home 
 
 import atexit
 import json
+import logging
 import os
 import shutil
 import signal
@@ -155,8 +156,12 @@ def create(db: str) -> None:
     proxy_home(db).mkdir(parents=True, exist_ok=True)
 
 
-def start(db: str) -> str:
-    """Ensure a daemon for db is running and ready; return its endpoint."""
+def start(db: str, test_mode: bool = False) -> str:
+    """Ensure a daemon for db is running and ready; return its endpoint.
+
+    test_mode starts the daemon with --test (DEBUG logging + test-only endpoints). It only takes effect if this
+    call actually launches the daemon; an already-running one is returned as is.
+    """
     create(db)
     ep = endpoint(db)
     if ep is not None and _health_ok(ep):
@@ -177,14 +182,12 @@ def start(db: str) -> str:
     log_dir = proxy_home(db) / 'logs'
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / 'daemon.log'
+    argv = [sys.executable, '-m', 'pixeltable.service.proxy_daemon']
+    if test_mode:
+        argv.append('--test')
     with open(log_path, 'a', encoding='utf-8') as log_file:
         proc = subprocess.Popen(
-            [sys.executable, '-m', 'pixeltable.service.proxy_daemon'],
-            env=env,
-            stdin=subprocess.DEVNULL,
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
+            argv, env=env, stdin=subprocess.DEVNULL, stdout=log_file, stderr=subprocess.STDOUT, start_new_session=True
         )
 
     deadline = time.monotonic() + _STARTUP_TIMEOUT
@@ -294,8 +297,10 @@ def _drop_database(db: str) -> None:
         engine.dispose()
 
 
-def _build_app() -> 'FastAPI':
+def _build_app(test_mode: bool = False) -> 'FastAPI':
     """The app served by the daemon: a /rpc endpoint running the generic dispatch and a /health endpoint.
+
+    test_mode enables the test-only endpoints.
 
     fastapi is imported here rather than at module level because it is an optional dependency, needed
     only when the daemon is actually served.
@@ -317,11 +322,13 @@ def _build_app() -> 'FastAPI':
             content=encode_body(response_json.encode(), response_parts), media_type='application/octet-stream'
         )
 
-    @app.post('/reinitialize')
-    async def reinitialize_endpoint() -> Response:
-        # _reinitialize() rebuilds the runtime, which is synchronous; keep it off the event loop
-        await run_in_threadpool(_reinitialize)
-        return Response(content='{"status": "ok"}', media_type='application/json')
+    if test_mode:
+
+        @app.post('/reinitialize')
+        async def reinitialize_endpoint() -> Response:
+            # _reinitialize() rebuilds the runtime, which is synchronous; keep it off the event loop
+            await run_in_threadpool(_reinitialize)
+            return Response(content='{"status": "ok"}', media_type='application/json')
 
     @app.get('/health')
     def health() -> dict[str, str]:
@@ -341,7 +348,7 @@ def _build_app() -> 'FastAPI':
     return app
 
 
-def _serve() -> None:
+def _serve(test_mode: bool = False) -> None:
     """Daemon entrypoint.
 
     Local mode (default): binds to a random loopback port, writes a port.lock file
@@ -350,9 +357,15 @@ def _serve() -> None:
     Fixed-address mode: when PIXELTABLE_DAEMON_HOST or PIXELTABLE_DAEMON_PORT is set,
     binds to that address and port instead and skips the lock file. Used when an
     external orchestrator (e.g. a sidecar) handles routing and discovery.
+
+    test_mode: logs at DEBUG and exposes the test-only endpoints.
     """
     # mark this process as a hosted-catalog server (no client-accessible local store) before the catalog inits
     os.environ['PIXELTABLE_PROXY_DAEMON'] = '1'
+    if test_mode:
+        # Enable verbose logging
+        for name in ('pixeltable', 'sqlalchemy.engine'):
+            logging.getLogger(name).setLevel(logging.DEBUG)
     try:
         import uvicorn
     except ModuleNotFoundError as e:
@@ -362,7 +375,7 @@ def _serve() -> None:
             'Install them with: pip install pixeltable[serve]',
         ) from e
 
-    app = _build_app()
+    app = _build_app(test_mode)
 
     # eagerly create/migrate this daemon's database before announcing readiness
     _ = get_runtime().catalog
@@ -371,9 +384,19 @@ def _serve() -> None:
     daemon_host = config.get_string_value('daemon_host')
     daemon_port = config.get_int_value('daemon_port')
 
-    log_level = (config.get_string_value('log_level') or 'info').lower()
+    log_level = 'info'
+    configured_log_level = config.get_string_value('log_level')
+    if configured_log_level is not None:
+        log_level = configured_log_level.lower()
+    elif test_mode:
+        log_level = 'debug'
+
+    # log_config=None suppresses uvicorn's own logging setup which results in closing every handler registered so far.
+    # Note: at this point, uvicorn logging has already been configured by Env.
     if daemon_host is not None or daemon_port is not None:
-        uvicorn.run(app, host=daemon_host or '127.0.0.1', port=daemon_port or 8000, log_level=log_level)
+        uvicorn.run(
+            app, host=daemon_host or '127.0.0.1', port=daemon_port or 8000, log_level=log_level, log_config=None
+        )
         return
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -391,8 +414,9 @@ def _serve() -> None:
     atexit.register(lambda: lock.unlink(missing_ok=True))
     signal.signal(signal.SIGTERM, _cleanup)
 
-    uvicorn.Server(uvicorn.Config(app, log_level='warning')).run(sockets=[sock])
+    uvicorn.Server(uvicorn.Config(app, log_level=log_level, log_config=None)).run(sockets=[sock])
 
 
 if __name__ == '__main__':
-    _serve()
+    test_mode = '--test' in sys.argv[1:]
+    _serve(test_mode=test_mode)
