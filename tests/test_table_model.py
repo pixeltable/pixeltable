@@ -53,7 +53,11 @@ class TestTableModel:
             computed_with_special_props = Column(value=(value / 3), stored=False)
             computed_with_special_props_2 = Column(value=img.rotate(90))
 
-            __indexes__ = [EmbeddingIndex(img, embedding=dummy_embedding.using(n=768), name='clip_idx')]
+            __indexes__ = [
+                BtreeIndex(id),
+                EmbeddingIndex(descr, embedding=dummy_embedding.using(n=512)),
+                EmbeddingIndex(img, embedding=dummy_embedding.using(n=768), name='clip_idx'),
+            ]
 
         expected_path = f'{p(root)}/test_table'.lstrip('/')
         if root != '':
@@ -86,6 +90,8 @@ class TestTableModel:
         )
         tbl2.add_computed_column(computed_with_special_props=(tbl2.value / 3), stored=False)
         tbl2.add_computed_column(computed_with_special_props_2=tbl2.img.rotate(90))
+        tbl2.add_btree_index(tbl2.id)
+        tbl2.add_embedding_index(tbl2.descr, embedding=dummy_embedding.using(n=512))
         tbl2.add_embedding_index(tbl2.img, idx_name='clip_idx', embedding=dummy_embedding.using(n=768))
         metadata2 = tbl2.get_metadata()
 
@@ -263,6 +269,18 @@ class TestTableModel:
                     },
                 },
                 'indexes': {
+                    'idx0': {'columns': ['id'], 'index_type': 'btree', 'name': 'idx0', 'parameters': None},
+                    'idx1': {
+                        'columns': ['descr'],
+                        'index_type': 'embedding',
+                        'name': 'idx0',
+                        'parameters': {
+                            'embedding': 'dummy_embedding(descr, n=512)',
+                            'embedding_functions': ['dummy_embedding(text, n=512)', 'dummy_embedding(img, n=512)'],
+                            'metric': 'cosine',
+                            'precision': 'fp16',
+                        },
+                    },
                     'clip_idx': {
                         'name': 'clip_idx',
                         'columns': ['img'],
@@ -273,7 +291,7 @@ class TestTableModel:
                             'embedding': 'dummy_embedding(img, n=768)',
                             'embedding_functions': ['dummy_embedding(text, n=768)', 'dummy_embedding(img, n=768)'],
                         },
-                    }
+                    },
                 },
                 'is_data_versioned': True,
                 'has_default_idxs': False,
