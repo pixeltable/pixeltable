@@ -475,6 +475,7 @@ class TableVersion:
         # Reconstruct Column and Index objects from metadata, populating all internal lookup structures.
         # Indexes are initialized in lock-step, immediately after the last column they reference is initialized.
         idxs_by_last_col_id = self._build_idxs_by_last_col_id()
+        # Indexes that do not depend on any columns of this table can be initialized right away
         self._init_visible_idxs(idxs_by_last_col_id.get(None, []))
 
         # Sort columns in column_md by the position specified in col_md.id to guarantee that all references
@@ -518,8 +519,9 @@ class TableVersion:
             if not col.is_system_col:
                 self.cols_by_name[col.name] = col
 
-            # Finally initialize the indexes for which this is the last column they reference; all of their columns
-            # now exist.
+            # Initialize the indexes for which this is the last column they reference. All columns required for these
+            # indexes have now been initialized. These indexes cannot be initialized later because some of the upcoming
+            # columns can depend on them.
             self._init_visible_idxs(idxs_by_last_col_id.get(col.id, []))
 
         # create the sqlalchemy schema, after instantiating all Columns
@@ -553,11 +555,8 @@ class TableVersion:
         """Group the indexes by the last column of this table that each one references.
 
         An index's last column is the highest id among the columns of this table it references: its value and undo
-        columns, if it has them, plus the indexed column itself if that belongs to this table. Initializing the index
-        once that last column is constructed guarantees that all of them are already in cols_by_id. Indexes that
-        reference no column of this table (e.g. an index on a base column) have no last column; they are keyed by None
-        and initialized before the columns and the other indexes.
-        """
+        columns, if it has them, plus the indexed column itself if that belongs to this table. Indexes that reference
+        no column of this table (e.g. an index on a base column) are keyed by None."""
         if not self.supports_idxs:
             return {}
 
