@@ -331,14 +331,45 @@ class TestFastAPI:
         # engine cache reuse: three export_sql routes against the same db_connect share one engine
         assert len(router._engine_cache) == 1
 
-        # each route records what it declares; there is no public accessor for that yet
-        specs = {spec.path: spec for spec in router._route_specs}
-        assert specs['/all'].route_type == ('insert' if route_type == 'insert' else 'compute')
-        assert specs['/all'].export_sql is not None and specs['/all'].export_sql.table == 'out_all'
-        assert specs['/all'].has_table_target
-        assert specs['/partial-in'].input_cols == ('id', 'str_col', 'int_col')
-        assert specs['/partial-in'].export_sql is None
-        assert specs['/partial-out'].output_cols == ('id', 'str_upper', 'int_plus1')
+        # the service definition the router amounts to, which survives being serialized
+        service = router.service_spec(name='scalars')
+        assert service['name'] == 'scalars'
+        assert service['prefix'] == ''
+        assert json.loads(json.dumps(service)) == service
+        specs = {spec['path']: spec for spec in service['routes']}
+        assert specs.keys() == {'/all', '/partial-in', '/partial-out', '/minimal', '/update'}
+        # everything the '/update' route was declared with, and nothing else
+        assert specs['/update'] == {
+            'method': 'POST',
+            'path': '/update',
+            'route_type': 'insert' if route_type == 'insert' else 'compute',
+            # a route declared against a table names the table it serves, not a model
+            'model': None,
+            'table': str(target._path()),
+            'inputs': ['id', 'str_col', 'int_col'],
+            'uploadfile_inputs': [],
+            'outputs': ['id', 'str_upper', 'int_plus1'],
+            'match_columns': [],
+            'background': False,
+            'return_fileresponse': False,
+            'one_row': False,
+            'export_sql': {'db_connect': db_connect, 'table': 'out_update', 'db_schema': None, 'method': 'update'},
+            'query': None,
+        }
+        assert specs['/all']['export_sql']['table'] == 'out_all'
+        assert specs['/partial-in']['inputs'] == ['id', 'str_col', 'int_col']
+        assert specs['/partial-in']['export_sql'] is None
+        assert specs['/partial-out']['outputs'] == ['id', 'str_upper', 'int_plus1']
+        # the recorded path is one the catalog resolves
+        assert pxt.get_table(specs['/all']['table'])._id == target._id
+        # a router with no name of its own needs one supplied
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='this router has no name'):
+            router.service_spec()
+
+        # the route resolved the target it names
+        routes = {route.spec['path']: route for route in router._routes}
+        assert routes['/all'].has_table_target
+        assert routes['/all'].tbl is not None and routes['/all'].tbl._id == target._id
 
         with make_test_client(router) as client:
             all_input = {
@@ -1182,12 +1213,19 @@ class TestFastAPI:
 
         # a query route declares a function rather than a table, so it has nothing to bind; entering the
         # client's context runs the startup handlers, which must not refuse a router of query routes alone
-        spec = next(spec for spec in router._route_specs if spec.path == '/by-id')
-        assert (spec.route_type, spec.method) == ('query', 'POST')
-        assert spec.one_row
-        assert spec.query_fn is not None and spec.query_fn.endswith('by_id')
-        assert not spec.has_table_target
-        assert (spec.tbl, spec.model_cls, spec.table_path) == (None, None, None)
+        route = next(route for route in router._routes if route.spec['path'] == '/by-id')
+        assert not route.has_table_target
+        assert (route.tbl, route.model_cls, route.table_path) == (None, None, None)
+
+        # a query route names neither a model nor a table: the tables it runs against are internal to by_id
+        spec = next(spec for spec in router.service_spec(name='docs')['routes'] if spec['path'] == '/by-id')
+        assert (spec['route_type'], spec['method']) == ('query', 'POST')
+        assert (spec['model'], spec['table']) == (None, None)
+        assert spec['query'] is not None and spec['query'].endswith('by_id')
+        assert spec['one_row']
+        # the parameters it accepts and the response fields, as frozen at declaration
+        assert spec['inputs'] == ['id']
+        assert spec['outputs'] == ['id', 'text']
         with make_test_client(router):
             pass
 
@@ -2295,10 +2333,10 @@ class TestFastAPI:
             return UplResp(thumb_url=thumb)
 
         # uploads are recorded apart from the plain inputs, and both are part of the route's contract
-        spec = next(spec for spec in router._route_specs if spec.path == '/upl')
-        assert spec.uploadfile_inputs == (('image',) if use_uploadfile else ())
-        assert spec.input_cols == ('id', 'image')
-        assert 'image' in spec.referenced_col_names()
+        route = next(route for route in router._routes if route.spec['path'] == '/upl')
+        assert route.spec['uploadfile_inputs'] == (['image'] if use_uploadfile else [])
+        assert route.spec['inputs'] == ['id', 'image']
+        assert 'image' in route.referenced_col_names()
 
         client = make_test_client(router)
 
@@ -2926,6 +2964,12 @@ class TestFastAPI:
             note_id = pxt.Column(type=pxt.Required[pxt.Int], primary_key=True)
             val: pxt.Required[pxt.Int]
             incr = add_one(val)  # noqa: F821
+            img: pxt.Image
+            thumb = img.resize(size=(8, 8))  # noqa: F821
+
+        @pxt.query
+        def note_thumb(note_id: int) -> pxt.Query:
+            return Notes.where(Notes.note_id == note_id).select(Notes.thumb)  # type: ignore[arg-type]
 
         # a model attribute is a ColumnRefByName at runtime, but a type checker sees the column's declared value
         # type, so these do not satisfy the declared argument types; the ignores go away with the mypy plugin fix
@@ -2953,7 +2997,21 @@ class TestFastAPI:
             path='/del',
             match_columns=[Notes.note_id],  # type: ignore[arg-type]
         )
+        # one query over the model, serving two routes whose responses differ
+        router.add_query_route(path='/thumb-json', query=note_thumb)
+        router.add_query_route(path='/thumb-file', query=note_thumb, return_fileresponse=True)
         client = make_test_client(router)
+
+        # the definition names the model each route was declared against, before the table exists
+        service = router.service_spec(name='notes')
+        assert json.loads(json.dumps(service)) == service
+        specs = {(spec['method'], spec['path']): spec for spec in service['routes']}
+        assert all(spec['model'] == 'notes' for spec in specs.values()), specs
+        assert all(spec['table'] is None for spec in specs.values()), specs
+        assert specs['POST', '/ins']['inputs'] == ['note_id', 'val']
+        assert specs['POST', '/del']['match_columns'] == ['note_id']
+        assert specs['POST', '/thumb-file']['return_fileresponse']
+        assert specs['POST', '/thumb-json']['query'].endswith('note_thumb')
 
         # the routes are fully described before the table exists
         schema = client.get('/openapi.json').json()
@@ -2962,6 +3020,8 @@ class TestFastAPI:
             '/del',
             '/ins',
             '/jobs/{job_id}',
+            '/thumb-file',
+            '/thumb-json',
             '/upd',
         ]
 
@@ -2972,6 +3032,15 @@ class TestFastAPI:
         assert client.post('/comp', json={'note_id': 2, 'val': 20}).json() == {'incr': 21}
         assert client.post('/upd', json={'note_id': 1, 'val': 40}).json() == {'note_id': 1, 'incr': 41}
         assert client.post('/del', json={'note_id': 1}).json() == {'num_rows': 1}
+
+        Notes.table.insert([{'note_id': 5, 'val': 50, 'img': get_image_files()[0]}])
+        # each route serves the media column the way its own response needs it
+        rows = client.post('/thumb-json', json={'note_id': 5}).json()['rows']
+        assert len(rows) == 1, rows
+        assert '/media/' in rows[0]['thumb'], rows[0]['thumb']
+        resp = client.post('/thumb-file', json={'note_id': 5})
+        assert resp.status_code == 200, resp.text
+        assert resp.headers['content-type'].startswith('image/'), resp.headers['content-type']
 
         # the contract is frozen against the schema seen at bind time
         Notes.table.add_column(extra=pxt.String)
@@ -3002,6 +3071,13 @@ class TestFastAPI:
         class BigNotes(TableModel, name='big_notes', base=Notes.where(Notes.val > 10)):
             doubled = Notes.val * 2
 
+        # a route on a prefixed router declares its path relative to the prefix, which is recorded once
+        prefixed = FastAPIRouter(name='ingest', prefix='/v1')
+        prefixed.add_insert_route(Notes, path='/ins')
+        service = prefixed.service_spec()
+        assert service['name'] == 'ingest'  # the name the router was constructed with
+        assert (service['prefix'], service['routes'][0]['path']) == ('/v1', '/ins')
+
         router = FastAPIRouter()
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="unknown column 'nosuchcol'"):
             router.add_delete_route(Notes, path='/e', match_columns=['nosuchcol'])
@@ -3012,16 +3088,23 @@ class TestFastAPI:
             router.add_delete_route(BigNotes, path='/e')
 
         # serving a route whose router was never bound names the route and its model
+        @pxt.query
+        def all_notes() -> pxt.Query:
+            return Notes.select(Notes.val)
+
         router.add_insert_route(Notes, path='/ins')
+        router.add_query_route(path='/q', query=all_notes)
         client = make_test_client(router)
-        resp = client.post('/ins', json={'note_id': 1, 'val': 10})
-        assert resp.status_code == 503, resp.text
-        assert 'has not been bound' in resp.json()['detail']
-        assert '`Notes`' in resp.json()['detail']
+        for path, body in (('/ins', {'note_id': 1, 'val': 10}), ('/q', {})):
+            resp = client.post(path, json=body)
+            assert resp.status_code == 503, resp.text
+            assert 'has not been bound' in resp.json()['detail']
+            assert '`Notes`' in resp.json()['detail']
 
         TableModel.create_all(p(''))
         router.bind(p(''))
         assert client.post('/ins', json={'note_id': 1, 'val': 10}).status_code == 200
+        assert client.post('/q', json={}).json() == {'rows': [{'val': 10}]}
 
     def test_view_model_target(self, make_catalog_path: Callable[[str], str]) -> None:
         """A compute route can be declared against a view model before either table exists."""
@@ -3071,17 +3154,22 @@ class TestFastAPI:
             val: pxt.Required[pxt.Int]
             note: pxt.String
 
+        @pxt.query
+        def notes_by_val(min_val: int) -> pxt.Query:
+            return Notes.where(Notes.val > min_val).select(Notes.note)  # type: ignore[arg-type]
+
         router = FastAPIRouter()
         router.add_insert_route(Notes, path='/ins', inputs=['note_id', 'val', 'note'], outputs=['note_id'])
+        router.add_query_route(path='/q', query=notes_by_val)
 
-        # before the table exists, the route is blocked on a schema change, and the diff says which command
+        # before the table exists, every route is blocked on a schema change, and the diff says which command
         ops = router.get_service_diff(p(''))
-        assert len(ops) == 1, ops
-        assert ops[0]['target'] == 'route'
-        assert ops[0]['name'] == 'POST /ins'
-        assert ops[0]['severity'] == 'blocked'
-        assert "table 'notes' does not exist" in ops[0]['description']
-        assert ops[0]['details']['command'].startswith('pxt schema update')
+        assert len(ops) == 2, ops
+        assert {op['name'] for op in ops} == {'POST /ins', 'POST /q'}
+        assert all(op['target'] == 'route' for op in ops)
+        assert all(op['severity'] == 'blocked' for op in ops)
+        assert all("table 'notes' does not exist" in op['description'] for op in ops)
+        assert all(op['details']['command'].startswith('pxt schema update') for op in ops)
 
         with pxt_raises(pxt.ErrorCode.SCHEMA_MISMATCH, match="table 'notes' does not exist"):
             router.bind(p(''))
@@ -3095,8 +3183,10 @@ class TestFastAPI:
         TableModel.create_all(p(''))
         assert router.get_service_diff(p('')) == []
         router.bind(p(''))
-        resp = make_test_client(router).post('/ins', json={'note_id': 1, 'val': 10, 'note': 'hi'})
+        client = make_test_client(router)
+        resp = client.post('/ins', json={'note_id': 1, 'val': 10, 'note': 'hi'})
         assert resp.status_code == 200, resp.text
+        assert client.post('/q', json={'min_val': 1}).json() == {'rows': [{'note': 'hi'}]}
 
         # binding is to one place: a second target would silently retarget the routes already being served
         with pxt_raises(pxt.ErrorCode.ALREADY_BOUND, match='already bound'):
@@ -3105,16 +3195,18 @@ class TestFastAPI:
         # a diff against another target reports what is there, rather than raising over the existing binding
         pxt.create_dir(p('elsewhere'))
         ops = router.get_service_diff(p('elsewhere'))
-        assert len(ops) == 1, ops
-        assert "table 'notes' does not exist" in ops[0]['description']
+        assert len(ops) == 2, ops
+        assert all("table 'notes' does not exist" in op['description'] for op in ops)
 
         # a column the route names, dropped from the table, blocks it; one it does not name is ignored
         Notes.table.add_column(unrelated=pxt.String)
         assert router.get_service_diff(p('')) == []
+        # 'note' is named by the insert route's request and by what the query route's query selects
         Notes.table.drop_column('note')
         ops = router.get_service_diff(p(''))
-        assert len(ops) == 1, ops
-        assert "has no column 'note'" in ops[0]['description']
+        assert len(ops) == 2, ops
+        assert {op['name'] for op in ops} == {'POST /ins', 'POST /q'}
+        assert all("'notes' has no column 'note'" in op['description'] for op in ops)
 
     def test_bind_table_targets(self, make_catalog_path: Callable[[str], str]) -> None:
         """A route declared against a Table needs no binding: it already names the table it serves."""

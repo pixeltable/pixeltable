@@ -7,6 +7,7 @@ from typing import Any
 from pixeltable.config import SqlExport
 
 from ._diff import ServiceChangeOp, Severity
+from ._spec import RouteSpec, ServiceSpec
 
 try:
     from ._fastapi import FastAPIRouter
@@ -19,4 +20,4 @@ except ImportError:
             )
 
 
-__all__ = ['FastAPIRouter', 'ServiceChangeOp', 'Severity', 'SqlExport']
+__all__ = ['FastAPIRouter', 'RouteSpec', 'ServiceChangeOp', 'ServiceSpec', 'Severity', 'SqlExport']

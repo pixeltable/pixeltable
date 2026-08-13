@@ -33,6 +33,31 @@ class ModelQuery(pxt.Query):
         """A query over everything model_cls declares."""
         return cls(from_clause=FromClause(tbls=[model_cls.table_path()]))
 
+    @property
+    def _effective_select_list(self) -> list[tuple[exprs.Expr, str]]:
+        """The select list with an implicit `select *` expanded, as references to the model's columns by name."""
+        if self.select_list is not None:
+            return super()._effective_select_list
+        declared_path = self._from_clause.tbls[0]
+        return [
+            (ColumnRefByName(col_md.name, col_md.col_type), col_md.name)
+            for col_md in declared_path.column_md()
+            if col_md.name is not None
+        ]
+
+    def referenced_column_names(self) -> set[str]:
+        """The names of the model columns this query references, across all of its clauses."""
+        all_exprs = [*(e for e, _ in self._effective_select_list), *self._component_exprs()]
+        result = {e.name for expr in all_exprs for e in expr.subexprs(ColumnRefByName)}
+        # a similarity expression identifies the column it is indexed on, rather than referencing it by name
+        declared_path = self._from_clause.tbls[0]
+        for sim in (s for expr in all_exprs for s in expr.subexprs(exprs.SimilarityExpr)):
+            assert sim.qcol_id is not None
+            col_name = declared_path.get_column_md(sim.qcol_id).name
+            assert col_name is not None
+            result.add(col_name)
+        return result
+
     def validate(self, model_name: str) -> None:
         """Validate that this query can be used to define a view."""
         from ..view import View
