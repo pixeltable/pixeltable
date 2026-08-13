@@ -20,6 +20,9 @@ SVC_POLL_INTERVAL = 5
 SVC_POLL_TIMEOUT = 300
 RUNTIME_POLL_INTERVAL = 10
 RUNTIME_POLL_TIMEOUT = 900
+# cluster provisioning takes ~2-4 min; a size resize plus its parameter retune can run ~10 min
+CLUSTER_POLL_INTERVAL = 10
+CLUSTER_POLL_TIMEOUT = 1200
 
 
 def parse_db_uri(uri: str, prog: str = 'pxt') -> tuple[str, str]:
@@ -115,8 +118,10 @@ def print_db(db: dict[str, Any]) -> None:
     state = db.get('state', '')
     location = db.get('location', '')
     region = db.get('region', '')
+    cluster = db.get('cluster') or ''
+    cluster_str = f'cluster={cluster}  ' if cluster else ''
     endpoint = db.get('endpoint') or ''
-    print(f'{name}  state={state}  {location}/{region}  {endpoint}'.rstrip())
+    print(f'{name}  state={state}  {cluster_str}{location}/{region}  {endpoint}'.rstrip())
     _print_workers(db.get('workers') or [])
 
 
@@ -224,6 +229,29 @@ def poll_db(org: str, db: str, pending_states: set[str], label: str | None) -> d
     return poll_state(
         '/api/db', {'org': org, 'db': db}, 'database', pending_states, DB_POLL_INTERVAL, DB_POLL_TIMEOUT, label
     )
+
+
+def poll_cluster(org: str, cluster: str, pending_states: set[str], label: str | None) -> dict[str, Any]:
+    """Poll a db cluster until its state leaves pending_states."""
+    return poll_state(
+        '/api/cluster',
+        {'org': org, 'cluster': cluster},
+        'cluster',
+        pending_states,
+        CLUSTER_POLL_INTERVAL,
+        CLUSTER_POLL_TIMEOUT,
+        label,
+    )
+
+
+def print_cluster(cluster: dict[str, Any]) -> None:
+    name = cluster.get('name', '')
+    state = cluster.get('state', '')
+    size = cluster.get('size', '')
+    region = cluster.get('region', '')
+    databases = cluster.get('database_count', 0)
+    max_databases = cluster.get('max_databases', 0)
+    print(f'{name}  state={state}  size={size}  region={region}  databases={databases}/{max_databases}')
 
 
 def poll_svc(org: str, db: str, svc_name: str, pending_states: set[str], label: str | None) -> dict[str, Any]:

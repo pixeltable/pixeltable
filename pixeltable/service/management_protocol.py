@@ -34,6 +34,12 @@ class ServiceOperationType(str, Enum):
     UPDATE_RUNTIME = 'update_runtime'
     GET_BUNDLE_UPLOAD_URL = 'get_bundle_upload_url'
 
+    CREATE_DB_CLUSTER = 'create_db_cluster'
+    GET_DB_CLUSTER = 'get_db_cluster'
+    LIST_DB_CLUSTERS = 'list_db_clusters'
+    UPDATE_DB_CLUSTER = 'update_db_cluster'
+    DELETE_DB_CLUSTER = 'delete_db_cluster'
+
     LIST_ORGS = 'list_orgs'
 
     SET_SECRET = 'set_secret'
@@ -69,6 +75,7 @@ class CreateDbRequest(BaseModel):
     db_name: Optional[str] = None
     location: Optional[str] = None
     region: Optional[str] = None
+    cluster: Optional[str] = None  # dedicated db cluster to place the database on (paid orgs)
     cpu: float = 0.5
     memory_mb: int = 512
     disk_gb: int = 10
@@ -136,6 +143,47 @@ class GetBundleUploadUrlRequest(BaseModel):
 class GetBundleUploadUrlResponse(BaseModel):
     presigned_url: str
     bundle_s3_key: str
+
+
+# Db clusters (dedicated PlanetScale clusters owned by paid orgs; databases are placed on them)
+
+
+class CreateDbClusterRequest(BaseModel):
+    operation_type: Literal[ServiceOperationType.CREATE_DB_CLUSTER] = ServiceOperationType.CREATE_DB_CLUSTER
+    org: Optional[str] = None
+    cluster: str
+    size: str  # PlanetScale cluster size, e.g. 'PS_10', 'PS_80'
+    region: Optional[str] = None
+
+    @field_validator('cluster')
+    @classmethod
+    def _validate_cluster_name(cls, value: str) -> str:
+        return _validate_hosted_name(value, 'Cluster name')
+
+
+class GetDbClusterRequest(BaseModel):
+    operation_type: Literal[ServiceOperationType.GET_DB_CLUSTER] = ServiceOperationType.GET_DB_CLUSTER
+    org: Optional[str] = None
+    cluster: str
+
+
+class ListDbClustersRequest(BaseModel):
+    operation_type: Literal[ServiceOperationType.LIST_DB_CLUSTERS] = ServiceOperationType.LIST_DB_CLUSTERS
+    org: Optional[str] = None
+
+
+class UpdateDbClusterRequest(BaseModel):
+    operation_type: Literal[ServiceOperationType.UPDATE_DB_CLUSTER] = ServiceOperationType.UPDATE_DB_CLUSTER
+    org: Optional[str] = None
+    cluster: str
+    size: str  # target PlanetScale cluster size
+
+
+class DeleteDbClusterRequest(BaseModel):
+    operation_type: Literal[ServiceOperationType.DELETE_DB_CLUSTER] = ServiceOperationType.DELETE_DB_CLUSTER
+    org: Optional[str] = None
+    cluster: str
+    force: bool = False  # also delete every database on the cluster
 
 
 # Secrets

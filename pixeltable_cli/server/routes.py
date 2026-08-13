@@ -16,13 +16,17 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.service import management_client
 from pixeltable.service.management_protocol import (
+    CreateDbClusterRequest,
     CreateDbRequest,
     CreateServiceRequest,
+    DeleteDbClusterRequest,
     DeleteDbRequest,
     DeleteServiceRequest,
     GetBundleUploadUrlRequest,
+    GetDbClusterRequest,
     GetDbRequest,
     GetServiceRequest,
+    ListDbClustersRequest,
     ListDbRequest,
     ListOrgsRequest,
     ListServicesRequest,
@@ -30,6 +34,7 @@ from pixeltable.service.management_protocol import (
     StartServiceRequest,
     StopDbRequest,
     StopServiceRequest,
+    UpdateDbClusterRequest,
     UpdateDbRequest,
     UpdateRuntimeRequest,
     UpdateServiceRequest,
@@ -749,6 +754,33 @@ def get_upload_url(req: Request) -> dict[str, Any]:
 @router.post('/api/db/update-runtime')
 def trigger_runtime_update(req: Request) -> dict[str, Any]:
     return management_client.api_call(req.body(UpdateRuntimeRequest))
+
+
+@router.get('/api/clusters')
+def list_db_clusters(req: Request) -> dict[str, Any]:
+    return management_client.api_call(ListDbClustersRequest(org=req.required_query_str('org')))
+
+
+@router.post('/api/clusters')
+def create_db_cluster(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(CreateDbClusterRequest))
+
+
+@router.get('/api/cluster')
+def get_db_cluster(req: Request) -> dict[str, Any]:
+    return management_client.api_call(
+        GetDbClusterRequest(org=req.required_query_str('org'), cluster=req.required_query_str('cluster'))
+    )
+
+
+@router.post('/api/cluster/update')
+def update_db_cluster(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(UpdateDbClusterRequest))
+
+
+@router.post('/api/cluster/delete')
+def delete_db_cluster(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(DeleteDbClusterRequest))
 
 
 @router.get('/api/services')
