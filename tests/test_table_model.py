@@ -273,7 +273,7 @@ class TestTableModel:
                     'idx1': {
                         'columns': ['descr'],
                         'index_type': 'embedding',
-                        'name': 'idx0',
+                        'name': 'idx1',
                         'parameters': {
                             'embedding': 'dummy_embedding(descr, n=512)',
                             'embedding_functions': ['dummy_embedding(text, n=512)', 'dummy_embedding(img, n=512)'],
@@ -1249,7 +1249,7 @@ class TestTableModel:
                     },
                     {
                         'description': "named index 'idx3' has altered properties",
-                        'details': {},
+                        'details': {'on': 'image'},
                         'existing': {
                             'columns': ['image'],
                             'index_type': 'embedding',
@@ -1289,7 +1289,7 @@ class TestTableModel:
                         'model': None,
                         'existing': None,
                         'description': "index 'idx2' will be dropped",
-                        'details': {},
+                        'details': {'on': 'image'},
                     },
                 ],
             },

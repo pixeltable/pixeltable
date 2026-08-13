@@ -703,7 +703,7 @@ def _plan_op(op: model.SchemaChangeOp) -> schema_types.SchemaChangeOp:
         'op': op['op'],
         'severity': op['severity'],
         'description': op['description'],
-        'details': op['details'],
+        'details': op['details'],  # type: ignore[typeddict-item]
         'destructive': op['severity'] == 'destructive',
     }
 

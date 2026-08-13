@@ -1106,6 +1106,12 @@ def prepare_model_updates(
     return resolved_cols, resolved_idxs
 
 
+class SchemaChangeOpDetails(TypedDict, total=False):
+    type: str
+    value: str
+    on: str
+
+
 class SchemaChangeOp(TypedDict):
     """
     A single schema change operation (eg, add column, drop column, etc).
@@ -1129,7 +1135,7 @@ class SchemaChangeOp(TypedDict):
 
     # the change's operands, rendered as strings so they survive serialization: 'type' or 'value' for a column add,
     # 'on' for an index add. Empty when the change has no operand beyond name.
-    details: dict[str, str]
+    details: SchemaChangeOpDetails
 
 
 # Mirrored by pixeltable_cli.schema_types.DiffResolution; a value added here has to be added there too
@@ -1290,7 +1296,7 @@ def _format_column_spec(spec: ColumnSpec) -> str:
 
 
 def _add_column_change(col_name: str, spec: ColumnSpec) -> SchemaChangeOp:
-    details = {'type': _col_type_from_spec(spec)._to_str(as_schema=True)}
+    details: SchemaChangeOpDetails = {'type': _col_type_from_spec(spec)._to_str(as_schema=True)}
     value = spec.get('value')
     if value is not None:
         details['value'] = exprs.Expr.from_object(value).display_str(inline=False)
