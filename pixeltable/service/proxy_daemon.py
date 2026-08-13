@@ -40,9 +40,6 @@ from .proxy_protocol import decode_body, encode_body
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
-# Logger name is spelled out because __name__ is '__main__'
-_logger = logging.getLogger('pixeltable.service.proxy_daemon')
-
 _LOCK_NAME = 'port.lock'
 _STARTUP_TIMEOUT = 60.0  # generous: the daemon creates/migrates its db on first init
 _STOP_TIMEOUT = 10.0
