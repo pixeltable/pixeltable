@@ -1814,6 +1814,24 @@ class TestTableModel:
                 plus = id + 2
 
         with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA, match=r'model `IndexesNotSequence`: `__indexes__` must be a sequence of'
+        ):
+
+            class IndexesNotSequence(TableModel, name='indexes_not_sequence'):
+                id: pxt.Int
+
+                __indexes__ = 170
+
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA, match=r'model `InvalidIndex`: `__indexes__` must be a sequence of'
+        ):
+
+            class InvalidIndex(TableModel, name='invalid_index'):
+                id: pxt.Int
+
+                __indexes__ = [BtreeIndex(id), 'a string is definitely not an index']
+
+        with pxt_raises(
             pxt.ErrorCode.INVALID_SCHEMA, match=r"model `DuplicateBtreeIndex`: multiple B-tree indexes for column 'id'."
         ):
 
