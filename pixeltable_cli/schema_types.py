@@ -21,8 +21,9 @@ class SchemaChangeOp(_Status):
 
     target: Literal['column', 'index', 'table']
 
-    # column name, index name, the differing attribute for an alter of a table, or the path for a drop of one
-    name: str
+    # column name, index name, the differing attribute for an alter of a table, or the path for a drop of one.
+    # None for an index that carries no name.
+    name: str | None
 
     op: Literal['add', 'drop', 'alter']
     severity: Literal['additive', 'destructive', 'unsupported']
