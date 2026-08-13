@@ -936,7 +936,7 @@ class TestQuery:
 
     @pytest.mark.local('exports a COCO dataset to the local filesystem')
     def test_to_coco(self, uses_db: None) -> None:
-        skip_test_if_not_installed('pycocotools')
+        pytest.importorskip('pycocotools')
         from pycocotools.coco import COCO
 
         image_files = get_image_files()[:5]
