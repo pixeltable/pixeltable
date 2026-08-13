@@ -1056,7 +1056,7 @@ class TestTableModel:
                 'name'
                 'value'
               the following indexes are new to the model, and will be ADDED:
-                'idx3' = EmbeddingIndex(column=image, embedding=dummy_embedding(text, n=256))
+                EmbeddingIndex(column=image, embedding=dummy_embedding(text, n=256), name='idx3')
               the following indexes are no longer in the model, and will be DROPPED:
                 'idx2'
             View 'test_view' (from model `ExampleViewV2`) has differences:
@@ -1107,6 +1107,11 @@ class TestTableModel:
         without_identity = {
             name: {k: v for k, v in d.items() if k not in ('tbl_id', 'schema_versions')} for name, d in diffs.items()
         }
+        for d in without_identity.values():
+            for op in d['ops']:
+                if op['target'] == 'index':
+                    # stringify for comparison
+                    op['model'] = str(op['model']) if op['model'] is not None else None
         assert without_identity == {
             'test_table': {
                 'path': p('test_table'),
@@ -1222,9 +1227,9 @@ class TestTableModel:
                         'name': 'idx3',
                         'op': 'add',
                         'severity': 'additive',
-                        'model': 'EmbeddingIndex(column=image, embedding=dummy_embedding(text, n=256))',
+                        'model': "EmbeddingIndex(column=image, embedding=dummy_embedding(text, n=256), name='idx3')",
                         'existing': None,
-                        'description': "index 'idx3' will be added",
+                        'description': "EmbeddingIndex 'idx3' will be added",
                         'details': {'on': 'image'},
                     },
                     {
@@ -1792,12 +1797,13 @@ class TestTableModel:
             RefsOutOfScope._create(p(''))
 
         # rejected by the class definition itself, before _create() is ever reached
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'cannot combine has_default_idxs'):
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'cannot combine `has_default_idxs=True`'):
 
             class DefaultsPlusBtree(TableModel, name='defaults_plus_btree_table', has_default_idxs=True):
                 id: pxt.Required[pxt.Int]
                 name: pxt.String
-                name_idx = BtreeIndex(name)
+
+                __indexes__ = [BtreeIndex(name)]
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"Column 'plus': duplicate definition"):
 
@@ -1806,7 +1812,9 @@ class TestTableModel:
                 plus = id + 1
                 plus = id + 2
 
-        with pxt.raises(pxt.ErrorCode.INVALID_SCHEMA, match='zarg'):
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_SCHEMA, match=r"model `DuplicateBtreeIndex`: multiple B-tree indexes for column 'id'."
+        ):
 
             class DuplicateBtreeIndex(TableModel, name='duplicate_btree_index'):
                 id: pxt.Required[pxt.Int]
@@ -1816,14 +1824,31 @@ class TestTableModel:
 
                 __indexes__ = [BtreeIndex(id), BtreeIndex(id)]
 
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"Index 'dup_idx': duplicate definition"):
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA,
+            match=r"model `UnnamedEmbeddingIndexes`: column 'text' has multiple embedding indexes; "
+            'they must be given explicit names',
+        ):
 
-            class DuplicateIndex(TableModel, name='duplicate_index'):
+            class UnnamedEmbeddingIndexes(TableModel, name='unnamed_embedding_indexes'):
+                text: pxt.String
+
+                __indexes__ = [
+                    EmbeddingIndex(text, embedding=dummy_embedding.using(n=768)),
+                    EmbeddingIndex(text, embedding=dummy_embedding.using(n=1024)),
+                ]
+
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA, match=r'model `DuplicateNamedIndex`: index names must be unique'
+        ):
+
+            class DuplicateNamedIndex(TableModel, name='duplicate_named_index'):
+                text: pxt.String
                 img: pxt.Image
 
                 __indexes__ = [
-                    EmbeddingIndex(img, embedding=dummy_embedding.using(n=768), name='dup_idx'),
-                    EmbeddingIndex(img, embedding=dummy_embedding.using(n=768), name='dup_idx'),
+                    EmbeddingIndex(text, embedding=dummy_embedding.using(n=768), name='dup_idx_name'),
+                    EmbeddingIndex(img, embedding=dummy_embedding.using(n=768), name='dup_idx_name'),
                 ]
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"Column 'bad': invalid value"):

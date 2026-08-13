@@ -597,15 +597,17 @@ class TableModelMeta(type):
                 f'model `{cls_name}`: cannot combine `has_default_idxs=True` with explicitly declared B-tree '
                 f'index(es); eligible columns are indexed automatically.',
             )
-        idxs_by_col = itertools.groupby(known_idxs, key=lambda idx: idx.column.name)
-        for col_name, idxs in idxs_by_col:
-            btree_idxs = [idx for idx in idxs if isinstance(idx, BtreeIndex)]
-            embedding_idxs = [idx for idx in idxs if isinstance(idx, EmbeddingIndex)]
+        all_indexed_cols = {idx.column.name for idx in known_idxs}
+        for col_name in all_indexed_cols:
+            btree_idxs = [idx for idx in known_idxs if isinstance(idx, BtreeIndex) and idx.column.name == col_name]
             if len(btree_idxs) > 1:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
                     f'model `{cls_name}`: multiple B-tree indexes for column {col_name!r}.',
                 )
+            embedding_idxs = [
+                idx for idx in known_idxs if isinstance(idx, EmbeddingIndex) and idx.column.name == col_name
+            ]
             if len(embedding_idxs) > 1:
                 if any(idx.name is None for idx in embedding_idxs):
                     raise excs.RequestError(
@@ -613,14 +615,9 @@ class TableModelMeta(type):
                         f'model `{cls_name}`: column {col_name!r} has multiple embedding indexes; they must be '
                         'given explicit names',
                     )
-                # Check for duplicate names
-                names = [idx.name for idx in embedding_idxs]
-                if len(names) != len(set(names)):
-                    raise excs.RequestError(
-                        excs.ErrorCode.INVALID_SCHEMA,
-                        f'model `{cls_name}`: column {col_name!r} has multiple embedding indexes; '
-                        'their names must be distinct',
-                    )
+        all_index_names = [idx.name for idx in known_idxs if isinstance(idx, EmbeddingIndex) and idx.name is not None]
+        if len(all_index_names) != len(set(all_index_names)):
+            raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'model `{cls_name}`: index names must be unique')
 
     def __new__(
         mcs, cls_name: str, bases: tuple[type, ...], namespace: dict[str, Any], **kwargs: Any
@@ -1522,7 +1519,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                                     severity='unsupported',
                                     model=idx,
                                     existing=idx_md,
-                                    description=f'index {idx.name!r} has altered properties',
+                                    description=f'named index {idx.name!r} has altered properties',
                                     details={},
                                 )
                             )
@@ -1634,13 +1631,19 @@ def _format_diff(name: str, diff: TableDiff) -> list[str]:
     if len(new_idxs) > 0:
         detail.append('  the following indexes are new to the model, and will be ADDED:')
         for c in new_idxs:
-            detail.append(f'    {c["name"]!r} = {c["model"]}')
+            detail.append(f'    {c["model"]}')
 
     dropped_idxs = by('index', op='drop')
     if len(dropped_idxs) > 0:
         detail.append('  the following indexes are no longer in the model, and will be DROPPED:')
         for c in dropped_idxs:
             detail.append(f'    {c["name"]!r}')
+
+    changed_idxs = by('index', op='alter')
+    if len(changed_idxs) > 0:
+        detail.append('  the following named indexes have altered properties (FATAL):')
+        for c in changed_idxs:
+            detail.append(f'    {c["name"]!r}: model={c["model"]}, existing={c["existing"]}')
 
     return [f'{kind.capitalize()} {name!r} (from model `{diff["model_cls"]}`) has differences:', *detail]
 
