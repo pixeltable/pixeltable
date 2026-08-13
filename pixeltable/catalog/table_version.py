@@ -476,7 +476,7 @@ class TableVersion:
         # Indexes are initialized in lock-step, immediately after the last column they reference is initialized.
         idxs_by_last_col_id = self._build_idxs_by_last_col_id()
         # Indexes that do not depend on any columns of this table can be initialized right away
-        self._init_visible_idxs(idxs_by_last_col_id.get(None, []))
+        self._init_idxs(idxs_by_last_col_id.get(None, []))
 
         # Sort columns in column_md by the position specified in col_md.id to guarantee that all references
         # point backward.
@@ -522,7 +522,7 @@ class TableVersion:
             # Initialize the indexes for which this is the last column they reference. All columns required for these
             # indexes have now been initialized. These indexes cannot be initialized later because some of the upcoming
             # columns can depend on them.
-            self._init_visible_idxs(idxs_by_last_col_id.get(col.id, []))
+            self._init_idxs(idxs_by_last_col_id.get(col.id, []))
 
         # create the sqlalchemy schema, after instantiating all Columns
         if self.is_component_view:
@@ -572,7 +572,7 @@ class TableVersion:
 
         return idxs_by_last_col_id
 
-    def _init_visible_idxs(self, idxs: list[tuple[index.IndexBase, schema.IndexMd]]) -> None:
+    def _init_idxs(self, idxs: list[tuple[index.IndexBase, schema.IndexMd]]) -> None:
         """Initialize those of idxs that are visible in the current schema version."""
         for idx, idx_md in idxs:
             if idx_md.is_visible_in_version(self.schema_version):
