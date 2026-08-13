@@ -178,7 +178,7 @@ class LocalTable(Table):
             name=self._name(),
             path=str(self._path()),
             columns=column_info,
-            indices=index_info,
+            indexes=index_info,
             is_data_versioned=tv.is_data_versioned,
             has_default_idxs=has_default_idxs,
             is_view=False,

@@ -1468,7 +1468,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                 )
 
             model_idxs = model.__indexes__
-            existing_idxs = list(existing_md['indices'].values())
+            existing_idxs = list(existing_md['indexes'].values())
 
             if model_default_idxs or existing_default_idxs:
                 # If has_default_idxs is declared, then we don't need to compare B-tree indexes, since B-tree index

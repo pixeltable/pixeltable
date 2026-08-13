@@ -262,7 +262,7 @@ class TestTableModel:
                         'destination': None,
                     },
                 },
-                'indices': {
+                'indexes': {
                     'clip_idx': {
                         'name': 'clip_idx',
                         'columns': ['img'],
@@ -777,7 +777,7 @@ class TestTableModel:
         TableModel.create_all(p(''))
         ExampleTableModel.insert([{'id': 1, 'doc_text': 'One sentence. Two sentence.'}])
 
-        idx_md = ExampleViewModel.get_metadata()['indices']['ix']
+        idx_md = ExampleViewModel.get_metadata()['indexes']['ix']
         assert idx_md['columns'] == ['text']
         assert idx_md['index_type'] == 'embedding'
         view = ExampleViewModel.table
@@ -811,7 +811,7 @@ class TestTableModel:
         view = ExampleViewModel.table
         assert view.columns() == ['pos', 'text', 'id']
         assert [r['text'] for r in view.order_by(view.pos).collect()] == ['One sentence.', 'Two sentence.']
-        idx_md = ExampleViewModel.get_metadata()['indices']['ix']
+        idx_md = ExampleViewModel.get_metadata()['indexes']['ix']
         assert idx_md['columns'] == ['text']
         sim = view.text.similarity(string='One sentence.')
         assert len(view.order_by(sim, asc=False).limit(1).collect()) == 1
@@ -1523,9 +1523,9 @@ class TestTableModel:
         tbl_md = ExampleTableV2.get_metadata()
         assert 'plus_ten' in tbl_md['columns']
         assert 'note' in tbl_md['columns']
-        assert set(tbl_md['indices'].keys()) == {'embed_a', 'embed_b', 'embed_c', 'idx0'}
-        assert tbl_md['indices']['idx0']['index_type'] == 'btree'
-        assert tbl_md['indices']['idx0']['columns'] == ['id']
+        assert set(tbl_md['indexes'].keys()) == {'embed_a', 'embed_b', 'embed_c', 'idx0'}
+        assert tbl_md['indexes']['idx0']['index_type'] == 'btree'
+        assert tbl_md['indexes']['idx0']['columns'] == ['id']
         assert 'vc2' in ExampleViewV2.get_metadata()['columns']
 
         # The new computed column is backfilled for the existing rows.
@@ -1573,7 +1573,7 @@ class TestTableModel:
         tbl_md = ExampleTableV3.get_metadata()
         assert {'doubled', 'label'} <= set(tbl_md['columns'].keys())
         assert not ({'plus_ten', 'note'} & set(tbl_md['columns'].keys()))
-        assert set(tbl_md['indices'].keys()) == {'embed_b'}
+        assert set(tbl_md['indexes'].keys()) == {'embed_b'}
         view_md = ExampleViewV3.get_metadata()
         assert 'vc3' in view_md['columns'] and 'vc1' not in view_md['columns']
 

@@ -864,7 +864,7 @@ class TestConcurrentModelUpdate:
             _run_with_concurrent_apply(lambda: TM2.update_all(ROOT), concurrent)
         md = pxt.get_table('test_table').get_metadata()
         assert 'x' not in md['columns']
-        assert 'ix' in md['indices']
+        assert 'ix' in md['indexes']
 
     # ---------------------------------------------------------------------------------------------------------------
     # Group E: genuine-race stress (no fault injection).

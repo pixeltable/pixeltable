@@ -69,9 +69,13 @@ class Docs(TableModel, name='docs'):
     summary = pxtf.string.slice(body, 0, 80)
 
     # an embedding index makes a column searchable by similarity
-    body_idx = pxt.EmbeddingIndex(
-        body, embedding=pxtf.huggingface.sentence_transformer.using(model_id='intfloat/e5-large-v2')
-    )
+    __indexes__ = [
+        pxt.EmbeddingIndex(
+            body,
+            embedding=pxtf.huggingface.sentence_transformer.using(model_id='intfloat/e5-large-v2'),
+            name='body_idx',
+        )
+    ]
 
 
 class Recordings(TableModel, name='recordings'):
