@@ -782,7 +782,6 @@ class Env:
         self.__register_package('pydantic')
         self.__register_package('pyiceberg')
         self.__register_package('replicate')
-        self.__register_package('reve')
         self.__register_package('runwayml')
         self.__register_package('scenedetect')
         self.__register_package('sentencepiece')
