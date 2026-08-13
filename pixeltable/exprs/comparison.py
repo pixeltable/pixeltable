@@ -93,12 +93,9 @@ class Comparison(Expr):
             # indices don't apply to snapshots
             tbl = col.get_tbl()
             idx_info = None if tbl.is_snapshot else tbl.find_btree_index(col)
-            if idx_info is not None:
-                if idx_info.val_col is None:
-                    # No index value column, the store index is on the indexed column itself
-                    left = col.sa_col
-                elif self._can_use_index_value_col():
-                    left = idx_info.val_col.sa_col
+            # Use the index's value column when possible
+            if idx_info is not None and idx_info.val_col is not None and self._can_use_index_value_col():
+                left = idx_info.val_col.sa_col
 
         right = sql_elements.get(self._op2)
         if left is None or right is None:
