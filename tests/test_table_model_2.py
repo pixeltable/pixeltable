@@ -43,7 +43,7 @@ class TestTableModel2:
             computed_with_special_props = Column(value=(value / 3), stored=False)
             computed_with_special_props_2 = Column(value=img.rotate(90))
 
-            __indexes__ = [EmbeddingIndex(img, embedding=dummy_embedding.using(n=768), name='clip_idx')]
+            __indexes__ = [EmbeddingIndex(img, embedding=dummy_embedding.using(n=768), name='clip_idx')]  # noqa: RUF012
 
         expected_path = f'{p("")}/test_table'.lstrip('/')
 

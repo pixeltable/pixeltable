@@ -1,6 +1,7 @@
 # ruff: noqa: F821
 # ruff: noqa: N806
 # ruff: noqa: E731
+# ruff: noqa: RUF012
 
 from __future__ import annotations
 

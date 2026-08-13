@@ -1325,8 +1325,6 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                 # The table does not yet exist; every column and index is an addition.
                 ops = [_add_column_change(col_name, user_cols[col_name]) for col_name in sorted(model_cols)]
                 ops += [_add_index_change(idx) for idx in model.__indexes__]
-                print('========')
-                print(ops)
                 results[name] = TableDiff(
                     path=bound_path,
                     model_cls=model.__name__,
@@ -1476,7 +1474,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                 model_idxs = [idx for idx in model_idxs if not isinstance(idx, BtreeIndex)]
                 existing_idxs = [idx_md for idx_md in existing_idxs if idx_md['index_type'] != 'btree']
 
-            # Diff the indices. We first scan through `model_idxs` looking for matches in `existing_idxs`, removing
+            # Diff the indexes. We first scan through `model_idxs` looking for matches in `existing_idxs`, removing
             # those matches as we find them. Anything left over in `existing_idxs` is flagged for removal.
             # TODO: The IndexMetadata structure technically allows for multicol indexes, but they're not supported yet;
             #     here we assume a single column
