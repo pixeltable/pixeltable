@@ -619,6 +619,11 @@ class TableModelMeta(type):
                     excs.ErrorCode.INVALID_SCHEMA,
                     f'model `{cls_name}`: Invalid {type(idx).__name__} column reference: {idx.column!r}',
                 )
+            if isinstance(idx, EmbeddingIndex) and idx.name is not None and not (isinstance(idx.name, str) and is_valid_identifier(idx.name)):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'model `{cls_name}`: Invalid {type(idx).__name__} name: {idx.name!r}',
+                )
         # A table with default indexes enabled is not allowed to have explicit B-tree indexes.
         if namespace.table_spec['has_default_idxs'] and any(isinstance(idx, BtreeIndex) for idx in known_idxs):
             raise excs.RequestError(

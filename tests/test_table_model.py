@@ -1881,6 +1881,16 @@ class TestTableModel:
                 __indexes__ = [EmbeddingIndex(42, embedding=dummy_embedding.using(n=768))]
 
         with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA,
+            match=r"model `InvalidIndexName`: Invalid EmbeddingIndex name: 'not an identifier'"
+        ):
+
+            class InvalidIndexName(TableModel, name='invalid_index_name'):
+                id: pxt.Int
+
+                __indexes__ = [EmbeddingIndex(id, embedding=dummy_embedding.using(n=768), name='not an identifier')]
+
+        with pxt_raises(
             pxt.ErrorCode.INVALID_SCHEMA, match=r"model `DuplicateBtreeIndex`: multiple B-tree indexes for column 'id'."
         ):
 
