@@ -608,7 +608,7 @@ class RowBuilder:
             self.row_batch_output_map = []
             self.row_batch_col_types = {}
             tbls = {col.get_tbl().id: col.get_tbl() for col in self.table_columns}
-            idx_val_col_qid_to_idx_name = {
+            idx_names = {
                 info.val_col.qid: name
                 for tbl in tbls.values()
                 for name, info in tbl.idxs_by_name.items()
@@ -619,7 +619,7 @@ class RowBuilder:
                 if col.qid in undo_col_qids:
                     # skip undo cols
                     continue
-                idx_name = idx_val_col_qid_to_idx_name.get(col.qid)
+                idx_name = idx_names.get(col.qid)
                 if idx_name is not None:
                     # index value columns have no names; key their output values by index name (unique within the table)
                     self.row_batch_output_map.append(OutputMapEntry(col, slot_idx, idx_name, True))
