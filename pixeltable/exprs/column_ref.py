@@ -512,6 +512,10 @@ class ColumnRef(Expr):
     def default_column_name(self) -> str | None:
         return self.column_md.name
 
+    @property
+    def is_column_ref(self) -> bool:
+        return True
+
     def __str__(self) -> str:
         col_md = self.column_md
         return col_md.name if col_md.name is not None else f'<unnamed column {col_md.id}>'

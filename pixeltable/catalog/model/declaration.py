@@ -196,7 +196,7 @@ class ModelQuery(pxt.Query):
         if self.select_list is None:
             return
         for item, name in self.select_list:
-            if name is None and not isinstance(item, exprs.ColumnRefByName):
+            if name is None and not item.is_column_ref:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT,
                     f'{model_name}: `base` select() list may contain only direct column references '
@@ -204,18 +204,35 @@ class ModelQuery(pxt.Query):
                     f'Use kwargs syntax to give it an explicit name: select(my_name=...)',
                 )
 
+    def to_declared_query(self) -> pxt.Query:
+        """The equivalent query whose column references identify the columns of the model's declared shape.
+
+        Metadata assembly distinguishes a column reference from a computed expression, which a query that only
+        names its columns cannot support.
+        """
+        declared_path = self._from_clause.tbls[0]
+        subst: exprs.ExprDict[exprs.Expr] = exprs.ExprDict()
+        for col_md in declared_path.column_md():
+            if col_md.name is not None:
+                subst[ColumnRefByName(col_md.name)] = exprs.ColumnRef(col_md)
+        return self._substituted(declared_path, subst)
+
     def bind(self, catalog_dir: str) -> pxt.Query:
         """The equivalent query over the table this query's model resolves to under catalog_dir."""
         tbl = self.model_cls._bind(catalog_dir)
         subst: exprs.ExprDict[exprs.Expr] = exprs.ExprDict()
         for col_name in tbl.columns():
             subst[ColumnRefByName(col_name)] = getattr(tbl, col_name)
+        return self._substituted(tbl._tbl_path, subst)
+
+    def _substituted(self, path: catalog.TablePath, subst: exprs.ExprDict[exprs.Expr]) -> pxt.Query:
+        """A plain Query over `path`, with this query's clauses rewritten by `subst`."""
 
         def rebound(e: exprs.Expr) -> exprs.Expr:
             return e.copy().substitute(subst)
 
         return pxt.Query(
-            from_clause=FromClause(tbls=[tbl._tbl_path]),
+            from_clause=FromClause(tbls=[path]),
             select_list=None if self.select_list is None else [(rebound(e), n) for e, n in self.select_list],
             where_clause=None if self.where_clause is None else rebound(self.where_clause),
             group_by_clause=None if self.group_by_clause is None else [rebound(e) for e in self.group_by_clause],
@@ -230,6 +247,13 @@ class ModelQuery(pxt.Query):
             else dataclasses.replace(
                 self.sample_clause, stratify_exprs=[rebound(e) for e in self.sample_clause.stratify_exprs]
             ),
+        )
+
+    def join(self, *args: Any, **kwargs: Any) -> pxt.Query:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f'join(): a query over model `{self.model_cls.__name__}` cannot be joined; '
+            'join the tables the models are bound to instead.',
         )
 
     def _unbound(self, op: str) -> excs.RequestError:
@@ -712,7 +736,7 @@ class TableModelMeta(type):
         spec = cls.__table_spec__
         tbl_id = uuid4()  # we need a table id
         handle = TableVersionHandle(catalog.TableVersionKey(tbl_id, None))
-        base = spec['base']
+        base = None if spec['base'] is None else spec['base'].to_declared_query()
         # prepare_model() substitutes column references in place, so hand it copies: inspecting a model must
         # leave what it declares untouched, and it can be inspected any number of times
         columns: dict[str, ColumnSpec] = {}

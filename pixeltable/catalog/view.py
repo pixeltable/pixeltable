@@ -105,7 +105,7 @@ class View(LocalTable):
         r: dict[str, ColumnSpec] = {}
         exps, names = Query._normalize_select_list([], select_list)
         for expr, name in zip(exps, names):
-            stored = not isinstance(expr, exprs.ColumnRef)
+            stored = not expr.is_column_ref
             r[name] = {'value': expr, 'stored': stored}
         return r
 

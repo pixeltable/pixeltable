@@ -1922,22 +1922,25 @@ class TestTableModel:
             ):
                 tile = 5
 
-        # Forwarded `Table` methods that aren't available on a placeholder query raise `AttributeError` when the
-        # model isn't yet bound to an actual table.
+        # a `Table` method that a query cannot provide raises `AttributeError` while the model is unbound
         with pytest.raises(AttributeError, match=r'is not yet bound to an actual table'):
+            ValidTableModel.get_metadata()
+
+        # a query over an unbound model refuses to execute, naming the model
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r'`ValidTableModel`, which is not bound'):
             ValidTableModel.collect()
 
-        # `ModelQuery` clause methods reject being specified more than once in a `ViewModel` base query.
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`select\(\)` list already specified'):
+        # clause methods reject being specified more than once
+        with pxt_raises(excs.ErrorCode.INVALID_STATE, match=r'Select list already specified'):
             ValidTableModel.select(ValidTableModel.id).select(ValidTableModel.id)
 
         with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r'Invalid name: bad name'):
             ValidTableModel.select(**{'bad name': ValidTableModel.id})
 
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`where\(\)` clause already specified'):
+        with pxt_raises(excs.ErrorCode.INVALID_STATE, match=r'[Ww]here.*already specified'):
             ValidTableModel.where(ValidTableModel.id > 0).where(ValidTableModel.id > 0)  # type: ignore[arg-type]
 
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`sample\(\)` clause already specified'):
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r'Multiple sample\(\) clauses not allowed'):
             ValidTableModel.sample(n=10).sample(n=5)
 
         # a base query cannot contain the clauses a view cannot be defined by
@@ -1965,21 +1968,12 @@ class TestTableModel:
             class LimitedBase(TableModel, name='limited_base', base=ValidTableModel.limit(10)):
                 pass
 
-        with pxt_raises(
-            excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r'model `JoinedBase`: `join` cannot be used in a view definition\.',
-        ):
-
-            class JoinedBase(
-                TableModel,
-                name='joined_base',
-                base=ValidTableModel.join(OtherModel, on=ValidTableModel.id == OtherModel.x),
-            ):
-                pass
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r'`ValidTableModel` cannot be joined'):
+            ValidTableModel.join(OtherModel, on=ValidTableModel.id == OtherModel.x)  # type: ignore[arg-type]
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r'model `DistinctBase`: `distinct` cannot be used in a view definition\.',
+            match=r'model `DistinctBase`: `group_by` cannot be used in a view definition\.',
         ):
 
             class DistinctBase(TableModel, name='distinct_base', base=ValidTableModel.distinct()):
@@ -1991,11 +1985,7 @@ class TestTableModel:
             match=r'model `MultiBase`: `order_by` cannot be used in a view definition\.',
         ):
 
-            class MultiBase(
-                TableModel,
-                name='multi_base',
-                base=ValidTableModel.order_by(ValidTableModel.id).join(OtherModel).limit(10),
-            ):
+            class MultiBase(TableModel, name='multi_base', base=ValidTableModel.order_by(ValidTableModel.id).limit(10)):
                 pass
 
     def test_aggregation_rejected(self) -> None:

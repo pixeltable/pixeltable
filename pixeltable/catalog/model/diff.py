@@ -174,10 +174,10 @@ def user_columns(model: TableModelMeta) -> dict[str, ColumnSpec]:
         for expr, col_name in base.select_list:
             if col_name is None:
                 # "anonymous" compound expressions are not allowed here
-                assert isinstance(expr, exprs.ColumnRefByName)
-                specs[expr.name] = {'value': expr, 'stored': False}
+                assert expr.is_column_ref, expr
+                specs[expr.default_column_name()] = {'value': expr, 'stored': False}
             else:
-                specs[col_name] = {'value': expr, 'stored': not isinstance(expr, exprs.ColumnRefByName)}
+                specs[col_name] = {'value': expr, 'stored': not expr.is_column_ref}
     return specs
 
 
@@ -187,8 +187,8 @@ def base_query_columns(model: TableModelMeta) -> set[str]:
     if base is None or base.select_list is None:
         return set()
     # "anonymous" compound expressions are not allowed here, so every unnamed item names a column
-    assert all(isinstance(expr, exprs.ColumnRefByName) for expr, name in base.select_list if name is None)
-    return {cast(exprs.ColumnRefByName, expr).name if name is None else name for expr, name in base.select_list}
+    assert all(expr.is_column_ref for expr, name in base.select_list if name is None)
+    return {expr.default_column_name() if name is None else name for expr, name in base.select_list}
 
 
 def _format_column_spec(spec: ColumnSpec) -> str:

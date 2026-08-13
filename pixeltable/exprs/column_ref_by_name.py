@@ -39,6 +39,13 @@ class ColumnRefByName(Expr):
     def _equals(self, other: ColumnRefByName) -> bool:
         return self.name == other.name
 
+    def default_column_name(self) -> str | None:
+        return self.name
+
+    @property
+    def is_column_ref(self) -> bool:
+        return True
+
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         raise AssertionError('this should never be called')
 
