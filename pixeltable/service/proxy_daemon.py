@@ -385,8 +385,9 @@ def _serve(test_mode: bool = False) -> None:
     daemon_port = config.get_int_value('daemon_port')
 
     log_level = 'info'
-    if config.get_string_value('log_level') is not None:
-        log_level = config.get_string_value('log_level').lower()
+    configured_log_level = config.get_string_value('log_level')
+    if configured_log_level is not None:
+        log_level = configured_log_level.lower()
     elif test_mode:
         log_level = 'debug'
 
