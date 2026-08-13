@@ -19,7 +19,7 @@ class BtreeIndex(IndexBase):
     """
     Interface to B-tree indices in Postgres.
 
-    Two representations, selected by `uses_value_col`:
+    Two representations, selected by uses_value_col:
     - with a value column, Postgres indexes a dedicated index value column, which for a string column holds the value
       truncated to MAX_STRING_LEN; expired rows are excluded from the index by nulling that column
     - without one, Postgres indexes the stored column directly, with no truncation
