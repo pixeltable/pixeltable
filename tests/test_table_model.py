@@ -1862,6 +1862,25 @@ class TestTableModel:
                 __indexes__ = [BtreeIndex(id), 'a string is definitely not an index']
 
         with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA, match=r'model `InvalidBtreeIndex`: Invalid BtreeIndex column reference: 42'
+        ):
+
+            class InvalidBtreeIndex(TableModel, name='invalid_btree_index'):
+                id: pxt.Int
+
+                __indexes__ = [BtreeIndex(42)]
+
+        with pxt_raises(
+            excs.ErrorCode.INVALID_SCHEMA,
+            match=r'model `InvalidEmbeddingIndex`: Invalid EmbeddingIndex column reference: 42',
+        ):
+
+            class InvalidEmbeddingIndex(TableModel, name='invalid_embedding_index'):
+                id: pxt.Int
+
+                __indexes__ = [EmbeddingIndex(42, embedding=dummy_embedding.using(n=768))]
+
+        with pxt_raises(
             pxt.ErrorCode.INVALID_SCHEMA, match=r"model `DuplicateBtreeIndex`: multiple B-tree indexes for column 'id'."
         ):
 

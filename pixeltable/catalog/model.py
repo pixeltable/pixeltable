@@ -108,6 +108,28 @@ class EmbeddingIndex:
     precision: Literal['fp16', 'fp32'] = 'fp16'
     name: str | None = None
 
+    def as_fn_call(self) -> exprs.FunctionCall:
+        # Static resolution of the embedding function as a FunctionCall.
+        assert isinstance(self.column, exprs.ColumnRefByName)
+        col_type = self.column.col_type
+        if col_type.is_string_type() and self.string_embed is not None:
+            return self.string_embed(self.column)
+        elif col_type.is_image_type() and self.image_embed is not None:
+            return self.image_embed(self.column)
+        elif col_type.is_audio_type() and self.audio_embed is not None:
+            return self.audio_embed(self.column)
+        elif col_type.is_video_type() and self.video_embed is not None:
+            return self.video_embed(self.column)
+        elif col_type.is_document_type() and self.document_embed is not None:
+            return self.document_embed(self.column)
+        elif self.embedding is not None:
+            return self.embedding(self.column)
+        else:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'EmbeddingIndex has no embedding function defined for type: {col_type}',
+            )
+
     def __repr__(self) -> str:
         embeds = [
             f'{name}={fn}'
@@ -591,6 +613,12 @@ class TableModelMeta(type):
     def _validate_indexes(
         mcs, cls_name: str, namespace: _ModelNamespace, known_idxs: Sequence[IndexDeclaration]
     ) -> None:
+        for idx in known_idxs:
+            if not isinstance(idx.column, exprs.ColumnRefByName):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'model `{cls_name}`: Invalid {type(idx).__name__} column reference: {idx.column!r}',
+                )
         # A table with default indexes enabled is not allowed to have explicit B-tree indexes.
         if namespace.table_spec['has_default_idxs'] and any(isinstance(idx, BtreeIndex) for idx in known_idxs):
             raise excs.RequestError(
@@ -1082,7 +1110,8 @@ class SchemaChangeOp(TypedDict):
 
     # column name, index name, or for 'table', the differing attribute:
     # 'kind' | 'iterator' | 'view_filter' | 'view_sample' | 'media_validation' | 'comment' | 'custom_metadata'
-    name: str
+    # can be None if target == 'index'.
+    name: str | None
 
     op: Literal['add', 'drop', 'alter']
     severity: Literal['additive', 'destructive', 'unsupported']
@@ -1509,7 +1538,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                             idx_md['columns'] != [idx.column.name]
                             or idx_md['parameters']['metric'] != idx.metric
                             or idx_md['parameters']['precision'] != idx.precision
-                            or idx_md['parameters']['embedding'] != str(idx.embedding(idx.column))
+                            or idx_md['parameters']['embedding'] != str(idx.as_fn_call())
                         ):
                             ops.append(
                                 SchemaChangeOp(
@@ -1533,7 +1562,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                         and idx_md['columns'] == [idx.column.name]
                         and idx_md['parameters']['metric'] == idx.metric
                         and idx_md['parameters']['precision'] == idx.precision
-                        and idx_md['parameters']['embedding'] == str(idx.embedding(idx.column))
+                        and idx_md['parameters']['embedding'] == str(idx.as_fn_call())
                     ]
                     assert len(matching_idxs) <= 1
                     if len(matching_idxs) == 0:
