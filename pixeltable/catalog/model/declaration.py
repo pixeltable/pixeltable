@@ -227,6 +227,27 @@ class ModelQuery(pxt.Query):
 
     def _substituted(self, path: catalog.TablePath, subst: exprs.ExprDict[exprs.Expr]) -> pxt.Query:
         """A plain Query over `path`, with this query's clauses rewritten by `subst`."""
+        # a similarity expression names its indexed column and the table version holding the index, neither of
+        # which a substitution by column name reaches
+        declared_path = self._from_clause.tbls[0]
+        for sim in {s.id: s for e in self._component_exprs() for s in e.subexprs(exprs.SimilarityExpr)}.values():
+            assert sim.qcol_id is not None
+            if sim.qcol_id.tbl_id == path.tbl_id:
+                continue  # already indexed against this path
+            col_name = declared_path.get_column_md(sim.qcol_id).name
+            assert col_name is not None
+            new_md = path.get_column_md_by_name(col_name)
+            if new_md is None:
+                raise excs.RequestError(
+                    excs.ErrorCode.COLUMN_NOT_FOUND,
+                    f'Table {path.tbl_name()!r} has no column {col_name!r}, which a similarity() call references.',
+                )
+            subst[sim] = exprs.SimilarityExpr(
+                sim.components[0].copy().substitute(subst),
+                idx_name=sim.idx_name,
+                qcol_id=new_md.qcolid,
+                table_version_key=catalog.TableVersionKey(new_md.qcolid.tbl_id, new_md.col_effective_version),
+            )
 
         def rebound(e: exprs.Expr) -> exprs.Expr:
             return e.copy().substitute(subst)
@@ -625,6 +646,10 @@ class TableModelMeta(type):
         namespace_dict['_table_path'] = None
 
         cls = super().__new__(mcs, cls_name, bases, namespace_dict)
+        # the placeholders were built while the class body ran, before there was a class to point at
+        for value in namespace_dict.values():
+            if isinstance(value, ColumnRefByName):
+                value.model_cls = cls
         assert hasattr(bases[0], '__registered_models__')  # This was checked in __prepare__()
         bases[0].__registered_models__[namespace.table_spec['name']] = cls
         return cls
