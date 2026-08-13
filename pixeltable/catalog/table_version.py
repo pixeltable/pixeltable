@@ -6,7 +6,7 @@ import itertools
 import logging
 import time
 import warnings
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal, cast
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, cast
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -335,7 +335,7 @@ class TableVersion:
         index_cols: list[Column] = []
         for idx_col, idx_name, idx in idxs_to_create:
             assert isinstance(idx_col, Column)
-            val_col, undo_col = cls._create_index_columns_for_schema(
+            val_col, undo_col = Column.create_index_columns(
                 tbl_handle,
                 idx_col,
                 idx,
@@ -686,7 +686,7 @@ class TableVersion:
 
     def _create_index_columns(self, col: Column, idx: index.IndexBase) -> tuple[Column | None, Column | None]:
         """Create the columns that idx needs in order to index col of this table."""
-        return self._create_index_columns_for_schema(
+        return Column.create_index_columns(
             self.handle,
             col,
             idx,
@@ -694,32 +694,6 @@ class TableVersion:
             is_data_versioned=self.is_data_versioned,
             next_col_id=self.next_col_id,
         )
-
-    @classmethod
-    def _create_index_columns_for_schema(
-        cls,
-        tbl_handle: TableVersionHandle,
-        col: Column,
-        idx: index.IndexBase,
-        schema_version: int,
-        is_data_versioned: bool,
-        next_col_id: Callable[[], int],
-    ) -> tuple[Column | None, Column | None]:
-        """Create the columns that idx needs in order to index col.
-
-        Returns (value column, undo column), both of which are optional.
-        """
-        if not idx.uses_value_col:
-            return None, None
-        val_col = Column.create_index_value_column(
-            tbl_handle, col, idx, schema_version=schema_version, col_id=next_col_id()
-        )
-        if not is_data_versioned:
-            return val_col, None
-        undo_col = Column.create_index_undo_column(
-            tbl_handle, val_col, schema_version=schema_version, col_id=next_col_id()
-        )
-        return val_col, undo_col
 
     def _add_index(self, col: Column, idx_name: str | None, idx: index.IndexBase) -> UpdateStatus:
         val_col, undo_col = self._create_index_columns(col, idx)

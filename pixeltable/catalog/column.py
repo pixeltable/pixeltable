@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -163,14 +164,26 @@ class Column:
         return is_stored and (is_computed or col_type.is_media_type() or col_type.needs_cell_materialization())
 
     @classmethod
-    def create_index_value_column(
-        cls, tbl_handle: TableVersionHandle, col: Column, idx: index.IndexBase, *, schema_version: int, col_id: int
-    ) -> Column:
-        """Create the index value column of idx: a computed column holding the values that idx indexes."""
-        assert idx.uses_value_col
+    def create_index_columns(
+        cls,
+        tbl_handle: TableVersionHandle,
+        col: Column,
+        idx: index.IndexBase,
+        *,
+        schema_version: int,
+        is_data_versioned: bool,
+        next_col_id: Callable[[], int],
+    ) -> tuple[Column | None, Column | None]:
+        """Create the columns that idx needs in order to index col.
+
+        Returns (value column, undo column), both of which are optional.
+        """
+        if not idx.uses_value_col:
+            return None, None
+
         value_expr = idx.create_value_expr(col)
         val_col = cls(
-            col_id=col_id,
+            col_id=next_col_id(),
             name=None,
             computed_with=value_expr,
             sa_col_type=idx.get_index_sa_type(value_expr.col_type),
@@ -181,16 +194,11 @@ class Column:
             tbl_handle=tbl_handle,
         )
         val_col.col_type = val_col.col_type.copy(nullable=True)
-        return val_col
+        if not is_data_versioned:
+            return val_col, None
 
-    @classmethod
-    def create_index_undo_column(
-        cls, tbl_handle: TableVersionHandle, val_col: Column, *, schema_version: int, col_id: int
-    ) -> Column:
-        """Create the undo column of an index value column, which preserves that column's value for expired rows.
-        Data-versioned tables only."""
         undo_col = cls(
-            col_id=col_id,
+            col_id=next_col_id(),
             name=None,
             col_type=val_col.col_type,
             sa_col_type=val_col.sa_col_type,
@@ -201,7 +209,7 @@ class Column:
             tbl_handle=tbl_handle,
         )
         undo_col.col_type = undo_col.col_type.copy(nullable=True)
-        return undo_col
+        return val_col, undo_col
 
     @classmethod
     def create(cls, name: str, spec: ts.ColumnType | type | ColumnSpec | exprs.Expr) -> Column:
