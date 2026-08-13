@@ -387,9 +387,14 @@ def _serve(test_mode: bool = False) -> None:
     daemon_host = config.get_string_value('daemon_host')
     daemon_port = config.get_int_value('daemon_port')
 
+    log_level = 'info'
+    if config.get_string_value('log_level') is not None:
+        log_level = config.get_string_value('log_level').lower()
+    elif test_mode:
+        log_level = 'debug'
+
     # log_config=None suppresses uvicorn's own logging setup which results in closing every handler registered so far.
     # Note: at this point, uvicorn logging has already been configured by Env.
-    log_level = (config.get_string_value('log_level') or 'info').lower()
     if daemon_host is not None or daemon_port is not None:
         uvicorn.run(
             app, host=daemon_host or '127.0.0.1', port=daemon_port or 8000, log_level=log_level, log_config=None
@@ -411,10 +416,6 @@ def _serve(test_mode: bool = False) -> None:
     atexit.register(lambda: lock.unlink(missing_ok=True))
     signal.signal(signal.SIGTERM, _cleanup)
 
-    log_level = 'warning'
-    if test_mode:
-        log_level = 'debug'
-        _logger.info('Test mode enabled')
     uvicorn.Server(uvicorn.Config(app, log_level=log_level, log_config=None)).run(sockets=[sock])
 
 
