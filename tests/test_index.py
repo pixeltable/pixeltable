@@ -200,14 +200,14 @@ class TestIndex:
     def test_query(self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> None:
         # def test_query(self, uses_db: None, local_embed: pxt.Function) -> None:
         p = make_catalog_path
-        queries = pxt.create_table(p('queries'), {'query_text': pxt.String})
+        queries = pxt.create_table(p('queries'), {'query_text': pxt.String | None})
         query_rows = [
             {'query_text': 'how much is the stock of AI companies up?'},
             {'query_text': 'what happened to the term machine learning?'},
         ]
         validate_update_status(queries.insert(query_rows))
 
-        chunks = pxt.create_table(p('test_doc_chunks'), {'text': pxt.String})
+        chunks = pxt.create_table(p('test_doc_chunks'), {'text': pxt.String | None})
         chunks.insert(
             [
                 {'text': 'the stock of artificial intelligence companies is up 1000%'},
@@ -542,7 +542,12 @@ class TestIndex:
             new_rows.append(row)
 
         # create table with fewer rows to speed up testing
-        schema = {'pkey': pxt.Required[pxt.Int], 'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
+        schema: dict[str, Any] = {
+            'pkey': pxt.Int,
+            'img': pxt.Image | None,
+            'category': pxt.String | None,
+            'split': pxt.String | None,
+        }
         tbl_name = p('update_test')
         img_t = pxt.create_table(tbl_name, schema, primary_key='pkey')
         img_t.insert(new_rows)
@@ -586,7 +591,7 @@ class TestIndex:
         img_t = img_tbl
         rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
         # create table with fewer rows to speed up testing
-        schema = {'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
+        schema: dict[str, Any] = {'img': pxt.Image | None, 'category': pxt.String | None, 'split': pxt.String | None}
         tbl_name = p('access_test')
         img_t = pxt.create_table(tbl_name, schema)
         img_t.insert(rows[:5])
@@ -624,7 +629,7 @@ class TestIndex:
         img_t = img_tbl
         rows = list(img_t.select(img=img_t.img.fileurl, category=img_t.category, split=img_t.split).collect())
         # create table with fewer rows to speed up testing
-        schema = {'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
+        schema: dict[str, Any] = {'img': pxt.Image | None, 'category': pxt.String | None, 'split': pxt.String | None}
         tbl_name = p('index_test')
         img_t = pxt.create_table(tbl_name, schema)
         img_t.insert(rows[:30])
@@ -760,7 +765,7 @@ class TestIndex:
     ) -> None:
         p = make_catalog_path
         # Create a base table
-        t = pxt.create_table(p('t1'), {'n': pxt.Int, 's': pxt.String})
+        t = pxt.create_table(p('t1'), {'n': pxt.Int | None, 's': pxt.String | None})
         sentences = get_sentences(20)
         status = t.insert({'n': i, 's': s} for i, s in enumerate(sentences))
         validate_update_status(status, 20)
@@ -986,7 +991,7 @@ class TestIndex:
         assert 'String literal too long' in str(exc_info.value)
 
         # test that Comparison uses BtreeIndex.MAX_STRING_LEN
-        t = pxt.create_table(p('test_max_str_len'), {'data': pxt.String})
+        t = pxt.create_table(p('test_max_str_len'), {'data': pxt.String | None})
         t.add_btree_index('data')
         rows = [{'data': s}, {'data': s + 'a'}]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
@@ -1022,7 +1027,8 @@ class TestIndex:
     def test_add_btree_index(self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> None:
         p = make_catalog_path
         t = pxt.create_table(
-            p('add_index_test'), {'id': pxt.Int, 'name': pxt.String, 'data': pxt.Json, 'extra': pxt.String}
+            p('add_index_test'),
+            {'id': pxt.Int | None, 'name': pxt.String | None, 'data': pxt.Json | None, 'extra': pxt.String | None},
         )
         t.insert([{'id': i, 'name': f'n{i}', 'data': {'k': i}, 'extra': f'e{i}'} for i in range(10)])
 
@@ -1094,7 +1100,13 @@ class TestIndex:
 
     def test_btree_ineligible_columns(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        schema = {'id': pxt.Int, 'flag': pxt.Bool, 'data': pxt.Json, 'img': pxt.Image, 'audio': pxt.Audio}
+        schema: dict[str, Any] = {
+            'id': pxt.Int | None,
+            'flag': pxt.Bool | None,
+            'data': pxt.Json | None,
+            'img': pxt.Image | None,
+            'audio': pxt.Audio | None,
+        }
         t = pxt.create_table(p('ineligible'), schema)
         with pxt_raises(
             pxt.ErrorCode.TYPE_MISMATCH, match='Index on column flag: .* non-boolean scalar type or a media'
@@ -1134,25 +1146,25 @@ class TestIndex:
         p = make_catalog_path
 
         # a table created without default indexes doesn't index columns added later
-        t = pxt.create_table(p('no_default_idxs'), {'id': pxt.Int})
+        t = pxt.create_table(p('no_default_idxs'), {'id': pxt.Int | None})
         t.insert([{'id': i} for i in range(3)])
         assert len(btree_idxs(t)) == 0
-        t.add_columns({'a': pxt.Int})
-        t.add_column(b=pxt.String)
+        t.add_columns({'a': pxt.Int | None})
+        t.add_column(b=pxt.String | None)
         t.add_computed_column(c=t.id + 1)
         assert len(btree_idxs(t)) == 0
 
         # a table created with default indexes indexes every eligible column added later
-        t2 = pxt.create_table(p('default_idxs'), {'id': pxt.Int}, has_default_idxs=True)
+        t2 = pxt.create_table(p('default_idxs'), {'id': pxt.Int | None}, has_default_idxs=True)
         t2.insert([{'id': i} for i in range(3)])
         assert set(btree_idxs(t2).values()) == {'id'}
-        t2.add_columns({'a': pxt.Int})
-        t2.add_column(b=pxt.String)
+        t2.add_columns({'a': pxt.Int | None})
+        t2.add_column(b=pxt.String | None)
         t2.add_computed_column(c=t2.id + 1)
         assert set(btree_idxs(t2).values()) == {'id', 'a', 'b', 'c'}
 
         # ineligible columns are skipped
-        t2.add_column(flag=pxt.Bool)
+        t2.add_column(flag=pxt.Bool | None)
         assert 'flag' not in btree_idxs(t2).values()
 
         # dropping an indexed column also drops its index
@@ -1173,7 +1185,7 @@ class TestIndex:
 
     def test_btree_index_on_view(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('view_base'), {'id': pxt.Int, 'name': pxt.String})
+        t = pxt.create_table(p('view_base'), {'id': pxt.Int | None, 'name': pxt.String | None})
         t.insert([{'id': i, 'name': f'n{i}'} for i in range(10)])
 
         v = pxt.create_view(p('view_v'), t)
@@ -1203,7 +1215,7 @@ class TestIndex:
         precision: Literal['fp16', 'fp32'],
     ) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test'), {'rowid': pxt.Int, 'text': pxt.String}, if_exists='replace')
+        t = pxt.create_table(p('test'), {'rowid': pxt.Int | None, 'text': pxt.String | None}, if_exists='replace')
         n = 123
         t.add_embedding_index(
             t.text, embedding=local_embedding.using(dim=n), metric=metric, precision=precision, idx_name='test_idx'
@@ -1238,15 +1250,15 @@ class TestIndex:
         p = make_catalog_path
         texts = ['a dog playing in the park', 'a cat sitting on a mat', 'a bird flying in the sky']
 
-        t = pxt.create_table(p('array_embedding_test'), {'id': pxt.Int, 'text': pxt.String})
+        t = pxt.create_table(p('array_embedding_test'), {'id': pxt.Int | None, 'text': pxt.String | None})
         validate_update_status(t.insert([{'id': i, 'text': s} for i, s in enumerate(texts)]), expected_rows=3)
 
         precomputed_embeddings = t.order_by(t.id).select(emb=local_embed(t.text)).collect()['emb']
         dim = len(precomputed_embeddings[0])
         precomputed_embeddings_f64 = [v.astype(np.float64) for v in precomputed_embeddings]
 
-        t.add_column(precomputed_embeddings=pxt.Array[(dim,), np.float32])
-        t.add_column(precomputed_embeddings_f64=pxt.Array[(dim,), np.float64])
+        t.add_column(precomputed_embeddings=pxt.Array[(dim,), np.float32] | None)
+        t.add_column(precomputed_embeddings_f64=pxt.Array[(dim,), np.float64] | None)
 
         for i in range(len(texts)):
             validate_update_status(
@@ -1328,7 +1340,11 @@ class TestIndex:
         p = make_catalog_path
         t = pxt.create_table(
             p('arr_val_test'),
-            {'id': pxt.Int, 'vec': pxt.Array[(384,), np.float32], 'vec2d': pxt.Array[(10, 10), np.float32]},
+            {
+                'id': pxt.Int | None,
+                'vec': pxt.Array[(384,), np.float32] | None,
+                'vec2d': pxt.Array[(10, 10), np.float32] | None,
+            },
             if_exists='replace',
         )
         t.insert([{'id': 0, 'vec': np.zeros(384, dtype=np.float32), 'vec2d': np.zeros((10, 10), dtype=np.float32)}])
@@ -1355,7 +1371,9 @@ class TestIndex:
         """Test that indices (B-tree and embedding) are properly dropped, observed through get_metadata(); the
         physical removal from the local Postgres store is additionally checked in local mode."""
         p = make_catalog_path
-        t = pxt.create_table(p('index_drop_test'), {'id': pxt.Int, 'text': pxt.String}, if_exists='replace')
+        t = pxt.create_table(
+            p('index_drop_test'), {'id': pxt.Int | None, 'text': pxt.String | None}, if_exists='replace'
+        )
         t.insert([{'id': 1, 'text': 'hello world'}, {'id': 2, 'text': 'goodbye'}])
 
         # Create an index to drop
@@ -1392,7 +1410,7 @@ class TestIndex:
     ) -> None:
         """Test similarity when index is dropped, recreated, and column is dropped."""
         p = make_catalog_path
-        t = pxt.create_table(p('lifecycle_test'), {'id': pxt.Int, 'text': pxt.String})
+        t = pxt.create_table(p('lifecycle_test'), {'id': pxt.Int | None, 'text': pxt.String | None})
         texts = ['a dog playing in the park', 'a cat sitting on a mat', 'a bird flying in the sky']
         validate_update_status(t.insert([{'id': i, 'text': s} for i, s in enumerate(texts)]), expected_rows=3)
         t.add_embedding_index('text', idx_name='emb_idx', string_embed=local_embed)
@@ -1445,7 +1463,7 @@ class TestIndex:
                 assert cond
 
         p = make_catalog_path
-        tbl = pxt.create_table(p('test'), {'text': pxt.String, 'text2': pxt.String})
+        tbl = pxt.create_table(p('test'), {'text': pxt.String | None, 'text2': pxt.String | None})
         tbl.insert([{'text': s, 'text2': s} for s in get_sentences(10)])
 
         # add a stored similarity column

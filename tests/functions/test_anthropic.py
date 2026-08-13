@@ -22,7 +22,7 @@ class TestAnthropic:
         skip_test_if_no_client('anthropic')
         from pixeltable.functions import anthropic
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         messages = [{'role': 'user', 'content': t.input}]
         t.add_computed_column(output=anthropic.messages(messages=messages, model='claude-haiku-4-5', max_tokens=1024))
         t.add_computed_column(
@@ -51,7 +51,7 @@ class TestAnthropic:
         from pixeltable.functions import anthropic
 
         def make_table(tools: pxt.Tools, tool_choice: pxt.ToolChoice) -> pxt.Table:
-            t = pxt.create_table('test_tbl', {'prompt': pxt.String}, if_exists='replace')
+            t = pxt.create_table('test_tbl', {'prompt': pxt.String | None}, if_exists='replace')
             messages = [{'role': 'user', 'content': t.prompt}]
             t.add_computed_column(
                 response=anthropic.messages(

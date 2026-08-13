@@ -26,16 +26,16 @@ class TestTableModel2:
         TableModel = pxt.model_base()
 
         class ExampleTableModel(TableModel, name='test_table'):
-            id: pxt.Required[pxt.Int]
-            name: pxt.String
-            value: pxt.Float
-            img: pxt.Image
+            id: pxt.Int
+            name: pxt.String | None
+            value: pxt.Float | None
+            img: pxt.Image | None
             incr = value + 1  # computed column
             descr = pxtf.string.format('Name: {name}', name=name)
 
             # Test all the custom `Column` properties
             column_with_special_props = Column(
-                type=pxt.Video,
+                type=pxt.Video | None,
                 media_validation='on_read',
                 custom_metadata={'chicken': 'eggs'},
                 comment='This is a column with special properties',
@@ -60,13 +60,13 @@ class TestTableModel2:
 
         tbl2 = pxt.create_table(
             f'{expected_path}_2',
-            {'id': pxt.Required[pxt.Int], 'name': pxt.String, 'value': pxt.Float, 'img': pxt.Image},
+            {'id': pxt.Int, 'name': pxt.String | None, 'value': pxt.Float | None, 'img': pxt.Image | None},
         )
         tbl2.add_computed_column(incr=tbl2.value + 1)
         tbl2.add_computed_column(descr=pxtf.string.format('Name: {name}', name=tbl2.name))
         tbl2.add_column(
             column_with_special_props={
-                'type': pxt.Video,
+                'type': pxt.Video | None,
                 'media_validation': 'on_read',
                 'custom_metadata': {'chicken': 'eggs'},
                 'comment': 'This is a column with special properties',

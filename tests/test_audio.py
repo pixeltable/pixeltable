@@ -31,7 +31,7 @@ from .utils import (
 class TestAudio:
     def _validate_audio(self, audio_files: list[str]) -> None:
         """Confirm each file is valid audio by inserting into a table with on_error='abort'."""
-        t = pxt.create_table('validated_audio', schema={'a': pxt.Audio}, if_exists='ignore')
+        t = pxt.create_table('validated_audio', schema={'a': pxt.Audio | None}, if_exists='ignore')
         validate_update_status(
             t.insert(({'a': a} for a in audio_files), on_error='abort'), expected_rows=len(audio_files)
         )
@@ -50,7 +50,7 @@ class TestAudio:
     @pytest.mark.local('audio media storage')
     def test_basic(self, uses_db: None) -> None:
         audio_filepaths = get_audio_files()
-        audio_t = pxt.create_table('audio', {'audio_file': pxt.Audio})
+        audio_t = pxt.create_table('audio', {'audio_file': pxt.Audio | None})
         status = audio_t.insert({'audio_file': p} for p in audio_filepaths)
         assert status.num_rows == len(audio_filepaths)
         assert status.num_excs == 0
@@ -60,7 +60,7 @@ class TestAudio:
     def test_extract(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         p = make_catalog_path
         video_filepaths = get_video_files()
-        video_t = pxt.create_table(p('videos'), {'video': pxt.Video})
+        video_t = pxt.create_table(p('videos'), {'video': pxt.Video | None})
         video_t.add_computed_column(audio=video_t.video.extract_audio())
 
         # Directly count the number of videos with audio streams, without relying on the UDF
@@ -102,7 +102,7 @@ class TestAudio:
     @pytest.mark.local('pure UDF test')
     def test_get_metadata(self, uses_db: None) -> None:
         audio_filepaths = get_audio_files()
-        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
+        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio | None})
         base_t.add_computed_column(metadata=base_t.audio.get_metadata())
         validate_update_status(base_t.insert({'audio': p} for p in audio_filepaths), expected_rows=len(audio_filepaths))
         result = base_t.where(base_t.metadata.size == 2568827).select(base_t.metadata).collect()['metadata'][0]
@@ -154,7 +154,7 @@ class TestAudio:
     @pytest.mark.local('TODO: convert; audio-splitter view')
     def test_audio_splitter_on_audio(self, uses_db: None, reload_tester: ReloadTester) -> None:
         audio_filepaths = get_audio_files()
-        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
+        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio | None})
         validate_update_status(base_t.insert({'audio': p} for p in audio_filepaths), expected_rows=len(audio_filepaths))
         audio_segment_view = pxt.create_view(
             'audio_segments',
@@ -180,7 +180,7 @@ class TestAudio:
     ) -> None:
         p = make_catalog_path
         video_filepaths = get_video_files()
-        video_t = pxt.create_table(p('videos'), {'video': pxt.Video})
+        video_t = pxt.create_table(p('videos'), {'video': pxt.Video | None})
         video_t.insert({'video': path} for path in video_filepaths)
 
         pre_count = MediaStore.count(video_t, default_output_dest=True)
@@ -196,7 +196,7 @@ class TestAudio:
     @pytest.mark.local('TODO: convert; audio-splitter view')
     def test_audio_splitter_single_file(self, uses_db: None, reload_tester: ReloadTester) -> None:
         audio_filepath = get_audio_file('jfk_1961_0109_cityuponahill-excerpt.flac')  # 60s audio file
-        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
+        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio | None})
         validate_update_status(base_t.insert([{'audio': audio_filepath}]))
         audio_segment_view = pxt.create_view(
             'audio_segments',
@@ -231,7 +231,7 @@ class TestAudio:
         # overlap packets by start timestamp drops the final packet (its start precedes the overlap window) and would
         # yield contiguous, non-overlapping segments.
         audio_filepath = get_audio_file('sample.flac')
-        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
+        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio | None})
         validate_update_status(base_t.insert([{'audio': audio_filepath}]))
         view = pxt.create_view(
             'audio_segments', base_t, iterator=audio_splitter(audio=base_t.audio, duration=1.0, overlap=0.05)
@@ -249,7 +249,7 @@ class TestAudio:
     def test_audio_splitter_max_size(self, uses_db: None, reload_tester: ReloadTester) -> None:
         # exercise the byte-driven packing across every container layout and codec in the fixtures
         audio_filepaths = get_audio_files()
-        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
+        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio | None})
         validate_update_status(base_t.insert({'audio': p} for p in audio_filepaths), expected_rows=len(audio_filepaths))
 
         max_size = 128 * 1024
@@ -275,7 +275,7 @@ class TestAudio:
     @pytest.mark.local('TODO: convert; audio-splitter view')
     def test_audio_splitter_max_size_overlap(self, uses_db: None) -> None:
         audio_filepath = get_audio_file('sample.flac')
-        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
+        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio | None})
         validate_update_status(base_t.insert([{'audio': audio_filepath}]))
 
         max_size = 128 * 1024
@@ -297,7 +297,7 @@ class TestAudio:
     @pytest.mark.local('TODO: convert; audio-splitter view')
     def test_audio_splitter_max_size_errors(self, uses_db: None) -> None:
         audio_filepath = get_audio_file('sample.flac')
-        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
+        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio | None})
         validate_update_status(base_t.insert([{'audio': audio_filepath}]))
 
         # These conditions depend on the packet sizes of the actual audio, so they are detected during view
@@ -353,7 +353,7 @@ class TestAudio:
         # 10 cycles of 0.8s tone + 0.4s silence = 12s, with silence gaps every 1.2s
         audio_filepath = str(tmp_path / 'tone_silence.wav')
         self.__make_tone_silence_wav(audio_filepath, tone_sec=0.8, silence_sec=0.4, cycles=10)
-        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
+        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio | None})
         validate_update_status(base_t.insert([{'audio': audio_filepath}]))
 
         view = pxt.create_view(
@@ -388,7 +388,7 @@ class TestAudio:
         # fixed-duration cuts land mid-cycle, so without trimming some segments would start in a silence gap
         audio_filepath = str(tmp_path / 'tone_silence.wav')
         self.__make_tone_silence_wav(audio_filepath, tone_sec=0.8, silence_sec=0.4, cycles=10)
-        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
+        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio | None})
         validate_update_status(base_t.insert([{'audio': audio_filepath}]))
 
         view = pxt.create_view(
@@ -418,7 +418,7 @@ class TestAudio:
                 out.mux(packet)
             for packet in stream.encode():
                 out.mux(packet)
-        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
+        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio | None})
         validate_update_status(base_t.insert([{'audio': audio_filepath}]))
 
         view = pxt.create_view(
@@ -434,7 +434,7 @@ class TestAudio:
     @pytest.mark.local('TODO: convert; audio-splitter view')
     def test_create_audio_splitter(self, uses_db: None) -> None:
         audio_filepath = get_audio_file('jfk_1961_0109_cityuponahill-excerpt.flac')  # 60s audio file
-        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
+        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio | None})
         validate_update_status(base_t.insert([{'audio': audio_filepath}]))
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`duration` must be a positive number'):
             _ = pxt.create_view(
@@ -531,7 +531,7 @@ class TestAudio:
             audio_data = audio_data.flatten()
 
         # Use encode_audio to encode it to an audio file
-        t = pxt.create_table('test_encode_array_to_audio', {'audio_array': pxt.Array[pxt.Float]})
+        t = pxt.create_table('test_encode_array_to_audio', {'audio_array': pxt.Array[pxt.Float] | None})
         output_sample_rate = sample_rate // 2 if downsample else sample_rate
         t.add_computed_column(
             audio_file=encode_audio(
@@ -584,8 +584,8 @@ class TestAudio:
 
         update_status = t.add_computed_column(
             audio_file=encode_audio(
-                t.audio.array.astype(pxt.Array[pxt.Float]),
-                input_sample_rate=t.audio.sampling_rate.astype(pxt.Int),
+                t.audio.array.astype(pxt.Array[pxt.Float] | None),
+                input_sample_rate=t.audio.sampling_rate.astype(pxt.Int | None),
                 format='flac',
             )
         )
@@ -617,7 +617,7 @@ class TestAudio:
         self, make_columns: Callable[[exprs.ColumnRef], dict[str, exprs.Expr]], uses_db: None
     ) -> None:
         audio_paths = get_audio_files()
-        t = pxt.create_table('test_audio', {'audio': pxt.Audio})
+        t = pxt.create_table('test_audio', {'audio': pxt.Audio | None})
         columns = make_columns(t.audio)
         for name, expr in columns.items():
             t.add_computed_column(**{name: expr})
@@ -633,7 +633,7 @@ class TestAudio:
     @pytest.mark.local('pure UDF test')
     def test_multiply_volume_errors(self, uses_db: None) -> None:
         audio_paths = get_audio_files()
-        t = pxt.create_table('test_audio', {'audio': pxt.Audio})
+        t = pxt.create_table('test_audio', {'audio': pxt.Audio | None})
         validate_update_status(t.insert({'audio': p} for p in audio_paths), expected_rows=len(audio_paths))
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`start_time` must be non-negative'):
@@ -659,7 +659,7 @@ class TestAudio:
     @pytest.mark.local('pure UDF test')
     def test_audio_fade_errors(self, make_expr: Callable[[exprs.ColumnRef, float], exprs.Expr], uses_db: None) -> None:
         audio_paths = get_audio_files()
-        t = pxt.create_table('test_audio', {'audio': pxt.Audio})
+        t = pxt.create_table('test_audio', {'audio': pxt.Audio | None})
         validate_update_status(t.insert({'audio': p} for p in audio_paths), expected_rows=len(audio_paths))
         for bad_duration in (0, -1.0):
             with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r'`duration` must be positive'):
@@ -668,13 +668,13 @@ class TestAudio:
     @pytest.mark.local('pure UDF test')
     def test_encode_audio_errors(self, uses_db: None) -> None:
         # invalid format
-        t = pxt.create_table('test_encode', {'audio_array': pxt.Array[pxt.Float]})
+        t = pxt.create_table('test_encode', {'audio_array': pxt.Array[pxt.Float] | None})
         t.insert(audio_array=np.zeros(100, dtype=np.float32))
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Only the following formats are supported'):
             t.select(encode_audio(t.audio_array, input_sample_rate=44100, format='invalid')).collect()
 
         # invalid array shape: (3, N) is neither mono nor stereo
-        t2 = pxt.create_table('test_encode2', {'audio_array': pxt.Array[pxt.Float]})
+        t2 = pxt.create_table('test_encode2', {'audio_array': pxt.Array[pxt.Float] | None})
         t2.insert(audio_array=np.zeros((3, 100), dtype=np.float32))
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Supported input array shapes are'):
             t2.select(encode_audio(t2.audio_array, input_sample_rate=44100, format='wav')).collect()

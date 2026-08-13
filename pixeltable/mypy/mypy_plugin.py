@@ -175,7 +175,13 @@ def adjust_pxt_type(ctx: AnalyzeTypeContext, subst_name: str) -> Type:
     """
     if subst_name == 'typing.Any':
         return AnyType(TypeOfAny.special_form)
-    return ctx.api.named_type(subst_name, [])
+    try:
+        return ctx.api.named_type(subst_name, [])
+    except AssertionError:
+        # `named_type()` resolves against the enclosing module's symbols and asserts if the substitute isn't
+        # reachable there. This happens when mypy speculatively parses a value expression as a type (for a
+        # `TypeForm` parameter, eg a schema dict), where the substitute's module typically isn't imported.
+        return AnyType(TypeOfAny.special_form)
 
 
 def adjust_kwargs(ctx: MethodSigContext) -> FunctionLike:

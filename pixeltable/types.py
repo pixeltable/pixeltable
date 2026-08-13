@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypedDict, Union
 
 if TYPE_CHECKING:
-    from pixeltable import exprs
+    from pixeltable import exprs, type_system as ts
 
 
 TableKind = Literal['table', 'view', 'snapshot']
@@ -54,7 +54,7 @@ class ColumnSpec(TypedDict, total=False):
     Exactly one of `type` or `value` must be included in the dictionary.
     """
 
-    type: type
+    type: 'ts.TypeForm'
     """The column type (e.g., `pxt.Image`, `str`). Required unless `value` is specified."""
     value: 'exprs.Expr'
     """A Pixeltable expression for computed columns. Mutually exclusive with `type`."""

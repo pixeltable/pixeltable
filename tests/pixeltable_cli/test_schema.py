@@ -20,8 +20,8 @@ SCHEMA_SRC = dedent(
 
 
     class Docs(TableModel, name='docs'):
-        title: pxt.Required[pxt.String]
-        body: pxt.String
+        title: pxt.String | None
+        body: pxt.String | None
         title_upper = pxtf.string.upper(title)
 
 
@@ -69,7 +69,7 @@ class TestSchema:
 
 
                 class TitledDocs(TableModel, name='titled_docs'):
-                    headline: pxt.String
+                    headline: pxt.String | None
                 """
             )
         )
@@ -92,7 +92,9 @@ class TestSchema:
         docs.insert([{'title': 'hello', 'body': 'world'}])
 
         # an added column is safe, so it needs no flag, and the existing rows survive
-        schema_file.write_text(SCHEMA_SRC.replace('body: pxt.String', 'body: pxt.String\n    author: pxt.String'))
+        schema_file.write_text(
+            SCHEMA_SRC.replace('body: pxt.String | None', 'body: pxt.String | None\n    author: pxt.String | None')
+        )
         r = cli('schema', 'update', str(schema_file), target)
         assert r.returncode == 0
         assert 'updated' in r.stdout
@@ -113,7 +115,7 @@ class TestSchema:
         cli('schema', 'update', str(schema_file), target)
 
         # dropping a column destroys its data, so it is refused without --allow-destructive
-        schema_file.write_text(SCHEMA_SRC.replace('    body: pxt.String\n', ''))
+        schema_file.write_text(SCHEMA_SRC.replace('    body: pxt.String | None\n', ''))
         r = cli('schema', 'update', str(schema_file), target, check=False)
         assert r.returncode == 3
         assert 'refusing to apply 1 destructive operation(s)' in r.stderr
@@ -202,7 +204,7 @@ class TestSchema:
         cli('schema', 'update', str(schema_file), target)
 
         # add a column to the model and drop another: one safe op, one destructive
-        schema_file.write_text(SCHEMA_SRC.replace('body: pxt.String', 'author: pxt.String'))
+        schema_file.write_text(SCHEMA_SRC.replace('body: pxt.String | None', 'author: pxt.String | None'))
         r = cli('schema', 'diff', str(schema_file), target, '--json', check=False)
         assert r.returncode == 2
         docs = next(t for t in r.json['tables'] if t['path'] == f'{target}/docs')
@@ -213,7 +215,7 @@ class TestSchema:
             ('drop', 'column', 'body', True),
         ]
         # the added column carries its type, so the plan is actionable without re-reading the schema
-        assert next(op for op in docs['ops'] if op['op'] == 'add')['details']['type'] == 'String'
+        assert next(op for op in docs['ops'] if op['op'] == 'add')['details']['type'] == 'String | None'
         assert r.json['summary']['destructive'] == 1
 
         r = cli('schema', 'diff', str(schema_file), target, check=False)
@@ -226,7 +228,7 @@ class TestSchema:
         schema_file.write_text(SCHEMA_SRC)
         target = p('extras')
         cli('schema', 'update', str(schema_file), target)
-        pxt.create_table(f'{target}/scratch', {'x': pxt.Int})
+        pxt.create_table(f'{target}/scratch', {'x': pxt.Int | None})
 
         # a table no model declares is reported, but update would not touch it, so the target is still in agreement
         r = cli('schema', 'diff', str(schema_file), target, '--json')
@@ -252,7 +254,7 @@ class TestSchema:
         assert 'nothing to prune' in r.stdout
 
         # a view over an undeclared table, so the drops have to be ordered base-last
-        pxt.create_table(f'{target}/scratch', {'x': pxt.Int})
+        pxt.create_table(f'{target}/scratch', {'x': pxt.Int | None})
         scratch = pxt.get_table(f'{target}/scratch')
         pxt.create_view(f'{target}/scratch_view', scratch.where(scratch.x > 0))
 
@@ -294,7 +296,7 @@ class TestSchema:
 
         # 'derived' is declared as a view of 'raw', but only 'derived' is in the schema, so 'raw' reads as an extra
         pxt.create_dir(target)
-        raw = pxt.create_table(f'{target}/raw', {'id': pxt.Int})
+        raw = pxt.create_table(f'{target}/raw', {'id': pxt.Int | None})
         pxt.create_view(f'{target}/derived', raw.where(raw.id > 0))
         schema_file = tmp_path / 'app_schema.py'
         schema_file.write_text(
@@ -326,8 +328,8 @@ class TestSchema:
 
         # 'gone' prunes cleanly; 'raw' cannot, because the schema keeps the view that depends on it
         pxt.create_dir(target)
-        pxt.create_table(f'{target}/gone', {'id': pxt.Int})
-        raw = pxt.create_table(f'{target}/raw', {'id': pxt.Int})
+        pxt.create_table(f'{target}/gone', {'id': pxt.Int | None})
+        raw = pxt.create_table(f'{target}/raw', {'id': pxt.Int | None})
         pxt.create_view(f'{target}/derived', raw.where(raw.id > 0))
         schema_file = tmp_path / 'app_schema.py'
         schema_file.write_text(
@@ -415,7 +417,7 @@ class TestSchema:
 
 
                 class TitledDocs(TableModel, name='titled_docs'):
-                    headline: pxt.String
+                    headline: pxt.String | None
                 """
             )
         )

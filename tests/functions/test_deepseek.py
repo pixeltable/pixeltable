@@ -15,7 +15,7 @@ class TestDeepseek:
         skip_test_if_no_client('deepseek')
         from pixeltable.functions.deepseek import chat_completions
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         msgs = [{'role': 'system', 'content': 'You are a helpful assistant.'}, {'role': 'user', 'content': t.input}]
         t.add_computed_column(input_msgs=msgs)
         t.add_computed_column(chat_output=chat_completions(model='deepseek-v4-flash', messages=t.input_msgs))

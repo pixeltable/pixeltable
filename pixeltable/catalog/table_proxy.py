@@ -190,7 +190,7 @@ class TableProxy(Table):
 
     def add_columns(
         self,
-        schema: Mapping[str, type | ColumnSpec],
+        schema: Mapping[str, ts.TypeForm | ColumnSpec],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
         bound_args = self._dispatch_args(locals())
@@ -203,7 +203,7 @@ class TableProxy(Table):
         self,
         *,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-        **kwargs: type | ColumnSpec,
+        **kwargs: ts.TypeForm | ColumnSpec,
     ) -> UpdateStatus:
         self._check_single_column_kwarg('add_column', '`col_name=col_type`', kwargs)
         bound_args = self._dispatch_args(locals())
@@ -240,12 +240,12 @@ class TableProxy(Table):
         self._check_mutable('rename columns of')
         self._dispatch('rename_column', bound_args)
 
-    def alter_column(self, column: str | ColumnRef, *, type_: type) -> None:
+    def alter_column(self, column: str | ColumnRef, *, type_: ts.TypeForm) -> None:
         bound_args = self._dispatch_args(locals())
         self._check_mutable('alter columns of')
 
         # normalize type_ to a ColumnType so that it can be serialized
-        bound_args['type_'] = ts.ColumnType.normalize_type(type_, nullable_default=True, allow_builtin_types=False)
+        bound_args['type_'] = ts.ColumnType.normalize_type(type_, allow_builtin_types=False)
         self._dispatch('alter_column', bound_args)
 
     def add_btree_index(

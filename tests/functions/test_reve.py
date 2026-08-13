@@ -20,7 +20,7 @@ class TestReve:
     def test_create(self, default_params: bool, uses_db: None) -> None:
         skip_test_if_no_client('reve')
 
-        t = pxt.create_table('test_tbl', {'logo': pxt.Image})
+        t = pxt.create_table('test_tbl', {'logo': pxt.Image | None})
 
         # Create from prompt
         kwargs = (

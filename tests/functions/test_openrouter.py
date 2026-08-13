@@ -16,7 +16,7 @@ class TestOpenRouter:
         skip_test_if_no_client('openrouter')
         from pixeltable.functions.openrouter import chat_completions
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
 
         # Test basic chat completion
         msgs = [{'role': 'user', 'content': t.input}]
@@ -51,7 +51,7 @@ class TestOpenRouter:
         from pixeltable.functions.openrouter import chat_completions
 
         def make_table(tools: pxt.func.Tools, tool_choice: pxt.func.ToolChoice) -> pxt.Table:
-            t = pxt.create_table('test_tbl', {'prompt': pxt.String}, if_exists='replace')
+            t = pxt.create_table('test_tbl', {'prompt': pxt.String | None}, if_exists='replace')
 
             # Use a model that supports tools
             t.add_computed_column(
@@ -72,7 +72,7 @@ class TestOpenRouter:
         skip_test_if_no_client('openrouter')
         from pixeltable.functions.openrouter import chat_completions
 
-        t = pxt.create_table('test_transforms', {'text': pxt.String})
+        t = pxt.create_table('test_transforms', {'text': pxt.String | None})
 
         # Test with transforms
         t.add_computed_column(

@@ -276,7 +276,9 @@ split_on_trailing_comma = false
 
 [tool.mypy]
 allow_redefinition = true
-disable_error_code = "no-any-unimported, no-any-return"
+# maybe-unrecognized-str-typeform: mypy cannot see through the string parameters of Pixeltable type hints
+# (eg, `pxt.Image[(300, 300), 'RGB']`), which are valid in the `TypeForm` positions of our schema APIs.
+disable_error_code = "no-any-unimported, no-any-return, maybe-unrecognized-str-typeform"
 disallow_any_unimported = true
 check_untyped_defs = true
 disallow_incomplete_defs = true

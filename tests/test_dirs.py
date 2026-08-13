@@ -104,7 +104,7 @@ class TestDirs:
 
     def test_get_dir_tree_error_count(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('errs'), {'x': pxt.Int})
+        t = pxt.create_table(p('errs'), {'x': pxt.Int | None})
         t.add_computed_column(y=_fail_on_neg(t.x))
         t.insert([{'x': 1}, {'x': -1}, {'x': -2}, {'x': 3}], on_error='ignore')
 
@@ -247,7 +247,7 @@ class TestDirs:
         pxt.create_dir(p('dir1/subdir'))
         pxt.create_dir(p('dir1/subdir/subsub'))
 
-        t = pxt.create_table(p('dir1/subdir/tbl'), {'col': pxt.String})
+        t = pxt.create_table(p('dir1/subdir/tbl'), {'col': pxt.String | None})
         v = pxt.create_view(p('dir1/subdir/subsub/v1'), t)
         _ = pxt.create_view(p('dir1/v2'), t)
         _ = pxt.create_view(p('dir2/v3'), t)

@@ -73,11 +73,11 @@ class TestJson:
         t = pxt.create_table(
             p('test_json_nulls'),
             {
-                'c_int': pxt.Int,
-                'c_string': pxt.String,
-                'c_float': pxt.Float,
-                'c_json': pxt.Json,
-                'c_timestamp': pxt.Timestamp,
+                'c_int': pxt.Int | None,
+                'c_string': pxt.String | None,
+                'c_float': pxt.Float | None,
+                'c_json': pxt.Json | None,
+                'c_timestamp': pxt.Timestamp | None,
             },
         )
         t.insert(
@@ -102,7 +102,7 @@ class TestJson:
     def test_export_with_query(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """Test export with filtering and column selection."""
         p = make_catalog_path
-        t = pxt.create_table(p('test_json_query'), {'c_int': pxt.Int, 'c_string': pxt.String})
+        t = pxt.create_table(p('test_json_query'), {'c_int': pxt.Int | None, 'c_string': pxt.String | None})
         rows = [{'c_int': i, 'c_string': f'row_{i}'} for i in range(10)]
         validate_update_status(t.insert(rows), expected_rows=10)
 
@@ -123,7 +123,7 @@ class TestJson:
     def test_export_non_ascii(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """Verify non-ASCII characters are preserved."""
         p = make_catalog_path
-        t = pxt.create_table(p('test_json_encoding'), {'name': pxt.String})
+        t = pxt.create_table(p('test_json_encoding'), {'name': pxt.String | None})
         t.insert([{'name': 'Manwë'}, {'name': 'Fëanor'}])
 
         json_path = tmp_path / 'encoding.jsonl'
@@ -138,7 +138,9 @@ class TestJson:
     def test_round_trip(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """Export JSONL, re-import, and verify data matches."""
         p = make_catalog_path
-        t = pxt.create_table(p('test_json_rt'), {'c_int': pxt.Int, 'c_string': pxt.String, 'c_float': pxt.Float})
+        t = pxt.create_table(
+            p('test_json_rt'), {'c_int': pxt.Int | None, 'c_string': pxt.String | None, 'c_float': pxt.Float | None}
+        )
         t.insert([{'c_int': 1, 'c_string': 'hello', 'c_float': 1.5}, {'c_int': 2, 'c_string': 'world', 'c_float': 2.5}])
 
         json_path = tmp_path / 'round_trip.jsonl'
@@ -182,7 +184,8 @@ class TestJson:
         }
 
         t = pxt.create_table(
-            p('test_json_remote'), {'c_video': pxt.Video, 'c_audio': pxt.Audio, 'c_document': pxt.Document}
+            p('test_json_remote'),
+            {'c_video': pxt.Video | None, 'c_audio': pxt.Audio | None, 'c_document': pxt.Document | None},
         )
         t.insert([urls])
 
@@ -200,7 +203,7 @@ class TestJson:
     ) -> None:
         """Exporting a media-typed expression that is not backed by a stored column should raise an error."""
         p = make_catalog_path
-        t = pxt.create_table(p('test_json_transform'), {'img': pxt.Image})
+        t = pxt.create_table(p('test_json_transform'), {'img': pxt.Image | None})
         t.insert([{'img': get_image_files()[0]}])
 
         with pytest.raises(pxt.Error, match='Cannot export media expression'):
@@ -213,7 +216,7 @@ class TestJson:
         dest_path.mkdir(parents=True, exist_ok=True)
         dest_uri = dest_path.as_uri()
 
-        t = pxt.create_table('test_json_computed_dest', {'img': pxt.Image})
+        t = pxt.create_table('test_json_computed_dest', {'img': pxt.Image | None})
         t.add_computed_column(rotated=t.img.rotate(90), destination=dest_uri)
         t.insert([{'img': f} for f in get_image_files()[:3]])
 
