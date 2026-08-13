@@ -400,6 +400,7 @@ class TestTable:
                                     'local_embedding(image, dim=512)',
                                 ],
                                 'metric': 'cosine',
+                                'precision': 'fp16',
                             },
                         }
                     },

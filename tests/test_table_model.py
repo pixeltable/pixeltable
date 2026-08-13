@@ -1,5 +1,6 @@
 # ruff: noqa: F821
 # ruff: noqa: N806
+# ruff: noqa: RUF012
 
 from __future__ import annotations
 
@@ -508,8 +509,8 @@ class TestTableModel:
             function_call = pxtf.math.floor(value)
             in_predicate = name.isin(['Alice', 'Bob', 'Charlie'])  # type: ignore[attr-defined]
             inline_array = pxt.array([value, value + 1, value + 2])
-            inline_dict = {'name': name, 'img': img}  # noqa: RUF012
-            inline_list = [name, img]  # noqa: RUF012
+            inline_dict = {'name': name, 'img': img}
+            inline_list = [name, img]
             is_null = name == None
             method_ref = name.upper()
             # similarity = name.similarity('similar string')

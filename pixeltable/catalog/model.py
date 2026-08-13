@@ -1,8 +1,9 @@
+# ruff: noqa: N804  # Neither mypy nor ruff seems to understand metaclasses.
+
 from __future__ import annotations
 import __future__
 
 import dataclasses
-import itertools
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, MutableMapping, Sequence, TypedDict
@@ -96,7 +97,7 @@ class Column:
 class EmbeddingIndex:
     """An embedding index specification used in a TableModel or ViewModel definition."""
 
-    column: ColumnRefByName
+    column: Any
     embedding: func.Function | None = None
     string_embed: func.Function | None = None
     image_embed: func.Function | None = None
@@ -135,7 +136,7 @@ class EmbeddingIndex:
 class BtreeIndex:
     """A B-tree index specification used in a TableModel or ViewModel definition."""
 
-    column: ColumnRefByName
+    column: Any
 
     def __repr__(self) -> str:
         return f'BtreeIndex(column={self.column})'
@@ -454,7 +455,7 @@ class TableModelMeta(type):
 
     @classmethod
     def __prepare__(  # type: ignore[override]
-        mcs,  # noqa: N804  # Neither mypy nor ruff seems to understand metaclasses.
+        mcs,
         cls_name: str,
         bases: tuple[type, ...],
         /,
@@ -608,13 +609,12 @@ class TableModelMeta(type):
             embedding_idxs = [
                 idx for idx in known_idxs if isinstance(idx, EmbeddingIndex) and idx.column.name == col_name
             ]
-            if len(embedding_idxs) > 1:
-                if any(idx.name is None for idx in embedding_idxs):
-                    raise excs.RequestError(
-                        excs.ErrorCode.INVALID_SCHEMA,
-                        f'model `{cls_name}`: column {col_name!r} has multiple embedding indexes; they must be '
-                        'given explicit names',
-                    )
+            if len(embedding_idxs) > 1 and any(idx.name is None for idx in embedding_idxs):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_SCHEMA,
+                    f'model `{cls_name}`: column {col_name!r} has multiple embedding indexes; they must be '
+                    'given explicit names',
+                )
         all_index_names = [idx.name for idx in known_idxs if isinstance(idx, EmbeddingIndex) and idx.name is not None]
         if len(all_index_names) != len(set(all_index_names)):
             raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'model `{cls_name}`: index names must be unique')
@@ -1350,7 +1350,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                 if col_md['defined_in'] == existing_md['name'] and not col_md['is_iterator_col']
             }
 
-            ops: list[SchemaChangeOp] = []
+            ops = []
 
             # has_default_idxs mismatch is unsupported.
             model_default_idxs = model.__table_spec__['has_default_idxs']
@@ -1476,6 +1476,8 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                 model_idxs = [idx for idx in model_idxs if not isinstance(idx, BtreeIndex)]
                 existing_idxs = [idx_md for idx_md in existing_idxs if idx_md['index_type'] != 'btree']
 
+            # Diff the indices. We first scan through `model_idxs` looking for matches in `existing_idxs`, removing
+            # those matches as we find them. Anything left over in `existing_idxs` is flagged for removal.
             # TODO: The IndexMetadata structure technically allows for multicol indexes, but they're not supported yet;
             #     here we assume a single column
             for idx in model_idxs:
