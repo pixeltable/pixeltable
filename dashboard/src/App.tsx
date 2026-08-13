@@ -1,14 +1,25 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { Panel, PanelGroup, PanelResizeHandle, type ImperativePanelHandle } from 'react-resizable-panels'
 import { Routes, Route, useNavigate, useParams, useLocation } from 'react-router-dom'
-import { CatalogTree } from '@/components/CatalogTree'
+import { DirectoryTreePanel } from '@/components/DirectoryTree'
+import { CatalogSwitcher } from '@/components/CatalogSwitcher'
 import { TableDetailView } from '@/components/TableDetailView'
 import { SearchPanel } from '@/components/SearchPanel'
 import { PipelineInspector } from '@/components/PipelineInspector'
 import { getDirectoryTree, getStatus } from '@/api/client'
 import type { SystemStatus } from '@/api/client'
 import type { TableNode, TreeNode } from '@/types'
-import { cn, tableHref, dirHref } from '@/lib/utils'
+import {
+  cn,
+  tableHref,
+  dirHref,
+  loadActiveCatalog,
+  saveActiveCatalog,
+  loadExtraCatalogs,
+  saveExtraCatalogs,
+  catalogRootFromPath,
+} from '@/lib/utils'
 import {
   Search,
   GitBranch,
@@ -23,7 +34,23 @@ import {
   MessageSquare,
   Sun,
   Moon,
+  Eye,
+  Camera,
+  Copy,
 } from 'lucide-react'
+
+function DirectoryKindIcon({ kind }: { kind: string }) {
+  switch (kind) {
+    case 'view':
+      return <Eye className="h-3.5 w-3.5 text-purple-400 shrink-0" />
+    case 'snapshot':
+      return <Camera className="h-3.5 w-3.5 text-orange-400 shrink-0" />
+    case 'replica':
+      return <Copy className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+    default:
+      return <Table2 className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+  }
+}
 
 // ── Table View ──────────────────────────────────────────────────────────────
 
@@ -96,11 +123,21 @@ function DirectoryView() {
   }
 
   const name = dirPath.split('/').pop() || dirPath
-  const tables = collectTables(nodes)
-  const totalErrors = tables.reduce((s, t) => s + t.error_count, 0)
+  const objects = collectTables(nodes)
+  const totalErrors = objects.reduce((s, t) => s + t.error_count, 0)
+  const tableCount = objects.filter(t => t.kind === 'table').length
+  const viewCount = objects.filter(t => t.kind === 'view').length
+  const snapshotCount = objects.filter(t => t.kind === 'snapshot').length
+  const replicaCount = objects.filter(t => t.kind === 'replica').length
+  const kindBreakdown = [
+    tableCount > 0 && `${tableCount} table${tableCount === 1 ? '' : 's'}`,
+    viewCount > 0 && `${viewCount} view${viewCount === 1 ? '' : 's'}`,
+    snapshotCount > 0 && `${snapshotCount} snapshot${snapshotCount === 1 ? '' : 's'}`,
+    replicaCount > 0 && `${replicaCount} replica${replicaCount === 1 ? '' : 's'}`,
+  ].filter(Boolean).join(' · ')
 
   return (
-    <div className="flex flex-col h-full p-6 animate-fade-in">
+    <div className="flex flex-col h-full p-6 animate-fade-in bg-card">
       <div className="flex items-center gap-3 mb-6">
         <FolderOpen className="h-5 w-5 text-foreground" />
         <h2 className="text-lg font-semibold text-foreground">{name}</h2>
@@ -108,11 +145,14 @@ function DirectoryView() {
       </div>
 
       <div className="grid grid-cols-2 gap-4 mb-6">
-        <div className="rounded-lg border border-border/40 bg-card/40 p-4">
-          <div className="text-2xl font-semibold tabular-nums">{tables.length}</div>
-          <div className="text-xs text-muted-foreground mt-1">Tables</div>
+        <div className="rounded-lg border border-border/40 bg-background/40 p-4">
+          <div className="text-2xl font-semibold tabular-nums">{objects.length}</div>
+          <div className="text-xs text-muted-foreground mt-1">Objects</div>
+          {kindBreakdown && (
+            <div className="text-[11px] text-muted-foreground mt-1">{kindBreakdown}</div>
+          )}
         </div>
-        <div className="rounded-lg border border-border/40 bg-card/40 p-4">
+        <div className="rounded-lg border border-border/40 bg-background/40 p-4">
           <div className={cn('text-2xl font-semibold tabular-nums', totalErrors > 0 && 'text-destructive')}>
             {totalErrors}
           </div>
@@ -120,23 +160,28 @@ function DirectoryView() {
         </div>
       </div>
 
-      {tables.length > 0 && (
+      {objects.length > 0 && (
         <div className="rounded-lg border border-border/40 overflow-hidden flex-1 overflow-y-auto">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-card/95 backdrop-blur-sm z-10">
               <tr className="border-b border-border/30 bg-muted/20">
-                <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Table</th>
+                <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Name</th>
                 <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Type</th>
                 <th className="text-right py-2 px-3 text-xs font-medium text-muted-foreground">Errors</th>
                 <th className="text-right py-2 px-3 text-xs font-medium text-muted-foreground">Version</th>
               </tr>
             </thead>
             <tbody>
-              {tables.map(t => (
+              {objects.map(t => (
                 <tr key={t.path} className="border-b border-border/20 hover:bg-accent/20 transition-colors cursor-pointer"
                   onClick={() => navigate(tableHref(t.path))}>
                   <td className="py-2 px-3 font-mono text-xs font-medium">{t.name}</td>
-                  <td className="py-2 px-3 text-xs text-muted-foreground">{t.kind}</td>
+                  <td className="py-2 px-3 text-xs text-muted-foreground">
+                    <span className="inline-flex items-center gap-1.5">
+                      <DirectoryKindIcon kind={t.kind} />
+                      <span className="capitalize">{t.kind}</span>
+                    </span>
+                  </td>
                   <td className="py-2 px-3 text-xs tabular-nums text-right">
                     {t.error_count > 0 ? (
                       <span className="text-destructive flex items-center justify-end gap-1">
@@ -164,7 +209,7 @@ function WelcomeView() {
   return (
     <div className="flex flex-col items-center justify-center h-full text-center p-8">
       <div className="mb-6">
-        <img src="/logo.png" alt="Pixeltable" className="h-14 w-14 rounded-xl" />
+        <img src="/logo.png?v=3" alt="Pixeltable" className="h-14 w-14 rounded-xl" />
       </div>
       <h1 className="text-xl font-semibold text-foreground mb-2">
         Pixeltable Dashboard
@@ -242,11 +287,40 @@ function useTheme() {
 export default function App() {
   const [tree, setTree] = useState<TreeNode[]>([])
   const [loading, setLoading] = useState(true)
+  const [treeError, setTreeError] = useState<string | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const sidebarPanelRef = useRef<ImperativePanelHandle>(null)
   const [status, setStatus] = useState<SystemStatus | null>(null)
   const [dark, toggleTheme] = useTheme()
+  const [activeCatalog, setActiveCatalog] = useState(loadActiveCatalog)
+  const [treeReload, setTreeReload] = useState(0)
+  const [connOpen, setConnOpen] = useState(false)
+  const [connPos, setConnPos] = useState<{ top: number; left: number } | null>(null)
+  /** Brand/home hit target only — not Search/Lineage. */
+  const brandRef = useRef<HTMLButtonElement>(null)
+  const connCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const openConnection = () => {
+    if (connCloseTimer.current) {
+      clearTimeout(connCloseTimer.current)
+      connCloseTimer.current = null
+    }
+    const el = brandRef.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    setConnPos({ top: r.bottom - 1, left: r.left })
+    setConnOpen(true)
+  }
+
+  const scheduleCloseConnection = () => {
+    if (connCloseTimer.current) clearTimeout(connCloseTimer.current)
+    connCloseTimer.current = setTimeout(() => setConnOpen(false), 120)
+  }
+
+  useEffect(() => () => {
+    if (connCloseTimer.current) clearTimeout(connCloseTimer.current)
+  }, [])
 
   const toggleSidebar = () => {
     const panel = sidebarPanelRef.current
@@ -257,12 +331,33 @@ export default function App() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  useEffect(() => {
-    getDirectoryTree()
-      .then(setTree)
-      .catch(console.error)
-      .finally(() => setLoading(false))
+  const handleCatalogSelect = useCallback((uri: string) => {
+    setActiveCatalog(uri)
+    saveActiveCatalog(uri)
+    navigate('/')
+  }, [navigate])
 
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setTreeError(null)
+    getDirectoryTree(activeCatalog)
+      .then(nodes => {
+        if (!cancelled) setTree(nodes)
+      })
+      .catch(err => {
+        if (!cancelled) {
+          setTree([])
+          setTreeError(err instanceof Error ? err.message : String(err))
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [activeCatalog, treeReload])
+
+  useEffect(() => {
     getStatus().then(setStatus).catch(console.error)
   }, [])
 
@@ -285,6 +380,14 @@ export default function App() {
 
   const handleSearchSelect = (path: string, type: string) => {
     setSearchOpen(false)
+    // Keep chrome aligned with one active catalog when opening a hosted search hit.
+    const root = catalogRootFromPath(path)
+    if (root !== null) {
+      const extras = loadExtraCatalogs()
+      if (!extras.includes(root)) saveExtraCatalogs([...extras, root])
+      setActiveCatalog(root)
+      saveActiveCatalog(root)
+    }
     handleSelectItem(path, type)
   }
 
@@ -313,10 +416,21 @@ export default function App() {
           onExpand={() => setSidebarOpen(true)}
           className="flex flex-col border-r border-border/60 bg-card/40"
         >
-        {/* Header: logo + connection */}
-        <div className={cn('group relative shrink-0 px-3 pt-3 pb-2', !sidebarOpen && 'flex justify-center pt-3 pb-2')}>
-          <button onClick={() => navigate('/')} className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
-            <img src="/logo.png" alt="Pixeltable" className="h-7 w-7 shrink-0 rounded-lg" />
+        {/* Header: brand left (connection hover); Search + Lineage right (no connection hover) */}
+        <div
+          className={cn(
+            'relative shrink-0 px-3 pt-3 pb-2',
+            sidebarOpen ? 'flex items-start justify-between gap-1' : 'flex flex-col items-center pt-3 pb-2',
+          )}
+        >
+          <button
+            ref={brandRef}
+            onClick={() => navigate('/')}
+            className="flex min-w-0 items-center gap-2.5 hover:opacity-80 transition-opacity"
+            onMouseEnter={() => { if (sidebarOpen && status?.config) openConnection() }}
+            onMouseLeave={scheduleCloseConnection}
+          >
+            <img src="/logo.png?v=3" alt="Pixeltable" className="h-7 w-7 shrink-0 rounded-lg" />
             {sidebarOpen && (
               <div className="flex flex-col min-w-0">
                 <div className="flex items-center gap-1.5">
@@ -327,16 +441,67 @@ export default function App() {
                 </div>
                 {status?.config?.home && (
                   <span className="flex items-center gap-1 text-[10px] text-muted-foreground leading-tight mt-0.5">
-                    <CircleDot className="h-2 w-2 text-muted-foreground shrink-0" />
+                    <CircleDot className="h-2 w-2 text-emerald-400 shrink-0" />
                     <span className="truncate">{status.config.home.replace(/^\/Users\/[^/]+\//, '~/')}</span>
                   </span>
                 )}
               </div>
             )}
           </button>
-          {/* Hover tooltip with full connection details */}
-          {sidebarOpen && status?.config && (
-            <div className="absolute top-full left-2 mt-0.5 hidden group-hover:block z-50 min-w-[280px] max-w-sm">
+          {sidebarOpen ? (
+            <div className="flex shrink-0 items-center gap-0.5 pt-0.5">
+              <button
+                onClick={() => setSearchOpen(true)}
+                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
+                title="Search (⌘K)"
+                aria-label="Search"
+              >
+                <Search className="h-[15px] w-[15px]" />
+              </button>
+              <button
+                onClick={() => navigate('/lineage')}
+                className={cn(
+                  'flex h-7 w-7 items-center justify-center rounded-md transition-colors',
+                  isNavActive('/lineage')
+                    ? 'bg-accent text-foreground'
+                    : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+                )}
+                title="Lineage"
+                aria-label="Lineage"
+              >
+                <GitBranch className="h-[15px] w-[15px]" />
+              </button>
+            </div>
+          ) : (
+            <div className="mt-1 flex flex-col items-center gap-0.5">
+              <button
+                onClick={() => setSearchOpen(true)}
+                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
+                title="Search (⌘K)"
+              >
+                <Search className="h-[15px] w-[15px]" />
+              </button>
+              <button
+                onClick={() => navigate('/lineage')}
+                className={cn(
+                  'flex h-7 w-7 items-center justify-center rounded-md transition-colors',
+                  isNavActive('/lineage')
+                    ? 'bg-accent text-foreground'
+                    : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+                )}
+                title="Lineage"
+              >
+                <GitBranch className="h-[15px] w-[15px]" />
+              </button>
+            </div>
+          )}
+          {sidebarOpen && status?.config && connOpen && connPos && createPortal(
+            <div
+              className="fixed z-[200] min-w-[280px] max-w-sm"
+              style={{ top: connPos.top, left: connPos.left }}
+              onMouseEnter={openConnection}
+              onMouseLeave={scheduleCloseConnection}
+            >
               <div className="rounded-lg border border-border/60 bg-card shadow-lg px-3.5 py-3 text-[11px] space-y-2.5">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Connection</div>
                 {([
@@ -362,76 +527,93 @@ export default function App() {
                   </div>
                 )}
               </div>
-            </div>
+            </div>,
+            document.body,
           )}
         </div>
 
-        {/* Navigation */}
-        <nav className="flex flex-1 flex-col px-2 pt-1 min-h-0 overflow-hidden">
-          {/* Search button */}
-          {sidebarOpen ? (
-            <button
-              onClick={() => setSearchOpen(true)}
-              className="flex items-center gap-2.5 w-full rounded-lg px-2.5 py-[7px] mb-1 text-[13px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
-            >
-              <Search className="h-[15px] w-[15px] shrink-0" />
-              <span className="flex-1 text-left">Search…</span>
-              <kbd className="text-[11px] bg-accent px-1.5 py-0.5 rounded border border-border/60 text-muted-foreground">⌘K</kbd>
-            </button>
-          ) : (
-            <button
-              onClick={() => setSearchOpen(true)}
-              className="flex items-center justify-center rounded-lg px-2.5 py-[7px] mb-1 text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors"
-              title="Search (⌘K)"
-            >
-              <Search className="h-[15px] w-[15px]" />
-            </button>
-          )}
+        {/* Navigation: hairline under header (same language as footer) */}
+        <nav className="flex min-h-0 flex-1 flex-col overflow-hidden border-t border-border/40 px-2 pt-1.5">
+          {/* Sticky catalog switcher (Local / Cloud) */}
+          <CatalogSwitcher
+            activeCatalog={activeCatalog}
+            onSelect={handleCatalogSelect}
+            collapsed={!sidebarOpen}
+            onExpandRequest={() => sidebarPanelRef.current?.expand()}
+          />
 
-          {/* Lineage nav */}
-          <button
-            onClick={() => navigate('/lineage')}
-            className={cn(
-              'group flex items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] font-medium transition-colors',
-              sidebarOpen ? '' : 'justify-center',
-              isNavActive('/lineage')
-                ? 'bg-accent text-foreground'
-                : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
-            )}
-            title={sidebarOpen ? undefined : 'Lineage'}
-          >
-            <GitBranch className="h-[15px] w-[15px] shrink-0" />
-            {sidebarOpen && <span>Lineage</span>}
-          </button>
-
-          {/* Divider */}
-          <div className={cn('my-1', sidebarOpen ? 'mx-2.5' : 'mx-1')}>
-            <div className="h-px bg-border/40" />
-          </div>
-
-        {/* Directory tree */}
-          <div className="flex-1 overflow-y-auto">
+          {/* Filter sticky under switcher; tree scrolls inside the panel */}
           {loading ? (
-            <div className="flex items-center justify-center py-8">
-                <div className="w-5 h-5 border-2 border-k-yellow border-t-transparent rounded-full animate-spin" />
+            <div className="flex flex-1 items-center justify-center py-8">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-k-yellow border-t-transparent" />
             </div>
-            ) : sidebarOpen ? (
-            <CatalogTree
-              localTree={tree}
+          ) : treeError ? (
+            sidebarOpen ? (
+              <div className="flex-1 space-y-2 overflow-y-auto px-2 py-3">
+                <div className="break-words text-[11px] text-destructive">{treeError}</div>
+                <button
+                  type="button"
+                  onClick={() => setTreeReload(n => n + 1)}
+                  className="text-[11px] font-medium text-foreground underline-offset-2 hover:underline"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : null
+          ) : sidebarOpen ? (
+            <DirectoryTreePanel
+              nodes={tree}
               selectedPath={selectedPath}
               onSelect={handleSelectItem}
             />
-            ) : null}
-          </div>
+          ) : null}
         </nav>
 
         {/* ── Sidebar Footer ─────────────────────────────────────────── */}
-        <div className="px-2 pb-2 space-y-0.5 shrink-0">
-          {/* Collapse toggle */}
-          <button
+        <div className="px-2 pb-2 pt-1 space-y-0.5 shrink-0 border-t border-border/40">
+          <a
+            href="https://docs.pixeltable.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Docs"
             className={cn(
               'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground',
-              sidebarOpen ? '' : 'justify-center',
+              !sidebarOpen && 'justify-center',
+            )}
+          >
+            <BookOpen className="h-[15px] w-[15px] shrink-0" />
+            {sidebarOpen && <span>Docs</span>}
+          </a>
+          <a
+            href="https://github.com/pixeltable/pixeltable/issues"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Feedback"
+            className={cn(
+              'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground',
+              !sidebarOpen && 'justify-center',
+            )}
+          >
+            <MessageSquare className="h-[15px] w-[15px] shrink-0" />
+            {sidebarOpen && <span>Feedback</span>}
+          </a>
+          <button
+            type="button"
+            onClick={toggleTheme}
+            title={dark ? 'Light mode' : 'Dark mode'}
+            className={cn(
+              'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground',
+              !sidebarOpen && 'justify-center',
+            )}
+          >
+            {dark ? <Sun className="h-[15px] w-[15px] shrink-0" /> : <Moon className="h-[15px] w-[15px] shrink-0" />}
+            {sidebarOpen && <span>{dark ? 'Light mode' : 'Dark mode'}</span>}
+          </button>
+          <button
+            type="button"
+            className={cn(
+              'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground',
+              !sidebarOpen && 'justify-center',
             )}
             onClick={toggleSidebar}
           >
@@ -444,46 +626,17 @@ export default function App() {
               <PanelLeftOpen className="h-[15px] w-[15px] shrink-0" />
             )}
           </button>
-
         </div>
         </Panel>
 
         <PanelResizeHandle className="w-px bg-border/60 hover:w-1 hover:bg-accent transition-all data-[resize-handle-state=drag]:bg-accent data-[resize-handle-state=drag]:w-1 cursor-col-resize" />
 
         {/* ── Main Content ────────────────────────────────────────────── */}
-        <Panel className="flex flex-col min-h-0 overflow-hidden">
-        <div className="flex items-center justify-end gap-1 px-4 py-1.5 border-b border-border/40 shrink-0">
-          <a
-            href="https://docs.pixeltable.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            <BookOpen className="h-3.5 w-3.5" />
-            Docs
-          </a>
-          <a
-            href="https://github.com/pixeltable/pixeltable/issues"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            <MessageSquare className="h-3.5 w-3.5" />
-            Feedback
-          </a>
-          <div className="w-px h-3.5 bg-border/40 mx-0.5" />
-          <button
-            onClick={toggleTheme}
-            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            {dark ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
-            {dark ? 'Light mode' : 'Dark mode'}
-          </button>
-        </div>
+        <Panel className="flex flex-col min-h-0 overflow-hidden bg-card">
         <Routes>
           <Route path="/" element={<div className="flex-1 overflow-auto h-full"><WelcomeView /></div>} />
           <Route path="/lineage" element={<PipelineInspector />} />
-          <Route path="/table/*" element={<div className="flex-1 flex flex-col h-full"><TableView /></div>} />
+          <Route path="/table/*" element={<div className="flex-1 flex flex-col h-full bg-card"><TableView /></div>} />
           <Route path="/dir/*" element={<div className="flex-1 overflow-auto h-full"><DirectoryView /></div>} />
         </Routes>
         </Panel>
