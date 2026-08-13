@@ -83,17 +83,17 @@ class TestTableModel:
         assert [c.name for c in declared[Plain].column_md()] == ['doubled', 'vid', 'val', 'note']
 
         # a similarity query over a model resolves its index from the declared shape, before any table exists
-        sim = Base.note.similarity(string='hello')
+        sim = Base.note.similarity(string='hello')  # type: ignore[attr-defined]
         search = Base.order_by(sim, asc=False).limit(1).select(Base.val, sim)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'`Base`, which is not bound'):
             search.collect()
         with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND, match=r"No embedding index found for column 'val'"):
-            _ = Base.val.similarity(string='hello')
+            _ = Base.val.similarity(string='hello')  # type: ignore[attr-defined]
 
         TableModel.create_all(p(''))
 
         # the same query runs once the model is bound, against the index on the real table
-        assert search.bind(p('')).collect() is not None
+        assert search.bind(p('')).collect() is not None  # type: ignore[attr-defined]
 
         for m in models:
             actual = m.table._tbl_path

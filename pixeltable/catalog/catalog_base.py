@@ -3,6 +3,8 @@ from __future__ import annotations
 import abc
 from typing import TYPE_CHECKING, Any, Mapping
 
+from pixeltable.catalog import model
+
 if TYPE_CHECKING:
     from uuid import UUID
 
@@ -13,7 +15,7 @@ if TYPE_CHECKING:
 
     from .dir import Dir
     from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation
-    from .model import IndexDeclaration, TableSchemaChangeSet
+    from .model import IndexDeclaration
     from .path import Path
     from .table import Table
     from .table_path import TablePath
@@ -72,7 +74,7 @@ class CatalogBase(abc.ABC):
     ) -> tuple[Table, bool]: ...
 
     @abc.abstractmethod
-    def update_from_model(self, updates: list[TableSchemaChangeSet]) -> None: ...
+    def update_from_model(self, updates: list[model.TableSchemaChangeSet]) -> None: ...
 
     @abc.abstractmethod
     def get_table(self, path: Path, if_not_exists: IfNotExistsParam) -> Table | None: ...

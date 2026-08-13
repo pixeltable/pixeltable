@@ -67,7 +67,7 @@ class ColumnRefByName(Expr):
         path = self.model_cls.table_path()
         col_md = path.get_column_md_by_name(self.name)
         assert col_md is not None, self.name
-        return ColumnRef(col_md).similarity(item, _idx_path=path, **kwargs)
+        return ColumnRef(col_md).similarity(item, _tbl_path=path, **kwargs)
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
         raise AssertionError('this should never be called')

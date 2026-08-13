@@ -26,6 +26,7 @@ from pixeltable import exprs, func, type_system as ts
 from pixeltable.catalog.dir import Dir
 from pixeltable.catalog.globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation
 from pixeltable.catalog.metadata_types import TableVersionMd
+from pixeltable.catalog.model import BtreeIndex, EmbeddingIndex
 from pixeltable.catalog.path import Path
 from pixeltable.catalog.table_path import TablePath, TablePathKey, TableVersionPath
 from pixeltable.catalog.update_status import RowCountStats, UpdateStatus
@@ -101,9 +102,6 @@ def _serialize(obj: Any, binary_parts: list[bytes]) -> Any:
 
     Binary values are appended to binary_parts as raw bytes and referenced inside the dict by index.
     """
-    # imported here rather than at module scope: the model package imports this one
-    from pixeltable.catalog.model import BtreeIndex, EmbeddingIndex
-
     if isinstance(obj, float) and not math.isfinite(obj):
         # nan/inf are valid Float cell values but are lost (rendered as null) by JSON serialization
         return {_TAG: 'float', 'v': repr(obj)}
@@ -227,9 +225,6 @@ def _serialize(obj: Any, binary_parts: list[bytes]) -> Any:
 def _deserialize(obj: Any, binary_parts: list[bytes], uploaded_names: dict[str, str] | None = None) -> Any:
     """Inverse of _serialize(). When uploaded_names is provided, each 'file' arg maps its temp path to the
     original filename in it."""
-    # imported here rather than at module scope: the model package imports this one
-    from pixeltable.catalog.model import BtreeIndex, EmbeddingIndex
-
     if isinstance(obj, list):
         return [_deserialize(x, binary_parts, uploaded_names) for x in obj]
     if isinstance(obj, dict):

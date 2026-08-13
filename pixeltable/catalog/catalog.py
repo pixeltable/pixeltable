@@ -19,6 +19,7 @@ from sqlalchemy.dialects.postgresql import array as pg_array
 
 import pixeltable.index as index
 from pixeltable import exceptions as excs, exprs, func, telemetry
+from pixeltable.catalog import model
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
@@ -48,7 +49,6 @@ if TYPE_CHECKING:
     from pixeltable.plan import SampleClause
 
     from .. import exprs
-    from .model import IndexDeclaration, TableSchemaChangeSet
 
 
 _logger = logging.getLogger(__name__)
@@ -1751,7 +1751,7 @@ class Catalog(CatalogBase):
         custom_metadata: Any,
         iterator: func.GeneratingFunctionCall | None,
         base: 'pxt.Query | None',
-        idxs: dict[str, IndexDeclaration],
+        idxs: dict[str, model.IndexDeclaration],
     ) -> tuple[LocalTable, bool]:
         """Create a table or view from a declarative model.
 
@@ -1768,9 +1768,7 @@ class Catalog(CatalogBase):
         tbl_id = uuid4()
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
 
-        from .model import prepare_model
-
-        iterator, additional_cols, resolved_idxs = prepare_model(
+        iterator, additional_cols, resolved_idxs = model.prepare_model(
             tbl_handle, columns, display_name, iterator, base, idxs
         )
 
@@ -1813,7 +1811,7 @@ class Catalog(CatalogBase):
                 explicit_tbl_id=tbl_id,
             )
 
-    def update_from_model(self, change_sets: list[TableSchemaChangeSet]) -> None:
+    def update_from_model(self, change_sets: list[model.TableSchemaChangeSet]) -> None:
         """Update tables/views from declarative models.
 
         If the table does not exist, raises NotFoundError. If the model is incompatible with the existing table,
@@ -1941,9 +1939,7 @@ class Catalog(CatalogBase):
                 pending_ancestor_ids = (set(tvp.tbl_ids[1:]) & updated_tbl_ids) - applied_tbl_ids
                 assert len(pending_ancestor_ids) == 0, f'{tv.name}: bases not yet applied: {pending_ancestor_ids}'
 
-                from .model import prepare_model_updates
-
-                added_cols, added_idxs = prepare_model_updates(
+                added_cols, added_idxs = model.prepare_model_updates(
                     tvp, tv.display_str(), change_set['new_columns'], change_set['new_idxs']
                 )
                 dropped_cols = [tv.cols_by_name[name] for name in change_set['dropped_columns']]

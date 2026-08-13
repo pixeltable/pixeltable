@@ -14,7 +14,6 @@ from pixeltable import catalog, exceptions as excs, exprs, func, type_system as 
 from pixeltable.config import URI, ConfigVar
 from pixeltable.env import Env
 from pixeltable.exprs import ColumnRefByName
-from pixeltable.query_clauses import FromClause, JoinType, SampleClause
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 
@@ -24,6 +23,13 @@ from ..table import Table
 from ..table_version_handle import TableVersionHandle
 from ..utils import create_table_version_md
 from .resolution import prepare_model
+
+if TYPE_CHECKING:
+    from .query import ModelQuery
+
+# the model each declared path was synthesized for, keyed by its synthesized table id; a query over a model
+# consults this to name the model it is declared over and to bind itself to that model's table
+MODEL_BY_DECLARED_TBL_ID: dict[UUID, 'TableModelMeta'] = {}
 
 # Table methods exposed as class-level operations on the model.
 FORWARDED_TABLE_METHODS: frozenset[str] = frozenset(
@@ -160,172 +166,6 @@ class TableSpec(TypedDict):
 def _contains_aggregate(expr: exprs.Expr) -> bool:
     """Whether the expression computes a value over a set of rows rather than from one row."""
     return expr.contains_(cls=exprs.FunctionCall, filter=lambda e: cast(exprs.FunctionCall, e).is_agg_fn_call)
-
-
-# the model a declared path was synthesized for, so that a query over it can name and bind its model
-_MODEL_BY_DECLARED_TBL_ID: dict[UUID, TableModelMeta] = {}
-
-
-class ModelQuery(pxt.Query):
-    """A query declared over a model, before that model is bound to a table.
-
-    Its from-clause is the shape the model declares, so it is a Query in every respect except that it cannot
-    be executed: the columns it references belong to a table that does not exist yet. bind() produces the
-    equivalent query over a real table.
-    """
-
-    @property
-    def model_cls(self) -> TableModelMeta:
-        """The model whose declared shape this query is written against."""
-        model_cls = _MODEL_BY_DECLARED_TBL_ID.get(self._from_clause.tbls[0].tbl_id)
-        assert model_cls is not None, self._from_clause.tbls[0].tbl_id
-        return model_cls
-
-    @classmethod
-    def for_model(cls, model_cls: TableModelMeta) -> ModelQuery:
-        """A query over everything model_cls declares."""
-        return cls(from_clause=FromClause(tbls=[model_cls.table_path()]))
-
-    def validate(self, model_name: str) -> None:
-        """Validate that this query can be used to define a view."""
-        from ..view import View
-
-        View.validate_view_query(self, prefix=f'{model_name}: ')
-
-        # a view model turns each select() item into a class attribute, so every item needs a name
-        if self.select_list is None:
-            return
-        for item, name in self.select_list:
-            if name is None and not item.is_column_ref:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_ARGUMENT,
-                    f'{model_name}: `base` select() list may contain only direct column references '
-                    f'or named expressions, but contains an anonymous compound expression: {item}\n'
-                    f'Use kwargs syntax to give it an explicit name: select(my_name=...)',
-                )
-
-    def to_declared_query(self) -> pxt.Query:
-        """The equivalent query whose column references identify the columns of the model's declared shape.
-
-        Metadata assembly distinguishes a column reference from a computed expression, which a query that only
-        names its columns cannot support.
-        """
-        declared_path = self._from_clause.tbls[0]
-        subst: exprs.ExprDict[exprs.Expr] = exprs.ExprDict()
-        for col_md in declared_path.column_md():
-            if col_md.name is not None:
-                subst[ColumnRefByName(col_md.name)] = exprs.ColumnRef(col_md)
-        return self._substituted(declared_path, subst)
-
-    def bind(self, catalog_dir: str) -> pxt.Query:
-        """The equivalent query over the table this query's model resolves to under catalog_dir."""
-        tbl = self.model_cls._bind(catalog_dir)
-        subst: exprs.ExprDict[exprs.Expr] = exprs.ExprDict()
-        for col_name in tbl.columns():
-            subst[ColumnRefByName(col_name)] = getattr(tbl, col_name)
-        return self._substituted(tbl._tbl_path, subst)
-
-    def _substituted(self, path: catalog.TablePath, subst: exprs.ExprDict[exprs.Expr]) -> pxt.Query:
-        """A plain Query over `path`, with this query's clauses rewritten by `subst`."""
-        # a similarity expression names its indexed column and the table version holding the index, neither of
-        # which a substitution by column name reaches
-        declared_path = self._from_clause.tbls[0]
-        for sim in {s.id: s for e in self._component_exprs() for s in e.subexprs(exprs.SimilarityExpr)}.values():
-            assert sim.qcol_id is not None
-            if sim.qcol_id.tbl_id == path.tbl_id:
-                continue  # already indexed against this path
-            col_name = declared_path.get_column_md(sim.qcol_id).name
-            assert col_name is not None
-            new_md = path.get_column_md_by_name(col_name)
-            if new_md is None:
-                raise excs.RequestError(
-                    excs.ErrorCode.COLUMN_NOT_FOUND,
-                    f'Table {path.tbl_name()!r} has no column {col_name!r}, which a similarity() call references.',
-                )
-            subst[sim] = exprs.SimilarityExpr(
-                sim.components[0].copy().substitute(subst),
-                idx_name=sim.idx_name,
-                qcol_id=new_md.qcolid,
-                table_version_key=catalog.TableVersionKey(new_md.qcolid.tbl_id, new_md.col_effective_version),
-            )
-
-        def rebound(e: exprs.Expr) -> exprs.Expr:
-            return e.copy().substitute(subst)
-
-        return pxt.Query(
-            from_clause=FromClause(tbls=[path]),
-            select_list=None if self.select_list is None else [(rebound(e), n) for e, n in self.select_list],
-            where_clause=None if self.where_clause is None else rebound(self.where_clause),
-            group_by_clause=None if self.group_by_clause is None else [rebound(e) for e in self.group_by_clause],
-            grouping_tbl_key=self.grouping_tbl_key,
-            order_by_clause=None
-            if self.order_by_clause is None
-            else [(rebound(e), asc) for e, asc in self.order_by_clause],
-            limit=None if self.limit_val is None else rebound(self.limit_val),
-            offset=None if self.offset_val is None else rebound(self.offset_val),
-            sample_clause=None
-            if self.sample_clause is None
-            else dataclasses.replace(
-                self.sample_clause, stratify_exprs=[rebound(e) for e in self.sample_clause.stratify_exprs]
-            ),
-        )
-
-    def join(self, *args: Any, **kwargs: Any) -> pxt.Query:
-        raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION,
-            f'join(): a query over model `{self.model_cls.__name__}` cannot be joined; '
-            'join the tables the models are bound to instead.',
-        )
-
-    def _unbound(self, op: str) -> excs.RequestError:
-        return excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION,
-            f'{op}: this query is declared over model `{self.model_cls.__name__}`, which is not bound to a '
-            'table; create the tables first, or call the operation on a bound model.',
-        )
-
-    # Query's execution surface, which needs the table this query does not have
-    def collect(self) -> Any:
-        raise self._unbound('collect()')
-
-    def _collect(self, args: dict[str, Any] | None = None, *, media_as_urls: bool = False) -> Any:
-        raise self._unbound('collect()')
-
-    async def _acollect(self, args: dict[str, Any] | None = None) -> Any:
-        raise self._unbound('collect()')
-
-    def cursor(self) -> Any:
-        raise self._unbound('cursor()')
-
-    def show(self, n: int = 20) -> Any:
-        raise self._unbound('show()')
-
-    def head(self, n: int = 10) -> Any:
-        raise self._unbound('head()')
-
-    def tail(self, n: int = 10) -> Any:
-        raise self._unbound('tail()')
-
-    def count(self) -> int:
-        raise self._unbound('count()')
-
-    def describe(self) -> None:
-        raise self._unbound('describe()')
-
-    def update(self, value_spec: dict[str, Any], cascade: bool = True) -> Any:
-        raise self._unbound('update()')
-
-    def recompute_columns(self, *columns: Any, errors_only: bool = False, cascade: bool = True) -> Any:
-        raise self._unbound('recompute_columns()')
-
-    def delete(self) -> Any:
-        raise self._unbound('delete()')
-
-    def to_coco_dataset(self) -> Any:
-        raise self._unbound('to_coco_dataset()')
-
-    def to_pytorch_dataset(self, image_format: str = 'pt') -> Any:
-        raise self._unbound('to_pytorch_dataset()')
 
 
 class _AnnotationRecorder(dict):
@@ -542,6 +382,10 @@ class TableModelMeta(type):
 
             # Validate base
             if base is not None:
+                # imported here because ModelQuery subclasses pxt.Query, which is not available while
+                # pixeltable is still initializing this module
+                from .query import ModelQuery
+
                 if isinstance(base, ModelQuery):
                     pass
                 elif isinstance(base, TableModelMeta):
@@ -741,6 +585,8 @@ class TableModelMeta(type):
 
     def __getattr__(cls, item: str) -> Any:
         if item in FORWARDED_TABLE_METHODS:
+            from .query import ModelQuery
+
             if not cls.is_bound and hasattr(ModelQuery, item):
                 # This model is not bound to a table, but the desired operation is accessible via a placeholder query.
                 return getattr(ModelQuery.for_model(cls), item)
@@ -823,7 +669,7 @@ class TableModelMeta(type):
                     break
                 base_path = base_path.base
 
-        _MODEL_BY_DECLARED_TBL_ID[tbl_id] = cls
+        MODEL_BY_DECLARED_TBL_ID[tbl_id] = cls
         cls._table_path = catalog.TableMdPath.from_md(
             [md, *base_md], is_anon_snapshot=False, catalog_uri=catalog.path.ROOT_PATH
         )
