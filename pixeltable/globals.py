@@ -10,6 +10,7 @@ from uuid import UUID
 import pandas as pd
 import pydantic
 from pandas.io.formats.style import Styler
+from typing_extensions import TypeForm
 
 from pixeltable import Query, catalog, exceptions as excs, exprs, func, type_system as ts
 from pixeltable.catalog import DirEntry, TablePath
@@ -55,7 +56,7 @@ def init(config_overrides: dict[str, Any] | None = None, additional_config_files
 
 def create_table(
     path: str,
-    schema: Mapping[str, ts.TypeForm | ColumnSpec | exprs.Expr] | None = None,
+    schema: Mapping[str, TypeForm | ColumnSpec | exprs.Expr] | None = None,
     *,
     source: TableDataSource | None = None,
     source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
@@ -287,7 +288,7 @@ def create_view(
     path: str,
     base: catalog.Table | Query,
     *,
-    additional_columns: Mapping[str, ts.TypeForm | ColumnSpec | exprs.Expr] | None = None,
+    additional_columns: Mapping[str, TypeForm | ColumnSpec | exprs.Expr] | None = None,
     is_snapshot: bool = False,
     has_default_idxs: bool = False,
     iterator: func.GeneratingFunctionCall | None = None,
@@ -461,7 +462,7 @@ def create_snapshot(
     path_str: str,
     base: catalog.Table | Query,
     *,
-    additional_columns: Mapping[str, ts.TypeForm | ColumnSpec | exprs.Expr] | None = None,
+    additional_columns: Mapping[str, TypeForm | ColumnSpec | exprs.Expr] | None = None,
     iterator: func.GeneratingFunctionCall | None = None,
     comment: str | None = None,
     custom_metadata: Any = None,

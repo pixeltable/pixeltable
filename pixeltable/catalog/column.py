@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import pgvector.sqlalchemy
 import sqlalchemy as sql
+from typing_extensions import TypeForm
 
 import pixeltable.exprs as exprs
 import pixeltable.index as index
@@ -202,7 +203,7 @@ class Column:
         return val_col, undo_col
 
     @classmethod
-    def create(cls, name: str, spec: ts.ColumnType | ts.TypeForm | ColumnSpec | exprs.Expr) -> Column:
+    def create(cls, name: str, spec: ts.ColumnType | TypeForm | ColumnSpec | exprs.Expr) -> Column:
         col_type: ts.ColumnType | None = None
         value_expr: exprs.Expr | None = None
         primary_key: bool = False

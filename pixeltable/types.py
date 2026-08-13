@@ -5,8 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypedDict, Union
 
+from typing_extensions import TypeForm
+
 if TYPE_CHECKING:
-    from pixeltable import exprs, type_system as ts
+    from pixeltable import exprs
 
 
 TableKind = Literal['table', 'view', 'snapshot']
@@ -54,7 +56,7 @@ class ColumnSpec(TypedDict, total=False):
     Exactly one of `type` or `value` must be included in the dictionary.
     """
 
-    type: 'ts.TypeForm'
+    type: TypeForm
     """The column type (e.g., `pxt.Image`, `str`). Required unless `value` is specified."""
     value: 'exprs.Expr'
     """A Pixeltable expression for computed columns. Mutually exclusive with `type`."""

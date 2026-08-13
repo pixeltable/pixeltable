@@ -13,6 +13,7 @@ from uuid import UUID
 import numpy as np
 import sqlalchemy as sql
 from deprecated import deprecated
+from typing_extensions import TypeForm
 
 from pixeltable import catalog, exceptions as excs, func, type_system as ts
 
@@ -658,7 +659,7 @@ class Expr(abc.ABC):
         else:
             return InPredicate(self, value_set_literal=value_set)
 
-    def astype(self, new_type: 'ts.ColumnType | ts.TypeForm') -> 'exprs.TypeCast':
+    def astype(self, new_type: ts.ColumnType | TypeForm) -> 'exprs.TypeCast':
         """
         Return a new expression that casts this expression to a different type.
 

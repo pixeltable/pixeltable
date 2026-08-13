@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, MutableMapping, TypedDict
 from uuid import UUID
 
+from typing_extensions import TypeForm
+
 from pixeltable import catalog, exceptions as excs, exprs, func, index, type_system as ts
 from pixeltable.env import Env
 from pixeltable.exprs import ColumnRefByName
@@ -61,7 +63,7 @@ for method in FORWARDED_TABLE_METHODS:
 class Column:
     """A column specification used in a TableModel or ViewModel definition."""
 
-    type: ts.TypeForm | None = None
+    type: TypeForm | None = None
     value: Any = None
     primary_key: bool | None = None
     stored: bool | None = None

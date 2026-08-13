@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence
 from uuid import UUID
 
 import pydantic
+from typing_extensions import TypeForm
 
 import pixeltable.exceptions as excs
 from pixeltable import type_system as ts
@@ -190,7 +191,7 @@ class TableProxy(Table):
 
     def add_columns(
         self,
-        schema: Mapping[str, ts.TypeForm | ColumnSpec],
+        schema: Mapping[str, TypeForm | ColumnSpec],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
         bound_args = self._dispatch_args(locals())
@@ -203,7 +204,7 @@ class TableProxy(Table):
         self,
         *,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-        **kwargs: ts.TypeForm | ColumnSpec,
+        **kwargs: TypeForm | ColumnSpec,
     ) -> UpdateStatus:
         self._check_single_column_kwarg('add_column', '`col_name=col_type`', kwargs)
         bound_args = self._dispatch_args(locals())
@@ -240,7 +241,7 @@ class TableProxy(Table):
         self._check_mutable('rename columns of')
         self._dispatch('rename_column', bound_args)
 
-    def alter_column(self, column: str | ColumnRef, *, type_: ts.TypeForm) -> None:
+    def alter_column(self, column: str | ColumnRef, *, type_: TypeForm) -> None:
         bound_args = self._dispatch_args(locals())
         self._check_mutable('alter columns of')
 

@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, overload
 
 import pandas as pd
+from typing_extensions import TypeForm
 
 from pixeltable import exceptions as excs
 
@@ -220,7 +221,7 @@ class Table(SchemaObject):
     @abc.abstractmethod
     def add_columns(
         self,
-        schema: Mapping[str, 'ts.TypeForm | ColumnSpec'],
+        schema: Mapping[str, TypeForm | ColumnSpec],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
         """
@@ -277,7 +278,7 @@ class Table(SchemaObject):
         self,
         *,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-        **kwargs: 'ts.TypeForm | ColumnSpec',
+        **kwargs: TypeForm | ColumnSpec,
     ) -> UpdateStatus:
         """
         Adds an ordinary (non-computed) column to the table.
@@ -438,7 +439,7 @@ class Table(SchemaObject):
         """
 
     @abc.abstractmethod
-    def alter_column(self, column: str | ColumnRef, *, type_: 'ts.TypeForm') -> None:
+    def alter_column(self, column: str | ColumnRef, *, type_: TypeForm) -> None:
         """Alter the type of a column.
 
         Currently, the only supported change is widening a non-computed column from non-nullable to
@@ -955,7 +956,7 @@ class Table(SchemaObject):
                 f'`where` argument must be a valid Pixeltable expression; got `{type(where)}`',
             )
 
-    def _validate_column_schema(self, schema: Mapping[str, 'ts.TypeForm | ColumnSpec']) -> None:
+    def _validate_column_schema(self, schema: Mapping[str, TypeForm | ColumnSpec]) -> None:
         from .column import Column
 
         for name, spec in schema.items():

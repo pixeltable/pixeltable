@@ -10,6 +10,7 @@ from uuid import UUID
 
 import pandas as pd
 import pydantic
+from typing_extensions import TypeForm
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, exprs, index, type_system as ts
@@ -486,7 +487,7 @@ class LocalTable(Table):
 
     def add_columns(
         self,
-        schema: Mapping[str, ts.TypeForm | ColumnSpec],
+        schema: Mapping[str, TypeForm | ColumnSpec],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
         from pixeltable.catalog import retry_loop
@@ -532,7 +533,7 @@ class LocalTable(Table):
         self,
         *,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-        **kwargs: ts.TypeForm | ColumnSpec,
+        **kwargs: TypeForm | ColumnSpec,
     ) -> UpdateStatus:
         # verify kwargs and construct column schema dict
         self._check_single_column_kwarg('add_column', '`col_name=col_type`', kwargs)
@@ -705,7 +706,7 @@ class LocalTable(Table):
             self._check_mutable('rename columns of')
             self._tbl_version.get().rename_column(old_name, new_name)
 
-    def alter_column(self, column: str | ColumnRef, *, type_: ts.TypeForm) -> None:
+    def alter_column(self, column: str | ColumnRef, *, type_: TypeForm) -> None:
         from pixeltable.catalog import retry_loop
 
         new_col_type = ts.ColumnType.normalize_type(type_, allow_builtin_types=False)
