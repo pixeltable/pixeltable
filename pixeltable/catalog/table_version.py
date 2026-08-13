@@ -2045,11 +2045,9 @@ class TableVersion:
 
     @property
     def idx_undo_cols(self) -> set[Column]:
-        """All index undo columns of all indexes in this version."""
         return {info.undo_col for info in self.idxs.values() if info.undo_col is not None}
 
     def get_idx_val_columns(self, cols: Iterable[Column]) -> set[Column]:
-        """Return the index value columns of the indexes on cols; indexes without one are skipped."""
         # assumes that the indexed columns are all in this table
         assert all(col.get_tbl().id == self.id for col in cols)
         col_ids = {col.id for col in cols}
