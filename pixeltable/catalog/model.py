@@ -1309,7 +1309,6 @@ def _add_column_change(col_name: str, spec: ColumnSpec) -> SchemaChangeOp:
 def _add_index_change(idx: IndexDeclaration) -> SchemaChangeOp:
     # str(), not .name: a ModelColumnRef renders as its bare column name, and a spec holding anything else
     # is reported as it stands rather than dropped from the plan
-    details = {'on': str(idx.column)}
     name = idx.name if isinstance(idx, EmbeddingIndex) else None
     return SchemaChangeOp(
         target='index',
@@ -1323,7 +1322,7 @@ def _add_index_change(idx: IndexDeclaration) -> SchemaChangeOp:
             if name is not None
             else f'{type(idx).__name__} on column {idx.column.name!r} will be added'
         ),
-        details=details,
+        details={'on': str(idx.column)},
     )
 
 
@@ -1557,7 +1556,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                                     model=idx,
                                     existing=idx_md,
                                     description=f'named index {idx.name!r} has altered properties',
-                                    details={},
+                                    details={'on': str(idx.column)},
                                 )
                             )
                         existing_idxs.pop(i)
@@ -1590,7 +1589,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                         model=None,
                         existing=None,
                         description=f'index {idx_name!r} will be dropped',
-                        details={},
+                        details={'on': str(idx_md['columns'][0])},
                     )
                 )
 
