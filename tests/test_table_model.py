@@ -1882,7 +1882,7 @@ class TestTableModel:
 
         with pxt_raises(
             excs.ErrorCode.INVALID_SCHEMA,
-            match=r"model `InvalidIndexName`: Invalid EmbeddingIndex name: 'not an identifier'"
+            match=r"model `InvalidIndexName`: Invalid EmbeddingIndex name: 'not an identifier'",
         ):
 
             class InvalidIndexName(TableModel, name='invalid_index_name'):

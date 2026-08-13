@@ -126,8 +126,7 @@ class EmbeddingIndex:
             return self.embedding(self.column)
         else:
             raise excs.RequestError(
-                excs.ErrorCode.INVALID_SCHEMA,
-                f'EmbeddingIndex has no embedding function defined for type: {col_type}',
+                excs.ErrorCode.INVALID_SCHEMA, f'EmbeddingIndex has no embedding function defined for type: {col_type}'
             )
 
     def __repr__(self) -> str:
@@ -619,7 +618,11 @@ class TableModelMeta(type):
                     excs.ErrorCode.INVALID_SCHEMA,
                     f'model `{cls_name}`: Invalid {type(idx).__name__} column reference: {idx.column!r}',
                 )
-            if isinstance(idx, EmbeddingIndex) and idx.name is not None and not (isinstance(idx.name, str) and is_valid_identifier(idx.name)):
+            if (
+                isinstance(idx, EmbeddingIndex)
+                and idx.name is not None
+                and not (isinstance(idx.name, str) and is_valid_identifier(idx.name))
+            ):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
                     f'model `{cls_name}`: Invalid {type(idx).__name__} name: {idx.name!r}',
