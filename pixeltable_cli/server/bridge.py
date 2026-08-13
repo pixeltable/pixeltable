@@ -21,14 +21,14 @@ import urllib.request
 import uuid
 from pathlib import Path
 from types import ModuleType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.catalog import Path as CatalogPath, is_valid_identifier, model
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable_cli import schema_types
+from pixeltable_cli import schema_types, service_types
 from pixeltable_cli.utils import PxtPath
 
 _logger = logging.getLogger(__name__)
@@ -44,6 +44,7 @@ if TYPE_CHECKING:
 
     from pixeltable import exprs
     from pixeltable.serving import FastAPIRouter
+    from pixeltable.serving._diff import ServiceChangeOp
 
 
 def _add_to_sys_path(entry: str) -> bool:
@@ -689,6 +690,123 @@ def _load_services(app_file: str) -> dict[str, FastAPIRouter | fastapi.FastAPI]:
             'routes to it',
         )
     return services
+
+
+def service_diff(app_file: str, target: PxtPath) -> service_types.ServicePlan:
+    """The changes that reconciling the services deployed at `target` with the ones app_file declares would make.
+
+    Read-only: nothing is started, stopped or forgotten.
+
+    Args:
+        app_file: the application file declaring the services.
+        target: the catalog directory the services' models bind against.
+    """
+    services = _load_services(app_file)
+    diffs = [_service_diff(name, service, target) for name, service in sorted(services.items())]
+    return _plan_from_service_diffs(diffs, app_file, target)
+
+
+def _service_diff(name: str, service: FastAPIRouter | fastapi.FastAPI, target: PxtPath) -> service_types.ServiceDiff:
+    """How the deployment of one declared service at `target` differs from its declaration."""
+    # imported here rather than at module scope: pixeltable.serving pulls in fastapi, an optional dependency
+    from pixeltable.service import service_registry
+    from pixeltable.serving import FastAPIRouter
+    from pixeltable.serving._diff import compare_specs
+
+    deployment = service_registry.get(name, target)
+    ops: list[service_types.ServiceChangeOp] = []
+    route_detail: str | None = None
+    if isinstance(service, FastAPIRouter):
+        kind: Literal['declarative', 'custom'] = 'declarative'
+        if deployment is None:
+            route_comparison: service_types.RouteComparison = 'unavailable'
+            route_detail = 'the service is not deployed at this target'
+        else:
+            route_comparison = 'declarative'
+            ops += [_service_plan_op(op) for op in compare_specs(deployment['spec'], service.service_spec(name))]
+        # what the tables at the target cannot serve, whether or not the service is deployed
+        ops += [_service_plan_op(op) for op in service.get_service_diff(target)]
+    else:
+        kind = 'custom'
+        route_comparison = 'unavailable'
+        route_detail = 'the file supplies its own application object, whose routes Pixeltable did not declare'
+
+    resolution: service_types.ServiceResolution
+    if kind == 'custom':
+        resolution = 'unsupported'
+    elif any(op['severity'] == 'blocked' for op in ops):
+        # the database has to change before this deployment can serve, whether it exists yet or not
+        resolution = 'blocked'
+    elif deployment is None:
+        resolution = 'create'
+    elif any(op['destructive'] for op in ops):
+        resolution = 'update_destructive'
+    elif len(ops) > 0:
+        resolution = 'update_additive'
+    else:
+        resolution = 'up_to_date'
+
+    return {
+        'name': name,
+        'exists': deployment is not None,
+        # a local deployment is running or it is not recorded at all
+        'state': None if deployment is None else 'AVAILABLE',
+        'endpoint': None if deployment is None else deployment['endpoint'],
+        'base_path': target,
+        'kind': kind,
+        'resolution': resolution,
+        'route_comparison': route_comparison,
+        'route_detail': route_detail,
+        'ops': ops,
+        'destructive': any(op['destructive'] for op in ops),
+        'requires_restart': deployment is not None and any(op['requires_restart'] for op in ops),
+    }
+
+
+def _plan_from_service_diffs(
+    diffs: list[service_types.ServiceDiff], app_file: str, target: PxtPath
+) -> service_types.ServicePlan:
+    """The plan that the given per-service diffs describe."""
+    from pixeltable.service import service_registry
+
+    declared = {diff['name'] for diff in diffs}
+    extras = sorted(d['service_name'] for d in service_registry.list_at(target) if d['service_name'] not in declared)
+    summary: service_types.ServicePlanSummary = {
+        'up_to_date': sum(1 for d in diffs if d['resolution'] == 'up_to_date'),
+        'create': sum(1 for d in diffs if d['resolution'] == 'create'),
+        'update_additive': sum(1 for d in diffs if d['resolution'] == 'update_additive'),
+        'update_destructive': sum(1 for d in diffs if d['resolution'] == 'update_destructive'),
+        'unsupported': sum(1 for d in diffs if d['resolution'] == 'unsupported'),
+        'blocked': sum(1 for d in diffs if d['resolution'] == 'blocked'),
+        'extras': len(extras),
+        'destructive': sum(1 for d in diffs for op in d['ops'] if op['destructive']),
+        'blocked_ops': sum(1 for d in diffs for op in d['ops'] if op['severity'] == 'blocked'),
+        'restarts': sum(1 for d in diffs if d['requires_restart']),
+    }
+    return {
+        'app_file': app_file,
+        'target': target,
+        # extras are excluded: update never removes a deployment, which is what prune is for
+        'in_agreement': all(d['resolution'] == 'up_to_date' for d in diffs),
+        'services': diffs,
+        'extras': extras,
+        'summary': summary,
+    }
+
+
+def _service_plan_op(op: ServiceChangeOp) -> service_types.ServiceChangeOp:
+    """The CLI-side form of a service operation."""
+    return {
+        'target': op['target'],
+        'name': op['name'],
+        'op': op['op'],
+        'severity': op['severity'],
+        'description': op['description'],
+        'details': op['details'],
+        'destructive': op['severity'] == 'destructive',
+        # a blocked operation is never applied; every other one replaces what the deployment serves
+        'requires_restart': op['severity'] != 'blocked',
+    }
 
 
 # close the refusals raised while reconciling, in place of the Python API's wording

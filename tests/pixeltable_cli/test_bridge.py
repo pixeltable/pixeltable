@@ -1,7 +1,10 @@
 """Tests for pixeltable_cli.server.bridge - the translation layer between Pixeltable APIs and the dashboard REST API."""
 
+import copy
+import os
 import pathlib
 from textwrap import dedent
+from typing import Any
 
 import pytest
 
@@ -490,3 +493,141 @@ class TestBridge:
                 bridge._load_services(str(bad_file))
         with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match='application file not found'):
             bridge._load_services(str(tmp_path / 'nosuch.py'))
+
+    def test_service_diff(self, uses_db: None, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """How the services deployed at a target differ from the ones an application file declares."""
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.service import service_registry
+
+        monkeypatch.setattr(service_registry, 'services_dir', lambda: tmp_path / 'services')
+        app_file = tmp_path / 'app.py'
+        app_file.write_text(
+            dedent("""
+                import pixeltable as pxt
+                from pixeltable.serving import FastAPIRouter
+
+                TableModel = pxt.model_base()
+
+
+                class Notes(TableModel, name='notes'):
+                    note_id = pxt.Column(type=pxt.Required[pxt.Int], primary_key=True)
+                    val: pxt.Required[pxt.Int]
+
+
+                ingest = FastAPIRouter()
+                ingest.add_insert_route(Notes, path='/notes', inputs=['note_id', 'val'], outputs=['note_id'])
+""")
+        )
+        target = PxtPath('svcdiff')
+
+        def deploy(name: str, spec: Any) -> None:
+            """Record `name` as running at the target, serving `spec`."""
+            service_registry.save(
+                service_registry.ServiceDeployment(
+                    service_name=name,
+                    base_path=str(target),
+                    endpoint='http://127.0.0.1:9000',
+                    pid=os.getpid(),
+                    created_at=1.0,
+                    app_file=str(app_file),
+                    spec=spec,
+                )
+            )
+
+        # the route's table does not exist, so the schema has to catch up before anything can serve it
+        plan = bridge.service_diff(str(app_file), target)
+        (diff,) = plan['services']
+        assert diff['resolution'] == 'blocked'
+        assert not plan['in_agreement']
+        assert [op['severity'] for op in diff['ops']] == ['blocked']
+        assert diff['ops'][0]['details']['command'].startswith('pxt schema update')
+        assert not diff['ops'][0]['requires_restart']  # a blocked operation is never applied
+        assert (plan['summary']['blocked'], plan['summary']['blocked_ops']) == (1, 1)
+
+        bridge.schema_update(str(app_file), target)
+        # with the table in place, the service is one that update would create
+        plan = bridge.service_diff(str(app_file), target)
+        (diff,) = plan['services']
+        assert (diff['resolution'], diff['exists'], diff['ops']) == ('create', False, [])
+        assert (diff['route_comparison'], diff['state'], diff['endpoint']) == ('unavailable', None, None)
+        assert diff['route_detail'] is not None
+
+        declared = bridge._load_services(str(app_file))['ingest'].service_spec('ingest')  # type: ignore[union-attr]
+        deploy('ingest', declared)
+        plan = bridge.service_diff(str(app_file), target)
+        (diff,) = plan['services']
+        assert (diff['resolution'], diff['ops']) == ('up_to_date', [])
+        assert plan['in_agreement']
+        assert (diff['state'], diff['endpoint']) == ('AVAILABLE', 'http://127.0.0.1:9000')
+        assert (diff['route_comparison'], diff['route_detail'], diff['requires_restart']) == (
+            'declarative',
+            None,
+            False,
+        )
+
+        # a route the deployment does not serve yet takes nothing away, but serving it still replaces the process
+        without_routes = copy.deepcopy(declared)
+        without_routes['routes'] = []
+        deploy('ingest', without_routes)
+        (diff,) = bridge.service_diff(str(app_file), target)['services']
+        assert diff['resolution'] == 'update_additive'
+        assert [(op['op'], op['name'], op['destructive']) for op in diff['ops']] == [('add', 'POST /notes', False)]
+        assert diff['requires_restart']
+
+        # a route whose contract changed, one that is no longer declared, and a different prefix
+        drifted = copy.deepcopy(declared)
+        drifted['prefix'] = '/v1'
+        drifted['routes'][0]['inputs'] = ['note_id']
+        drifted['routes'].append({**copy.deepcopy(declared['routes'][0]), 'path': '/gone'})
+        deploy('ingest', drifted)
+        plan = bridge.service_diff(str(app_file), target)
+        (diff,) = plan['services']
+        assert (diff['resolution'], diff['destructive'], diff['requires_restart']) == ('update_destructive', True, True)
+        ops = {(op['target'], op['op'], op['name']): op for op in diff['ops']}
+        assert set(ops) == {
+            ('service', 'alter', 'ingest'),
+            ('route', 'alter', 'POST /notes'),
+            # a route that is no longer declared is named as the deployment serves it
+            ('route', 'drop', 'POST /v1/gone'),
+        }
+        assert ops['route', 'alter', 'POST /notes']['details'] == {'changed': 'inputs'}
+        assert ops['service', 'alter', 'ingest']['details'] == {'from': '/v1', 'to': ''}
+        assert (plan['summary']['destructive'], plan['summary']['restarts']) == (3, 1)
+
+        # a deployment the file does not declare is an extra, which update leaves alone
+        deploy('leftover', declared)
+        plan = bridge.service_diff(str(app_file), target)
+        assert plan['extras'] == ['leftover']
+        assert [d['name'] for d in plan['services']] == ['ingest']
+        assert plan['summary']['extras'] == 1
+
+    def test_service_diff_custom_app(
+        self, uses_db: None, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A file that supplies its own application object declares a service that cannot be compared."""
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.service import service_registry
+
+        monkeypatch.setattr(service_registry, 'services_dir', lambda: tmp_path / 'services')
+        app_file = tmp_path / 'custom.py'
+        app_file.write_text(
+            dedent(
+                """
+                import fastapi
+                from pixeltable.serving import FastAPIRouter
+
+                app = fastapi.FastAPI()
+                plain = FastAPIRouter()
+                app.include_router(plain)
+                """
+            )
+        )
+        plan = bridge.service_diff(str(app_file), PxtPath(''))
+        diffs = {d['name']: d for d in plan['services']}
+        assert (diffs['app']['kind'], diffs['app']['resolution']) == ('custom', 'unsupported')
+        assert diffs['app']['route_comparison'] == 'unavailable'
+        assert diffs['app']['route_detail'] is not None
+        # the routers in the same file are compared as usual
+        assert (diffs['plain']['kind'], diffs['plain']['resolution']) == ('declarative', 'create')
+        assert plan['summary']['unsupported'] == 1
+        assert not plan['in_agreement']

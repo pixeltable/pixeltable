@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
+
+if TYPE_CHECKING:
+    from ._spec import RouteSpec, ServiceSpec
 
 # Extends the severities a schema change uses with 'blocked': an operation that service update cannot carry
 # out because the database, not the deployment, has to satisfy it. The command that does so is in details.
@@ -39,3 +42,92 @@ def blocked_route_op(route_name: str, description: str, base_path: str) -> Servi
         'description': description,
         'details': {'command': f'pxt schema update{target}'},
     }
+
+
+def _route_name(route: RouteSpec, prefix: str) -> str:
+    """The route as it reads in a diff, eg 'POST /v1/ingest'."""
+    return f'{route["method"]} {prefix}{route["path"]}'
+
+
+def compare_specs(deployed: ServiceSpec, declared: ServiceSpec) -> list[ServiceChangeOp]:
+    """The operations that would bring a deployed service definition to the declared one.
+
+    Two routes with the same method and path serve the same callers, so a difference between them is an
+    alteration of one route rather than a drop and an add. Only adding a route leaves what is already served
+    untouched; every other operation replaces a contract that callers may be relying on.
+    """
+    ops: list[ServiceChangeOp] = []
+
+    if deployed['prefix'] != declared['prefix']:
+        # the prefix is part of every route's URL, but not of the route declarations compared below
+        ops.append(
+            {
+                'target': 'service',
+                'name': declared['name'],
+                'op': 'alter',
+                'severity': 'destructive',
+                'description': (
+                    f'service {declared["name"]!r} will be served at prefix {declared["prefix"]!r} '
+                    f'rather than {deployed["prefix"]!r}'
+                ),
+                'details': {'from': deployed['prefix'], 'to': declared['prefix']},
+            }
+        )
+
+    deployed_routes = {(r['method'], r['path']): r for r in deployed['routes']}
+    declared_routes = {(r['method'], r['path']): r for r in declared['routes']}
+
+    for key, route in declared_routes.items():
+        name = _route_name(route, declared['prefix'])
+        previous = deployed_routes.get(key)
+        if previous is None:
+            ops.append(
+                {
+                    'target': 'route',
+                    'name': name,
+                    'op': 'add',
+                    'severity': 'additive',
+                    'description': f'route {name!r} will be added',
+                    'details': {},
+                }
+            )
+            continue
+        changed = _changed_fields(previous, route)
+        if len(changed) > 0:
+            ops.append(
+                {
+                    'target': 'route',
+                    'name': name,
+                    'op': 'alter',
+                    'severity': 'destructive',
+                    'description': f'route {name!r} will be replaced: {", ".join(changed)} changed',
+                    'details': {'changed': ', '.join(changed)},
+                }
+            )
+
+    for key, route in deployed_routes.items():
+        if key in declared_routes:
+            continue
+        name = _route_name(route, deployed['prefix'])
+        ops.append(
+            {
+                'target': 'route',
+                'name': name,
+                'op': 'drop',
+                'severity': 'destructive',
+                'description': f'route {name!r} will no longer be served',
+                'details': {},
+            }
+        )
+
+    return ops
+
+
+def _changed_fields(deployed: RouteSpec, declared: RouteSpec) -> list[str]:
+    """The fields in which two route declarations differ, including any either one alone has."""
+    # compared as plain dicts: a record written by another version of Pixeltable can carry fields this one
+    # does not declare, and dropping them from the comparison would report such a route as unchanged
+    deployed_fields = cast(dict[str, Any], deployed)
+    declared_fields = cast(dict[str, Any], declared)
+    keys = set(deployed_fields) | set(declared_fields)
+    return sorted(k for k in keys if deployed_fields.get(k) != declared_fields.get(k))

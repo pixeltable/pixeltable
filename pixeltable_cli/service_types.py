@@ -3,13 +3,17 @@ from typing import Literal, Optional
 from typing_extensions import TypedDict
 
 # a service plan and a schema plan share these definitions; moving them to a common module is a follow-up
-from pixeltable_cli.schema_types import DiffResolution, OpStatus, _Status
+from pixeltable_cli.schema_types import OpStatus, _Status
 from pixeltable_cli.utils import PxtPath
 
 # Extends the severities a schema plan uses (its three, plus 'blocked'). 'blocked' marks an operation that
 # 'service update' cannot carry out because the database, not the deployment, has to satisfy it; the command
 # that does so is in the operation's details.
 Severity = Literal['additive', 'destructive', 'unsupported', 'blocked']
+
+# Extends the resolutions a schema plan uses with 'blocked': the deployment cannot be reconciled until the
+# database satisfies what one of its routes needs, and the command that does so is in the operation's details.
+ServiceResolution = Literal['up_to_date', 'create', 'update_additive', 'update_destructive', 'unsupported', 'blocked']
 
 # How the routes were compared. 'declarative' compares the route declarations a deployment was created
 # from; 'openapi' compares the OpenAPI document generated from a custom application. 'unavailable' means the
@@ -57,7 +61,7 @@ class ServiceDiff(_Status):
     # application object
     kind: Literal['declarative', 'custom']
 
-    resolution: DiffResolution
+    resolution: ServiceResolution
 
     route_comparison: RouteComparison
     route_detail: Optional[str]  # why the routes were not compared, when they were not
@@ -76,8 +80,9 @@ class ServicePlanSummary(TypedDict):
     update_destructive: int
     unsupported: int
     extras: int
+    blocked: int  # deployments whose reconciliation the database has to enable first
     destructive: int  # operations, not deployments
-    blocked: int  # operations the database has to satisfy before the plan can be applied
+    blocked_ops: int  # operations the database has to satisfy before the plan can be applied
     restarts: int  # deployments that applying the plan would interrupt
 
 
@@ -112,13 +117,13 @@ def delete_service_op(name: str, endpoint: Optional[str], status: OpStatus) -> S
 
 
 __all__ = [
-    'DiffResolution',
     'OpStatus',
     'RouteComparison',
     'ServiceChangeOp',
     'ServiceDiff',
     'ServicePlan',
     'ServicePlanSummary',
+    'ServiceResolution',
     'Severity',
     'delete_service_op',
 ]
