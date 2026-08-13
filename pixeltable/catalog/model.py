@@ -1643,7 +1643,7 @@ def _format_diff(name: str, diff: TableDiff) -> list[str]:
     if len(changed_idxs) > 0:
         detail.append('  the following named indexes have altered properties (FATAL):')
         for c in changed_idxs:
-            detail.append(f'    {c["name"]!r}: model={c["model"]}, existing={c["existing"]}')
+            detail.append(f'    {c["name"]!r}')
 
     return [f'{kind.capitalize()} {name!r} (from model `{diff["model_cls"]}`) has differences:', *detail]
 

@@ -947,6 +947,7 @@ class TestTableModel:
             __indexes__ = [
                 EmbeddingIndex(image, embedding=dummy_embedding.using(n=768), name='idx1'),
                 EmbeddingIndex(image, embedding=dummy_embedding.using(n=512), name='idx2'),
+                EmbeddingIndex(image, embedding=dummy_embedding.using(n=1024), name='idx3'),
             ]
 
         class ExampleView(
@@ -999,7 +1000,10 @@ class TestTableModel:
 
             __indexes__ = [
                 EmbeddingIndex(image, embedding=dummy_embedding.using(n=768), name='idx1'),  # kept
-                EmbeddingIndex(image, embedding=dummy_embedding.using(n=256), name='idx3'),  # added
+                EmbeddingIndex(
+                    image, embedding=dummy_embedding.using(n=1024), precision='fp32', name='idx3'
+                ),  # changed
+                EmbeddingIndex(image, embedding=dummy_embedding.using(n=256), name='idx4'),  # added
                 # 'idx2' dropped
             ]
 
@@ -1057,9 +1061,11 @@ class TestTableModel:
                 'name'
                 'value'
               the following indexes are new to the model, and will be ADDED:
-                EmbeddingIndex(column=image, embedding=dummy_embedding(text, n=256), name='idx3')
+                EmbeddingIndex(column=image, embedding=dummy_embedding(text, n=256), name='idx4')
               the following indexes are no longer in the model, and will be DROPPED:
                 'idx2'
+              the following named indexes have altered properties (FATAL):
+                'idx3'
             View 'test_view' (from model `ExampleViewV2`) has differences:
               iterator mismatch (FATAL):
                 model iterator   : tile_iterator(image, [128, 128])
@@ -1224,13 +1230,37 @@ class TestTableModel:
                         'details': {},
                     },
                     {
-                        'target': 'index',
+                        'description': "named index 'idx3' has altered properties",
+                        'details': {},
+                        'existing': {
+                            'columns': ['image'],
+                            'index_type': 'embedding',
+                            'name': 'idx3',
+                            'parameters': {
+                                'embedding': 'dummy_embedding(image, n=1024)',
+                                'embedding_functions': [
+                                    'dummy_embedding(text, n=1024)',
+                                    'dummy_embedding(img, n=1024)',
+                                ],
+                                'metric': 'cosine',
+                                'precision': 'fp16',
+                            },
+                        },
+                        'model': 'EmbeddingIndex(column=image, embedding=dummy_embedding(text, '
+                        "n=1024), precision='fp32', name='idx3')",
                         'name': 'idx3',
+                        'op': 'alter',
+                        'severity': 'unsupported',
+                        'target': 'index',
+                    },
+                    {
+                        'target': 'index',
+                        'name': 'idx4',
                         'op': 'add',
                         'severity': 'additive',
-                        'model': "EmbeddingIndex(column=image, embedding=dummy_embedding(text, n=256), name='idx3')",
+                        'model': "EmbeddingIndex(column=image, embedding=dummy_embedding(text, n=256), name='idx4')",
                         'existing': None,
-                        'description': "EmbeddingIndex 'idx3' will be added",
+                        'description': "EmbeddingIndex 'idx4' will be added",
                         'details': {'on': 'image'},
                     },
                     {
