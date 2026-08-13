@@ -18,7 +18,7 @@ pytestmark = pytest.mark.local('UDF/integration test')
 
 
 @pytest.mark.remote_api
-@pytest.mark.expensive
+@pytest.mark.very_expensive
 @rerun_on_network_error()
 class TestTwelveLabs:
     def test_embed_text(self, uses_db: None) -> None:
