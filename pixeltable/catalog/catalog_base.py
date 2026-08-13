@@ -3,8 +3,6 @@ from __future__ import annotations
 import abc
 from typing import TYPE_CHECKING, Any, Mapping
 
-from .model import TableSchemaChangeSet
-
 if TYPE_CHECKING:
     from uuid import UUID
 
@@ -15,7 +13,7 @@ if TYPE_CHECKING:
 
     from .dir import Dir
     from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation
-    from .model import IndexDeclaration
+    from .model import IndexDeclaration, TableSchemaChangeSet
     from .path import Path
     from .table import Table
     from .table_path import TablePath

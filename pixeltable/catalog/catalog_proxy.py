@@ -7,7 +7,6 @@ from pixeltable.env import Env
 
 from .catalog_base import CatalogBase
 from .insertable_table_proxy import InsertableTableProxy
-from .model import TableSchemaChangeSet
 from .table_path import TableMdPath
 from .view_proxy import ViewProxy
 
@@ -21,7 +20,7 @@ if TYPE_CHECKING:
     from .dir import Dir
     from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation
     from .metadata_types import TableVersionMd
-    from .model import IndexDeclaration
+    from .model import IndexDeclaration, TableSchemaChangeSet
     from .path import Path
     from .table import Table
     from .table_path import TablePath

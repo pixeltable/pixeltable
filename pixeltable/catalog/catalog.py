@@ -34,7 +34,6 @@ from .globals import DirEntry, IfExistsParam, IfNotExistsParam, IndexSpec, Media
 from .insertable_table import InsertableTable
 from .local_table import LocalTable
 from .metadata_types import TableVersionMd
-from .model import IndexDeclaration, TableSchemaChangeSet, prepare_model, prepare_model_updates
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
 from .table_path import TablePath, TableVersionPath
@@ -49,6 +48,7 @@ if TYPE_CHECKING:
     from pixeltable.plan import SampleClause
 
     from .. import exprs
+    from .model import IndexDeclaration, TableSchemaChangeSet
 
 
 _logger = logging.getLogger(__name__)
@@ -1768,6 +1768,8 @@ class Catalog(CatalogBase):
         tbl_id = uuid4()
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
 
+        from .model import prepare_model
+
         iterator, additional_cols, resolved_idxs = prepare_model(
             tbl_handle, columns, display_name, iterator, base, idxs
         )
@@ -1938,6 +1940,8 @@ class Catalog(CatalogBase):
                 # make sure we're doing this in base -> view order
                 pending_ancestor_ids = (set(tvp.tbl_ids[1:]) & updated_tbl_ids) - applied_tbl_ids
                 assert len(pending_ancestor_ids) == 0, f'{tv.name}: bases not yet applied: {pending_ancestor_ids}'
+
+                from .model import prepare_model_updates
 
                 added_cols, added_idxs = prepare_model_updates(
                     tvp, tv.display_str(), change_set['new_columns'], change_set['new_idxs']

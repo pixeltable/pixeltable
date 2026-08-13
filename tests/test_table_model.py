@@ -1943,7 +1943,7 @@ class TestTableModel:
         # a base query cannot contain the clauses a view cannot be defined by
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r'model `GroupedBase`: The following clauses cannot be used in a view definition: group_by\(\)',
+            match=r'model `GroupedBase`: `group_by` cannot be used in a view definition\.',
         ):
 
             class GroupedBase(TableModel, name='grouped_base', base=ValidTableModel.group_by(ValidTableModel.id)):
@@ -1951,7 +1951,7 @@ class TestTableModel:
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r'model `OrderedBase`: The following clauses cannot be used in a view definition: order_by\(\)',
+            match=r'model `OrderedBase`: `order_by` cannot be used in a view definition\.',
         ):
 
             class OrderedBase(TableModel, name='ordered_base', base=ValidTableModel.order_by(ValidTableModel.id)):
@@ -1959,7 +1959,7 @@ class TestTableModel:
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r'model `LimitedBase`: The following clauses cannot be used in a view definition: limit\(\)',
+            match=r'model `LimitedBase`: `limit` cannot be used in a view definition\.',
         ):
 
             class LimitedBase(TableModel, name='limited_base', base=ValidTableModel.limit(10)):
@@ -1967,7 +1967,7 @@ class TestTableModel:
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r'model `JoinedBase`: The following clauses cannot be used in a view definition: join\(\)',
+            match=r'model `JoinedBase`: `join` cannot be used in a view definition\.',
         ):
 
             class JoinedBase(
@@ -1979,17 +1979,16 @@ class TestTableModel:
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r'model `DistinctBase`: The following clauses cannot be used in a view definition: distinct\(\)',
+            match=r'model `DistinctBase`: `distinct` cannot be used in a view definition\.',
         ):
 
             class DistinctBase(TableModel, name='distinct_base', base=ValidTableModel.distinct()):
                 pass
 
-        # every prohibited clause is reported, in the order it was specified
+        # a base query with several prohibited clauses reports the first of them
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r'model `MultiBase`: The following clauses cannot be used in a view definition: '
-            r'order_by\(\), join\(\), limit\(\)',
+            match=r'model `MultiBase`: `order_by` cannot be used in a view definition\.',
         ):
 
             class MultiBase(

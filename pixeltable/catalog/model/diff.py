@@ -171,12 +171,13 @@ def user_columns(model: TableModelMeta) -> dict[str, ColumnSpec]:
     specs: dict[str, ColumnSpec] = dict(model.__columns__)
     base = model.__table_spec__['base']
     if base is not None and base.select_list is not None:
-        items, named_items = base.select_list
-        for item in items:
-            assert isinstance(item, exprs.ColumnRefByName)  # "anonymous" compound expressions are not allowed here
-            specs[item.name] = {'value': item, 'stored': False}
-        for col_name, expr in named_items.items():
-            specs[col_name] = {'value': expr, 'stored': not isinstance(expr, exprs.ColumnRefByName)}
+        for expr, col_name in base.select_list:
+            if col_name is None:
+                # "anonymous" compound expressions are not allowed here
+                assert isinstance(expr, exprs.ColumnRefByName)
+                specs[expr.name] = {'value': expr, 'stored': False}
+            else:
+                specs[col_name] = {'value': expr, 'stored': not isinstance(expr, exprs.ColumnRefByName)}
     return specs
 
 
@@ -185,10 +186,9 @@ def base_query_columns(model: TableModelMeta) -> set[str]:
     base = model.__table_spec__['base']
     if base is None or base.select_list is None:
         return set()
-    items, named_items = base.select_list
-    # "anonymous" compound expressions are not allowed here, so every positional item names a column
-    assert all(isinstance(item, exprs.ColumnRefByName) for item in items)
-    return {cast(exprs.ColumnRefByName, item).name for item in items} | set(named_items.keys())
+    # "anonymous" compound expressions are not allowed here, so every unnamed item names a column
+    assert all(isinstance(expr, exprs.ColumnRefByName) for expr, name in base.select_list if name is None)
+    return {cast(exprs.ColumnRefByName, expr).name if name is None else name for expr, name in base.select_list}
 
 
 def _format_column_spec(spec: ColumnSpec) -> str:

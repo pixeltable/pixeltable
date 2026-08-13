@@ -815,7 +815,7 @@ class Query:
         select_list = self._effective_select_list
         assert len(new_exprs) == len(select_list)
         select_list = [(e, n) for e, (_, n) in zip(new_exprs, select_list)]
-        return Query(
+        return type(self)(
             from_clause=self._from_clause,
             select_list=select_list,
             where_clause=self.where_clause,
@@ -1141,7 +1141,7 @@ class Query:
                 )
             seen.add(name)
 
-        return Query(
+        return type(self)(
             from_clause=self._from_clause,
             select_list=select_list,
             where_clause=self.where_clause,
@@ -1189,7 +1189,7 @@ class Query:
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
                 f'where() expression needs to return `Bool`, but instead returns `{pred.col_type}`',
             )
-        return Query(
+        return type(self)(
             from_clause=self._from_clause,
             select_list=self.select_list,
             where_clause=pred,
@@ -1359,7 +1359,7 @@ class Query:
         from_clause = FromClause(
             tbls=[*self._from_clause.tbls, other._tbl_path], join_clauses=[*self._from_clause.join_clauses, join_clause]
         )
-        return Query(
+        return type(self)(
             from_clause=from_clause,
             select_list=self.select_list,
             where_clause=self.where_clause,
@@ -1453,7 +1453,7 @@ class Query:
         if grouping_tbl_key is None:
             # no Table item was found, so every item passed the Expr check above
             group_by_clause = cast('list[exprs.Expr]', list(grouping_items))
-        return Query(
+        return type(self)(
             from_clause=self._from_clause,
             select_list=self.select_list,
             where_clause=self.where_clause,
@@ -1528,7 +1528,7 @@ class Query:
                 raise excs.RequestError(excs.ErrorCode.INVALID_EXPRESSION, f'Invalid expression in order_by(): {e}')
         order_by_clause = self.order_by_clause if self.order_by_clause is not None else []
         order_by_clause.extend((e.copy(), asc) for e in expr_list)
-        return Query(
+        return type(self)(
             from_clause=self._from_clause,
             select_list=self.select_list,
             where_clause=self.where_clause,
@@ -1586,7 +1586,7 @@ class Query:
                     f'offset: parameter must be an int constant or query parameter; got: {offset}',
                 )
 
-        return Query(
+        return type(self)(
             from_clause=self._from_clause,
             select_list=self.select_list,
             where_clause=self.where_clause,
@@ -1713,7 +1713,7 @@ class Query:
 
         sample_clause = SampleClause(None, n, n_per_stratum, fraction, seed, stratify_exprs)
 
-        return Query(
+        return type(self)(
             from_clause=self._from_clause,
             select_list=self.select_list,
             where_clause=self.where_clause,
