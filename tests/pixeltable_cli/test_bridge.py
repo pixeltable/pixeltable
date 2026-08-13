@@ -11,7 +11,7 @@ from pixeltable.functions.video import frame_iterator
 from pixeltable_cli.server import bridge
 from pixeltable_cli.utils import PxtPath
 
-from ..utils import dummy_embedding, get_test_video_files, pxt_raises
+from ..utils import dummy_embedding, get_test_video_files, pxt_raises, skip_test_if_not_installed
 
 pytestmark = pytest.mark.local('pxt CLI metadata/data bridge')
 
@@ -413,3 +413,80 @@ class TestBridge:
             bridge.schema_update(str(schema_file), target)
         assert 'update_all()' not in info.value.message
         assert 'body' in pxt.get_table('refusal/docs').columns()
+
+    def test_load_services(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        """The services an application file declares, and how each one gets its name."""
+        skip_test_if_not_installed('fastapi')
+        import fastapi
+
+        from pixeltable.serving import FastAPIRouter
+
+        (tmp_path / 'sibling.py').write_text('PREFIX = "/v1"\n')
+        app_file = tmp_path / 'app.py'
+        app_file.write_text(
+            dedent(
+                """
+                from __future__ import annotations
+
+                import pixeltable as pxt
+                from pixeltable.serving import FastAPIRouter
+
+                from sibling import PREFIX  # a module next to this file, imported without any path setup
+
+                TableModel = pxt.model_base()
+
+
+                class Notes(TableModel, name='notes'):
+                    note_id = pxt.Column(type=pxt.Required[pxt.Int], primary_key=True)
+                    val: pxt.Required[pxt.Int]
+
+
+                ingest = FastAPIRouter()
+                ingest.add_insert_route(Notes, path='/notes')
+
+                reader = FastAPIRouter(name='notes-api', prefix=PREFIX)
+                reader.add_compute_route(Notes, path='/compute')
+
+                alias = ingest  # a second variable naming a router already declared
+                """
+            )
+        )
+        services = bridge._load_services(str(app_file))
+        # a router that names the service it declares is that name; one that does not takes its variable's
+        assert sorted(services) == ['ingest', 'notes-api']
+        reader, ingest = services['notes-api'], services['ingest']
+        assert isinstance(reader, FastAPIRouter) and isinstance(ingest, FastAPIRouter)
+        assert reader.service_spec()['prefix'] == '/v1'
+        assert [route['path'] for route in ingest.service_spec(name='ingest')['routes']] == ['/notes']
+
+        # an application object the file supplies itself is a service too, named after its variable
+        custom_file = tmp_path / 'custom.py'
+        custom_file.write_text(
+            dedent(
+                """
+                import fastapi
+                from pixeltable.serving import FastAPIRouter
+
+                app = fastapi.FastAPI()
+                plain = FastAPIRouter()
+                app.include_router(plain)
+                """
+            )
+        )
+        services = bridge._load_services(str(custom_file))
+        assert sorted(services) == ['app', 'plain']
+        assert isinstance(services['app'], fastapi.FastAPI)
+
+        # what a file cannot declare
+        bad_file = tmp_path / 'bad.py'
+        for src, msg in (
+            ('_ingest = FastAPIRouter()', "'_ingest' is not a name a service can have"),
+            ("a = FastAPIRouter(name='svc')\nb = FastAPIRouter(name='svc')", "more than one service named 'svc'"),
+            ('X = 1', 'no service found in'),
+            ('import nosuchmodule', 'error loading'),
+        ):
+            bad_file.write_text(f'from pixeltable.serving import FastAPIRouter\n{src}\n')
+            with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=msg):
+                bridge._load_services(str(bad_file))
+        with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match='application file not found'):
+            bridge._load_services(str(tmp_path / 'nosuch.py'))

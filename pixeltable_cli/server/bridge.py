@@ -20,11 +20,12 @@ import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
+from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
-from pixeltable.catalog import Path as CatalogPath, model
+from pixeltable.catalog import Path as CatalogPath, is_valid_identifier, model
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable_cli import schema_types
@@ -32,14 +33,17 @@ from pixeltable_cli.utils import PxtPath
 
 _logger = logging.getLogger(__name__)
 
-# A loaded schema file's directory is placed on the process-global sys.path so it can import sibling modules.
+# A loaded user file's directory is placed on the process-global sys.path so it can import sibling modules.
 # _sys_path_lock guards the (un)registration; _sys_path_added refcounts each directory we add, so concurrent loads
 # of the same directory share one entry that is removed only once the last of them finishes.
 _sys_path_lock = threading.Lock()
 _sys_path_added: dict[str, int] = {}
 
 if TYPE_CHECKING:
+    import fastapi
+
     from pixeltable import exprs
+    from pixeltable.serving import FastAPIRouter
 
 
 def _add_to_sys_path(entry: str) -> bool:
@@ -576,24 +580,25 @@ def get_status() -> dict[str, Any]:
     }
 
 
-def _load_model_bases(schema_file: str) -> list[model.TableModelMeta]:
-    """The model bases declared by a class-based schema file.
+def _load_user_file(file: str, *, subject: str) -> ModuleType:
+    """The module a user-supplied Python file defines.
 
-    Raises RequestError if the file is missing, fails to import, or declares no model base.
+    `subject` names the kind of file in every error this raises. Raises RequestError if the file is missing or
+    fails to import.
     """
-    path = Path(schema_file)
+    path = Path(file)
     if not path.is_file():
-        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'schema file not found: {schema_file}')
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{subject} not found: {file}')
 
-    # load under a unique key so a user schema file can't shadow an existing module (eg, one named json.py); the
+    # load under a unique key so a user file can't shadow an existing module (eg, one named json.py); the
     # key is unique per load, so this needs no synchronization
-    module_name = f'pxt_schema_{uuid.uuid4().hex}'
+    module_name = f'pxt_user_file_{uuid.uuid4().hex}'
     spec = importlib.util.spec_from_file_location(module_name, path)
     if spec is None or spec.loader is None:
-        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'cannot load schema file: {schema_file}')
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'cannot load {subject}: {file}')
     module = importlib.util.module_from_spec(spec)
 
-    # put the schema file's own directory on sys.path so it can import sibling modules next to it; only the
+    # put the file's own directory on sys.path so it can import sibling modules next to it; only the
     # sys.path (un)registration is synchronized, so concurrent loads still run exec_module() in parallel
     sys_path_entry = str(path.parent)
     needs_remove = _add_to_sys_path(sys_path_entry)
@@ -601,11 +606,20 @@ def _load_model_bases(schema_file: str) -> list[model.TableModelMeta]:
     try:
         spec.loader.exec_module(module)
     except Exception as e:
-        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'error loading {schema_file}: {e}') from e
+        raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'error loading {file}: {e}') from e
     finally:
         sys.modules.pop(module_name, None)
         if needs_remove:
             _remove_from_sys_path(sys_path_entry)
+    return module
+
+
+def _load_model_bases(schema_file: str) -> list[model.TableModelMeta]:
+    """The model bases declared by a class-based schema file.
+
+    Raises RequestError if the file is missing, fails to import, or declares no model base.
+    """
+    module = _load_user_file(schema_file, subject='schema file')
 
     # a model base carries __registered_models__ as its own class attribute, whereas the models defined
     # on it merely inherit it
@@ -620,6 +634,61 @@ def _load_model_bases(schema_file: str) -> list[model.TableModelMeta]:
             f"no model_base() found in {schema_file}; run 'pxt schema example' for a file to start from",
         )
     return bases
+
+
+def _load_services(app_file: str) -> dict[str, FastAPIRouter | fastapi.FastAPI]:
+    """The services an application file declares, keyed by service name.
+
+    A router names the service it declares; one that does not is named after the variable holding it. An
+    application object the file supplies itself is a service too, named after its variable, whose routes
+    Pixeltable did not declare and therefore cannot compare.
+
+    Raises RequestError if the file is missing, fails to import, declares no service, declares two services
+    under one name, or holds a router in a variable whose name a service cannot have.
+    """
+    # imported here rather than at module scope: pixeltable.serving pulls in fastapi, an optional dependency
+    from pixeltable.serving import FastAPIRouter
+
+    try:
+        import fastapi
+
+        app_type: type | None = fastapi.FastAPI
+    except ImportError:
+        app_type = None  # without fastapi, nothing in the file can be an application object
+
+    module = _load_user_file(app_file, subject='application file')
+
+    services: dict[str, FastAPIRouter | fastapi.FastAPI] = {}
+    # the objects already collected, so that two variables naming one router declare a single service
+    seen: set[int] = set()
+    for var_name, value in vars(module).items():
+        if isinstance(value, FastAPIRouter):
+            name = var_name if value.name is None else value.name
+        elif app_type is not None and isinstance(value, app_type):
+            name = var_name
+        else:
+            continue
+        if id(value) in seen:
+            continue
+        seen.add(id(value))
+        if not is_valid_identifier(name, allow_hyphens=True):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'{app_file}: {name!r} is not a name a service can have; name the service with FastAPIRouter(name=...)',
+            )
+        if name in services:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, f'{app_file}: declares more than one service named {name!r}'
+            )
+        services[name] = value
+
+    if len(services) == 0:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f'no service found in {app_file}; a service is declared by creating a FastAPIRouter and adding '
+            'routes to it',
+        )
+    return services
 
 
 # close the refusals raised while reconciling, in place of the Python API's wording
