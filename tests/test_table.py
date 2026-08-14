@@ -343,7 +343,7 @@ class TestTable:
                         }
                     },
                     'comment': None,
-                    'indices': {
+                    'indexes': {
                         'idx0': {'name': 'idx0', 'columns': ['col'], 'index_type': 'btree', 'parameters': None}
                     },
                     'is_view': False,
@@ -388,7 +388,7 @@ class TestTable:
                         }
                     },
                     'comment': None,
-                    'indices': {
+                    'indexes': {
                         'idx0': {
                             'columns': ['col'],
                             'index_type': 'embedding',
@@ -400,6 +400,7 @@ class TestTable:
                                     'local_embedding(image, dim=512)',
                                 ],
                                 'metric': 'cosine',
+                                'precision': 'fp16',
                             },
                         }
                     },
@@ -445,7 +446,7 @@ class TestTable:
                         }
                     },
                     'comment': None,
-                    'indices': {},
+                    'indexes': {},
                     'is_view': True,
                     'is_snapshot': True,
                     'is_data_versioned': True,
@@ -505,7 +506,7 @@ class TestTable:
                         },
                     },
                     'comment': None,
-                    'indices': {},
+                    'indexes': {},
                     'is_view': True,
                     'is_snapshot': True,
                     'has_default_idxs': False,
@@ -650,7 +651,7 @@ class TestTable:
                 },
                 'comment': None,
                 'custom_metadata': None,
-                'indices': {
+                'indexes': {
                     'idx0': {'name': 'idx0', 'columns': ['c1'], 'index_type': 'btree', 'parameters': None},
                     'idx1': {'name': 'idx1', 'columns': ['c2'], 'index_type': 'btree', 'parameters': None},
                     'idx2': {'name': 'idx2', 'columns': ['img'], 'index_type': 'btree', 'parameters': None},
@@ -809,7 +810,7 @@ class TestTable:
                 },
                 'comment': None,
                 'custom_metadata': None,
-                'indices': {
+                'indexes': {
                     'idx0': {'name': 'idx0', 'columns': ['derived'], 'index_type': 'btree', 'parameters': None}
                 },
                 'is_view': True,
@@ -859,7 +860,7 @@ class TestTable:
                 'custom_metadata': None,
                 'primary_key': None,
                 'media_validation': 'on_write',
-                'indices': {
+                'indexes': {
                     'idx0': {'name': 'idx0', 'columns': ['derived'], 'index_type': 'btree', 'parameters': None}
                 },
                 'columns': {
