@@ -3328,10 +3328,10 @@ class TestTable:
             _ = t.add_column(_invalid=pxt.Int | None)
         with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match=r'Invalid column name: 123'):
             # not an identifier
-            _ = t.add_column(**{'123': pxt.Int})
+            _ = t.add_column(**{'123': pxt.Int | None})
         with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match=r'Invalid column name: hyphenated-column'):
             # not an identifier (hyphenated)
-            _ = t.add_column(**{'hyphenated-column': pxt.Int})
+            _ = t.add_column(**{'hyphenated-column': pxt.Int | None})
 
         # 'stored' kwarg only applies to computed image columns
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):

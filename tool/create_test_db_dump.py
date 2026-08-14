@@ -147,24 +147,24 @@ class Dumper:
     # Expression types, predicate types, embedding indices, views on views
     def create_tables(self) -> None:
         schema = {
-            'c1': pxt.Required[pxt.String],
-            'c1n': {'type': pxt.String, 'comment': 'Nullable version of c1'},
-            'c2': pxt.Required[pxt.Int],
-            'c3': pxt.Required[pxt.Float],
-            'c4': pxt.Required[pxt.Bool],
-            'c5': pxt.Required[pxt.Timestamp],
-            'c6': pxt.Required[pxt.Json],
-            'c7': pxt.Required[pxt.Json],
-            'c8': {'type': pxt.Image, 'custom_metadata': {'source': 'test'}},
-            'c9': pxt.Audio,
-            'c10': pxt.Video,
-            'c11': pxt.Document,
-            'c12': pxt.Array[np.float64, (10,)],
-            'c13': pxt.UUID,
-            'c14': pxt.Date,
-            'c16': pxt.Binary,
-            'c17': pxt.Array,
-            'c18': pxt.Array[(2, None), np.str_],
+            'c1': pxt.String,
+            'c1n': {'type': pxt.String | None, 'comment': 'Nullable version of c1'},
+            'c2': pxt.Int,
+            'c3': pxt.Float,
+            'c4': pxt.Bool,
+            'c5': pxt.Timestamp,
+            'c6': pxt.Json,
+            'c7': pxt.Json,
+            'c8': {'type': pxt.Image | None, 'custom_metadata': {'source': 'test'}},
+            'c9': pxt.Audio | None,
+            'c10': pxt.Video | None,
+            'c11': pxt.Document | None,
+            'c12': pxt.Array[np.float64, (10,)] | None,
+            'c13': pxt.UUID | None,
+            'c14': pxt.Date | None,
+            'c16': pxt.Binary | None,
+            'c17': pxt.Array | None,
+            'c18': pxt.Array[(2, None), np.str_] | None,
         }
         t = pxt.create_table(
             'base_table', schema, primary_key='c2', comment='This is a test table.', custom_metadata={'key': 'value'}
@@ -304,14 +304,12 @@ class Dumper:
         self._create_pk_test_tables()
 
         # Make c7 nullable
-        t.alter_column(t.c7, type_=pxt.Json)
-        # Insert new row that confirms that c7 is not required
+        t.alter_column(t.c7, type_=pxt.Json | None)
+        # Insert new row that confirms that c7 is now nullable
         t.insert(c1=c1_data[0], c2=num_rows, c3=c3_data[0], c4=c4_data[0], c5=c5_data[0], c6=c6_data[0])
 
     def _create_pk_test_tables(self) -> None:
-        pk_good = pxt.create_table(
-            'pk_test_good', {'id': pxt.Required[pxt.Int], 'name': pxt.Required[pxt.String]}, primary_key='id'
-        )
+        pk_good = pxt.create_table('pk_test_good', {'id': pxt.Int, 'name': pxt.String}, primary_key='id')
         pk_good.insert([{'id': 1, 'name': 'Alice'}, {'id': 2, 'name': 'Bob'}, {'id': 3, 'name': 'Charlie'}])
 
     def __add_expr_columns(self, t: pxt.Table, col_prefix: str, include_expensive_functions: bool = False) -> None:

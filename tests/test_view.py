@@ -298,7 +298,7 @@ class TestView:
         # invalid if_exists value is rejected
         expected_err = "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']"
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=re.escape(expected_err)):
-            v.add_column(**{col_name: pxt.Int}, if_exists='invalid')
+            v.add_column(**{col_name: pxt.Int | None}, if_exists='invalid')
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=re.escape(expected_err)):
             v.add_computed_column(**{col_name: t.c2 + t.c3}, if_exists='invalid')
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=re.escape(expected_err)):
@@ -309,7 +309,7 @@ class TestView:
         # by default, raises an error if the column already exists
         expected_err = f'Duplicate column name: {col_name}'
         with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=expected_err):
-            v.add_column(**{col_name: pxt.Int})
+            v.add_column(**{col_name: pxt.Int | None})
         with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=expected_err):
             v.add_computed_column(**{col_name: t.c2 + t.c3})
         with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=expected_err):
@@ -319,7 +319,7 @@ class TestView:
         assert non_existing_col2 not in v.columns()
 
         # if_exists='ignore' will not add the column if it already exists
-        v.add_column(**{col_name: pxt.Int}, if_exists='ignore')
+        v.add_column(**{col_name: pxt.Int | None}, if_exists='ignore')
         assert col_name in v.columns()
         assert v.order_by(v.c1).collect()[0][col_name] == orig_val
         v.add_computed_column(**{col_name: t.c2 + t.c3}, if_exists='ignore')
@@ -334,7 +334,7 @@ class TestView:
         # for a column specific to view. For a base table column, it will raise an error.
         if is_base_column:
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
-                v.add_column(**{col_name: pxt.String}, if_exists='replace')
+                v.add_column(**{col_name: pxt.String | None}, if_exists='replace')
             error_msg = str(exc_info.value).lower()
             assert 'is a base table column' in error_msg and 'cannot replace' in error_msg
             assert col_name in v.columns()
