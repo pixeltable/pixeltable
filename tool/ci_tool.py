@@ -95,8 +95,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
     print()
 
     # The configs are dependent on the CI scenario. There are three tiers:
-    # Tier 1. During a PR, we run only the static checks and the slim test subset on MAIN_PLATFORM, to keep on-push
-    #         feedback fast. Nothing additional.
+    # Tier 1. During a PR, we run only the static checks and the slim tests on MacOS, Ubuntu, and Windows.
     # Tier 2. In merge queue or on a workflow dispatch, we run the full test suite on the basic platforms, including
     #         'expensive' tests on MAIN_PLATFORM, and also a suite of other jobs providing broader test coverage.
     # Tier 3. On a scheduled run, or if "Run on all platforms" is checked during a workflow dispatch, then in addition
@@ -108,17 +107,13 @@ def generate_matrix(args: argparse.Namespace) -> None:
 
     if trigger == 'pull_request':
         # Configs selected for a PR validation, i.e. on every push to a PR.
-        # Tier 1 only: slim test subset on MAIN_PLATFORM. This is strictly a subset
+        # Tier 1 only: slim tests on MAIN_PLATFORM and the basic platforms. This is strictly a subset
         # of tests that are run in merge queue.
-        configs.append(
+        configs.extend(
             MatrixConfig(
-                'slim',
-                'py',
-                MAIN_PLATFORM,
-                '3.11',
-                pytest_options=f'{DEFAULT_PYTEST} {SLIM_TESTS}',
-                build_dashboard=False,
+                'slim', 'py', platform, '3.11', pytest_options=f'{DEFAULT_PYTEST} {SLIM_TESTS}', build_dashboard=False
             )
+            for platform in (MAIN_PLATFORM, *BASIC_PLATFORMS)
         )
 
     else:
