@@ -71,6 +71,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
     # Special configs that are always run
     configs = [
         MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.11', uv_options='--no-dev'),  # Minimal test (no dev deps)
+        MatrixConfig('minimum-deps', 'py', MAIN_PLATFORM, '3.11', uv_options='--no-dev --resolution lowest-direct'),
         MatrixConfig('static-checks', 'lint', MAIN_PLATFORM, '3.11'),  # Linting, type checking, etc.
         MatrixConfig('random-ops', 'random-ops', MAIN_PLATFORM, '3.11', uv_options='--no-dev'),  # Random operations
         MatrixConfig('otel', 'otel', MAIN_PLATFORM, '3.11', uv_options='--no-dev --extra otel'),
