@@ -1,7 +1,7 @@
 from typing import Callable, ClassVar
 
 from mypy import nodes
-from mypy.nodes import GDEF, DictExpr, IndexExpr, NotParsed, OpExpr, StrExpr, SymbolTableNode
+from mypy.nodes import GDEF, DictExpr, IndexExpr, NotParsed, OpExpr, StrExpr, SymbolTableNode, TypeInfo
 from mypy.plugin import (
     AnalyzeTypeContext,
     ClassDefContext,
@@ -52,7 +52,7 @@ class PxtPlugin(Plugin):
     def get_type_analyze_hook(self, fullname: str) -> Callable[[AnalyzeTypeContext], Type] | None:
         if fullname in self.__FULLNAME_MAP:
             subst_name = self.__FULLNAME_MAP[fullname]
-            return lambda ctx: adjust_pxt_type(ctx, subst_name)
+            return lambda ctx: self.adjust_pxt_type(ctx, subst_name)
         if fullname == _REQUIRED_FULLNAME:
             return adjust_required_type
         return None
@@ -85,6 +85,26 @@ class PxtPlugin(Plugin):
         if fullname == self.__ITERATOR_FULLNAME:
             return adjust_iterator_methods
         return None
+
+    def adjust_pxt_type(self, ctx: AnalyzeTypeContext, subst_name: str) -> Type:
+        """
+        Replaces the special Pixeltable classes (such as pxt.Array) with their standard equivalents
+        (such as np.ndarray).
+        """
+        any_type = AnyType(TypeOfAny.special_form)
+        if subst_name == 'typing.Any':
+            return any_type
+
+        # `ctx.api.named_type()` resolves `subst_name` against the symbols visible to the file being analyzed, and
+        # raises an internal assertion when it cannot see one. That happens in a `TypeForm` position (eg a schema
+        # dict), where mypy re-parses a value expression as a type during the type-checking pass: `PIL.Image` is in
+        # the `PIL` package's symbol table only if the file being checked imports it, which a file naming
+        # `pxt.Image` generally does not. The plugin-level lookup resolves against the whole build instead, and
+        # reports a miss by returning None. Construct the `Instance` the way `named_type()` would.
+        sym = self.lookup_fully_qualified(subst_name)
+        if sym is None or not isinstance(sym.node, TypeInfo):
+            return any_type
+        return Instance(sym.node, [any_type] * len(sym.node.defn.type_vars))
 
 
 def plugin(version: str) -> type:
@@ -182,21 +202,6 @@ def adjust_uda_type(ctx: FunctionContext) -> Type:
     ):
         ret_type = AnyType(TypeOfAny.special_form)
     return ret_type
-
-
-def adjust_pxt_type(ctx: AnalyzeTypeContext, subst_name: str) -> Type:
-    """
-    Replaces the special Pixeltable classes (such as pxt.Array) with their standard equivalents (such as np.ndarray).
-    """
-    if subst_name == 'typing.Any':
-        return AnyType(TypeOfAny.special_form)
-    try:
-        return ctx.api.named_type(subst_name, [])
-    except AssertionError:
-        # `named_type()` resolves against the enclosing module's symbols and asserts if the substitute isn't
-        # reachable there. This happens when mypy speculatively parses a value expression as a type (for a
-        # `TypeForm` parameter, eg a schema dict), where the substitute's module typically isn't imported.
-        return AnyType(TypeOfAny.special_form)
 
 
 def mark_schema_dict_values(ctx: FunctionSigContext | MethodSigContext) -> FunctionLike:
