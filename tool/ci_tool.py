@@ -117,13 +117,12 @@ def generate_matrix(args: argparse.Namespace) -> None:
                 MAIN_PLATFORM,
                 '3.11',
                 pytest_options=f'{DEFAULT_PYTEST} {SLIM_TESTS}',
-                # The SPA bundle is only needed by tests/pixeltable_cli, which SLIM_TESTS doesn't include
                 build_dashboard=False,
             )
         )
 
     else:
-        # Configs that are run on every non-PR trigger: in merge queue and on a schedule
+        # A non-PR trigger: merge queue or a schedule
 
         # Standard configs on the basic platforms
         configs.extend(MatrixConfig('standard', 'py', os, '3.11') for os in BASIC_PLATFORMS)
