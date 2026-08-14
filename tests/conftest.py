@@ -285,7 +285,7 @@ def proxy_daemon_db(init_env: None, worker_id: str) -> Iterator[str]:
     from pixeltable.service import proxy_daemon
 
     db = _worker_db_name(worker_id)
-    proxy_daemon.start(db)
+    proxy_daemon.start(db, test_mode=True)
     try:
         yield db
     finally:
