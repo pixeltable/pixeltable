@@ -1132,11 +1132,6 @@ class TestTableModel:
         without_identity = {
             name: {k: v for k, v in d.items() if k not in ('tbl_id', 'schema_versions')} for name, d in diffs.items()
         }
-        for d in without_identity.values():
-            for op in d['ops']:
-                if op['target'] == 'index':
-                    # stringify for comparison
-                    op['model'] = str(op['model']) if op['model'] is not None else None
         assert without_identity == {
             'test_table': {
                 'path': p('test_table'),
@@ -1249,7 +1244,7 @@ class TestTableModel:
                     },
                     {
                         'description': "named index 'idx3' has altered properties",
-                        'details': {'on': 'image'},
+                        'details': {'index_ref': {'index_type': 'embedding', 'columns': ['image'], 'name': 'idx3'}},
                         'existing': {
                             'columns': ['image'],
                             'index_type': 'embedding',
@@ -1279,7 +1274,7 @@ class TestTableModel:
                         'model': "EmbeddingIndex(column=image, embedding=dummy_embedding(text, n=256), name='idx4')",
                         'existing': None,
                         'description': "EmbeddingIndex 'idx4' will be added",
-                        'details': {'on': 'image'},
+                        'details': {'index_ref': {'index_type': 'embedding', 'columns': ['image'], 'name': 'idx4'}},
                     },
                     {
                         'target': 'index',
@@ -1289,7 +1284,7 @@ class TestTableModel:
                         'model': None,
                         'existing': None,
                         'description': "index 'idx2' will be dropped",
-                        'details': {'on': 'image'},
+                        'details': {'index_ref': {'index_type': 'embedding', 'columns': ['image'], 'name': 'idx2'}},
                     },
                 ],
             },

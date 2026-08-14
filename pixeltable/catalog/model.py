@@ -1106,10 +1106,16 @@ def prepare_model_updates(
     return resolved_cols, resolved_idxs
 
 
+class SchemaChangeIndexRef(TypedDict):
+    index_type: Literal['btree', 'embedding']
+    columns: list[str]
+    name: str | None
+
+
 class SchemaChangeOpDetails(TypedDict, total=False):
     type: str
     value: str
-    on: str
+    index_ref: SchemaChangeIndexRef
 
 
 class SchemaChangeOp(TypedDict):
@@ -1134,7 +1140,7 @@ class SchemaChangeOp(TypedDict):
     description: str
 
     # the change's operands, rendered as strings so they survive serialization: 'type' or 'value' for a column add,
-    # 'on' for an index add. Empty when the change has no operand beyond name.
+    # 'index_ref' for an index add. Empty when the change has no operand beyond name.
     details: SchemaChangeOpDetails
 
 
@@ -1312,23 +1318,31 @@ def _add_column_change(col_name: str, spec: ColumnSpec) -> SchemaChangeOp:
     )
 
 
+def _as_idx_ref(idx: IndexDeclaration) -> SchemaChangeIndexRef:
+    if isinstance(idx, BtreeIndex):
+        return SchemaChangeIndexRef(index_type='btree', columns=[idx.column.name], name=None)
+    else:
+        return SchemaChangeIndexRef(index_type='embedding', columns=[idx.column.name], name=idx.name)
+
+
 def _add_index_change(idx: IndexDeclaration) -> SchemaChangeOp:
     # str(), not .name: a ModelColumnRef renders as its bare column name, and a spec holding anything else
     # is reported as it stands rather than dropped from the plan
-    name = idx.name if isinstance(idx, EmbeddingIndex) else None
+    idx_ref = _as_idx_ref(idx)
+    idx_name = idx_ref['name']
     return SchemaChangeOp(
         target='index',
-        name=name,
+        name=idx_name,
         op='add',
         severity='additive',
-        model=idx,
+        model=str(idx),
         existing=None,
         description=(
-            f'{type(idx).__name__} {name!r} will be added'
-            if name is not None
-            else f'{type(idx).__name__} on column {idx.column.name!r} will be added'
+            f'{type(idx).__name__} {idx_name!r} will be added'
+            if idx_name is not None
+            else f'{type(idx).__name__} on column(s) {idx_ref["columns"]!r} will be added'
         ),
-        details={'on': str(idx.column)},
+        details={'index_ref': idx_ref},
     )
 
 
@@ -1553,16 +1567,17 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                             or idx_md['parameters']['precision'] != idx.precision
                             or idx_md['parameters']['embedding'] != str(idx.as_fn_call())
                         ):
+                            idx_ref = _as_idx_ref(idx)
                             ops.append(
                                 SchemaChangeOp(
                                     target='index',
-                                    name=idx.name,
+                                    name=idx_ref['name'],
                                     op='alter',
                                     severity='unsupported',
-                                    model=idx,
+                                    model=str(idx),
                                     existing=idx_md,
                                     description=f'named index {idx.name!r} has altered properties',
-                                    details={'on': str(idx.column)},
+                                    details={'index_ref': idx_ref},
                                 )
                             )
                         existing_idxs.pop(i)
@@ -1586,6 +1601,9 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
             # Any remaining items in existing_idxs are indexes that exist in the catalog but not in the model.
             for idx_md in existing_idxs:
                 idx_name = idx_md['name']
+                idx_ref = SchemaChangeIndexRef(
+                    index_type=idx_md['index_type'], columns=idx_md['columns'], name=idx_name
+                )
                 ops.append(
                     SchemaChangeOp(
                         target='index',
@@ -1595,7 +1613,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                         model=None,
                         existing=None,
                         description=f'index {idx_name!r} will be dropped',
-                        details={'on': str(idx_md['columns'][0])},
+                        details={'index_ref': idx_ref},
                     )
                 )
 
@@ -1799,10 +1817,11 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                 model = registered_models[name]
                 new_col_names = {c['name'] for c in d['ops'] if c['target'] == 'column' and c['op'] == 'add'}
                 dropped_col_names = [c['name'] for c in d['ops'] if c['target'] == 'column' and c['op'] == 'drop']
-                new_idxs: list[IndexDeclaration] = [
-                    c['model'] for c in d['ops'] if c['target'] == 'index' and c['op'] == 'add'
+                new_idx_refs = [
+                    c['details']['index_ref'] for c in d['ops'] if c['target'] == 'index' and c['op'] == 'add'
                 ]
                 dropped_idx_names = [c['name'] for c in d['ops'] if c['target'] == 'index' and c['op'] == 'drop']
+
                 # Resolve `type` annotations to ColumnTypes, mirroring `_create()`, and tag each column's origin.
                 # Iterate in declaration order (not the diff's sorted order), so a new column may depend on an
                 # earlier new column, as it can at create time.
@@ -1821,6 +1840,22 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                         'base_query' if col_name in base_query_cols else 'model_body'
                     )
                     new_columns[col_name] = (spec, origin)
+
+                # resolve idx_refs to IndexDeclarations. (We can't simply go by index name, since there may be unnamed
+                # indexes.) Instead we compare the (index_type, name, columns) tuple; if there are two unnamed indexes
+                # with the same type, then they *must* have different columns, so the tuple uniquely identifies the
+                # index.
+                new_idxs: list[IndexDeclaration] = []
+                for idx_ref in new_idx_refs:
+                    matching_idxs = [
+                        idx
+                        for idx in model.__indexes__
+                        if (idx_ref['index_type'] == 'btree') == isinstance(idx, BtreeIndex)
+                        and idx_ref['name'] == (idx.name if isinstance(idx, EmbeddingIndex) else None)
+                        and [idx.column.name] == idx_ref['columns']
+                    ]
+                    assert len(matching_idxs) == 1
+                    new_idxs.append(matching_idxs[0])
 
                 # only an existing table is updated, so the diff recorded what it was computed against
                 assert d['tbl_id'] is not None and d['schema_versions'] is not None
