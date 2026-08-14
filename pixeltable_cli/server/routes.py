@@ -41,8 +41,53 @@ from pixeltable_cli.utils import identity
 from . import bridge
 from .router import RawResponse, Request, Router
 
-router = Router()
 _STARTED_AT = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+# Catalog operations plus the dashboard routes, and nothing else.
+CATALOG_ONLY_MODE = 'catalog_only'
+
+
+def in_catalog_only_mode() -> bool:
+    return Config.get().get_string_value('server_mode') == CATALOG_ONLY_MODE
+
+
+# Everything a catalog-only daemon serves. An allow-list rather than a list of exclusions, so a route
+# added later is unreachable in a hosted pod until someone puts it here deliberately. What it keeps
+# out: the management routes call the control plane with the daemon's own API key, which would let
+# any caller act as the pod, and /api/cwd keeps per-session state in process memory.
+CATALOG_ROUTES = frozenset(
+    {
+        ('GET', '/api/health'),
+        ('GET', '/api/status'),
+        ('GET', '/api/config'),
+        ('GET', '/api/dirs'),
+        ('GET', '/api/tables/rows'),
+        ('GET', '/api/tables/row'),
+        ('GET', '/api/tables/count'),
+        ('GET', '/api/tables/errors'),
+        ('GET', '/api/tables/history'),
+        ('GET', '/api/tables/describe'),
+        ('GET', '/api/columns'),
+        ('GET', '/api/indexes'),
+        ('POST', '/api/tables/drop'),
+        ('POST', '/api/tables/revert'),
+        ('POST', '/api/dirs/drop'),
+        ('POST', '/api/move'),
+        ('POST', '/api/schema/diff'),
+        ('POST', '/api/schema/prune'),
+        ('POST', '/api/schema/update'),
+        ('GET', '/api/dashboard/search'),
+        ('GET', '/api/dashboard/tables/meta'),
+        ('GET', '/api/dashboard/tables/pipeline'),
+        ('GET', '/api/dashboard/pipeline'),
+        ('GET', '/api/dashboard/tables/data'),
+        ('GET', '/api/dashboard/tables/export'),
+    }
+)
+
+router = Router(CATALOG_ROUTES if in_catalog_only_mode() else None)
+
 
 # Freeze the identity fingerprint at import time so /health reports what the daemon was
 # launched with, not what os.environ looks like right now. Used to trigger a daemon restart.

@@ -576,6 +576,7 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'database': 'Database runtime configuration',
         'daemon_host': 'Listen address for the proxy daemon in fixed-address mode (e.g. 0.0.0.0)',
         'daemon_port': ('Listen port for the proxy daemon in fixed-address mode (e.g. 8000)', int),
+        'server_mode': "Restricts the CLI server's routes; 'catalog_only' serves catalog operations and nothing else",
         'db_uri': 'Base pxt:// URI for remote catalog access (e.g. pxt://myorg:mydb)',
     },
     'anthropic': {'api_key': 'Anthropic API key'},

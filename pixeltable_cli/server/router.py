@@ -6,7 +6,7 @@ Lookup is an exact (method, path) match; catalog paths travel in the query strin
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any, TypeVar, overload
 
@@ -142,8 +142,11 @@ class Request:
 class Router:
     """Decorator-based route table keyed by (method, path) for exact-match lookup."""
 
-    def __init__(self) -> None:
+    def __init__(self, allowed: Iterable[tuple[str, str]] | None = None) -> None:
         self._routes: dict[tuple[str, str], Handler] = {}
+        # None serves everything registered. A set is an allow-list, so a route added later stays
+        # unreachable until someone lists it.
+        self._allowed = None if allowed is None else frozenset(allowed)
 
     def get(self, path: str) -> Callable[[Handler], Handler]:
         return self._register('GET', path)
@@ -160,4 +163,6 @@ class Router:
         return decorator
 
     def match(self, method: str, url_path: str) -> Handler | None:
+        if self._allowed is not None and (method, url_path) not in self._allowed:
+            return None
         return self._routes.get((method, url_path))
