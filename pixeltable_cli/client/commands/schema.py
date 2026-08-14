@@ -70,7 +70,7 @@ class Docs(TableModel, name='docs'):
 
     # an embedding index makes a column searchable by similarity
     body_idx = pxt.EmbeddingIndex(
-        body, embedding=pxtf.huggingface.sentence_transformer.using(model_id='intfloat/e5-large-v2')
+        body, embedding=pxtf.huggingface.sentence_transformer.using(model_id='all-MiniLM-L6-v2')
     )
 
 
