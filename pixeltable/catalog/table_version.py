@@ -182,6 +182,10 @@ class TableVersion:
         self._tbl_md = copy.deepcopy(tbl_md)
         self._version_md = copy.deepcopy(version_md)
         self._schema_version_md = copy.deepcopy(schema_version_md)
+        assert self.is_data_versioned or self._version_md.version == self._schema_version_md.schema_version, (
+            self._version_md,
+            self._schema_version_md,
+        )
         assert not (self.is_view and base is None)
         self.base = base
         self.store_tbl = None
@@ -1867,8 +1871,6 @@ class TableVersion:
 
     @property
     def version(self) -> int:
-        # TODO find a better place for this or remove
-        assert self.is_data_versioned or self._version_md.version == self.schema_version, self._version_md
         return self._version_md.version
 
     @property
