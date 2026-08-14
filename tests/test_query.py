@@ -21,6 +21,7 @@ from .utils import (
     create_all_datatypes_tbl,
     get_audio_files,
     get_documents,
+    get_image_files,
     get_video_files,
     pxt_raises,
     reload_catalog,
@@ -934,42 +935,63 @@ class TestQuery:
         assert ds4.path != ds3.path, 'different select list, hence different path should be used'
 
     @pytest.mark.local('exports a COCO dataset to the local filesystem')
-    @pytest.mark.xdist_group('yolox')
     def test_to_coco(self, uses_db: None) -> None:
-        skip_test_if_not_installed('yolox')
+        pytest.importorskip('pycocotools')
         from pycocotools.coco import COCO
 
-        from pixeltable.functions.yolox import yolo_to_coco, yolox
+        image_files = get_image_files()[:5]
+        # each row gets its own category, so that the exported annotations can be matched back to their input row
+        rows: list[dict[str, Any]] = [
+            {
+                'i': i,
+                'image': file,
+                'annotations': [
+                    {'bbox': [i, i + 1, 10 + i, 20 + i], 'category': f'category_{i}'},
+                    {'bbox': [2 * i, 3 * i, 5, 7], 'category': f'category_{i}'},
+                ],
+            }
+            for i, file in enumerate(image_files)
+        ]
+        t = pxt.create_table('images', {'i': pxt.Int, 'image': pxt.Image, 'annotations': pxt.Json})
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
 
-        base_t = pxt.create_table('videos', {'video': pxt.Video})
-        view_t = pxt.create_view('frames', base_t, iterator=frame_iterator(base_t.video, fps=1))
-        view_t.add_computed_column(detections=yolox(view_t.frame, model_id='yolox_m'))
-        base_t.insert(video=get_video_files()[0])
-
-        query = view_t.select({'image': view_t.frame, 'annotations': yolo_to_coco(view_t.detections)})
+        query = t.select({'image': t.image, 'annotations': t.annotations}).order_by(t.i)
         path = query.to_coco_dataset()
-        # we get a valid COCO dataset
+
+        # we get a valid COCO dataset that reproduces the input rows
         coco_ds = COCO(path)
-        assert len(coco_ds.imgs) == view_t.count()
+        assert len(coco_ds.imgs) == len(rows)
+        assert {cat['name'] for cat in coco_ds.cats.values()} == {f'category_{i}' for i in range(len(rows))}
+        for img_id, img_info in coco_ds.imgs.items():
+            anns = [coco_ds.anns[ann_id] for ann_id in coco_ds.getAnnIds(imgIds=[img_id])]
+            categories = {coco_ds.cats[ann['category_id']]['name'] for ann in anns}
+            assert len(categories) == 1, categories
+            row = rows[int(categories.pop().removeprefix('category_'))]
+            with PIL.Image.open(row['image']) as img:
+                assert (img_info['width'], img_info['height']) == img.size
+            assert Path(img_info['file_name']).exists()
+            assert sorted(ann['bbox'] for ann in anns) == sorted(ann['bbox'] for ann in row['annotations'])
+            assert all(ann['area'] == ann['bbox'][2] * ann['bbox'][3] for ann in anns)
+            assert all(ann['iscrowd'] == 0 for ann in anns)
 
         # we call to_coco_dataset() again and get the cached dataset
         new_path = query.to_coco_dataset()
         assert path == new_path
 
         # the cache is invalidated when we add more data
-        base_t.insert(video=get_video_files()[1])
+        validate_update_status(t.insert(rows[:1]), expected_rows=1)
         new_path = query.to_coco_dataset()
         assert path != new_path
         coco_ds = COCO(new_path)
-        assert len(coco_ds.imgs) == view_t.count()
+        assert len(coco_ds.imgs) == len(rows) + 1
 
         # incorrect select list
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
-            _ = view_t.select({'image': view_t.frame, 'annotations': view_t.detections}).to_coco_dataset()
+            _ = t.select({'image': t.image, 'annotations': t.annotations[0]}).to_coco_dataset()
         assert '"annotations" is not a list' in str(exc_info.value)
 
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED) as exc_info:
-            _ = view_t.select(view_t.detections).to_coco_dataset()
+            _ = t.select(t.annotations[0]).to_coco_dataset()
         assert 'missing key "image"' in str(exc_info.value).lower()
 
     def test_distinct(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:

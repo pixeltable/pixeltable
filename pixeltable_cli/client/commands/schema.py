@@ -72,7 +72,7 @@ class Docs(TableModel, name='docs'):
     __indexes__ = [
         pxt.EmbeddingIndex(
             body,
-            embedding=pxtf.huggingface.sentence_transformer.using(model_id='intfloat/e5-large-v2'),
+            embedding=pxtf.huggingface.sentence_transformer.using(model_id='intfloat/all-MiniLM-L6-v2'),
             name='body_idx',
         )
     ]

@@ -15,6 +15,7 @@ import io
 import json
 import os
 import pathlib
+import platform
 import signal
 import socket
 import subprocess
@@ -624,7 +625,7 @@ class TestProbe:
         monkeypatch.setattr(client_utils, '_pid_cmdline', lambda pid: None)
         assert client_utils._pid_is_our_daemon(100) is False
 
-    @pytest.mark.skipif(os.name == 'nt', reason='_pid_cmdline has no stdlib argv source on Windows')
+    @pytest.mark.skipif(platform.system() == 'Windows', reason='_pid_cmdline has no stdlib argv source on Windows')
     def test_pid_cmdline_reads_self(self) -> None:
         """On POSIX the running interpreter's own command line is readable and mentions python."""
         cmdline = client_utils._pid_cmdline(os.getpid())
