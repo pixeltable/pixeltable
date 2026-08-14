@@ -19,6 +19,9 @@ DEFAULT_PYTEST = "-m 'not expensive and not very_expensive and not benchmark and
 EXPENSIVE_PYTEST = "-m 'not very_expensive and not benchmark and not cloud_e2e'"
 VERY_EXPENSIVE_PYTEST = "-m 'not benchmark and not cloud_e2e'"
 
+# Note: in addition to these pytest filters, the tests that actually run are implicitly filtered by
+# skip_test_if_not_installed() and the install configuration.
+
 # The core-functionality test modules that PR checks run on every push. This mirrors the `slimpytest` target in the
 # Makefile.
 SLIM_TESTS = ' '.join(
