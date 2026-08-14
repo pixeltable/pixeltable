@@ -105,7 +105,7 @@ class Dumper:
         Env._init_env(reinit_db=True)
 
         logging.getLogger('pixeltable').setLevel(logging.DEBUG)
-        logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
+        logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
         handler = logging.StreamHandler(sys.stdout)
         handler.setFormatter(logging.Formatter(LOG_FMT_STR))
         logging.getLogger('pixeltable').addHandler(handler)

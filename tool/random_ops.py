@@ -223,7 +223,7 @@ class RandomTableOps:
         logging.getLogger('pixeltable').setLevel(logging.DEBUG)
         logging.getLogger('pixeltable').addHandler(random_ops_log_handler)
 
-        logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
+        logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
 
     def _flush_stats(self, *, force: bool = False) -> None:
         if self.stats_file is None:
