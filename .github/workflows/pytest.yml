@@ -1,12 +1,13 @@
 name: tests
 
-# On PR updates, the basic test configurations are run:
-#   - Python 3.11 on ubuntu-24.04, macos-15, and windows-2025 runners.
-#   - A minimal installation of Pixeltable (--no-dev) with Python 3.11 on ubuntu-24.04.
+# On PR updates, only fast on-push checks are run:
 #   - Linting, type-checking, docstring validation, etc.
-#   - Random ops.
+#   - The 'slim' subset of the unit tests (SLIM_TESTS in tool/ci_tool.py) with Python 3.11 on ubuntu-24.04.
 #
-# In merge queue, all of the above configurations are run, and additionally:
+# In merge queue, the above configurations are run, and additionally:
+#   - The full unit test suite with Python 3.11 on ubuntu-24.04, macos-15, and windows-2025 runners.
+#   - A minimal installation of Pixeltable (--no-dev) with Python 3.11 on ubuntu-24.04.
+#   - Random ops, and the OpenTelemetry instrumentation tests.
 #   - Python 3.14 on ubuntu-24.04, macos-15, and windows-2025 runners.
 #   - Python 3.11, 3.12, and 3.13 on ubuntu-24.04.
 #   - Minimal Pixeltable with Python 3.14 on ubuntu-24.04.
@@ -217,7 +218,7 @@ jobs:
         # The pxt daemon serves the SPA bundle when the dashboard feature flag is enabled;
         # tests/pixeltable_cli/test_smoke.py exercises that path. The build output is gitignored,
         # so CI has to produce it before the test job runs.
-        if: ${{ matrix.test-category == 'py' }}
+        if: ${{ matrix.test-category == 'py' && matrix.build-dashboard == 'true' }}
         run: |
           conda install -y -c conda-forge nodejs
           cd dashboard && npm install --silent && npm run build

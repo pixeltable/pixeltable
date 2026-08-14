@@ -19,6 +19,27 @@ DEFAULT_PYTEST = "-m 'not expensive and not very_expensive and not benchmark and
 EXPENSIVE_PYTEST = "-m 'not very_expensive and not benchmark and not cloud_e2e'"
 VERY_EXPENSIVE_PYTEST = "-m 'not benchmark and not cloud_e2e'"
 
+# The core-functionality test modules that PR checks run on every push. This mirrors the `slimpytest` target in the
+# Makefile.
+SLIM_TESTS = ' '.join(
+    f'tests/test_{name}.py'
+    for name in (
+        'alter_column',
+        'catalog',
+        'dirs',
+        'env',
+        'exprs',
+        'function',
+        'index',
+        'operational_table',
+        'snapshot',
+        'table',
+        'table_model',
+        'types',
+        'view',
+    )
+)
+
 MAIN_PLATFORM = 'ubuntu-24.04'
 BASIC_PLATFORMS = ('macos-15', 'windows-2025')
 EXPENSIVE_PLATFORMS = ('ubuntu-small-t4',)
@@ -33,6 +54,7 @@ class MatrixConfig(NamedTuple):
     uv_options: str = ''
     pytest_options: str = DEFAULT_PYTEST
     pre_test_cmd: str = ''  # Extra bash command to be run just before tests
+    build_dashboard: bool = True  # Whether this config runs tests that need the dashboard SPA bundle
 
     @property
     def display_name(self) -> str:
@@ -48,6 +70,7 @@ class MatrixConfig(NamedTuple):
             'uv-options': self.uv_options,
             'pytest-options': self.pytest_options,
             'pre-test-cmd': self.pre_test_cmd,
+            'build-dashboard': str(self.build_dashboard).lower(),
         }
 
 
@@ -68,32 +91,46 @@ def generate_matrix(args: argparse.Namespace) -> None:
     print('Force all   : ', force_all)
     print()
 
-    # Special configs that are always run
-    configs = [
-        MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.11', uv_options='--no-dev'),  # Minimal test (no dev deps)
-        MatrixConfig('static-checks', 'lint', MAIN_PLATFORM, '3.11'),  # Linting, type checking, etc.
-        MatrixConfig('random-ops', 'random-ops', MAIN_PLATFORM, '3.11', uv_options='--no-dev'),  # Random operations
-        MatrixConfig('otel', 'otel', MAIN_PLATFORM, '3.11', uv_options='--no-dev --extra otel'),
-    ]
-
-    # Standard configs that are always run
-    configs.extend(MatrixConfig('standard', 'py', os, '3.11') for os in BASIC_PLATFORMS)
-
-    # All other configs are dependent on the CI scenario. There are three basic scenarios:
-    # 1. During a PR, we run a limited set of tests: MAIN_PLATFORM (Ubuntu) identically to the standard configs, and
-    #    nothing additional.
-    # 2. In merge queue or on a workflow dispatch, we include 'expensive' tests on MAIN_PLATFORM, and also run a suite
-    #    of other jobs providing broader test coverage.
-    # 3. On a scheduled run, or if "Run on all platforms" is checked during a workflow dispatch, then in addition to
-    #    the above, we also run the 'very_expensive' tests on MAIN_PLATFORM and the basic tests on EXPENSIVE_PLATFORMS.
+    # The configs are dependent on the CI scenario. There are three tiers:
+    # Tier 1. During a PR, we run only the static checks and the slim test subset on MAIN_PLATFORM, to keep on-push
+    #         feedback fast. Nothing additional.
+    # Tier 2. In merge queue or on a workflow dispatch, we run the full test suite on the basic platforms, including
+    #         'expensive' tests on MAIN_PLATFORM, and also a suite of other jobs providing broader test coverage.
+    # Tier 3. On a scheduled run, or if "Run on all platforms" is checked during a workflow dispatch, then in addition
+    #         to the above, we also run the 'very_expensive' tests on MAIN_PLATFORM and the basic tests on
+    #         EXPENSIVE_PLATFORMS.
 
     if trigger == 'pull_request':
-        # Tier 1 only: Just the standard tests on MAIN_PLATFORM.
-        configs.append(MatrixConfig('standard', 'py', MAIN_PLATFORM, '3.11'))
-        # Notebook tests are not run on PRs (Hugging Face downloads are rate-limited without a token, which is
-        # unavailable on PRs). Non-HF notebooks run in the merge queue; all notebooks run on the scheduled tier.
+        # Configs selected for a PR validation, i.e. on every push to a PR.
+        # Tier 1 only: static checks plus the slim test subset, both on MAIN_PLATFORM. This is strictly a subset of
+        # checks that are run in merge queue.
+        configs = [
+            MatrixConfig('static-checks', 'lint', MAIN_PLATFORM, '3.11'),
+            MatrixConfig(
+                'slim',
+                'py',
+                MAIN_PLATFORM,
+                '3.11',
+                pytest_options=f'{DEFAULT_PYTEST} {SLIM_TESTS}',
+                # The SPA bundle is only needed by tests/pixeltable_cli, which SLIM_TESTS doesn't include
+                build_dashboard=False,
+            ),
+        ]
 
     else:
+        # Configs that are run on every non-PR trigger: in merge queue and on a schedule
+
+        # Standard configs on the basic platforms
+        configs = [MatrixConfig('standard', 'py', os, '3.11') for os in BASIC_PLATFORMS]
+
+        # Minimal deps tests
+        configs.append(MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.11', uv_options='--no-dev'))
+        # Linting, type checking, etc.
+        configs.append(MatrixConfig('static-checks', 'lint', MAIN_PLATFORM, '3.11'))
+        # random ops
+        configs.append(MatrixConfig('random-ops', 'random-ops', MAIN_PLATFORM, '3.11', uv_options='--no-dev'))
+        configs.append(MatrixConfig('otel', 'otel', MAIN_PLATFORM, '3.11', uv_options='--no-dev --extra otel'))
+
         if force_all or trigger == 'schedule':
             # Tier 3 only: Standard + expensive + very_expensive tests on upgraded platform.
             configs.append(
