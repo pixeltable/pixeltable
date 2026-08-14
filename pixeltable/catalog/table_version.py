@@ -1303,7 +1303,7 @@ class TableVersion:
             self.bump_version(timestamp, bump_schema_version=False)
         exec_plan.ctx.title = self.display_str()
         cols_with_excs, row_counts, rows = self.store_tbl.insert_rows(
-            exec_plan, v_min=self.version, rowids=rowids, abort_on_exc=abort_on_exc, return_rows=return_rows
+            exec_plan, rowids=rowids, abort_on_exc=abort_on_exc, return_rows=return_rows
         )
         result = UpdateStatus(
             cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs],
@@ -1589,9 +1589,7 @@ class TableVersion:
                 )
 
         for p in plans:
-            cols_with_excs, row_counts, rows = self.store_tbl.insert_rows(
-                p, v_min=self.version, return_rows=return_rows
-            )
+            cols_with_excs, row_counts, rows = self.store_tbl.insert_rows(p, return_rows=return_rows)
             result += UpdateStatus(
                 row_count_stats=row_counts.insert_to_update(),
                 cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs],
@@ -1868,9 +1866,9 @@ class TableVersion:
         return self._schema_version_md.custom_metadata
 
     @property
-    def version(self) -> int | None:
-        if not self.is_data_versioned:
-            return None
+    def version(self) -> int:
+        # TODO find a better place for this or remove
+        assert self.is_data_versioned or self._version_md.version == self.schema_version, self._version_md
         return self._version_md.version
 
     @property

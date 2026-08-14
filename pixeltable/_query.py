@@ -667,9 +667,7 @@ class Query:
         out: dict[UUID, int] = {}
         for tbl in self._from_clause.tvps:
             for tvh in tbl.get_tbl_versions():
-                tv = tvh.get()
-                if tv.is_data_versioned:
-                    out[tvh.id] = tv.version
+                out[tvh.id] = tvh.get().version
         return out
 
     def _create_query_plan(self) -> exec.ExecPlan:

@@ -540,19 +540,21 @@ class StoreBase:
     def insert_rows(
         self,
         exec_plan: ExecNode,
-        v_min: int | None,
         rowids: Iterator[int] | None = None,
         abort_on_exc: bool = False,
         return_rows: bool = False,
     ) -> tuple[set[int], RowCountStats, list[dict[str, Any]] | None]:
-        """Insert rows into the store table and update the catalog table's md
+        """Insert rows into the store table and update the catalog table's md.
+
+        On a data-versioned table the new rows get the table's current version as their v_min.
+
         Returns:
             set of column ids that have exceptions, row count stats, newly inserted rows (if return_rows)
         """
-        is_data_versioned = self.tbl_version.get().is_data_versioned
-        assert (v_min is not None) == is_data_versioned
-        if not is_data_versioned:
-            assert rowids is None
+        tbl_version = self.tbl_version.get()
+        is_data_versioned = tbl_version.is_data_versioned
+        v_min = tbl_version.version if is_data_versioned else None
+        assert is_data_versioned or rowids is None
         # TODO: total?
         num_excs = 0
         num_rows = 0

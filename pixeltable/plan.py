@@ -438,7 +438,8 @@ class Planner:
             - select_list: resolved exprs for evaluated_cols
             - identity_cols: unchanged stored columns
         """
-        # If there's an index with a value column but not undo column, the logic here needs to be updated.
+        # The logic here assumes that every index with a value column also has an undo column. It needs to be updated
+        # when that is no longer true.
         assert all(info.undo_col is not None for info in target.idxs.values() if info.val_col is not None)
 
         # We always need to update all indices on any updated/recomputed column

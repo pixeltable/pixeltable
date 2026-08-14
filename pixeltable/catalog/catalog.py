@@ -2299,10 +2299,9 @@ class Catalog(CatalogBase):
             reload = False
 
             # live table; compare our cached TableMd.current_version/view_sn to what's stored
-            is_data_versioned = row.md.get('is_data_versioned', True)
             current_version = row.md['current_version']
             view_sn = row.md['view_sn']
-            if (is_data_versioned and current_version != tv.version) or view_sn != tv.tbl_md.view_sn:
+            if current_version != tv.version or view_sn != tv.tbl_md.view_sn:
                 _logger.debug(
                     f'reloading metadata for live table {key.tbl_id} '
                     f'(cached/current version: {tv.version}/{current_version}, '

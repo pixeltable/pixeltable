@@ -6,7 +6,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 
-from .utils import ReloadTester, btree_idxs, pxt_raises, reload_catalog, validate_update_status
+from .utils import ReloadTester, btree_idxs, local_embedding, pxt_raises, reload_catalog, validate_update_status
 
 pytestmark = pytest.mark.local('TODO: convert; operational-table feature')
 
@@ -153,6 +153,44 @@ class TestOperationalTable:
             pxt.ErrorCode.CONSTRAINT_VIOLATION, match="Value too large for the btree index on column 'c_str'"
         ):
             tbl.add_btree_index('c_str')
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_embedding_index(self, uses_db: None, do_reload_catalog: bool) -> None:
+        tbl = pxt.create_table('test', {'id': pxt.Int, 'text': pxt.String}, _is_data_versioned=False)
+        validate_update_status(
+            tbl.insert(
+                [
+                    {'id': 0, 'text': 'The cat dozed on the warm windowsill and watched the birds outside.'},
+                    {'id': 1, 'text': 'Volcanic eruptions can reshape an entire coastline within days.'},
+                ]
+            ),
+            2,
+        )
+
+        tbl.add_embedding_index('text', embedding=local_embedding.using(dim=512))
+        reload_catalog(do_reload_catalog)
+
+        validate_update_status(
+            tbl.insert(
+                [
+                    {'id': 2, 'text': 'An espresso machine builds up pressure to extract coffee.'},
+                    {'id': 3, 'text': 'The quarterly earnings report exceeded every analyst forecast.'},
+                    {'id': 4, 'text': 'Migratory whales navigate by sensing the magnetic field of the earth.'},
+                ]
+            ),
+            3,
+        )
+        assert tbl.count() == 5
+
+        sim = tbl.text.similarity(string='Volcanic eruptions reshape entire coastlines in a matter of days.')
+        assert tbl.select(tbl.id).order_by(sim, asc=False).limit(1).collect()['id'] == [1]
+
+        validate_update_status(tbl.delete(where=tbl.id == 4), 1)
+
+        sim = tbl.text.similarity(string='Espresso machines build pressure in order to extract the coffee.')
+        res = tbl.select(tbl.id).order_by(sim, asc=False).collect()['id']
+        assert res[0] == 2, res
+        assert 4 not in res, res
 
     def test_unsupported_ops(self, uses_db: None) -> None:
         operational_tbl = pxt.create_table('t0', {'n': pxt.Int}, _is_data_versioned=False)
