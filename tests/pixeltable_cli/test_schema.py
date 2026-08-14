@@ -20,7 +20,7 @@ SCHEMA_SRC = dedent(
 
 
     class Docs(TableModel, name='docs'):
-        title: pxt.String | None
+        title: pxt.String
         body: pxt.String | None
         title_upper = pxtf.string.upper(title)
 
