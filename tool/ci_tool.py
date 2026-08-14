@@ -95,7 +95,8 @@ def generate_matrix(args: argparse.Namespace) -> None:
     print()
 
     # The configs are dependent on the CI scenario. There are three tiers:
-    # Tier 1. During a PR, we run only the static checks and the slim tests on MacOS, Ubuntu, and Windows.
+    # Tier 1. During a PR, we run only the static checks, the slim tests on MacOS, Ubuntu, and Windows, and the
+    #         minimal-dependency configs.
     # Tier 2. In merge queue or on a workflow dispatch, we run the full test suite on the basic platforms, including
     #         'expensive' tests on MAIN_PLATFORM, and also a suite of other jobs providing broader test coverage.
     # Tier 3. On a scheduled run, or if "Run on all platforms" is checked during a workflow dispatch, then in addition
@@ -104,6 +105,13 @@ def generate_matrix(args: argparse.Namespace) -> None:
 
     # Linting, type checking, etc.; run on every trigger.
     configs = [MatrixConfig('static-checks', 'lint', MAIN_PLATFORM, '3.11')]
+
+    # Minimal deps tests; run on every trigger.
+    configs.append(MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.11', uv_options='--no-dev'))
+    # Required deps pinned to their minimum versions; run on every trigger.
+    configs.append(
+        MatrixConfig('minimum-deps', 'py', MAIN_PLATFORM, '3.11', uv_options='--no-dev --resolution lowest-direct')
+    )
 
     if trigger == 'pull_request':
         # Configs selected for a PR validation, i.e. on every push to a PR.
@@ -122,12 +130,6 @@ def generate_matrix(args: argparse.Namespace) -> None:
         # Standard configs on the basic platforms
         configs.extend(MatrixConfig('standard', 'py', os, '3.11') for os in BASIC_PLATFORMS)
 
-        # Minimal deps tests
-        configs.append(MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.11', uv_options='--no-dev'))
-        # Required deps pinned to their minimum versions
-        configs.append(
-            MatrixConfig('minimum-deps', 'py', MAIN_PLATFORM, '3.11', uv_options='--no-dev --resolution lowest-direct')
-        )
         # random ops
         configs.append(MatrixConfig('random-ops', 'random-ops', MAIN_PLATFORM, '3.11', uv_options='--no-dev'))
         configs.append(MatrixConfig('otel', 'otel', MAIN_PLATFORM, '3.11', uv_options='--no-dev --extra otel'))
