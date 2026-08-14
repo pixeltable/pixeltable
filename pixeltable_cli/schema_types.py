@@ -16,6 +16,18 @@ class _Status(TypedDict, total=False):
     status: OpStatus
 
 
+class SchemaChangeIndexRef(TypedDict):
+    index_type: Literal['btree', 'embedding']
+    columns: list[str]
+    name: str | None
+
+
+class SchemaChangeOpDetails(TypedDict, total=False):
+    type: str
+    value: str
+    index_ref: SchemaChangeIndexRef
+
+
 class SchemaChangeOp(_Status):
     """Mirror of pixeltable.catalog.model.SchemaChangeOp: one operation reconciling a table with its model."""
 
@@ -28,7 +40,7 @@ class SchemaChangeOp(_Status):
     op: Literal['add', 'drop', 'alter']
     severity: Literal['additive', 'destructive', 'unsupported']
     description: str  # one sentence, ready to print
-    details: dict[str, str]  # the operands of this kind of operation, eg, 'type' for adding a column
+    details: SchemaChangeOpDetails
     destructive: bool  # the boolean form of severity
 
 
