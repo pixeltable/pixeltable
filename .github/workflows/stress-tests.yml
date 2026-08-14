@@ -16,11 +16,13 @@ env:
   GRAFANA_INSTANCE_ID: '1465844'
   GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY_PERF_TEST }}
-  UV_VERSION: 0.9.3
+  UV_VERSION: 0.12.3
 
 jobs:
   random-ops:
     strategy:
+      # A failure in one random-ops variant should not cancel the others
+      fail-fast: false
       matrix:
         options: [ '', '--read-only' ]
     runs-on: ubuntu-latest
@@ -53,7 +55,7 @@ jobs:
           conda-remove-defaults: true
       - name: Install python
         run: |
-          ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=3.10 pip
+          ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=3.11 pip
           conda info
       - name: Install uv
         run: |
@@ -99,7 +101,7 @@ jobs:
 
       - name: Install python
         run: |
-          ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=3.10 pip
+          ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=3.11 pip
           conda info
 
       - name: Install uv
@@ -147,7 +149,7 @@ jobs:
 
       - name: Install python
         run: |
-          ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=3.10 pip
+          ./scripts/retry.sh 3 30 conda install -y -c conda-forge python=3.11 pip
           conda info
 
       - name: Install uv

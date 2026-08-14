@@ -890,7 +890,7 @@ Route type reference:
 
 Manage cloud-hosted Pixeltable databases. A database is a hosted Pixeltable instance with its own compute, storage, and Python runtime.
 
-Database URIs use the form `pxt://org:db`. States: `PROVISIONING` → `AVAILABLE` ⇄ `STOPPED` → `UPDATING` → `DELETING`.
+Database URIs use the form `pxt://org:db`. Valid states: `PROVISIONING`, `STARTING`, `AVAILABLE`, `UPDATING`, `STOPPING`, `STOPPED`, `FAILED`.
 
 The URI argument is optional: with it omitted, these commands use `db_uri` from the Pixeltable config file (see [Configuration](/platform/configuration)), so a project that sets it can run `pxt db status` and friends with no argument.
 
@@ -976,7 +976,7 @@ Deletes the database, its storage, and all services. Irreversible.
 
 Manage cloud-hosted services. A service exposes a table in a cloud database as an HTTPS endpoint. Service URIs use the form `pxt://org:db/services/<name>`.
 
-States: `DEPLOYING` → `AVAILABLE` ⇄ `STOPPED` → `UPDATING` → `FAILED`.
+Valid states: `DEPLOYING`, `STARTING`, `AVAILABLE`, `UPDATING`, `STOPPING`, `STOPPED`, `FAILED`.
 
 #### `pxt service create`
 
@@ -1060,7 +1060,7 @@ List all organizations accessible to the current API key.
 pxt org status pxt://myorg
 ```
 
-Show organization state, plan tier, and creation timestamp.
+Show the organization's name, ID, and default database.
 
 ## What's next
 

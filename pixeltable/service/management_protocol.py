@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from enum import Enum
 from typing import Literal, Optional
 
@@ -42,6 +43,24 @@ class ServiceOperationType(str, Enum):
 
 # Db operations
 
+# A hosted database name: lowercase letters, digits, and hyphens, starting and ending with a letter
+# or digit, at most 29 characters. This is the `db` identifier that appears in pxt://org:db URIs.
+_HOSTED_NAME_RE = re.compile(r'[a-z0-9]([a-z0-9-]*[a-z0-9])?')
+_HOSTED_NAME_MAX_LEN = 29
+
+
+def _validate_hosted_name(value: str, kind: str) -> str:
+    if len(value) > _HOSTED_NAME_MAX_LEN:
+        raise ValueError(f'{kind} must be at most {_HOSTED_NAME_MAX_LEN} characters (got {len(value)})')
+    # fullmatch anchors both ends; match() + `$` would let a trailing newline
+    # through ('main\n'), which corrupts the URI we build from this downstream.
+    if not _HOSTED_NAME_RE.fullmatch(value):
+        raise ValueError(
+            f'{kind} {value!r} is invalid: use only lowercase letters, digits, and hyphens, '
+            'starting and ending with a letter or digit.'
+        )
+    return value
+
 
 class CreateDbRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.CREATE_DB] = ServiceOperationType.CREATE_DB
@@ -53,6 +72,11 @@ class CreateDbRequest(BaseModel):
     cpu: float = 0.5
     memory_mb: int = 512
     disk_gb: int = 10
+
+    @field_validator('db')
+    @classmethod
+    def _validate_db_name(cls, value: str) -> str:
+        return _validate_hosted_name(value, 'Database name')
 
 
 class GetDbRequest(BaseModel):

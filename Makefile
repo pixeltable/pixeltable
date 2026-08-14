@@ -22,7 +22,7 @@ ULIMIT_CMD := ulimit -n 4000;
 CMAKE_POLICY_VERSION_MINIMUM := 3.5
 
 # Dev dependency versions not handled by pyproject.toml
-UV_VERSION := 0.9.3
+UV_VERSION := 0.12.3
 FFMPEG_VERSION := 6.1.1=gpl*
 MINTLIFY_VERSION := 4.2.506
 OTEL_PKG := packages/opentelemetry-instrumentation-pixeltable
@@ -165,7 +165,7 @@ fullpytest: install
 slimpytest: install
 	@echo 'Running `pytest` on a slim configuration ...'
 	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) \
-	    tests/test_{alter_column,catalog,dirs,env,exprs,function,index,snapshot,table,table_model,unversioned_table,view}.py
+	    tests/test_{alter_column,catalog,dirs,env,exprs,function,index,operational_table,snapshot,table,table_model,types,view}.py
 
 .PHONY: nbtest
 nbtest: install

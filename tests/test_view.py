@@ -449,7 +449,7 @@ class TestView:
 
         def version(tbl: pxt.Table) -> int:
             v = tbl.get_metadata()['version']
-            assert v is not None  # these tables are all versioned
+            assert v is not None  # these tables are all data-versioned
             return v
 
         # create view with filter and computed columns
@@ -1013,10 +1013,11 @@ class TestView:
                         for name, (type_, version_added) in expected_schema.items()
                     },
                     'comment': None,
-                    'indices': {},
+                    'indexes': {},
                     'is_snapshot': True,
                     'is_view': True,
-                    'is_versioned': True,
+                    'is_data_versioned': True,
+                    'has_default_idxs': False,
                     'kind': 'snapshot',
                     'media_validation': 'on_write',
                     'name': f'test_tbl:{i}',
@@ -1143,10 +1144,11 @@ class TestView:
                         for name, (type_, version_added, computed_with, depends_on) in expected_schema.items()
                     },
                     'comment': None,
-                    'indices': {},
+                    'indexes': {},
                     'is_snapshot': True,
                     'is_view': True,
-                    'is_versioned': True,
+                    'is_data_versioned': True,
+                    'has_default_idxs': False,
                     'kind': 'snapshot',
                     'media_validation': 'on_write',
                     'name': f'test_view:{i}',
@@ -1239,10 +1241,11 @@ class TestView:
                         for name, (type_, version_added, computed_with, depends_on) in expected_schema.items()
                     },
                     'comment': None,
-                    'indices': {},
+                    'indexes': {},
                     'is_snapshot': True,
                     'is_view': True,
-                    'is_versioned': True,
+                    'is_data_versioned': True,
+                    'has_default_idxs': False,
                     'kind': 'snapshot',
                     'media_validation': 'on_write',
                     'name': f'test_subview:{i}',

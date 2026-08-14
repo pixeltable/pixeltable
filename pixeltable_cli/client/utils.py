@@ -3,8 +3,10 @@ pidfile, tail the log on failed startup), the stdlib HTTP client (get/post), and
 helpers. Kept to the
 stdlib plus psutil, so importing this on every `pxt` invocation stays cheap."""
 
+import http.client
 import json
 import os
+import platform
 import re
 import signal
 import subprocess
@@ -26,7 +28,7 @@ from pixeltable_cli.utils import (
     validate_path_shape,
 )
 
-_IS_WINDOWS = os.name == 'nt'
+_IS_WINDOWS = platform.system() == 'Windows'
 
 
 def session_key() -> str:
@@ -72,7 +74,7 @@ def fetch_health(timeout: float = 0.3) -> dict[str, Any] | None:
     try:
         with urllib.request.urlopen(health_url(), timeout=timeout) as r:
             body = json.loads(r.read())
-    except (urllib.error.URLError, urllib.error.HTTPError, OSError, json.JSONDecodeError):
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError, http.client.HTTPException, json.JSONDecodeError):
         return None
     # Verify this is actually our daemon and not some other service on the same port that
     # happens to return a JSON object with an ok=true field. Require both the pxt service
@@ -348,6 +350,10 @@ def _request(method: str, path: str, body: dict[str, Any] | None = None, params:
         sys.exit(1)
     except urllib.error.URLError as e:
         print(f'pxt: cannot reach daemon at {url}: {e.reason}', file=sys.stderr)
+        sys.exit(1)
+    except http.client.HTTPException as e:
+        # a truncated or malformed response, eg. the daemon writing headers and then dropping the connection
+        print(f'pxt: bad response from daemon at {url}: {type(e).__name__}: {e}', file=sys.stderr)
         sys.exit(1)
 
 

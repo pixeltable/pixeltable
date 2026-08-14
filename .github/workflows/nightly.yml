@@ -44,38 +44,38 @@ jobs:
       fail-fast: false
       matrix:
         # Test with a variety of different packages on ubuntu, with the minimum and maximum supported Python versions.
-        python-version: ["3.10", "3.13"]
+        python-version: ["3.11", "3.13"]
         package-configs:
           - ""
           - "lancedb pylance mcp opencv-python scenedetect"
           - "anthropic fireworks-ai 'google-genai<1.72.0' groq jina mistralai openai replicate together"
-          - "fal-client reve runwayml twelvelabs voyageai"
+          - "fal-client runwayml twelvelabs voyageai"
           - "huggingface-hub llama-cpp-python openai-whisper"
           - "datasets boto3 openpyxl tiktoken pymupdf mistune spacy 'markitdown[pptx,docx,xlsx]'"
           - "pixeltable-yolox"
         os: [ubuntu-24.04]
         include:
           # transformers-based tests need to run on a larger runner.
-          - python-version: "3.10"
+          - python-version: "3.11"
             package-configs: "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.11' 'torchaudio<2.11' torchvision 'torchcodec<0.11' transformers timm"
             os: ubuntu-large
-          - python-version: "3.10"
+          - python-version: "3.11"
             package-configs: "whisperx transformers timm"
             os: ubuntu-large
           # Test the basic pixeltable installation on other platforms.
-          - python-version: "3.10"
+          - python-version: "3.11"
             package-configs: ""
             os: macos-15
-          - python-version: "3.10"
+          - python-version: "3.11"
             package-configs: ""
             os: macos-15-intel
-          - python-version: "3.10"
+          - python-version: "3.11"
             package-configs: ""
             os: windows-2025
-          - python-version: "3.10"
+          - python-version: "3.11"
             package-configs: ""
             os: ubuntu-24.04-arm
-          - python-version: "3.10"
+          - python-version: "3.11"
             package-configs: ""
             os: ubuntu-small-t4
 
@@ -154,7 +154,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04]
-        python-version: ["3.10", "3.13"]
+        python-version: ["3.11", "3.13"]
     runs-on: ${{ matrix.os }}
     defaults:
       run:

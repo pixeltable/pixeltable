@@ -471,7 +471,7 @@ def indexes(req: Request) -> models.IdxsResponse:
             md = pxt.get_table(p).get_metadata()
         except excs.NotFoundError:
             continue
-        for name, idx in md['indices'].items():
+        for name, idx in md['indexes'].items():
             if embedding and idx['index_type'] != 'embedding':
                 continue
             params = idx.get('parameters')
@@ -530,16 +530,17 @@ def schema_update(req: Request) -> schema_types.SchemaPlan:
 @router.get('/api/dashboard/search')
 def dashboard_search(req: Request) -> dict[str, Any]:
     q = req.query_str('q', default='') or ''
-    limit = req.query_int('limit', default=50, ge=1, le=100)
-    if q == '':
-        return {'query': '', 'directories': [], 'tables': [], 'columns': []}
-    return bridge.search(q, limit=limit)
+    additional_catalogs = req.query_list('catalogs')
+    return bridge.search(q, additional_db_uris=additional_catalogs or None)
 
 
 @router.get('/api/dashboard/tables/meta')
 def dashboard_table_meta(req: Request) -> dict[str, Any]:
     path = req.resolve_path(req.query_str('path') or '')
-    return dict(pxt.get_table(path).get_metadata())
+    tbl = pxt.get_table(path)
+    md = dict(tbl.get_metadata())
+    md['row_count'] = tbl.count()
+    return md
 
 
 @router.get('/api/dashboard/tables/pipeline')
@@ -644,7 +645,7 @@ def _to_entry(node: TreeNode, details: bool) -> models.LsEntry:
     if details:
         md = pxt.get_table(node['path']).get_metadata()
         cols = md['columns']
-        indices = md['indices']
+        indices = md['indexes']
         entry.num_cols = len(cols)
         has_computed = any(c['is_computed'] for c in cols.values())
         entry.flags = ('c' if has_computed else '') + ('i' if len(indices) > 0 else '')

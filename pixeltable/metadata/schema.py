@@ -213,8 +213,9 @@ class TableMd:
 
     user: str | None
 
-    # for versioned tables, current_version monotonically increases for both data and schema changes, starting at 0
-    # not used for unversioned tables
+    # for data-versioned tables, current_version monotonically increases for both data and schema changes, starting at 0
+    # not used for operational tables
+    # TODO(PXT-1101): for operational tables, this should mirror current_schema_version
     current_version: int
     # each version has a corresponding schema version (current_version >= current_schema_version)
     current_schema_version: int
@@ -245,9 +246,12 @@ class TableMd:
     tbl_state: TableState = TableState.LIVE
     pending_stmt: TableStatement | None = None
 
-    # Versioned tables keep their full schema and row history, and support time travel and rollback.
+    # Data-versioned tables keep their full row history, and support time travel and rollback.
     # TODO when the catalog migration happens, let's backfill and get rid of the default.
-    is_versioned: bool = True
+    is_data_versioned: bool = True
+
+    # Indicates if default b-tree indexes are enabled for this table.
+    has_default_idxs: bool | None = None
 
     @property
     def is_snapshot(self) -> bool:

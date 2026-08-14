@@ -5,21 +5,18 @@ from keyword import iskeyword as is_python_keyword
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from pixeltable import catalog, exceptions as excs
-from pixeltable.type_system import sa_type_as_dict
-from pixeltable.types import ColumnSpec
-from pixeltable.utils.object_stores import ObjectOps
-
-from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
-
 import pgvector.sqlalchemy
 import sqlalchemy as sql
 
 import pixeltable.exprs as exprs
 import pixeltable.index as index
 import pixeltable.type_system as ts
+from pixeltable import catalog, exceptions as excs
 from pixeltable.env import Env
 from pixeltable.metadata import schema
+from pixeltable.type_system import sa_type_as_dict
+from pixeltable.types import ColumnSpec
+from pixeltable.utils.object_stores import ObjectOps
 
 from .globals import MediaValidation, QColumnId, is_system_column_name, is_valid_identifier
 
@@ -217,7 +214,7 @@ class Column:
 
         sa_col_type: sql.types.TypeEngine | None = None
         # TODO: Should we fully deprecate passing ts.ColumnType here?
-        if isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
+        if isinstance(spec, ts.ColumnType) or ts.is_type_form(spec):
             col_type = ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)
             sa_col_type = col_type.to_sa_type()
         elif isinstance(spec, exprs.Expr):
@@ -286,7 +283,7 @@ class Column:
                 excs.ErrorCode.MISSING_REQUIRED, f"Column {name!r}: 'type' or 'value' must be specified"
             )
 
-        if 'type' in spec and not isinstance(spec['type'], (ts.ColumnType, type, _GenericAlias)):
+        if 'type' in spec and not isinstance(spec['type'], ts.ColumnType) and not ts.is_type_form(spec['type']):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT, f"Column {name!r}: 'type' must be a type; got {spec['type']}"
             )

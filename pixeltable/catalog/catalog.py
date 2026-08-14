@@ -1527,8 +1527,8 @@ class Catalog(CatalogBase):
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
-        create_default_idxs: bool,
-        is_versioned: bool,
+        has_default_idxs: bool,
+        is_data_versioned: bool,
     ) -> tuple[LocalTable, bool]:
         """
         Creates a new InsertableTable at the given path.
@@ -1548,8 +1548,8 @@ class Catalog(CatalogBase):
             comment,
             custom_metadata,
             media_validation,
-            create_default_idxs,
-            is_versioned,
+            has_default_idxs,
+            is_data_versioned,
         )
 
     def _create_table(
@@ -1561,8 +1561,8 @@ class Catalog(CatalogBase):
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
-        create_default_idxs: bool,
-        is_versioned: bool,
+        has_default_idxs: bool,
+        is_data_versioned: bool,
         additional_idxs: list[IndexSpec] | None = None,
         explicit_tbl_id: UUID | None = None,
     ) -> tuple[LocalTable, bool]:
@@ -1598,8 +1598,8 @@ class Catalog(CatalogBase):
                 comment=comment,
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,
-                create_default_idxs=create_default_idxs,
-                is_versioned=is_versioned,
+                has_default_idxs=has_default_idxs,
+                is_data_versioned=is_data_versioned,
                 additional_idxs=additional_idxs,
             )
             assert tbl_id == UUID(md.tbl_md.tbl_id)
@@ -1626,7 +1626,7 @@ class Catalog(CatalogBase):
         sample_clause: 'SampleClause' | None,
         additional_columns: Mapping[str, ColumnSpec] | None,
         is_snapshot: bool,
-        create_default_idxs: bool,
+        has_default_idxs: bool,
         iterator: func.GeneratingFunctionCall | None,
         comment: str | None,
         custom_metadata: Any,
@@ -1645,7 +1645,7 @@ class Catalog(CatalogBase):
             sample_clause,
             additional_columns_,
             is_snapshot,
-            create_default_idxs,
+            has_default_idxs,
             iterator,
             comment,
             custom_metadata,
@@ -1662,7 +1662,7 @@ class Catalog(CatalogBase):
         sample_clause: 'SampleClause' | None,
         additional_columns: list[Column],
         is_snapshot: bool,
-        create_default_idxs: bool,
+        has_default_idxs: bool,
         iterator: func.GeneratingFunctionCall | None,
         comment: str | None,
         custom_metadata: Any,
@@ -1713,7 +1713,7 @@ class Catalog(CatalogBase):
                 predicate=where,
                 sample_clause=sample_clause,
                 is_snapshot=is_snapshot,
-                create_default_idxs=create_default_idxs,
+                has_default_idxs=has_default_idxs,
                 iterator_call=iterator,
                 comment=comment,
                 custom_metadata=custom_metadata,
@@ -1744,13 +1744,13 @@ class Catalog(CatalogBase):
         path: Path,
         columns: dict[str, ColumnSpec],
         display_name: str,
-        create_default_idxs: bool,
+        has_default_idxs: bool,
         media_validation: MediaValidation,
         comment: str | None,
         custom_metadata: Any,
         iterator: func.GeneratingFunctionCall | None,
         base: 'pxt.Query | None',
-        embedding_idxs: dict[str, model.EmbeddingIndex],
+        idxs: list[model.IndexDeclaration],
     ) -> tuple[LocalTable, bool]:
         """Create a table or view from a declarative model.
 
@@ -1768,7 +1768,7 @@ class Catalog(CatalogBase):
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
 
         iterator, additional_cols, resolved_idxs = model.prepare_model(
-            tbl_handle, columns, display_name, iterator, base, embedding_idxs
+            tbl_handle, columns, display_name, iterator, base, idxs
         )
 
         # If the table already exists, rebind to it and report that nothing was created.
@@ -1785,8 +1785,8 @@ class Catalog(CatalogBase):
                 comment=comment,
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,
-                create_default_idxs=create_default_idxs,
-                is_versioned=True,
+                has_default_idxs=has_default_idxs,
+                is_data_versioned=True,
                 additional_idxs=resolved_idxs,
                 explicit_tbl_id=tbl_id,
             )
@@ -1800,7 +1800,7 @@ class Catalog(CatalogBase):
                 sample_clause=base.sample_clause,
                 additional_columns=additional_cols,
                 is_snapshot=False,
-                create_default_idxs=create_default_idxs,
+                has_default_idxs=has_default_idxs,
                 iterator=iterator,
                 comment=comment,
                 custom_metadata=custom_metadata,
@@ -2295,10 +2295,10 @@ class Catalog(CatalogBase):
             reload = False
 
             # live table; compare our cached TableMd.current_version/view_sn to what's stored
-            is_versioned = row.md.get('is_versioned', True)
+            is_data_versioned = row.md.get('is_data_versioned', True)
             current_version = row.md['current_version']
             view_sn = row.md['view_sn']
-            if (is_versioned and current_version != tv.version) or view_sn != tv.tbl_md.view_sn:
+            if (is_data_versioned and current_version != tv.version) or view_sn != tv.tbl_md.view_sn:
                 _logger.debug(
                     f'reloading metadata for live table {key.tbl_id} '
                     f'(cached/current version: {tv.version}/{current_version}, '
@@ -3197,7 +3197,7 @@ class Catalog(CatalogBase):
             stmt = (
                 sql.select(*select_list)
                 .select_from(sa_tbl)
-                .where((sa_tbl.c.v_max > tv.version) if tv.is_versioned else sql.true())
+                .where((sa_tbl.c.v_max > tv.version) if tv.is_data_versioned else sql.true())
                 .where(sql.or_(*conditions))
                 .limit(1)
             )
@@ -3210,7 +3210,7 @@ class Catalog(CatalogBase):
                     f'{stmt}'
                 )
 
-        if tv.is_versioned:
+        if tv.is_data_versioned:
             # Validate that the index values are NULL for non-latest version rows
             # Example query:
             # SELECT *,

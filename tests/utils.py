@@ -597,7 +597,7 @@ def get_sentences(n: int = 100) -> list[str]:
     return [q['question'].replace("'", '') for q in questions_list[:n]]
 
 
-def assert_type_eq(col_type: ts.ColumnType, pxt_type: ts._PxtType) -> None:
+def assert_type_eq(col_type: ts.ColumnType, pxt_type: type[ts._PxtType]) -> None:
     assert col_type == ts.ColumnType.normalize_type(pxt_type)
 
 
@@ -1003,6 +1003,7 @@ NETWORK_ERROR_PATTERNS = [
     'Timeout',
     'ExternalServiceError',
     'URLError',
+    'Remote end closed connection',
 ]
 
 
@@ -1200,6 +1201,13 @@ def _(dim: int) -> ts.ArrayType:
     return ts.ArrayType((dim,), dtype=np.dtype('float32'), nullable=False)
 
 
+def btree_idxs(t: pxt.Table) -> dict[str, str]:
+    """The names of `t`'s B-tree indexes, mapped to the column each one indexes."""
+    btree_md = [info for info in t.get_metadata()['indexes'].values() if info['index_type'] == 'btree']
+    assert all(len(info['columns']) == 1 for info in btree_md)
+    return {info['name']: info['columns'][0] for info in btree_md}
+
+
 def schema_from_tbl_md(metadata: pxt.TableMetadata) -> dict[str, str]:
     # Return a dict of schema information about that table that is invariant of table path and version history.
     return {
@@ -1225,5 +1233,5 @@ def schema_from_tbl_md(metadata: pxt.TableMetadata) -> dict[str, str]:
             }
             for name, info in metadata['columns'].items()
         },
-        'indices': metadata['indices'],
+        'indexes': metadata['indexes'],
     }

@@ -123,8 +123,8 @@ class TableProxy(Table):
     def _get_version(self) -> int | None:
         return self._tbl_md_path.version()
 
-    def _is_versioned(self) -> bool:
-        return self._tbl_md_path.is_versioned()
+    def _is_data_versioned(self) -> bool:
+        return self._tbl_md_path.is_data_versioned()
 
     def _dir_id(self) -> UUID | None:
         raise NotImplementedError
@@ -247,6 +247,13 @@ class TableProxy(Table):
         # normalize type_ to a ColumnType so that it can be serialized
         bound_args['type_'] = ts.ColumnType.normalize_type(type_, nullable_default=True, allow_builtin_types=False)
         self._dispatch('alter_column', bound_args)
+
+    def add_btree_index(
+        self, column: str | ColumnRef, *, idx_name: str | None = None, if_exists: Literal['error', 'ignore'] = 'error'
+    ) -> None:
+        bound_args = self._dispatch_args(locals())
+        self._check_mutable('add an index to')
+        self._dispatch('add_btree_index', bound_args)
 
     def add_embedding_index(
         self,

@@ -43,6 +43,8 @@ class ColumnMetadata(TypedDict):
 class EmbeddingIndexParams(TypedDict):
     metric: Literal['cosine', 'ip', 'l2']
     """Index metric."""
+    precision: Literal['fp32', 'fp16']
+    """The precision of the index."""
     embedding: str
     """The index embedding."""
     embedding_functions: list[str]
@@ -75,16 +77,18 @@ class TableMetadata(TypedDict):
     """The kind of table: `'table'`, `'view'`, or `'snapshot'`."""
     columns: dict[str, ColumnMetadata]
     """Column metadata for all of the visible columns of the table."""
-    indices: dict[str, IndexMetadata]
-    """Index metadata for all of the indices of the table."""
-    is_versioned: bool
-    """`True` if this is a versioned table."""
+    indexes: dict[str, IndexMetadata]
+    """Index metadata for all of the indexes of the table."""
+    is_data_versioned: bool
+    """`True` if this is a data-versioned table."""
+    has_default_idxs: bool
+    """`True` if eligible columns of this table get a default B-tree index."""
     is_view: bool
     """`True` if this table is a view."""
     is_snapshot: bool
     """`True` if this table is a snapshot."""
     version: int | None
-    """The current version of the table or None if it's not versioned."""
+    """The current version of the table or None if it's not data-versioned."""
     version_created: datetime.datetime
     """The timestamp when this table version was created."""
     schema_version: int

@@ -9,11 +9,13 @@ Covers things that aren't reachable through the daemon smoke tests:
   - management_client's retry of a dropped management API connection
 """
 
+import http.client
 import importlib.metadata
 import io
 import json
 import os
 import pathlib
+import platform
 import signal
 import socket
 import subprocess
@@ -23,11 +25,12 @@ import urllib.error
 from collections.abc import Callable, Iterator
 from email.message import Message
 from types import ModuleType
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Self
 
+import pydantic
 import pytest
 import requests
-from typing_extensions import Self
+import typing_extensions
 
 from pixeltable import exceptions as excs
 from pixeltable.catalog import model
@@ -448,6 +451,22 @@ class TestProbe:
         monkeypatch.setattr('urllib.request.urlopen', boom)
         assert client_utils.fetch_health() is None
 
+    def test_fetch_health_truncated_response(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A daemon that sends headers and then drops the connection isn't healthy, it isn't a crash."""
+
+        class FakeResp:
+            def __enter__(self) -> Self:
+                return self
+
+            def __exit__(self, *a: object) -> None:
+                pass
+
+            def read(self) -> bytes:
+                raise http.client.IncompleteRead(b'', 1020)
+
+        monkeypatch.setattr('urllib.request.urlopen', lambda *a, **kw: FakeResp())
+        assert client_utils.fetch_health() is None
+
     def test_client_pxt_version_unknown(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def boom(name: str) -> str:
             raise importlib.metadata.PackageNotFoundError(name)
@@ -606,7 +625,7 @@ class TestProbe:
         monkeypatch.setattr(client_utils, '_pid_cmdline', lambda pid: None)
         assert client_utils._pid_is_our_daemon(100) is False
 
-    @pytest.mark.skipif(os.name == 'nt', reason='_pid_cmdline has no stdlib argv source on Windows')
+    @pytest.mark.skipif(platform.system() == 'Windows', reason='_pid_cmdline has no stdlib argv source on Windows')
     def test_pid_cmdline_reads_self(self) -> None:
         """On POSIX the running interpreter's own command line is readable and mentions python."""
         cmdline = client_utils._pid_cmdline(os.getpid())
@@ -922,6 +941,27 @@ class TestHttp:
         err = capsys.readouterr().err
         # falls back to e.reason when the body isn't JSON
         assert 'Internal Server Error' in err
+
+    def test_truncated_response(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+        monkeypatch.setattr(client_utils, 'ensure_running', lambda: 'http://127.0.0.1:1')
+
+        class FakeResp:
+            def __enter__(self) -> Self:
+                return self
+
+            def __exit__(self, *a: object) -> None:
+                pass
+
+            def read(self) -> bytes:
+                raise http.client.IncompleteRead(b'', 1020)
+
+        monkeypatch.setattr(client_utils.urllib.request, 'urlopen', lambda *a, **kw: FakeResp())
+        with pytest.raises(SystemExit) as ei:
+            client_utils.get_request('/api/health')
+        assert ei.value.code == 1
+        err = capsys.readouterr().err
+        assert 'bad response from daemon' in err
+        assert 'IncompleteRead' in err
 
     def test_url_error_unreachable(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
         monkeypatch.setattr(client_utils, 'ensure_running', lambda: 'http://127.0.0.1:1')
@@ -1795,6 +1835,15 @@ class TestHostedCommandRequests:
             org='acme', db='main', service_name='svc', workers_min=4, service_config=svc_config
         )
 
+    @pytest.mark.parametrize('db', ['main', 'my-db', 'db1', 'video-search', 'a' * 29])
+    def test_create_db_accepts_valid_name(self, db: str) -> None:
+        assert CreateDbRequest(org='acme', db=db).db == db
+
+    @pytest.mark.parametrize('db', ['My_DB', 'a_b', 'ACME', 'db-', '-db', 'a' * 30, 'my db', 'my.db', 'main\n', ''])
+    def test_create_db_rejects_invalid_name(self, db: str) -> None:
+        with pytest.raises(pydantic.ValidationError):
+            CreateDbRequest(org='acme', db=db)
+
 
 class TestHostedUriHelpers:
     """URI parsing / printing helpers shared by the hosted-CLI commands."""
@@ -1965,12 +2014,23 @@ class TestWireTypes:
         wire_fields = set(typing.get_type_hints(getattr(wire, name)))
         assert wire_fields - self.WIRE_ONLY == catalog_fields - self.CATALOG_ONLY[name]
 
+    @classmethod
+    def assert_typed_dicts_match(cls, catalog_cls: Any, wire_cls: Any) -> None:
+        """Recursively assert that two TypedDicts have the same structure."""
+        catalog_hints = typing.get_type_hints(catalog_cls)
+        wire_hints = typing.get_type_hints(wire_cls)
+        shared = (set(catalog_hints) & set(wire_hints)) - {'ops'}  # ops holds the mirrored op type on each side
+        for f in shared:
+            if typing_extensions.is_typeddict(catalog_hints[f]) and typing_extensions.is_typeddict(wire_hints[f]):
+                cls.assert_typed_dicts_match(catalog_hints[f], wire_hints[f])
+            else:
+                assert catalog_hints[f] == wire_hints[f]
+
     @pytest.mark.parametrize('name', ['SchemaChangeOp', 'TableDiff'])
     def test_shared_fields_have_the_same_type(self, name: str) -> None:
-        catalog_hints = typing.get_type_hints(getattr(model, name))
-        wire_hints = typing.get_type_hints(getattr(wire, name))
-        shared = set(catalog_hints) & set(wire_hints) - {'ops'}  # ops holds the mirrored op type on each side
-        assert all(catalog_hints[f] == wire_hints[f] for f in shared)
+        catalog_cls = getattr(model, name)
+        wire_cls = getattr(wire, name)
+        self.assert_typed_dicts_match(catalog_cls, wire_cls)
 
     def test_resolutions_match(self) -> None:
         assert typing.get_args(wire.DiffResolution) == typing.get_args(model.DiffResolution)

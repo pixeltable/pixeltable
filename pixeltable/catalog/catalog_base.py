@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
     from .dir import Dir
     from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation
-    from .model import EmbeddingIndex
+    from .model import IndexDeclaration
     from .path import Path
     from .table import Table
     from .table_path import TablePath
@@ -36,8 +36,8 @@ class CatalogBase(abc.ABC):
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
-        create_default_idxs: bool,
-        is_versioned: bool,
+        has_default_idxs: bool,
+        is_data_versioned: bool,
     ) -> tuple[Table, bool]: ...
 
     @abc.abstractmethod
@@ -50,7 +50,7 @@ class CatalogBase(abc.ABC):
         sample_clause: SampleClause | None,
         additional_columns: Mapping[str, ColumnSpec] | None,
         is_snapshot: bool,
-        create_default_idxs: bool,
+        has_default_idxs: bool,
         iterator: func.GeneratingFunctionCall | None,
         comment: str | None,
         custom_metadata: Any,
@@ -64,13 +64,13 @@ class CatalogBase(abc.ABC):
         path: Path,
         columns: dict[str, ColumnSpec],
         display_name: str,
-        create_default_idxs: bool,
+        has_default_idxs: bool,
         media_validation: MediaValidation,
         comment: str | None,
         custom_metadata: Any,
         iterator: func.GeneratingFunctionCall | None,
         base: 'Query | None',
-        embedding_idxs: dict[str, 'EmbeddingIndex'],
+        idxs: list['IndexDeclaration'],
     ) -> tuple[Table, bool]: ...
 
     @abc.abstractmethod

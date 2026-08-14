@@ -48,8 +48,8 @@ already have standard developer tools such as `git` and `make` installed on your
 
     * Create your conda environment:
 
-        * `mamba create --name pxt python=3.10`
-        * For development, we use Python 3.10 (the minimum supported version) to ensure compatibility.
+        * `mamba create --name pxt python=3.11`
+        * For development, we use Python 3.11 (the minimum supported version) to ensure compatibility.
 
     * Activate the conda environment:
 

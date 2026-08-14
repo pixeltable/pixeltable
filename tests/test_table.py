@@ -302,7 +302,12 @@ class TestTable:
         pxt.create_dir(p('dir/subdir'))
         for rel_tbl_path, media_val in (('test', 'on_read'), ('dir/test', 'on_write'), ('dir/subdir/test', 'on_read')):
             tbl_path = p(rel_tbl_path)
-            tbl = pxt.create_table(tbl_path, {'col': pxt.String}, media_validation=media_val)  # type: ignore[arg-type]
+            tbl = pxt.create_table(
+                tbl_path,
+                {'col': pxt.String},
+                media_validation=media_val,  # type: ignore[arg-type]
+                has_default_idxs=True,
+            )
             view_path = f'{tbl_path}_view'
             view = pxt.create_view(view_path, tbl, media_validation=media_val)  # type: ignore[arg-type]
             view.add_embedding_index('col', embedding=local_embed)
@@ -338,12 +343,13 @@ class TestTable:
                         }
                     },
                     'comment': None,
-                    'indices': {
+                    'indexes': {
                         'idx0': {'name': 'idx0', 'columns': ['col'], 'index_type': 'btree', 'parameters': None}
                     },
                     'is_view': False,
                     'is_snapshot': False,
-                    'is_versioned': True,
+                    'is_data_versioned': True,
+                    'has_default_idxs': True,
                     'kind': 'table',
                     'view_filter': None,
                     'view_sample': None,
@@ -382,7 +388,7 @@ class TestTable:
                         }
                     },
                     'comment': None,
-                    'indices': {
+                    'indexes': {
                         'idx0': {
                             'columns': ['col'],
                             'index_type': 'embedding',
@@ -394,12 +400,14 @@ class TestTable:
                                     'local_embedding(image, dim=512)',
                                 ],
                                 'metric': 'cosine',
+                                'precision': 'fp16',
                             },
                         }
                     },
                     'is_view': True,
                     'is_snapshot': False,
-                    'is_versioned': True,
+                    'is_data_versioned': True,
+                    'has_default_idxs': False,
                     'kind': 'view',
                     'view_filter': None,
                     'view_sample': None,
@@ -438,10 +446,11 @@ class TestTable:
                         }
                     },
                     'comment': None,
-                    'indices': {},
+                    'indexes': {},
                     'is_view': True,
                     'is_snapshot': True,
-                    'is_versioned': True,
+                    'is_data_versioned': True,
+                    'has_default_idxs': False,
                     'kind': 'snapshot',
                     'view_filter': None,
                     'view_sample': None,
@@ -497,10 +506,11 @@ class TestTable:
                         },
                     },
                     'comment': None,
-                    'indices': {},
+                    'indexes': {},
                     'is_view': True,
                     'is_snapshot': True,
-                    'is_versioned': True,
+                    'has_default_idxs': False,
+                    'is_data_versioned': True,
                     'kind': 'snapshot',
                     'view_filter': None,
                     'view_sample': None,
@@ -520,7 +530,7 @@ class TestTable:
         """Test all ColumnMetadata fields across tables and views with various column types."""
         p = make_catalog_path
         tbl_path = p('test')
-        t = pxt.create_table(tbl_path, {'c1': pxt.Int, 'c2': pxt.Int, 'img': pxt.Image})
+        t = pxt.create_table(tbl_path, {'c1': pxt.Int, 'c2': pxt.Int, 'img': pxt.Image}, has_default_idxs=True)
         # Builtin computed, single dependency
         t.add_computed_column(plus1=t.c1 + 1)
         # Builtin computed, multiple dependencies
@@ -641,7 +651,7 @@ class TestTable:
                 },
                 'comment': None,
                 'custom_metadata': None,
-                'indices': {
+                'indexes': {
                     'idx0': {'name': 'idx0', 'columns': ['c1'], 'index_type': 'btree', 'parameters': None},
                     'idx1': {'name': 'idx1', 'columns': ['c2'], 'index_type': 'btree', 'parameters': None},
                     'idx2': {'name': 'idx2', 'columns': ['img'], 'index_type': 'btree', 'parameters': None},
@@ -651,7 +661,8 @@ class TestTable:
                 },
                 'is_view': False,
                 'is_snapshot': False,
-                'is_versioned': True,
+                'has_default_idxs': True,
+                'is_data_versioned': True,
                 'kind': 'table',
                 'view_filter': None,
                 'view_sample': None,
@@ -670,6 +681,7 @@ class TestTable:
         view_path = p('test_view')
         v = pxt.create_view(view_path, t)
         v.add_computed_column(derived=v.c1 * 2)
+        v.add_btree_index('derived')
 
         vmd = v.get_metadata()
         assert_table_metadata_eq(
@@ -798,12 +810,13 @@ class TestTable:
                 },
                 'comment': None,
                 'custom_metadata': None,
-                'indices': {
+                'indexes': {
                     'idx0': {'name': 'idx0', 'columns': ['derived'], 'index_type': 'btree', 'parameters': None}
                 },
                 'is_view': True,
                 'is_snapshot': False,
-                'is_versioned': True,
+                'is_data_versioned': True,
+                'has_default_idxs': False,
                 'kind': 'view',
                 'view_filter': None,
                 'view_sample': None,
@@ -812,8 +825,8 @@ class TestTable:
                 'media_validation': 'on_write',
                 'path': view_path,
                 'primary_key': None,
-                'schema_version': 1,
-                'version': 1,
+                'schema_version': 2,
+                'version': 2,
             },
             vmd,
         )
@@ -826,6 +839,7 @@ class TestTable:
         view_path = p('iter_view')
         iv = pxt.create_view(view_path, t, iterator=DummyIterator(t.n))
         iv.add_computed_column(derived=iv.out2 + 1)
+        iv.add_btree_index('derived')
 
         assert_table_metadata_eq(
             {
@@ -834,18 +848,19 @@ class TestTable:
                 'kind': 'view',
                 'is_view': True,
                 'is_snapshot': False,
-                'is_versioned': True,
+                'is_data_versioned': True,
+                'has_default_idxs': False,
                 'base': tbl_path,
                 'view_filter': None,
                 'view_sample': None,
                 'iterator_call': 'DummyIterator(n)',
-                'version': 1,
-                'schema_version': 1,
+                'version': 2,
+                'schema_version': 2,
                 'comment': None,
                 'custom_metadata': None,
                 'primary_key': None,
                 'media_validation': 'on_write',
-                'indices': {
+                'indexes': {
                     'idx0': {'name': 'idx0', 'columns': ['derived'], 'index_type': 'btree', 'parameters': None}
                 },
                 'columns': {
@@ -996,7 +1011,7 @@ class TestTable:
 
         on_write_tbl = pxt.create_table(p('write_validated'), schema, media_validation='on_write')
         status = on_write_tbl.insert(rows, on_error='ignore')
-        assert status.num_excs == 2  # 1 row with exceptions in the media col and the index col
+        assert status.num_excs == 1
         on_write_path_cols = (
             [] if catalog_mode == 'proxy' else [on_write_tbl.media.localpath, on_write_tbl.media.errormsg]
         )
@@ -3536,6 +3551,7 @@ class TestTable:
         t = pxt.create_table('recompute_test', schema={'i': pxt.Int, 's': pxt.String})
         status = t.add_computed_column(i1=self.recompute_int_udf(t.i))
         assert status.num_excs == 0
+        t.add_btree_index('i1')
         status = t.add_computed_column(s1=self.recompute_str_udf(t.s))
         assert status.num_excs == 0
         status = t.add_computed_column(i2=t.i1 * 2)
@@ -3599,7 +3615,7 @@ class TestTable:
         TestTable.recompute_udf_error_val = 10
         status = t.recompute_columns('i1')
         assert status.num_rows == 100 + 20
-        assert status.num_excs == 4 * 10  # i1 and i2 plus their index value cols
+        assert status.num_excs == 3 * 10  # i1 and its index value col, plus i2 (i2 has no indexes)
         assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2', 'recompute_view.i3'}
         _ = t.select(t.i2.errormsg).where(t.i2.errormsg != None).collect()
         assert t.where(t.i1.errortype != None).count() == 10
@@ -3906,7 +3922,7 @@ class TestTable:
         # test case: view with additional columns
         v2 = pxt.create_view(p('test_subview'), v.where(v.c1 != None), comment='This is an intriguing table comment.')
         v2.add_computed_column(computed1=fill_3x4(v2.c2))
-        v2.add_embedding_index('c1', string_embed=local_embed)
+        v2.add_embedding_index('c1', idx_name='idx0', string_embed=local_embed)
         validate_repr(
             v2,
             f"""

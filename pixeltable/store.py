@@ -30,38 +30,38 @@ class StoreBase:
     Each Pixeltable table or view is stored as a single store table whose name is derived from the
     table's UUID: ``tbl_<uuid_hex>`` for tables and ``view_<uuid_hex>`` for views.
 
-    ## Physical column layout
+    **Physical column layout**
 
     Columns always appear in this order:
 
     * rowid: identifies a logical row
     * pos_0, pos_1, ..., pos_N (component views only): the position of a component within its parent row
-    * v_min (versioned tables only): the table version at which the row was inserted
-    * v_max (versioned tables only): the table version at which the row was deleted. A row is live at version V when
-    v_min <= V < v_max.
+    * v_min (data-versioned tables only): the table version at which the row was inserted
+    * v_max (data-versioned tables only): the table version at which the row was deleted. A row is live at version V
+      when v_min <= V < v_max.
     * col_0, ..., col_N: user columns, i.e. all stored catalog columns, including cellmd columns, index value and undo
-    columns.
+      columns.
 
     The following column groups are recognized and exposed by this class:
 
     * rowid columns: rowid, pos_0, ..., pos_N
     * pk columns:
 
-      * versioned tables: rowid, pos_0, ..., pos_N, v_min
-      * unversioned tables: rowid, pos_0, ..., pos_N
-      * note: at present, the actual primary key constraint is created on unversioned tables only.
+      * data-versioned tables: rowid, pos_0, ..., pos_N, v_min
+      * operational tables: rowid, pos_0, ..., pos_N
+      * note: at present, the actual primary key constraint is created on operational tables only.
 
     * system columns:
 
-      * versioned tables: rowid, pos_0, ..., pos_N, v_min, v_max
-      * unversioned tables: rowid, pos_0, ..., pos_N
+      * data-versioned tables: rowid, pos_0, ..., pos_N, v_min, v_max
+      * operational tables: rowid, pos_0, ..., pos_N
     """
 
     tbl_version: catalog.TableVersionHandle
     sa_md: sql.MetaData
     sa_tbl: sql.Table | None
     _pk_cols: list[sql.Column]
-    # v_min_col and v_max_col exist only on versioned tables
+    # v_min_col and v_max_col exist only on data-versioned tables
     v_min_col: sql.Column | None
     v_max_col: sql.Column | None
 
@@ -99,7 +99,7 @@ class StoreBase:
         return f'{"view" if is_view else "tbl"}_{tbl_id.hex}'
 
     def system_columns(self) -> list[sql.Column]:
-        if self.tbl_version.get().is_versioned:
+        if self.tbl_version.get().is_data_versioned:
             return [*self._pk_cols, self.v_max_col]
         return self._pk_cols
 
@@ -107,12 +107,12 @@ class StoreBase:
         return self._pk_cols
 
     def rowid_columns(self) -> list[sql.Column]:
-        if self.tbl_version.get().is_versioned:
+        if self.tbl_version.get().is_data_versioned:
             return self._pk_cols[:-1]  # exclude v_min
         return self._pk_cols
 
     def _rowid_col_type(self) -> sql.types.TypeEngine[Any]:
-        if self.tbl_version.get().is_versioned:
+        if self.tbl_version.get().is_data_versioned:
             return sql.BigInteger()
         return sql.UUID()
 
@@ -132,8 +132,8 @@ class StoreBase:
                     f'SELECT column_name FROM information_schema.columns WHERE table_name = {self._storage_name()!r} '
                     'ORDER BY ordinal_position'
                 )
-                # System columns on a versioned table: rowid, [pos_0, pos_1, ...], v_min, v_max
-                # System columns on an unversioned table: rowid, [pos_0, pos_1, ...]
+                # System columns on a data-versioned table: rowid, [pos_0, pos_1, ...], v_min, v_max
+                # System columns on an operational table: rowid, [pos_0, pos_1, ...]
                 # System columns are always followed by at least one user column
                 col_names = [row[0] for row in conn.execute(sql.text(q)).fetchall()]
                 if len(col_names) == 0:
@@ -157,7 +157,7 @@ class StoreBase:
         else:
             rowid_cols = self._create_rowid_columns()
 
-        if self.tbl_version.get().is_versioned:
+        if self.tbl_version.get().is_data_versioned:
             self.v_min_col = sql.Column('v_min', sql.BigInteger, nullable=False)
             self.v_max_col = sql.Column(
                 'v_max', sql.BigInteger, nullable=False, server_default=str(schema.Table.MAX_VERSION)
@@ -206,7 +206,7 @@ class StoreBase:
         idx_name = f'sys_cols_idx_{tbl_version.id.hex}'
         idxs.append(sql.Index(idx_name, *system_cols))
 
-        if tbl_version.is_versioned:
+        if tbl_version.is_data_versioned:
             # v_min/v_max indices: speeds up base table scans needed to propagate a base table insert or delete
             idx_name = f'vmin_idx_{tbl_version.id.hex}'
             idxs.append(sql.Index(idx_name, self.v_min_col, postgresql_using=Env.get().dbms.version_index_type))
@@ -216,7 +216,7 @@ class StoreBase:
         # primary key index: partial unique btree on PK columns where v_max = MAX_VERSION (live rows only)
         primary_index = [col for col in tbl_version.cols_by_id.values() if col.is_pk]
         if len(primary_index) > 0:
-            assert tbl_version.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
+            assert tbl_version.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
             pk_idx_exprs: list[sql.ColumnElement] = []
             for col in primary_index:
                 if col.col_type.is_string_type():
@@ -235,8 +235,8 @@ class StoreBase:
             )
 
         extra_constraints: list[sql.Constraint] = []
-        if not tbl_version.is_versioned:
-            # Add a PK constraint for an unversioned table
+        if not tbl_version.is_data_versioned:
+            # Add a PK constraint for an operational table
             extra_constraints.append(sql.PrimaryKeyConstraint(*[col.name for col in self._pk_cols]))
 
         self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs, *extra_constraints)
@@ -252,7 +252,7 @@ class StoreBase:
     def count(self) -> int:
         """Return the number of rows visible in self.tbl_version"""
         stmt = sql.select(sql.func.count('*')).select_from(self.sa_tbl)
-        if self.tbl_version.get().is_versioned:
+        if self.tbl_version.get().is_data_versioned:
             stmt = stmt.where(self.v_min_col <= self.tbl_version.get().version)
             stmt = stmt.where(self.v_max_col > self.tbl_version.get().version)
         conn = get_runtime().conn
@@ -523,9 +523,9 @@ class StoreBase:
         Returns:
             set of column ids that have exceptions, row count stats, newly inserted rows (if return_rows)
         """
-        versioned = self.tbl_version.get().is_versioned
-        assert (v_min is not None) == versioned
-        if not versioned:
+        is_data_versioned = self.tbl_version.get().is_data_versioned
+        assert (v_min is not None) == is_data_versioned
+        if not is_data_versioned:
             assert rowids is None
         # TODO: total?
         num_excs = 0
@@ -556,14 +556,14 @@ class StoreBase:
                             raise exc
 
                         pk: tuple[int | UUID, ...]
-                        if versioned:
+                        if is_data_versioned:
                             rowid = (next(rowids),) if rowids is not None else row.pk[:-1]
                             pk = (*rowid, v_min)
                         else:
                             # UUID7 appears to be a more performant choice for Postgresql, however for CockroachDB
                             # UUID4 is recommended.
                             assert not Env.get().is_using_cockroachdb, (
-                                'TODO: implement for unversioned tables [PXT-1101]'
+                                'TODO: implement for operational tables [PXT-1101]'
                             )
                             pk = (uuid7(),)
                         assert len(pk) == len(self._pk_cols)
@@ -634,7 +634,7 @@ class StoreBase:
 
     def _versions_clause(self, versions: list[int | None], match_on_vmin: bool) -> sql.ColumnElement[bool]:
         """Return filter for base versions"""
-        assert self.tbl_version.get().is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
+        assert self.tbl_version.get().is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
         v = versions[0]
         if v is None:
             # we're looking at live rows
@@ -649,11 +649,11 @@ class StoreBase:
         return sql.and_(clause, self.base._versions_clause(versions[1:], match_on_vmin))
 
     def delete_rows(self, where_clause: sql.ColumnElement[bool] | None) -> int:
-        """Delete rows in an unversioned table. Use soft_delete_rows for versioned tables."""
-        assert not self.tbl_version.get().is_versioned
+        """Delete rows in an operational table. Use soft_delete_rows for data-versioned tables."""
+        assert not self.tbl_version.get().is_data_versioned
         where_clause = sql.true() if where_clause is None else where_clause
         rowid_join_clause = self._rowid_join_predicate()
-        assert rowid_join_clause.compare(sql.true()), 'TODO: implement for unversioned tables [PXT-1101]'
+        assert rowid_join_clause.compare(sql.true()), 'TODO: implement for operational tables [PXT-1101]'
         conn = get_runtime().conn
         stmt = sql.delete(self.sa_tbl).where(where_clause)
         log_explain(_logger, stmt, conn)
@@ -666,7 +666,7 @@ class StoreBase:
         match_on_vmin: bool,
         where_clause: sql.ColumnElement[bool] | None,
     ) -> int:
-        """Mark rows as deleted in a versioned table. Only the rows that are live and were created prior to
+        """Mark rows as deleted in a data-versioned table. Only the rows that are live and were created prior to
         current_version are affected.
 
         Also: populate the undo columns
@@ -679,7 +679,7 @@ class StoreBase:
         Returns:
             number of deleted rows
         """
-        assert self.tbl_version.get().is_versioned
+        assert self.tbl_version.get().is_data_versioned
         where_clause = sql.true() if where_clause is None else where_clause
         version_clause = sql.and_(self.v_min_col < current_version, self.v_max_col == schema.Table.MAX_VERSION)
         rowid_join_clause = self._rowid_join_predicate()
@@ -707,7 +707,7 @@ class StoreBase:
         return status.rowcount
 
     def dump_rows(self, version: int, filter_view: StoreBase, filter_view_version: int) -> Iterator[dict[str, Any]]:
-        assert self.tbl_version.get().is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
+        assert self.tbl_version.get().is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
         filter_predicate = sql.and_(
             filter_view.v_min_col <= filter_view_version,
             filter_view.v_max_col > filter_view_version,
