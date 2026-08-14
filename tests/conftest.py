@@ -285,7 +285,7 @@ def proxy_daemon_db(init_env: None, worker_id: str) -> Iterator[str]:
     from pixeltable.service import proxy_daemon
 
     db = _worker_db_name(worker_id)
-    proxy_daemon.start(db)
+    proxy_daemon.start(db, test_mode=True)
     try:
         yield db
     finally:
@@ -419,6 +419,7 @@ def _clear_hf_caches() -> None:
                     'openai/clip-vit-base-patch32',
                     'intfloat/e5-large-v2',
                     'sentence-transformers/all-mpnet-base-v2',
+                    'sentence-transformers/all-MiniLM-L6-v2',
                 )
                 for revision in repo.revisions
             ]

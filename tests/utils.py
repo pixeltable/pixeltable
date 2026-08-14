@@ -1003,6 +1003,7 @@ NETWORK_ERROR_PATTERNS = [
     'Timeout',
     'ExternalServiceError',
     'URLError',
+    'Remote end closed connection',
 ]
 
 
