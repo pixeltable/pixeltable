@@ -82,9 +82,10 @@ class TestVideo:
         assert len(result) == total_num_rows
         return base_t, view_t
 
-    @pytest.mark.skipif(
+    @pytest.mark.xfail(
         platform.system() == 'Windows',
         reason='PXT-1295: TestVideo.test_basic[proxy] consistently fails on Windows in CI',
+        strict=False,
     )
     def test_basic(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
