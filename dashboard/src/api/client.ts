@@ -11,7 +11,7 @@ const API_BASE = '/api';
 /** Daemon errors are `{ detail, error_code }` (see pixeltable_cli/server/http_server.py). */
 const ERROR_LABELS: Record<string, string> = {
   MISSING_CREDENTIALS:
-    'No Pixeltable API key. Set PIXELTABLE_API_KEY or add api_key under [pixeltable] in ~/.pixeltable/config.toml.',
+    'No Pixeltable API key. Set PIXELTABLE_API_KEY or add api_key under [pixeltable] in your Pixeltable config file.',
   INSUFFICIENT_PRIVILEGES: 'Not allowed to open this catalog.',
   INVALID_PATH: 'Invalid path.',
   PATH_NOT_FOUND: 'Not found.',
