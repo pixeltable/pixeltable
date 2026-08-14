@@ -100,12 +100,14 @@ def generate_matrix(args: argparse.Namespace) -> None:
     #         to the above, we also run the 'very_expensive' tests on MAIN_PLATFORM and the basic tests on
     #         EXPENSIVE_PLATFORMS.
 
+    # Linting, type checking, etc.; run on every trigger.
+    configs = [MatrixConfig('static-checks', 'lint', MAIN_PLATFORM, '3.11')]
+
     if trigger == 'pull_request':
         # Configs selected for a PR validation, i.e. on every push to a PR.
         # Tier 1 only: static checks plus the slim test subset, both on MAIN_PLATFORM. This is strictly a subset of
         # checks that are run in merge queue.
-        configs = [
-            MatrixConfig('static-checks', 'lint', MAIN_PLATFORM, '3.11'),
+        configs.append(
             MatrixConfig(
                 'slim',
                 'py',
@@ -114,19 +116,17 @@ def generate_matrix(args: argparse.Namespace) -> None:
                 pytest_options=f'{DEFAULT_PYTEST} {SLIM_TESTS}',
                 # The SPA bundle is only needed by tests/pixeltable_cli, which SLIM_TESTS doesn't include
                 build_dashboard=False,
-            ),
-        ]
+            )
+        )
 
     else:
         # Configs that are run on every non-PR trigger: in merge queue and on a schedule
 
         # Standard configs on the basic platforms
-        configs = [MatrixConfig('standard', 'py', os, '3.11') for os in BASIC_PLATFORMS]
+        configs.extend(MatrixConfig('standard', 'py', os, '3.11') for os in BASIC_PLATFORMS)
 
         # Minimal deps tests
         configs.append(MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.11', uv_options='--no-dev'))
-        # Linting, type checking, etc.
-        configs.append(MatrixConfig('static-checks', 'lint', MAIN_PLATFORM, '3.11'))
         # random ops
         configs.append(MatrixConfig('random-ops', 'random-ops', MAIN_PLATFORM, '3.11', uv_options='--no-dev'))
         configs.append(MatrixConfig('otel', 'otel', MAIN_PLATFORM, '3.11', uv_options='--no-dev --extra otel'))
