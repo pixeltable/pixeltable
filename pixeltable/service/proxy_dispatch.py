@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-import os
 import pathlib
 import shutil
 import time
@@ -40,7 +39,9 @@ if TYPE_CHECKING:
     from pixeltable.catalog.update_status import UpdateStatus
 
 
-def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[bytes]]:
+def handle(
+    request_json: str, request_parts: list[bytes], *, include_error_detail: bool = False
+) -> tuple[str, list[bytes]]:
     """Entry point for an incoming proxy request; always returns a ProxyResponse as (JSON head, binary parts)."""
     request = ProxyRequest.model_validate_json(request_json)
     request._binary_parts = request_parts
@@ -92,19 +93,21 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
 
     except excs.Error as e:
         if e.detail is not None:
-            # the client only gets the message; keep the diagnostic detail (e.g. an evaluation stack trace)
-            # for whoever reads the server logs
+            # Log error details in the server log
             _logger.info('Error detail handling %s.%s:\n%s', request.class_name, request.method, e.detail)
         _logger.info('%s.%s error (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
         error_dict = e.to_dict()
         error_dict['message'] = _restore_upload_names(error_dict['message'], request._uploaded_names)
         if 'cause' in error_dict:
             error_dict['cause'] = _restore_upload_names(error_dict['cause'], request._uploaded_names)
+        if include_error_detail and e.detail is not None:
+            error_dict['detail'] = _restore_upload_names(e.detail, request._uploaded_names)
         return _encode_response(ProxyResponse(error=error_dict))
 
     except Exception:
         # An unexpected server-side failure. Log the full traceback for debugging, but return only a short
-        # reference id to the client: server internals (stack frames, filesystem paths) must not cross the wire.
+        # reference id to the client: server internals (stack frames, filesystem paths) must not cross the wire unless
+        # include_error_detail is True (enabled in test mode).
         ref = uuid4().hex
         tb = traceback.format_exc()
         _logger.error(
@@ -117,7 +120,7 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
         )
         err = excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'Internal proxy error (ref: {ref})')
         error_dict = err.to_dict()
-        if os.environ.get('PXTTEST_IN_CI'):
+        if include_error_detail:
             error_dict['detail'] = tb
         return _encode_response(ProxyResponse(error=error_dict))
 
