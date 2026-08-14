@@ -69,9 +69,13 @@ export async function search(query: string, additionalCatalogs?: string[]): Prom
 }
 
 export async function getPipeline(tablePath?: string): Promise<PipelineResponse> {
-  const url = tablePath !== undefined
-    ? `${API_BASE}/dashboard/tables/pipeline?path=${encodeURIComponent(tablePath)}`
-    : `${API_BASE}/dashboard/pipeline`;
+  if (tablePath === undefined || tablePath === '' || tablePath === 'local') {
+    return fetchJson<PipelineResponse>(`${API_BASE}/dashboard/pipeline`);
+  }
+  // Catalog root only (pxt://org:db) → full DAG; a table path → connected component.
+  const url = /^pxt:\/\/[^/]+$/.test(tablePath)
+    ? `${API_BASE}/dashboard/pipeline?path=${encodeURIComponent(tablePath)}`
+    : `${API_BASE}/dashboard/tables/pipeline?path=${encodeURIComponent(tablePath)}`;
   return fetchJson<PipelineResponse>(url);
 }
 

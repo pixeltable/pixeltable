@@ -342,6 +342,17 @@ def _split_tbl_path(tbl_path: str) -> tuple[str, int | None]:
     return tbl_path, None
 
 
+def _prefix_hosted_tbl_nodes(nodes: list[pxt.TableNode], db_uri: str) -> None:
+    """Hosted get_dir_tree paths are in-db; get_table needs the pxt:// prefix."""
+    if db_uri == '':
+        return
+    for n in nodes:
+        n['path'] = f'{db_uri}/{n["path"]}'
+        if n['base'] is not None:
+            base, ver = _split_tbl_path(n['base'])
+            n['base'] = f'{db_uri}/{base}' + (f':{ver}' if ver is not None else '')
+
+
 def _collect_pipeline_paths(table_nodes: list[pxt.TableNode], tbl_path: str) -> set[str] | None:
     """Return the version-free paths of all tables/views transitively connected to tbl_path."""
     by_path = {n['path']: n for n in table_nodes}
@@ -379,18 +390,28 @@ def _collect_pipeline_paths(table_nodes: list[pxt.TableNode], tbl_path: str) -> 
 def get_pipeline(tbl_path: str | None = None) -> dict[str, Any]:
     """Return DAG metadata for the Pipeline Inspector.
 
-    If tbl_path is None, returns the full catalog. If tbl_path is given, returns only the
-    connected component containing that table (transitive ancestors + the table + transitive
-    descendants). Returns an empty result if tbl_path is not in the catalog.
+    If tbl_path is None, '', or 'local', returns the full in-process catalog. A hosted catalog
+    root (`pxt://org:db`) returns that catalog's full DAG. A table path (local or hosted)
+    returns only the connected component containing that table (transitive ancestors + the
+    table + transitive descendants). Returns an empty result if tbl_path is not in the catalog.
     """
+    if tbl_path is None or tbl_path in ('', 'local'):
+        path_obj = CatalogPath.parse('', allow_empty_path=True)
+        scoped: str | None = None
+    else:
+        path_obj = CatalogPath.parse(tbl_path, allow_empty_path=True)
+        scoped = str(path_obj) if len(path_obj.components) > 0 else None
+
+    db_uri = path_obj.uri
     tbl_nodes: list[pxt.TableNode] = []
-    _collect_tbl_nodes(pxt.get_dir_tree(), tbl_nodes)
+    _collect_tbl_nodes(pxt.get_dir_tree(db_uri), tbl_nodes)
+    _prefix_hosted_tbl_nodes(tbl_nodes, db_uri)
 
     pipeline_paths: set[str] | None
-    if tbl_path is None:
+    if scoped is None:
         pipeline_paths = {n['path'] for n in tbl_nodes}
     else:
-        pipeline_paths = _collect_pipeline_paths(tbl_nodes, tbl_path)
+        pipeline_paths = _collect_pipeline_paths(tbl_nodes, scoped)
         if pipeline_paths is None:
             return {'nodes': [], 'edges': []}
 

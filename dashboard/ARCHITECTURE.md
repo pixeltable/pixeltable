@@ -34,7 +34,7 @@ Read-only local UI for inspecting Pixeltable databases. No writes, no auth.
 | `components/DirectoryTree.tsx` | Active-catalog explorer |
 | `components/SearchPanel.tsx` | Cmd+K search |
 | `components/TableDetailView.tsx` | Schema / Data / Lineage / History |
-| `components/PipelineInspector.tsx` | Full-catalog pipeline graph |
+| `components/PipelineInspector.tsx` | Active-catalog pipeline graph |
 | `components/ColumnFlowDiagram.tsx` | Per-table column DAG |
 
 ## API
@@ -44,8 +44,8 @@ Read-only local UI for inspecting Pixeltable databases. No writes, no auth.
 | `GET /api/status` | Version, home, db/media/cache, totals | Optional `sizes` |
 | `GET /api/dirs` | Listing / tree (`LsResponse`) | `tree`, `details`, `counts`; optional `path` (`local` / omit / `pxt://…`) |
 | `GET /api/dashboard/search` | Matching dirs, tables, columns | `q`; repeated `catalogs` |
-| `GET /api/dashboard/pipeline` | Full-catalog DAG | — |
-| `GET /api/dashboard/tables/pipeline` | DAG slice for one table | `path` |
+| `GET /api/dashboard/pipeline` | Full DAG for the **active** catalog | Optional `path` (`local` / omit / `pxt://org:db`) |
+| `GET /api/dashboard/tables/pipeline` | DAG slice for one table (local or hosted path) | `path` |
 | `GET /api/dashboard/tables/meta` | Schema, indices, versions, … | `path` |
 | `GET /api/dashboard/tables/data` | Paginated rows, media URLs, errors | `path`, `offset`, `limit`, `order_by`, `order_desc`, `errors_only` |
 | `GET /api/dashboard/tables/export` | CSV download | `path`, `limit` (default/max 100k) |
@@ -59,7 +59,7 @@ Read-only local UI for inspecting Pixeltable databases. No writes, no auth.
 5. **Data** — server-side sort, SQL OFFSET pagination, client-side filters (current page)
 6. **Media** — thumbnails → lightbox; `fileurl` rewritten for local files
 7. **JSON** — truncated cells → tree viewer
-8. **Lineage** — per-table column DAG + full pipeline graph
+8. **Lineage** — per-table column DAG + full pipeline graph for the **active** catalog
 9. **History** — per-table version tab
 10. **Export / Live** — CSV + SDK snippet; auto-refresh (10s)
 
