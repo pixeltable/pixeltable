@@ -1203,7 +1203,7 @@ def _(dim: int) -> ts.ArrayType:
 
 def btree_idxs(t: pxt.Table) -> dict[str, str]:
     """The names of `t`'s B-tree indexes, mapped to the column each one indexes."""
-    btree_md = [info for info in t.get_metadata()['indices'].values() if info['index_type'] == 'btree']
+    btree_md = [info for info in t.get_metadata()['indexes'].values() if info['index_type'] == 'btree']
     assert all(len(info['columns']) == 1 for info in btree_md)
     return {info['name']: info['columns'][0] for info in btree_md}
 
@@ -1233,5 +1233,5 @@ def schema_from_tbl_md(metadata: pxt.TableMetadata) -> dict[str, str]:
             }
             for name, info in metadata['columns'].items()
         },
-        'indices': metadata['indices'],
+        'indexes': metadata['indexes'],
     }

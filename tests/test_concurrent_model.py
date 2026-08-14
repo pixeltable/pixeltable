@@ -1,6 +1,7 @@
 # ruff: noqa: F821
 # ruff: noqa: N806
 # ruff: noqa: E731
+# ruff: noqa: RUF012
 
 from __future__ import annotations
 
@@ -153,7 +154,8 @@ class TestConcurrentModelUpdate:
         class BaseV2(TM2, name='test_table'):
             id: pxt.Required[pxt.Int]
             text: pxt.String
-            ix = EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))
+
+            __indexes__ = [EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))]
 
         if family == 'update_all':
             TMc = pxt.model_base()
@@ -161,7 +163,7 @@ class TestConcurrentModelUpdate:
             class BaseC(TMc, name='test_table'):
                 id: pxt.Required[pxt.Int]
                 text: pxt.String
-                ix = EmbeddingIndex(text, embedding=dummy_embedding.using(n=512))
+                __indexes__ = [EmbeddingIndex(text, embedding=dummy_embedding.using(n=512))]
 
             concurrent = lambda: TMc.update_all(ROOT)
         else:
@@ -314,7 +316,7 @@ class TestConcurrentModelUpdate:
         class BaseV2(TM2, name='test_table'):
             id: pxt.Required[pxt.Int]
             text: pxt.String
-            ix = EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))
+            __indexes__ = [EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))]
 
         if family == 'update_all':
             TMc = pxt.model_base()
@@ -372,7 +374,7 @@ class TestConcurrentModelUpdate:
         class Base(TM, name='test_table'):
             id: pxt.Required[pxt.Int]
             text: pxt.String
-            ix = EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))
+            __indexes__ = [EmbeddingIndex(text, embedding=dummy_embedding.using(n=768), name='ix')]
 
         TM.create_all(ROOT)
         Base.insert([{'id': 1, 'text': 'one'}, {'id': 2, 'text': 'two'}])
@@ -484,7 +486,7 @@ class TestConcurrentModelUpdate:
         class Base(TM, name='test_table'):
             id: pxt.Required[pxt.Int]
             text: pxt.String
-            ix = EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))
+            __indexes__ = [EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))]
 
         class View(TM, name='test_view', base=Base):
             vc1 = Base.id + 1
@@ -504,7 +506,7 @@ class TestConcurrentModelUpdate:
         v = View.table
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r"Index 'ix' was removed from the model for 'test_table', but cannot be dropped "
+            match=r"Index 'idx0' was removed from the model for 'test_table', but cannot be dropped "
             r'because the following depend on it:\ndep',
         ):
             _run_with_concurrent_apply(
@@ -852,7 +854,7 @@ class TestConcurrentModelUpdate:
                 id: pxt.Required[pxt.Int]
                 value: pxt.Float
                 text: pxt.String
-                ix = EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))
+                __indexes__ = [EmbeddingIndex(text, embedding=dummy_embedding.using(n=768), name='ix')]
 
             concurrent = lambda: TMc.update_all(ROOT)
         else:
@@ -863,7 +865,7 @@ class TestConcurrentModelUpdate:
             _run_with_concurrent_apply(lambda: TM2.update_all(ROOT), concurrent)
         md = pxt.get_table('test_table').get_metadata()
         assert 'x' not in md['columns']
-        assert 'ix' in md['indices']
+        assert 'ix' in md['indexes']
 
     # ---------------------------------------------------------------------------------------------------------------
     # Group E: genuine-race stress (no fault injection).
