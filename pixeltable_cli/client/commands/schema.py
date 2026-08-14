@@ -22,7 +22,7 @@ TableModel = pxt.model_base()
 
 
 class Docs(TableModel, name='docs'):
-    title: pxt.Required[pxt.String]           # a stored column; without Required it is nullable
+    title: pxt.String                         # a stored column
     body: pxt.String
     title_upper = pxtf.string.upper(title)    # a computed column: an assignment, not an annotation
 
@@ -53,9 +53,9 @@ TableModel = pxt.model_base()
 class Docs(TableModel, name='docs'):
     """One model becomes one table, named by name=."""
 
-    # an annotation declares a stored column; pxt.Required makes it non-nullable
-    doc_id: pxt.Required[pxt.Int]
-    title: pxt.Required[pxt.String]
+    # an annotation declares a stored column
+    doc_id: pxt.Int
+    title: pxt.String
     body: pxt.String
     published: pxt.Timestamp
     tags: pxt.Json
@@ -77,7 +77,7 @@ class Docs(TableModel, name='docs'):
 class Recordings(TableModel, name='recordings'):
     """The other media types, and the column properties an annotation cannot express."""
 
-    recording_id: pxt.Required[pxt.Int]
+    recording_id: pxt.Int
     cover: pxt.Image
     narration: pxt.Audio
     clip: pxt.Video
