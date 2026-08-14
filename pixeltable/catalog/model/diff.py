@@ -16,6 +16,20 @@ if TYPE_CHECKING:
     from .declaration import IndexDeclaration, TableModelMeta
 
 
+class SchemaChangeIndexRef(TypedDict):
+    index_type: Literal['btree', 'embedding']
+    columns: list[str]
+    name: str | None
+
+
+class SchemaChangeOpDetails(TypedDict, total=False):
+    """Operands of a SchemaChangeOp, rendered as strings to survive serialization"""
+
+    type: str  # the new type for a column add or alter
+    value: str  # the new computed value expression for a column add or alter
+    index_ref: SchemaChangeIndexRef  # the new index for an index add or alter
+
+
 class SchemaChangeOp(TypedDict):
     """
     A single schema change operation (eg, add column, drop column, etc).
@@ -28,7 +42,8 @@ class SchemaChangeOp(TypedDict):
 
     # column name, index name, or for 'table', the differing attribute:
     # 'kind' | 'iterator' | 'view_filter' | 'view_sample' | 'media_validation' | 'comment' | 'custom_metadata'
-    name: str
+    # can be None if target == 'index'.
+    name: str | None
 
     op: Literal['add', 'drop', 'alter']
     severity: Literal['additive', 'destructive', 'unsupported']
@@ -36,9 +51,8 @@ class SchemaChangeOp(TypedDict):
     existing: Any | None  # catalog-side value; None for adds
     description: str
 
-    # the change's operands, rendered as strings so they survive serialization: 'type' or 'value' for a column add,
-    # 'on' for an index add. Empty when the change has no operand beyond name.
-    details: dict[str, str]
+    # the change's operands
+    details: SchemaChangeOpDetails
 
 
 # Mirrored by pixeltable_cli.schema_types.DiffResolution; a value added here has to be added there too
@@ -203,7 +217,7 @@ def _format_column_spec(spec: ColumnSpec) -> str:
 
 
 def _add_column_change(col_name: str, spec: ColumnSpec) -> SchemaChangeOp:
-    details = {'type': col_type_from_spec(spec)._to_str(as_schema=True)}
+    details: SchemaChangeOpDetails = {'type': col_type_from_spec(spec)._to_str(as_schema=True)}
     value = spec.get('value')
     if value is not None:
         details['value'] = exprs.Expr.from_object(value).display_str(inline=False)
@@ -219,10 +233,18 @@ def _add_column_change(col_name: str, spec: ColumnSpec) -> SchemaChangeOp:
     )
 
 
-def _add_index_change(idx_name: str, idx: IndexDeclaration) -> SchemaChangeOp:
-    # str(), not .name: a ModelColumnRef renders as its bare column name, and a spec holding anything else
-    # is reported as it stands rather than dropped from the plan
-    details = {'on': str(idx.column)}
+def _as_idx_ref(idx: IndexDeclaration) -> SchemaChangeIndexRef:
+    from .declaration import BtreeIndex
+
+    if isinstance(idx, BtreeIndex):
+        return SchemaChangeIndexRef(index_type='btree', columns=[idx.column.name], name=None)
+    else:
+        return SchemaChangeIndexRef(index_type='embedding', columns=[idx.column.name], name=idx.name)
+
+
+def _add_index_change(idx: IndexDeclaration) -> SchemaChangeOp:
+    idx_ref = _as_idx_ref(idx)
+    idx_name = idx_ref['name']
     return SchemaChangeOp(
         target='index',
         name=idx_name,
@@ -230,8 +252,12 @@ def _add_index_change(idx_name: str, idx: IndexDeclaration) -> SchemaChangeOp:
         severity='additive',
         model=str(idx),
         existing=None,
-        description=f'index {idx_name!r} will be added',
-        details=details,
+        description=(
+            f'{type(idx).__name__} {idx_name!r} will be added'
+            if idx_name is not None
+            else f'{type(idx).__name__} on column(s) {idx_ref["columns"]!r} will be added'
+        ),
+        details={'index_ref': idx_ref},
     )
 
 
@@ -255,7 +281,6 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
         for name, model in registered_models.items():
             user_cols = user_columns(model)
             model_cols = set(user_cols.keys())
-            model_idxs = set(model.__indexes__.keys())
             base = model.__table_spec__['base']
             model_kind: Literal['table', 'view'] = 'table' if base is None else 'view'
             iterator = model.__table_spec__['iterator']
@@ -271,7 +296,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
             if existing is None:
                 # The table does not yet exist; every column and index is an addition.
                 ops = [_add_column_change(col_name, user_cols[col_name]) for col_name in sorted(model_cols)]
-                ops += [_add_index_change(idx_name, model.__indexes__[idx_name]) for idx_name in sorted(model_idxs)]
+                ops += [_add_index_change(idx) for idx in model.__indexes__]
                 results[name] = TableDiff(
                     path=bound_path,
                     model_cls=model.__name__,
@@ -313,23 +338,6 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                         details={},
                     )
                 )
-
-            # Default indexes have no counterpart in __indexes__, and has_default_idxs=True is incompatible with
-            # explicitly declared B-tree indexes. So, if the existing table has default indexes enabled, all of its
-            # B-tree indexes are default indexes, and they can all be ignored, because resolving the column diff takes
-            # care of the indexes too. Otherwise all B-tree indexes are explicitly declared, so they are diffed and
-            # compared like embedding indexes. If the two sides disagree on has_default_idxs, no meaningful diff of
-            # B-tree indexes can be computed, so they are left out.
-            include_btree_idxs = not model_default_idxs and not existing_default_idxs
-            if not include_btree_idxs:
-                model_idxs = {
-                    idx_name for idx_name, idx in model.__indexes__.items() if not isinstance(idx, BtreeIndex)
-                }
-            existing_idxs = {
-                idx_name
-                for idx_name, info in existing_md['indices'].items()
-                if info['index_type'] == 'embedding' or (include_btree_idxs and info['index_type'] == 'btree')
-            }
 
             # Structural mismatches (kind/iterator/filter/sample); each is unsupported (requires a manual migration).
             if model_kind != existing_md['kind']:
@@ -427,10 +435,89 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                         details={},
                     )
                 )
-            # TODO(PXT-1258): compare index parameters, not just names
-            for idx_name in sorted(model_idxs - existing_idxs):
-                ops.append(_add_index_change(idx_name, model.__indexes__[idx_name]))
-            for idx_name in sorted(existing_idxs - model_idxs):
+            model_idxs = model.__indexes__
+            existing_idxs = list(existing_md['indexes'].values())
+
+            if model_default_idxs or existing_default_idxs:
+                # If has_default_idxs is declared, then we don't need to compare B-tree indexes, since B-tree index
+                # comparison is implicit in column comparison.
+                model_idxs = [idx for idx in model_idxs if not isinstance(idx, BtreeIndex)]
+                existing_idxs = [idx_md for idx_md in existing_idxs if idx_md['index_type'] != 'btree']
+
+            # Diff the indexes. We first scan through model_idxs looking for matches in existing_idxs, removing
+            # those matches as we find them. Anything left over in existing_idxs is flagged for removal.
+            # TODO: The IndexMetadata structure technically allows for multicol indexes, but they're not supported yet;
+            #     here we assume a single column
+            for idx in model_idxs:
+                if isinstance(idx, BtreeIndex):
+                    # Btree index: they're parameterless, so we simply check if a btree index exists in the catalog
+                    # for this column.
+                    existing_btree_idxs = [
+                        i
+                        for i, idx_md in enumerate(existing_idxs)
+                        if idx_md['columns'][0] == idx.column.name and idx_md['index_type'] == 'btree'
+                    ]
+                    assert len(existing_btree_idxs) <= 1
+                    if len(existing_btree_idxs) == 0:
+                        ops.append(_add_index_change(idx))
+                    else:
+                        existing_idxs.pop(existing_btree_idxs[0])
+                elif idx.name is not None:
+                    # Named embedding index: check if an index of the same name exists in the catalog.
+                    # TODO: Allow for renaming embedding indexes?
+                    existing_named_idxs = [
+                        (i, idx_md)
+                        for i, idx_md in enumerate(existing_idxs)
+                        if idx_md['name'] == idx.name and idx_md['index_type'] == 'embedding'
+                    ]
+                    assert len(existing_named_idxs) <= 1
+                    if len(existing_named_idxs) == 0:
+                        ops.append(_add_index_change(idx))
+                    else:
+                        i, idx_md = existing_named_idxs[0]
+                        if (
+                            idx_md['columns'] != [idx.column.name]
+                            or idx_md['parameters']['metric'] != idx.metric
+                            or idx_md['parameters']['precision'] != idx.precision
+                            or idx_md['parameters']['embedding'] != str(idx.as_fn_call())
+                        ):
+                            idx_ref = _as_idx_ref(idx)
+                            ops.append(
+                                SchemaChangeOp(
+                                    target='index',
+                                    name=idx_ref['name'],
+                                    op='alter',
+                                    severity='unsupported',
+                                    model=str(idx),
+                                    existing=idx_md,
+                                    description=f'named index {idx.name!r} has altered properties',
+                                    details={'index_ref': idx_ref},
+                                )
+                            )
+                        existing_idxs.pop(i)
+                else:
+                    # Unnamed embedding index: check if an index of identical structure exists in the catalog.
+                    matching_idxs = [
+                        i
+                        for i, idx_md in enumerate(existing_idxs)
+                        if idx_md['index_type'] == 'embedding'
+                        and idx_md['columns'] == [idx.column.name]
+                        and idx_md['parameters']['metric'] == idx.metric
+                        and idx_md['parameters']['precision'] == idx.precision
+                        and idx_md['parameters']['embedding'] == str(idx.as_fn_call())
+                    ]
+                    assert len(matching_idxs) <= 1
+                    if len(matching_idxs) == 0:
+                        ops.append(_add_index_change(idx))
+                    else:
+                        existing_idxs.pop(matching_idxs[0])
+
+            # Any remaining items in existing_idxs are indexes that exist in the catalog but not in the model.
+            for idx_md in existing_idxs:
+                idx_name = idx_md['name']
+                idx_ref = SchemaChangeIndexRef(
+                    index_type=idx_md['index_type'], columns=idx_md['columns'], name=idx_name
+                )
                 ops.append(
                     SchemaChangeOp(
                         target='index',
@@ -440,7 +527,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                         model=None,
                         existing=None,
                         description=f'index {idx_name!r} will be dropped',
-                        details={},
+                        details={'index_ref': idx_ref},
                     )
                 )
 
@@ -518,12 +605,18 @@ def _format_diff(name: str, diff: TableDiff) -> list[str]:
     if len(new_idxs) > 0:
         detail.append('  the following indexes are new to the model, and will be ADDED:')
         for c in new_idxs:
-            detail.append(f'    {c["name"]!r} = {c["model"]}')
+            detail.append(f'    {c["model"]}')
 
     dropped_idxs = by('index', op='drop')
     if len(dropped_idxs) > 0:
         detail.append('  the following indexes are no longer in the model, and will be DROPPED:')
         for c in dropped_idxs:
+            detail.append(f'    {c["name"]!r}')
+
+    changed_idxs = by('index', op='alter')
+    if len(changed_idxs) > 0:
+        detail.append('  the following named indexes have altered properties (FATAL):')
+        for c in changed_idxs:
             detail.append(f'    {c["name"]!r}')
 
     return [f'{kind.capitalize()} {name!r} (from model `{diff["model_cls"]}`) has differences:', *detail]

@@ -1751,7 +1751,7 @@ class Catalog(CatalogBase):
         custom_metadata: Any,
         iterator: func.GeneratingFunctionCall | None,
         base: 'pxt.Query | None',
-        idxs: dict[str, IndexDeclaration],
+        idxs: list[IndexDeclaration],
     ) -> tuple[LocalTable, bool]:
         """Create a table or view from a declarative model.
 

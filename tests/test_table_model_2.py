@@ -8,6 +8,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
+from pixeltable.catalog.model import EmbeddingIndex
 
 from .utils import assert_resultset_eq, capture_console_output, dummy_embedding, schema_from_tbl_md
 
@@ -42,7 +43,7 @@ class TestTableModel2:
             computed_with_special_props = pxt.Column(value=(value / 3), stored=False)
             computed_with_special_props_2 = pxt.Column(value=img.rotate(90))
 
-            clip_idx = pxt.EmbeddingIndex(img, embedding=dummy_embedding.using(n=768))
+            __indexes__ = [EmbeddingIndex(img, embedding=dummy_embedding.using(n=768), name='clip_idx')]  # noqa: RUF012
 
         expected_path = f'{p("")}/test_table'.lstrip('/')
 

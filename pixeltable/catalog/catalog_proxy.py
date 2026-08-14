@@ -122,7 +122,7 @@ class CatalogProxy(CatalogBase):
         custom_metadata: Any,
         iterator: func.GeneratingFunctionCall | None,
         base: 'Query | None',
-        idxs: dict[str, 'IndexDeclaration'],
+        idxs: list['IndexDeclaration'],
     ) -> tuple[Table, bool]:
         args = {
             'path': path,

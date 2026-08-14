@@ -9,7 +9,7 @@ from pixeltable.env import Env
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 
-from .declaration import TableModelMeta
+from .declaration import BtreeIndex, EmbeddingIndex, IndexDeclaration, TableModelMeta
 from .diff import (
     _PY_MISMATCH_HINT,
     PY_DESTRUCTIVE_HINT,
@@ -122,7 +122,9 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                 model = registered_models[name]
                 new_col_names = {c['name'] for c in d['ops'] if c['target'] == 'column' and c['op'] == 'add'}
                 dropped_col_names = [c['name'] for c in d['ops'] if c['target'] == 'column' and c['op'] == 'drop']
-                new_idx_names = [c['name'] for c in d['ops'] if c['target'] == 'index' and c['op'] == 'add']
+                new_idx_refs = [
+                    c['details']['index_ref'] for c in d['ops'] if c['target'] == 'index' and c['op'] == 'add'
+                ]
                 dropped_idx_names = [c['name'] for c in d['ops'] if c['target'] == 'index' and c['op'] == 'drop']
                 # Resolve type annotations to ColumnTypes, mirroring _create(), and tag each column's origin.
                 # Iterate in declaration order (not the diff's sorted order), so a new column may depend on an
@@ -143,6 +145,22 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                     )
                     new_columns[col_name] = (spec, origin)
 
+                # resolve idx_refs to IndexDeclarations. (We can't simply go by index name, since there may be unnamed
+                # indexes.) Instead we compare the (index_type, name, columns) tuple; if there are two unnamed indexes
+                # with the same type, then they *must* have different columns, so the tuple uniquely identifies the
+                # index.
+                new_idxs: list[IndexDeclaration] = []
+                for idx_ref in new_idx_refs:
+                    matching_idxs = [
+                        idx
+                        for idx in model.__indexes__
+                        if (idx_ref['index_type'] == 'btree') == isinstance(idx, BtreeIndex)
+                        and idx_ref['name'] == (idx.name if isinstance(idx, EmbeddingIndex) else None)
+                        and [idx.column.name] == idx_ref['columns']
+                    ]
+                    assert len(matching_idxs) == 1
+                    new_idxs.append(matching_idxs[0])
+
                 # only an existing table is updated, so the diff recorded what it was computed against
                 assert d['tbl_id'] is not None and d['schema_versions'] is not None
                 change_sets.append(
@@ -150,7 +168,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                         path=catalog.Path.parse(f'{catalog_dir}{name}'),
                         new_columns=new_columns,
                         dropped_columns=dropped_col_names,
-                        new_idxs={idx_name: model.__indexes__[idx_name] for idx_name in new_idx_names},
+                        new_idxs=new_idxs,
                         dropped_idxs=dropped_idx_names,
                         tbl_id=d['tbl_id'],
                         schema_versions=d['schema_versions'],

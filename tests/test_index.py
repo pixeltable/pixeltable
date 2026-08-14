@@ -409,7 +409,7 @@ class TestIndex:
         sample_img = t.select(t.img).head(1)[0, 'img']
 
         def emb_idxs() -> dict[str, Any]:
-            return {name: idx for name, idx in t.get_metadata()['indices'].items() if idx['index_type'] == 'embedding'}
+            return {name: idx for name, idx in t.get_metadata()['indexes'].items() if idx['index_type'] == 'embedding'}
 
         t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed)
         assert set(emb_idxs()) == {'clip_idx'}
@@ -492,7 +492,7 @@ class TestIndex:
         t = small_img_tbl
 
         def emb_indexes() -> dict[str, Any]:
-            return {name: idx for name, idx in t.get_metadata()['indices'].items() if idx['index_type'] == 'embedding'}
+            return {name: idx for name, idx in t.get_metadata()['indexes'].items() if idx['index_type'] == 'embedding'}
 
         t.add_embedding_index('img', embedding=local_embed)
         assert len(emb_indexes()) == 1
@@ -1366,7 +1366,7 @@ class TestIndex:
             local_embed = request.getfixturevalue('local_embed')
             t.add_embedding_index('text', idx_name=idx_name, string_embed=local_embed)
 
-        assert idx_name in t.get_metadata()['indices']
+        assert idx_name in t.get_metadata()['indexes']
 
         # the physical Postgres index lives only in the (local) store; verify it there in local mode
         if catalog_mode == 'local':
@@ -1380,12 +1380,12 @@ class TestIndex:
         else:
             t.drop_embedding_index(idx_name=idx_name)
 
-        assert idx_name not in t.get_metadata()['indices']
+        assert idx_name not in t.get_metadata()['indexes']
         if catalog_mode == 'local':
             assert store_idx_name not in list_store_indexes(t), f'Index {store_idx_name} should not exist after drop'
         reload_catalog()
         t = pxt.get_table(p('index_drop_test'))
-        assert idx_name not in t.get_metadata()['indices']
+        assert idx_name not in t.get_metadata()['indexes']
 
     def test_similarity_index_lifecycle(
         self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function

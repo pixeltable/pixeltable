@@ -159,7 +159,7 @@ function ColumnNodeComponent({ data, selected }: { data: ColumnNodeData; selecte
             </span>
           </div>
           {data.isComputed && (
-            <Zap className={cn('h-2.5 w-2.5 shrink-0', inherited ? 'text-muted-foreground' : 'text-foreground')} />
+            <Zap className={cn('h-2.5 w-2.5 shrink-0', inherited ? 'text-muted-foreground' : 'text-k-yellow')} />
           )}
         </div>
 
@@ -325,7 +325,7 @@ function ColumnDetailPanel({
       {node.downstreamColumns.length > 0 && (
         <div className="px-4 py-2.5 border-b border-border/50">
           <div className="flex items-center gap-1.5 mb-1.5">
-            <Zap className="h-3 w-3 text-foreground" />
+            <Zap className="h-3 w-3 text-k-yellow" />
             <div className="text-[9px] text-muted-foreground uppercase tracking-wider">
               Used By ({node.downstreamColumns.length})
             </div>
@@ -337,7 +337,7 @@ function ColumnDetailPanel({
                 onClick={() => onNavigate(col)}
                 className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-left hover:bg-accent/50 transition-colors group"
               >
-                <Zap className="h-2.5 w-2.5 text-foreground group-hover:text-foreground transition-colors" />
+                <Zap className="h-2.5 w-2.5 text-k-yellow group-hover:text-k-yellow transition-colors" />
                 <span className="text-[10px] text-foreground font-medium truncate">{col}</span>
                 <ChevronRight className="h-2.5 w-2.5 text-muted-foreground ml-auto group-hover:text-foreground transition-colors" />
               </button>

@@ -70,7 +70,7 @@ class CatalogBase(abc.ABC):
         custom_metadata: Any,
         iterator: func.GeneratingFunctionCall | None,
         base: 'Query | None',
-        idxs: dict[str, 'IndexDeclaration'],
+        idxs: list['IndexDeclaration'],
     ) -> tuple[Table, bool]: ...
 
     @abc.abstractmethod

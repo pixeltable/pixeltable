@@ -16,18 +16,31 @@ class _Status(TypedDict, total=False):
     status: OpStatus
 
 
+class SchemaChangeIndexRef(TypedDict):
+    index_type: Literal['btree', 'embedding']
+    columns: list[str]
+    name: str | None
+
+
+class SchemaChangeOpDetails(TypedDict, total=False):
+    type: str
+    value: str
+    index_ref: SchemaChangeIndexRef
+
+
 class SchemaChangeOp(_Status):
     """Mirror of pixeltable.catalog.model.diff.SchemaChangeOp: one operation reconciling a table with its model."""
 
     target: Literal['column', 'index', 'table']
 
-    # column name, index name, the differing attribute for an alter of a table, or the path for a drop of one
-    name: str
+    # column name, index name, the differing attribute for an alter of a table, or the path for a drop of one.
+    # None for an index that carries no name.
+    name: str | None
 
     op: Literal['add', 'drop', 'alter']
     severity: Literal['additive', 'destructive', 'unsupported']
     description: str  # one sentence, ready to print
-    details: dict[str, str]  # the operands of this kind of operation, eg, 'type' for adding a column
+    details: SchemaChangeOpDetails
     destructive: bool  # the boolean form of severity
 
 

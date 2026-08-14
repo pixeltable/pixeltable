@@ -1,11 +1,11 @@
 import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react'
+import { flushSync } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import {
   Panel,
   PanelGroup,
   PanelResizeHandle,
   type ImperativePanelGroupHandle,
-  type ImperativePanelHandle,
 } from 'react-resizable-panels'
 import { getTableMetadata, getTableData, getPipeline } from '@/api/client'
 import { useDebounce } from '@/hooks/useDebounce'
@@ -20,14 +20,39 @@ import {
   ImageIcon, Film, Music, FileText,
   Rows3, Table2, Filter, X, Search,
   RefreshCw, Key, Download, SquareFunction,
-  Copy,
+  Copy, Eye, Camera,
   GitBranch, ArrowRight, ExternalLink,
   AlertTriangle, Clock,
 } from 'lucide-react'
 import { ColumnFlowDiagram } from './ColumnFlowDiagram'
-import { ColumnTypeBadge } from '@/lib/column-types'
-import { KindBadge } from './KindBadge'
-import { PythonExpr } from '@/lib/python-highlight'
+import { ColumnTypeBadge, formatColumnTypeDisplay, getColumnTypeMeta } from '@/lib/column-types'
+import { formatPythonExpr, PythonExpr } from '@/lib/python-highlight'
+
+function KindIcon({ kind, className = 'h-4 w-4' }: { kind: string; className?: string }) {
+  switch (kind) {
+    case 'view':
+      return <Eye className={`${className} text-purple-400 shrink-0`} />
+    case 'snapshot':
+      return <Camera className={`${className} text-orange-400 shrink-0`} />
+    case 'replica':
+      return <Copy className={`${className} text-muted-foreground shrink-0`} />
+    default:
+      return <Table2 className={`${className} text-blue-400 shrink-0`} />
+  }
+}
+
+function kindWord(kind: string): string {
+  switch (kind) {
+    case 'view':
+      return 'View'
+    case 'snapshot':
+      return 'Snapshot'
+    case 'replica':
+      return 'Replica'
+    default:
+      return 'Table'
+  }
+}
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -371,7 +396,7 @@ function CellDetail({ value, onClose, pythonHighlight = false }: {
                 <div className="w-px h-4 bg-border/40 mx-0.5" />
               </>
             )}
-            {isJson && (
+            {(isJson || pythonHighlight) && (
               <button
                 onClick={() => setViewRaw(!viewRaw)}
                 className={cn('text-[10px] px-1.5 py-1 rounded transition-colors', viewRaw ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50')}
@@ -397,7 +422,11 @@ function CellDetail({ value, onClose, pythonHighlight = false }: {
           {isJson && !viewRaw ? (
             <JsonNode value={parsed} depth={0} expandLevel={expandLevel} searchMatch={searchLower} path="$" />
           ) : pythonHighlight && !viewRaw ? (
-            <div className="whitespace-pre-wrap text-foreground">
+            <div className="whitespace-pre text-foreground">
+              <PythonExpr code={formatPythonExpr(value)} />
+            </div>
+          ) : pythonHighlight && viewRaw ? (
+            <div className="whitespace-pre-wrap break-words text-foreground">
               <PythonExpr code={value} />
             </div>
           ) : (
@@ -758,12 +787,14 @@ function FilterPanel({ columns, data, filters, onChange, onClose }: {
 
 const SCHEMA_FILTER_THRESHOLD = 20
 
-type SchemaColKey = 'name' | 'type' | 'expr'
+type SchemaColKey = 'name' | 'type'
 type SchemaColWidths = Record<SchemaColKey, number>
-const SCHEMA_COL_DEFAULTS: SchemaColWidths = { name: 160, type: 140, expr: 360 }
-const SCHEMA_COL_MIN: SchemaColWidths = { name: 80, type: 80, expr: 120 }
+const SCHEMA_COL_DEFAULTS: SchemaColWidths = { name: 120, type: 100 }
+const SCHEMA_COL_MIN: SchemaColWidths = { name: 72, type: 72 }
 const SCHEMA_COL_MAX = 800
-const SCHEMA_COLS_STORAGE_KEY = 'pxt-schema-cols'
+const SCHEMA_COL_INFO_WIDTH = 140
+/** Bumped when defaults change so stale localStorage widths do not stick. */
+const SCHEMA_COLS_STORAGE_KEY = 'pxt-schema-cols-v3'
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n))
@@ -778,11 +809,28 @@ function loadSchemaColWidths(): SchemaColWidths {
     return {
       name: Number.isFinite(parsed.name) ? clamp(parsed.name as number, SCHEMA_COL_MIN.name, SCHEMA_COL_MAX) : SCHEMA_COL_DEFAULTS.name,
       type: Number.isFinite(parsed.type) ? clamp(parsed.type as number, SCHEMA_COL_MIN.type, SCHEMA_COL_MAX) : SCHEMA_COL_DEFAULTS.type,
-      expr: Number.isFinite(parsed.expr) ? clamp(parsed.expr as number, SCHEMA_COL_MIN.expr, SCHEMA_COL_MAX) : SCHEMA_COL_DEFAULTS.expr,
     }
   } catch {
     return SCHEMA_COL_DEFAULTS
   }
+}
+
+function ChipTypeLabel({ type }: { type: string }) {
+  const meta = getColumnTypeMeta(type)
+  const Icon = meta.icon
+  const label = formatColumnTypeDisplay(type, 24)
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-0.5 text-[10px] font-mono truncate max-w-[7rem]',
+        meta.emphasis === 'media' ? meta.color : 'text-muted-foreground opacity-70',
+      )}
+      title={label !== type ? type : undefined}
+    >
+      <Icon className="h-2.5 w-2.5 shrink-0" />
+      <span className="truncate">{label}</span>
+    </span>
+  )
 }
 
 function ColResizeHandle({ atMin, getStartWidth, onResize, onReset }: {
@@ -860,9 +908,19 @@ function ColumnChips({ columns, indices, tableMediaValidation, expanded, onToggl
     return columns.filter(c => c.name.toLowerCase().includes(q) || c.type_.toLowerCase().includes(q))
   }, [columns, filter])
 
+  const hasInfo = useMemo(
+    () => columns.some(col =>
+      Boolean(col.comment)
+      || Boolean(col.media_validation && col.media_validation !== tableMediaValidation)
+      || Boolean(col.is_computed && !col.is_stored)
+      || Boolean(col.destination),
+    ),
+    [columns, tableMediaValidation],
+  )
+
   return (
-    <div className="border-b border-border/40 flex flex-col h-full min-h-0">
-      <div className="flex items-center gap-2 px-4 py-2 shrink-0">
+    <div className="border-b border-border/40 flex flex-col h-full min-h-0 bg-card">
+      <div data-schema-chrome className="flex items-center gap-2 px-4 py-2 shrink-0">
         <button
           onClick={onToggle}
           className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
@@ -880,6 +938,14 @@ function ColumnChips({ columns, indices, tableMediaValidation, expanded, onToggl
             <span className="text-[11px] text-muted-foreground">·</span>
             <span className="text-[11px] text-muted-foreground tabular-nums">
               {computedCount} computed ({computedStoredCount} stored)
+            </span>
+          </>
+        )}
+        {indices.length > 0 && (
+          <>
+            <span className="text-[11px] text-muted-foreground">·</span>
+            <span className="text-[11px] text-muted-foreground tabular-nums">
+              {indices.length} {indices.length === 1 ? 'index' : 'indices'}
             </span>
           </>
         )}
@@ -922,16 +988,19 @@ function ColumnChips({ columns, indices, tableMediaValidation, expanded, onToggl
               >
                 {col.is_primary_key && <Key className="h-2.5 w-2.5 text-foreground shrink-0" />}
                 {!col.is_primary_key && col.is_iterator_col && (
-                  <KindBadge kind="iterator" className="h-2.5 w-2.5 text-muted-foreground" />
+                  <SquareFunction
+                    className="h-2.5 w-2.5 text-violet-400 shrink-0"
+                    aria-label="iterator"
+                  />
                 )}
                 {!col.is_primary_key && !col.is_iterator_col && col.is_computed && (
                   <SquareFunction
-                    className={cn('h-2.5 w-2.5 text-muted-foreground shrink-0', !col.is_stored && 'opacity-50')}
+                    className={cn('h-2.5 w-2.5 text-k-yellow shrink-0', !col.is_stored && 'opacity-50')}
                     aria-label={col.is_stored ? 'computed' : 'computed on demand (not stored)'}
                   />
                 )}
                 <span className="font-mono font-medium">{col.name}</span>
-                <span className="text-[10px] opacity-70">{col.type_}</span>
+                <ChipTypeLabel type={col.type_} />
                 {col.destination && <ExternalLink className="h-2.5 w-2.5 text-muted-foreground shrink-0" />}
               </div>
             ))}
@@ -949,10 +1018,10 @@ function ColumnChips({ columns, indices, tableMediaValidation, expanded, onToggl
               <colgroup>
                 <col style={{ width: colWidths.name }} />
                 <col style={{ width: colWidths.type }} />
-                <col style={{ width: colWidths.expr }} />
                 <col />
+                {hasInfo && <col style={{ width: SCHEMA_COL_INFO_WIDTH }} />}
               </colgroup>
-              <thead className="sticky top-0 bg-background z-10">
+              <thead className="sticky top-0 bg-card z-10">
                 <tr className="border-b border-border/30 text-left text-muted-foreground">
                   <th className="relative py-1.5 px-2 font-medium overflow-visible">
                     Name
@@ -972,16 +1041,12 @@ function ColumnChips({ columns, indices, tableMediaValidation, expanded, onToggl
                       onReset={() => resetCol('type')}
                     />
                   </th>
-                  <th className="relative py-1.5 px-2 font-medium overflow-visible">
-                    Computed With
-                    <ColResizeHandle
-                      atMin={colWidths.expr <= SCHEMA_COL_MIN.expr}
-                      getStartWidth={() => colWidths.expr}
-                      onResize={handleResize('expr')}
-                      onReset={() => resetCol('expr')}
-                    />
-                  </th>
-                  <th className="py-1.5 px-2 font-medium">Info</th>
+                  <th className="py-1.5 px-2 font-medium">Computed With</th>
+                  {hasInfo && (
+                    <th className="py-1.5 px-2 font-medium truncate" title="Comment, validation, storage, destination">
+                      Info
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -991,11 +1056,14 @@ function ColumnChips({ columns, indices, tableMediaValidation, expanded, onToggl
                       <div className="flex items-center gap-1.5">
                         {col.is_primary_key && <Key className="h-3 w-3 text-foreground shrink-0" />}
                         {col.is_iterator_col && (
-                          <KindBadge kind="iterator" className="h-3 w-3 text-muted-foreground" />
+                          <SquareFunction
+                            className="h-3 w-3 text-violet-400 shrink-0"
+                            aria-label="iterator"
+                          />
                         )}
                         {col.is_computed && (
                           <SquareFunction
-                            className={cn('h-3 w-3 text-muted-foreground shrink-0', !col.is_stored && 'opacity-50')}
+                            className={cn('h-3 w-3 text-k-yellow shrink-0', !col.is_stored && 'opacity-50')}
                             aria-label={col.is_stored ? 'computed' : 'computed on demand (not stored)'}
                           />
                         )}
@@ -1025,26 +1093,28 @@ function ColumnChips({ columns, indices, tableMediaValidation, expanded, onToggl
                         <span className="text-muted-foreground text-[11px]">—</span>
                       )}
                     </td>
-                    <td className="py-1.5 px-2 text-[11px] text-muted-foreground">
-                      <div className="flex flex-col gap-y-0.5">
-                        {col.comment && (
-                          <span className="italic" title={col.comment}>{col.comment}</span>
-                        )}
-                        {col.media_validation && col.media_validation !== tableMediaValidation && (
-                          <span>media validation: {col.media_validation.replace(/_/g, ' ')}</span>
-                        )}
-                        {col.is_computed && !col.is_stored && (
-                          <span>stored: False</span>
-                        )}
-                        {col.destination && (
-                          <span className="font-mono truncate" title={col.destination}>destination: {col.destination}</span>
-                        )}
-                      </div>
-                    </td>
+                    {hasInfo && (
+                      <td className="py-1.5 px-2 text-[11px] text-muted-foreground overflow-hidden">
+                        <div className="flex flex-col gap-y-0.5 min-w-0">
+                          {col.comment && (
+                            <span className="italic truncate" title={col.comment}>{col.comment}</span>
+                          )}
+                          {col.media_validation && col.media_validation !== tableMediaValidation && (
+                            <span className="truncate">media validation: {col.media_validation.replace(/_/g, ' ')}</span>
+                          )}
+                          {col.is_computed && !col.is_stored && (
+                            <span>stored: False</span>
+                          )}
+                          {col.destination && (
+                            <span className="font-mono truncate" title={col.destination}>destination: {col.destination}</span>
+                          )}
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
                 {filter && filtered.length === 0 && (
-                  <tr><td colSpan={4} className="py-3 text-center text-muted-foreground text-[11px]">
+                  <tr><td colSpan={hasInfo ? 4 : 3} className="py-3 text-center text-muted-foreground text-[11px]">
                     No columns match "{filter}"
                   </td></tr>
                 )}
@@ -1128,43 +1198,21 @@ function SdkSnippet({ metadata }: { metadata: TableMetadata }) {
   )
 }
 
-function TableHeader({ metadata, versions, rowCount }: { metadata: TableMetadata; versions: PipelineVersion[]; rowCount: number | null }) {
+function TableHeader({ metadata, rowCount }: { metadata: TableMetadata; rowCount: number | null }) {
   const [showSnippet, setShowSnippet] = useState(false)
   const kind = metadata.kind
-  const columnCount = Object.keys(metadata.columns).length
-  const lastSchemaChange = versions.find(v => v.change_type === 'schema')?.created_at ?? null
-  const lastDataChange = versions.find(v => v.change_type === 'data')?.created_at ?? null
-  const formatRelative = (s: string): string => {
-    const diffMs = Date.now() - new Date(s).getTime()
-    const diffMin = Math.floor(diffMs / 60_000)
-    if (diffMin < 1) return '< 1 min ago'
-    if (diffMin < 60) return `${diffMin} min ago`
-    const diffHr = Math.floor(diffMin / 60)
-    if (diffHr < 24) return `${diffHr} hour${diffHr === 1 ? '' : 's'} ago`
-    const diffDay = Math.floor(diffHr / 24)
-    if (diffDay <= 30) return `${diffDay} day${diffDay === 1 ? '' : 's'} ago`
-    return '> 30 days ago'
-  }
 
   return (
-    <div className="px-4 pt-3 pb-2.5 border-b border-border/40 shrink-0">
+    <div className="px-4 pt-3 pb-2.5 border-b border-border/40 shrink-0 bg-card">
       <div className="flex items-center gap-2.5 mb-0.5">
-        <KindBadge kind={kind} className="h-4 w-4 text-muted-foreground" />
+        <KindIcon kind={kind} className="h-4 w-4" />
+        <span className="text-[11px] font-medium text-muted-foreground shrink-0">{kindWord(kind)}</span>
         <h2 className="text-sm font-semibold text-foreground">{metadata.name}</h2>
         <span className="text-xs font-mono text-muted-foreground">({metadata.path})</span>
+        <span className="text-[11px] text-muted-foreground">·</span>
         <span className="text-[11px] text-muted-foreground tabular-nums">
-          {rowCount != null ? rowCount.toLocaleString() : '—'} rows × {columnCount} columns
+          {rowCount != null ? rowCount.toLocaleString() : '—'} rows
         </span>
-        {(lastSchemaChange || lastDataChange) && (
-          <>
-            <span className="text-[11px] text-muted-foreground">·</span>
-            <span className="text-[11px] text-muted-foreground">
-            {lastSchemaChange && <>last schema change: <span className="tabular-nums">{formatRelative(lastSchemaChange)}</span></>}
-            {lastSchemaChange && lastDataChange && <span className="mx-2">·</span>}
-            {lastDataChange && <>last data change: <span className="tabular-nums">{formatRelative(lastDataChange)}</span></>}
-            </span>
-          </>
-        )}
         <button
           onClick={() => setShowSnippet(!showSnippet)}
           className={cn(
@@ -1229,7 +1277,7 @@ function LineagePanel({ mode, tablePath, pipelineData, pipelineColumns, onTableC
       >
         {label && <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">{label}</div>}
         <div className="flex items-center gap-2">
-          <KindBadge kind={node.is_view ? 'view' : 'table'} className="h-3.5 w-3.5 text-muted-foreground" />
+          <KindIcon kind={node.is_view ? 'view' : 'table'} className="h-3.5 w-3.5" />
           <span className={cn('text-xs font-medium font-mono', isCurrent ? 'text-foreground' : 'text-foreground hover:underline')}>
             {node.name}
           </span>
@@ -1353,7 +1401,7 @@ function HistoryPanel({ versions }: { versions: Pick<PipelineVersion, 'version' 
 
       <div className="flex-1 overflow-auto px-5 py-3">
         <table className="w-full text-[11px]">
-          <thead className="sticky top-0 bg-background z-10">
+          <thead className="sticky top-0 bg-card z-10">
             <tr className="border-b border-border/30 text-left text-muted-foreground">
               <th className="py-1.5 px-2 font-medium w-16">Version</th>
               <th className="py-1.5 px-2 font-medium">Change</th>
@@ -1412,6 +1460,54 @@ function HistoryPanel({ versions }: { versions: Pick<PipelineVersion, 'version' 
 
 // ── Main Component ─────────────────────────────────────────────────────────
 
+const SCHEMA_PANEL_ABS_MAX = 70
+const SCHEMA_PANEL_MIN = 5
+/** Extra pixels so the last schema row isn’t flush against the resize handle. */
+const SCHEMA_PANEL_PAD_PX = 8
+/** Persists COLUMNS expanded (table) vs collapsed (chips) across table switches. */
+const SCHEMA_EXPANDED_KEY = 'pxt-schema-expanded'
+
+function loadSchemaExpanded(): boolean {
+  try {
+    return localStorage.getItem(SCHEMA_EXPANDED_KEY) !== '0'
+  } catch {
+    return true
+  }
+}
+
+/** Natural schema panel height: fixed chrome + inner content (not the flex-grown scrollport). */
+function measureSchemaNaturalHeight(
+  groupEl: HTMLElement,
+  wrapperEl: HTMLElement,
+): { groupHeight: number; naturalHeight: number } | null {
+  const scrollableEl = wrapperEl.querySelector<HTMLElement>('[data-schema-scroll]')
+  const contentEl = scrollableEl?.firstElementChild as HTMLElement | null
+  if (!scrollableEl || !contentEl) return null
+  const groupHeight = groupEl.clientHeight
+  // Prefer explicit chrome height; fall back to wrapper − scrollport (unreliable while the panel
+  // is still at the prior chip size mid-toggle).
+  const chromeEl = wrapperEl.querySelector<HTMLElement>('[data-schema-chrome]')
+  const fixedHeight = chromeEl
+    ? chromeEl.getBoundingClientRect().height
+    : Math.max(0, wrapperEl.clientHeight - scrollableEl.clientHeight)
+  // scrollHeight survives overflow clipping; getBoundingClientRect can under-report mid-layout.
+  const contentHeight = Math.max(
+    contentEl.scrollHeight,
+    contentEl.offsetHeight,
+    contentEl.getBoundingClientRect().height,
+  )
+  const naturalHeight = fixedHeight + contentHeight
+  if (groupHeight === 0 || naturalHeight === 0) return null
+  return { groupHeight, naturalHeight }
+}
+
+function schemaHeightToPct(naturalHeight: number, groupHeight: number, padPx = 0): number {
+  return Math.min(
+    SCHEMA_PANEL_ABS_MAX,
+    Math.max(SCHEMA_PANEL_MIN, ((naturalHeight + padPx) / groupHeight) * 100),
+  )
+}
+
 export function TableDetailView({ tablePath }: { tablePath: string }) {
   const navigate = useNavigate()
   // Metadata
@@ -1444,18 +1540,75 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
   const [autoRefresh, setAutoRefresh] = useState(false)
   const [errorsOnly, setErrorsOnly] = useState(false)
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
-  const [schemaExpanded, setSchemaExpanded] = useState(true)
-  const schemaPanelRef = useRef<ImperativePanelHandle>(null)
+  const [schemaExpanded, setSchemaExpanded] = useState(loadSchemaExpanded)
+  const [schemaMinSize, setSchemaMinSize] = useState(SCHEMA_PANEL_MIN)
+  const [schemaMaxSize, setSchemaMaxSize] = useState(SCHEMA_PANEL_ABS_MAX)
   const groupRef = useRef<ImperativePanelGroupHandle>(null)
   const groupContainerRef = useRef<HTMLDivElement>(null)
   const schemaContentRef = useRef<HTMLDivElement>(null)
   const fittingRef = useRef(false)
   const mountedRef = useRef(false)
+  /** While true, ResizeObserver may grow an undersized panel (defeats stale autoSave clamp). */
+  const forceSchemaFitRef = useRef(false)
+  const schemaFitRafRef = useRef<number | null>(null)
+
+  const fitSchemaToContent = useCallback((lockToContent: boolean) => {
+    const group = groupRef.current
+    const groupEl = groupContainerRef.current
+    const wrapperEl = schemaContentRef.current
+    if (!group || !groupEl || !wrapperEl) return
+
+    if (schemaFitRafRef.current != null) {
+      cancelAnimationFrame(schemaFitRafRef.current)
+      schemaFitRafRef.current = null
+    }
+
+    forceSchemaFitRef.current = true
+    // Unlock first so setLayout is not clamped by chip-mode maxSize from the prior render.
+    flushSync(() => {
+      setSchemaMinSize(SCHEMA_PANEL_MIN)
+      setSchemaMaxSize(SCHEMA_PANEL_ABS_MAX)
+    })
+
+    const applyFit = () => {
+      const g = groupRef.current
+      const gEl = groupContainerRef.current
+      const wEl = schemaContentRef.current
+      if (!g || !gEl || !wEl) return
+      const measured = measureSchemaNaturalHeight(gEl, wEl)
+      if (!measured) return
+      const pct = schemaHeightToPct(measured.naturalHeight, measured.groupHeight, SCHEMA_PANEL_PAD_PX)
+      flushSync(() => {
+        setSchemaMaxSize(pct)
+        setSchemaMinSize(lockToContent ? pct : SCHEMA_PANEL_MIN)
+      })
+      fittingRef.current = true
+      g.setLayout([pct, 100 - pct])
+    }
+
+    // Pass 1: immediate. Pass 2–3: after the panel grows so the table can lay out at full height
+    // (and after autoSaveId may briefly restore a stale chip-sized layout).
+    applyFit()
+    schemaFitRafRef.current = requestAnimationFrame(() => {
+      applyFit()
+      schemaFitRafRef.current = requestAnimationFrame(() => {
+        applyFit()
+        schemaFitRafRef.current = null
+        forceSchemaFitRef.current = false
+        fittingRef.current = false
+      })
+    })
+  }, [])
+
+  // Chevron toggles expanded table ↔ chip summary; panel refits via the metadata/expand effect.
   const toggleSchema = useCallback(() => {
-    const p = schemaPanelRef.current
-    if (!p) return
-    if (p.isCollapsed()) p.expand()
-    else p.collapse()
+    setSchemaExpanded(prev => {
+      const next = !prev
+      try {
+        localStorage.setItem(SCHEMA_EXPANDED_KEY, next ? '1' : '0')
+      } catch { /* ignore */ }
+      return next
+    })
   }, [])
   const [pipelineColumns, setPipelineColumns] = useState<PipelineColumn[] | null>(null)
   const [pipelineData, setPipelineData] = useState<{ nodes: PipelineNodeType[]; edges: PipelineEdge[] } | null>(null)
@@ -1513,40 +1666,78 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
     }
   }, [autoRefresh, fetchData])
 
-  // Reset on table change
+  // Reset on table change (keep schemaExpanded — preference persists across tables).
   useEffect(() => {
     setPage(0); setFilters({}); setAutoRefresh(false); setErrorsOnly(false)
-    setSchemaExpanded(true)
+    setSchemaMinSize(SCHEMA_PANEL_MIN)
+    setSchemaMaxSize(SCHEMA_PANEL_ABS_MAX)
+    forceSchemaFitRef.current = false
     setPipelineColumns(null); setPipelineData(null)
     setContentTab('data'); setSearchQuery('')
     mountedRef.current = false
+    // Cancel pending content-fit RAF on table switch and on unmount.
+    return () => {
+      if (schemaFitRafRef.current != null) {
+        cancelAnimationFrame(schemaFitRafRef.current)
+        schemaFitRafRef.current = null
+      }
+    }
   }, [tablePath])
 
-  // Fit schema panel to its natural content height the first time we open this table.
-  // Subsequent visits restore the user's last drag via autoSaveId.
+  // Always content-fit when metadata loads or COLUMNS expand mode changes (same path as chevron).
+  // Do not skip for pxt-table-layout-customized — table switch must land under the last row/chip.
   useLayoutEffect(() => {
     if (!metadata) return
-    if (localStorage.getItem(`pxt-table-layout-customized-${metadata.id}`) === '1') return
-    const group = groupRef.current
+    fitSchemaToContent(!schemaExpanded)
+  }, [metadata, schemaExpanded, fitSchemaToContent])
+
+  // Cap drag so the schema panel cannot grow past its natural content height.
+  // In chip-summary mode, also lock minSize so the summarize row can’t be clipped.
+  // When expanded, grow if still pinned at max (stale clamp / late content measure) but do not
+  // fight an intentional shrink below content.
+  const schemaMaxSizeRef = useRef(schemaMaxSize)
+  schemaMaxSizeRef.current = schemaMaxSize
+
+  useLayoutEffect(() => {
+    if (!metadata) return
     const groupEl = groupContainerRef.current
+    if (!groupEl) return
+
+    const updateMax = () => {
+      const group = groupRef.current
+      const wrapperEl = schemaContentRef.current
+      if (!group || !wrapperEl) return
+
+      const measured = measureSchemaNaturalHeight(groupEl, wrapperEl)
+      if (!measured) return
+      const pct = schemaHeightToPct(measured.naturalHeight, measured.groupHeight, SCHEMA_PANEL_PAD_PX)
+      const prevMax = schemaMaxSizeRef.current
+      setSchemaMaxSize(pct)
+      setSchemaMinSize(schemaExpanded ? SCHEMA_PANEL_MIN : pct)
+
+      const layout = group.getLayout()
+      const current = layout[0]
+      if (current == null) return
+      const over = current > pct + 0.01
+      const under = current < pct - 0.01
+      const atMax = current >= prevMax - 0.5
+      // forceSchemaFitRef: grow even when autoSave left us below max after a chevron toggle.
+      if (over || (under && (!schemaExpanded || atMax || forceSchemaFitRef.current))) {
+        fittingRef.current = true
+        group.setLayout([pct, 100 - pct])
+        if (!forceSchemaFitRef.current) {
+          queueMicrotask(() => { fittingRef.current = false })
+        }
+      }
+    }
+
+    updateMax()
+    const ro = new ResizeObserver(updateMax)
+    ro.observe(groupEl)
     const wrapperEl = schemaContentRef.current
-    if (!group || !groupEl || !wrapperEl) return
-    const scrollableEl = wrapperEl.querySelector<HTMLElement>('[data-schema-scroll]')
-    const contentEl = scrollableEl?.firstElementChild as HTMLElement | null
-    if (!scrollableEl || !contentEl) return
-    const groupHeight = groupEl.clientHeight
-    // The scrollable div is flex-1 and grows to fill the panel, so its scrollHeight matches the
-    // panel's allotment whenever content fits. Measure the inner block child instead — it sizes
-    // to its natural content height regardless of the panel's current size.
-    const fixedHeight = wrapperEl.clientHeight - scrollableEl.clientHeight
-    const contentHeight = contentEl.getBoundingClientRect().height
-    const naturalHeight = fixedHeight + contentHeight
-    if (groupHeight === 0 || naturalHeight === 0) return
-    const pct = Math.min(70, Math.max(5, (naturalHeight / groupHeight) * 100))
-    fittingRef.current = true
-    group.setLayout([pct, 100 - pct])
-    queueMicrotask(() => { fittingRef.current = false })
-  }, [metadata])
+    if (wrapperEl) ro.observe(wrapperEl)
+    return () => ro.disconnect()
+  }, [metadata, schemaExpanded])
 
   // ⌘F shortcut → focus inline search
   useEffect(() => {
@@ -1634,18 +1825,9 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
   const totalPages = data ? Math.ceil(data.total_count / pageSize) : 0
 
   return (
-    <div className="flex flex-col h-full animate-fade-in">
+    <div className="flex flex-col h-full animate-fade-in bg-card">
       {/* ── Header ──────────────────────────────────────────────────── */}
-      {(() => {
-        const node = pipelineData?.nodes.find(n => n.path === tablePath)
-        return (
-          <TableHeader
-            metadata={metadata}
-            versions={node?.versions ?? []}
-            rowCount={metadata.row_count}
-          />
-        )
-      })()}
+      <TableHeader metadata={metadata} rowCount={metadata.row_count} />
 
       <div ref={groupContainerRef} className="flex-1 min-h-0 flex flex-col">
       <PanelGroup
@@ -1665,17 +1847,12 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
       >
         {/* ── Schema Panel ──────────────────────────────────────────── */}
         <Panel
-          ref={schemaPanelRef}
           defaultSize={25}
-          minSize={5}
-          maxSize={70}
-          collapsible
-          collapsedSize={5}
-          onCollapse={() => setSchemaExpanded(false)}
-          onExpand={() => setSchemaExpanded(true)}
-          className="flex flex-col min-h-0 overflow-hidden"
+          minSize={schemaMinSize}
+          maxSize={schemaMaxSize}
+          className="flex flex-col min-h-0 overflow-hidden bg-card"
         >
-          <div ref={schemaContentRef} className="flex flex-col h-full min-h-0">
+          <div ref={schemaContentRef} className="flex flex-col h-full min-h-0 bg-card">
           <ColumnChips
             columns={Object.values(metadata.columns)}
             indices={Object.values(metadata.indices).filter(idx => idx.index_type === 'embedding')}
@@ -1689,17 +1866,17 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
         <PanelResizeHandle className="h-px bg-border/60 hover:h-1 hover:bg-accent transition-all data-[resize-handle-state=drag]:bg-accent data-[resize-handle-state=drag]:h-1 cursor-row-resize" />
 
         {/* ── Data Panel ────────────────────────────────────────────── */}
-        <Panel className="flex flex-col min-h-0 overflow-hidden">
+        <Panel className="flex flex-col min-h-0 overflow-hidden bg-card">
       {/* ── Content Tab Toggle + Toolbar ──────────────────────────── */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-border/40 gap-3 shrink-0">
+      <div className="flex flex-wrap items-center justify-between px-4 py-2 border-b border-border/40 gap-x-3 gap-y-2 shrink-0 bg-card">
         {/* Left: tab toggle + row count/search */}
-        <div className="flex items-center gap-3 flex-1 min-w-0">
+        <div className="flex flex-wrap items-center gap-3 flex-1 min-w-0">
           {/* Data / Lineage tabs */}
           <div className="flex bg-accent/50 rounded-md p-0.5 shrink-0">
             <button
               onClick={() => setContentTab('data')}
               className={cn('flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium transition-colors',
-                contentTab === 'data' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
+                contentTab === 'data' ? 'bg-card shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
             >
               <Rows3 className="h-3 w-3" />
               Data
@@ -1707,7 +1884,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
             <button
               onClick={() => setContentTab('lineage-table')}
               className={cn('flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium transition-colors',
-                contentTab === 'lineage-table' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
+                contentTab === 'lineage-table' ? 'bg-card shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
             >
               <GitBranch className="h-3 w-3" />
               Table lineage
@@ -1715,7 +1892,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
             <button
               onClick={() => setContentTab('lineage-column')}
               className={cn('flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium transition-colors',
-                contentTab === 'lineage-column' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
+                contentTab === 'lineage-column' ? 'bg-card shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
             >
               <GitBranch className="h-3 w-3" />
               Column lineage
@@ -1723,7 +1900,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
             <button
               onClick={() => setContentTab('history')}
               className={cn('flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium transition-colors',
-                contentTab === 'history' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
+                contentTab === 'history' ? 'bg-card shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
             >
               <Clock className="h-3 w-3" />
               History
@@ -1782,7 +1959,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
         </div>
 
         {/* Right: controls (data tab only) */}
-        {contentTab === 'data' && <div className="flex items-center gap-1.5 shrink-0">
+        {contentTab === 'data' && <div className="flex flex-wrap items-center gap-1.5 shrink-0">
           {/* Refresh */}
           {lastRefreshed && (
             <span className="text-[11px] text-muted-foreground tabular-nums">
@@ -1817,10 +1994,10 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
           {/* View mode toggle (gallery/table) */}
           {mediaColumn && (
             <div className="flex bg-accent rounded-md p-0.5">
-              <button onClick={() => setViewMode('table')} className={cn('p-1 rounded', viewMode === 'table' && 'bg-background shadow-sm')} title="Table view">
+              <button onClick={() => setViewMode('table')} className={cn('p-1 rounded', viewMode === 'table' && 'bg-card shadow-sm')} title="Table view">
                 <Table2 className="h-3.5 w-3.5" />
               </button>
-              <button onClick={() => setViewMode('gallery')} className={cn('p-1 rounded', viewMode === 'gallery' && 'bg-background shadow-sm')} title="Gallery view">
+              <button onClick={() => setViewMode('gallery')} className={cn('p-1 rounded', viewMode === 'gallery' && 'bg-card shadow-sm')} title="Gallery view">
                 <Rows3 className="h-3.5 w-3.5" />
               </button>
             </div>
@@ -1913,8 +2090,8 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
           <HistoryPanel versions={pipelineData?.nodes.find(n => n.path === tablePath)?.versions ?? []} />
         </div>
       ) : (
-      <div className="flex flex-1 min-h-0 overflow-hidden">
-        <div className="flex-1 overflow-auto relative">
+      <div className="flex flex-1 min-h-0 overflow-hidden bg-card">
+        <div className="flex-1 overflow-auto relative bg-card">
           {dataError ? (
             <div className="flex flex-col items-center justify-center py-16 text-destructive">
               <p className="text-sm font-medium">Error loading data</p>
@@ -1949,15 +2126,6 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
                           title={sortable ? undefined : (col.is_stored ? 'Not indexed - cannot sort' : 'Unstored - cannot sort')}
                         >
                         <div className="flex items-center gap-1">
-                          {col.is_iterator_col && (
-                            <KindBadge kind="iterator" className="h-3 w-3 text-muted-foreground" />
-                          )}
-                          {col.is_computed && (
-                            <SquareFunction
-                              className={cn('h-3 w-3 text-muted-foreground shrink-0', !col.is_stored && 'opacity-50')}
-                              aria-label={col.is_stored ? 'computed' : 'computed on demand (not stored)'}
-                            />
-                          )}
                           {col.name}
                           {orderBy === col.name && (orderDesc ? <ChevronDown className="h-3 w-3 text-muted-foreground" /> : <ChevronUp className="h-3 w-3 text-muted-foreground" />)}
                         </div>
