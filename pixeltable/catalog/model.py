@@ -1114,6 +1114,7 @@ class SchemaChangeIndexRef(TypedDict):
 
 class SchemaChangeOpDetails(TypedDict, total=False):
     """Operands of a SchemaChangeOp, rendered as strings to survive serialization"""
+
     type: str  # the new type for a column add or alter
     value: str  # the new computed value expression for a column add or alter
     index_ref: SchemaChangeIndexRef  # the new index for an index add or alter
