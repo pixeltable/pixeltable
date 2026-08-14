@@ -6,6 +6,7 @@ stdlib plus psutil, so importing this on every `pxt` invocation stays cheap."""
 import http.client
 import json
 import os
+import platform
 import re
 import signal
 import subprocess
@@ -27,7 +28,7 @@ from pixeltable_cli.utils import (
     validate_path_shape,
 )
 
-_IS_WINDOWS = os.name == 'nt'
+_IS_WINDOWS = platform.system() == 'Windows'
 
 
 def session_key() -> str:

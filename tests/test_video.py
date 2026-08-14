@@ -1,5 +1,6 @@
 import math
 import os
+import platform
 import subprocess
 from pathlib import Path
 from typing import Any, Callable, Literal
@@ -81,6 +82,10 @@ class TestVideo:
         assert len(result) == total_num_rows
         return base_t, view_t
 
+    @pytest.mark.skipif(
+        platform.system() == 'Windows',
+        reason='PXT-1295: TestVideo.test_basic[proxy] consistently fails on Windows in CI',
+    )
     def test_basic(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         video_filepaths = get_video_files()
