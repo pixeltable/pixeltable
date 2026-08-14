@@ -24,7 +24,7 @@ class TestVoyageAI:
         skip_test_if_no_client('voyage')
         from pixeltable.functions.voyageai import embeddings
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
 
         if output_dimension is None:
             t.add_computed_column(embed=embeddings(t.input, model='voyage-3.5', input_type='document'))
@@ -46,7 +46,7 @@ class TestVoyageAI:
         from pixeltable.functions.voyageai import embeddings
 
         # Create a simple table with text
-        t = pxt.create_table('docs', {'text': pxt.String})
+        t = pxt.create_table('docs', {'text': pxt.String | None})
 
         # Create embedding function for indexing
         embed_fn = embeddings.using(model='voyage-3.5', input_type='document')
@@ -90,7 +90,7 @@ class TestVoyageAI:
             "Shakespeare's works, like 'Hamlet', endure in literature.",
         ]
 
-        t = pxt.create_table('test_tbl', {'query': pxt.String, 'docs': pxt.Json})
+        t = pxt.create_table('test_tbl', {'query': pxt.String | None, 'docs': pxt.Json | None})
         t.add_computed_column(reranked=rerank(t.query, t.docs, model='rerank-2.5-lite', top_k=3))
 
         validate_update_status(t.insert(query="When is Apple's conference call scheduled?", docs=documents), 1)
@@ -121,7 +121,9 @@ class TestVoyageAI:
         from pixeltable.functions.voyageai import multimodal_embed
 
         # Test with image column
-        t = pxt.create_table('test_tbl', {'img': pxt.Image, 'description': pxt.String, 'video': pxt.Video})
+        t = pxt.create_table(
+            'test_tbl', {'img': pxt.Image | None, 'description': pxt.String | None, 'video': pxt.Video | None}
+        )
         t.add_computed_column(img_embed=multimodal_embed(t.img, model='voyage-multimodal-3.5', input_type='document'))
         t.add_computed_column(
             text_embed=multimodal_embed(t.description, model='voyage-multimodal-3.5', input_type='document')

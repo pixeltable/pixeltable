@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, MutableMapping, Sequence, TypedDict
 from uuid import UUID
 
+from typing_extensions import TypeForm
+
 from pixeltable import catalog, exceptions as excs, exprs, func, index, type_system as ts
 from pixeltable.env import Env
 from pixeltable.exprs import ColumnRefByName
@@ -63,7 +65,7 @@ for method in FORWARDED_TABLE_METHODS:
 class Column:
     """A column specification used in a TableModel or ViewModel definition."""
 
-    type: type | None = None
+    type: TypeForm | None = None
     value: Any = None
     primary_key: bool | None = None
     stored: bool | None = None
@@ -183,7 +185,7 @@ class TableSpec(TypedDict):
 def _col_type_from_spec(column_spec: ColumnSpec) -> ts.ColumnType:
     """The ColumnType that a column defined by `column_spec` will have."""
     if 'type' in column_spec:
-        return ts.ColumnType.normalize_type(column_spec['type'], nullable_default=True, allow_builtin_types=False)
+        return ts.ColumnType.normalize_type(column_spec['type'], allow_builtin_types=False)
     assert 'value' in column_spec
     return column_spec['value'].col_type
 
@@ -449,7 +451,7 @@ class _ModelNamespace(dict):
                     excs.ErrorCode.INVALID_SCHEMA,
                     f'Could not resolve the type annotation {type_!r} for column {name!r}: {exc}',
                 ) from exc
-        type_ = ts.ColumnType.normalize_type(type_, nullable_default=True, allow_builtin_types=False)
+        type_ = ts.ColumnType.normalize_type(type_, allow_builtin_types=False)
         if name in self.known_cols:
             # We previously processed this column via `set_col_value()`. Sanity check the type.
             if _col_type_from_spec(self.known_cols[name]) != type_:
@@ -753,7 +755,7 @@ class TableModelMeta(type):
             spec = col_spec.copy()
             if 'type' in spec:
                 spec['type'] = ts.ColumnType.normalize_type(  # type: ignore[typeddict-item]
-                    spec['type'], nullable_default=True, allow_builtin_types=False
+                    spec['type'], allow_builtin_types=False
                 )
             columns[name] = spec
 
@@ -1215,7 +1217,7 @@ class _ColumnProperties:
         value = spec.get('value')
         comment = spec.get('comment')
         return cls(
-            type=col_type._to_str(as_schema=True),
+            type=repr(col_type),
             value=exprs.Expr.from_object(value).display_str(inline=False) if value is not None else None,
             primary_key=spec.get('primary_key', False),
             stored=spec.get('stored', True),
@@ -1303,7 +1305,7 @@ def _format_column_spec(spec: ColumnSpec) -> str:
 
 
 def _add_column_change(col_name: str, spec: ColumnSpec) -> SchemaChangeOp:
-    details: SchemaChangeOpDetails = {'type': _col_type_from_spec(spec)._to_str(as_schema=True)}
+    details: SchemaChangeOpDetails = {'type': repr(_col_type_from_spec(spec))}
     value = spec.get('value')
     if value is not None:
         details['value'] = exprs.Expr.from_object(value).display_str(inline=False)
@@ -1835,7 +1837,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                     spec = col_spec.copy()
                     if 'type' in spec:
                         spec['type'] = ts.ColumnType.normalize_type(  # type: ignore[typeddict-item]
-                            spec['type'], nullable_default=True, allow_builtin_types=False
+                            spec['type'], allow_builtin_types=False
                         )
                     origin: Literal['base_query', 'model_body'] = (
                         'base_query' if col_name in base_query_cols else 'model_body'

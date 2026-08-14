@@ -57,7 +57,7 @@ class TestDocument:
         skip_test_if_not_installed('markitdown', 'mistune')
 
         file_paths = self.valid_doc_paths()
-        doc_t = pxt.create_table('docs', {'doc': pxt.Document})
+        doc_t = pxt.create_table('docs', {'doc': pxt.Document | None})
         status = doc_t.insert({'doc': p} for p in file_paths)
         assert status.num_rows == len(file_paths)
         assert status.num_excs == 0
@@ -98,7 +98,7 @@ class TestDocument:
                 raise AssertionError(f'Unexpected extension {extension}, add corresponding check')
 
     def test_doc_splitter_errors(self, uses_db: None) -> None:
-        t = pxt.create_table('docs', {'doc': pxt.Document})
+        t = pxt.create_table('docs', {'doc': pxt.Document | None})
 
         # test invalid separators, or combinations of separators
         invalid_separators = [
@@ -142,7 +142,7 @@ class TestDocument:
                 )
 
         pdf_file = next(f for f in self.valid_doc_paths() if f.endswith('.pdf'))
-        t = pxt.create_table('docs', {'doc': pxt.Document}, if_exists='replace')
+        t = pxt.create_table('docs', {'doc': pxt.Document | None}, if_exists='replace')
         _ = pxt.create_view('paragraphs', t, iterator=document_splitter(t.doc, separators='paragraph'))
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'not currently supported.+contact us'):
             t.insert(doc=pdf_file)
@@ -169,7 +169,7 @@ class TestDocument:
         else:
             assert extensions == {'.md', '.html', '.txt', '.pptx', '.docx', '.xlsx'}
 
-        doc_t = pxt.create_table('docs', {'doc': pxt.Document})
+        doc_t = pxt.create_table('docs', {'doc': pxt.Document | None})
         validate_update_status(doc_t.insert({'doc': p} for p in file_paths), expected_rows=len(file_paths))
 
         import tiktoken
@@ -264,7 +264,7 @@ class TestDocument:
         file_paths = [
             p for p in self.valid_doc_paths() if not (p.endswith('.pdf') or p.endswith('.xml') or p.endswith('.txt'))
         ]
-        doc_t = pxt.create_table('docs', {'doc': pxt.Document})
+        doc_t = pxt.create_table('docs', {'doc': pxt.Document | None})
         status = doc_t.insert({'doc': p} for p in file_paths)
         assert status.num_excs == 0
 
@@ -300,7 +300,7 @@ class TestDocument:
         skip_test_if_not_installed('spacy')
 
         file_paths = [path for path in self.valid_doc_paths() if path.endswith('pxtbrief.txt')]
-        doc_t = pxt.create_table('docs', {'doc': pxt.Document})
+        doc_t = pxt.create_table('docs', {'doc': pxt.Document | None})
         status = doc_t.insert({'doc': p} for p in file_paths)
         assert status.num_excs == 0
 
@@ -379,7 +379,7 @@ class TestDocument:
 
     def test_doc_splitter_images(self, uses_db: None) -> None:
         file_paths = [p for p in get_documents() if p.endswith('.pdf')]
-        t = pxt.create_table('docs', {'doc': pxt.Document})
+        t = pxt.create_table('docs', {'doc': pxt.Document | None})
 
         chunks = pxt.create_view(
             'chunks',

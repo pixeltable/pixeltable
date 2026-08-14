@@ -73,7 +73,7 @@ class TestDestination:
 
     def test_dest_errors(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test_dest_errors'), schema={'img': pxt.Image})
+        t = pxt.create_table(p('test_dest_errors'), schema={'img': pxt.Image | None})
 
         # destination type and scheme are checked regardless of the catalog kind
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='must be a string or path'):
@@ -95,7 +95,7 @@ class TestDestination:
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='only applies to stored computed columns'):
             _ = pxt.create_table(
-                p('test_dest_bad'), schema={'img': {'type': pxt.Image, 'destination': f'{valid_dest}'}}
+                p('test_dest_bad'), schema={'img': {'type': pxt.Image | None, 'destination': f'{valid_dest}'}}
             )
 
         # Test destination with a non-existent directory
@@ -111,7 +111,7 @@ class TestDestination:
     def test_invalid_bucket(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('boto3')
-        t = pxt.create_table(p('test_invalid_dest'), schema={'img': pxt.Image})
+        t = pxt.create_table(p('test_invalid_dest'), schema={'img': pxt.Image | None})
 
         with pxt_raises(
             pxt.ErrorCode.STORAGE_NOT_FOUND,
@@ -233,7 +233,7 @@ class TestDestination:
         dest1_uri = f'{dest_uri}/bucket1'
         dest2_uri = f'{dest_uri}/bucket2'
 
-        t = pxt.create_table(p('test_dest'), schema={'img': pxt.Image})
+        t = pxt.create_table(p('test_dest'), schema={'img': pxt.Image | None})
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         t.add_computed_column(img_rot1=t.img.rotate(90), destination=None)
         t.add_computed_column(img_rot2=t.img.rotate(180), destination=dest1_uri)
@@ -310,7 +310,7 @@ class TestDestination:
         dest1_uri = f'{dest_uri}/bucket1'
         dest2_uri = f'{dest_uri}/bucket2'
 
-        t = pxt.create_table(p('test_dest'), schema={'img': pxt.Image})
+        t = pxt.create_table(p('test_dest'), schema={'img': pxt.Image | None})
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         t.add_computed_column(img_rot1=t.img.rotate(90), destination=None)
         t.add_computed_column(img_rot2=t.img.rotate(90), destination=dest1_uri)
@@ -347,7 +347,7 @@ class TestDestination:
         dest1_uri = f'{dest_uri}/bucket1'
 
         # The intent of this test is to copy the same image to two different destinations
-        t = pxt.create_table('test_dest', schema={'img': pxt.Image})
+        t = pxt.create_table('test_dest', schema={'img': pxt.Image | None})
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         t.add_computed_column(img_rot1=t.img, destination=None)
         t.add_computed_column(img_rot2=t.img, destination=dest1_uri)
@@ -375,7 +375,7 @@ class TestDestination:
         p = make_catalog_path
         dest_uris = tuple(self.resolve_destination_uri(dest_id) + '/bucket1' for dest_id in self.TESTED_DESTINATIONS)
 
-        t = pxt.create_table(p('test_dest'), schema={'img': pxt.Image})
+        t = pxt.create_table(p('test_dest'), schema={'img': pxt.Image | None})
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         for i, (dest_id, dest_uri) in enumerate(zip(self.TESTED_DESTINATIONS, dest_uris, strict=True)):
             t.add_computed_column(**{f'img_rot_{dest_id}': t.img.rotate(30 * i)}, destination=dest_uri)
@@ -460,7 +460,7 @@ class TestDestination:
         if not available_destinations:
             pytest.skip('No cloud destinations are configured or reachable')
 
-        t = pxt.create_table('test_presigned_url', schema={'img': pxt.Image})
+        t = pxt.create_table('test_presigned_url', schema={'img': pxt.Image | None})
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         for i, (dest_id, dest_uri) in enumerate(zip(available_destinations, dest_uris, strict=True)):
             t.add_computed_column(**{f'img_rot_{dest_id}': t.img.rotate(30 * i)}, destination=dest_uri)
