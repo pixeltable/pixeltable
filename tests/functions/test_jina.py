@@ -7,7 +7,7 @@ from ..utils import rerun_on_network_error, skip_test_if_no_client, validate_upd
 pytestmark = pytest.mark.local('UDF/integration test')
 
 
-@pytest.mark.expensive
+@pytest.mark.very_expensive
 @pytest.mark.remote_api
 @rerun_on_network_error()
 class TestJina:

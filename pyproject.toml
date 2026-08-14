@@ -304,7 +304,7 @@ testpaths = ["tests"]
 addopts = '-v -m "not remote_api and not expensive and not very_expensive and not benchmark and not otel and not cloud_e2e" --strict-markers'
 markers = [
     "expensive: marks tests as expensive to run",
-    "very_expensive: marks tests as very expensive to run",
+    "very_expensive: marks tests as very expensive to run, or as depending on an unreliable external service",
     "remote_api: marks tests as calling a remote API (such as OpenAI)",
     "benchmark: marks tests as benchmark tests (excluded from regular test runs)",
     "local: test runs only against the in-process catalog, not the proxy (arg: reason)",

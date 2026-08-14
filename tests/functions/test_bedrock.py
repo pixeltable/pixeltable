@@ -131,7 +131,7 @@ def _converse_image_messages(t: pxt.Table) -> list:
 
 
 @pytest.mark.remote_api
-@pytest.mark.expensive
+@pytest.mark.very_expensive
 @pytest.mark.usefixtures('bedrock_us_east_1')
 @rerun_on_network_error()
 class TestBedrock:

@@ -462,7 +462,6 @@ class TestHuggingface:
         assert results[0]['sentiment'][0]['label_text'] == 'positive'
         assert results[1]['sentiment'][0]['label_text'] == 'negative'
 
-    @pytest.mark.very_expensive  # Large model
     @pytest.mark.xdist_group('large_model')
     def test_image_captioning(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')
@@ -619,7 +618,6 @@ class TestHuggingface:
         assert result['audio'] is not None
         # Audio should be pxt.Audio type - basic check that it's not empty
 
-    @pytest.mark.very_expensive  # Large model
     @pytest.mark.xdist_group('large_model')
     def test_text_to_image(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')
@@ -648,7 +646,6 @@ class TestHuggingface:
         # Verify we got an image
         assert result['image'] is not None
 
-    @pytest.mark.very_expensive  # Large model
     @pytest.mark.xdist_group('large_model')
     def test_image_to_image(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')
@@ -675,7 +672,6 @@ class TestHuggingface:
         # Verify we got a modified image
         assert result['modified_image'] is not None
 
-    @pytest.mark.very_expensive  # Large model
     @pytest.mark.xdist_group('large_model')
     def test_image_to_video(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')

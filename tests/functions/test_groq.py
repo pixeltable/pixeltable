@@ -9,6 +9,7 @@ pytestmark = pytest.mark.local('UDF/integration test')
 
 
 @pytest.mark.remote_api
+@pytest.mark.very_expensive
 @rerun(reruns=4, reruns_delay=8)
 class TestGroq:
     def test_chat_completions(self, uses_db: None) -> None:

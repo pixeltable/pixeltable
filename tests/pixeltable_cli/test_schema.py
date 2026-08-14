@@ -388,8 +388,29 @@ class TestSchema:
             for construct in ('pxt.Column(', 'pxt.EmbeddingIndex(', 'iterator=', 'base=', 'pxt.Document')
         )
         # it has to be a file the daemon can import and plan, media types and embedding index included
-        r = cli('schema', 'diff', str(out_file), p('full_example'), check=False)
+        full_target = p('full_example')
+        r = cli('schema', 'diff', str(out_file), full_target, check=False)
         assert r.returncode == 2, r.stderr  # 2 = changes pending, ie the plan was computed
+
+        # and applying it has to produce working tables, the embedding index included
+        r = cli('schema', 'update', str(out_file), full_target)
+        assert r.stdout.count('created') == 4
+        assert cli('schema', 'diff', str(out_file), full_target).returncode == 0  # nothing left to apply
+        docs = pxt.get_table(f'{full_target}/docs')
+        docs.insert(
+            [
+                {'doc_id': 1, 'title': 'bread', 'body': 'Sourdough needs a long, slow fermentation.'},
+                {'doc_id': 2, 'title': 'sharks', 'body': 'Great white sharks hunt seals along the coast.'},
+                {
+                    'doc_id': 3,
+                    'title': 'sharks',
+                    'body': 'A simple and effective breathing exercise to reduce stress is box breathing',
+                },
+            ]
+        )
+        # verify embeddings by running a similarity search
+        sim = docs.body.similarity(string='sharks hunting seals near the shore')
+        assert docs.order_by(sim, asc=False).select(docs.doc_id).limit(1).collect()['doc_id'] == [2]
 
         # the file is reachable from wherever an agent lands: the verb list, and every verb's help
         assert 'example' in cli('schema', check=False).stdout
