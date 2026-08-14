@@ -8,6 +8,7 @@ pytestmark = pytest.mark.local('UDF/integration test')
 
 
 @pytest.mark.remote_api
+@pytest.mark.very_expensive
 @rerun_on_network_error()
 class TestFireworks:
     def test_fireworks(self, uses_db: None) -> None:

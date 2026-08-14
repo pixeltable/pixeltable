@@ -197,7 +197,6 @@ class TestGemini:
         assert results['output'][0].size == (1024, 1024)
         assert results['output2'][0].size == (1280, 896)
 
-    @pytest.mark.very_expensive
     @rerun_on_network_error(reruns_delay=30)
     def test_generate_videos(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
@@ -239,7 +238,6 @@ class TestGemini:
             assert video_stream['duration_seconds'] == duration, metadata
             assert audio_stream['duration_seconds'] == duration, metadata
 
-    @pytest.mark.very_expensive
     @rerun_on_network_error(reruns_delay=30)
     def test_generate_videos_reference_images(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')

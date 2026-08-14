@@ -130,6 +130,10 @@ def generate_matrix(args: argparse.Namespace) -> None:
 
         # Minimal deps tests
         configs.append(MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.11', uv_options='--no-dev'))
+        # Required deps pinned to their minimum versions
+        configs.append(
+            MatrixConfig('minimum-deps', 'py', MAIN_PLATFORM, '3.11', uv_options='--no-dev --resolution lowest-direct')
+        )
         # random ops
         configs.append(MatrixConfig('random-ops', 'random-ops', MAIN_PLATFORM, '3.11', uv_options='--no-dev'))
         configs.append(MatrixConfig('otel', 'otel', MAIN_PLATFORM, '3.11', uv_options='--no-dev --extra otel'))
