@@ -61,7 +61,7 @@ def main() -> None:
     daemon_host = config.get_string_value('daemon_host')
     daemon_port = config.get_int_value('daemon_port')
     if daemon_host is not None or daemon_port is not None:
-        run(bind(daemon_port or get_port(), daemon_host or '127.0.0.1'))
+        run(bind(daemon_port if daemon_port is not None else get_port(), daemon_host or '127.0.0.1'))
         return
 
     port = get_port()
