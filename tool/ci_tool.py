@@ -94,29 +94,16 @@ def generate_matrix(args: argparse.Namespace) -> None:
     print('Force all   : ', force_all)
     print()
 
-    # The configs are dependent on the CI scenario. There are three tiers:
-    # Tier 1. During a PR, we run only the static checks, the slim tests on MacOS, Ubuntu, and Windows, and the
-    #         minimal-dependency configs.
-    # Tier 2. In merge queue or on a workflow dispatch, we run the full test suite on the basic platforms, including
-    #         'expensive' tests on MAIN_PLATFORM, and also a suite of other jobs providing broader test coverage.
-    # Tier 3. On a scheduled run, or if "Run on all platforms" is checked during a workflow dispatch, then in addition
-    #         to the above, we also run the 'very_expensive' tests on MAIN_PLATFORM and the basic tests on
-    #         EXPENSIVE_PLATFORMS.
-
-    # Linting, type checking, etc.; run on every trigger.
-    configs = [MatrixConfig('static-checks', 'lint', MAIN_PLATFORM, '3.11')]
-
-    # Minimal deps tests; run on every trigger.
-    configs.append(MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.11', uv_options='--no-dev'))
-    # Required deps pinned to their minimum versions; run on every trigger.
-    configs.append(
-        MatrixConfig('minimum-deps', 'py', MAIN_PLATFORM, '3.11', uv_options='--no-dev --resolution lowest-direct')
-    )
+    # Run on every trigger: static checks, plus the tests under a no-dev-dependencies install, once with the default
+    # resolution and once with required deps pinned to their minimum versions.
+    configs = [
+        MatrixConfig('static-checks', 'lint', MAIN_PLATFORM, '3.11'),
+        MatrixConfig('minimal', 'py', MAIN_PLATFORM, '3.11', uv_options='--no-dev'),
+        MatrixConfig('minimum-deps', 'py', MAIN_PLATFORM, '3.11', uv_options='--no-dev --resolution lowest-direct'),
+    ]
 
     if trigger == 'pull_request':
-        # Configs selected for a PR validation, i.e. on every push to a PR.
-        # Tier 1 only: slim tests on MAIN_PLATFORM and the basic platforms. This is strictly a subset
-        # of tests that are run in merge queue.
+        # On every push to a PR we run only the slim tests. It is strictly a subset of what the merge queue runs.
         configs.extend(
             MatrixConfig(
                 'slim', 'py', platform, '3.11', pytest_options=f'{DEFAULT_PYTEST} {SLIM_TESTS}', build_dashboard=False
@@ -125,33 +112,27 @@ def generate_matrix(args: argparse.Namespace) -> None:
         )
 
     else:
-        # A non-PR trigger: merge queue or a schedule
+        # A non-PR trigger: merge queue, workflow dispatch, or schedule.
 
-        # Standard configs on the basic platforms
         configs.extend(MatrixConfig('standard', 'py', os, '3.11') for os in BASIC_PLATFORMS)
 
-        # random ops
         configs.append(MatrixConfig('random-ops', 'random-ops', MAIN_PLATFORM, '3.11', uv_options='--no-dev'))
         configs.append(MatrixConfig('otel', 'otel', MAIN_PLATFORM, '3.11', uv_options='--no-dev --extra otel'))
 
+        # force_all is set by the "Run on all platforms" checkbox on a workflow dispatch.
         if force_all or trigger == 'schedule':
-            # Tier 3 only: Standard + expensive + very_expensive tests on upgraded platform.
             configs.append(
                 MatrixConfig('standard++', 'py', 'ubuntu-large', '3.11', pytest_options=VERY_EXPENSIVE_PYTEST)
             )
             configs.append(MatrixConfig('notebooks++', 'ipynb', 'ubuntu-large', '3.11'))
 
-            # Tier 3 only: Expensive platforms (e.g., GPU runners).
             configs.extend(MatrixConfig('standard', 'py', os, '3.11') for os in EXPENSIVE_PLATFORMS)
 
         else:
-            # Tier 2 only: Standard + expensive (but not very_expensive) tests on upgraded platform.
             configs.append(MatrixConfig('standard+', 'py', 'ubuntu-large', '3.11', pytest_options=EXPENSIVE_PYTEST))
             # Non-HF notebooks. HF-dependent notebooks are gated behind --include-expensive, which only the
-            # scheduled tier passes (see NB_TEST_OPTS in pytest.yml), so they are excluded here.
+            # scheduled run passes (see NB_TEST_OPTS in pytest.yml), so they are excluded here.
             configs.append(MatrixConfig('notebooks+', 'ipynb', 'ubuntu-large', '3.11'))
-
-        # Tiers 2 and 3: Various additional configurations.
 
         # Standard test suite on main & basic platforms on Python 3.14
         configs.extend(MatrixConfig('standard', 'py', os, '3.14') for os in (MAIN_PLATFORM, *BASIC_PLATFORMS))
