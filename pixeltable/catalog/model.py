@@ -1113,9 +1113,10 @@ class SchemaChangeIndexRef(TypedDict):
 
 
 class SchemaChangeOpDetails(TypedDict, total=False):
-    type: str
-    value: str
-    index_ref: SchemaChangeIndexRef
+    """Operands of a SchemaChangeOp, rendered as strings to survive serialization"""
+    type: str  # the new type for a column add or alter
+    value: str  # the new computed value expression for a column add or alter
+    index_ref: SchemaChangeIndexRef  # the new index for an index add or alter
 
 
 class SchemaChangeOp(TypedDict):
@@ -1139,8 +1140,7 @@ class SchemaChangeOp(TypedDict):
     existing: Any | None  # catalog-side value; None for adds
     description: str
 
-    # the change's operands, rendered as strings so they survive serialization: 'type' or 'value' for a column add,
-    # 'index_ref' for an index add. Empty when the change has no operand beyond name.
+    # the change's operands
     details: SchemaChangeOpDetails
 
 
