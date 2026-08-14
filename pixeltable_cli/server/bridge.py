@@ -93,7 +93,7 @@ def _build_select(
 
     # Columns backed by a B-tree index can be ordered cheaply; the rest cannot.
     sorted_cols: set[str] = {
-        c for idx in md['indices'].values() if idx['index_type'] == 'btree' for c in idx['columns']
+        c for idx in md['indexes'].values() if idx['index_type'] == 'btree' for c in idx['columns']
     }
 
     for col_name, info in md['columns'].items():
@@ -462,7 +462,7 @@ def get_pipeline(tbl_path: str | None = None) -> dict[str, Any]:
 
             # indices: surface only embedding indices here, the dashboard doesn't want to know about B-trees
             indices: list[dict[str, Any]] = []
-            for idx_name, idx_info in md['indices'].items():
+            for idx_name, idx_info in md['indexes'].items():
                 if idx_info['index_type'] != 'embedding':
                     continue
                 params = idx_info['parameters']

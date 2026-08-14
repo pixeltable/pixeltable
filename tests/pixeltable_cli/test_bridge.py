@@ -63,8 +63,8 @@ class TestBridge:
         t = pxt.create_table('md/t', {'c1': pxt.String | None})
         t.add_embedding_index('c1', embedding=dummy_embedding.using(n=3))
         result = pxt.get_table('md/t').get_metadata()
-        assert len(result['indices']) > 0
-        idx = next(iter(result['indices'].values()))
+        assert len(result['indexes']) > 0
+        idx = next(iter(result['indexes'].values()))
         assert {'name', 'columns', 'index_type'} <= idx.keys()
 
     def test_table_data_basic(self, uses_db: None) -> None:
