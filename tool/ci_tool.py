@@ -108,8 +108,8 @@ def generate_matrix(args: argparse.Namespace) -> None:
 
     if trigger == 'pull_request':
         # Configs selected for a PR validation, i.e. on every push to a PR.
-        # Tier 1 only: static checks plus the slim test subset, both on MAIN_PLATFORM. This is strictly a subset of
-        # checks that are run in merge queue.
+        # Tier 1 only: slim test subset on MAIN_PLATFORM. This is strictly a subset
+        # of tests that are run in merge queue.
         configs.append(
             MatrixConfig(
                 'slim',
