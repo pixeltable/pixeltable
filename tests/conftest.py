@@ -419,6 +419,7 @@ def _clear_hf_caches() -> None:
                     'openai/clip-vit-base-patch32',
                     'intfloat/e5-large-v2',
                     'sentence-transformers/all-mpnet-base-v2',
+                    'sentence-transformers/all-MiniLM-L6-v2',
                 )
                 for revision in repo.revisions
             ]

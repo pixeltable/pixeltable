@@ -15,6 +15,7 @@ import io
 import json
 import os
 import pathlib
+import platform
 import signal
 import socket
 import subprocess
@@ -29,6 +30,7 @@ from typing import Any, ClassVar, Self
 import pydantic
 import pytest
 import requests
+import typing_extensions
 
 from pixeltable import exceptions as excs
 from pixeltable.catalog import model
@@ -623,7 +625,7 @@ class TestProbe:
         monkeypatch.setattr(client_utils, '_pid_cmdline', lambda pid: None)
         assert client_utils._pid_is_our_daemon(100) is False
 
-    @pytest.mark.skipif(os.name == 'nt', reason='_pid_cmdline has no stdlib argv source on Windows')
+    @pytest.mark.skipif(platform.system() == 'Windows', reason='_pid_cmdline has no stdlib argv source on Windows')
     def test_pid_cmdline_reads_self(self) -> None:
         """On POSIX the running interpreter's own command line is readable and mentions python."""
         cmdline = client_utils._pid_cmdline(os.getpid())
@@ -2012,12 +2014,23 @@ class TestWireTypes:
         wire_fields = set(typing.get_type_hints(getattr(wire, name)))
         assert wire_fields - self.WIRE_ONLY == catalog_fields - self.CATALOG_ONLY[name]
 
+    @classmethod
+    def assert_typed_dicts_match(cls, catalog_cls: Any, wire_cls: Any) -> None:
+        """Recursively assert that two TypedDicts have the same structure."""
+        catalog_hints = typing.get_type_hints(catalog_cls)
+        wire_hints = typing.get_type_hints(wire_cls)
+        shared = (set(catalog_hints) & set(wire_hints)) - {'ops'}  # ops holds the mirrored op type on each side
+        for f in shared:
+            if typing_extensions.is_typeddict(catalog_hints[f]) and typing_extensions.is_typeddict(wire_hints[f]):
+                cls.assert_typed_dicts_match(catalog_hints[f], wire_hints[f])
+            else:
+                assert catalog_hints[f] == wire_hints[f]
+
     @pytest.mark.parametrize('name', ['SchemaChangeOp', 'TableDiff'])
     def test_shared_fields_have_the_same_type(self, name: str) -> None:
-        catalog_hints = typing.get_type_hints(getattr(model, name))
-        wire_hints = typing.get_type_hints(getattr(wire, name))
-        shared = set(catalog_hints) & set(wire_hints) - {'ops'}  # ops holds the mirrored op type on each side
-        assert all(catalog_hints[f] == wire_hints[f] for f in shared)
+        catalog_cls = getattr(model, name)
+        wire_cls = getattr(wire, name)
+        self.assert_typed_dicts_match(catalog_cls, wire_cls)
 
     def test_resolutions_match(self) -> None:
         assert typing.get_args(wire.DiffResolution) == typing.get_args(model.DiffResolution)
