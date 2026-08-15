@@ -1,6 +1,15 @@
 import pytest
 
-from tool.ci_tool import EXPENSIVE_PYTEST, MAIN_PLATFORM, TRIGGERS, VERY_EXPENSIVE_PYTEST, build_configs
+from tool.ci_tool import (
+    ALTERNATIVE_PLATFORMS,
+    BASIC_PLATFORMS,
+    EXPENSIVE_PLATFORMS,
+    EXPENSIVE_PYTEST,
+    MAIN_PLATFORM,
+    TRIGGERS,
+    VERY_EXPENSIVE_PYTEST,
+    build_configs,
+)
 
 # The triggers under which a fully populated matrix is generated; 'pull_request' deliberately runs a reduced one.
 FULL_TRIGGERS = tuple(t for t in TRIGGERS if t != 'pull_request')
@@ -17,6 +26,18 @@ class TestBuildConfigs:
         configs = build_configs(trigger, force_all=False, has_aws_credentials=False)
         assert sum(cfg.test_category == 'lint' for cfg in configs) == 1
         assert any(cfg.test_category == 'py' and cfg.os == MAIN_PLATFORM for cfg in configs)
+
+    @pytest.mark.parametrize('trigger', TRIGGERS)
+    def test_basic_platforms_get_a_full_install(self, trigger: str) -> None:
+        configs = build_configs(trigger, force_all=False, has_aws_credentials=False)
+        full_install = {cfg.os for cfg in configs if cfg.test_category == 'py' and cfg.uv_options == ''}
+        assert {MAIN_PLATFORM, *BASIC_PLATFORMS} <= full_install
+
+    def test_every_declared_platform_is_used(self) -> None:
+        configs = build_configs('workflow_dispatch', force_all=True, has_aws_credentials=True)
+        assert {MAIN_PLATFORM, *BASIC_PLATFORMS, *EXPENSIVE_PLATFORMS, *ALTERNATIVE_PLATFORMS} <= {
+            cfg.os for cfg in configs
+        }
 
     @pytest.mark.parametrize('trigger', TRIGGERS)
     def test_display_names_are_unique(self, trigger: str) -> None:
