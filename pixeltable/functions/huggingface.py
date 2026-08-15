@@ -78,7 +78,11 @@ def _(model_id: str) -> ts.ArrayType:
     from sentence_transformers import SentenceTransformer
 
     model = _lookup_model(model_id, SentenceTransformer)
-    return ts.ArrayType((model.get_embedding_dimension(),), dtype=ts.FloatType(), nullable=False)
+    # Newer sentence-transformers: get_embedding_dimension; older wheels: get_sentence_embedding_dimension.
+    get_dim = getattr(model, 'get_embedding_dimension', None)
+    if not callable(get_dim):
+        get_dim = model.get_sentence_embedding_dimension
+    return ts.ArrayType((get_dim(),), dtype=ts.FloatType(), nullable=False)
 
 
 @pxt.udf(batch_size=32)
