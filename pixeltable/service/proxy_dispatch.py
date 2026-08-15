@@ -96,12 +96,10 @@ def handle(
             # Log error details in the server log
             _logger.info('Error detail handling %s.%s:\n%s', request.class_name, request.method, e.detail)
         _logger.info('%s.%s error (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
-        error_dict = e.to_dict()
+        error_dict = e.to_dict(with_detail=include_error_detail)
         error_dict['message'] = _restore_upload_names(error_dict['message'], request._uploaded_names)
         if 'cause' in error_dict:
             error_dict['cause'] = _restore_upload_names(error_dict['cause'], request._uploaded_names)
-        if include_error_detail and e.detail is not None:
-            error_dict['detail'] = _restore_upload_names(e.detail, request._uploaded_names)
         return _encode_response(ProxyResponse(error=error_dict))
 
     except Exception:
