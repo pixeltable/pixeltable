@@ -159,8 +159,9 @@ def create(db: str) -> None:
 def start(db: str, test_mode: bool = False) -> str:
     """Ensure a daemon for db is running and ready; return its endpoint.
 
-    test_mode starts the daemon with --test (DEBUG logging + test-only endpoints). It only takes effect if this
-    call actually launches the daemon; an already-running one is returned as is.
+    test_mode starts the daemon with --test (test-only endpoints). It only takes effect if this call actually
+    launches the daemon; an already-running one is returned as is. The daemon's log levels come from the
+    environment we pass on, not from this flag.
     """
     create(db)
     ep = endpoint(db)
@@ -358,14 +359,10 @@ def _serve(test_mode: bool = False) -> None:
     binds to that address and port instead and skips the lock file. Used when an
     external orchestrator (e.g. a sidecar) handles routing and discovery.
 
-    test_mode: logs at DEBUG and exposes the test-only endpoints.
+    test_mode: exposes the test-only endpoints.
     """
     # mark this process as a hosted-catalog server (no client-accessible local store) before the catalog inits
     os.environ['PIXELTABLE_PROXY_DAEMON'] = '1'
-    if test_mode:
-        # Enable verbose logging
-        for name in ('pixeltable', 'sqlalchemy.engine'):
-            logging.getLogger(name).setLevel(logging.DEBUG)
     try:
         import uvicorn
     except ModuleNotFoundError as e:
@@ -384,12 +381,8 @@ def _serve(test_mode: bool = False) -> None:
     daemon_host = config.get_string_value('daemon_host')
     daemon_port = config.get_int_value('daemon_port')
 
-    log_level = 'info'
-    configured_log_level = config.get_string_value('log_level')
-    if configured_log_level is not None:
-        log_level = configured_log_level.lower()
-    elif test_mode:
-        log_level = 'debug'
+    # pixeltable log level also drives uvicorn
+    log_level = logging.getLogger('pixeltable').getEffectiveLevel()
 
     # log_config=None suppresses uvicorn's own logging setup which results in closing every handler registered so far.
     # Note: at this point, uvicorn logging has already been configured by Env.
