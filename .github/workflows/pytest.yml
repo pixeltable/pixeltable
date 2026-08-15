@@ -312,6 +312,7 @@ jobs:
           path: |
             ${{ runner.temp }}/pxt-pytest/**/.pixeltable/logs
             ${{ runner.temp }}/pxt-pytest/**/.pixeltable/proxy_*/logs
+            ${{ runner.temp }}/pxt-pytest/**/pxt-daemon*/daemon.log
           include-hidden-files: true
       - name: Print utilization info
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
