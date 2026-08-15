@@ -25,6 +25,7 @@ from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
 from pixeltable.functions.video import legacy_frame_iterator
 
+from .conftest import SampleFileServer
 from .utils import (
     CatalogMode,
     ReloadTester,
@@ -34,7 +35,6 @@ from .utils import (
     get_image_files,
     pxt_raises,
     reload_catalog,
-    rerun_on_network_error,
     skip_test_if_not_installed,
     validate_update_status,
 )
@@ -1466,21 +1466,23 @@ class TestExprs:
         result = t.select(t.img, t.img.height, t.img.rotate(90)).show(n=100)
         _ = result._repr_html_()
 
-    @rerun_on_network_error()
-    def test_ext_imgs(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_ext_imgs(self, make_catalog_path: Callable[[str], str], sample_file_server: SampleFileServer) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('img_test'), {'img': pxt.Image | None})
         img_urls = [
-            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg',
-            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000034.jpg',
-            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000042.jpg',
-            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000049.jpg',
-            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000057.jpg',
-            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000061.jpg',
-            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000063.jpg',
-            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000064.jpg',
-            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000069.jpg',
-            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000071.jpg',
+            sample_file_server.url(f'docs/resources/images/{name}')
+            for name in (
+                '000000000030.jpg',
+                '000000000034.jpg',
+                '000000000042.jpg',
+                '000000000049.jpg',
+                '000000000057.jpg',
+                '000000000061.jpg',
+                '000000000063.jpg',
+                '000000000064.jpg',
+                '000000000069.jpg',
+                '000000000071.jpg',
+            )
         ]
         t.insert({'img': url} for url in img_urls)
         # this fails with an assertion

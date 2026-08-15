@@ -8,6 +8,7 @@ import platform
 import shutil
 import sys
 import threading
+import urllib.parse
 import uuid
 from typing import Callable, Iterator
 
@@ -496,7 +497,7 @@ def reload_tester(init_env: None) -> ReloadTester:
     return ReloadTester()
 
 
-_SERVED_DIR = TESTS_DIR / 'data'
+_SERVED_DIR = TESTS_DIR.parent  # repo root
 
 
 class _QuietHandler(http.server.SimpleHTTPRequestHandler):
@@ -505,7 +506,7 @@ class _QuietHandler(http.server.SimpleHTTPRequestHandler):
 
 
 class SampleFileServer:
-    """Handle on the HTTP server started by the `sample_file_server` fixture, which serves the `tests/data` tree."""
+    """Handle on the HTTP server started by the `sample_file_server` fixture, which serves the repo tree."""
 
     base_url: str
 
@@ -513,17 +514,17 @@ class SampleFileServer:
         self.base_url = base_url
 
     def url(self, path: str | pathlib.Path) -> str:
-        """Return the http:// URL of `path`, given either as an absolute path under `tests/data` or relative to it."""
+        """Return the http:// URL of `path`, given either as an absolute path in the repo or relative to its root."""
         rel_path = pathlib.Path(path)
         if rel_path.is_absolute():
             assert rel_path.is_relative_to(_SERVED_DIR)
             rel_path = rel_path.relative_to(_SERVED_DIR)
-        return self.base_url + rel_path.as_posix()
+        return self.base_url + urllib.parse.quote(rel_path.as_posix())
 
 
 @pytest.fixture
 def sample_file_server() -> Iterator[SampleFileServer]:
-    """Serve the local test data files over a localhost HTTP server.
+    """Serve the local sample files (`tests/data`, `docs/resources`, ...) over a localhost HTTP server.
 
     Tests that need a file reachable by http:// URL (rather than a local path or file:// URL) can get one with
     `sample_file_server.url(<path of the file>)`, exercising the same download path as an internet URL without the

@@ -91,7 +91,7 @@ class TestImport:
     def test_import_json(self, make_catalog_path: Callable[[str], str], sample_file_server: SampleFileServer) -> None:
         p = make_catalog_path
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
-        jeopardy = sample_file_server.url('json/jeopardy.json')
+        jeopardy = sample_file_server.url('tests/data/json/jeopardy.json')
 
         # `example.json` has a variety of datatypes and tests both nullable and non-nullable columns
         t1 = pxt.io.import_json(p('example'), str(example))
@@ -121,7 +121,7 @@ class TestImport:
     def test_insert_json(self, make_catalog_path: Callable[[str], str], sample_file_server: SampleFileServer) -> None:
         p = make_catalog_path
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
-        jeopardy = sample_file_server.url('json/jeopardy.json')
+        jeopardy = sample_file_server.url('tests/data/json/jeopardy.json')
 
         # `example.json` has a variety of datatypes and tests both nullable and non-nullable columns
         t1 = pxt.io.import_json(p('example'), str(example))
