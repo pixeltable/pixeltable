@@ -68,6 +68,12 @@ class _JinaClient:
             self._session = aiohttp.ClientSession(base_url=_JINA_BASE_URL)
         return self._session
 
+    async def close(self) -> None:
+        """Close the HTTP session, if one was ever opened."""
+        if self._session is not None:
+            await self._session.close()
+            self._session = None
+
     async def _post(self, endpoint: str, *, payload: dict) -> dict:
         async with self._get_session().post(endpoint, json=payload, headers=self._request_headers) as resp:
             match resp.status:

@@ -41,6 +41,7 @@ from pixeltable import catalog, exceptions as excs, exprs, func, type_system as 
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.exec.globals import INLINED_OBJECT_MD_KEY
+from pixeltable.runtime import close_threadpool_runtimes
 from pixeltable.serving import SqlExport
 from pixeltable.serving.globals import SqlExporter
 from pixeltable.utils import image as image_utils
@@ -323,6 +324,7 @@ class FastAPIRouter(fastapi.APIRouter):
     _executor: ThreadPoolExecutor
     _jobs: dict[str, Future]  # holds background requests; key: job id (uuid4().hex)
     _jobs_lock: threading.Lock
+    _is_shut_down: bool
     _home_dir: Path
     _allowed_media_dirs: list[Path]
     _engine_cache: dict[str, sql.Engine]  # keyed by SqlExport.db_connect; shared across routes
@@ -332,6 +334,7 @@ class FastAPIRouter(fastapi.APIRouter):
         self._executor = ThreadPoolExecutor(max_workers=16, thread_name_prefix='pxt-serve-background')
         self._jobs = {}
         self._jobs_lock = threading.Lock()
+        self._is_shut_down = False
         self._home_dir = Config.get().home.resolve()
         self._allowed_media_dirs = [
             Env.get().media_dir.resolve(),
@@ -363,6 +366,13 @@ class FastAPIRouter(fastapi.APIRouter):
         super().add_api_route(path, *args, **kwargs)
 
     def __shutdown(self) -> None:
+        # FastAPI calls this more than once per app shutdown
+        if self._is_shut_down:
+            return
+        self._is_shut_down = True
+        # queued behind the in-flight requests, so that the worker threads' event loops and clients are
+        # closed only after workers stop using them
+        close_threadpool_runtimes(self._executor)
         # wait until in-flight requests are done and won't access _engine_cache
         self._executor.shutdown(wait=True, cancel_futures=True)
         for eng in self._engine_cache.values():

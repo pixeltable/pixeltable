@@ -1,10 +1,11 @@
+import asyncio
 import io
 import json
 import os
 import pathlib
 import time
 import urllib.parse
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Iterator, Literal
 
 import av
 import httpx
@@ -80,9 +81,37 @@ def add_one(x: int) -> int:
     return x + 1
 
 
+# the event loop of every computation that ran through record_loop(), which for a background job is the
+# loop of the worker thread that ran it
+_computation_loops: list[asyncio.AbstractEventLoop] = []
+
+
+@pxt.udf
+def record_loop(x: int) -> int:
+    _computation_loops.append(asyncio.get_running_loop())
+    return x + 1
+
+
 # ---------------------------------------------------------------------------
 # Test helpers
 # ---------------------------------------------------------------------------
+
+
+# the clients handed out by make_test_client() that have yet to see an app shutdown
+_live_clients: list[Any] = []
+
+
+@pytest.fixture(autouse=True)
+def shut_down_test_apps() -> Iterator[None]:
+    """Put every app built during a test through its lifespan shutdown, as a served app would go through it.
+
+    The shutdown is what closes the worker threads' event loops and API clients, so leaving it out leaks
+    one of each per app for the rest of the session.
+    """
+    yield
+    while len(_live_clients) > 0:
+        with _live_clients.pop():
+            pass
 
 
 def make_test_client(router: Any) -> Any:
@@ -92,7 +121,9 @@ def make_test_client(router: Any) -> Any:
 
     app = fastapi.FastAPI()
     app.include_router(router)
-    return TestClient(app)
+    client = TestClient(app)
+    _live_clients.append(client)
+    return client
 
 
 def make_media_poster(
@@ -911,6 +942,30 @@ class TestFastAPI:
         # SQL write happened in the worker thread; the URL string in sqlite matches the response
         # (export_sql writes the response body, so this assertion holds for both insert and compute)
         assert_sqlite_row(db_connect, 'bg_resize', {'resized': result['resized']}, {'resized': result['resized']})
+
+    @pytest.mark.local('a background job computes in the router process only for an in-process catalog')
+    def test_background_job_teardown(self, uses_db: None) -> None:
+        """A background job runs on a worker thread with an event loop of its own, which app shutdown closes."""
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter
+
+        t = pxt.create_table('bg_teardown', {'x': pxt.Int})
+        t.add_computed_column(y=record_loop(t.x))
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/bg', background=True)
+        client = make_test_client(router)
+        n_loops = len(_computation_loops)
+
+        with client:
+            resp = client.post('/bg', json={'x': 1})
+            assert resp.status_code == 200, resp.text
+            await_background_job(client, resp.json(), require_pending=False)
+            loops = _computation_loops[n_loops:]
+            assert len(loops) == 1, 'the job did not run on a worker thread of its own'
+            assert not loops[0].is_closed()
+
+        # exiting the TestClient context fired the lifespan shutdown handler
+        assert loops[0].is_closed()
 
     def test_openapi(self, make_catalog_path: Callable[[str], str]) -> None:
         """Verify the generated OpenAPI schema reflects column comments, column types, and route shapes."""

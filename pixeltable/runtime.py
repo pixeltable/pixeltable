@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import inspect
 import logging
 import threading
 from contextlib import contextmanager
@@ -48,6 +49,7 @@ class Runtime:
     isolation_level: str | None
     _progress: Progress | None
     _event_loop: asyncio.AbstractEventLoop | None  # event loop for this thread
+    _owns_event_loop: bool  # False for a loop we adopted (eg Jupyter's), which is not ours to close
     _run_coro_executor: concurrent.futures.ThreadPoolExecutor | None
     fault_manager: Any
 
@@ -71,6 +73,7 @@ class Runtime:
         self.isolation_level = None
         self._progress = None
         self._event_loop = None
+        self._owns_event_loop = False
         self._run_coro_executor = None
         self._clients = {}
         self.context_inherited = False
@@ -166,9 +169,11 @@ class Runtime:
             # multiple run_until_complete()
             running_loop = asyncio.get_running_loop()
             self._event_loop = running_loop
+            self._owns_event_loop = False
             _logger.debug('Patched running loop')
         except RuntimeError:
             self._event_loop = asyncio.new_event_loop()
+            self._owns_event_loop = True
             asyncio.set_event_loop(self._event_loop)
             # we set a deliberately long duration to avoid warnings getting printed to the console in debug mode
             self._event_loop.slow_callback_duration = 3600
@@ -184,6 +189,65 @@ class Runtime:
         client = Env.get().create_client(name)
         self._clients[name] = client
         return client
+
+    async def close_clients(self) -> None:
+        """Gracefully close this runtime's clients and drop them.
+
+        Must be awaited on the event loop on which the clients were created, while it is still running:
+        - async clients are bound to that loop, and closing them there releases their sockets in order
+        - otherwise the sockets are left for GC to close on an already-closed loop, which raises
+
+        This is the only place that is allowed to remove entries from _clients, so that no client is ever dropped
+        without being closed first.
+        """
+        for client in self._clients.values():
+            close = getattr(client, 'close', None)
+            if close is None:
+                continue
+            try:
+                result = close()
+                if inspect.isawaitable(result):
+                    await result
+            except Exception as e:
+                _logger.debug(f'Error closing client: {e}')
+        self._clients.clear()
+
+    def close(self) -> None:
+        """Close this runtime's clients, and the event loop if this runtime created it."""
+        loop = self._event_loop
+        self._event_loop = None
+
+        if loop is None or loop.is_closed():
+            # no loop of ours is left to close the clients on; a temporary one drives their close() and is
+            # correct for a client that was created outside any loop, which is how the sync clients arrive here
+            if len(self._clients) > 0:
+                tmp_loop = asyncio.new_event_loop()
+                try:
+                    tmp_loop.run_until_complete(self.close_clients())
+                finally:
+                    tmp_loop.close()
+        elif not self._owns_event_loop:
+            # an adopted loop keeps running and is not ours to tear down, but the clients are bound to it:
+            # hand the close to that loop rather than dropping them
+            if loop.is_running():
+                # deliberately not awaited: this call may be running on that very loop, where waiting deadlocks
+                asyncio.run_coroutine_threadsafe(self.close_clients(), loop)
+            else:
+                loop.run_until_complete(self.close_clients())
+        else:
+            try:
+                pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+                for t in pending:
+                    t.cancel()
+                if len(pending) > 0:
+                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                    assert all(t.done() for t in pending)
+                # after cancellation, so that no task is still using a client
+                loop.run_until_complete(self.close_clients())
+                loop.run_until_complete(loop.shutdown_asyncgens())
+                loop.run_until_complete(loop.shutdown_default_executor())
+            finally:
+                loop.close()
 
     def run_coro(self, coro: Coroutine[Any, Any, _T]) -> _T:
         """Run a coroutine synchronously in a separate thread with its own persistent event loop."""
@@ -287,6 +351,29 @@ def get_runtime() -> Runtime:
     return runtime
 
 
+def close_threadpool_runtimes(executor: concurrent.futures.ThreadPoolExecutor) -> None:
+    """Close the Runtime of every live worker thread of the given executor.
+
+    A worker thread that ran Pixeltable calls has a Runtime of its own, with an event loop and clients that
+    only that thread can close; ending the thread leaves them for GC. Returns once every worker has closed
+    its runtime, which for a busy one is after it finishes the work it is running.
+    """
+    threads = executor._threads
+    if len(threads) == 0:
+        return
+
+    # use a barrier to force every close_runtime() call onto a different thread in the pool
+    barrier = threading.Barrier(len(threads))
+
+    def close_runtime() -> None:
+        barrier.wait()
+        get_runtime().close()
+
+    futures = [executor.submit(close_runtime) for _ in range(len(threads))]
+    for future in futures:
+        future.result()
+
+
 def reset_runtime() -> None:
     """Reset the current thread's Runtime instance. Used for testing."""
     runtime = getattr(_thread_local, 'runtime', None)
@@ -301,15 +388,9 @@ def reset_runtime() -> None:
             # Invalidate all existing TableVersion instances to force reloading of metadata,
             for tbl_version in local_catalog._tbl_versions.values():
                 tbl_version.is_validated = False
-        if runtime._event_loop is not None:
-            # Don't close a loop we didn't create (e.g. Jupyter's)
-            try:
-                loop = runtime._event_loop
-                if not loop.is_running():
-                    loop.close()
-            except Exception:
-                pass
-        runtime._clients.clear()
         if runtime._run_coro_executor is not None:
-            runtime._run_coro_executor.shutdown(wait=False)
+            close_threadpool_runtimes(runtime._run_coro_executor)
+            runtime._run_coro_executor.shutdown(wait=True)
+            runtime._run_coro_executor = None
+        runtime.close()
     _thread_local.runtime = Runtime()

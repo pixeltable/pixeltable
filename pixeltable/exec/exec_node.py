@@ -147,22 +147,25 @@ class ExecNode(abc.ABC):
             thread_runtime = get_runtime()
             # the execution needs to happen in the same db context as the caller, but on a new event loop
             thread_runtime.copy_db_context(caller_runtime)
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
             hooks_token = telemetry.restore_context(hooks_ctx)
+
+            async def produce() -> None:
+                async for batch in aiter(self):
+                    result_queue.put(batch)
+
             try:
-
-                async def produce() -> None:
-                    async for batch in aiter(self):
-                        result_queue.put(batch)
-
-                loop.run_until_complete(produce())
-                result_queue.put(ExecNode._THREAD_QUEUE_SENTINEL)
-            except BaseException as e:
-                result_queue.put(e)
+                # asyncio.Runner gives this thread the same loop teardown that asyncio.run() performs
+                with asyncio.Runner() as runner:
+                    try:
+                        runner.run(produce())
+                        result_queue.put(ExecNode._THREAD_QUEUE_SENTINEL)
+                    except BaseException as e:
+                        result_queue.put(e)
+                    finally:
+                        # the clients are bound to this loop, so they have to be closed while it is open
+                        runner.run(thread_runtime.close_clients())
             finally:
                 telemetry.exit_context(hooks_token)
-                loop.close()
 
         thread = threading.Thread(target=run, daemon=True)
         thread.start()
