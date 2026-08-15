@@ -16,7 +16,7 @@ class TestJina:
         skip_test_if_no_client('jina')
         from pixeltable.functions.jina import embeddings
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         t.add_computed_column(embed=embeddings(t.input, model='jina-embeddings-v3', task='retrieval.passage'))
 
         validate_update_status(t.insert(input='Jina AI provides cutting-edge embeddings and rerankers.'), 1)
@@ -28,7 +28,7 @@ class TestJina:
         skip_test_if_no_client('jina')
         from pixeltable.functions.jina import embeddings
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         # jina-embeddings-v3 supports custom dimensions
         t.add_computed_column(
             embed=embeddings(t.input, model='jina-embeddings-v3', task='retrieval.passage', dimensions=512)
@@ -43,7 +43,7 @@ class TestJina:
         skip_test_if_no_client('jina')
         from pixeltable.functions.jina import embeddings
 
-        t = pxt.create_table('docs', {'text': pxt.String})
+        t = pxt.create_table('docs', {'text': pxt.String | None})
 
         # Create embedding function for indexing
         embed_fn = embeddings.using(model='jina-embeddings-v3', task='retrieval.passage')
@@ -85,7 +85,7 @@ class TestJina:
             "Shakespeare's works, like 'Hamlet', endure in literature.",
         ]
 
-        t = pxt.create_table('test_tbl', {'query': pxt.String, 'docs': pxt.Json})
+        t = pxt.create_table('test_tbl', {'query': pxt.String | None, 'docs': pxt.Json | None})
         t.add_computed_column(
             reranked=rerank(t.query, t.docs, model='jina-reranker-v2-base-multilingual', top_n=3, return_documents=True)
         )

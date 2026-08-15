@@ -10,6 +10,7 @@ from uuid import UUID
 
 import pandas as pd
 import pydantic
+from typing_extensions import TypeForm
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, exprs, index, type_system as ts
@@ -125,7 +126,7 @@ class LocalTable(Table):
                 )
             column_info[col.name] = ColumnMetadata(
                 name=col.name,
-                type_=col.col_type._to_str(as_schema=True),
+                type_=repr(col.col_type),
                 version_added=col.schema_version_add,
                 is_stored=col.is_stored,
                 is_primary_key=col.is_pk,
@@ -392,7 +393,7 @@ class LocalTable(Table):
             col_descriptors.append(
                 {
                     'Column Name': col.name,
-                    'Type': col.col_type._to_str(as_schema=True),
+                    'Type': repr(col.col_type),
                     'Source': source_tv.name,
                     'Computed With': computed_with,
                     'Comment': col.comment if col.comment is not None else '',
@@ -487,7 +488,7 @@ class LocalTable(Table):
 
     def add_columns(
         self,
-        schema: Mapping[str, type | ColumnSpec],
+        schema: Mapping[str, TypeForm | ColumnSpec],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
         from pixeltable.catalog import retry_loop
@@ -533,7 +534,7 @@ class LocalTable(Table):
         self,
         *,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-        **kwargs: type | ColumnSpec,
+        **kwargs: TypeForm | ColumnSpec,
     ) -> UpdateStatus:
         # verify kwargs and construct column schema dict
         self._check_single_column_kwarg('add_column', '`col_name=col_type`', kwargs)
@@ -706,10 +707,10 @@ class LocalTable(Table):
             self._check_mutable('rename columns of')
             self._tbl_version.get().rename_column(old_name, new_name)
 
-    def alter_column(self, column: str | ColumnRef, *, type_: type) -> None:
+    def alter_column(self, column: str | ColumnRef, *, type_: TypeForm) -> None:
         from pixeltable.catalog import retry_loop
 
-        new_col_type = ts.ColumnType.normalize_type(type_, nullable_default=True, allow_builtin_types=False)
+        new_col_type = ts.ColumnType.normalize_type(type_, allow_builtin_types=False)
 
         @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)
         def do_alter_column() -> None:

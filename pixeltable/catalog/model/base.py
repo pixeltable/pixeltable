@@ -138,7 +138,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                     spec = col_spec.copy()
                     if 'type' in spec:
                         spec['type'] = ts.ColumnType.normalize_type(  # type: ignore[typeddict-item]
-                            spec['type'], nullable_default=True, allow_builtin_types=False
+                            spec['type'], allow_builtin_types=False
                         )
                     origin: Literal['base_query', 'model_body'] = (
                         'base_query' if col_name in base_query_cols else 'model_body'

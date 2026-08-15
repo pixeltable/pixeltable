@@ -56,7 +56,7 @@ class TestEnvReset:
         assert env1._db_name == dbname
 
         # Create a simple table
-        t = pxt.create_table('test_table', {'col1': pxt.String})
+        t = pxt.create_table('test_table', {'col1': pxt.String | None})
         t.insert([{'col1': 'test_data'}])
         assert t.count() == 1
 
@@ -79,7 +79,7 @@ class TestEnvReset:
         # Environment 1
         _reset_env(reinit=True, db_name=dbname1)
 
-        t1 = pxt.create_table('table1', {'name': pxt.String})
+        t1 = pxt.create_table('table1', {'name': pxt.String | None})
         t1.insert([{'name': 'env1_data'}])
 
         # Switch to Environment 2
@@ -89,7 +89,7 @@ class TestEnvReset:
         assert env2._db_name == dbname2
 
         # Create different table in env2
-        t2 = pxt.create_table('table2', {'value': pxt.Int})
+        t2 = pxt.create_table('table2', {'value': pxt.Int | None})
         t2.insert([{'value': 42}])
 
         # Verify table1 doesn't exist in env2
@@ -122,9 +122,11 @@ class TestEnvReset:
         pxt.create_dir('analytics/reports')
 
         # Create tables with different features
-        t1 = pxt.create_table('users', {'user_id': pxt.Int, 'username': pxt.String, 'active': pxt.Bool})
+        t1 = pxt.create_table(
+            'users', {'user_id': pxt.Int | None, 'username': pxt.String | None, 'active': pxt.Bool | None}
+        )
 
-        t2 = pxt.create_table('analytics/reports/sales', {'sale_id': pxt.Int, 'amount': pxt.Float})
+        t2 = pxt.create_table('analytics/reports/sales', {'sale_id': pxt.Int | None, 'amount': pxt.Float | None})
 
         # Add computed column
         t2.add_computed_column(amount_doubled=t2.amount * 2)

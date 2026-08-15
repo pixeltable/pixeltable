@@ -127,7 +127,7 @@ class _ColumnProperties:
         dest = spec.get('destination')
         dest_str = str(dest) if dest is not None else None
         return cls(
-            type=col_type._to_str(as_schema=True),
+            type=repr(col_type),
             value=exprs.Expr.from_object(value).display_str(inline=False) if value is not None else None,
             primary_key=spec.get('primary_key', False),
             stored=spec.get('stored', True),
@@ -217,7 +217,7 @@ def _format_column_spec(spec: ColumnSpec) -> str:
 
 
 def _add_column_change(col_name: str, spec: ColumnSpec) -> SchemaChangeOp:
-    details: SchemaChangeOpDetails = {'type': col_type_from_spec(spec)._to_str(as_schema=True)}
+    details: SchemaChangeOpDetails = {'type': repr(col_type_from_spec(spec))}
     value = spec.get('value')
     if value is not None:
         details['value'] = exprs.Expr.from_object(value).display_str(inline=False)

@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, MutableMapping, Sequence, TypedDict, cast
 from uuid import uuid4
 
+from typing_extensions import TypeForm
+
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
 from pixeltable.config import URI, ConfigVar
 from pixeltable.env import Env
@@ -69,7 +71,7 @@ for method in FORWARDED_TABLE_METHODS:
 class Column:
     """A column specification used in a TableModel or ViewModel definition."""
 
-    type: type | None = None
+    type: TypeForm | None = None
     value: Any = None
     primary_key: bool | None = None
     stored: bool | None = None
@@ -471,7 +473,7 @@ class _ModelNamespace(dict):
                     excs.ErrorCode.INVALID_SCHEMA,
                     f'Could not resolve the type annotation {type_!r} for column {name!r}: {exc}',
                 ) from exc
-        type_ = ts.ColumnType.normalize_type(type_, nullable_default=True, allow_builtin_types=False)
+        type_ = ts.ColumnType.normalize_type(type_, allow_builtin_types=False)
         if name in self.known_cols:
             # We previously processed this column via set_col_value(). Sanity check the type.
             if col_type_from_spec(self.known_cols[name]) != type_:
@@ -761,7 +763,7 @@ class TableModelMeta(type):
             spec = col_spec.copy()
             if 'type' in spec:
                 spec['type'] = ts.ColumnType.normalize_type(  # type: ignore[typeddict-item]
-                    spec['type'], nullable_default=True, allow_builtin_types=False
+                    spec['type'], allow_builtin_types=False
                 )
             columns[name] = spec
 

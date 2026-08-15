@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import pgvector.sqlalchemy
 import sqlalchemy as sql
+from typing_extensions import TypeForm
 
 import pixeltable.exprs as exprs
 import pixeltable.index as index
@@ -207,7 +208,7 @@ class Column:
         return val_col, undo_col
 
     @classmethod
-    def create(cls, name: str, spec: ts.ColumnType | type | ColumnSpec | exprs.Expr) -> Column:
+    def create(cls, name: str, spec: ts.ColumnType | TypeForm | ColumnSpec | exprs.Expr) -> Column:
         col_type: ts.ColumnType | None = None
         value_expr: exprs.Expr | None = None
         primary_key: bool = False
@@ -220,7 +221,7 @@ class Column:
         sa_col_type: sql.types.TypeEngine | None = None
         # TODO: Should we fully deprecate passing ts.ColumnType here?
         if isinstance(spec, ts.ColumnType) or ts.is_type_form(spec):
-            col_type = ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)
+            col_type = ts.ColumnType.normalize_type(spec, allow_builtin_types=False)
             sa_col_type = col_type.to_sa_type()
         elif isinstance(spec, exprs.Expr):
             # create copy so we can modify it
@@ -241,7 +242,7 @@ class Column:
                 assert expr is not None, type(value_expr)
                 sa_col_type = expr.col_type.to_sa_type()
             if 'type' in spec:
-                col_type = ts.ColumnType.normalize_type(spec['type'], nullable_default=True, allow_builtin_types=False)
+                col_type = ts.ColumnType.normalize_type(spec['type'], allow_builtin_types=False)
                 sa_col_type = col_type.to_sa_type() if stored else None
             primary_key = spec.get('primary_key', False)
             media_validation_str = spec.get('media_validation')

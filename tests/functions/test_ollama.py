@@ -36,7 +36,7 @@ class TestOllama:
         _ensure_ollama_availability()
         from pixeltable.functions.ollama import generate
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
 
         # msgs = [{'role': 'user', 'content': t.input}]
         t.add_computed_column(output=generate(t.input, model='qwen3:0.6b'))
@@ -54,7 +54,7 @@ class TestOllama:
         _ensure_ollama_availability()
         from pixeltable.functions.ollama import chat
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
 
         msgs = [{'role': 'system', 'content': 'You are a helpful assistant.'}, {'role': 'user', 'content': t.input}]
 
@@ -73,7 +73,7 @@ class TestOllama:
         _ensure_ollama_availability()
         from pixeltable.functions.ollama import embed
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
 
         t.add_computed_column(output=embed(t.input, model='qwen3-embedding:0.6b'))
         validate_update_status(t.insert(input='I am a purple cloud.'))

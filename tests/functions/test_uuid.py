@@ -13,7 +13,7 @@ pytestmark = pytest.mark.local('UDF/integration test')
 
 class TestUuid:
     def test_uuid_methods(self, uses_db: None) -> None:
-        t = pxt.create_table('test_tbl', {'id': pxt.UUID})
+        t = pxt.create_table('test_tbl', {'id': pxt.UUID | None})
 
         # Create some test UUIDs
         test_uuids = sorted([uuid.uuid4() for _ in range(3)])

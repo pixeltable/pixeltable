@@ -66,7 +66,7 @@ class InsertableTable(LocalTable):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'Primary key column {pk_col!r} cannot be nullable. '
-                    f'Declare it as `Required` instead: `pxt.Required[pxt.{col.col_type._to_base_str()}]`',
+                    f'Declare it as non-nullable instead: `pxt.{col.col_type._to_base_str()}`',
                 )
             col.is_pk = True
 

@@ -22,7 +22,6 @@ from pixeltable.env import Env
 from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
 from pixeltable.functions.video import legacy_frame_iterator
-from pixeltable.types import ColumnSpec
 from pixeltable.utils.filecache import FileCache
 
 from .utils import (
@@ -117,14 +116,19 @@ class TestTable:
     def test_create(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
         p = make_catalog_path
         pxt.create_dir(p('dir1'))
-        schema = {'c1': pxt.String, 'c2': pxt.Int, 'c3': pxt.Float, 'c4': pxt.Timestamp}
+        schema: dict[str, Any] = {
+            'c1': pxt.String | None,
+            'c2': pxt.Int | None,
+            'c3': pxt.Float | None,
+            'c4': pxt.Timestamp | None,
+        }
         tbl = pxt.create_table(p('test'), schema)
         _ = pxt.create_table(p('dir1/test'), schema)
 
         with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Invalid path: 1test'):
             pxt.create_table(p('1test'), schema)
         with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Invalid path: bad name'):
-            pxt.create_table(p('bad name'), {'c1': pxt.String})
+            pxt.create_table(p('bad name'), {'c1': pxt.String | None})
         with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Versioned path not allowed here: .*test:120'):
             pxt.create_table(p('test:120'), schema)
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='is an existing table'):
@@ -146,7 +150,7 @@ class TestTable:
         reload_tester.run_reload_test()
 
         tbl = pxt.get_table(p('test'))
-        tbl.add_column(c5=pxt.Int)
+        tbl.add_column(c5=pxt.Int | None)
         tbl.drop_column('c1')
         tbl.rename_column('c2', 'c17')
 
@@ -169,15 +173,20 @@ class TestTable:
             pxt.drop_table(p('test2:120'))
 
         with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match="'add_column' is a reserved name in Pixeltable"):
-            pxt.create_table(p('test'), {'add_column': pxt.Int})
+            pxt.create_table(p('test'), {'add_column': pxt.Int | None})
 
         with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match="'insert' is a reserved name in Pixeltable"):
-            pxt.create_table(p('test'), {'insert': pxt.Int})
+            pxt.create_table(p('test'), {'insert': pxt.Int | None})
 
     def test_create_if_exists(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
         """Test the if_exists parameter of create_table API"""
         p = make_catalog_path
-        schema = {'c1': pxt.String, 'c2': pxt.Int, 'c3': pxt.Float, 'c4': pxt.Timestamp}
+        schema: dict[str, Any] = {
+            'c1': pxt.String | None,
+            'c2': pxt.Int | None,
+            'c3': pxt.Float | None,
+            'c4': pxt.Timestamp | None,
+        }
         tbl = pxt.create_table(p('test'), schema)
         tbl.insert(create_table_data(tbl, num_rows=5))
         id_before = tbl._id
@@ -264,11 +273,11 @@ class TestTable:
 
     def test_move(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        pxt.create_table(p('tbl1'), {'c1': pxt.Int})
+        pxt.create_table(p('tbl1'), {'c1': pxt.Int | None})
         assert pxt.list_tables(p('')) == [p('tbl1')]
         pxt.move(p('tbl1'), p('tbl2'))
         assert pxt.list_tables(p('')) == [p('tbl2')]
-        pxt.create_table(p('tbl3'), {'c1': pxt.Int})
+        pxt.create_table(p('tbl3'), {'c1': pxt.Int | None})
         assert sorted(pxt.list_tables(p(''))) == sorted([p('tbl2'), p('tbl3')])
 
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match=r"Path 'tbl3' already exists."):
@@ -292,7 +301,12 @@ class TestTable:
 
     def test_columns(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        schema = {'c1': pxt.String, 'c2': pxt.Int, 'c3': pxt.Float, 'c4': pxt.Timestamp}
+        schema: dict[str, Any] = {
+            'c1': pxt.String | None,
+            'c2': pxt.Int | None,
+            'c3': pxt.Float | None,
+            'c4': pxt.Timestamp | None,
+        }
         t = pxt.create_table(p('test'), schema)
         assert t.columns() == ['c1', 'c2', 'c3', 'c4']
 
@@ -304,7 +318,7 @@ class TestTable:
             tbl_path = p(rel_tbl_path)
             tbl = pxt.create_table(
                 tbl_path,
-                {'col': pxt.String},
+                {'col': pxt.String | None},
                 media_validation=media_val,  # type: ignore[arg-type]
                 has_default_idxs=True,
             )
@@ -338,7 +352,7 @@ class TestTable:
                             'custom_metadata': None,
                             'comment': None,
                             'name': 'col',
-                            'type_': 'String',
+                            'type_': 'String | None',
                             'version_added': 0,
                         }
                     },
@@ -383,7 +397,7 @@ class TestTable:
                             'custom_metadata': None,
                             'comment': None,
                             'name': 'col',
-                            'type_': 'String',
+                            'type_': 'String | None',
                             'version_added': 0,
                         }
                     },
@@ -441,7 +455,7 @@ class TestTable:
                             'comment': None,
                             'name': 'col',
                             'custom_metadata': None,
-                            'type_': 'String',
+                            'type_': 'String | None',
                             'version_added': 0,
                         }
                     },
@@ -484,7 +498,7 @@ class TestTable:
                             'custom_metadata': None,
                             'name': 'col',
                             'comment': None,
-                            'type_': 'String',
+                            'type_': 'String | None',
                             'version_added': 0,
                         },
                         'col2': {
@@ -501,7 +515,7 @@ class TestTable:
                             'custom_metadata': None,
                             'name': 'col2',
                             'comment': None,
-                            'type_': 'String',
+                            'type_': 'String | None',
                             'version_added': 0,
                         },
                     },
@@ -530,7 +544,9 @@ class TestTable:
         """Test all ColumnMetadata fields across tables and views with various column types."""
         p = make_catalog_path
         tbl_path = p('test')
-        t = pxt.create_table(tbl_path, {'c1': pxt.Int, 'c2': pxt.Int, 'img': pxt.Image}, has_default_idxs=True)
+        t = pxt.create_table(
+            tbl_path, {'c1': pxt.Int | None, 'c2': pxt.Int | None, 'img': pxt.Image | None}, has_default_idxs=True
+        )
         # Builtin computed, single dependency
         t.add_computed_column(plus1=t.c1 + 1)
         # Builtin computed, multiple dependencies
@@ -548,7 +564,7 @@ class TestTable:
                 'columns': {
                     'c1': {
                         'name': 'c1',
-                        'type_': 'Int',
+                        'type_': 'Int | None',
                         'version_added': 0,
                         'is_stored': True,
                         'is_primary_key': False,
@@ -565,7 +581,7 @@ class TestTable:
                     },
                     'c2': {
                         'name': 'c2',
-                        'type_': 'Int',
+                        'type_': 'Int | None',
                         'version_added': 0,
                         'is_stored': True,
                         'is_primary_key': False,
@@ -582,7 +598,7 @@ class TestTable:
                     },
                     'img': {
                         'name': 'img',
-                        'type_': 'Image',
+                        'type_': 'Image | None',
                         'version_added': 0,
                         'is_stored': True,
                         'is_primary_key': False,
@@ -599,7 +615,7 @@ class TestTable:
                     },
                     'plus1': {
                         'name': 'plus1',
-                        'type_': 'Int',
+                        'type_': 'Int | None',
                         'version_added': 1,
                         'is_stored': True,
                         'is_primary_key': False,
@@ -616,7 +632,7 @@ class TestTable:
                     },
                     'sum12': {
                         'name': 'sum12',
-                        'type_': 'Int',
+                        'type_': 'Int | None',
                         'version_added': 2,
                         'is_stored': True,
                         'is_primary_key': False,
@@ -633,7 +649,7 @@ class TestTable:
                     },
                     'custom': {
                         'name': 'custom',
-                        'type_': 'Float',
+                        'type_': 'Float | None',
                         'version_added': 3,
                         'is_stored': True,
                         'is_primary_key': False,
@@ -690,7 +706,7 @@ class TestTable:
                 'columns': {
                     'c1': {
                         'name': 'c1',
-                        'type_': 'Int',
+                        'type_': 'Int | None',
                         'version_added': 0,
                         'is_stored': True,
                         'is_primary_key': False,
@@ -707,7 +723,7 @@ class TestTable:
                     },
                     'c2': {
                         'name': 'c2',
-                        'type_': 'Int',
+                        'type_': 'Int | None',
                         'version_added': 0,
                         'is_stored': True,
                         'is_primary_key': False,
@@ -724,7 +740,7 @@ class TestTable:
                     },
                     'img': {
                         'name': 'img',
-                        'type_': 'Image',
+                        'type_': 'Image | None',
                         'version_added': 0,
                         'is_stored': True,
                         'is_primary_key': False,
@@ -741,7 +757,7 @@ class TestTable:
                     },
                     'plus1': {
                         'name': 'plus1',
-                        'type_': 'Int',
+                        'type_': 'Int | None',
                         'version_added': 1,
                         'is_stored': True,
                         'is_primary_key': False,
@@ -758,7 +774,7 @@ class TestTable:
                     },
                     'sum12': {
                         'name': 'sum12',
-                        'type_': 'Int',
+                        'type_': 'Int | None',
                         'version_added': 2,
                         'is_stored': True,
                         'is_primary_key': False,
@@ -775,7 +791,7 @@ class TestTable:
                     },
                     'custom': {
                         'name': 'custom',
-                        'type_': 'Float',
+                        'type_': 'Float | None',
                         'version_added': 3,
                         'is_stored': True,
                         'is_primary_key': False,
@@ -792,7 +808,7 @@ class TestTable:
                     },
                     'derived': {
                         'name': 'derived',
-                        'type_': 'Int',
+                        'type_': 'Int | None',
                         'version_added': 1,
                         'is_stored': True,
                         'is_primary_key': False,
@@ -834,7 +850,7 @@ class TestTable:
     def test_iterator_view_metadata(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         tbl_path = p('test')
-        t = pxt.create_table(tbl_path, {'n': pxt.Int})
+        t = pxt.create_table(tbl_path, {'n': pxt.Int | None})
         t.insert(n=3)
         view_path = p('iter_view')
         iv = pxt.create_view(view_path, t, iterator=DummyIterator(t.n))
@@ -866,7 +882,7 @@ class TestTable:
                 'columns': {
                     'pos': {
                         'name': 'pos',
-                        'type_': 'Required[Int]',
+                        'type_': 'Int',
                         'version_added': 0,
                         'is_stored': False,
                         'is_primary_key': False,
@@ -883,7 +899,7 @@ class TestTable:
                     },
                     'out1': {
                         'name': 'out1',
-                        'type_': 'Required[String]',
+                        'type_': 'String',
                         'version_added': 0,
                         'is_stored': True,
                         'is_primary_key': False,
@@ -900,7 +916,7 @@ class TestTable:
                     },
                     'out2': {
                         'name': 'out2',
-                        'type_': 'Required[Int]',
+                        'type_': 'Int',
                         'version_added': 0,
                         'is_stored': True,
                         'is_primary_key': False,
@@ -917,7 +933,7 @@ class TestTable:
                     },
                     'n': {
                         'name': 'n',
-                        'type_': 'Int',
+                        'type_': 'Int | None',
                         'version_added': 0,
                         'is_stored': True,
                         'is_primary_key': False,
@@ -934,7 +950,7 @@ class TestTable:
                     },
                     'derived': {
                         'name': 'derived',
-                        'type_': 'Required[Int]',
+                        'type_': 'Int',
                         'version_added': 1,
                         'is_stored': True,
                         'is_primary_key': False,
@@ -956,9 +972,9 @@ class TestTable:
 
     def test_media_validation(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        tbl_schema: dict[str, ColumnSpec | type] = {
-            'img': {'type': pxt.Image, 'media_validation': 'on_write'},
-            'video': pxt.Video,
+        tbl_schema: dict[str, Any] = {
+            'img': {'type': pxt.Image | None, 'media_validation': 'on_write'},
+            'video': pxt.Video | None,
         }
         t = pxt.create_table(p('test'), tbl_schema, media_validation='on_read')
         t_md = t.get_metadata()
@@ -967,9 +983,9 @@ class TestTable:
         # table default applies
         assert t_md['columns']['video']['media_validation'] == 'on_read'
 
-        v_schema: dict[str, ColumnSpec | type] = {
-            'doc': {'type': pxt.Document, 'media_validation': 'on_read'},
-            'audio': pxt.Audio,
+        v_schema: dict[str, Any] = {
+            'doc': {'type': pxt.Document | None, 'media_validation': 'on_read'},
+            'audio': pxt.Audio | None,
         }
         v = pxt.create_view(p('test_view'), t, additional_columns=v_schema, media_validation='on_write')
         v_md = v.get_metadata()
@@ -982,11 +998,14 @@ class TestTable:
         assert v_md['columns']['video']['media_validation'] == 'on_read'
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as exc_info:
-            _ = pxt.create_table(p('validation_error'), {'img': pxt.Image}, media_validation='wrong_value')  # type: ignore[arg-type]
+            _ = pxt.create_table(p('validation_error'), {'img': pxt.Image | None}, media_validation='wrong_value')  # type: ignore[arg-type]
         assert "media_validation must be one of: ['on_read', 'on_write']" in str(exc_info.value)
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as exc_info:
-            _ = pxt.create_table(p('validation_error'), {'img': {'type': pxt.Image, 'media_validation': 'wrong_value'}})  # type: ignore[dict-item]
+            _ = pxt.create_table(
+                p('validation_error'),
+                {'img': {'type': pxt.Image | None, 'media_validation': 'wrong_value'}},  # type: ignore[dict-item]
+            )
         assert "media_validation must be one of: ['on_read', 'on_write']" in str(exc_info.value)
 
     def test_validate_on_read(
@@ -995,7 +1014,7 @@ class TestTable:
         p = make_catalog_path
         files = get_video_files(include_bad_video=True)
         rows = [{'id': i, 'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for i, f in enumerate(files)]
-        schema = {'id': pxt.Int, 'media': pxt.Video, 'is_bad_media': pxt.Bool}
+        schema: dict[str, Any] = {'id': pxt.Int | None, 'media': pxt.Video | None, 'is_bad_media': pxt.Bool | None}
 
         on_read_tbl = pxt.create_table(p('read_validated'), schema, media_validation='on_read')
         validate_update_status(on_read_tbl.insert(rows), len(rows))
@@ -1030,7 +1049,7 @@ class TestTable:
         p = make_catalog_path
         files = get_video_files(include_bad_video=True)
         rows = [{'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for f in files]
-        schema = {'media': pxt.Video, 'is_bad_media': pxt.Bool, 'stage': pxt.Required[pxt.Int]}
+        schema: dict[str, Any] = {'media': pxt.Video | None, 'is_bad_media': pxt.Bool | None, 'stage': pxt.Int}
 
         # we are testing a nonsensical scenario: a computed column that references a read-validated media column,
         # which forces validation
@@ -1129,16 +1148,16 @@ class TestTable:
         type[pydantic.BaseModel],
         list[pydantic.BaseModel],
     ]:
-        schema = {
-            's': pxt.Required[pxt.String],
-            'opt_s': pxt.String,
-            'i': pxt.Required[pxt.Int],
-            'f': pxt.Required[pxt.Float],
-            'b': pxt.Required[pxt.Bool],
-            't': pxt.Required[pxt.Timestamp],
-            'r': pxt.Required[pxt.String],
-            'en': pxt.Required[pxt.Int],
-            'en_s': pxt.Required[pxt.String],
+        schema: dict[str, Any] = {
+            's': pxt.String,
+            'opt_s': pxt.String | None,
+            'i': pxt.Int,
+            'f': pxt.Float,
+            'b': pxt.Bool,
+            't': pxt.Timestamp,
+            'r': pxt.String,
+            'en': pxt.Int,
+            'en_s': pxt.String,
         }
         t = pxt.create_table(p('test_pydantic_basic'), schema)
         t.add_computed_column(c1=t.i + 1)
@@ -1228,7 +1247,7 @@ class TestTable:
 
     def test_compute_with_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test_null_handling'), {'id': pxt.Int, 'data': pxt.Json})
+        t = pxt.create_table(p('test_null_handling'), {'id': pxt.Int | None, 'data': pxt.Json | None})
         t.add_computed_column(inv=1 / t.id)
         # unstored computed col: no persisted cellmd slot, but compute() must still report the error
         t.add_computed_column(inv2=2 / t.id, stored=False)
@@ -1237,7 +1256,7 @@ class TestTable:
         rows: list[dict[str, Any]] = [{'id': 0, 'data': None}, {'id': 2, 'data': {'k': 'v'}}]
         out = t.compute(rows, on_error='ignore')
         assert isinstance(out, pxt.RowBatch)
-        assert out.schema == {'id': 'Int', 'data': 'Json', 'inv': 'Float', 'inv2': 'Float'}
+        assert out.schema == {'id': 'Int | None', 'data': 'Json | None', 'inv': 'Float | None', 'inv2': 'Float | None'}
         assert out.column_names == ['id', 'data', 'inv', 'inv2']
         assert out[0] == {'id': 0, 'data': None, 'inv': None, 'inv2': None}
         assert out[0].errors == {
@@ -1260,7 +1279,7 @@ class TestTable:
         p = make_catalog_path
         files = get_video_files(include_bad_video=True)
         rows = [{'media': f} for f in files]
-        t = pxt.create_table(p('test_compute_media_errors'), {'media': pxt.Video}, media_validation='on_write')
+        t = pxt.create_table(p('test_compute_media_errors'), {'media': pxt.Video | None}, media_validation='on_write')
         t.add_computed_column(md=t.media.get_metadata())
 
         # on_error='ignore': the bad row carries error info for 'media' (validation) and 'md' (computed col)
@@ -1280,7 +1299,7 @@ class TestTable:
 
     def test_compute_input_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test_compute_input_errors'), {'id': pxt.Int})
+        t = pxt.create_table(p('test_compute_input_errors'), {'id': pxt.Int | None})
         t.add_computed_column(plus1=t.id + 1)
 
         # empty sequence
@@ -1305,7 +1324,7 @@ class TestTable:
         # arrays and in-memory images cross the wire inlined; a file-backed media path is read directly (the
         # daemon shares this client's filesystem and media store)
         p = make_catalog_path
-        t = pxt.create_table(p('array_media'), {'id': pxt.Int, 'a': pxt.Array, 'img': pxt.Image})
+        t = pxt.create_table(p('array_media'), {'id': pxt.Int | None, 'a': pxt.Array | None, 'img': pxt.Image | None})
         t.add_computed_column(rotated=t.img.rotate(180), stored=False)
         img_file = get_image_files()[0]
         arr = np.arange(12, dtype=np.int64).reshape(3, 4)
@@ -1326,7 +1345,7 @@ class TestTable:
     def test_compute_with_idx(self, make_catalog_path: Callable[[str], str], clip_embed: pxt.Function) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('transformers')
-        t = pxt.create_table(p('test_compute_with_idx'), {'img': pxt.Image})
+        t = pxt.create_table(p('test_compute_with_idx'), {'img': pxt.Image | None})
         t.add_computed_column(rotated=t.img.rotate(90), stored=False)
         t.add_computed_column(md=t.img.get_metadata())
         t.add_embedding_index('img', idx_name='img_idx1', metric='cosine', embedding=clip_embed)
@@ -1356,10 +1375,12 @@ class TestTable:
 
     def test_compute_view(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test_compute_view_base'), {'id': pxt.Int, 's': pxt.String})
+        t = pxt.create_table(p('test_compute_view_base'), {'id': pxt.Int | None, 's': pxt.String | None})
         t.add_computed_column(plus1=t.id + 1)
         v = pxt.create_view(
-            p('test_compute_view_v'), t.where(t.id > 0), additional_columns={'double': t.id * 2, 'note': pxt.String}
+            p('test_compute_view_v'),
+            t.where(t.id > 0),
+            additional_columns={'double': t.id * 2, 'note': pxt.String | None},
         )
 
         # input rows that fail the view's filter are dropped; output rows contain base and view columns
@@ -1431,7 +1452,7 @@ class TestTable:
 
     def test_compute_component_view(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test_compute_cv_base'), {'id': pxt.Int})
+        t = pxt.create_table(p('test_compute_cv_base'), {'id': pxt.Int | None})
         t.add_computed_column(plus1=t.id + 1)
         v = pxt.create_view(p('test_compute_cv'), t, iterator=DummyIterator(limit=t.id))
         v.add_computed_column(o2x2=v.out2 * 2)
@@ -1479,7 +1500,8 @@ class TestTable:
     def test_insert_return_rows_with_idx(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         t = pxt.create_table(
-            p('test_insert_return_rows_with_idx'), {'id': pxt.Int, 'name': pxt.String, 'ts': pxt.Timestamp}
+            p('test_insert_return_rows_with_idx'),
+            {'id': pxt.Int | None, 'name': pxt.String | None, 'ts': pxt.Timestamp | None},
         )
         now = datetime.datetime.now()
         status = t.insert([{'id': 1, 'name': 'a', 'ts': now}, {'id': 2, 'name': 'b', 'ts': now}], return_rows=True)
@@ -1521,7 +1543,7 @@ class TestTable:
         p = make_catalog_path
         # value provided for computed column
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='has fields for computed columns: c1'):
-            t = pxt.create_table(p('bad1'), {'i': pxt.Int})
+            t = pxt.create_table(p('bad1'), {'i': pxt.Int | None})
             t.add_computed_column(c1=t.i + 1)
 
             class BadModel1(pydantic.BaseModel):
@@ -1534,7 +1556,7 @@ class TestTable:
         with pxt_raises(
             pxt.ErrorCode.TYPE_MISMATCH, match=r"incompatible type `E1` for column 'en' \(of Pixeltable type `String`\)"
         ):
-            t = pxt.create_table(p('bad2'), {'i': pxt.Int, 'en': pxt.Required[pxt.String]})
+            t = pxt.create_table(p('bad2'), {'i': pxt.Int | None, 'en': pxt.String})
 
             class E1(enum.Enum):
                 A = 1
@@ -1550,7 +1572,7 @@ class TestTable:
         with pxt_raises(
             pxt.ErrorCode.TYPE_MISMATCH, match=r"incompatible type `E2` for column 'en' \(of Pixeltable type `Int`\)"
         ):
-            t = pxt.create_table(p('bad2b'), {'i': pxt.Int, 'en': pxt.Required[pxt.Int]})
+            t = pxt.create_table(p('bad2b'), {'i': pxt.Int | None, 'en': pxt.Int})
 
             class E2(enum.Enum):
                 A = 'a'
@@ -1567,7 +1589,7 @@ class TestTable:
             pxt.ErrorCode.TYPE_MISMATCH,
             match=r"incompatible type `Literal` for column 'r' \(of Pixeltable type `String`\)",
         ):
-            t = pxt.create_table(p('bad7'), {'i': pxt.Int, 'r': pxt.Required[pxt.String]})
+            t = pxt.create_table(p('bad7'), {'i': pxt.Int | None, 'r': pxt.String})
 
             class BadModel3(pydantic.BaseModel):
                 i: int
@@ -1577,7 +1599,7 @@ class TestTable:
 
         # missing required field in model
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='is missing required columns: s'):
-            t = pxt.create_table(p('bad3'), {'i': pxt.Int, 's': pxt.Required[pxt.String]})
+            t = pxt.create_table(p('bad3'), {'i': pxt.Int | None, 's': pxt.String})
 
             class BadModel4(pydantic.BaseModel):
                 i: int
@@ -1586,7 +1608,7 @@ class TestTable:
 
         # missing required field in model instance
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match="Missing required column 's' in row 0"):
-            t = pxt.create_table(p('bad6'), {'i': pxt.Int, 's': pxt.Required[pxt.String]})
+            t = pxt.create_table(p('bad6'), {'i': pxt.Int | None, 's': pxt.String})
 
             class BadModel5(pydantic.BaseModel):
                 i: int
@@ -1599,7 +1621,7 @@ class TestTable:
             pxt.ErrorCode.TYPE_MISMATCH,
             match=r"has incompatible type `str` for column 'i' \(of Pixeltable type `Int`\)",
         ):
-            t = pxt.create_table(p('bad4'), {'i': pxt.Required[pxt.Int]})
+            t = pxt.create_table(p('bad4'), {'i': pxt.Int})
 
             class BadModel6(pydantic.BaseModel):
                 i: str
@@ -1608,7 +1630,7 @@ class TestTable:
 
         # bad field type
         with pxt_raises(pxt.ErrorCode.INVALID_TYPE, match="cannot infer Pixeltable type for column 's'"):
-            t = pxt.create_table(p('bad5'), {'s': pxt.String})
+            t = pxt.create_table(p('bad5'), {'s': pxt.String | None})
 
             class BadModel7(pydantic.BaseModel):
                 s: set[int]
@@ -1617,7 +1639,7 @@ class TestTable:
 
         # no matching fields
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='has no fields that map to columns'):
-            t = pxt.create_table(p('errors'), {'s': pxt.String}, if_exists='replace')
+            t = pxt.create_table(p('errors'), {'s': pxt.String | None}, if_exists='replace')
 
             class BadModel8(pydantic.BaseModel):
                 t: str
@@ -1626,7 +1648,7 @@ class TestTable:
 
     def test_insert_nested_pydantic(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        schema = {'s': pxt.Required[pxt.String], 'j': pxt.Required[pxt.Json]}
+        schema: dict[str, Any] = {'s': pxt.String, 'j': pxt.Json}
         t = pxt.create_table(p('test_nested_pydantic'), schema)
 
         class N(pydantic.BaseModel):
@@ -1709,7 +1731,7 @@ class TestTable:
 
     def test_pydantic_media(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        schema = {'img': pxt.Required[pxt.Image]}
+        schema: dict[str, Any] = {'img': pxt.Image}
         t = pxt.create_table(p('test_pydantic_media'), schema)
 
         class M1(pydantic.BaseModel):
@@ -1742,41 +1764,41 @@ class TestTable:
     # correct ColumnType instances.
     def test_schema_types(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        test_columns: dict[str, type] = {
-            'str_col': pxt.String,
-            'req_str_col': pxt.Required[pxt.String],
-            'int_col': pxt.Int,
-            'req_int_col': pxt.Required[pxt.Int],
-            'float_col': pxt.Float,
-            'req_float_col': pxt.Required[pxt.Float],
-            'bool_col': pxt.Bool,
-            'req_bool_col': pxt.Required[pxt.Bool],
-            'ts_col': pxt.Timestamp,
-            'req_ts_col': pxt.Required[pxt.Timestamp],
-            'date_col': pxt.Date,
-            'req_date_col': pxt.Required[pxt.Date],
-            'uuid_col': pxt.UUID,
-            'req_uuid_col': pxt.Required[pxt.UUID],
-            'binary_col': pxt.Binary,
-            'req_binary_col': pxt.Required[pxt.Binary],
-            'json_col': pxt.Json,
-            'req_json_col': pxt.Required[pxt.Json],
-            'array_col': pxt.Array[(5, None, 3), pxt.Int],
-            'req_array_col': pxt.Required[pxt.Array[(5, None, 3), pxt.Int]],
-            'gen_array_col': pxt.Array[pxt.Float],
-            'req_gen_array_col': pxt.Required[pxt.Array[pxt.Float]],
-            'full_gen_array_col': pxt.Array,
-            'req_full_gen_array_col': pxt.Required[pxt.Array],
-            'img_col': pxt.Image,
-            'req_img_col': pxt.Required[pxt.Image],
-            'spec_img_col': pxt.Image[(300, 300), 'RGB'],
-            'req_spec_img_col': pxt.Required[pxt.Image[(300, 300), 'RGB']],
-            'video_col': pxt.Video,
-            'req_video_col': pxt.Required[pxt.Video],
-            'audio_col': pxt.Audio,
-            'req_audio_col': pxt.Required[pxt.Audio],
-            'doc_col': pxt.Document,
-            'req_doc_col': pxt.Required[pxt.Document],
+        test_columns: dict[str, Any] = {
+            'str_col': pxt.String | None,
+            'req_str_col': pxt.String,
+            'int_col': pxt.Int | None,
+            'req_int_col': pxt.Int,
+            'float_col': pxt.Float | None,
+            'req_float_col': pxt.Float,
+            'bool_col': pxt.Bool | None,
+            'req_bool_col': pxt.Bool,
+            'ts_col': pxt.Timestamp | None,
+            'req_ts_col': pxt.Timestamp,
+            'date_col': pxt.Date | None,
+            'req_date_col': pxt.Date,
+            'uuid_col': pxt.UUID | None,
+            'req_uuid_col': pxt.UUID,
+            'binary_col': pxt.Binary | None,
+            'req_binary_col': pxt.Binary,
+            'json_col': pxt.Json | None,
+            'req_json_col': pxt.Json,
+            'array_col': pxt.Array[(5, None, 3), pxt.Int] | None,
+            'req_array_col': pxt.Array[(5, None, 3), pxt.Int],
+            'gen_array_col': pxt.Array[pxt.Float] | None,
+            'req_gen_array_col': pxt.Array[pxt.Float],
+            'full_gen_array_col': pxt.Array | None,
+            'req_full_gen_array_col': pxt.Array,
+            'img_col': pxt.Image | None,
+            'req_img_col': pxt.Image,
+            'spec_img_col': pxt.Image[(300, 300), 'RGB'] | None,
+            'req_spec_img_col': pxt.Image[(300, 300), 'RGB'],
+            'video_col': pxt.Video | None,
+            'req_video_col': pxt.Video,
+            'audio_col': pxt.Audio | None,
+            'req_audio_col': pxt.Audio,
+            'doc_col': pxt.Document | None,
+            'req_doc_col': pxt.Document,
         }
 
         t = pxt.create_table(p('test'), test_columns)
@@ -1786,42 +1808,42 @@ class TestTable:
             t.add_column(**{f'added_{col_name}': col_type})
 
         expected_strings = [
+            'String | None',
             'String',
-            'Required[String]',
+            'Int | None',
             'Int',
-            'Required[Int]',
+            'Float | None',
             'Float',
-            'Required[Float]',
+            'Bool | None',
             'Bool',
-            'Required[Bool]',
+            'Timestamp | None',
             'Timestamp',
-            'Required[Timestamp]',
+            'Date | None',
             'Date',
-            'Required[Date]',
+            'UUID | None',
             'UUID',
-            'Required[UUID]',
+            'Binary | None',
             'Binary',
-            'Required[Binary]',
+            'Json | None',
             'Json',
-            'Required[Json]',
+            'Array[(5, None, 3), int64] | None',
             'Array[(5, None, 3), int64]',
-            'Required[Array[(5, None, 3), int64]]',
+            'Array[float32] | None',
             'Array[float32]',
-            'Required[Array[float32]]',
+            'Array | None',
             'Array',
-            'Required[Array]',
+            'Image | None',
             'Image',
-            'Required[Image]',
+            "Image[(300, 300), 'RGB'] | None",
             "Image[(300, 300), 'RGB']",
-            "Required[Image[(300, 300), 'RGB']]",
+            'Video | None',
             'Video',
-            'Required[Video]',
+            'Audio | None',
             'Audio',
-            'Required[Audio]',
+            'Document | None',
             'Document',
-            'Required[Document]',
         ]
-        # the type string in get_metadata() is col_type._to_str(as_schema=True), same as expected_strings
+        # the type string in get_metadata() is repr(col_type), same as expected_strings
         expected_by_name = dict(zip(test_columns.keys(), expected_strings, strict=True))
         expected_by_name.update(
             {f'added_{name}': type_str for name, type_str in zip(test_columns.keys(), expected_strings, strict=True)}
@@ -1836,14 +1858,14 @@ class TestTable:
 
     def test_drop_table(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test1'), {'c1': pxt.String})
+        t = pxt.create_table(p('test1'), {'c1': pxt.String | None})
         pxt.drop_table(p('test1'))
         with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
             _ = pxt.get_table(p('test1'))
         # with pytest.raises(pxt.Error) as exc_info:
         #     _ = t.show(1)
         # assert 'table test1 has been dropped' in str(exc_info.value).lower()
-        t = pxt.create_table(p('test2'), {'c1': pxt.String})
+        t = pxt.create_table(p('test2'), {'c1': pxt.String | None})
         t = pxt.get_table(p('test2'))
         pxt.drop_table(p('test2'))
         with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
@@ -1851,7 +1873,7 @@ class TestTable:
         # with pytest.raises(pxt.Error) as exc_info:
         #     _ = t.show(1)
         # assert 'table test2 has been dropped' in str(exc_info.value).lower()
-        t = pxt.create_table(p('test3'), {'c1': pxt.String})
+        t = pxt.create_table(p('test3'), {'c1': pxt.String | None})
         _ = pxt.create_view(p('view3'), t)
         pxt.drop_table(p('view3'))
         with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
@@ -1872,14 +1894,14 @@ class TestTable:
 
     def test_drop_table_via_handle(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test1'), {'c1': pxt.String})
+        t = pxt.create_table(p('test1'), {'c1': pxt.String | None})
         pxt.drop_table(t)
         with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
             _ = pxt.get_table(p('test1'))
         # with pytest.raises(pxt.Error) as exc_info:
         #     _ = t.show(1)
         # assert 'table test1 has been dropped' in str(exc_info.value).lower()
-        t = pxt.create_table(p('test2'), {'c1': pxt.String})
+        t = pxt.create_table(p('test2'), {'c1': pxt.String | None})
         t = pxt.get_table(p('test2'))
         pxt.drop_table(t)
         with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
@@ -1887,7 +1909,7 @@ class TestTable:
         # with pytest.raises(pxt.Error) as exc_info:
         #     _ = t.show(1)
         # assert 'table test2 has been dropped' in str(exc_info.value).lower()
-        t = pxt.create_table(p('test3'), {'c1': pxt.String})
+        t = pxt.create_table(p('test3'), {'c1': pxt.String | None})
         v = pxt.create_view(p('view3'), t)
         pxt.drop_table(v)
         with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
@@ -1966,7 +1988,12 @@ class TestTable:
     def test_image_table(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         p = make_catalog_path
         n_sample_rows = 20
-        schema = {'img': pxt.Image, 'category': pxt.String, 'split': pxt.String, 'img_literal': pxt.Image}
+        schema: dict[str, Any] = {
+            'img': pxt.Image | None,
+            'category': pxt.String | None,
+            'split': pxt.String | None,
+            'img_literal': pxt.Image | None,
+        }
         tbl = pxt.create_table(p('test'), schema)
         assert MediaStore.count(tbl, default_input_dest=True) == 0
 
@@ -2009,7 +2036,7 @@ class TestTable:
     def test_schema_spec(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME) as exc_info:
-            pxt.create_table(p('test'), {'c 1': pxt.Int})
+            pxt.create_table(p('test'), {'c 1': pxt.Int | None})
         assert 'invalid column name' in str(exc_info.value).lower()
 
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED) as exc_info:
@@ -2029,7 +2056,7 @@ class TestTable:
         assert 'must be a type' in str(exc_info.value)
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as exc_info:
-            pxt.create_table(p('test'), {'c1': {'value': 1, 'type': pxt.String}})  # type: ignore[dict-item]
+            pxt.create_table(p('test'), {'c1': {'value': 1, 'type': pxt.String | None}})  # type: ignore[dict-item]
         assert "'type' is redundant" in str(exc_info.value)
 
         with pxt_raises(pxt.ErrorCode.INVALID_EXPRESSION) as exc_info:
@@ -2045,30 +2072,30 @@ class TestTable:
         assert "Column 'c1': 'value' must be a Pixeltable expression" in str(exc_info.value)
 
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH) as exc_info:
-            pxt.create_table(p('test'), {'c1': {'type': pxt.String, 'stored': 'true'}})  # type: ignore[dict-item]
+            pxt.create_table(p('test'), {'c1': {'type': pxt.String | None, 'stored': 'true'}})  # type: ignore[dict-item]
         assert "'stored' must be a bool" in str(exc_info.value)
 
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND) as exc_info:
-            pxt.create_table(p('test'), {'c1': pxt.Required[pxt.String]}, primary_key='c2')
+            pxt.create_table(p('test'), {'c1': pxt.String}, primary_key='c2')
         assert "primary key column 'c2' not found" in str(exc_info.value).lower()
 
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND) as exc_info:
-            pxt.create_table(p('test'), {'c1': pxt.Required[pxt.String]}, primary_key=['c1', 'c2'])
+            pxt.create_table(p('test'), {'c1': pxt.String}, primary_key=['c1', 'c2'])
         assert "primary key column 'c2' not found" in str(exc_info.value).lower()
 
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND) as exc_info:
-            pxt.create_table(p('test'), {'c1': pxt.Required[pxt.String]}, primary_key=['c2'])
+            pxt.create_table(p('test'), {'c1': pxt.String}, primary_key=['c2'])
         assert "primary key column 'c2' not found" in str(exc_info.value).lower()
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as exc_info:
-            pxt.create_table(p('test'), {'c1': pxt.Required[pxt.String]}, primary_key=0)  # type: ignore[arg-type]
+            pxt.create_table(p('test'), {'c1': pxt.String}, primary_key=0)  # type: ignore[arg-type]
         assert 'primary_key must be a' in str(exc_info.value).lower()
 
         with pxt_raises(
             pxt.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r'cannot be nullable. Declare it as `Required` instead: `pxt.Required\[pxt.String\]`',
+            match=r'cannot be nullable. Declare it as non-nullable instead: `pxt.String`',
         ) as exc_info:
-            pxt.create_table(p('test'), {'c1': pxt.String}, primary_key='c1')
+            pxt.create_table(p('test'), {'c1': pxt.String | None}, primary_key='c1')
 
         for badtype, name, suggestion in [
             (str, 'str', 'pxt.String'),
@@ -2092,7 +2119,7 @@ class TestTable:
     def check_bad_media(
         self, p: Callable[[str], str], rows: list[dict[str, Any]], col_type: type, validate_local_path: bool = True
     ) -> None:
-        schema = {'media': col_type, 'is_bad_media': pxt.Bool}
+        schema: dict[str, Any] = {'media': col_type, 'is_bad_media': pxt.Bool | None}
         tbl = pxt.create_table(p('test'), schema)
 
         assert len(rows) > 0
@@ -2148,11 +2175,11 @@ class TestTable:
         t = pxt.create_table(
             p('test'),
             {
-                'json_col_1': MySchema,
-                'json_col_2': MySchemaOpt,
-                'json_col_3': pxt.Json[tuple[pxt.Int, pxt.String]],
-                'json_col_4': pxt.Json[tuple[pxt.Int, ...]],
-                'json_col_5': pxt.Json[(pxt.Int, pxt.String, ...)],  # noqa: RUF031
+                'json_col_1': MySchema | None,
+                'json_col_2': MySchemaOpt | None,
+                'json_col_3': pxt.Json[tuple[pxt.Int, pxt.String]] | None,
+                'json_col_4': pxt.Json[tuple[pxt.Int, ...]] | None,
+                'json_col_5': pxt.Json[(pxt.Int, pxt.String, ...)] | None,  # noqa: RUF031
             },
         )
         t.insert(json_col_1={'a': 'coconuts', 'b': 1, 'c': 3.0, 'd': True})
@@ -2257,7 +2284,7 @@ class TestTable:
         self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester, catalog_mode: CatalogMode
     ) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test'), {'img': pxt.Image})
+        t = pxt.create_table(p('test'), {'img': pxt.Image | None})
 
         # the localpath points to a loadable copy of the image: the original file locally, a fetched copy over
         # the proxy (whose name is a cache hash, not the source path)
@@ -2288,7 +2315,7 @@ class TestTable:
     @rerun_on_network_error()
     def test_create_s3_image_table(self, uses_db: None) -> None:
         skip_test_if_not_installed('boto3')
-        tbl = pxt.create_table('test', {'img': pxt.Image})
+        tbl = pxt.create_table('test', {'img': pxt.Image | None})
         # this is needed because reload_db() doesn't call TableVersion.drop(), which would
         # clear the file cache
         # TODO: change reset_catalog() to drop tables
@@ -2343,7 +2370,7 @@ class TestTable:
 
     def test_image_formats(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        tbl = pxt.create_table(p('test'), {'img': pxt.Image})
+        tbl = pxt.create_table(p('test'), {'img': pxt.Image | None})
         files = [
             'sewing-threads.heic'  # HEIC format
         ]
@@ -2353,7 +2380,7 @@ class TestTable:
     def test_video_url(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('boto3')
-        schema = {'payload': pxt.Int, 'video': pxt.Video}
+        schema: dict[str, Any] = {'payload': pxt.Int | None, 'video': pxt.Video | None}
         tbl = pxt.create_table(p('test'), schema)
         url = 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
         tbl.insert(payload=1, video=url)
@@ -2375,7 +2402,7 @@ class TestTable:
                 ' encountered recently written committed value...'
             )
         skip_test_if_not_installed('boto3')
-        tbl = pxt.create_table(p('test_tbl'), {'payload': pxt.Int, 'video': pxt.Video})
+        tbl = pxt.create_table(p('test_tbl'), {'payload': pxt.Int | None, 'video': pxt.Video | None})
         view = pxt.create_view(p('test_view'), tbl, iterator=legacy_frame_iterator(tbl.video))
         view.add_computed_column(c1=view.frame.rotate(30), stored=True)
         view.add_computed_column(c2=view.c1.rotate(40), stored=False)
@@ -2426,7 +2453,7 @@ class TestTable:
     def test_video_urls(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('boto3')
-        tbl = pxt.create_table(p('test'), {'video': pxt.Video})
+        tbl = pxt.create_table(p('test'), {'video': pxt.Video | None})
 
         # create a list of uris with duplicates, to test the duplicate-handling logic of CachePrefetchNode
         uris = get_multimedia_commons_video_uris(n=pxt.exec.CachePrefetchNode.BATCH_SIZE * 2)
@@ -2448,15 +2475,15 @@ class TestTable:
 
     def test_insert_nulls(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        schema = {
-            'c1': pxt.String,
-            'c2': pxt.Int,
-            'c3': pxt.Float,
-            'c4': pxt.Bool,
-            'c5': pxt.Array[(2, 3), pxt.Int],
-            'c6': pxt.Json,
-            'c7': pxt.Image,
-            'c8': pxt.Video,
+        schema: dict[str, Any] = {
+            'c1': pxt.String | None,
+            'c2': pxt.Int | None,
+            'c3': pxt.Float | None,
+            'c4': pxt.Bool | None,
+            'c5': pxt.Array[(2, 3), pxt.Int] | None,
+            'c6': pxt.Json | None,
+            'c7': pxt.Image | None,
+            'c8': pxt.Video | None,
         }
         t = pxt.create_table(p('test1'), schema)
         status = t.insert(c1='abc')
@@ -2465,16 +2492,16 @@ class TestTable:
 
     def test_insert(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        schema: dict[str, type] = {
-            'c1': pxt.Required[pxt.String],
-            'c2': pxt.Required[pxt.Int],
-            'c3': pxt.Required[pxt.Float],
-            'c4': pxt.Required[pxt.Bool],
-            'c5': pxt.Required[pxt.Array[(2, 3), pxt.Int]],
-            'c6': pxt.Required[pxt.Json],
-            'c7': pxt.Required[pxt.Image],
-            'c8': pxt.Required[pxt.Video],
-            'c9': pxt.Required[pxt.Timestamp],
+        schema: dict[str, Any] = {
+            'c1': pxt.String,
+            'c2': pxt.Int,
+            'c3': pxt.Float,
+            'c4': pxt.Bool,
+            'c5': pxt.Array[(2, 3), pxt.Int],
+            'c6': pxt.Json,
+            'c7': pxt.Image,
+            'c8': pxt.Video,
+            'c9': pxt.Timestamp,
         }
         tbl_name = p('test1')
         t = pxt.create_table(tbl_name, schema)
@@ -2501,7 +2528,7 @@ class TestTable:
 
         # drop column, then add it back; insert still works
         t.drop_column('c4')
-        t.add_column(c4=pxt.Bool)
+        t.add_column(c4=pxt.Bool | None)
         reload_catalog()
         t = pxt.get_table(tbl_name)
         status = t.insert(rows)
@@ -2531,32 +2558,32 @@ class TestTable:
 
         # rows not list of dicts
         pxt.drop_table(tbl_name, if_not_exists='ignore')
-        t = pxt.create_table(tbl_name, {'c1': pxt.String})
+        t = pxt.create_table(tbl_name, {'c1': pxt.String | None})
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Unsupported data source type'):
             t.insert(['1'])  # xtype: ignore[list-item]
 
         # bad null value
         pxt.drop_table(tbl_name, if_not_exists='ignore')
-        t = pxt.create_table(tbl_name, {'c1': pxt.Required[pxt.String]})
+        t = pxt.create_table(tbl_name, {'c1': pxt.String})
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             t.insert(c1=None)
         assert 'expected non-None' in str(exc_info.value)
 
         # wrong array shape
         pxt.drop_table(tbl_name, if_not_exists='ignore')
-        t = pxt.create_table(tbl_name, {'c5': pxt.Array[(2, 3), np.float32]})
+        t = pxt.create_table(tbl_name, {'c5': pxt.Array[(2, 3), np.float32] | None})
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'expected numpy.ndarray\(\(2, 3\)'):
             t.insert(c5=np.ndarray((3, 2), dtype=np.float32))
 
         # bad array literal
         pxt.drop_table(tbl_name, if_not_exists='ignore')
-        t = pxt.create_table(tbl_name, {'c5': pxt.Array[pxt.Int]})
+        t = pxt.create_table(tbl_name, {'c5': pxt.Array[pxt.Int] | None})
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'expected numpy.ndarray of dtype int64'):
             t.insert(c5=np.ndarray((3, 2), dtype=np.float32))
 
         # bad array literal
         pxt.drop_table(tbl_name, if_not_exists='ignore')
-        t = pxt.create_table(tbl_name, {'c5': pxt.Array})
+        t = pxt.create_table(tbl_name, {'c5': pxt.Array | None})
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'expected numpy.ndarray, got'):
             t.insert(c5=8)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='unsupported dtype'):
@@ -2564,7 +2591,7 @@ class TestTable:
 
         # test that insert skips expression evaluation for
         # any columns that are not part of the current schema.
-        t = pxt.create_table(p('test'), {'str_col': pxt.String})
+        t = pxt.create_table(p('test'), {'str_col': pxt.String | None})
         t.add_computed_column(bad=raises_when_evaluated(t.str_col))  # Succeeds because the table has no data
         t.drop_column('bad')
         t.insert(str_col='Hello there.')  # Succeeds because column 'bad' is dropped
@@ -2572,7 +2599,7 @@ class TestTable:
 
     def test_insert_string_with_null(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test'), {'c1': pxt.String})
+        t = pxt.create_table(p('test'), {'c1': pxt.String | None})
 
         t.insert([{'c1': 'this is a python\x00string'}])
         assert t.count() == 1
@@ -2634,7 +2661,7 @@ class TestTable:
         assert t.where(t.c2 == 200).collect()[0]['c1'] == 'zweihundert'
 
         # test composite primary key
-        schema = {'c1': pxt.Required[pxt.String], 'c2': pxt.Required[pxt.Int], 'c3': pxt.Float}
+        schema: dict[str, Any] = {'c1': pxt.String, 'c2': pxt.Int, 'c3': pxt.Float | None}
         t = pxt.create_table(p('composite'), schema, primary_key=['c1', 'c2'])
         rows = [{'c1': str(i), 'c2': i, 'c3': float(i)} for i in range(10)]
         validate_update_status(t.insert(rows), expected_rows=10)
@@ -2681,7 +2708,7 @@ class TestTable:
 
         # update with SQL-expressible computed columns
         t = pxt.create_table(
-            p('cascade_test'), {'id': pxt.Required[pxt.Int], 'val': pxt.String, 'num': pxt.Float}, primary_key='id'
+            p('cascade_test'), {'id': pxt.Int, 'val': pxt.String | None, 'num': pxt.Float | None}, primary_key='id'
         )
         t.add_computed_column(val_upper=t.val.upper())
         t.add_computed_column(num_x2=t.num * 2)
@@ -2716,7 +2743,7 @@ class TestTable:
             t.revert()
 
         # exchange two columns
-        t.add_column(float_col=pxt.Float)
+        t.add_column(float_col=pxt.Float | None)
         t.update({'float_col': 1.0})
         float_col_vals = t.order_by(t.c2).select(t.float_col).collect().to_pandas()['float_col']
         c3_vals = t.order_by(t.c2).select(t.c3).collect().to_pandas()['c3']
@@ -2822,7 +2849,7 @@ class TestTable:
         p = make_catalog_path
         t = pxt.create_table(
             p('test_batch_update_return_rows'),
-            {'id': pxt.Required[pxt.Int], 'val': pxt.Required[pxt.Int], 'name': pxt.String},
+            {'id': pxt.Int, 'val': pxt.Int, 'name': pxt.String | None},
             primary_key='id',
         )
         t.insert(
@@ -2876,10 +2903,7 @@ class TestTable:
     def test_update_return_rows(self, make_catalog_path: Callable[[str], str]) -> None:
         """Coverage for the `return_rows` parameter on Table.update()."""
         p = make_catalog_path
-        t = pxt.create_table(
-            p('test_update_return_rows'),
-            {'id': pxt.Required[pxt.Int], 'val': pxt.Required[pxt.Int], 'name': pxt.String},
-        )
+        t = pxt.create_table(p('test_update_return_rows'), {'id': pxt.Int, 'val': pxt.Int, 'name': pxt.String | None})
         t.insert(
             [{'id': 1, 'val': 10, 'name': 'a'}, {'id': 2, 'val': 20, 'name': 'b'}, {'id': 3, 'val': 30, 'name': 'c'}]
         )
@@ -2935,7 +2959,7 @@ class TestTable:
         t = test_tbl
         t.add_computed_column(d1=t.c3 - 1)
         # add column that can be updated
-        t.add_column(c10=pxt.Float)
+        t.add_column(c10=pxt.Float | None)
         t.update({'c10': t.c3})
         # computed column that depends on two columns: exercise duplicate elimination during query construction
         t.add_computed_column(d2=t.c3 - t.c10)
@@ -2984,7 +3008,7 @@ class TestTable:
 
     def test_computed_cols(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        schema = {'c1': pxt.Int, 'c2': pxt.Float, 'c3': pxt.Json}
+        schema: dict[str, Any] = {'c1': pxt.Int | None, 'c2': pxt.Float | None, 'c3': pxt.Json | None}
         t: pxt.Table = pxt.create_table(p('test'), schema)
         status = t.add_computed_column(c4=t.c1 + 1)
         assert status.num_excs == 0
@@ -3043,7 +3067,7 @@ class TestTable:
     def test_computed_col_apply(self, make_catalog_path: Callable[[str], str]) -> None:
         # apply() produces a function without a fully-qualified path, which can't be persisted into a computed column
         p = make_catalog_path
-        t = pxt.create_table(p('test'), {'c2': pxt.Float})
+        t = pxt.create_table(p('test'), {'c2': pxt.Float | None})
         with pxt_raises(
             pxt.ErrorCode.UNSUPPORTED_OPERATION,
             match=r"Computed column 'c9' uses `sqrt\(\)`, which was created with `\.apply\(\)`",
@@ -3056,7 +3080,7 @@ class TestTable:
     # TODO: cannot be converted because the UDF reads a client-process-local module global the daemon cannot see
     @pytest.mark.local('UDF reads a client-process-local module global the daemon cannot see')
     def test_unstored_computed_cols(self, uses_db: None) -> None:
-        schema = {'c1': pxt.Int, 'c2': pxt.Float}
+        schema: dict[str, Any] = {'c1': pxt.Int | None, 'c2': pxt.Float | None}
         t = pxt.create_table('test', schema)
 
         status = t.add_computed_column(c3=add_unstored_table_base_val(t.c1), stored=True)
@@ -3078,7 +3102,7 @@ class TestTable:
 
     def test_expr_udf_computed_cols(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test'), {'c1': pxt.Int})
+        t = pxt.create_table(p('test'), {'c1': pxt.Int | None})
         rows = [{'c1': i} for i in range(100)]
         status = t.insert(rows)
         assert status.num_rows == len(rows)
@@ -3117,7 +3141,7 @@ class TestTable:
             # TODO Fix this on CockroachDB; it's a problem!
             pytest.skip('Skipped on CockroachDB due to columns still being created when add_computed_column() fails.')
         # exception during insert()
-        schema = {'c2': pxt.Int}
+        schema: dict[str, Any] = {'c2': pxt.Int | None}
         rows = list(test_tbl.select(test_tbl.c2).collect())
         t = pxt.create_table(p('test_insert'), schema)
         status = t.add_computed_column(add1=self.f2(self.f1(t.c2)))
@@ -3153,7 +3177,7 @@ class TestTable:
     # TODO: cannot be converted: KeyboardInterrupt injection is client-process-local and does not reach the daemon
     @pytest.mark.local('KeyboardInterrupt injection is client-process-local and does not reach the daemon')
     def test_computed_col_with_interrupts(self, uses_db: None) -> None:
-        schema = {'c1': pxt.Int}
+        schema: dict[str, Any] = {'c1': pxt.Int | None}
         t = pxt.create_table('test_interrupt', schema)
         t.insert(({'c1': i} for i in range(0, 1000)))
         with pytest.raises(KeyboardInterrupt):
@@ -3205,7 +3229,7 @@ class TestTable:
 
     def test_computed_img_cols(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         p = make_catalog_path
-        schema = {'img': pxt.Image}
+        schema: dict[str, Any] = {'img': pxt.Image | None}
         t = pxt.create_table(p('test'), schema)
         t.add_computed_column(c2=t.img.width)
         # c3 is not stored by default
@@ -3234,7 +3258,7 @@ class TestTable:
         # backfill
         t.add_computed_column(c9=pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3))
 
-        schema = {'c2': pxt.Int, 'c3': pxt.Float, 'c4': pxt.Bool}
+        schema: dict[str, Any] = {'c2': pxt.Int | None, 'c3': pxt.Float | None, 'c4': pxt.Bool | None}
         new_t = pxt.create_table(p('insert_test'), schema)
         new_t.add_computed_column(c5=square(new_t.c2))
         new_t.add_computed_column(c6=pxtf.sum(new_t.c5, group_by=new_t.c4, order_by=new_t.c3))
@@ -3271,50 +3295,50 @@ class TestTable:
     def test_add_column(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
         t = test_tbl
         orig_cols = set(t.columns())
-        t.add_column(add1=pxt.Int)
+        t.add_column(add1=pxt.Int | None)
         assert set(t.columns()) == orig_cols | {'add1'}
         # Make sure that `name` and `id` are allowed, i.e., not reserved as system names
-        t.add_column(name=pxt.String)
+        t.add_column(name=pxt.String | None)
         assert set(t.columns()) == orig_cols | {'add1', 'name'}
-        t.add_column(id=pxt.String)
+        t.add_column(id=pxt.String | None)
         assert set(t.columns()) == orig_cols | {'add1', 'name', 'id'}
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
-            _ = t.add_column(add2=pxt.Required[pxt.Int])
+            _ = t.add_column(add2=pxt.Int)
         assert 'cannot add non-nullable' in str(exc_info.value).lower()
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
-            _ = t.add_column(add2=pxt.Int, add3=pxt.String)
+            _ = t.add_column(add2=pxt.Int | None, add3=pxt.String | None)
         assert 'requires exactly one keyword argument' in str(exc_info.value).lower()
 
         with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME) as excs_info:
-            _ = t.add_column(add_column=pxt.Int)
+            _ = t.add_column(add_column=pxt.Int | None)
         assert "'add_column' is a reserved name in pixeltable" in str(excs_info.value).lower()
 
         with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME) as excs_info:
-            _ = t.add_column(insert=pxt.Int)
+            _ = t.add_column(insert=pxt.Int | None)
         assert "'insert' is a reserved name in pixeltable" in str(excs_info.value).lower()
 
         # duplicate name
         with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS) as exc_info:
-            _ = t.add_column(c1=pxt.Int)
+            _ = t.add_column(c1=pxt.Int | None)
         assert 'duplicate column name' in str(exc_info.value).lower()
 
         with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match=r'Invalid column name: _invalid'):
             # leading underscore
-            _ = t.add_column(_invalid=pxt.Int)
+            _ = t.add_column(_invalid=pxt.Int | None)
         with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match=r'Invalid column name: 123'):
             # not an identifier
-            _ = t.add_column(**{'123': pxt.Int})
+            _ = t.add_column(**{'123': pxt.Int | None})
         with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match=r'Invalid column name: hyphenated-column'):
             # not an identifier (hyphenated)
-            _ = t.add_column(**{'hyphenated-column': pxt.Int})
+            _ = t.add_column(**{'hyphenated-column': pxt.Int | None})
 
         # 'stored' kwarg only applies to computed image columns
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
-            _ = t.add_column(c5=pxt.Int, stored=False)
+            _ = t.add_column(c5=pxt.Int | None, stored=False)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION):
-            _ = t.add_column(c5=pxt.Image, stored=False)
+            _ = t.add_column(c5=pxt.Image | None, stored=False)
         with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS):
             _ = t.add_computed_column(c5=(t.c2 + t.c3), stored=False)
 
@@ -3337,7 +3361,7 @@ class TestTable:
     def test_bool_column(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
         p = make_catalog_path
         # test adding a bool column with constant value
-        t1 = pxt.create_table(p('test1'), {'c1': pxt.Int})
+        t1 = pxt.create_table(p('test1'), {'c1': pxt.Int | None})
         t1.insert([{'c1': 1}, {'c1': 2}])
         assert t1.count() == 2
         t1.add_computed_column(bool_const=False)
@@ -3350,7 +3374,7 @@ class TestTable:
         assert res['bool_const'] == [False, False, False, False]
 
         # test adding a bool column with constant value to a view
-        t2 = pxt.create_table(p('test2'), {'c1': pxt.Int})
+        t2 = pxt.create_table(p('test2'), {'c1': pxt.Int | None})
         validate_update_status(t2.insert([{'c1': 1}, {'c1': 2}]), expected_rows=2)
         v = pxt.create_view(p('test_view'), t2)
         assert v.count() == 2
@@ -3381,7 +3405,7 @@ class TestTable:
         res = t1.where(~t1.bool_computed).order_by(t1.c1).collect()
         assert res['c1'] == [1]
 
-        t3 = pxt.create_table(p('test3'), {'c1': pxt.Int, 'c2': pxt.Bool})
+        t3 = pxt.create_table(p('test3'), {'c1': pxt.Int | None, 'c2': pxt.Bool | None})
         t3.insert([{'c1': 1, 'c2': True}, {'c1': 2, 'c2': False}])
         assert t3.count() == 2
 
@@ -3439,32 +3463,35 @@ class TestTable:
         # invalid if_exists is rejected
         expected_err_str = "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']"
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=re.escape(expected_err_str)):
-            t.add_column(non_existing_col1=pxt.Int, if_exists='invalid')
+            t.add_column(non_existing_col1=pxt.Int | None, if_exists='invalid')
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=re.escape(expected_err_str)):
             t.add_computed_column(non_existing_col1=t.c2 + t.c3, if_exists='invalid')
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=re.escape(expected_err_str)):
-            t.add_columns({'non_existing_col1': pxt.Int, 'non_existing_col2': pxt.String}, if_exists='invalid')  # type: ignore[arg-type]
+            t.add_columns(
+                {'non_existing_col1': pxt.Int | None, 'non_existing_col2': pxt.String | None},
+                if_exists='invalid',  # type: ignore[arg-type]
+            )
         assert orig_cnames == t.columns()
 
         # if_exists='error' raises an error if the column already exists
         # by default, if_exists='error'
         with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match='Duplicate column name: c1'):
-            t.add_column(c1=pxt.Int)
+            t.add_column(c1=pxt.Int | None)
         with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match='Duplicate column name: c1'):
             t.add_computed_column(c1=t.c2 + t.c3)
         with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match='Duplicate column name: c1'):
-            t.add_columns({'c1': pxt.Int, 'non_existing_col1': pxt.String})
+            t.add_columns({'c1': pxt.Int | None, 'non_existing_col1': pxt.String | None})
         with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match='Duplicate column name: c1'):
-            t.add_column(c1=pxt.Int, if_exists='error')
+            t.add_column(c1=pxt.Int | None, if_exists='error')
         with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match='Duplicate column name: c1'):
             t.add_computed_column(c1=t.c2 + t.c3, if_exists='error')
         with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match='Duplicate column name: c1'):
-            t.add_columns({'c1': pxt.Int, 'non_existing_col1': pxt.String}, if_exists='error')
+            t.add_columns({'c1': pxt.Int | None, 'non_existing_col1': pxt.String | None}, if_exists='error')
         assert orig_cnames == t.columns()
         assert_resultset_eq(t.select(t.c1).order_by(t.c1).collect(), orig_res, True)
 
         # if_exists='ignore' does nothing if the column already exists
-        t.add_column(c1=pxt.Int, if_exists='ignore')
+        t.add_column(c1=pxt.Int | None, if_exists='ignore')
         assert orig_cnames == t.columns()
         assert_resultset_eq(t.select(t.c1).order_by(t.c1).collect(), orig_res, True)
 
@@ -3472,13 +3499,13 @@ class TestTable:
         assert orig_cnames == t.columns()
         assert_resultset_eq(t.select(t.c1).order_by(t.c1).collect(), orig_res, True)
 
-        t.add_columns({'c1': pxt.Int, 'non_existing_col1': pxt.String}, if_exists='ignore')
+        t.add_columns({'c1': pxt.Int | None, 'non_existing_col1': pxt.String | None}, if_exists='ignore')
         assert 'c1' in t.columns()
         assert_resultset_eq(t.select(t.c1).order_by(t.c1).collect(), orig_res, True)
         assert 'non_existing_col1' in t.columns()
 
         # if_exists='replace' replaces the column if it has no dependents
-        t.add_columns({'c1': pxt.Int, 'non_existing_col2': pxt.String}, if_exists='replace')
+        t.add_columns({'c1': pxt.Int | None, 'non_existing_col2': pxt.String | None}, if_exists='replace')
         assert 'c1' in t.columns()
         assert t.select(t.c1).order_by(t.c1).collect()[0] == {'c1': None}
         assert 'non_existing_col2' in t.columns()
@@ -3513,7 +3540,7 @@ class TestTable:
         # replace will raise an error if the column has dependents
         t.add_computed_column(non_existing_col3=t.c1 + 10)
         with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS) as exc_info:
-            t.add_column(c1=pxt.Int, if_exists='replace')
+            t.add_column(c1=pxt.Int | None, if_exists='replace')
         error_msg = str(exc_info.value).lower()
         assert 'already exists' in error_msg and 'the following columns depend on it: non_existing_col3' in error_msg
         assert 'c1' in t.columns()
@@ -3548,7 +3575,7 @@ class TestTable:
     # TODO: cannot be converted because the UDF reads client-process-local class attributes the daemon cannot see
     @pytest.mark.local('UDF reads client-process-local class attributes the daemon cannot see')
     def test_recompute_column(self, uses_db: None) -> None:
-        t = pxt.create_table('recompute_test', schema={'i': pxt.Int, 's': pxt.String})
+        t = pxt.create_table('recompute_test', schema={'i': pxt.Int | None, 's': pxt.String | None})
         status = t.add_computed_column(i1=self.recompute_int_udf(t.i))
         assert status.num_excs == 0
         t.add_btree_index('i1')
@@ -3652,7 +3679,7 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot recompute column of a base'):
             v.i1.recompute()
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="not bound by table 'recompute_test'"):
-            y = pxt.create_table('other_table', {'i': pxt.Int})
+            y = pxt.create_table('other_table', {'i': pxt.Int | None})
             t.recompute_columns('i1', where=y.i == 0)
 
     def __test_drop_column_if_not_exists(self, t: pxt.Table, non_existing_col: str | ColumnRef) -> None:
@@ -3673,7 +3700,7 @@ class TestTable:
     def test_drop_column(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         t = test_tbl
-        dummy_t = pxt.create_table(p('dummy'), {'dummy_col': pxt.Int})
+        dummy_t = pxt.create_table(p('dummy'), {'dummy_col': pxt.Int | None})
         num_orig_cols = len(t.columns())
         t.drop_column('c1')
         assert len(t.columns()) == num_orig_cols - 1
@@ -3744,9 +3771,9 @@ class TestTable:
 
     def test_drop_column_via_reference(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        t1 = pxt.create_table(p('test1'), {'c1': pxt.String, 'c2': pxt.String})
+        t1 = pxt.create_table(p('test1'), {'c1': pxt.String | None, 'c2': pxt.String | None})
         t1.insert([{'c1': 'a1', 'c2': 'b1'}, {'c1': 'a2', 'c2': 'b2'}])
-        t2 = pxt.create_table(p('test2'), {'c1': pxt.String, 'c2': pxt.String})
+        t2 = pxt.create_table(p('test2'), {'c1': pxt.String | None, 'c2': pxt.String | None})
 
         # cannot pass another table's column reference
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match=r'Unknown column: test2.c2'):
@@ -3850,8 +3877,7 @@ class TestTable:
     def test_computed_column_types(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         t = pxt.create_table(
-            p('test'),
-            {'c1': pxt.Int, 'c1_r': pxt.Required[pxt.Int], 'c2': pxt.String, 'c2_r': pxt.Required[pxt.String]},
+            p('test'), {'c1': pxt.Int | None, 'c1_r': pxt.Int, 'c2': pxt.String | None, 'c2_r': pxt.String}
         )
 
         # Ensure that arithmetic and (non-nullable) function call expressions inherit nullability from their arguments
@@ -3861,14 +3887,14 @@ class TestTable:
         t.add_computed_column(func_r=t.c2_r.upper())
 
         expected_schema = {
-            'c1': 'Int',
-            'c1_r': 'Required[Int]',
-            'c2': 'String',
-            'c2_r': 'Required[String]',
-            'arith': 'Int',
-            'arith_r': 'Required[Int]',
-            'func': 'String',
-            'func_r': 'Required[String]',
+            'c1': 'Int | None',
+            'c1_r': 'Int',
+            'c2': 'String | None',
+            'c2_r': 'String',
+            'arith': 'Int | None',
+            'arith_r': 'Int',
+            'func': 'String | None',
+            'func_r': 'String',
         }
         metadata = t.get_metadata()
         actual_schema = {col: val['type_'] for col, val in metadata['columns'].items()}
@@ -3887,17 +3913,17 @@ class TestTable:
             f"""
             table '{p('test_tbl')}'
 
-             Column Name                            Type    Source           Computed With                      Comment
-            -----------------------------------------------------------------------------------------------------------
-                      c1                Required[String]  test_tbl                          String column with no nulls
-                     c1n                          String  test_tbl
-                      c2                   Required[Int]  test_tbl
-                      c3                 Required[Float]  test_tbl
-                      c4                  Required[Bool]  test_tbl
-                      c5             Required[Timestamp]  test_tbl
-                      c6                  Required[Json]  test_tbl
-                      c7                  Required[Json]  test_tbl
-                      c8  Required[Array[(2, 3), int64]]  test_tbl  [[1, 2, 3], [4, 5, 6]]""",
+             Column Name                  Type    Source           Computed With                      Comment
+            -------------------------------------------------------------------------------------------------
+                      c1                String  test_tbl                          String column with no nulls
+                     c1n         String | None  test_tbl
+                      c2                   Int  test_tbl
+                      c3                 Float  test_tbl
+                      c4                  Bool  test_tbl
+                      c5             Timestamp  test_tbl
+                      c6                  Json  test_tbl
+                      c7                  Json  test_tbl
+                      c8  Array[(2, 3), int64]  test_tbl  [[1, 2, 3], [4, 5, 6]]""",
         )
 
         v = pxt.create_view(p('test_view'), test_tbl)
@@ -3906,17 +3932,17 @@ class TestTable:
             f"""
             view '{p('test_view')}' (of 'test_tbl')
 
-             Column Name                            Type    Source           Computed With                      Comment
-            -----------------------------------------------------------------------------------------------------------
-                      c1                Required[String]  test_tbl                          String column with no nulls
-                     c1n                          String  test_tbl
-                      c2                   Required[Int]  test_tbl
-                      c3                 Required[Float]  test_tbl
-                      c4                  Required[Bool]  test_tbl
-                      c5             Required[Timestamp]  test_tbl
-                      c6                  Required[Json]  test_tbl
-                      c7                  Required[Json]  test_tbl
-                      c8  Required[Array[(2, 3), int64]]  test_tbl  [[1, 2, 3], [4, 5, 6]]""",
+             Column Name                  Type    Source           Computed With                      Comment
+            -------------------------------------------------------------------------------------------------
+                      c1                String  test_tbl                          String column with no nulls
+                     c1n         String | None  test_tbl
+                      c2                   Int  test_tbl
+                      c3                 Float  test_tbl
+                      c4                  Bool  test_tbl
+                      c5             Timestamp  test_tbl
+                      c6                  Json  test_tbl
+                      c7                  Json  test_tbl
+                      c8  Array[(2, 3), int64]  test_tbl  [[1, 2, 3], [4, 5, 6]]""",
         )
 
         # test case: view with additional columns
@@ -3929,25 +3955,25 @@ class TestTable:
             view '{p('test_subview')}' (of 'test_view', 'test_tbl')
             Where: ~(c1 == None)
 
-             Column Name                            Type        Source           Computed With                      Comment
-            ---------------------------------------------------------------------------------------------------------------
-               computed1  Required[Array[(3, 4), int64]]  test_subview            fill_3x4(c2)
-            ...............................................................................................................
-                     c1                Required[String]      test_tbl                          String column with no nulls
-                    c1n                          String      test_tbl
-                     c2                   Required[Int]      test_tbl
-                     c3                 Required[Float]      test_tbl
-                     c4                  Required[Bool]      test_tbl
-                     c5             Required[Timestamp]      test_tbl
-                     c6                  Required[Json]      test_tbl
-                     c7                  Required[Json]      test_tbl
-                     c8  Required[Array[(2, 3), int64]]      test_tbl  [[1, 2, 3], [4, 5, 6]]
+             Column Name                  Type        Source           Computed With                      Comment
+            -----------------------------------------------------------------------------------------------------
+               computed1  Array[(3, 4), int64]  test_subview            fill_3x4(c2)
+            .....................................................................................................
+                      c1                String      test_tbl                          String column with no nulls
+                     c1n         String | None      test_tbl
+                      c2                   Int      test_tbl
+                      c3                 Float      test_tbl
+                      c4                  Bool      test_tbl
+                      c5             Timestamp      test_tbl
+                      c6                  Json      test_tbl
+                      c7                  Json      test_tbl
+                      c8  Array[(2, 3), int64]      test_tbl  [[1, 2, 3], [4, 5, 6]]
 
-             Index Name Column  Metric                                          Embedding
-            -----------------------------------------------------------------------------
+             Index Name Column  Metric                     Embedding
+            --------------------------------------------------------
                    idx0     c1  cosine  local_embedding(c1, dim=512)
 
-            Comment: This is an intriguing table comment.""",  # noqa: E501
+            Comment: This is an intriguing table comment.""",
         )
 
         # test case: snapshot of view
@@ -3958,21 +3984,21 @@ class TestTable:
             snapshot '{p('test_snap1')}' (of 'test_subview:2', 'test_view:0', 'test_tbl:2')
             Where: ~(c1 == None)
 
-             Column Name                            Type        Source           Computed With                      Comment
-            ---------------------------------------------------------------------------------------------------------------
-               computed1  Required[Array[(3, 4), int64]]  test_subview            fill_3x4(c2)
-            ...............................................................................................................
-                     c1                Required[String]      test_tbl                          String column with no nulls
-                    c1n                          String      test_tbl
-                     c2                   Required[Int]      test_tbl
-                     c3                 Required[Float]      test_tbl
-                     c4                  Required[Bool]      test_tbl
-                     c5             Required[Timestamp]      test_tbl
-                     c6                  Required[Json]      test_tbl
-                     c7                  Required[Json]      test_tbl
-                     c8  Required[Array[(2, 3), int64]]      test_tbl  [[1, 2, 3], [4, 5, 6]]
+             Column Name                  Type        Source           Computed With                      Comment
+            -----------------------------------------------------------------------------------------------------
+               computed1  Array[(3, 4), int64]  test_subview            fill_3x4(c2)
+            .....................................................................................................
+                      c1                String      test_tbl                          String column with no nulls
+                     c1n         String | None      test_tbl
+                      c2                   Int      test_tbl
+                      c3                 Float      test_tbl
+                      c4                  Bool      test_tbl
+                      c5             Timestamp      test_tbl
+                      c6                  Json      test_tbl
+                      c7                  Json      test_tbl
+                      c8  Array[(2, 3), int64]      test_tbl  [[1, 2, 3], [4, 5, 6]]
 
-            Comment: This is an intriguing table comment.""",  # noqa: E501
+            Comment: This is an intriguing table comment.""",
         )
 
         # test case: snapshot of base table
@@ -3982,17 +4008,17 @@ class TestTable:
             f"""
             snapshot '{p('test_snap2')}' (of 'test_tbl:2')
 
-             Column Name                            Type    Source           Computed With                      Comment
-            -----------------------------------------------------------------------------------------------------------
-                     c1                Required[String]  test_tbl                          String column with no nulls
-                    c1n                          String  test_tbl
-                     c2                   Required[Int]  test_tbl
-                     c3                 Required[Float]  test_tbl
-                     c4                  Required[Bool]  test_tbl
-                     c5             Required[Timestamp]  test_tbl
-                     c6                  Required[Json]  test_tbl
-                     c7                  Required[Json]  test_tbl
-                     c8  Required[Array[(2, 3), int64]]  test_tbl  [[1, 2, 3], [4, 5, 6]]""",
+             Column Name                  Type    Source           Computed With                      Comment
+            -------------------------------------------------------------------------------------------------
+                      c1                String  test_tbl                          String column with no nulls
+                     c1n         String | None  test_tbl
+                      c2                   Int  test_tbl
+                      c3                 Float  test_tbl
+                      c4                  Bool  test_tbl
+                      c5             Timestamp  test_tbl
+                      c6                  Json  test_tbl
+                      c7                  Json  test_tbl
+                      c8  Array[(2, 3), int64]  test_tbl  [[1, 2, 3], [4, 5, 6]]""",
         )
 
         # test case: snapshot with additional columns
@@ -4002,19 +4028,19 @@ class TestTable:
             f"""
             snapshot '{p('test_snap3')}' (of 'test_tbl:2')
 
-             Column Name                            Type      Source           Computed With                      Comment
-            -------------------------------------------------------------------------------------------------------------
-               computed1                 Required[Float]  test_snap3                 c2 + c3
-            .............................................................................................................
-                     c1                Required[String]    test_tbl                          String column with no nulls
-                    c1n                          String    test_tbl
-                     c2                   Required[Int]    test_tbl
-                     c3                 Required[Float]    test_tbl
-                     c4                  Required[Bool]    test_tbl
-                     c5             Required[Timestamp]    test_tbl
-                     c6                  Required[Json]    test_tbl
-                     c7                  Required[Json]    test_tbl
-                     c8  Required[Array[(2, 3), int64]]    test_tbl  [[1, 2, 3], [4, 5, 6]]""",  # noqa: E501
+             Column Name                  Type      Source           Computed With                      Comment
+            ---------------------------------------------------------------------------------------------------
+               computed1                 Float  test_snap3                 c2 + c3
+            ...................................................................................................
+                      c1                String    test_tbl                          String column with no nulls
+                     c1n         String | None    test_tbl
+                      c2                   Int    test_tbl
+                      c3                 Float    test_tbl
+                      c4                  Bool    test_tbl
+                      c5             Timestamp    test_tbl
+                      c6                  Json    test_tbl
+                      c7                  Json    test_tbl
+                      c8  Array[(2, 3), int64]    test_tbl  [[1, 2, 3], [4, 5, 6]]""",
         )
 
         # The remaining cases aren't supported over a hosted (proxy) catalog yet:
@@ -4027,11 +4053,13 @@ class TestTable:
         validate_repr(
             v2.c1,
             """
-            Column 'c1' (of table 'test_tbl')
+            Column
+            'c1'
+            (of table 'test_tbl')
 
-             Column Name              Type    Source Computed With                      Comment
-            -----------------------------------------------------------------------------------
-                      c1  Required[String]  test_tbl                String column with no nulls""",
+             Column Name    Type    Source Computed With                      Comment
+            -------------------------------------------------------------------------
+                      c1  String  test_tbl                String column with no nulls""",
         )
 
         iterator_view_1 = pxt.create_view(p('iterator_view_1'), s1, iterator=DummyIterator(s1.c2))
@@ -4040,23 +4068,23 @@ class TestTable:
             """
             view 'iterator_view_1' (of 'test_subview:2', 'test_view:0', 'test_tbl:2')
 
-             Column Name                            Type           Source           Computed With                      Comment
-            ------------------------------------------------------------------------------------------------------------------
-                     pos                   Required[Int]  iterator_view_1           DummyIterator
-                    out1                Required[String]  iterator_view_1           DummyIterator
-                    out2                   Required[Int]  iterator_view_1           DummyIterator
-            ..................................................................................................................
-               computed1  Required[Array[(3, 4), int64]]     test_subview            fill_3x4(c2)
-            ..................................................................................................................
-                      c1                Required[String]         test_tbl                          String column with no nulls
-                     c1n                          String         test_tbl
-                      c2                   Required[Int]         test_tbl
-                      c3                 Required[Float]         test_tbl
-                      c4                  Required[Bool]         test_tbl
-                      c5             Required[Timestamp]         test_tbl
-                      c6                  Required[Json]         test_tbl
-                      c7                  Required[Json]         test_tbl
-                      c8  Required[Array[(2, 3), int64]]         test_tbl  [[1, 2, 3], [4, 5, 6]]""",  # noqa: E501
+             Column Name                  Type           Source           Computed With                      Comment
+            --------------------------------------------------------------------------------------------------------
+                     pos                   Int  iterator_view_1           DummyIterator
+                    out1                String  iterator_view_1           DummyIterator
+                    out2                   Int  iterator_view_1           DummyIterator
+            ........................................................................................................
+               computed1  Array[(3, 4), int64]     test_subview            fill_3x4(c2)
+            ........................................................................................................
+                      c1                String         test_tbl                          String column with no nulls
+                     c1n         String | None         test_tbl
+                      c2                   Int         test_tbl
+                      c3                 Float         test_tbl
+                      c4                  Bool         test_tbl
+                      c5             Timestamp         test_tbl
+                      c6                  Json         test_tbl
+                      c7                  Json         test_tbl
+                      c8  Array[(2, 3), int64]         test_tbl  [[1, 2, 3], [4, 5, 6]]""",
         )
 
         iterator_view_2 = pxt.create_view(
@@ -4071,27 +4099,27 @@ class TestTable:
             """
             view 'iterator_view_2' (of 'iterator_view_1', 'test_subview:2', 'test_view:0', 'test_tbl:2')
 
-                        Column Name                            Type           Source                       Computed With                      Comment
-            -----------------------------------------------------------------------------------------------------------------------------------------
-                                pos                   Required[Int]  iterator_view_2                      DummyIterator2
-                               out1                Required[String]  iterator_view_2                      DummyIterator2
-                               out3                   Required[Int]  iterator_view_2                      DummyIterator2
-              iterator_view_2_col_1                Required[String]  iterator_view_2                  ('"' + out1) + '"'
-              iterator_view_2_col_2                 Required[Float]  iterator_view_2  stock_price(iterator_view_2_col_1)
-            .........................................................................................................................................
-                               out2                   Required[Int]  iterator_view_1                       DummyIterator
-            .........................................................................................................................................
-                          computed1  Required[Array[(3, 4), int64]]     test_subview                        fill_3x4(c2)
-            .........................................................................................................................................
-                               c1                Required[String]         test_tbl                                      String column with no nulls
-                              c1n                          String         test_tbl
-                               c2                   Required[Int]         test_tbl
-                               c3                 Required[Float]         test_tbl
-                               c4                  Required[Bool]         test_tbl
-                               c5             Required[Timestamp]         test_tbl
-                               c6                  Required[Json]         test_tbl
-                               c7                  Required[Json]         test_tbl
-                               c8  Required[Array[(2, 3), int64]]         test_tbl            [[1, 2, 3], [4, 5, 6]]""",  # noqa: E501
+                        Column Name                  Type           Source                       Computed With                      Comment
+            -------------------------------------------------------------------------------------------------------------------------------
+                                pos                   Int  iterator_view_2                      DummyIterator2
+                               out1                String  iterator_view_2                      DummyIterator2
+                               out3                   Int  iterator_view_2                      DummyIterator2
+              iterator_view_2_col_1                String  iterator_view_2                  ('"' + out1) + '"'
+              iterator_view_2_col_2                 Float  iterator_view_2  stock_price(iterator_view_2_col_1)
+            ...............................................................................................................................
+                               out2                   Int  iterator_view_1                       DummyIterator
+            ...............................................................................................................................
+                          computed1  Array[(3, 4), int64]     test_subview                        fill_3x4(c2)
+            ...............................................................................................................................
+                                 c1                String         test_tbl                                      String column with no nulls
+                                c1n         String | None         test_tbl
+                                 c2                   Int         test_tbl
+                                 c3                 Float         test_tbl
+                                 c4                  Bool         test_tbl
+                                 c5             Timestamp         test_tbl
+                                 c6                  Json         test_tbl
+                                 c7                  Json         test_tbl
+                                 c8  Array[(2, 3), int64]         test_tbl              [[1, 2, 3], [4, 5, 6]]""",  # noqa: E501
         )
 
     def test_common_col_names(self, make_catalog_path: Callable[[str], str]) -> None:
@@ -4111,7 +4139,7 @@ class TestTable:
         self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, local_embed: pxt.Function
     ) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test'), {'c1': pxt.Int, 'c2': pxt.String})
+        t = pxt.create_table(p('test'), {'c1': pxt.Int | None, 'c2': pxt.String | None})
         pxt.drop_table(p('test'))
         unknown_tbl_msg = 'Table was dropped'
 
@@ -4139,9 +4167,9 @@ class TestTable:
             _ = t.batch_update([{'c1': 2, 'c2': 'f'}])
 
         with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
-            _ = t.add_column(c2=pxt.Int)
+            _ = t.add_column(c2=pxt.Int | None)
         with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
-            _ = t.add_columns({'c2': pxt.Int})
+            _ = t.add_columns({'c2': pxt.Int | None})
         with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
             _ = t.add_computed_column(c3=t.c1 + 10)
         with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
@@ -4197,13 +4225,15 @@ class TestTable:
         self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester
     ) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('tbl'), {'c1': pxt.Int, 'c2': pxt.Int})
-        v1 = pxt.create_view(p('view1'), t.where(t.c1 % 2 == 0), additional_columns={'vc1': pxt.Int})
-        v2 = pxt.create_view(p('view2'), v1.where((t.c1 + v1.vc1) % 2 == 0), additional_columns={'vc2': pxt.Int})
+        t = pxt.create_table(p('tbl'), {'c1': pxt.Int | None, 'c2': pxt.Int | None})
+        v1 = pxt.create_view(p('view1'), t.where(t.c1 % 2 == 0), additional_columns={'vc1': pxt.Int | None})
+        v2 = pxt.create_view(p('view2'), v1.where((t.c1 + v1.vc1) % 2 == 0), additional_columns={'vc2': pxt.Int | None})
         v3 = pxt.create_view(
-            p('view3'), v2.where(((v1.vc1 + v2.vc2) - (t.c1 + t.c2)) % 5 == 0), additional_columns={'vc3': pxt.Int}
+            p('view3'),
+            v2.where(((v1.vc1 + v2.vc2) - (t.c1 + t.c2)) % 5 == 0),
+            additional_columns={'vc3': pxt.Int | None},
         )
-        _ = pxt.create_view(p('view4'), v3.where((t.c2 / v3.vc3) < 19), additional_columns={'vc4': pxt.Int})
+        _ = pxt.create_view(p('view4'), v3.where((t.c2 / v3.vc3) < 19), additional_columns={'vc4': pxt.Int | None})
 
         with pxt_raises(
             pxt.ErrorCode.UNSUPPORTED_OPERATION,
@@ -4235,7 +4265,7 @@ class TestTable:
 
     def test_drop_last_column(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('tbl'), {'c1': pxt.Int, 'c2': pxt.Int})
+        t = pxt.create_table(p('tbl'), {'c1': pxt.Int | None, 'c2': pxt.Int | None})
         # drop the first column
         t.drop_column('c1')
         # drop an unknown column
@@ -4251,18 +4281,18 @@ class TestTable:
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_add_columns_with_metadata(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('tbl'), {'c1': pxt.Int, 'c2': pxt.String})
+        t = pxt.create_table(p('tbl'), {'c1': pxt.Int | None, 'c2': pxt.String | None})
 
         # invalid metadata parameters are rejected
         with pxt_raises(
             pxt.ErrorCode.INVALID_ARGUMENT, match=r"media_validation must be one of: \['on_read', 'on_write']"
         ):
-            t.add_columns({'non_existing_col1': {'type': pxt.Image, 'media_validation': 'on_error'}})  # type: ignore[dict-item]
+            t.add_columns({'non_existing_col1': {'type': pxt.Image | None, 'media_validation': 'on_error'}})  # type: ignore[dict-item]
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match="'stored' must be a bool; got <class 'float'>"):
-            t.add_columns({'non_existing_col1': {'type': pxt.Image, 'stored': float}})  # type: ignore[dict-item]
+            t.add_columns({'non_existing_col1': {'type': pxt.Image | None, 'stored': float}})  # type: ignore[dict-item]
 
         # valid metadata parameters are accepted
-        t.add_columns({'c3': {'type': pxt.Image, 'stored': True, 'media_validation': 'on_write'}})
+        t.add_columns({'c3': {'type': pxt.Image | None, 'stored': True, 'media_validation': 'on_write'}})
 
         # make sure this metadata is persisted
         reload_catalog(do_reload_catalog)
@@ -4275,22 +4305,22 @@ class TestTable:
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_add_column_with_metadata(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('tbl'), {'c1': pxt.Int, 'c2': pxt.String})
+        t = pxt.create_table(p('tbl'), {'c1': pxt.Int | None, 'c2': pxt.String | None})
 
         # invalid metadata parameters are rejected
         with pxt_raises(
             pxt.ErrorCode.INVALID_ARGUMENT, match=r"media_validation must be one of: \['on_read', 'on_write']"
         ):
-            t.add_column(non_existing_col1={'type': pxt.Image, 'media_validation': 'on_error'})
+            t.add_column(non_existing_col1={'type': pxt.Image | None, 'media_validation': 'on_error'})
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match="'stored' must be a bool; got <class 'float'>"):
-            t.add_column(non_existing_col1={'type': pxt.Image, 'stored': float})
+            t.add_column(non_existing_col1={'type': pxt.Image | None, 'stored': float})
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match="invalid key 'invalid_key'"):
-            t.add_column(non_existing_col1={'type': pxt.Image, 'invalid_key': 'value'})
+            t.add_column(non_existing_col1={'type': pxt.Image | None, 'invalid_key': 'value'})
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match="'type' or 'value' must be specified"):
             t.add_column(non_existing_col1={'stored': True})
 
         # valid metadata parameters are accepted
-        t.add_column(c3={'type': pxt.Image, 'stored': True, 'media_validation': 'on_write'})
+        t.add_column(c3={'type': pxt.Image | None, 'stored': True, 'media_validation': 'on_write'})
 
         # verify column was added correctly
         assert 'c3' in t.columns()
@@ -4298,7 +4328,7 @@ class TestTable:
         assert t.get_metadata()['columns']['c3']['media_validation'] == 'on_write'
 
         # add another column with on_read validation
-        t.add_column(c4={'type': pxt.Video, 'media_validation': 'on_read'})
+        t.add_column(c4={'type': pxt.Video | None, 'media_validation': 'on_read'})
         assert 'c4' in t.columns()
         assert t.get_metadata()['columns']['c4']['media_validation'] == 'on_read'
 
@@ -4315,7 +4345,7 @@ class TestTable:
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_table_comment(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('tbl'), {'c': pxt.Int}, comment='This is a test table.')
+        t = pxt.create_table(p('tbl'), {'c': pxt.Int | None}, comment='This is a test table.')
         assert t.get_metadata()['comment'] == 'This is a test table.'
 
         reload_catalog(do_reload_catalog)
@@ -4324,13 +4354,13 @@ class TestTable:
 
         # check that raw object JSON comments are rejected
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`comment` must be a string'):
-            pxt.create_table(p('tbl_invalid'), {'c': pxt.Int}, comment={'comment': 'This is a test table.'})  # type: ignore[arg-type]
+            pxt.create_table(p('tbl_invalid'), {'c': pxt.Int | None}, comment={'comment': 'This is a test table.'})  # type: ignore[arg-type]
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_table_custom_metadata(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
         p = make_catalog_path
         custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
-        t = pxt.create_table(p('tbl'), {'c': pxt.Int}, custom_metadata=custom_metadata)
+        t = pxt.create_table(p('tbl'), {'c': pxt.Int | None}, custom_metadata=custom_metadata)
         assert t.get_metadata()['custom_metadata'] == custom_metadata
 
         reload_catalog(do_reload_catalog)
@@ -4339,13 +4369,13 @@ class TestTable:
 
         # check that invalid JSON user metadata are rejected
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`custom_metadata` must be JSON-serializable'):
-            pxt.create_table(p('tbl_invalid'), {'c': pxt.Int}, custom_metadata={'key': set})
+            pxt.create_table(p('tbl_invalid'), {'c': pxt.Int | None}, custom_metadata={'key': set})
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_column_custom_metadata(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
         p = make_catalog_path
         custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
-        t = pxt.create_table(p('tbl'), {'c': {'type': pxt.Int, 'custom_metadata': custom_metadata}})
+        t = pxt.create_table(p('tbl'), {'c': {'type': pxt.Int | None, 'custom_metadata': custom_metadata}})
         assert t.get_metadata()['columns']['c']['custom_metadata'] == custom_metadata
 
         reload_catalog(do_reload_catalog)
@@ -4361,12 +4391,12 @@ class TestTable:
 
         # check that invalid JSON user metadata are rejected for columns
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='`custom_metadata` must be JSON-serializable'):
-            pxt.create_table(p('tbl_invalid'), {'c': {'type': pxt.Int, 'custom_metadata': {'key': set}}})
+            pxt.create_table(p('tbl_invalid'), {'c': {'type': pxt.Int | None, 'custom_metadata': {'key': set}}})
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_column_comment(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('tbl'), {'c': {'type': pxt.Int, 'comment': 'This is a test column.'}})
+        t = pxt.create_table(p('tbl'), {'c': {'type': pxt.Int | None, 'comment': 'This is a test column.'}})
         assert t.get_metadata()['columns']['c']['comment'] == 'This is a test column.'
 
         reload_catalog(do_reload_catalog)
@@ -4384,5 +4414,5 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match="'comment' must be a string"):
             pxt.create_table(
                 p('tbl_invalid'),
-                {'c': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
+                {'c': {'type': pxt.Int | None, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
             )

@@ -10,6 +10,7 @@ from uuid import UUID
 import pandas as pd
 import pydantic
 from pandas.io.formats.style import Styler
+from typing_extensions import TypeForm
 
 from pixeltable import Query, catalog, exceptions as excs, exprs, func, type_system as ts
 from pixeltable.catalog import DirEntry, TablePath
@@ -52,7 +53,7 @@ def init() -> None:
 
 def create_table(
     path: str,
-    schema: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None,
+    schema: Mapping[str, TypeForm | ColumnSpec | exprs.Expr] | None = None,
     *,
     source: TableDataSource | None = None,
     source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
@@ -77,7 +78,8 @@ def create_table(
 
     Args:
         path: Pixeltable path (qualified name) of the table, such as `'my_table'` or `'my_dir/my_subdir/my_table'`.
-        schema: Schema for the new table, mapping column names to Pixeltable types.
+        schema: Schema for the new table, mapping column names to Pixeltable types. A bare type such as
+            `pxt.Int` declares a non-nullable column; use `pxt.Int | None` to allow nulls.
         source: A data source (file, URL, Table, Query, or list of rows) to import from.
         source_format: Must be used in conjunction with a `source`.
             If specified, then the given format will be used to read the source data. (Otherwise,
@@ -192,9 +194,7 @@ def create_table(
         if schema_overrides is not None:
             for col_name, py_type in schema_overrides.items():
                 try:
-                    src_schema_overrides[col_name] = ts.ColumnType.normalize_type(
-                        py_type, nullable_default=True, allow_builtin_types=False
-                    )
+                    src_schema_overrides[col_name] = ts.ColumnType.normalize_type(py_type, allow_builtin_types=False)
                 except excs.Error as e:
                     raise excs.RequestError(
                         excs.ErrorCode.INVALID_TYPE, f'Invalid type for schema_overrides[{col_name!r}]: {e.message}'
@@ -285,7 +285,7 @@ def create_view(
     path: str,
     base: catalog.Table | Query,
     *,
-    additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None,
+    additional_columns: Mapping[str, TypeForm | ColumnSpec | exprs.Expr] | None = None,
     is_snapshot: bool = False,
     has_default_idxs: bool = False,
     iterator: func.GeneratingFunctionCall | None = None,
@@ -454,7 +454,7 @@ def create_snapshot(
     path_str: str,
     base: catalog.Table | Query,
     *,
-    additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None,
+    additional_columns: Mapping[str, TypeForm | ColumnSpec | exprs.Expr] | None = None,
     iterator: func.GeneratingFunctionCall | None = None,
     comment: str | None = None,
     custom_metadata: Any = None,

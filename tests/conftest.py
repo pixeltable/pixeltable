@@ -148,6 +148,10 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
     os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
     os.environ['PIXELTABLE_API_URL'] = 'https://preprod-internal-api.pixeltable.com'
     os.environ['FIFTYONE_DATABASE_DIR'] = f'{home_dir}/.fiftyone'
+    # Verbose logging, for this process and for every pixeltable process it spawns (the proxy daemon, the pxt CLI
+    # daemon)
+    os.environ['PIXELTABLE_LOG_LEVEL'] = 'DEBUG'
+    os.environ['PIXELTABLE_SQL_LOG_LEVEL'] = 'INFO'
     if IN_CI:
         # In CI, we use a separate Hugging Face cache directory for each worker since _clear_hf_caches()
         # deletes the cache between tests.
@@ -168,6 +172,8 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
         'FIFTYONE_DATABASE_DIR',
         'HF_HOME',
         'PIXELTABLE_DB_CONNECT_STR',
+        'PIXELTABLE_LOG_LEVEL',
+        'PIXELTABLE_SQL_LOG_LEVEL',
     ):
         print(f'{var:25} = {os.environ.get(var)}')
 
@@ -191,12 +197,10 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
     stdout_handler.setFormatter(logging.Formatter(LOG_FMT_STR))
     pxt_logger = logging.getLogger('pixeltable')
-    pxt_logger.setLevel(logging.DEBUG)
     pxt_logger.addHandler(stdout_handler)
     test_logger = logging.getLogger('pixeltable_test')
     test_logger.setLevel(logging.DEBUG)
     test_logger.addHandler(stdout_handler)
-    logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
 
     yield
     FileCache.get().validate()
@@ -508,8 +512,8 @@ def test_tbl_exprs(test_tbl: pxt.Table) -> list[exprs.Expr]:
         t.c8[0, 1:],
         t.c2.isin([1, 2, 3]),
         t.c2.isin(t.c6.f5),
-        t.c2.astype(pxt.Float),
-        (t.c2 + 1).astype(pxt.Float),
+        t.c2.astype(pxt.Float | None),
+        (t.c2 + 1).astype(pxt.Float | None),
         t.c2.apply(str),
         (t.c2 + 1).apply(str),
         t.c3.apply(str),

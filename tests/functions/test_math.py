@@ -99,7 +99,7 @@ class TestMath:
                 raise AssertionError()
 
     def test_pow(self, uses_db: None) -> None:
-        t = pxt.create_table('test_tbl', {'i': pxt.Int, 'f': pxt.Float})
+        t = pxt.create_table('test_tbl', {'i': pxt.Int | None, 'f': pxt.Float | None})
         t.insert([{'i': 2, 'f': 1.5}, {'i': 5, 'f': 0.25}])
 
         # pow takes float parameters; int arguments are accepted in both call forms, and method syntax on an
