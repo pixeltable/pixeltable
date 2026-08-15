@@ -46,7 +46,7 @@ class TestRunwayML:
         skip_test_if_not_installed('runwayml')
         from pixeltable.functions.runwayml import image_to_video
 
-        t = pxt.create_table('test_tbl', {'image': pxt.Image, 'prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'image': pxt.Image | None, 'prompt': pxt.String | None})
         # Required parameters only
         t.add_computed_column(video_required=image_to_video(t.image, 'gen4_turbo', '1280:720'))
         # Required + optional parameters
@@ -61,7 +61,7 @@ class TestRunwayML:
         skip_test_if_not_installed('runwayml')
         from pixeltable.functions.runwayml import text_to_image
 
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String, 'ref_image': pxt.Image})
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String | None, 'ref_image': pxt.Image | None})
         # Required parameters only
         t.add_computed_column(output_required=text_to_image(t.prompt, [t.ref_image], 'gen4_image', '1920:1080'))
         # Required + optional parameters
@@ -74,7 +74,7 @@ class TestRunwayML:
         skip_test_if_not_installed('runwayml')
         from pixeltable.functions.runwayml import text_to_video
 
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String | None})
         # Required parameters only
         t.add_computed_column(output_required=text_to_video(t.prompt, 'veo3.1', '1280:720'))
         # Required + optional parameters
@@ -85,7 +85,7 @@ class TestRunwayML:
         skip_test_if_not_installed('runwayml')
         from pixeltable.functions.runwayml import video_to_video
 
-        t = pxt.create_table('test_tbl', {'video_url': pxt.String, 'prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'video_url': pxt.String | None, 'prompt': pxt.String | None})
         # Required parameters only
         t.add_computed_column(output_required=video_to_video(t.video_url, t.prompt, 'gen4_aleph', '1280:720'))
         # Required + optional parameters
@@ -99,7 +99,7 @@ class TestRunwayML:
         from pixeltable.functions.runwayml import image_to_video
 
         image_files = get_image_files()[:1]
-        t = pxt.create_table('test_tbl', {'image': pxt.Image, 'prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'image': pxt.Image | None, 'prompt': pxt.String | None})
         t.add_computed_column(
             output=image_to_video(t.image, 'gen4_turbo', '1280:720', prompt_text=t.prompt, duration=2)
         )
@@ -116,7 +116,7 @@ class TestRunwayML:
         from pixeltable.functions.runwayml import text_to_image
 
         image_files = get_image_files()[:1]
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String, 'ref_image': pxt.Image})
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String | None, 'ref_image': pxt.Image | None})
         t.add_computed_column(output=text_to_image(t.prompt, [t.ref_image], 'gen4_image_turbo', '720:720'))
         validate_update_status(t.insert(prompt='A colorful abstract painting', ref_image=image_files[0]), 1)
         results = t.collect()
@@ -130,7 +130,7 @@ class TestRunwayML:
         skip_test_if_no_client('runwayml')
         from pixeltable.functions.runwayml import text_to_video
 
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String | None})
         t.add_computed_column(output=text_to_video(t.prompt, 'veo3.1_fast', '1280:720', duration=4))
         validate_update_status(t.insert(prompt='A cat walking on a sunny day'), 1)
         results = t.collect()
@@ -147,7 +147,7 @@ class TestRunwayML:
         video_url = (
             'https://multimedia-commons.s3.amazonaws.com/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4'
         )
-        t = pxt.create_table('test_tbl', {'video_url': pxt.String, 'prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'video_url': pxt.String | None, 'prompt': pxt.String | None})
         t.add_computed_column(output=video_to_video(t.video_url, t.prompt, 'gen4_aleph', '1280:720'))
         validate_update_status(t.insert(video_url=video_url, prompt='Transform to anime style'), 1)
         results = t.collect()

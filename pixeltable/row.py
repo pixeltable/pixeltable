@@ -151,7 +151,7 @@ class RowBatch(Sequence[Row]):
     @property
     def schema(self) -> dict[str, str]:
         """The batch's column names and types, in column order."""
-        return {name: t._to_str(as_schema=True) for name, t in self._col_types.items()}
+        return {name: repr(t) for name, t in self._col_types.items()}
 
     @property
     def column_names(self) -> list[str]:

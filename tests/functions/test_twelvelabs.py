@@ -26,7 +26,7 @@ class TestTwelveLabs:
         skip_test_if_no_client('twelvelabs')
         from pixeltable.functions.twelvelabs import embed
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String, 'image': pxt.Image})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None, 'image': pxt.Image | None})
         t.add_computed_column(embed=embed(model_name='marengo3.0', text=t.input, image=t.image))
         images = get_image_files()
         rows = [
@@ -47,7 +47,7 @@ class TestTwelveLabs:
         from pixeltable.functions.twelvelabs import embed
 
         image_filepaths = get_image_files()[:2]
-        t = pxt.create_table('image_tbl', {'image': pxt.Image})
+        t = pxt.create_table('image_tbl', {'image': pxt.Image | None})
         t.add_computed_column(embed=embed(model_name='marengo3.0', image=t.image))
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
         res = t.select(t.embed).collect()
@@ -63,7 +63,7 @@ class TestTwelveLabs:
         from pixeltable.functions.twelvelabs import embed
 
         audio_filepaths = get_audio_files()
-        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
+        base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio | None})
         validate_update_status(base_t.insert({'audio': p} for p in audio_filepaths[:1]), expected_rows=1)
         v = pxt.create_view(
             'audio_segments',
@@ -81,7 +81,7 @@ class TestTwelveLabs:
         from pixeltable.functions.twelvelabs import embed
 
         video_filepaths = get_video_files()[:1]  # Just send one of them for testing
-        base_t = pxt.create_table('video_tbl', {'video': pxt.Video})
+        base_t = pxt.create_table('video_tbl', {'video': pxt.Video | None})
         validate_update_status(base_t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
         v = pxt.create_view(
             'video_segments',
@@ -99,7 +99,7 @@ class TestTwelveLabs:
         from pixeltable.functions.twelvelabs import embed
 
         # Test that large media files that require multipart upload can be embedded successfully
-        t = pxt.create_table('large_media_tbl', {'video': pxt.Video})
+        t = pxt.create_table('large_media_tbl', {'video': pxt.Video | None})
         t.insert(video='s3://pxt-test/pytest-resources/large_videos/6mb.mp4')
         t.add_embedding_index(t.video, embedding=embed.using(model_name='marengo3.0'))
         res = t.select(embedding=t.video.embedding()).collect()

@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, overload
 
 import pandas as pd
+from typing_extensions import TypeForm
 
 from pixeltable import exceptions as excs
 
@@ -220,14 +221,16 @@ class Table(SchemaObject):
     @abc.abstractmethod
     def add_columns(
         self,
-        schema: Mapping[str, type | ColumnSpec],
+        schema: Mapping[str, TypeForm | ColumnSpec],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
         """
         Adds multiple columns to the table. The columns must be concrete (non-computed) columns; to add computed
         columns, use [`add_computed_column()`][pixeltable.catalog.Table.add_computed_column] instead.
 
-        The format of the `schema` argument is a dict mapping column names to their types.
+        The format of the `schema` argument is a dict mapping column names to their types. A bare type such as
+        `pxt.Int` declares a non-nullable column; use `pxt.Int | None` to allow nulls. Note that a column added
+        to a table that already has rows must be nullable.
 
         Args:
             schema: A dictionary mapping column names to a `type` or a [`ColumnSpec`][pixeltable.ColumnSpec] dict.
@@ -253,7 +256,7 @@ class Table(SchemaObject):
             Add multiple columns to the table `my_table`:
 
             >>> tbl = pxt.get_table('my_table')
-            ... schema = {'new_col_1': pxt.Int, 'new_col_2': pxt.String}
+            ... schema = {'new_col_1': pxt.Int | None, 'new_col_2': pxt.String | None}
             ... tbl.add_columns(schema)
 
             It is also possible to specify column metadata using a dict:
@@ -261,11 +264,11 @@ class Table(SchemaObject):
             >>> tbl = pxt.get_table('my_table')
             ... schema = {
             ...     'new_col_1': {
-            ...         'type': pxt.Image,
+            ...         'type': pxt.Image | None,
             ...         'stored': True,
             ...         'media_validation': 'on_write',
             ...     },
-            ...     'new_col_2': pxt.String,
+            ...     'new_col_2': pxt.String | None,
             ... }
             ... tbl.add_columns(schema)
         """
@@ -275,7 +278,7 @@ class Table(SchemaObject):
         self,
         *,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-        **kwargs: type | ColumnSpec,
+        **kwargs: TypeForm | ColumnSpec,
     ) -> UpdateStatus:
         """
         Adds an ordinary (non-computed) column to the table.
@@ -300,13 +303,13 @@ class Table(SchemaObject):
         Examples:
             Add an int column:
 
-            >>> tbl.add_column(new_col=pxt.Int)
+            >>> tbl.add_column(new_col=pxt.Int | None)
 
             Add a column with column metadata using a dict:
 
             >>> tbl.add_column(
             ...     img_col={
-            ...         'type': pxt.Image,
+            ...         'type': pxt.Image | None,
             ...         'stored': True,
             ...         'media_validation': 'on_write',
             ...     }
@@ -314,14 +317,14 @@ class Table(SchemaObject):
 
             Alternatively, adding a column can also be expressed using `add_columns`:
 
-            >>> tbl.add_columns({'new_col': pxt.Int})
+            >>> tbl.add_columns({'new_col': pxt.Int | None})
 
             As well as with column metadata:
 
             >>> tbl.add_columns(
             ...     {
             ...         'img_col': {
-            ...             'type': pxt.Image,
+            ...             'type': pxt.Image | None,
             ...             'stored': True,
             ...             'media_validation': 'on_write',
             ...         }
@@ -436,7 +439,7 @@ class Table(SchemaObject):
         """
 
     @abc.abstractmethod
-    def alter_column(self, column: str | ColumnRef, *, type_: type) -> None:
+    def alter_column(self, column: str | ColumnRef, *, type_: TypeForm) -> None:
         """Alter the type of a column.
 
         Currently, the only supported change is widening a non-computed column from non-nullable to
@@ -451,10 +454,10 @@ class Table(SchemaObject):
             current type, or if the change cannot be performed for any other reason.
 
         Examples:
-            Make a previously required column nullable:
+            Make a previously non-nullable column nullable:
 
-            >>> tbl = pxt.create_table('my_table', {'col': pxt.Required[pxt.String]})
-            ... tbl.alter_column('col', type_=pxt.String)
+            >>> tbl = pxt.create_table('my_table', {'col': pxt.String})
+            ... tbl.alter_column('col', type_=pxt.String | None)
         """
 
     @abc.abstractmethod
@@ -953,7 +956,7 @@ class Table(SchemaObject):
                 f'`where` argument must be a valid Pixeltable expression; got `{type(where)}`',
             )
 
-    def _validate_column_schema(self, schema: Mapping[str, type | ColumnSpec]) -> None:
+    def _validate_column_schema(self, schema: Mapping[str, TypeForm | ColumnSpec]) -> None:
         from .column import Column
 
         for name, spec in schema.items():

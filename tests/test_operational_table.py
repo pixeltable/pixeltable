@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 import pixeltable as pxt
@@ -10,7 +12,7 @@ pytestmark = pytest.mark.local('TODO: convert; operational-table feature')
 
 class TestOperationalTable:
     def test_basic_ops(self, uses_db: None, reload_tester: ReloadTester) -> None:
-        schema = {'c0': pxt.Int, 'c1': pxt.String}
+        schema: dict[str, Any] = {'c0': pxt.Int | None, 'c1': pxt.String | None}
         tbl = pxt.create_table('test', schema, _is_data_versioned=False)
         md = tbl.get_metadata()
         assert not md['is_data_versioned']
@@ -38,7 +40,12 @@ class TestOperationalTable:
         pxt.drop_table(tbl)
 
     def test_select_where(self, uses_db: None) -> None:
-        schema = {'c_int': pxt.Int, 'c_str': pxt.String, 'c_float': pxt.Float, 'c_bool': pxt.Bool}
+        schema: dict[str, Any] = {
+            'c_int': pxt.Int | None,
+            'c_str': pxt.String | None,
+            'c_float': pxt.Float | None,
+            'c_bool': pxt.Bool | None,
+        }
         tbl = pxt.create_table('test', schema, _is_data_versioned=False)
         validate_update_status(
             tbl.insert(
@@ -75,7 +82,7 @@ class TestOperationalTable:
         assert len(rows) == 0
 
     def test_select_limit_offset(self, uses_db: None) -> None:
-        tbl = pxt.create_table('test', {'n': pxt.Int}, _is_data_versioned=False)
+        tbl = pxt.create_table('test', {'n': pxt.Int | None}, _is_data_versioned=False)
         validate_update_status(tbl.insert([{'n': i} for i in range(10)]), 10)
 
         rows = tbl.select(tbl.n).order_by(tbl.n).limit(3).collect()
@@ -92,8 +99,8 @@ class TestOperationalTable:
         assert len(rows) == 0
 
     def test_unsupported_ops(self, uses_db: None) -> None:
-        operational_tbl = pxt.create_table('t0', {'n': pxt.Int}, _is_data_versioned=False)
-        data_versioned_tbl = pxt.create_table('t1', {'n': pxt.Int}, _is_data_versioned=True)
+        operational_tbl = pxt.create_table('t0', {'n': pxt.Int | None}, _is_data_versioned=False)
+        data_versioned_tbl = pxt.create_table('t1', {'n': pxt.Int | None}, _is_data_versioned=True)
 
         # Joins between data-versioned and operational tables are not supported.
         with pytest.raises(excs.Error, match='join is not supported between data-versioned and operational tables'):

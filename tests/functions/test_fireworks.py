@@ -16,7 +16,7 @@ class TestFireworks:
         skip_test_if_no_client('fireworks')
         from pixeltable.functions.fireworks import chat_completions
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         messages = [{'role': 'user', 'content': t.input}]
         t.add_computed_column(output=chat_completions(messages=messages, model='accounts/fireworks/models/gpt-oss-20b'))
         t.add_computed_column(
