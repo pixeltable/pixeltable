@@ -656,6 +656,7 @@ def _service_plan_op(op: ServiceChangeOp) -> service_types.ServiceChangeOp:
 
 # close the refusals raised while reconciling, in place of the Python API's wording
 _DESTRUCTIVE_HINT = "Re-run 'pxt schema update' with --allow-destructive to apply these changes."
+_SERVICE_DESTRUCTIVE_HINT = "Re-run 'pxt service update' with --allow-destructive to apply these changes."
 
 
 def _path_key(pxt_path: PxtPath) -> tuple[str, ...]:
@@ -809,3 +810,117 @@ def schema_update(
         for op in tbl['ops']:
             op['status'] = 'applied'
     return plan
+
+
+def service_update(app_file: str, target: PxtPath, *, allow_destructive: bool = False) -> service_types.ServicePlan:
+    """Reconcile the deployments at target with the services app_file declares, and leave them running.
+
+    Starts a service that is not deployed, and restarts one whose declaration changed, since a service binds
+    its models once per process. A deployment the file does not declare is left alone, which is what prune is
+    for.
+
+    Returns the plan that was applied, each service annotated with its status: 'applied' for one that was
+    started or restarted, 'skipped' for one already serving its declaration, 'refused' for one whose routes
+    the database cannot serve or whose application object Pixeltable did not declare.
+
+    Args:
+        app_file: the application file declaring the services.
+        target: the catalog directory the services' models bind against.
+        allow_destructive: whether to apply changes that stop serving a route contract a caller may be using.
+    """
+    from pixeltable.serving import service_runner
+    from pixeltable.serving.service_registry import ServiceDeployment
+
+    plan = service_diff(app_file, target)
+    destructive = [d['name'] for d in plan['services'] if d['resolution'] == 'update_destructive']
+    if len(destructive) > 0 and not allow_destructive:
+        names = ', '.join(repr(name) for name in destructive)
+        for diff in plan['services']:
+            diff['status'] = 'refused'
+        raise excs.RequestError(
+            excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE,
+            f'Reconciling {names} would stop serving a route that callers may be using.\n{_SERVICE_DESTRUCTIVE_HINT}',
+        )
+
+    for diff in plan['services']:
+        if diff['resolution'] in ('unsupported', 'blocked'):
+            diff['status'] = 'refused'
+            continue
+        if diff['resolution'] == 'up_to_date':
+            diff['status'] = 'skipped'
+            continue
+        if diff['exists']:
+            # the deployment serves the old declaration; binding happens once per process, so it is replaced
+            deployment = ServiceDeployment.read(diff['name'], target)
+            if deployment is not None:
+                service_runner.stop(deployment)
+        started = service_runner.start(app_file, diff['name'], target)
+        diff['status'] = 'applied'
+        diff['state'] = 'AVAILABLE'
+        diff['endpoint'] = started.endpoint
+        diff['exists'] = True
+        for op in diff['ops']:
+            op['status'] = 'skipped' if op['severity'] == 'blocked' else 'applied'
+    return plan
+
+
+def service_prune(app_file: str, target: PxtPath) -> service_types.ServicePlan:
+    """Stop and forget the deployments at target that app_file does not declare.
+
+    A stopped service can be started again, so this is not destructive the way dropping a table is.
+
+    Returns the plan, with one drop operation per deployment stopped.
+    """
+    from pixeltable.serving import service_runner
+    from pixeltable.serving.service_registry import ServiceDeployment
+
+    plan = service_diff(app_file, target)
+    ops: list[service_types.ServiceChangeOp] = []
+    for name in plan['extras']:
+        deployment = ServiceDeployment.read(name, target)
+        if deployment is None:
+            # it stopped between the diff and here; nothing to stop, and it is already forgotten
+            ops.append(service_types.delete_service_op(name, None, 'skipped'))
+            continue
+        service_runner.stop(deployment)
+        ops.append(service_types.delete_service_op(name, deployment.endpoint, 'applied'))
+    plan['ops'] = ops
+    return plan
+
+
+def service_stop(names: list[str], target: PxtPath) -> list[service_types.ServiceChangeOp]:
+    """Stop the named services deployed at target and forget them.
+
+    A name that is not deployed there yields a 'skipped' operation rather than an error, so that stopping a
+    set of services is idempotent.
+    """
+    from pixeltable.serving import service_runner
+    from pixeltable.serving.service_registry import ServiceDeployment
+
+    ops: list[service_types.ServiceChangeOp] = []
+    for name in names:
+        deployment = ServiceDeployment.read(name, target)
+        if deployment is None:
+            ops.append(service_types.delete_service_op(name, None, 'skipped'))
+            continue
+        service_runner.stop(deployment)
+        ops.append(service_types.delete_service_op(name, deployment.endpoint, 'applied'))
+    return ops
+
+
+def service_list(target: PxtPath | None = None) -> list[service_types.ServiceDeployment]:
+    """The services running locally: those bound at target and below it, or all of them if target is None."""
+    from pixeltable.serving.service_registry import ServiceDeployment
+
+    deployments = ServiceDeployment.list('' if target is None else target, recursive=True)
+    return [
+        service_types.ServiceDeployment(
+            name=d.service_name,
+            base_path=PxtPath(d.base_path),
+            endpoint=d.endpoint,
+            pid=d.pid,
+            created_at=d.created_at,
+            app_file=d.app_file,
+        )
+        for d in sorted(deployments, key=lambda d: (d.base_path, d.service_name))
+    ]

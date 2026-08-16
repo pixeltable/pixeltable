@@ -86,7 +86,11 @@ class ServicePlanSummary(TypedDict):
     restarts: int  # deployments that applying the plan would interrupt
 
 
-class ServicePlan(TypedDict):
+class _PlanOps(TypedDict, total=False):
+    ops: list[ServiceChangeOp]  # on whole deployments, unlike ServiceDiff.ops
+
+
+class ServicePlan(_PlanOps):
     """Set of changes needed to reconcile the deployments at a target with the definitions a file holds."""
 
     app_file: str
@@ -98,6 +102,17 @@ class ServicePlan(TypedDict):
     services: list[ServiceDiff]
     extras: list[str]  # deployments at the target that the file does not declare
     summary: ServicePlanSummary
+
+
+class ServiceDeployment(TypedDict):
+    """A service running locally, as `pxt service list` reports it."""
+
+    name: str
+    base_path: PxtPath  # the catalog directory the service's models are bound to
+    endpoint: str
+    pid: int
+    created_at: float
+    app_file: str  # the file the service was served from
 
 
 def delete_service_op(name: str, endpoint: Optional[str], status: OpStatus) -> ServiceChangeOp:
@@ -120,6 +135,7 @@ __all__ = [
     'OpStatus',
     'RouteComparison',
     'ServiceChangeOp',
+    'ServiceDeployment',
     'ServiceDiff',
     'ServicePlan',
     'ServicePlanSummary',

@@ -34,7 +34,7 @@ ingest.add_insert_route(Notes, path='/notes', inputs=['note_id', 'val'], outputs
 class TestServiceRunner:
     def _write_app(self, tmp_path: pathlib.Path) -> str:
         app_file = tmp_path / 'app.py'
-        app_file.write_text(dedent(_APP_SRC))
+        app_file.write_text(dedent(_APP_SRC), encoding='utf-8')
         return str(app_file)
 
     def test_start_serves_and_stop_removes(self, uses_db: None, tmp_path: pathlib.Path) -> None:
@@ -80,3 +80,66 @@ class TestServiceRunner:
         with pxt_raises(pxt.ErrorCode.SERVICE_NOT_FOUND, match='declares no service named'):
             service_runner.start(app_file, 'nosuch', '')
         assert ServiceDeployment.list(recursive=True) == []
+
+    def test_update_prune_stop_list(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        """update starts what is declared and restarts what changed; prune and stop take deployments down."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        from pixeltable_cli.server import bridge
+        from pixeltable_cli.utils import PxtPath
+
+        app_file = self._write_app(tmp_path)
+        target = PxtPath('svc')
+        pxt.create_dir('svc')
+        t = pxt.create_table('svc.notes', {'note_id': pxt.Int, 'val': pxt.Int}, primary_key='note_id')
+        t.add_computed_column(incr=t.val + 1)
+
+        try:
+            plan = bridge.service_update(app_file, target)
+            assert [(d['name'], d['status']) for d in plan['services']] == [('ingest', 'applied')]
+            first = ServiceDeployment.read('ingest', 'svc')
+            assert first is not None and service_runner.health_ok(first.endpoint)
+
+            # a service already serving its declaration is left running, not restarted
+            plan = bridge.service_update(app_file, target)
+            assert [d['status'] for d in plan['services']] == ['skipped']
+            unchanged = ServiceDeployment.read('ingest', 'svc')
+            assert unchanged is not None and unchanged.pid == first.pid
+
+            # adding a route changes the declaration, so the service is replaced by one serving it
+            app_path = pathlib.Path(app_file)
+            app_path.write_text(
+                app_path.read_text(encoding='utf-8') + "ingest.add_compute_route(Notes, path='/compute')\n",
+                encoding='utf-8',
+            )
+            plan = bridge.service_update(app_file, target)
+            assert [d['status'] for d in plan['services']] == ['applied']
+            second = ServiceDeployment.read('ingest', 'svc')
+            assert second is not None and second.pid != first.pid
+            assert not pid_alive(first.pid)
+            assert [route['path'] for route in second.spec['routes']] == ['/notes', '/compute']
+
+            # list reports it, with the file it was served from
+            listed = bridge.service_list(target)
+            assert [(d['name'], d['base_path'], d['app_file']) for d in listed] == [
+                ('ingest', 'svc', str(pathlib.Path(app_file).resolve()))
+            ]
+
+            # a deployment the file no longer declares is stopped and forgotten
+            app_path.write_text(dedent(_APP_SRC).replace("name='ingest'", "name='other'"), encoding='utf-8')
+            plan = bridge.service_prune(app_file, target)
+            assert [(op['name'], op['status']) for op in plan['ops']] == [('ingest', 'applied')]
+            assert not pid_alive(second.pid)
+            assert bridge.service_list(target) == []
+        finally:
+            for deployment in ServiceDeployment.list('svc'):
+                service_runner.stop(deployment)
+
+    def test_stop_is_idempotent(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        """Stopping a service that is not deployed is reported, not an error."""
+        skip_test_if_not_installed('fastapi')
+        from pixeltable_cli.server import bridge
+        from pixeltable_cli.utils import PxtPath
+
+        ops = bridge.service_stop(['nosuch'], PxtPath(''))
+        assert [(op['name'], op['status']) for op in ops] == [('nosuch', 'skipped')]
