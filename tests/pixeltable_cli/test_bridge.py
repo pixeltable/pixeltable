@@ -1,12 +1,17 @@
 """Tests for pixeltable_cli.server.bridge - the translation layer between Pixeltable APIs and the dashboard REST API."""
 
+import pathlib
+from textwrap import dedent
+
 import pytest
 
 import pixeltable as pxt
+from pixeltable import exceptions as excs
 from pixeltable.functions.video import frame_iterator
 from pixeltable_cli.server import bridge
+from pixeltable_cli.utils import PxtPath
 
-from ..utils import dummy_embedding, get_test_video_files
+from ..utils import dummy_embedding, get_test_video_files, pxt_raises
 
 pytestmark = pytest.mark.local('pxt CLI metadata/data bridge')
 
@@ -26,7 +31,7 @@ def fail_on_neg(x: int) -> int:
 class TestBridge:
     def test_table_metadata_basic(self, uses_db: None) -> None:
         pxt.create_dir('md')
-        t = pxt.create_table('md/t', {'c1': pxt.String, 'c2': pxt.Required[pxt.Int]}, primary_key='c2')
+        t = pxt.create_table('md/t', {'c1': pxt.String | None, 'c2': pxt.Int}, primary_key='c2')
         t.add_computed_column(upper=t.c1.upper())
         t.insert([{'c1': 'hello', 'c2': 1}])
 
@@ -48,23 +53,23 @@ class TestBridge:
 
     def test_table_metadata_view(self, uses_db: None) -> None:
         pxt.create_dir('md')
-        t = pxt.create_table('md/base', {'c1': pxt.String})
+        t = pxt.create_table('md/base', {'c1': pxt.String | None})
         pxt.create_view('md/v', t)
         result = pxt.get_table('md/v').get_metadata()
         assert (result['is_view'], result['base']) == (True, 'md/base')
 
     def test_table_metadata_indices(self, uses_db: None) -> None:
         pxt.create_dir('md')
-        t = pxt.create_table('md/t', {'c1': pxt.String})
+        t = pxt.create_table('md/t', {'c1': pxt.String | None})
         t.add_embedding_index('c1', embedding=dummy_embedding.using(n=3))
         result = pxt.get_table('md/t').get_metadata()
-        assert len(result['indices']) > 0
-        idx = next(iter(result['indices'].values()))
+        assert len(result['indexes']) > 0
+        idx = next(iter(result['indexes'].values()))
         assert {'name', 'columns', 'index_type'} <= idx.keys()
 
     def test_table_data_basic(self, uses_db: None) -> None:
         pxt.create_dir('td')
-        t = pxt.create_table('td/t', {'c1': pxt.String, 'c2': pxt.Int})
+        t = pxt.create_table('td/t', {'c1': pxt.String | None, 'c2': pxt.Int | None})
         t.insert([{'c1': 'hello', 'c2': 1}, {'c1': 'world', 'c2': 2}])
 
         result = bridge.get_table_data('td/t')
@@ -74,14 +79,14 @@ class TestBridge:
 
     def test_table_data_empty(self, uses_db: None) -> None:
         pxt.create_dir('td')
-        pxt.create_table('td/t', {'c1': pxt.String})
+        pxt.create_table('td/t', {'c1': pxt.String | None})
         result = bridge.get_table_data('td/t')
         assert result['rows'] == []
         assert result['total_count'] == 0
 
     def test_table_data_pagination(self, uses_db: None) -> None:
         pxt.create_dir('td')
-        t = pxt.create_table('td/t', {'c1': pxt.Int})
+        t = pxt.create_table('td/t', {'c1': pxt.Int | None})
         t.insert([{'c1': i} for i in range(10)])
         page1 = bridge.get_table_data('td/t', offset=0, limit=3)
         assert len(page1['rows']) == 3
@@ -91,7 +96,7 @@ class TestBridge:
 
     def test_table_data_order_by(self, uses_db: None) -> None:
         pxt.create_dir('td')
-        t = pxt.create_table('td/t', {'c1': pxt.Int})
+        t = pxt.create_table('td/t', {'c1': pxt.Int | None}, has_default_idxs=True)
         t.insert([{'c1': 3}, {'c1': 1}, {'c1': 2}])
         asc = bridge.get_table_data('td/t', order_by='c1', order_desc=False)
         assert [r['c1'] for r in asc['rows']] == [1, 2, 3]
@@ -100,7 +105,7 @@ class TestBridge:
 
     def test_table_data_computed_column(self, uses_db: None) -> None:
         pxt.create_dir('td')
-        t = pxt.create_table('td/t', {'c1': pxt.String})
+        t = pxt.create_table('td/t', {'c1': pxt.String | None})
         t.add_computed_column(upper=t.c1.upper())
         t.insert([{'c1': 'hello'}])
         result = bridge.get_table_data('td/t')
@@ -108,20 +113,20 @@ class TestBridge:
 
     def test_table_data_nulls(self, uses_db: None) -> None:
         pxt.create_dir('td')
-        t = pxt.create_table('td/t', {'c1': pxt.String, 'c2': pxt.Int})
+        t = pxt.create_table('td/t', {'c1': pxt.String | None, 'c2': pxt.Int | None})
         t.insert([{'c1': None, 'c2': None}])
         assert bridge.get_table_data('td/t')['rows'][0] == {'c1': None, 'c2': None}
 
     def test_table_data_json(self, uses_db: None) -> None:
         pxt.create_dir('td')
-        t = pxt.create_table('td/t', {'c1': pxt.Json})
+        t = pxt.create_table('td/t', {'c1': pxt.Json | None})
         t.insert([{'c1': {'key': 'value', 'num': 42}}])
         row = bridge.get_table_data('td/t')['rows'][0]
         assert row['c1'] == {'key': 'value', 'num': 42}
 
     def test_export_csv(self, uses_db: None) -> None:
         pxt.create_dir('ex')
-        t = pxt.create_table('ex/t', {'c1': pxt.String, 'c2': pxt.Int})
+        t = pxt.create_table('ex/t', {'c1': pxt.String | None, 'c2': pxt.Int | None})
         t.insert([{'c1': 'hello', 'c2': 1}, {'c1': 'world', 'c2': 2}])
         csv_str = bridge.export_table_csv('ex/t').decode('utf-8')
         lines = csv_str.strip().split('\n')
@@ -131,30 +136,63 @@ class TestBridge:
 
     def test_export_csv_empty(self, uses_db: None) -> None:
         pxt.create_dir('ex')
-        pxt.create_table('ex/t', {'c1': pxt.String})
+        pxt.create_table('ex/t', {'c1': pxt.String | None})
         lines = bridge.export_table_csv('ex/t').decode('utf-8').strip().split('\n')
         assert len(lines) == 1  # header only
 
     def test_export_csv_limit(self, uses_db: None) -> None:
         pxt.create_dir('ex')
-        t = pxt.create_table('ex/t', {'c1': pxt.Int})
+        t = pxt.create_table('ex/t', {'c1': pxt.Int | None})
         t.insert([{'c1': i} for i in range(10)])
         lines = bridge.export_table_csv('ex/t', limit=3).decode('utf-8').strip().split('\n')
         assert len(lines) == 4  # header + 3 rows
 
     def test_export_csv_json_column(self, uses_db: None) -> None:
         pxt.create_dir('ex')
-        t = pxt.create_table('ex/t', {'c1': pxt.Json})
+        t = pxt.create_table('ex/t', {'c1': pxt.Json | None})
         t.insert([{'c1': {'key': 'val'}}])
         csv_str = bridge.export_table_csv('ex/t').decode('utf-8')
         assert 'key' in csv_str
 
     def test_search_empty_db(self, uses_db: None) -> None:
-        assert bridge.search('anything') == {'query': 'anything', 'directories': [], 'tables': [], 'columns': []}
+        assert bridge.search('anything') == {
+            'query': 'anything',
+            'directories': [],
+            'tables': [],
+            'columns': [],
+            'unavailable': [],
+        }
+
+    def test_search_unreachable_catalog(self, uses_db: None) -> None:
+        pxt.create_table('users', {'email': pxt.String | None})
+
+        result = bridge.search('users', additional_db_uris=['pxt://nosuch:db'])
+        assert [t['path'] for t in result['tables']] == ['users']
+        assert [(u['path'], u['kind']) for u in result['unavailable']] == [('pxt://nosuch:db', 'catalog')]
+        assert result['unavailable'][0]['error'] != ''
+
+    def test_search_unreadable_table(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A table that can't be opened is reported, not passed off as a result with made-up metadata."""
+        pxt.create_table('readable', {'c1': pxt.String | None})
+        pxt.create_table('broken', {'c1': pxt.String | None})
+
+        get_table = pxt.get_table
+
+        def get_table_or_fail(path: str) -> pxt.Table:
+            if path == 'broken':
+                raise RuntimeError('cannot open')
+            return get_table(path)
+
+        monkeypatch.setattr(bridge.pxt, 'get_table', get_table_or_fail)
+
+        result = bridge.search('able')
+        assert [t['path'] for t in result['tables']] == ['readable']
+        assert [(u['path'], u['kind']) for u in result['unavailable']] == [('broken', 'table')]
+        assert 'cannot open' in result['unavailable'][0]['error']
 
     def test_search_finds_dir_table_column(self, uses_db: None) -> None:
         pxt.create_dir('proj')
-        pxt.create_table('proj/users', {'email': pxt.String, 'age': pxt.Int})
+        pxt.create_table('proj/users', {'email': pxt.String | None, 'age': pxt.Int | None})
 
         assert [d['path'] for d in bridge.search('proj')['directories']] == ['proj']
         assert [t['path'] for t in bridge.search('users')['tables']] == ['proj/users']
@@ -165,17 +203,17 @@ class TestBridge:
         pxt.create_dir('MyDir')
         assert len(bridge.search('mydir')['directories']) == 1
 
-    def test_search_limit(self, uses_db: None) -> None:
+    def test_search_returns_every_match(self, uses_db: None) -> None:
         pxt.create_dir('sl')
         for i in range(5):
-            pxt.create_table(f'sl/match_{i}', {'c1': pxt.String})
-        assert len(bridge.search('match', limit=3)['tables']) == 3
+            pxt.create_table(f'sl/match_{i}', {'c1': pxt.String | None})
+        assert len(bridge.search('match')['tables']) == 5
 
     def test_pipeline(self, uses_db: None) -> None:
         assert bridge.get_pipeline() == {'nodes': [], 'edges': []}
 
         pxt.create_dir('pp')
-        t = pxt.create_table('pp/t', {'c1': pxt.String})
+        t = pxt.create_table('pp/t', {'c1': pxt.String | None})
         t.insert([{'c1': 'hello'}])
         result = bridge.get_pipeline()
         assert len(result['nodes']) == 1
@@ -202,10 +240,10 @@ class TestBridge:
     def test_pipeline_scoped(self, uses_db: None) -> None:
         # Build a chain root -> mid -> leaf, plus an unrelated standalone table.
         pxt.create_dir('sc')
-        root = pxt.create_table('sc/root', {'c': pxt.String})
+        root = pxt.create_table('sc/root', {'c': pxt.String | None})
         mid = pxt.create_view('sc/mid', root)
         pxt.create_view('sc/leaf', mid)
-        pxt.create_table('sc/other', {'c': pxt.String})
+        pxt.create_table('sc/other', {'c': pxt.String | None})
 
         # Scoped to mid: includes ancestor (root), self (mid), descendant (leaf); excludes 'other'.
         result = bridge.get_pipeline(tbl_path='sc/mid')
@@ -220,7 +258,7 @@ class TestBridge:
 
     def test_pipeline_view_edge(self, uses_db: None) -> None:
         pxt.create_dir('pp')
-        t = pxt.create_table('pp/base', {'c1': pxt.String})
+        t = pxt.create_table('pp/base', {'c1': pxt.String | None})
         pxt.create_view('pp/v', t)
         result = bridge.get_pipeline()
         assert len(result['nodes']) == 2
@@ -228,7 +266,7 @@ class TestBridge:
 
     def test_pipeline_computed_columns(self, uses_db: None) -> None:
         pxt.create_dir('pp')
-        t = pxt.create_table('pp/t', {'c1': pxt.String, 'c2': pxt.Int})
+        t = pxt.create_table('pp/t', {'c1': pxt.String | None, 'c2': pxt.Int | None})
         t.add_computed_column(upper=t.c1.upper())
         t.add_computed_column(add=t.c2 + t.c1.len())
         t.add_computed_column(add2=2 + t.c1.len())
@@ -250,7 +288,7 @@ class TestBridge:
     def test_pipeline_snapshot_edge(self, uses_db: None) -> None:
         # Snapshot of an iterator view: validates snapshot edge wiring + version metadata.
         video_path = get_test_video_files()[0]
-        video_t = pxt.create_table('videos', {'video': pxt.Video})
+        video_t = pxt.create_table('videos', {'video': pxt.Video | None})
         video_t.insert([{'video': video_path}])
         view = pxt.create_view('frames', video_t, iterator=frame_iterator(video_t.video, fps=1))
         pxt.create_view('frames_snap', view, is_snapshot=True)
@@ -281,15 +319,15 @@ class TestBridge:
 
     def test_status_table_count(self, uses_db: None) -> None:
         pxt.create_dir('st')
-        pxt.create_table('st/t1', {'c1': pxt.String})
-        pxt.create_table('st/t2', {'c1': pxt.String})
+        pxt.create_table('st/t1', {'c1': pxt.String | None})
+        pxt.create_table('st/t2', {'c1': pxt.String | None})
         assert bridge.get_status()['total_tables'] == 2
 
     def test_table_data_unstored_column(self, uses_db: None) -> None:
         # Unstored computed columns must not be evaluated by the data view.
         # The expression here would raise on negative inputs; the test asserts that
         # get_table_data succeeds anyway and reports the column as is_stored=False.
-        t = pxt.create_table('udata', {'x': pxt.Int})
+        t = pxt.create_table('udata', {'x': pxt.Int | None})
         t.add_computed_column(plus_one=t.x + 1)
         t.add_computed_column(boom=fail_on_neg(t.x), stored=False)
         t.insert([{'x': 1}, {'x': -1}, {'x': 2}])
@@ -312,7 +350,9 @@ class TestBridge:
         # Only stored, B-tree-indexed columns should be reported as sortable. Postgres has no
         # cheap ordering for bool / json / unstored columns, so the bridge skips them.
         pxt.create_dir('s')
-        t = pxt.create_table('s/t', {'name': pxt.String, 'flag': pxt.Bool, 'meta': pxt.Json})
+        t = pxt.create_table(
+            's/t', {'name': pxt.String | None, 'flag': pxt.Bool | None, 'meta': pxt.Json | None}, has_default_idxs=True
+        )
         t.add_computed_column(boom=fail_on_neg(t.name.len()), stored=False)
         t.insert([{'name': 'b', 'flag': True, 'meta': {}}, {'name': 'a', 'flag': False, 'meta': {}}])
 
@@ -331,7 +371,7 @@ class TestBridge:
     def test_table_data_iterator_view(self, uses_db: None) -> None:
         video_path = get_test_video_files()[0]
         pxt.create_dir('iv')
-        video_t = pxt.create_table('iv/videos', {'video': pxt.Video})
+        video_t = pxt.create_table('iv/videos', {'video': pxt.Video | None})
         video_t.insert([{'video': video_path}])
         pxt.create_view('iv/frames', video_t, iterator=frame_iterator(video_t.video, fps=1))
 
@@ -348,3 +388,30 @@ class TestBridge:
         view_node = next(n for n in pipeline['nodes'] if n['path'] == 'iv/frames')
         assert 'error' not in view_node
         assert view_node['is_view'] is True
+
+    def test_schema_update_destructive_refusal(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        schema_src = dedent(
+            """
+            from __future__ import annotations
+
+            import pixeltable as pxt
+
+            TableModel = pxt.model_base()
+
+
+            class Docs(TableModel, name='docs'):
+                title: pxt.String
+                body: pxt.String
+            """
+        )
+        schema_file = tmp_path / 'app_schema.py'
+        schema_file.write_text(schema_src)
+        target = PxtPath('refusal')
+        bridge.schema_update(str(schema_file), target)
+
+        # dropping a column destroys its data; the refusal tells a CLI user about the flag, not about update_all()
+        schema_file.write_text(schema_src.replace('    body: pxt.String\n', ''))
+        with pxt_raises(excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE, match='--allow-destructive') as info:
+            bridge.schema_update(str(schema_file), target)
+        assert 'update_all()' not in info.value.message
+        assert 'body' in pxt.get_table('refusal/docs').columns()

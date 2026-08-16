@@ -65,14 +65,14 @@ class TestHfDatasetsBasic:
         t = pxt.io.import_huggingface_dataset(p('hf_basic'), _make_hf_dataset(num_rows=10))
         md_types = {name: col['type_'] for name, col in t.get_metadata()['columns'].items()}
         assert md_types == {
-            'idx': 'Int',
-            'text': 'String',
-            'flag': 'Bool',
-            'label': 'String',
-            'emb': 'Array[(None,), float32]',
-            'fixed': 'Array[(2,), float32]',
-            'meta': 'Json',
-            'img': 'Image',
+            'idx': 'Int | None',
+            'text': 'String | None',
+            'flag': 'Bool | None',
+            'label': 'String | None',
+            'emb': 'Array[(None,), float32] | None',
+            'fixed': 'Array[(2,), float32] | None',
+            'meta': 'Json | None',
+            'img': 'Image | None',
         }
         assert t.count() == 10
         res = t.order_by(t.idx).collect()
@@ -331,8 +331,8 @@ class TestHfDatasets:
         t = pxt.create_table(p('mnist'), source=hf_dataset)
         md = t.get_metadata()
         assert set(md['columns'].keys()) == {'image', 'label'}
-        assert md['columns']['image']['type_'] == 'Image'
-        assert md['columns']['label']['type_'] == 'String'
+        assert md['columns']['image']['type_'] == 'Image | None'
+        assert md['columns']['label']['type_'] == 'String | None'
 
         res = t.select(t.image.localpath).collect()
         assert all(pathlib.Path(row['image_localpath']).exists() for row in res)
@@ -355,7 +355,7 @@ class TestHfDatasets:
         t = pxt.create_table(p('hfds'), source=hf_dataset)
         md = t.get_metadata()
         assert set(md['columns'].keys()) == {'audio', 'sentence'}
-        assert md['columns']['audio']['type_'] == 'Json'
+        assert md['columns']['audio']['type_'] == 'Json | None'
 
         res = t.collect()
         assert all(isinstance(row['audio'], dict) for row in res)
@@ -378,7 +378,7 @@ class TestHfDatasets:
         t = pxt.create_table(p('audio_test'), source=hf_dataset)
         md = t.get_metadata()
         assert set(md['columns'].keys()) == {'file', 'audio', 'text', 'speaker_id', 'chapter_id', 'id'}
-        assert md['columns']['audio']['type_'] == 'Audio'
+        assert md['columns']['audio']['type_'] == 'Audio | None'
 
         res = t.collect()
         assert all(pathlib.Path(row['audio']).exists() for row in res)
@@ -402,7 +402,7 @@ class TestHfDatasets:
         t = pxt.create_table(p('audio_test'), source=hf_dataset)
         md = t.get_metadata()
         assert set(md['columns'].keys()) == {'file', 'audio', 'text', 'speaker_id', 'chapter_id', 'id'}
-        assert md['columns']['audio']['type_'] == 'Audio'
+        assert md['columns']['audio']['type_'] == 'Audio | None'
 
         res = t.collect()
         assert all(pathlib.Path(row['audio']).exists() for row in res)
@@ -445,7 +445,7 @@ class TestHfDatasets:
             'community_question_score',
             'verifier_score',
         }
-        assert md['columns']['prev_messages']['type_'] == 'Json'
+        assert md['columns']['prev_messages']['type_'] == 'Json | None'
 
         res = t.where(t.prev_messages != None).collect()
         assert all(isinstance(row['prev_messages'], list) for row in res)
@@ -471,7 +471,7 @@ class TestHfDatasets:
         t = pxt.create_table(p('test'), source=hf_dataset)
         md = t.get_metadata()
         assert set(md['columns'].keys()) == {'label', 'text'}
-        assert md['columns']['label']['type_'] == 'String'
+        assert md['columns']['label']['type_'] == 'String | None'
 
         res = t.collect()
         assert all(row['label'] in ['neg', 'pos'] for row in res)
@@ -497,7 +497,7 @@ class TestHfDatasets:
         t = pxt.create_table(p('test'), source=hf_dataset)
         md = t.get_metadata()
         assert set(md['columns'].keys()) == {'c_id', 'emb', 'text', 'title', 'url'}
-        assert md['columns']['emb']['type_'] == 'Array[(None,), float32]'
+        assert md['columns']['emb']['type_'] == 'Array[(None,), float32] | None'
 
         res = t.collect()
         assert all(isinstance(row['emb'], np.ndarray) for row in res)
@@ -523,7 +523,7 @@ class TestHfDatasets:
         t = pxt.create_table(p('squad_test'), source=hf_dataset)
         md = t.get_metadata()
         assert set(md['columns'].keys()) == {'answers', 'context', 'id', 'question', 'title'}
-        assert md['columns']['answers']['type_'] == 'Json'
+        assert md['columns']['answers']['type_'] == 'Json | None'
 
         res = t.collect()
         # answers should be a dict containing lists; however, the list of ints gets turned into an ndarray
@@ -557,8 +557,8 @@ class TestHfDatasets:
         t = pxt.create_table(p('hotpotqa_test'), source=hf_dataset)
         md = t.get_metadata()
         assert set(md['columns'].keys()) == {'id', 'question', 'answer', 'supporting_facts', 'context', 'level', 'type'}
-        assert md['columns']['supporting_facts']['type_'] == 'Json'
-        assert md['columns']['context']['type_'] == 'Json'
+        assert md['columns']['supporting_facts']['type_'] == 'Json | None'
+        assert md['columns']['context']['type_'] == 'Json | None'
 
         res = t.collect()
         assert all(isinstance(row['supporting_facts'], dict) for row in res)
@@ -586,11 +586,11 @@ class TestHfDatasets:
             hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
         t = pxt.create_table(p('nyuv2_test'), source=hf_dataset)
         md = t.get_metadata()
-        assert md['columns']['image']['type_'] == 'Array[(3, 288, 384), float32]'
-        assert md['columns']['segmentation']['type_'] == 'Array[(288, 384), int64]'
-        assert md['columns']['depth']['type_'] == 'Array[(1, 288, 384), float32]'
-        assert md['columns']['normal']['type_'] == 'Array[(3, 288, 384), float32]'
-        assert md['columns']['noise']['type_'] == 'Array[(1, 288, 384), float32]'
+        assert md['columns']['image']['type_'] == 'Array[(3, 288, 384), float32] | None'
+        assert md['columns']['segmentation']['type_'] == 'Array[(288, 384), int64] | None'
+        assert md['columns']['depth']['type_'] == 'Array[(1, 288, 384), float32] | None'
+        assert md['columns']['normal']['type_'] == 'Array[(3, 288, 384), float32] | None'
+        assert md['columns']['noise']['type_'] == 'Array[(1, 288, 384), float32] | None'
 
         res = t.collect()
         assert set(res.schema.keys()) == {'image', 'segmentation', 'depth', 'normal', 'noise'}

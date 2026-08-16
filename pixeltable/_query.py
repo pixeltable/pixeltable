@@ -18,8 +18,8 @@ from typing import (
     Iterable,
     Iterator,
     Literal,
-    Mapping,
     NoReturn,
+    Self,
     Sequence,
     TypeVar,
     cast,
@@ -31,7 +31,6 @@ import pandas as pd
 import PIL.Image
 import pydantic
 import sqlalchemy.exc as sql_exc
-from typing_extensions import Self
 
 from pixeltable import catalog, exceptions as excs, exec, exprs, type_system as ts
 from pixeltable.catalog import is_valid_identifier
@@ -39,6 +38,7 @@ from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.env import Env
 from pixeltable.plan import Planner
 from pixeltable.query_clauses import FromClause, JoinClause, JoinType, SampleClause
+from pixeltable.row import Row
 from pixeltable.runtime import get_runtime
 from pixeltable.service.proxy_client import ProxyClient
 from pixeltable.type_system import ColumnType
@@ -48,7 +48,7 @@ from pixeltable.utils.formatter import Formatter
 if TYPE_CHECKING:
     import torch.utils.data
 
-__all__ = ['Query', 'ResultCursor', 'ResultSet', 'Row']
+__all__ = ['Query', 'ResultCursor', 'ResultSet']
 
 
 class ResultSet:
@@ -88,7 +88,7 @@ class ResultSet:
     def schema(self) -> dict[str, str]:
         """The result columns as a mapping from name to its type string."""
         # matches Table.get_metadata()
-        return {name: col_type._to_str(as_schema=True) for name, col_type in self._schema.items()}
+        return {name: repr(col_type) for name, col_type in self._schema.items()}
 
     def __len__(self) -> int:
         return len(self._rows)
@@ -195,79 +195,6 @@ class ResultSet:
         return hash(self.to_pandas())
 
 
-class Row(Mapping[str, Any]):
-    """A dict-like wrapper over a single result row.
-
-    Supports key access (`row['col']`), membership (`'col' in row`),
-    iteration over keys, and the standard `get`, `keys`, `values`,
-    and `items` methods.
-    """
-
-    def __init__(self, data: Iterable[Any], columns: dict[str, int], col_types: dict[str, ColumnType]):
-        self._data = tuple(data)
-        self._columns = columns
-        self._col_types = col_types
-
-    def __getitem__(self, key: str) -> Any:
-        if key not in self._columns:
-            raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Column {key!r} does not exist in the row.')
-        return self._data[self._columns[key]]
-
-    def get(self, key: str, default: Any = None) -> Any:
-        if key not in self._columns:
-            return default
-        return self._data[self._columns[key]]
-
-    def __iter__(self) -> Iterator[str]:
-        return iter(self._columns)
-
-    def __contains__(self, key: object) -> bool:
-        return key in self._columns
-
-    def __len__(self) -> int:
-        return len(self._columns)
-
-    def __repr__(self) -> str:
-        return 'Row({' + ', '.join(f'{k!r}: {v!r}' for k, v in self.items()) + '})'
-
-    def to_json(self) -> dict[str, Any]:
-        """Return a JSON-serializable dict of this row's values.
-
-        - `None`: preserved as `None`
-        - Timestamp, Date: ISO 8601 string
-        - UUID: string
-        - Array: Python list (via `tolist()`)
-        - Json: validated for serializability, kept as native Python
-        - Binary: omitted (not representable in JSON)
-        - All others: unchanged
-        """
-        result: dict[str, Any] = {}
-        for col_name, col_type in self._col_types.items():
-            val = self[col_name]
-            if col_type.is_binary_type():
-                continue
-            elif val is None:
-                result[col_name] = None
-            elif col_type.is_timestamp_type() or col_type.is_date_type():
-                result[col_name] = val.isoformat()
-            elif col_type.is_uuid_type():
-                result[col_name] = str(val)
-            elif col_type.is_array_type():
-                result[col_name] = val.tolist()
-            elif col_type.is_json_type():
-                try:
-                    json.dumps(val)
-                except (TypeError, ValueError) as err:
-                    raise excs.RequestError(
-                        excs.ErrorCode.INVALID_DATA_FORMAT,
-                        f'Column {col_name!r} contains a value that is not JSON-serializable: {err}',
-                    ) from err
-                result[col_name] = val
-            else:
-                result[col_name] = val
-        return result
-
-
 class ResultCursor(Iterable[Row]):
     """Cursor that iterates over query results.
 
@@ -315,7 +242,7 @@ class ResultCursor(Iterable[Row]):
     def schema(self) -> dict[str, str]:
         """The result columns as a mapping from name to its type string."""
         # matches Table.get_metadata()
-        return {name: col_type._to_str(as_schema=True) for name, col_type in self._schema.items()}
+        return {name: repr(col_type) for name, col_type in self._schema.items()}
 
     def open(self) -> None:
         """Start the underlying query and prepare the cursor for iteration.
@@ -741,21 +668,21 @@ class Query:
         for tbl in self._from_clause.tvps:
             for tvh in tbl.get_tbl_versions():
                 tv = tvh.get()
-                if tv.is_versioned:
+                if tv.is_data_versioned:
                     out[tvh.id] = tv.version
         return out
 
     def _create_query_plan(self) -> exec.ExecPlan:
         assert self._from_clause.is_local
         tvps = self._from_clause.tvps
-        has_unversioned_tbl = any(not tbl.tbl_version.get().is_versioned for tbl in tvps)
-        if has_unversioned_tbl:
-            # For now, we only support queries of the simplest form on unversioned tables
-            assert len(self._from_clause.tbls) == 1, 'TODO: implement for unversioned tables [PXT-1101]'
-            assert len(self._from_clause.join_clauses) == 0, 'TODO: implement for unversioned tables [PXT-1101]'
-            assert self.grouping_tbl_key is None, 'TODO: implement for unversioned tables [PXT-1101]'
-            assert self.group_by_clause is None, 'TODO: implement for unversioned tables [PXT-1101]'
-            assert self.sample_clause is None, 'TODO: implement for unversioned tables [PXT-1101]'
+        has_operational_tbl = any(not tbl.tbl_version.get().is_data_versioned for tbl in tvps)
+        if has_operational_tbl:
+            # For now, we only support queries of the simplest form on operational tables
+            assert len(self._from_clause.tbls) == 1, 'TODO: implement for operational tables [PXT-1101]'
+            assert len(self._from_clause.join_clauses) == 0, 'TODO: implement for operational tables [PXT-1101]'
+            assert self.grouping_tbl_key is None, 'TODO: implement for operational tables [PXT-1101]'
+            assert self.group_by_clause is None, 'TODO: implement for operational tables [PXT-1101]'
+            assert self.sample_clause is None, 'TODO: implement for operational tables [PXT-1101]'
 
         # construct a group-by clause if we're grouping by a table
         group_by_clause = self.group_by_clause
@@ -1076,11 +1003,7 @@ class Query:
         select_list = self._effective_select_list
         return pd.DataFrame(
             [
-                {
-                    'Name': name,
-                    'Type': expr.col_type._to_str(as_schema=True),
-                    'Expression': expr.display_str(inline=False),
-                }
+                {'Name': name, 'Type': repr(expr.col_type), 'Expression': expr.display_str(inline=False)}
                 for expr, name in select_list
             ]
         )
@@ -1410,9 +1333,10 @@ class Query:
         """
         assert len(self._from_clause.tbls) > 0
         # a join mixing catalogs (e.g. local + hosted) is rejected by FromClause's same-catalog check below
-        if self._from_clause.tbls[0].is_versioned() != other._is_versioned():
+        if self._from_clause.tbls[0].is_data_versioned() != other._is_data_versioned():
             raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, 'join is not supported between versioned and unversioned tables'
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                'join is not supported between data-versioned and operational tables',
             )
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'join() cannot be used with sample()')

@@ -26,7 +26,7 @@ class TestTimestamp:
 
     def make_test_table(self) -> tuple[list[datetime], pxt.Table]:
         # Create a test table with a date column
-        t = pxt.create_table('test_tbl', {'dt': pxt.Timestamp})
+        t = pxt.create_table('test_tbl', {'dt': pxt.Timestamp | None})
         # Insert test data
         test_dts = sorted([datetime.fromisoformat(dt) for dt in self.TEST_DATETIMES])
         validate_update_status(t.insert({'dt': dt} for dt in test_dts), expected_rows=len(test_dts))
@@ -131,7 +131,7 @@ class TestTimestamp:
             datetime.fromisoformat(f'2024-01-01T12:34:56.{frac}-08:00')
             for frac in ('000000', '123456', '500000', '789456', '999999')
         ]
-        t = pxt.create_table('test_tbl', {'dt': pxt.Timestamp})
+        t = pxt.create_table('test_tbl', {'dt': pxt.Timestamp | None})
         validate_update_status(t.insert({'dt': dt} for dt in test_dts), expected_rows=len(test_dts))
 
         expected = [dt.microsecond for dt in test_dts]
@@ -166,7 +166,7 @@ class TestTimestamp:
             print(f'  (effective default time zone is: {default_time_zone})')
 
             pxt.drop_table('test_tbl', force=True)
-            t = pxt.create_table('test_tbl', {'dt': pxt.Timestamp})
+            t = pxt.create_table('test_tbl', {'dt': pxt.Timestamp | None})
             t.insert({'dt': dt} for dt in timestamps)
             selection = {'dt': t.dt, 'dt_tz': t.dt.astimezone(query_time_zone.key)}
             for prop in props_to_test:
@@ -206,7 +206,7 @@ class TestTimestamp:
 
     def test_timestamp_zone_in_literals(self, uses_db: None) -> None:
         Env.get().default_time_zone = ZoneInfo('America/Anchorage')
-        t = pxt.create_table('test_tbl', {'n': pxt.Int, 'dt': pxt.Timestamp})
+        t = pxt.create_table('test_tbl', {'n': pxt.Int | None, 'dt': pxt.Timestamp | None})
         start = datetime.fromisoformat('2024-07-01T00:00:00+00:00')
         validate_update_status(
             t.insert({'n': n, 'dt': start + timedelta(minutes=n)} for n in range(1440)), expected_rows=1440

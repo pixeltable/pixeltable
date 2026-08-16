@@ -106,7 +106,7 @@ class TestComponentView:
         # retargeting binds each view to its own base version, but join SQL generation currently gives the shared
         # base store table the same alias in both branches.
         p = make_catalog_path
-        t = pxt.create_table(p('join_base'), {'k': pxt.Int, 'n': pxt.Int})
+        t = pxt.create_table(p('join_base'), {'k': pxt.Int | None, 'n': pxt.Int | None})
         validate_update_status(t.insert([{'k': 0, 'n': 5}]), expected_rows=1)
         view_a = pxt.create_view(p('join_view_a'), t, iterator=scaled_iterator(t.n))
         view_b = pxt.create_view(p('join_view_b'), t, iterator=scaled_iterator(t.n))
@@ -125,7 +125,7 @@ class TestComponentView:
     def test_basic(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         # create video table
         p = make_catalog_path
-        schema = {'video': pxt.Video, 'angle': pxt.Int, 'other_angle': pxt.Int}
+        schema: dict[str, Any] = {'video': pxt.Video | None, 'angle': pxt.Int | None, 'other_angle': pxt.Int | None}
         video_t = pxt.create_table(p('video_tbl'), schema)
         video_filepaths = get_test_video_files()
 
@@ -174,7 +174,7 @@ class TestComponentView:
     def test_add_column(self, make_catalog_path: Callable[[str], str]) -> None:
         # create video table
         p = make_catalog_path
-        video_t = pxt.create_table(p('video_tbl'), {'video': pxt.Video})
+        video_t = pxt.create_table(p('video_tbl'), {'video': pxt.Video | None})
         video_filepaths = get_test_video_files()
         # create frame view
         view_t = pxt.create_view(p('test_view'), video_t, iterator=frame_iterator(video_t.video, fps=1))
@@ -182,19 +182,19 @@ class TestComponentView:
         rows = [{'video': p} for p in video_filepaths]
         validate_update_status(video_t.insert(rows))
         # adding a non-computed column backfills it with nulls
-        validate_update_status(view_t.add_column(annotation=pxt.Json))
+        validate_update_status(view_t.add_column(annotation=pxt.Json | None))
         assert view_t.count() == view_t.where(view_t.annotation == None).count()
         # adding more data via the base table sets the column values to null
         validate_update_status(video_t.insert(rows))
         assert view_t.count() == view_t.where(view_t.annotation == None).count()
 
         with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match='Duplicate column name: annotation'):
-            view_t.add_column(annotation=pxt.Required[pxt.Json])
+            view_t.add_column(annotation=pxt.Json)
 
     def test_nondeterministic(self, make_catalog_path: Callable[[str], str]) -> None:
         """Test that a nondeterministic expr in a view column is recomputed for each row"""
         p = make_catalog_path
-        video_t = pxt.create_table(p('video_tbl'), {'video': pxt.Video})
+        video_t = pxt.create_table(p('video_tbl'), {'video': pxt.Video | None})
         video_filepaths = get_test_video_files()
         # Scenario 1: additional_columns
         view_t = pxt.create_view(
@@ -223,12 +223,12 @@ class TestComponentView:
     def test_update(self, make_catalog_path: Callable[[str], str]) -> None:
         # create video table
         p = make_catalog_path
-        video_t = pxt.create_table(p('video_tbl'), {'video': pxt.Video})
+        video_t = pxt.create_table(p('video_tbl'), {'video': pxt.Video | None})
         # create frame view with manually updated column
         view_t = pxt.create_view(
             p('test_view'),
             video_t,
-            additional_columns={'annotation': pxt.Json},
+            additional_columns={'annotation': pxt.Json | None},
             iterator=frame_iterator(video_t.video, fps=1),
         )
 
@@ -260,7 +260,7 @@ class TestComponentView:
             _ = pxt.create_view(
                 p('bad_view'),
                 video_t,
-                additional_columns={'annotation': pxt.Required[pxt.Json]},
+                additional_columns={'annotation': pxt.Json},
                 iterator=frame_iterator(video_t.video, fps=1),
             )
         assert 'must be nullable' in str(excinfo.value)
@@ -277,7 +277,7 @@ class TestComponentView:
         snap_path = p('test_snap')
 
         # create video table
-        video_t = pxt.create_table(base_path, {'video': pxt.Video, 'margin': pxt.Int})
+        video_t = pxt.create_table(base_path, {'video': pxt.Video | None, 'margin': pxt.Int | None})
         video_filepaths = get_test_video_files()
         rows = [{'video': path, 'margin': i * 10} for i, path in enumerate(video_filepaths)]
         status = video_t.insert(rows)
@@ -355,7 +355,7 @@ class TestComponentView:
         """Component view followed by a standard view"""
         # create video table
         p = make_catalog_path
-        schema = {'video': pxt.Video, 'int1': pxt.Int, 'int2': pxt.Int}
+        schema: dict[str, Any] = {'video': pxt.Video | None, 'int1': pxt.Int | None, 'int2': pxt.Int | None}
         video_t = pxt.create_table(p('video_tbl'), schema)
         video_filepaths = get_test_video_files()
 
@@ -470,7 +470,7 @@ class TestComponentView:
 
     def test_create_view_error(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test'), {'i': pxt.Int})
+        t = pxt.create_table(p('test'), {'i': pxt.Int | None})
         status = t.insert({'i': i} for i in range(100))
         assert status.num_excs == 0
 
@@ -489,7 +489,7 @@ class TestComponentView:
     def test_update_iterator_param(self, make_catalog_path: Callable[[str], str]) -> None:
         """Updating a base table column used as an iterator parameter re-evaluates the iterator."""
         p = make_catalog_path
-        t = pxt.create_table(p('tbl'), {'n': pxt.Int})
+        t = pxt.create_table(p('tbl'), {'n': pxt.Int | None})
         v = pxt.create_view(p('view'), t, iterator=simple_iterator(t.n, str_text='t'))
         t.insert([{'n': 5}])
 
@@ -504,16 +504,33 @@ class TestComponentView:
         scol_values = [row['scol'] for row in rows]
         assert scol_values == ['t 0', 't 1', 't 2', 't 3', 't 4', 't 5']
 
+    def test_update_changes_view_membership(self, make_catalog_path: Callable[[str], str]) -> None:
+        """A base update that changes whether a row satisfies a component view's filter updates its component rows."""
+        p = make_catalog_path
+        t = pxt.create_table(p('tbl'), {'n': pxt.Int | None})
+        t.insert([{'n': 2}, {'n': 3}])
+        v = pxt.create_view(p('view'), t.where(t.n > 2), iterator=simple_iterator(t.n))
+        # only n=3 satisfies the filter, and it yields 3 component rows
+        assert len(v.collect()) == 3
+
+        # n=2 becomes n=4, which satisfies the filter and yields 4 component rows
+        t.update({'n': 4}, where=t.n == 2)
+        assert len(v.collect()) == 7
+
+        # n=3 becomes n=1, which no longer satisfies the filter
+        t.update({'n': 1}, where=t.n == 3)
+        assert len(v.collect()) == 4
+
     def test_update_iterator_param_with_dependent_view(self, make_catalog_path: Callable[[str], str]) -> None:
         """A view on an iterator view also updates when the base iterator param changes."""
         p = make_catalog_path
-        t = pxt.create_table(p('tbl'), {'n': pxt.Int})
+        t = pxt.create_table(p('tbl'), {'n': pxt.Int | None})
         v = pxt.create_view(p('iter_view'), t, iterator=simple_iterator(t.n, str_text='t'))
         # non-iterator child view: additional column references the parent iterator's scol output
         v2 = pxt.create_view(p('child_view'), v, additional_columns={'derived': v.scol + '_suffix'})
         # nested iterator child view: a second iterator runs on each row of v.
-        # The inner iterator's outputs (icol/scol/acol/pos) collide with v's, so they get
-        # renamed with a _1 suffix in v3's schema.
+        # The inner iterator's outputs (icol/scol/acol/pos) have the same names as v's and shadow them, so v3's
+        # icol/scol/pos are the inner iterator's; derived identifies the row of v that each one came from.
         v3 = pxt.create_view(
             p('child_iterator_view'),
             v,
@@ -528,11 +545,10 @@ class TestComponentView:
         assert [r['derived'] for r in rows] == ['t 0_suffix', 't 1_suffix', 't 2_suffix']
 
         # v3 nested iterator: for v.icol in (0, 1, 2), yields 0 + 1 + 2 = 3 rows.
-        v3_rows = v3.order_by(v3.icol, v3.pos_1).collect()
+        v3_rows = v3.order_by(v3.derived, v3.pos).collect()
         assert len(v3_rows) == 3
-        assert [r['icol'] for r in v3_rows] == [1, 2, 2]
-        assert [r['icol_1'] for r in v3_rows] == [0, 0, 1]
-        assert [r['scol_1'] for r in v3_rows] == ['s 0', 's 0', 's 1']
+        assert [r['icol'] for r in v3_rows] == [0, 0, 1]
+        assert [r['scol'] for r in v3_rows] == ['s 0', 's 0', 's 1']
         assert [r['derived'] for r in v3_rows] == ['t 1_suffix', 't 2_suffix', 't 2_suffix']
 
         t.update({'n': 2})
@@ -544,9 +560,8 @@ class TestComponentView:
         assert [r['derived'] for r in rows] == ['t 0_suffix', 't 1_suffix']
 
         # After update n=2: v has icol in (0, 1); nested iterator yields 0 + 1 = 1 row.
-        v3_rows = v3.order_by(v3.icol, v3.pos_1).collect()
+        v3_rows = v3.order_by(v3.derived, v3.pos).collect()
         assert len(v3_rows) == 1
-        assert [r['icol'] for r in v3_rows] == [1]
-        assert [r['icol_1'] for r in v3_rows] == [0]
-        assert [r['scol_1'] for r in v3_rows] == ['s 0']
+        assert [r['icol'] for r in v3_rows] == [0]
+        assert [r['scol'] for r in v3_rows] == ['s 0']
         assert [r['derived'] for r in v3_rows] == ['t 1_suffix']

@@ -48,7 +48,8 @@ class PostgresqlDbms(Dbms):
         super().__init__('postgresql', _DEFAULT_ISOLATION_LEVEL, 'brin', db_url)
 
     def drop_db_stmt(self, database: str) -> str:
-        return f'DROP DATABASE {database}'
+        # WITH (FORCE) terminates any open connections to the target db before dropping it
+        return f'DROP DATABASE {database} WITH (FORCE)'
 
     def create_db_stmt(self, database: str) -> str:
         match platform.system():

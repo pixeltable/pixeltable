@@ -25,12 +25,13 @@ from pydantic import BaseModel, PrivateAttr
 from pixeltable import exprs, func, type_system as ts
 from pixeltable.catalog.dir import Dir
 from pixeltable.catalog.globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation, TableVersionMd
-from pixeltable.catalog.model import EmbeddingIndex
+from pixeltable.catalog.model import BtreeIndex, EmbeddingIndex
 from pixeltable.catalog.path import Path
 from pixeltable.catalog.table_path import TablePath, TablePathKey, TableVersionPath
 from pixeltable.catalog.update_status import RowCountStats, UpdateStatus
 from pixeltable.metadata import VERSION as MD_SCHEMA_VERSION, schema
 from pixeltable.query_clauses import SampleClause
+from pixeltable.row import RowBatch
 from pixeltable.utils.local_store import TempStore
 
 PROTOCOL_VERSION = 1
@@ -136,6 +137,12 @@ def _serialize(obj: Any, binary_parts: list[bytes]) -> Any:
             _TAG: 'EmbeddingIndex',
             'v': {f.name: _serialize(getattr(obj, f.name), []) for f in dataclasses.fields(obj)},
         }
+    if isinstance(obj, BtreeIndex):
+        # A declarative model's B-tree-index spec (a dataclass wrapping an Expr column ref).
+        return {
+            _TAG: 'BtreeIndex',
+            'v': {f.name: _serialize(getattr(obj, f.name), []) for f in dataclasses.fields(obj)},
+        }
     if isinstance(obj, DirEntry):
         # only the fields any get_dir_contents() consumer reads: dir presence, table id/md, error count
         return {
@@ -153,6 +160,18 @@ def _serialize(obj: Any, binary_parts: list[bytes]) -> Any:
         d = dataclasses.asdict(obj)
         d['rows'] = _serialize(obj.rows, binary_parts)  # returned rows may hold non-JSON scalars (timestamps, etc.)
         return {_TAG: 'UpdateStatus', 'v': d}
+    if isinstance(obj, RowBatch):
+        return {
+            _TAG: 'RowBatch',
+            'v': {
+                'schema': {name: t.as_dict() for name, t in obj._col_types.items()},
+                'rows': [[_serialize(val, binary_parts) for val in row._data] for row in obj],
+                'errors': [row.errors for row in obj],
+                'index_values': [
+                    {name: _serialize(val, binary_parts) for name, val in row.index_values.items()} for row in obj
+                ],
+            },
+        }
     if isinstance(obj, Dir):
         # a Dir is an identity-only handle; only its id crosses the wire
         return {_TAG: 'Dir', 'v': str(obj._id)}
@@ -191,10 +210,13 @@ def _serialize(obj: Any, binary_parts: list[bytes]) -> Any:
     if isinstance(obj, tuple):
         return {_TAG: 'tuple', 'v': [_serialize(x, binary_parts) for x in obj]}
     if isinstance(obj, dict):
-        if _TAG in obj:
-            # a user dict whose own key collides with the reserved tag: store it as ordered key/value pairs so
-            # the tag no longer sits at the top level and the dict round-trips
-            return {_TAG: 'rawdict', 'v': [[k, _serialize(val, binary_parts)] for k, val in obj.items()]}
+        if _TAG in obj or any(not isinstance(k, str) for k in obj):
+            # store as ordered key/value pairs, which keeps a key colliding with the reserved tag out of the top
+            # level and preserves keys that json cannot represent (json object keys are always strings)
+            return {
+                _TAG: 'rawdict',
+                'v': [[_serialize(k, binary_parts), _serialize(val, binary_parts)] for k, val in obj.items()],
+            }
         return {k: _serialize(v, binary_parts) for k, v in obj.items()}
     raise AssertionError(f'cannot serialize {type(obj).__name__} for the proxy protocol')
 
@@ -212,8 +234,10 @@ def _deserialize(obj: Any, binary_parts: list[bytes], uploaded_names: dict[str, 
         if tag == 'float':
             return float(v)  # nan/inf
         if tag == 'rawdict':
-            # a user dict whose own key collided with the reserved tag; stored as ordered key/value pairs
-            return {k: _deserialize(val, binary_parts, uploaded_names) for k, val in v}
+            return {
+                _deserialize(k, binary_parts, uploaded_names): _deserialize(val, binary_parts, uploaded_names)
+                for k, val in v
+            }
         if tag == 'tuple':
             return tuple(_deserialize(x, binary_parts, uploaded_names) for x in v)
         if tag == 'bytes':
@@ -262,6 +286,8 @@ def _deserialize(obj: Any, binary_parts: list[bytes], uploaded_names: dict[str, 
             return func.GeneratingFunctionCall.from_dict(v)
         if tag == 'EmbeddingIndex':
             return EmbeddingIndex(**{name: _deserialize(val, []) for name, val in v.items()})
+        if tag == 'BtreeIndex':
+            return BtreeIndex(**{name: _deserialize(val, []) for name, val in v.items()})
         if tag == 'DirEntry':
             table = v['table']
             return DirEntry(
@@ -280,6 +306,16 @@ def _deserialize(obj: Any, binary_parts: list[bytes], uploaded_names: dict[str, 
             for field in ('row_count_stats', 'cascade_row_count_stats'):
                 d[field] = RowCountStats(**d[field])
             return UpdateStatus(**d)
+        if tag == 'RowBatch':
+            return RowBatch(
+                [tuple(_deserialize(val, binary_parts, uploaded_names) for val in row_data) for row_data in v['rows']],
+                {name: ts.ColumnType.from_dict(t) for name, t in v['schema'].items()},
+                errors=v['errors'],
+                index_values=[
+                    {name: _deserialize(val, binary_parts, uploaded_names) for name, val in iv.items()}
+                    for iv in v['index_values']
+                ],
+            )
         if tag == 'Dir':
             return Dir(UUID(v))
         if tag == 'UUID':

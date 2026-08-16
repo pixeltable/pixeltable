@@ -1,21 +1,52 @@
-"""Client-only daemon orchestration: probe /api/health, spawn/kill/restart the daemon,
-read the pidfile, tail the log on failed startup. Stdlib-only so importing this on every
-`pxt` invocation stays cheap."""
+"""Client-only support: daemon orchestration (probe /api/health, spawn/kill/restart the daemon, read the
+pidfile, tail the log on failed startup), the stdlib HTTP client (get/post), and CLI path and output
+helpers. Kept to the
+stdlib plus psutil, so importing this on every `pxt` invocation stays cheap."""
 
+import http.client
 import json
 import os
+import platform
 import re
 import signal
 import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any
 
-from pixeltable_cli.utils import _IDENTITY_KEYS, _resolve_pixeltable_home, get_port, identity, pidfile_path
+import psutil
 
-_IS_WINDOWS = os.name == 'nt'
+from pixeltable_cli.utils import (
+    _IDENTITY_KEYS,
+    _resolve_pixeltable_home,
+    get_port,
+    identity,
+    pidfile_path,
+    validate_path_shape,
+)
+
+_IS_WINDOWS = platform.system() == 'Windows'
+
+
+def session_key() -> str:
+    """Stable per-terminal session id: the invoking shell's pid plus its creation time.
+
+    The creation time distinguishes a recycled pid, so a stale working directory can't bleed into an unrelated
+    shell that the OS later assigns the same pid.
+
+    On POSIX the `pxt` console script is exec'd in place, so the parent process is the shell itself. On Windows
+    the console-script entry point is an .exe trampoline that launches the interpreter as a child and stays its
+    parent: a distinct pid for every `pxt` invocation, which would give each command its own session and defeat
+    the working directory. Step up to the trampoline's own parent to recover the shell that all of a terminal's
+    commands share, falling back to the trampoline if that can't be resolved.
+    """
+    proc = psutil.Process(os.getppid())
+    if _IS_WINDOWS:
+        proc = proc.parent() or proc
+    return f'{proc.pid}:{proc.create_time()}'
 
 
 def base_url() -> str:
@@ -43,7 +74,7 @@ def fetch_health(timeout: float = 0.3) -> dict[str, Any] | None:
     try:
         with urllib.request.urlopen(health_url(), timeout=timeout) as r:
             body = json.loads(r.read())
-    except (urllib.error.URLError, urllib.error.HTTPError, OSError, json.JSONDecodeError):
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError, http.client.HTTPException, json.JSONDecodeError):
         return None
     # Verify this is actually our daemon and not some other service on the same port that
     # happens to return a JSON object with an ok=true field. Require both the pxt service
@@ -229,29 +260,27 @@ def ensure_running() -> str:
         client_identity = identity()
         diff = _identity_diff(client_identity, health)
         if len(diff) > 0:
-            # Identity mismatch: the daemon was launched against a different install or env
-            # snapshot than the client now sees. Restart, but only kill a PID we wrote
-            # ourselves. We compare the pidfile against the responder's self-reported PID -
-            # if they disagree, the responder is not our daemon and we refuse to SIGTERM an
-            # unrelated process.
-            tracked_pid = read_pidfile()
+            # Identity mismatch: the daemon was launched against a different install or env snapshot than the
+            # client now sees (eg, after pip install -U pixeltable). Restart it ourselves rather than making
+            # the user do it: a non-None health response means fetch_health() already verified the responder is
+            # our daemon.
             reported_pid = health.get('pid')
-            if tracked_pid is None or tracked_pid != reported_pid:
+            if not isinstance(reported_pid, int):
+                # a non-int pid can't be a real process id; refuse to target it for a restart rather than
+                # act on an untrustworthy health response
                 raise RuntimeError(
-                    f'a process on port {get_port()} is responding to /api/health but does not match '
-                    f'our pidfile (pidfile={tracked_pid}, responder={reported_pid}); refusing to terminate it'
+                    f'daemon on port {get_port()} reported an invalid pid ({reported_pid!r}); not restarting it'
                 )
-            kill_and_wait(tracked_pid)
+            kill_and_wait(reported_pid)
             spawn_detached()
             wait_for_health()
-            # Cross-verify: the new responder must have a fresh PID and an identity that
-            # fully matches the client. Anything else means the restart did not actually
-            # swap in a daemon belonging to this install/env.
+            # Cross-verify: the new responder must have a fresh PID and an identity that fully matches the client.
+            # Anything else means the restart did not actually swap in a daemon belonging to this install/env.
             new_health = fetch_health()
             if new_health is None:
                 reason = 'new daemon did not respond to /api/health'
-            elif new_health.get('pid') == tracked_pid:
-                reason = f'new daemon kept the killed PID {tracked_pid}'
+            elif new_health.get('pid') == reported_pid:
+                reason = f'new daemon kept the killed PID {reported_pid}'
             else:
                 new_diff = _identity_diff(client_identity, new_health)
                 if len(new_diff) > 0:
@@ -278,3 +307,96 @@ def ensure_running() -> str:
         spawn_detached()
         wait_for_health()
     return base_url()
+
+
+def _request(method: str, path: str, body: dict[str, Any] | None = None, params: dict[str, Any] | None = None) -> Any:
+    try:
+        base = ensure_running()
+    except RuntimeError as e:
+        print(f'pxt: {e}', file=sys.stderr)
+        sys.exit(1)
+
+    url = f'{base}{path}'
+    if params is not None:
+        # Drop unset values so the daemon sees its default; coerce bool to '1'/'0' to
+        # match the server's query_bool parser.
+        filtered = {k: ('1' if v is True else '0' if v is False else v) for k, v in params.items() if v is not None}
+        if len(filtered) > 0:
+            # doseq=True expands list values into repeated params (?pk=a&pk=b).
+            url += '?' + urllib.parse.urlencode(filtered, doseq=True)
+
+    headers: dict[str, str] = {'X-Pxt-Session': session_key()}
+    data: bytes | None = None
+    if body is not None:
+        data = json.dumps(body).encode()
+        headers['Content-Type'] = 'application/json'
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    # No timeout: localhost call, legitimate operations have no defensible upper bound.
+    try:
+        with urllib.request.urlopen(req) as r:
+            return json.loads(r.read() or b'null')
+    except urllib.error.HTTPError as e:
+        try:
+            parsed = json.loads(e.read() or b'null')
+            body = parsed if isinstance(parsed, dict) else {}
+        except ValueError:
+            body = {}
+        detail = body.get('detail') or e.reason
+        print(f'pxt: {e.code} {detail}', file=sys.stderr)
+        server_tb = body.get('traceback')
+        if server_tb is not None:
+            # an unexpected daemon failure carries its traceback; show it so the user can report the error
+            print(f'\n--- daemon traceback ---\n{server_tb}', file=sys.stderr)
+        sys.exit(1)
+    except urllib.error.URLError as e:
+        print(f'pxt: cannot reach daemon at {url}: {e.reason}', file=sys.stderr)
+        sys.exit(1)
+    except http.client.HTTPException as e:
+        # a truncated or malformed response, eg. the daemon writing headers and then dropping the connection
+        print(f'pxt: bad response from daemon at {url}: {type(e).__name__}: {e}', file=sys.stderr)
+        sys.exit(1)
+
+
+def get_request(path: str, params: dict[str, Any] | None = None) -> Any:
+    return _request('GET', path, params=params)
+
+
+def post_request(path: str, body: dict[str, Any]) -> Any:
+    return _request('POST', path, body=body)
+
+
+def validate_path_arg(path: str) -> str:
+    """Validate a pxt path's shape and return it unchanged. Paths travel as query params or body fields,
+    which the transport URL-encodes, so no encoding happens here. A bad shape (a dotted component other than
+    '.' or '..', trailing '/', '//') exits 2 with a clear message before any network round-trip."""
+    err = validate_path_shape(path)
+    if err is not None:
+        print(f'pxt: {err}', file=sys.stderr)
+        sys.exit(2)
+    return path
+
+
+def display_path(path: str) -> str:
+    """Render a catalog path for human-readable output in the CLI's absolute form: a local path gets a
+    leading '/' (matching how an absolute path is typed), a pxt:// URI is shown as-is, and the root is '/'."""
+    if path.startswith('pxt://') or path.startswith('/'):
+        return path
+    return '/' + path
+
+
+def print_aligned(headers: list[str], rows: list[list[str]], right_align: set[int], indent: str = '') -> None:
+    """Print a table whose column widths fit the widest cell, headers included. Prints nothing if rows is empty.
+
+    right_align holds the indices of the columns to right-justify; the rest are left-justified.
+    """
+    if len(rows) == 0:
+        return
+    widths = [max(len(c) for c in col) for col in zip(headers, *rows)]
+
+    def fmt(r: list[str]) -> str:
+        cells = [c.rjust(w) if i in right_align else c.ljust(w) for i, (c, w) in enumerate(zip(r, widths))]
+        return (indent + '  '.join(cells)).rstrip()
+
+    print(fmt(headers))
+    for r in rows:
+        print(fmt(r))

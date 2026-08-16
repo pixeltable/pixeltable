@@ -3,9 +3,7 @@ from __future__ import annotations
 import enum
 import traceback
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, ClassVar, Iterator, NoReturn
-
-from typing_extensions import Self
+from typing import TYPE_CHECKING, Any, ClassVar, Iterator, NoReturn, Self
 
 if TYPE_CHECKING:
     from pixeltable import exprs
@@ -69,6 +67,7 @@ class ErrorCode(enum.Enum):
     ALREADY_BOUND = 3015, 400, False
     SCHEMA_MISMATCH = 3016, 422, False
     FILE_CACHE_FULL = 3017, 507, False
+    DESTRUCTIVE_SCHEMA_CHANGE = 3018, 422, False
 
     # AuthorizationError (4xxx)
     INSUFFICIENT_PRIVILEGES = 4000, 403, False
@@ -102,8 +101,7 @@ class Error(Exception):
     error_code: ErrorCode
     retry_after: float | None
 
-    # Diagnostic text (e.g. an evaluation-environment stack trace) shown when the error is rendered locally,
-    # but withheld from to_dict() so it never travels to a remote client.
+    # Diagnostic text (e.g. an evaluation-environment stack trace)
     detail: str | None
 
     # Thousands digit of the ErrorCode values this class is allowed to carry.
@@ -139,8 +137,12 @@ class Error(Exception):
         """
         return self.error_code.is_retryable
 
-    def to_dict(self) -> dict[str, Any]:
-        """Return a JSON-serializable representation for REST error responses."""
+    def to_dict(self, with_detail: bool = False) -> dict[str, Any]:
+        """Return a JSON-serializable representation for REST error responses.
+
+        Args:
+            with_detail: if True, include `detail` (diagnostic text that may contain stack traces or filesystem paths)
+        """
         d: dict[str, Any] = {
             'error_code': self.error_code.name,
             'message': self.message,
@@ -152,6 +154,8 @@ class Error(Exception):
             d['cause'] = self.__cause__.message
         if self.retry_after is not None:
             d['retry_after'] = self.retry_after
+        if with_detail and self.detail is not None:
+            d['detail'] = self.detail
         return d
 
     @classmethod
@@ -222,8 +226,8 @@ class ExternalServiceError(Error):
         self.provider = provider
         self.provider_http_status_code = status_code
 
-    def to_dict(self) -> dict[str, Any]:
-        d = super().to_dict()
+    def to_dict(self, with_detail: bool = False) -> dict[str, Any]:
+        d = super().to_dict(with_detail)
         if self.provider is not None:
             d['provider'] = self.provider
         if self.provider_http_status_code is not None:

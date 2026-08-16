@@ -11,7 +11,7 @@ cd /workspaces/pixeltable
 source /opt/miniforge/etc/profile.d/conda.sh
 
 if ! conda env list | awk '{print $1}' | grep -qx pxt; then
-    conda create -y -n pxt -c conda-forge python=3.10 pip 'cmake>=3.22'
+    conda create -y -n pxt -c conda-forge python=3.11 pip 'cmake>=3.22'
 fi
 
 conda activate pxt
@@ -21,7 +21,7 @@ mamba install -q -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*'
 
 # Install uv at the version pinned in the Makefile.
 python -m pip install -qU pip
-python -m pip install -q uv==0.9.3
+python -m pip install -q uv==0.12.3
 
 # Install project deps directly.
 VIRTUAL_ENV="$CONDA_PREFIX" uv sync --active --group extra-dev

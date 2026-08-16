@@ -7,13 +7,13 @@ import inspect
 import json
 import sys
 import typing
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, NoReturn, TypeVar, overload
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, NoReturn, Self, TypeVar, overload
 from uuid import UUID
 
 import numpy as np
 import sqlalchemy as sql
 from deprecated import deprecated
-from typing_extensions import Self, _AnnotatedAlias
+from typing_extensions import TypeForm
 
 from pixeltable import catalog, exceptions as excs, func, type_system as ts
 
@@ -22,6 +22,8 @@ from .globals import ArithmeticOperator, ComparisonOperator, LiteralPythonTypes,
 
 if TYPE_CHECKING:
     from pixeltable import exprs, func
+
+    from .expr_dict import ExprDict
 
 
 class ExprScope:
@@ -70,6 +72,10 @@ class Expr(abc.ABC):
     # - produced by _create_id()
     # - not expected to survive a serialize()/deserialize() roundtrip
     id: int | None
+
+    # whether col_type contributes to the id; a subclass sets this to False if two of its instances that compare
+    # equal can differ in col_type
+    _id_includes_col_type: bool = True
 
     # index of the expr's value in the data row:
     # - set for all materialized exprs
@@ -189,9 +195,10 @@ class Expr(abc.ABC):
         for attr, value in self._id_attrs():
             hasher.update(attr.encode('utf-8'))
             hasher.update(str(value).encode('utf-8'))
-        # Include the col_type of the expression to avoid expressions with identical str() representations
-        # but different types being considered the same expression, e.g. str(int(4)) == "4"
-        hasher.update(repr(self.col_type).encode('utf-8'))
+        if self._id_includes_col_type:
+            # Include the col_type of the expression to avoid expressions with identical str() representations
+            # but different types being considered the same expression, e.g. str(int(4)) == "4"
+            hasher.update(repr(self.col_type).encode('utf-8'))
         for expr in self.components:
             hasher.update(str(expr.id).encode('utf-8'))
         # truncate to machine's word size
@@ -233,7 +240,7 @@ class Expr(abc.ABC):
         memo[id(self)] = result
         return result
 
-    def substitute(self, spec: dict[Expr, Expr]) -> Expr:
+    def substitute(self, spec: ExprDict[Expr]) -> Expr:
         """
         Replace 'old' with 'new' recursively, and return a new version of the expression
         This method must be used in the form: expr = expr.substitute(spec)
@@ -252,7 +259,7 @@ class Expr(abc.ABC):
         return result
 
     @classmethod
-    def list_substitute(cls, expr_list: list[Expr], spec: dict[Expr, Expr]) -> None:
+    def list_substitute(cls, expr_list: list[Expr], spec: ExprDict[Expr]) -> None:
         for i in range(len(expr_list)):
             expr_list[i] = expr_list[i].substitute(spec)
 
@@ -262,6 +269,7 @@ class Expr(abc.ABC):
         Also replaces references to stored computed columns in resolve_cols.
         """
         from .column_ref import ColumnRef
+        from .expr_dict import ExprDict
         from .expr_set import ExprSet
 
         if resolve_cols is None:
@@ -280,7 +288,7 @@ class Expr(abc.ABC):
             )
             if len(target_col_refs) == 0:
                 return result
-            result = result.substitute({ref: ref.col.value_expr for ref in target_col_refs})
+            result = result.substitute(ExprDict((ref, ref.col.value_expr) for ref in target_col_refs))
 
     def is_bound_by(self, tbls: list[catalog.TablePath], siblings: list[catalog.Column] | None = None) -> bool:
         """Returns True if this expr can be evaluated in the context of tbls."""
@@ -651,7 +659,7 @@ class Expr(abc.ABC):
         else:
             return InPredicate(self, value_set_literal=value_set)
 
-    def astype(self, new_type: ts.ColumnType | type | _AnnotatedAlias) -> 'exprs.TypeCast':
+    def astype(self, new_type: ts.ColumnType | TypeForm) -> 'exprs.TypeCast':
         """
         Return a new expression that casts this expression to a different type.
 
@@ -673,7 +681,7 @@ class Expr(abc.ABC):
         from pixeltable.exprs import TypeCast
 
         # Interpret the type argument the same way we would if given in a schema
-        col_type = ts.ColumnType.normalize_type(new_type, nullable_default=True, allow_builtin_types=False)
+        col_type = ts.ColumnType.normalize_type(new_type, allow_builtin_types=False)
         if not self.col_type.nullable:
             # This expression is non-nullable; we can prove that the output is non-nullable, regardless of
             # whether new_type is given as nullable.
@@ -687,9 +695,7 @@ class Expr(abc.ABC):
         version='0.5.17',
         category=excs.PixeltableDeprecationWarning,
     )
-    def apply(
-        self, fn: Callable, *, col_type: ts.ColumnType | type | _AnnotatedAlias | None = None
-    ) -> 'exprs.FunctionCall':
+    def apply(self, fn: Callable, *, col_type: ts.ColumnType | type | None = None) -> 'exprs.FunctionCall':
         if col_type is not None:
             col_type = ts.ColumnType.normalize_type(col_type)
         function = self._make_applicator_function(fn, col_type)

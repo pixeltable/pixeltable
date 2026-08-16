@@ -1,4 +1,5 @@
 import sysconfig
+from typing import Any
 
 import numpy as np
 import pytest
@@ -18,12 +19,12 @@ class TestFiftyone:
     def test_export_images(self, uses_db: None) -> None:
         skip_test_if_not_installed('fiftyone')
 
-        schema = {
-            'id': pxt.Int,
-            'image': pxt.Image,
-            'classifications': pxt.Json,
-            'detections': pxt.Json,
-            'other_classifications': pxt.Json,
+        schema: dict[str, Any] = {
+            'id': pxt.Int | None,
+            'image': pxt.Image | None,
+            'classifications': pxt.Json | None,
+            'detections': pxt.Json | None,
+            'other_classifications': pxt.Json | None,
         }
         t = pxt.create_table('test_tbl', schema)
         images: list[str | Image.Image] = [
@@ -87,12 +88,12 @@ class TestFiftyone:
     def test_export_images_errors(self, uses_db: None) -> None:
         skip_test_if_not_installed('fiftyone')
 
-        schema = {
-            'id': pxt.Int,
-            'image': pxt.Image,
-            'classifications': pxt.Json,
-            'detections': pxt.Json,
-            'other_classifications': pxt.Json,
+        schema: dict[str, Any] = {
+            'id': pxt.Int | None,
+            'image': pxt.Image | None,
+            'classifications': pxt.Json | None,
+            'detections': pxt.Json | None,
+            'other_classifications': pxt.Json | None,
         }
         t = pxt.create_table('test_tbl', schema)
         img = get_image_files()[0]

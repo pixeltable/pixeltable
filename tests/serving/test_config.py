@@ -28,9 +28,7 @@ class TestConfig:
 
         p = make_catalog_path
         pxt.create_dir(p('test_config'))
-        t = pxt.create_table(
-            p('test_config.items'), {'id': pxt.Required[pxt.Int], 'name': pxt.String}, primary_key='id'
-        )
+        t = pxt.create_table(p('test_config.items'), {'id': pxt.Int, 'name': pxt.String | None}, primary_key='id')
         t.add_computed_column(name_upper=t.name.upper())
 
         # sqlite target for the export_sql route
@@ -140,7 +138,7 @@ class TestConfig:
 
         p = make_catalog_path
         pxt.create_dir(p('test_config'))
-        t = pxt.create_table(p('test_config.docs'), {'id': pxt.Required[pxt.Int], 'text': pxt.String}, primary_key='id')
+        t = pxt.create_table(p('test_config.docs'), {'id': pxt.Int, 'text': pxt.String | None}, primary_key='id')
         t.insert([{'id': 1, 'text': 'hello'}, {'id': 2, 'text': 'world'}])
 
         # define a query function in a temporary module
@@ -192,7 +190,7 @@ class TestConfig:
             del sys.modules['_test_query_mod']
 
     @pytest.mark.local('config validation fails before any table is resolved; not catalog-specific')
-    def test_validation_errors(self) -> None:
+    def test_validation_errors(self, init_env: None) -> None:
         """Invalid TOML configs produce clear pxt.Error messages."""
         skip_test_if_not_installed('fastapi')
 
@@ -276,7 +274,7 @@ class TestConfig:
                 os.unlink(config_path)
 
     @pytest.mark.local('exercises module/query resolution failures; no table is resolved')
-    def test_create_app_errors(self) -> None:
+    def test_create_app_errors(self, init_env: None) -> None:
         """create_app_from_config surfaces clear errors for module/query resolution failures."""
         skip_test_if_not_installed('fastapi')
 

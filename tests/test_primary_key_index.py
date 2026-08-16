@@ -11,7 +11,7 @@ class TestPrimaryKeyIndex:
     def test_single_pk(self, make_catalog_path: Callable[[str], str]) -> None:
         """Single-column PK: rejects duplicates, allows re-insert after delete, survives reload."""
         p = make_catalog_path
-        t = pxt.create_table(p('test_pk'), {'id': pxt.Required[pxt.Int], 'name': pxt.String}, primary_key='id')
+        t = pxt.create_table(p('test_pk'), {'id': pxt.Int, 'name': pxt.String | None}, primary_key='id')
         validate_update_status(t.insert([{'id': 1, 'name': 'alice'}, {'id': 2, 'name': 'bob'}]), expected_rows=2)
 
         # Duplicate PK is rejected with a clear error
@@ -40,9 +40,7 @@ class TestPrimaryKeyIndex:
         """Composite PK: partial matches are fine, exact matches are rejected, delete-reinsert works."""
         p = make_catalog_path
         t = pxt.create_table(
-            p('test_pk'),
-            {'a': pxt.Required[pxt.Int], 'b': pxt.Required[pxt.String], 'val': pxt.Int},
-            primary_key=['a', 'b'],
+            p('test_pk'), {'a': pxt.Int, 'b': pxt.String, 'val': pxt.Int | None}, primary_key=['a', 'b']
         )
         validate_update_status(
             t.insert([{'a': 1, 'b': 'x', 'val': 10}, {'a': 1, 'b': 'y', 'val': 20}]), expected_rows=2
@@ -62,7 +60,7 @@ class TestPrimaryKeyIndex:
     def test_string_pk_truncation(self, make_catalog_path: Callable[[str], str]) -> None:
         """String PK index uses left(col, MAX_STRING_LEN). Strings identical in first MAX_STRING_LEN chars collide."""
         p = make_catalog_path
-        t = pxt.create_table(p('test_pk'), {'key': pxt.Required[pxt.String], 'val': pxt.Int}, primary_key='key')
+        t = pxt.create_table(p('test_pk'), {'key': pxt.String, 'val': pxt.Int | None}, primary_key='key')
         base = 'a' * BtreeIndex.MAX_STRING_LEN
 
         validate_update_status(t.insert([{'key': base + '_suffix1', 'val': 1}]), expected_rows=1)
@@ -79,7 +77,7 @@ class TestPrimaryKeyIndex:
     def test_batch_with_duplicate_fails_atomically(self, make_catalog_path: Callable[[str], str]) -> None:
         """A batch containing a duplicate fails and does not persist any rows from the batch."""
         p = make_catalog_path
-        t = pxt.create_table(p('test_pk'), {'id': pxt.Required[pxt.Int], 'v': pxt.String}, primary_key='id')
+        t = pxt.create_table(p('test_pk'), {'id': pxt.Int, 'v': pxt.String | None}, primary_key='id')
         validate_update_status(t.insert([{'id': 1, 'v': 'a'}]), expected_rows=1)
 
         with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='Duplicate primary key'):
@@ -93,7 +91,7 @@ class TestPrimaryKeyIndex:
     def test_pk_index_row_too_large(self, make_catalog_path: Callable[[str], str]) -> None:
         """Many PK columns can exceed the btree max row size; error message should be user-friendly."""
         p = make_catalog_path
-        schema = {f'k{i}': pxt.Required[pxt.String] for i in range(11)}
+        schema = {f'k{i}': pxt.String for i in range(11)}
         pk_cols = [f'k{i}' for i in range(11)]
         t = pxt.create_table(p('test_pk'), schema, primary_key=pk_cols)
 
@@ -104,7 +102,7 @@ class TestPrimaryKeyIndex:
     def test_batch_update_with_pk_index(self, make_catalog_path: Callable[[str], str]) -> None:
         """batch_update works correctly with the PK index: updates expire the old version."""
         p = make_catalog_path
-        t = pxt.create_table(p('test_pk'), {'id': pxt.Required[pxt.Int], 'val': pxt.Int}, primary_key='id')
+        t = pxt.create_table(p('test_pk'), {'id': pxt.Int, 'val': pxt.Int | None}, primary_key='id')
         validate_update_status(t.insert([{'id': 1, 'val': 10}, {'id': 2, 'val': 20}]), expected_rows=2)
 
         # Update existing row — old version gets v_max set, new version is live
@@ -118,11 +116,9 @@ class TestPrimaryKeyIndex:
 
     def test_prohibited_pk_col_ops(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        t = pxt.create_table(
-            p('test'), {'id0': pxt.Required[pxt.Int], 'id1': pxt.Required[pxt.Int]}, primary_key=['id0', 'id1']
-        )
+        t = pxt.create_table(p('test'), {'id0': pxt.Int, 'id1': pxt.Int}, primary_key=['id0', 'id1'])
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot drop primary key column'):
             t.drop_column(t.id0)
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot add primary key column'):
-            t.add_column(new={'type': pxt.Required[pxt.Int], 'primary_key': True})
+            t.add_column(new={'type': pxt.Int, 'primary_key': True})

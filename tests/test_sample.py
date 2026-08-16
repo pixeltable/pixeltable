@@ -17,9 +17,9 @@ class TestSample:
     @classmethod
     def create_sample_data(cls, p: Callable[[str], str], row_mult: int, cat_count: int, with_null: bool) -> pxt.Table:
         schema = {
-            'id': pxt.Required[pxt.Int],
-            'cat1': pxt.Int if with_null else pxt.Required[pxt.Int],
-            'cat2': pxt.Int if with_null else pxt.Required[pxt.Int],
+            'id': pxt.Int,
+            'cat1': pxt.Int | None if with_null else pxt.Int,
+            'cat2': pxt.Int | None if with_null else pxt.Int,
         }
         rows = []
         rowid = 0
@@ -129,11 +129,11 @@ class TestSample:
         query = t.select(t.c1).sample(n=10, seed=27, stratify_by=[t.c1, t.c2, t.c4])
         s = repr(query)
         print(s)
-        assert 'sample_1(n=10, n_per_stratum=None, fraction=' in s
+        assert 'sample(n=10, n_per_stratum=None, fraction=' in s
 
         s = query._repr_html_()
         print(s)
-        assert 'sample_1(n=10, n_per_stratum=None, fraction=' in s
+        assert 'sample(n=10, n_per_stratum=None, fraction=' in s
 
     @classmethod
     def _check_sample_count(cls, expected: int | float, actual: int) -> None:
@@ -347,7 +347,7 @@ class TestSample:
     def test_sample_iterator(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         print('\n\nCREATE TABLE WITH ONE IMAGE COLUMN\n')
-        t = pxt.create_table(p('test_tile_tbl'), {'image': pxt.Image})
+        t = pxt.create_table(p('test_tile_tbl'), {'image': pxt.Image | None})
 
         print('\n\nINSERT ONE IMAGE\n')
         t.insert(image=SAMPLE_IMAGE_URL)

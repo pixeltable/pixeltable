@@ -34,13 +34,14 @@ pytestmark = pytest.mark.local('UDF/integration test')
 
 
 class TestVision:
+    @pytest.mark.xdist_group('yolox')
     @pytest.mark.very_expensive
     @rerun_on_network_error()
     def test_eval(self, uses_db: None) -> None:
         skip_test_if_not_installed('yolox')
         from pixeltable.functions.yolox import yolox
 
-        video_t = pxt.create_table('video_tbl', {'video': pxt.Video})
+        video_t = pxt.create_table('video_tbl', {'video': pxt.Video | None})
         # create frame view
         v = pxt.create_view('test_view', video_t, iterator=frame_iterator(video_t.video, fps=1))
 
@@ -78,13 +79,14 @@ class TestVision:
             bboxes_draw(v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, fill=True)
         ).collect()
 
+    @pytest.mark.xdist_group('yolox')
     @pytest.mark.very_expensive
     @rerun_on_network_error()
     def test_bboxes_draw(self, uses_db: None) -> None:
         skip_test_if_not_installed('yolox')
         from pixeltable.functions.yolox import yolox
 
-        video_t = pxt.create_table('video_tbl', {'video': pxt.Video})
+        video_t = pxt.create_table('video_tbl', {'video': pxt.Video | None})
         # create frame view
         v = pxt.create_view('test_view', video_t, iterator=frame_iterator(video_t.video, fps=1))
 
@@ -178,14 +180,14 @@ class TestVision:
         # test case for each parameter against each format
         for fmt in formats:
             # corner case: empty list
-            t = pxt.create_table('bbox_empty', {'bboxes': pxt.Json})
+            t = pxt.create_table('bbox_empty', {'bboxes': pxt.Json | None})
             validate_update_status(t.insert([{'bboxes': []}]), expected_rows=1)
             res = t.select(out=bboxes_resize(t.bboxes, fmt, width=50)).collect()
             assert res['out'][0] == []
             pxt.drop_table(t)
 
             input_bboxes = [convert_cxcywh(*b, fmt, is_abs=True) for b in abs_boxes]
-            t = pxt.create_table('bbox_abs', {'bboxes': pxt.Json})
+            t = pxt.create_table('bbox_abs', {'bboxes': pxt.Json | None})
             validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
             # width
@@ -226,7 +228,7 @@ class TestVision:
             pxt.drop_table(t)
 
             input_bboxes = [convert_cxcywh(*b, fmt, is_abs=False) for b in rel_boxes]
-            t = pxt.create_table('bbox_rel', {'bboxes': pxt.Json})
+            t = pxt.create_table('bbox_rel', {'bboxes': pxt.Json | None})
             validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
             # width (float/relative)
@@ -266,7 +268,7 @@ class TestVision:
             pxt.drop_table(t)
 
     def test_bboxes_resize_errors(self, uses_db: None) -> None:
-        t = pxt.create_table('bbox_tbl', {'bboxes': pxt.Json})
+        t = pxt.create_table('bbox_tbl', {'bboxes': pxt.Json | None})
         t.insert([{'bboxes': [[100, 100, 200, 300]]}])
 
         # no size parameter
@@ -306,7 +308,7 @@ class TestVision:
             t.select(bboxes_resize(t.bboxes, 'xyxy', height=0.5)).collect()
 
         # int width with relative boxes
-        t_rel = pxt.create_table('bbox_rel', {'bboxes': pxt.Json})
+        t_rel = pxt.create_table('bbox_rel', {'bboxes': pxt.Json | None})
         t_rel.insert([{'bboxes': [[0.1, 0.2, 0.3, 0.4]]}])
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='width/height require absolute'):
             t_rel.select(bboxes_resize(t_rel.bboxes, 'xyxy', width=50)).collect()
@@ -358,7 +360,7 @@ class TestVision:
             [10, 20, 10, 20],  # zero width and height (xyxy)
             [30, 40, 10, 20],  # negative width and height (xyxy, x2<x1, y2<y1)
         ]
-        t = pxt.create_table('degenerate', {'bboxes': pxt.Json})
+        t = pxt.create_table('degenerate', {'bboxes': pxt.Json | None})
         t.insert([{'bboxes': degenerate_boxes}])
         res = t.select(out=bboxes_resize(t.bboxes, 'xyxy', width=50)).collect()
         assert res['out'][0] == degenerate_boxes  # all passed through unchanged
@@ -386,7 +388,7 @@ class TestVision:
         formats = ['xyxy', 'xywh', 'cxcywh']
         for fmt in formats:
             # corner case: empty list
-            t = pxt.create_table('bbox_empty', {'bboxes': pxt.Json})
+            t = pxt.create_table('bbox_empty', {'bboxes': pxt.Json | None})
             validate_update_status(t.insert([{'bboxes': []}]), expected_rows=1)
             res = t.select(out=bboxes_scale(t.bboxes, fmt, factor=2.0)).collect()
             assert res['out'][0] == []
@@ -395,7 +397,7 @@ class TestVision:
             # absolute coordinates
 
             input_bboxes = [convert_cxcywh(*b, fmt, is_abs=True) for b in abs_boxes]
-            t = pxt.create_table('bbox_abs', {'bboxes': pxt.Json})
+            t = pxt.create_table('bbox_abs', {'bboxes': pxt.Json | None})
             validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
             # factor=2.0: doubles both w and h, center stays same
@@ -427,7 +429,7 @@ class TestVision:
             # relative coordinates
 
             input_bboxes = [convert_cxcywh(*b, fmt, is_abs=False) for b in rel_boxes]
-            t = pxt.create_table('bbox_rel', {'bboxes': pxt.Json})
+            t = pxt.create_table('bbox_rel', {'bboxes': pxt.Json | None})
             validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
             # factor=2.0
@@ -451,7 +453,7 @@ class TestVision:
             pxt.drop_table(t)
 
     def test_bboxes_scale_errors(self, uses_db: None) -> None:
-        t = pxt.create_table('bbox_tbl', {'bboxes': pxt.Json})
+        t = pxt.create_table('bbox_tbl', {'bboxes': pxt.Json | None})
         t.insert([{'bboxes': [[100, 100, 200, 300]]}])
 
         # invalid format
@@ -505,7 +507,7 @@ class TestVision:
             [10, 20, 10, 20],  # zero width and height (xyxy)
             [30, 40, 10, 20],  # negative width and height (xyxy, x2<x1, y2<y1)
         ]
-        t = pxt.create_table('degenerate', {'bboxes': pxt.Json})
+        t = pxt.create_table('degenerate', {'bboxes': pxt.Json | None})
         t.insert([{'bboxes': degenerate_boxes}])
         res = t.select(out=bboxes_scale(t.bboxes, 'xyxy', factor=2.0)).collect()
         assert res['out'][0] == degenerate_boxes  # all passed through unchanged
@@ -525,14 +527,14 @@ class TestVision:
         formats = ['xyxy', 'xywh', 'cxcywh']
         for fmt in formats:
             # corner case: empty list
-            t = pxt.create_table('bbox_empty', {'bboxes': pxt.Json})
+            t = pxt.create_table('bbox_empty', {'bboxes': pxt.Json | None})
             validate_update_status(t.insert([{'bboxes': []}]), expected_rows=1)
             res = t.select(out=bboxes_pad(t.bboxes, fmt, x=10)).collect()
             assert res['out'][0] == []
             pxt.drop_table(t)
 
             input_bboxes = [convert_cxcywh(*b, fmt, is_abs=True) for b in abs_boxes]
-            t = pxt.create_table('bbox_pad', {'bboxes': pxt.Json})
+            t = pxt.create_table('bbox_pad', {'bboxes': pxt.Json | None})
             validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
             # symmetric: x=10, y=20 — w grows by 20, h grows by 40, center unchanged
@@ -568,7 +570,7 @@ class TestVision:
             pxt.drop_table(t)
 
         # float coordinates within [0, 1] are treated as sub-pixel absolute boxes, not rejected as relative
-        t = pxt.create_table('bbox_subpixel', {'bboxes': pxt.Json})
+        t = pxt.create_table('bbox_subpixel', {'bboxes': pxt.Json | None})
         validate_update_status(t.insert([{'bboxes': [[0.1, 0.2, 0.3, 0.4]]}]), expected_rows=1)
         b_out = t.select(out=bboxes_pad(t.bboxes, 'xyxy', x=10, y=20)).collect()['out'][0][0]
         assert get_w(b_out, 'xyxy') == pytest.approx(0.2 + 20, abs=1)
@@ -576,7 +578,7 @@ class TestVision:
         pxt.drop_table(t)
 
     def test_bboxes_pad_errors(self, uses_db: None) -> None:
-        t = pxt.create_table('bbox_tbl', {'bboxes': pxt.Json})
+        t = pxt.create_table('bbox_tbl', {'bboxes': pxt.Json | None})
         t.insert([{'bboxes': [[100, 100, 200, 300]]}])
 
         # invalid format
@@ -614,7 +616,7 @@ class TestVision:
             [10, 20, 10, 20],  # zero width and height (xyxy)
             [30, 40, 10, 20],  # negative width and height (xyxy, x2<x1, y2<y1)
         ]
-        t = pxt.create_table('degenerate', {'bboxes': pxt.Json})
+        t = pxt.create_table('degenerate', {'bboxes': pxt.Json | None})
         t.insert([{'bboxes': degenerate_boxes}])
         res = t.select(out=bboxes_pad(t.bboxes, 'xyxy', x=10, y=20)).collect()
         assert res['out'][0] == degenerate_boxes  # all passed through unchanged
@@ -640,7 +642,7 @@ class TestVision:
 
         for src_fmt in formats:
             # corner case: empty list
-            t = pxt.create_table('bbox_empty', {'bboxes': pxt.Json})
+            t = pxt.create_table('bbox_empty', {'bboxes': pxt.Json | None})
             validate_update_status(t.insert([{'bboxes': []}]), expected_rows=1)
             res = t.select(out=bboxes_convert(t.bboxes, src_format=src_fmt, dst_format=src_fmt)).collect()
             assert res['out'][0] == []
@@ -649,7 +651,7 @@ class TestVision:
             for boxes in [abs_boxes, rel_boxes]:
                 is_abs = boxes is abs_boxes
                 input_bboxes = [convert_cxcywh(*b, src_fmt, is_abs=is_abs) for b in boxes]  # type: ignore
-                t = pxt.create_table('convert', {'bboxes': pxt.Json})
+                t = pxt.create_table('convert', {'bboxes': pxt.Json | None})
                 validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
                 # identity: same format returns input unchanged
@@ -694,14 +696,14 @@ class TestVision:
                 pxt.drop_table(t)
 
         # float absolute coordinates (as produced by detection models) are converted without rounding
-        t = pxt.create_table('convert_float', {'bboxes': pxt.Json})
+        t = pxt.create_table('convert_float', {'bboxes': pxt.Json | None})
         validate_update_status(t.insert([{'bboxes': [[10.5, 20.5, 30.5, 60.5]]}]), expected_rows=1)
         res = t.select(out=bboxes_convert(t.bboxes, src_format='xyxy', dst_format='xywh')).collect()
         assert res[0]['out'][0] == pytest.approx([10.5, 20.5, 20.0, 40.0])
         pxt.drop_table(t)
 
     def test_bboxes_convert_errors(self, uses_db: None) -> None:
-        t = pxt.create_table('convert_err', {'bboxes': pxt.Json})
+        t = pxt.create_table('convert_err', {'bboxes': pxt.Json | None})
         t.insert([{'bboxes': [[10, 20, 30, 40]]}])
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Invalid src_format'):
             t.select(bboxes_convert(t.bboxes, src_format='coco', dst_format='xyxy')).collect()
@@ -743,7 +745,7 @@ class TestVision:
 
         for fmt in ['xyxy', 'xywh', 'cxcywh']:
             # corner case: empty list
-            t = pxt.create_table('bbox_empty', {'bboxes': pxt.Json})
+            t = pxt.create_table('bbox_empty', {'bboxes': pxt.Json | None})
             validate_update_status(t.insert([{'bboxes': []}]), expected_rows=1)
             res = t.select(out=bboxes_clip_to_canvas(t.bboxes, fmt, width=640, height=480)).collect()
             assert res['out'][0] == []
@@ -752,7 +754,7 @@ class TestVision:
             for boxes, canvas_args in cases:
                 is_abs = boxes is abs_boxes
                 input_bboxes = [convert_cxcywh(b[0], b[1], b[2], b[3], fmt, is_abs=is_abs) for b in boxes]
-                t = pxt.create_table('bbox_clip', {'bboxes': pxt.Json})
+                t = pxt.create_table('bbox_clip', {'bboxes': pxt.Json | None})
                 validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
                 # basic clipping
@@ -809,7 +811,7 @@ class TestVision:
                 pxt.drop_table(t)
 
     def test_bboxes_clip_to_canvas_errors(self, uses_db: None) -> None:
-        t = pxt.create_table('bbox_clip_err', {'bboxes': pxt.Json})
+        t = pxt.create_table('bbox_clip_err', {'bboxes': pxt.Json | None})
         t.insert([{'bboxes': [[10, 20, 30, 40]]}])
 
         # invalid format
@@ -855,7 +857,7 @@ class TestVision:
             [10, 20, 10, 20],  # zero width and height (xyxy)
             [30, 40, 10, 20],  # negative width and height (xyxy, x2<x1, y2<y1)
         ]
-        t = pxt.create_table('degenerate_clip', {'bboxes': pxt.Json})
+        t = pxt.create_table('degenerate_clip', {'bboxes': pxt.Json | None})
         t.insert([{'bboxes': degenerate_boxes}])
         res = t.select(out=bboxes_clip_to_canvas(t.bboxes, 'xyxy', width=640, height=480)).collect()
         assert res['out'][0] == degenerate_boxes  # all passed through unchanged
@@ -902,7 +904,7 @@ class TestVision:
         for fmt in ['xyxy', 'xywh', 'cxcywh']:
             for canvas_region_format in ['xyxy', 'xywh', 'cxcywh']:
                 # corner case: empty list
-                t = pxt.create_table('bbox_empty', {'bboxes': pxt.Json})
+                t = pxt.create_table('bbox_empty', {'bboxes': pxt.Json | None})
                 validate_update_status(t.insert([{'bboxes': []}]), expected_rows=1)
                 region = convert_xyxy(100, 100, 400, 400, canvas_region_format)
                 res = t.select(
@@ -923,7 +925,7 @@ class TestVision:
                     input_bboxes = [convert_cxcywh(b[0], b[1], b[2], b[3], fmt, is_abs=is_abs) for b in boxes]
                     region = convert_xyxy(crop_xyxy[0], crop_xyxy[1], crop_xyxy[2], crop_xyxy[3], canvas_region_format)
 
-                    t = pxt.create_table('bbox_crop', {'bboxes': pxt.Json})
+                    t = pxt.create_table('bbox_crop', {'bboxes': pxt.Json | None})
                     validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
                     res = t.select(
@@ -966,7 +968,7 @@ class TestVision:
             [10, 20, 30, 20],  # zero height (xyxy)
             [30, 40, 10, 20],  # negative width and height (xyxy)
         ]
-        t = pxt.create_table('degenerate_crop', {'bboxes': pxt.Json})
+        t = pxt.create_table('degenerate_crop', {'bboxes': pxt.Json | None})
         t.insert([{'bboxes': degenerate_boxes}])
         res = t.select(
             out=bboxes_crop_canvas(
@@ -981,7 +983,7 @@ class TestVision:
         assert res['out'][0] == degenerate_boxes  # all passed through unchanged
 
     def test_bboxes_crop_canvas_errors(self, uses_db: None) -> None:
-        t = pxt.create_table('bbox_crop_err', {'bboxes': pxt.Json})
+        t = pxt.create_table('bbox_crop_err', {'bboxes': pxt.Json | None})
         t.insert([{'bboxes': [[10, 20, 30, 40]]}])
 
         # invalid format
@@ -1098,7 +1100,7 @@ class TestVision:
 
         for fmt in ['xyxy', 'xywh', 'cxcywh']:
             # Empty list
-            t = pxt.create_table('bbox_empty', {'bboxes': pxt.Json})
+            t = pxt.create_table('bbox_empty', {'bboxes': pxt.Json | None})
             validate_update_status(t.insert([{'bboxes': []}]), expected_rows=1)
             res = t.select(out=bboxes_resize_canvas(t.bboxes, fmt, canvas_scale=2.0)).collect()
             assert res['out'][0] == []
@@ -1108,7 +1110,7 @@ class TestVision:
                 expected_cxcywh = [(cx * sx, cy * sy, w * sx, h * sy) for cx, cy, w, h in abs_boxes]
                 input_bboxes = [convert_cxcywh(b[0], b[1], b[2], b[3], fmt, is_abs=True) for b in abs_boxes]
 
-                t = pxt.create_table('bbox_resize', {'bboxes': pxt.Json})
+                t = pxt.create_table('bbox_resize', {'bboxes': pxt.Json | None})
                 validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
                 res = t.select(out=bboxes_resize_canvas(t.bboxes, fmt, **kwargs)).collect()
                 out = res['out'][0]
@@ -1127,7 +1129,7 @@ class TestVision:
                 pxt.drop_table(t)
 
         # float absolute coordinates (as produced by detection models) are scaled without rounding
-        t = pxt.create_table('bbox_resize_float', {'bboxes': pxt.Json})
+        t = pxt.create_table('bbox_resize_float', {'bboxes': pxt.Json | None})
         validate_update_status(t.insert([{'bboxes': [[12.5, 20.25, 100.0, 200.5]]}]), expected_rows=1)
         res = t.select(
             out=bboxes_resize_canvas(
@@ -1144,13 +1146,13 @@ class TestVision:
             [10, 20, 30, 20],  # zero height (xyxy)
             [30, 40, 10, 20],  # negative width and height (xyxy)
         ]
-        t = pxt.create_table('degenerate_resize', {'bboxes': pxt.Json})
+        t = pxt.create_table('degenerate_resize', {'bboxes': pxt.Json | None})
         t.insert([{'bboxes': degenerate_boxes}])
         res = t.select(out=bboxes_resize_canvas(t.bboxes, 'xyxy', canvas_scale=2.0)).collect()
         assert res['out'][0] == degenerate_boxes  # all passed through unchanged
 
     def test_bboxes_resize_canvas_errors(self, uses_db: None) -> None:
-        t = pxt.create_table('bbox_resize_err', {'bboxes': pxt.Json})
+        t = pxt.create_table('bbox_resize_err', {'bboxes': pxt.Json | None})
         t.insert([{'bboxes': [[10, 20, 30, 40]]}])
 
         # invalid format
@@ -1286,7 +1288,9 @@ class TestVision:
         masks[0, 0:2, 0:3] = True  # instance 1 covers top-left quadrant
         masks[1, 2:4, 3:6] = True  # instance 2 covers bottom-right quadrant
 
-        t = pxt.create_table('test_tbl', {'img': pxt.Image, 'masks': pxt.Array[(None, None, None), pxt.Bool]})
+        t = pxt.create_table(
+            'test_tbl', {'img': pxt.Image | None, 'masks': pxt.Array[(None, None, None), pxt.Bool] | None}
+        )
         img = PIL.Image.new('RGB', (width, height), color=(128, 128, 128))
         t.insert(img=img, masks=masks)
 
@@ -1322,7 +1326,11 @@ class TestVision:
 
         t = pxt.create_table(
             'test_tbl',
-            {'img': pxt.Image, 'masks': pxt.Array[(None, None, None), pxt.Bool], 'ids': pxt.Array[(None,), pxt.Int]},
+            {
+                'img': pxt.Image | None,
+                'masks': pxt.Array[(None, None, None), pxt.Bool] | None,
+                'ids': pxt.Array[(None,), pxt.Int] | None,
+            },
         )
         img = PIL.Image.new('RGB', (width, height), color=(128, 128, 128))
         t.insert(img=img, masks=frame_a, ids=np.array([5, 9]))
@@ -1340,18 +1348,19 @@ class TestVision:
         assert not np.array_equal(viz_a[0, 0], viz_a[3, 5])
 
     @pytest.mark.very_expensive  # Downloads a Hugging Face model
+    @pytest.mark.xdist_group('large_model')
     def test_overlay_segmentation(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import detr_for_segmentation
 
-        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+        t = pxt.create_table('test_tbl', {'img': pxt.Image | None})
         t.add_computed_column(
             segmentation=detr_for_segmentation(t.img, model_id='facebook/detr-resnet-50-panoptic', threshold=0.5)
         )
         image_files = get_image_files()[:3]
         t.insert({'img': f} for f in image_files)
 
-        segmentation_map = t.segmentation.segmentation.astype(pxt.Array[(None, None), np.int32])
+        segmentation_map = t.segmentation.segmentation.astype(pxt.Array[(None, None), np.int32] | None)
         _ = t.select(overlay_segmentation(t.img, segmentation_map)).collect()
 
         # test non-defaults

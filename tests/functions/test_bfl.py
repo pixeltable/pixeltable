@@ -21,7 +21,7 @@ class TestBfl:
         skip_test_if_no_client('bfl')
         from pixeltable.functions.bfl import generate
 
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String | None})
         # Column 1: no optional parameters
         t.add_computed_column(image=generate(t.prompt, model='flux-pro-1.1'))
         # Column 2: all optional parameters
@@ -52,7 +52,7 @@ class TestBfl:
         skip_test_if_no_client('bfl')
         from pixeltable.functions.bfl import edit
 
-        t = pxt.create_table('test_tbl', {'image': pxt.Image, 'prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'image': pxt.Image | None, 'prompt': pxt.String | None})
         # Column 1: no optional parameters
         t.add_computed_column(edited=edit(t.prompt, t.image, model='flux-2-pro'))
         # Column 2: with optional parameters
@@ -86,7 +86,9 @@ class TestBfl:
                 for y in range(h // 4, 3 * h // 4):
                     mask.putpixel((x, y), 255)
 
-        t = pxt.create_table('test_tbl', {'image': pxt.Image, 'mask': pxt.Image, 'prompt': pxt.String})
+        t = pxt.create_table(
+            'test_tbl', {'image': pxt.Image | None, 'mask': pxt.Image | None, 'prompt': pxt.String | None}
+        )
         # Column 1: no optional parameters
         t.add_computed_column(filled=fill(t.prompt, t.image, t.mask, model='flux-pro-1.0-fill'))
         # Column 2: with optional parameters
@@ -107,7 +109,7 @@ class TestBfl:
         skip_test_if_no_client('bfl')
         from pixeltable.functions.bfl import expand
 
-        t = pxt.create_table('test_tbl', {'image': pxt.Image, 'prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'image': pxt.Image | None, 'prompt': pxt.String | None})
         # Column 1: minimal expansion (one direction)
         t.add_computed_column(expanded=expand(t.prompt, t.image, model='flux-pro-1.0-expand', top=64))
         # Column 2: with multiple directions and optional parameters

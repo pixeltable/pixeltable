@@ -27,7 +27,7 @@ class TestSchedulers:
         that pool_info is not yet available, and doesn't attempt to use it to determine the retry delay for this error.
         Before it was fixed, this flow resulted in an AssertionError.
         """
-        t = pxt.create_table('test_rate_limits', {'x': pxt.Int})
+        t = pxt.create_table('test_rate_limits', {'x': pxt.Int | None})
         t.add_computed_column(y=_rate_limited_udf(t.x))
 
         fault = ExceptionFault(DummyError('Non-retriable error'))

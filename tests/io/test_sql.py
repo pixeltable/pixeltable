@@ -66,15 +66,15 @@ class TestSql:
         t = pxt.create_table(
             name,
             {
-                'c_int': pxt.Int,
-                'c_string': pxt.String,
-                'c_float': pxt.Float,
-                'c_bool': pxt.Bool,
-                'c_timestamp': pxt.Timestamp,
-                'c_date': pxt.Date,
-                'c_uuid': pxt.UUID,
-                'c_binary': pxt.Binary,
-                'c_json': pxt.Json,
+                'c_int': pxt.Int | None,
+                'c_string': pxt.String | None,
+                'c_float': pxt.Float | None,
+                'c_bool': pxt.Bool | None,
+                'c_timestamp': pxt.Timestamp | None,
+                'c_date': pxt.Date | None,
+                'c_uuid': pxt.UUID | None,
+                'c_binary': pxt.Binary | None,
+                'c_json': pxt.Json | None,
             },
         )
         base_date = datetime.date(2024, 1, 1)
@@ -216,7 +216,7 @@ class TestSql:
         connection_string = Env.get().db_url
 
         # unsupported column type
-        t_img = pxt.create_table(p('test_img'), {'img': pxt.Image})
+        t_img = pxt.create_table(p('test_img'), {'img': pxt.Image | None})
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot export column of type'):
             export_sql(t_img, 'error_table', db_connect_str=connection_string)
 
@@ -227,22 +227,24 @@ class TestSql:
             export_sql(t, 'existing_table', db_connect_str=connection_string, if_exists='error')
 
         # missing column in target table
-        t2 = pxt.create_table(p('test2'), {'c_int': pxt.Int, 'c_string': pxt.String, 'extra': pxt.Int})
+        t2 = pxt.create_table(
+            p('test2'), {'c_int': pxt.Int | None, 'c_string': pxt.String | None, 'extra': pxt.Int | None}
+        )
         t2.insert([{'c_int': 1, 'c_string': 'a', 'extra': 100}])
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="column 'extra' not in table"):
             export_sql(t2, 'existing_table', db_connect_str=connection_string, if_exists='insert')
 
         # incompatible schema
-        t3 = pxt.create_table(p('test3'), {'c_int': pxt.Json})
+        t3 = pxt.create_table(p('test3'), {'c_int': pxt.Json | None})
         t3.insert([{'c_int': {'key': 'value'}}])
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match=r"column 'c_int' of type BIGINT"):
             export_sql(t3, 'existing_table', db_connect_str=connection_string, if_exists='insert')
 
         # non-scalar source type into an existing target column
-        t_str = pxt.create_table(p('img_target_seed'), {'img': pxt.String})
+        t_str = pxt.create_table(p('img_target_seed'), {'img': pxt.String | None})
         t_str.insert([{'img': 'placeholder'}])
         export_sql(t_str, 'img_target', db_connect_str=connection_string)
-        t_img2 = pxt.create_table(p('test_img2'), {'img': pxt.Image})
+        t_img2 = pxt.create_table(p('test_img2'), {'img': pxt.Image | None})
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"column 'img' of source type Image"):
             export_sql(t_img2, 'img_target', db_connect_str=connection_string, if_exists='insert')
 
@@ -297,15 +299,15 @@ class TestSql:
         meta = tbl.get_metadata()
         cols = meta['columns']
         assert set(cols) == {'c_int', 'c_str', 'c_float', 'c_bool', 'c_ts', 'c_date', 'c_uuid', 'c_json', 'c_bytes'}
-        assert cols['c_int']['type_'] == 'Required[Int]'
-        assert cols['c_str']['type_'] == 'Required[String]'
-        assert cols['c_float']['type_'] == 'Float'
-        assert cols['c_bool']['type_'] == 'Bool'
-        assert cols['c_ts']['type_'] == 'Timestamp'
-        assert cols['c_date']['type_'] == 'Date'
-        assert cols['c_uuid']['type_'] == 'UUID'
-        assert cols['c_json']['type_'] == 'Json'
-        assert cols['c_bytes']['type_'] == 'Binary'
+        assert cols['c_int']['type_'] == 'Int'
+        assert cols['c_str']['type_'] == 'String'
+        assert cols['c_float']['type_'] == 'Float | None'
+        assert cols['c_bool']['type_'] == 'Bool | None'
+        assert cols['c_ts']['type_'] == 'Timestamp | None'
+        assert cols['c_date']['type_'] == 'Date | None'
+        assert cols['c_uuid']['type_'] == 'UUID | None'
+        assert cols['c_json']['type_'] == 'Json | None'
+        assert cols['c_bytes']['type_'] == 'Binary | None'
 
         # Single-version-bump claim: streaming N=2500 rows still results in version 1
         assert meta['version'] == 1
@@ -406,9 +408,9 @@ class TestSql:
 
         cols = tbl.get_metadata()['columns']
         assert set(cols) == {'c_int', 'upper_str', 'doubled'}
-        assert cols['c_int']['type_'] == 'Int'
-        assert cols['upper_str']['type_'] == 'String'
-        assert cols['doubled']['type_'] == 'Float'
+        assert cols['c_int']['type_'] == 'Int | None'
+        assert cols['upper_str']['type_'] == 'String | None'
+        assert cols['doubled']['type_'] == 'Float | None'
 
         result = tbl.order_by(tbl.c_int).select(tbl.c_int, tbl.upper_str, tbl.doubled).collect()
         expected = [
@@ -466,7 +468,10 @@ class TestSql:
         )
 
         tbl = import_sql(
-            src, engine, 'media_dest', schema_overrides={'c_img': pxt.Image, 'c_vid': pxt.Video, 'c_doc': pxt.Document}
+            src,
+            engine,
+            'media_dest',
+            schema_overrides={'c_img': pxt.Image | None, 'c_vid': pxt.Video | None, 'c_doc': pxt.Document | None},
         )
 
         # Schema reflects the overrides; non-overridden c_path remains String.
@@ -523,10 +528,10 @@ class TestSql:
         # Reflect the seeded source so SQLAlchemy returns it with its declared LargeBinary type.
         src = sql.Table('src_img_bytes', sql.MetaData(), autoload_with=engine)
 
-        tbl = import_sql(src, engine, p('img_bytes_dest'), schema_overrides={'c_img': pxt.Required[pxt.Image]})
+        tbl = import_sql(src, engine, p('img_bytes_dest'), schema_overrides={'c_img': pxt.Image})
 
         cols = tbl.get_metadata()['columns']
-        assert cols['c_img']['type_'] == 'Required[Image]'
+        assert cols['c_img']['type_'] == 'Image'
 
         # Each cell decodes as a PIL image (proves validation ran and the bytes were saved as a usable file).
         result = tbl.select(tbl.c_img).collect()
@@ -630,7 +635,9 @@ class TestSql:
             import_sql(bad_type_src, engine, p('bad_type_dest'))
 
         # The same source becomes valid once schema_overrides resolves the unmappable column.
-        tbl_overridden = import_sql(bad_type_src, engine, p('bad_type_dest_ok'), schema_overrides={'c_dur': pxt.String})
+        tbl_overridden = import_sql(
+            bad_type_src, engine, p('bad_type_dest_ok'), schema_overrides={'c_dur': pxt.String | None}
+        )
         assert 'String' in tbl_overridden.get_metadata()['columns']['c_dur']['type_']
 
         ok_src = _seed_source(
@@ -640,7 +647,7 @@ class TestSql:
             [{'c_int': 1, 'c_str': 'a'}],
         )
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='nonexistent'):
-            import_sql(ok_src, engine, p('never1'), schema_overrides={'nonexistent': pxt.Int})
+            import_sql(ok_src, engine, p('never1'), schema_overrides={'nonexistent': pxt.Int | None})
 
         # Two expressions aliased to the same name -> import_sql rejects up-front.
         dup_stmt = sql.select(ok_src.c.c_int.label('c_int'), (ok_src.c.c_int + 1).label('c_int'))
@@ -648,7 +655,7 @@ class TestSql:
             import_sql(dup_stmt, engine, p('dup_dest'))
 
         # Pre-create a destination with a computed column, then append a source that supplies a value for it.
-        comp_dest = pxt.create_table(p('comp_dest'), {'c_int': pxt.Int})
+        comp_dest = pxt.create_table(p('comp_dest'), {'c_int': pxt.Int | None})
         comp_dest.add_computed_column(c_doubled=comp_dest.c_int * 2)
         comp_src = _seed_source(
             engine,
@@ -660,7 +667,7 @@ class TestSql:
             import_sql(comp_src, engine, p('comp_dest'), if_exists='append')
 
         # Pre-create a destination where c_required is non-nullable; append a source that doesn't supply it.
-        pxt.create_table(p('req_dest'), {'c_int': pxt.Int, 'c_required': pxt.Required[pxt.String]})
+        pxt.create_table(p('req_dest'), {'c_int': pxt.Int | None, 'c_required': pxt.String})
         partial_src = _seed_source(
             engine, 'partial_src', [sql.Column('c_int', sql.Integer, nullable=False)], [{'c_int': 1}]
         )
@@ -672,7 +679,7 @@ class TestSql:
         p = make_catalog_path
         engine = _import_engine('sqlite', tmp_path)
 
-        dest = pxt.create_table(p('on_error_dest'), {'c_int': pxt.Int})
+        dest = pxt.create_table(p('on_error_dest'), {'c_int': pxt.Int | None})
         dest.add_computed_column(c_checked=error(dest.c_int < 0))
 
         values = [1, -1, 2, -2, 3]
@@ -698,7 +705,7 @@ class TestSql:
             [sql.Column('c_int', sql.Integer, nullable=False), sql.Column('c_str', sql.String, nullable=True)],
             [{'c_int': 1, 'c_str': 'a'}, {'c_int': 2, 'c_str': None}],
         )
-        overrides = {'c_str': pxt.Required[pxt.String]}
+        overrides = {'c_str': pxt.String}
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='non-None'):
             import_sql(src, engine, p('null_dest'), schema_overrides=overrides)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='non-None'):
@@ -724,11 +731,11 @@ class TestSql:
 
         # default on_error='abort': the failed insert rolls back the table creation, leaving no trace in the catalog
         with pxt_raises(pxt.ErrorCode.INVALID_DATA_FORMAT, match='Not a valid image'):
-            import_sql(src, engine, 'abort_dest', schema_overrides={'c_img': pxt.Image})
+            import_sql(src, engine, 'abort_dest', schema_overrides={'c_img': pxt.Image | None})
         assert pxt.get_table('abort_dest', if_not_exists='ignore') is None
 
         # if_exists='append' requires the destination to be a base table; a view is rejected
-        base = pxt.create_table('base_tbl', {'c_int': pxt.Int})
+        base = pxt.create_table('base_tbl', {'c_int': pxt.Int | None})
         pxt.create_view('dest_view', base)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="requires a base table; 'dest_view' is a view"):
             import_sql(src, engine, 'dest_view', if_exists='append')

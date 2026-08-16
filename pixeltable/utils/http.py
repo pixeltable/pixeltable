@@ -2,6 +2,7 @@ import logging
 import re
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from http import HTTPStatus
@@ -46,9 +47,9 @@ def redact_url(url: str) -> str:
     return urllib.parse.urlunsplit((parsed.scheme, netloc, parsed.path, '', ''))
 
 
-def is_retriable_error(exc: Exception) -> tuple[bool, float | None]:
+def is_retryable_error(exc: Exception) -> tuple[bool, float | None]:
     """
-    Attempts to guess if the exception indicates a retriable error.
+    Attempts to guess if the exception indicates a retryable error.
     If that is the case, returns True and the retry delay in seconds.
     """
 
@@ -63,6 +64,12 @@ def is_retriable_error(exc: Exception) -> tuple[bool, float | None]:
         retry_after = err_md[1]
         return err_md[0], retry_after if retry_after is not None and retry_after >= 0 else None
 
+    # Transport-level failures are retryable.
+    if isinstance(exc, (urllib.error.URLError, ConnectionError, TimeoutError)) and not isinstance(
+        exc, urllib.error.HTTPError
+    ):
+        return True, None
+
     # Check common rate limit keywords in exception message
     error_msg = str(exc).lower()
     if any(indicator in error_msg for indicator in _RETRIABLE_ERROR_INDICATORS):
@@ -73,19 +80,19 @@ def is_retriable_error(exc: Exception) -> tuple[bool, float | None]:
 
 
 def _extract_error_metadata(obj: Any) -> tuple[bool, float | None] | None:
-    is_retriable: bool | None = None
+    is_retryable: bool | None = None
     retry_delay: float | None = None
     for attr in ['status', 'code', 'status_code']:
         if hasattr(obj, attr):
-            is_retriable = getattr(obj, attr) in _RETRIABLE_HTTP_STATUSES.values()
-            is_retriable |= str(getattr(obj, attr)).upper() in _RETRIABLE_HTTP_STATUSES
+            is_retryable = getattr(obj, attr) in _RETRIABLE_HTTP_STATUSES.values()
+            is_retryable |= str(getattr(obj, attr)).upper() in _RETRIABLE_HTTP_STATUSES
 
     if hasattr(obj, 'headers'):
         retry_delay = _extract_retry_delay_from_headers(obj.headers)
         if retry_delay is not None:
-            is_retriable = True
+            is_retryable = True
 
-    return (is_retriable, retry_delay) if is_retriable is not None else None
+    return (is_retryable, retry_delay) if is_retryable is not None else None
 
 
 def _extract_retry_delay_from_headers(headers: Any | None) -> float | None:

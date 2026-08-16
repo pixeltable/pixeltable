@@ -5,21 +5,19 @@ from keyword import iskeyword as is_python_keyword
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from pixeltable import catalog, exceptions as excs
-from pixeltable.type_system import sa_type_as_dict
-from pixeltable.types import ColumnSpec
-from pixeltable.utils.object_stores import ObjectOps
-
-from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
-
-import pgvector.sqlalchemy  # type: ignore[import-untyped]
+import pgvector.sqlalchemy
 import sqlalchemy as sql
+from typing_extensions import TypeForm
 
 import pixeltable.exprs as exprs
 import pixeltable.index as index
 import pixeltable.type_system as ts
+from pixeltable import catalog, exceptions as excs
 from pixeltable.env import Env
 from pixeltable.metadata import schema
+from pixeltable.type_system import sa_type_as_dict
+from pixeltable.types import ColumnSpec
+from pixeltable.utils.object_stores import ObjectOps
 
 from .globals import MediaValidation, QColumnId, is_system_column_name, is_valid_identifier
 
@@ -163,7 +161,7 @@ class Column:
 
         This logic applies to regular user columns as well as iterator columns. Do not use it with index columns.
         """
-        return is_stored and (is_computed or col_type.is_media_type() or col_type.supports_file_offloading())
+        return is_stored and (is_computed or col_type.is_media_type() or col_type.needs_cell_materialization())
 
     @classmethod
     def create_index_columns(
@@ -205,7 +203,7 @@ class Column:
         return val_col, undo_col
 
     @classmethod
-    def create(cls, name: str, spec: ts.ColumnType | type | ColumnSpec | exprs.Expr) -> Column:
+    def create(cls, name: str, spec: ts.ColumnType | TypeForm | ColumnSpec | exprs.Expr) -> Column:
         col_type: ts.ColumnType | None = None
         value_expr: exprs.Expr | None = None
         primary_key: bool = False
@@ -217,8 +215,8 @@ class Column:
 
         sa_col_type: sql.types.TypeEngine | None = None
         # TODO: Should we fully deprecate passing ts.ColumnType here?
-        if isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
-            col_type = ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)
+        if isinstance(spec, ts.ColumnType) or ts.is_type_form(spec):
+            col_type = ts.ColumnType.normalize_type(spec, allow_builtin_types=False)
             sa_col_type = col_type.to_sa_type()
         elif isinstance(spec, exprs.Expr):
             # create copy so we can modify it
@@ -239,7 +237,7 @@ class Column:
                 assert expr is not None, type(value_expr)
                 sa_col_type = expr.col_type.to_sa_type()
             if 'type' in spec:
-                col_type = ts.ColumnType.normalize_type(spec['type'], nullable_default=True, allow_builtin_types=False)
+                col_type = ts.ColumnType.normalize_type(spec['type'], allow_builtin_types=False)
                 sa_col_type = col_type.to_sa_type() if stored else None
             primary_key = spec.get('primary_key', False)
             media_validation_str = spec.get('media_validation')
@@ -286,7 +284,7 @@ class Column:
                 excs.ErrorCode.MISSING_REQUIRED, f"Column {name!r}: 'type' or 'value' must be specified"
             )
 
-        if 'type' in spec and not isinstance(spec['type'], (ts.ColumnType, type, _GenericAlias)):
+        if 'type' in spec and not isinstance(spec['type'], ts.ColumnType) and not ts.is_type_form(spec['type']):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT, f"Column {name!r}: 'type' must be a type; got {spec['type']}"
             )

@@ -48,6 +48,18 @@ DO_RERUN: bool = True
 
 def pytest_addoption(parser: argparsing.Parser) -> None:
     parser.addoption('--no-rerun', action='store_true', default=False, help='Do not rerun any failed tests.')
+    parser.addoption(
+        '--cloud',
+        metavar='pxt://ORG:DB',
+        default=None,
+        help='Run tests against a cloud database, e.g. --cloud=pxt://pixeltable:clitest-e2e1',
+    )
+    parser.addoption(
+        '--keep-cloud-resources',
+        action='store_true',
+        default=False,
+        help='Leave the hosted database and service created by the cloud e2e tests in place, for inspection.',
+    )
 
 
 def pytest_configure(config: PytestConfig) -> None:
@@ -115,6 +127,11 @@ def _set_up_external_db_schema(worker_id: int | str) -> str:
     return schema_name
 
 
+def _worker_db_name(worker_id: int | str) -> str:
+    """The db name used by both the pytest process and its proxy daemon."""
+    return f'test_{worker_id}'
+
+
 @pytest.fixture(scope='session')
 def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:  # type: ignore[misc]
     os.chdir(os.path.dirname(os.path.dirname(__file__)))  # Project root directory
@@ -127,10 +144,18 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
     home_dir = str(tmp_path_factory.mktemp('base') / '.pixeltable')
     os.environ['PIXELTABLE_HOME'] = home_dir
     os.environ['PIXELTABLE_CONFIG'] = str(shared_home / 'config.toml')
-    os.environ['PIXELTABLE_DB'] = f'test_{worker_id}'
+    os.environ['PIXELTABLE_DB'] = _worker_db_name(worker_id)
     os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
     os.environ['PIXELTABLE_API_URL'] = 'https://preprod-internal-api.pixeltable.com'
     os.environ['FIFTYONE_DATABASE_DIR'] = f'{home_dir}/.fiftyone'
+    # Verbose logging, for this process and for every pixeltable process it spawns (the proxy daemon, the pxt CLI
+    # daemon)
+    os.environ['PIXELTABLE_LOG_LEVEL'] = 'DEBUG'
+    os.environ['PIXELTABLE_SQL_LOG_LEVEL'] = 'INFO'
+    if IN_CI:
+        # In CI, we use a separate Hugging Face cache directory for each worker since _clear_hf_caches()
+        # deletes the cache between tests.
+        os.environ['HF_HOME'] = f'{home_dir}/huggingface'
     reinit_db = True
     schema_name = None
     if os.environ.get('PIXELTABLE_DB_CONNECT_STR') is not None:
@@ -145,7 +170,10 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
         'PIXELTABLE_PGDATA',
         'PIXELTABLE_API_URL',
         'FIFTYONE_DATABASE_DIR',
+        'HF_HOME',
         'PIXELTABLE_DB_CONNECT_STR',
+        'PIXELTABLE_LOG_LEVEL',
+        'PIXELTABLE_SQL_LOG_LEVEL',
     ):
         print(f'{var:25} = {os.environ.get(var)}')
 
@@ -156,6 +184,10 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
     # don't have several processes trying to initialize pgserver in parallel.
     root_tmp_dir = tmp_path_factory.getbasetemp().parent
     with FileLock(str(root_tmp_dir / 'pxt-init.lock')):
+        # Config caches the home directory on first use, and Env._set_up() reads it from there. A test that
+        # reached Config before this fixture ran would have cached the user's real home, which the Env rebuild
+        # below would then adopt; re-read it now that PIXELTABLE_HOME points at this worker's directory.
+        Config.init({}, reinit=True)
         # We need to call `Env._init_env()` with `reinit_db=True`. This is because if a previous test run was
         # interrupted (e.g., by an inopportune Ctrl-C), there may be residual DB artifacts that interfere with
         # initialization.
@@ -165,12 +197,10 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
     stdout_handler.setFormatter(logging.Formatter(LOG_FMT_STR))
     pxt_logger = logging.getLogger('pixeltable')
-    pxt_logger.setLevel(logging.DEBUG)
     pxt_logger.addHandler(stdout_handler)
     test_logger = logging.getLogger('pixeltable_test')
     test_logger.setLevel(logging.DEBUG)
     test_logger.addHandler(stdout_handler)
-    logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
 
     yield
     FileCache.get().validate()
@@ -247,25 +277,32 @@ def uses_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
 def proxy_daemon_db(init_env: None, worker_id: str) -> Iterator[str]:
     """A per-worker local proxy daemon, started once for the session and reused across tests.
 
+    The daemon deliberately runs against the same database as the pytest process (_worker_db_name). This way, the
+    post-test _validate_catalog_state() actually validates the store state at the end of the test.
+
     The db name is worker-scoped so parallel xdist workers don't share a catalog. start() is idempotent,
-    so the per-test make_catalog_path fixture only resets the daemon's catalog rather than restarting the process.
+    so the per-test make_catalog_path fixture only reloads the daemon's catalog rather than restarting the process.
     """
     # the proxy daemon serves over HTTP via fastapi/uvicorn (the serve extra); a minimal install omits them
     pytest.importorskip('fastapi')
     pytest.importorskip('uvicorn')
     from pixeltable.service import proxy_daemon
 
-    db = f'testdb_{worker_id}'
-    proxy_daemon.start(db)
+    db = _worker_db_name(worker_id)
+    proxy_daemon.start(db, test_mode=True)
     try:
         yield db
     finally:
-        proxy_daemon.delete(db)
+        # stop() rather than delete(): delete() would remove the daemon's logs, making it hard to debug CI failures.
+        # The database will be cleared before the next test run.
+        proxy_daemon.stop(db)
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """Drive the catalog-backend axis: any test that (transitively) reaches catalog_mode runs against both
     'local' and 'proxy', unless marked @pytest.mark.local, in which case it runs 'local' only.
+
+    With --cloud, tests run against the cloud catalog instead of local/proxy.
 
     metafunc.fixturenames is the transitive fixture closure, so a test reaching make_catalog_path (directly
     or via an adapted fixture like test_tbl) auto-forks with no per-test boilerplate. Tests that touch neither
@@ -276,16 +313,19 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     if metafunc.definition.get_closest_marker('local') is not None:
         # local-only: don't fork the axis; catalog_mode defaults to 'local' and the nodeid stays unparametrized
         return
-    metafunc.parametrize('catalog_mode', ['local', 'proxy'], indirect=True)
+    if metafunc.config.getoption('--cloud', default=None) is not None:
+        metafunc.parametrize('catalog_mode', ['cloud'], indirect=True)
+    else:
+        metafunc.parametrize('catalog_mode', ['local', 'proxy'], indirect=True)
 
 
 @pytest.fixture(scope='function')
 def catalog_mode(request: pytest.FixtureRequest) -> CatalogMode:
-    """The catalog backend under test: 'local' (in-process) or 'proxy' (delegated to a local daemon).
+    """The catalog backend under test: 'local', 'proxy' (local daemon), or 'cloud' (cloud proxy via NLB).
 
-    The local/proxy axis is assigned by pytest_generate_tests(); a test marked @pytest.mark.local isn't
+    The axis is assigned by pytest_generate_tests(); a test marked @pytest.mark.local isn't
     parametrized and gets 'local' here. Request this alongside make_catalog_path() to gate assertions that only
-    make sense in one mode (e.g. inspecting the client-side LocalStore, which is empty over proxy).
+    make sense in one mode (e.g. inspecting the client-side LocalStore, which is empty over proxy/cloud).
     """
     return getattr(request, 'param', 'local')
 
@@ -306,8 +346,23 @@ def make_catalog_path(
         from pixeltable.service import proxy_daemon
 
         db = request.getfixturevalue('proxy_daemon_db')
-        proxy_daemon.reset(db)
+        proxy_daemon.reinitialize(db)
         prefix = f'pxt://local:{db}'
+
+        def p(path: str) -> str:
+            return f'{prefix}/{path}' if path else prefix
+    elif catalog_mode == 'cloud':
+        import uuid as _uuid
+
+        db_uri = request.config.getoption('--cloud')
+        # If db_uri has a sub-path (e.g. pxt://org:db/tests), create it first.
+        uri_path = db_uri[len('pxt://') :].split('/', 1)
+        if len(uri_path) > 1 and uri_path[1]:
+            pxt.create_dir(db_uri, if_exists='ignore')
+        # Each test run gets its own namespace so tests don't collide.
+        run_id = _uuid.uuid4().hex[:8]
+        prefix = f'{db_uri}/test_{run_id}'
+        pxt.create_dir(prefix)
 
         def p(path: str) -> str:
             return f'{prefix}/{path}' if path else prefix
@@ -318,6 +373,9 @@ def make_catalog_path(
 
     yield p
 
+    if catalog_mode == 'cloud':
+        pxt.drop_dir(prefix, force=True, if_not_exists='ignore')
+
     _validate_catalog_state()
 
 
@@ -326,6 +384,10 @@ def _free_disk_space() -> None:
 
     # In CI, we sometimes run into disk space issues. We try to mitigate this by clearing out various caches between
     # tests.
+
+    if Env._instance is None:
+        # Pixeltable was never initialized in this process, so there's nothing to clean up.
+        return
 
     # Clear the temp store and media dir
     try:
@@ -361,6 +423,7 @@ def _clear_hf_caches() -> None:
                     'openai/clip-vit-base-patch32',
                     'intfloat/e5-large-v2',
                     'sentence-transformers/all-mpnet-base-v2',
+                    'sentence-transformers/all-MiniLM-L6-v2',
                 )
                 for revision in repo.revisions
             ]
@@ -449,8 +512,8 @@ def test_tbl_exprs(test_tbl: pxt.Table) -> list[exprs.Expr]:
         t.c8[0, 1:],
         t.c2.isin([1, 2, 3]),
         t.c2.isin(t.c6.f5),
-        t.c2.astype(pxt.Float),
-        (t.c2 + 1).astype(pxt.Float),
+        t.c2.astype(pxt.Float | None),
+        (t.c2 + 1).astype(pxt.Float | None),
         t.c2.apply(str),
         (t.c2 + 1).apply(str),
         t.c3.apply(str),

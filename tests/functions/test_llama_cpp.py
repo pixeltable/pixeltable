@@ -21,12 +21,13 @@ def cleanup_llama_cpp() -> Iterator[None]:
 @pytest.mark.very_expensive
 @rerun_on_network_error()
 class TestLlamaCpp:
+    @pytest.mark.xdist_group('large_model')
     def test_create_chat_completions(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('llama_cpp')
         from pixeltable.functions import llama_cpp
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
 
         t.add_computed_column(
             messages=[
@@ -57,7 +58,14 @@ class TestLlamaCpp:
         assert len(result['choices'][0]['message']['content']) > 0
         assert len(result2['choices'][0]['message']['content']) > 0
 
-    @pytest.mark.parametrize('model', ['mistral', 'gemma', 'qwen'])
+    @pytest.mark.parametrize(
+        'model',
+        [
+            pytest.param('mistral', marks=pytest.mark.xdist_group('large_model')),
+            pytest.param('gemma', marks=pytest.mark.xdist_group('large_model')),
+            'qwen',
+        ],
+    )
     def test_tool_invocations(self, uses_db: None, model: str) -> None:
         skip_test_if_not_installed('llama_cpp')
         from pixeltable.functions import llama_cpp
@@ -92,7 +100,7 @@ class TestLlamaCpp:
             case _:
                 raise AssertionError(f'Not implemented: {model}')
 
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String | None})
         messages = [{'role': 'user', 'content': t.prompt}]
         t.add_computed_column(
             response=llama_cpp.create_chat_completion(
