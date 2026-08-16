@@ -494,12 +494,11 @@ class TestBridge:
         with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match='application file not found'):
             bridge._load_services(str(tmp_path / 'nosuch.py'))
 
-    def test_service_diff(self, uses_db: None, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_service_diff(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """How the services deployed at a target differ from the ones an application file declares."""
         skip_test_if_not_installed('fastapi')
-        from pixeltable.service import service_registry
+        from pixeltable.service.service_registry import ServiceDeployment
 
-        monkeypatch.setattr(service_registry, 'services_dir', lambda: tmp_path / 'services')
         app_file = tmp_path / 'app.py'
         app_file.write_text(
             dedent("""
@@ -521,18 +520,16 @@ class TestBridge:
         target = PxtPath('svcdiff')
 
         def deploy(name: str, spec: Any) -> None:
-            """Record `name` as running at the target, serving `spec`."""
-            service_registry.save(
-                service_registry.ServiceDeployment(
-                    service_name=name,
-                    base_path=str(target),
-                    endpoint='http://127.0.0.1:9000',
-                    pid=os.getpid(),
-                    created_at=1.0,
-                    app_file=str(app_file),
-                    spec=spec,
-                )
-            )
+            """Record name as running at the target, serving spec."""
+            ServiceDeployment(
+                service_name=name,
+                base_path=str(target),
+                endpoint='http://127.0.0.1:9000',
+                pid=os.getpid(),
+                created_at=1.0,
+                app_file=str(app_file),
+                spec=spec,
+            ).write()
 
         # the route's table does not exist, so the schema has to catch up before anything can serve it
         plan = bridge.service_diff(str(app_file), target)
@@ -601,14 +598,9 @@ class TestBridge:
         assert [d['name'] for d in plan['services']] == ['ingest']
         assert plan['summary']['extras'] == 1
 
-    def test_service_diff_custom_app(
-        self, uses_db: None, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_service_diff_custom_app(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """A file that supplies its own application object declares a service that cannot be compared."""
         skip_test_if_not_installed('fastapi')
-        from pixeltable.service import service_registry
-
-        monkeypatch.setattr(service_registry, 'services_dir', lambda: tmp_path / 'services')
         app_file = tmp_path / 'custom.py'
         app_file.write_text(
             dedent(
@@ -622,7 +614,7 @@ class TestBridge:
                 """
             )
         )
-        plan = bridge.service_diff(str(app_file), PxtPath(''))
+        plan = bridge.service_diff(str(app_file), PxtPath('svcdiff_custom'))
         diffs = {d['name']: d for d in plan['services']}
         assert (diffs['app']['kind'], diffs['app']['resolution']) == ('custom', 'unsupported')
         assert diffs['app']['route_comparison'] == 'unavailable'

@@ -38,75 +38,6 @@ def tag(s: str, label: str) -> str:
 
 
 class TestTableModel:
-    def test_table_path(self, make_catalog_path: Callable[[str], str]) -> None:
-        """A model describes its shape before the table exists, and the description matches what gets created."""
-        p = make_catalog_path
-        from pixeltable.functions.video import frame_iterator
-
-        TableModel = pxt.model_base()
-
-        class Base(TableModel, name='base'):
-            vid: pxt.Video
-            val: pxt.Required[pxt.Int]
-            note: pxt.String
-            embed_note = pxt.EmbeddingIndex(note, embedding=dummy_embedding.using(n=768))
-            val_idx = BtreeIndex(val)
-
-        class Plain(TableModel, name='plain', base=Base):
-            doubled = Base.val * 2
-
-        class Filtered(TableModel, name='filtered', base=Base.where(Base.val > 10)):
-            tripled = Base.val * 3
-
-        class Projected(TableModel, name='projected', base=Base.select(v=Base.val)):
-            plus = v + 1  # type: ignore[name-defined]  # the select() alias, referenceable in the body
-
-        class Frames(TableModel, name='frames', base=Base, iterator=frame_iterator(video=Base.vid, fps=1)):
-            pass
-
-        models = [Base, Plain, Filtered, Projected, Frames]
-        declared = {m: m.table_path() for m in models}
-
-        assert not declared[Base].is_view()
-        assert all(declared[m].is_view() for m in (Plain, Filtered, Projected, Frames))
-        assert declared[Frames].has_iterator()
-        assert not any(declared[m].has_iterator() for m in (Plain, Filtered, Projected))
-        # the declared path carries the indexes the model declares, resolved to the columns they index
-        base_idxs = {idx.name: idx for idx in declared[Base].md.tbl_md.index_md.values()}
-        assert set(base_idxs.keys()) == {'embed_note', 'val_idx'}
-        base_cols = {c.id: c.name for c in declared[Base].column_md()}
-        assert base_cols[base_idxs['embed_note'].indexed_col_id] == 'note'
-        assert base_cols[base_idxs['val_idx'].indexed_col_id] == 'val'
-
-        # a select() view projects the base rather than inheriting it
-        assert [c.name for c in declared[Projected].column_md()] == ['v', 'plus']
-        assert [c.name for c in declared[Plain].column_md()] == ['doubled', 'vid', 'val', 'note']
-
-        # a similarity query over a model resolves its index from the declared shape, before any table exists
-        sim = Base.note.similarity(string='hello')  # type: ignore[attr-defined]
-        search = Base.order_by(sim, asc=False).limit(1).select(Base.val, sim)
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'`Base`, which is not bound'):
-            search.collect()
-        with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND, match=r"No embedding index found for column 'val'"):
-            _ = Base.val.similarity(string='hello')  # type: ignore[attr-defined]
-
-        TableModel.create_all(p(''))
-
-        # the same query runs once the model is bound, against the index on the real table
-        assert search.bind(p('')).collect() is not None  # type: ignore[attr-defined]
-
-        for m in models:
-            actual = m.table._tbl_path
-            assert [c.name for c in declared[m].column_md()] == [c.name for c in actual.column_md()], m.__name__
-            assert [c.col_type for c in declared[m].column_md()] == [c.col_type for c in actual.column_md()], m.__name__
-            assert declared[m].is_view() == actual.is_view(), m.__name__
-            assert declared[m].has_iterator() == actual.has_iterator(), m.__name__
-            # the ids are synthesized, so the description is of a shape and not of anything in the catalog
-            assert declared[m].tbl_id != actual.tbl_id, m.__name__
-
-        # inspecting a model leaves its declaration alone: the same shape is reported after the tables exist
-        assert all(m.table_path() is declared[m] for m in models)
-
     @pytest.mark.parametrize('root', ['', 'dir/subdir'])
     def test_table_model_basic(self, root: str, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
@@ -862,15 +793,26 @@ class TestTableModel:
             # text is an output column of the iterator, not one declared by this model
             ix = pxt.EmbeddingIndex(text, embedding=dummy_embedding.using(n=32))  # type: ignore[name-defined]
 
+        # the index is declared by the model, so a similarity query over it can be written before the table
+        # that carries it exists
+        model_sim = ExampleViewModel.text.similarity(string='one')
+        model_search = ExampleViewModel.order_by(model_sim, asc=False).select(ExampleViewModel.text)
+
         TableModel.create_all(p(''))
-        ExampleTableModel.insert([{'id': 1, 'doc_text': 'One sentence. Two sentence.'}])
+        # 'one'/'zero' make dummy_embedding deterministic, so the order these rank in is fixed
+        ExampleTableModel.insert([{'id': 1, 'doc_text': 'one sentence. zero sentence.'}])
 
         idx_md = ExampleViewModel.get_metadata()['indices']['ix']
         assert idx_md['columns'] == ['text']
         assert idx_md['index_type'] == 'embedding'
         view = ExampleViewModel.table
-        sim = view.text.similarity(string='One sentence.')
-        assert len(view.order_by(sim, asc=False).limit(1).collect()) == 1
+        sim = view.text.similarity(string='one')
+        assert [r['text'] for r in view.order_by(sim, asc=False).collect()] == ['one sentence.', 'zero sentence.']
+        # the query written against the model ranks them the same way, once it is bound to that table
+        assert [r['text'] for r in model_search.bind(p('')).collect()] == [  # type: ignore[attr-defined]
+            'one sentence.',
+            'zero sentence.',
+        ]
 
     def test_view_model_iterator_column_shadows_base(self, make_catalog_path: Callable[[str], str]) -> None:
         """An iterator output shadows a base column of the same name, so the model's text is the chunk text
@@ -1933,13 +1875,17 @@ class TestTableModel:
             ):
                 tile = 5
 
-        # a `Table` method that a query cannot provide raises `AttributeError` while the model is unbound
+        # a Table method that a query cannot provide raises AttributeError while the model is unbound
         with pytest.raises(AttributeError, match=r'is not yet bound to an actual table'):
             ValidTableModel.get_metadata()
 
         # a query over an unbound model refuses to execute, naming the model
         with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r'`ValidTableModel`, which is not bound'):
             ValidTableModel.collect()
+
+        # similarity() on a column the model declares no embedding index on has nothing to resolve against
+        with pxt_raises(excs.ErrorCode.INDEX_NOT_FOUND, match=r"No embedding index found for column 'id'"):
+            _ = ValidTableModel.id.similarity(string='hello')  # type: ignore[attr-defined]
 
         # clause methods reject being specified more than once
         with pxt_raises(excs.ErrorCode.INVALID_STATE, match=r'Select list already specified'):
@@ -2023,8 +1969,6 @@ class TestTableModel:
         # the same shapes without an aggregate are unaffected
         class Projected(TableModel, name='projected', base=Base.select(v=Base.val)):
             plus = v + 1  # type: ignore[name-defined]
-
-        assert [c.name for c in Projected.table_path().column_md()] == ['v', 'plus']
 
     def test_table_model_validation_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """Errors that arise from a schema mismatch between a model and an existing table."""

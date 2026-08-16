@@ -35,7 +35,7 @@ class ModelQuery(pxt.Query):
 
     @property
     def _effective_select_list(self) -> list[tuple[exprs.Expr, str]]:
-        """The select list with an implicit `select *` expanded, as references to the model's columns by name."""
+        """The select list with an implicit select * expanded, as references to the model's columns by name."""
         if self.select_list is not None:
             return super()._effective_select_list
         declared_path = self._from_clause.tbls[0]
@@ -98,7 +98,7 @@ class ModelQuery(pxt.Query):
         return self._substituted(tbl._tbl_path, subst)
 
     def _substituted(self, path: catalog.TablePath, subst: exprs.ExprDict[exprs.Expr]) -> pxt.Query:
-        """A plain Query over `path`, with this query's clauses rewritten by `subst`."""
+        """A plain Query over path, with this query's clauses rewritten by subst."""
         # a similarity expression names its indexed column and the table version holding the index, neither of
         # which a substitution by column name reaches
         declared_path = self._from_clause.tbls[0]

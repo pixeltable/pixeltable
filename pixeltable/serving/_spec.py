@@ -18,11 +18,11 @@ class RouteSpec(TypedDict):
 
     # the table name a model declares, for a route declared against a model; the catalog path of the table,
     # for one declared against a table. A query route written against tables has neither: the tables it runs
-    # against are internal to the function named by `query`.
+    # against are internal to the function named by query.
     model: str | None
     table: str | None
 
-    # for a query route, `inputs` are its query's parameters and `outputs` the fields of its response
+    # for a query route, inputs are its query's parameters and outputs the fields of its response
     inputs: list[str]
     uploadfile_inputs: list[str]
     outputs: list[str]

@@ -581,12 +581,8 @@ def get_status() -> dict[str, Any]:
     }
 
 
-def _load_user_file(file: str, *, subject: str) -> ModuleType:
-    """The module a user-supplied Python file defines.
-
-    `subject` names the kind of file in every error this raises. Raises RequestError if the file is missing or
-    fails to import.
-    """
+def _load_user_module(file: str, *, subject: str) -> ModuleType:
+    """Load a user-supplied module under a unique module name."""
     path = Path(file)
     if not path.is_file():
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{subject} not found: {file}')
@@ -620,7 +616,7 @@ def _load_model_bases(schema_file: str) -> list[model.TableModelMeta]:
 
     Raises RequestError if the file is missing, fails to import, or declares no model base.
     """
-    module = _load_user_file(schema_file, subject='schema file')
+    module = _load_user_module(schema_file, subject='schema file')
 
     # a model base carries __registered_models__ as its own class attribute, whereas the models defined
     # on it merely inherit it
@@ -657,7 +653,7 @@ def _load_services(app_file: str) -> dict[str, FastAPIRouter | fastapi.FastAPI]:
     except ImportError:
         app_type = None  # without fastapi, nothing in the file can be an application object
 
-    module = _load_user_file(app_file, subject='application file')
+    module = _load_user_module(app_file, subject='application file')
 
     services: dict[str, FastAPIRouter | fastapi.FastAPI] = {}
     # the objects already collected, so that two variables naming one router declare a single service
@@ -693,7 +689,7 @@ def _load_services(app_file: str) -> dict[str, FastAPIRouter | fastapi.FastAPI]:
 
 
 def service_diff(app_file: str, target: PxtPath) -> service_types.ServicePlan:
-    """The changes that reconciling the services deployed at `target` with the ones app_file declares would make.
+    """The changes that reconciling the services deployed at target with the ones app_file declares would make.
 
     Read-only: nothing is started, stopped or forgotten.
 
@@ -707,13 +703,13 @@ def service_diff(app_file: str, target: PxtPath) -> service_types.ServicePlan:
 
 
 def _service_diff(name: str, service: FastAPIRouter | fastapi.FastAPI, target: PxtPath) -> service_types.ServiceDiff:
-    """How the deployment of one declared service at `target` differs from its declaration."""
+    """How the deployment of one declared service at target differs from its declaration."""
     # imported here rather than at module scope: pixeltable.serving pulls in fastapi, an optional dependency
-    from pixeltable.service import service_registry
+    from pixeltable.service.service_registry import ServiceDeployment
     from pixeltable.serving import FastAPIRouter
     from pixeltable.serving._diff import compare_specs
 
-    deployment = service_registry.get(name, target)
+    deployment = ServiceDeployment.read(name, target)
     ops: list[service_types.ServiceChangeOp] = []
     route_detail: str | None = None
     if isinstance(service, FastAPIRouter):
@@ -723,7 +719,7 @@ def _service_diff(name: str, service: FastAPIRouter | fastapi.FastAPI, target: P
             route_detail = 'the service is not deployed at this target'
         else:
             route_comparison = 'declarative'
-            ops += [_service_plan_op(op) for op in compare_specs(deployment['spec'], service.service_spec(name))]
+            ops += [_service_plan_op(op) for op in compare_specs(deployment.spec, service.service_spec(name))]
         # what the tables at the target cannot serve, whether or not the service is deployed
         ops += [_service_plan_op(op) for op in service.get_service_diff(target)]
     else:
@@ -751,7 +747,7 @@ def _service_diff(name: str, service: FastAPIRouter | fastapi.FastAPI, target: P
         'exists': deployment is not None,
         # a local deployment is running or it is not recorded at all
         'state': None if deployment is None else 'AVAILABLE',
-        'endpoint': None if deployment is None else deployment['endpoint'],
+        'endpoint': None if deployment is None else deployment.endpoint,
         'base_path': target,
         'kind': kind,
         'resolution': resolution,
@@ -767,10 +763,10 @@ def _plan_from_service_diffs(
     diffs: list[service_types.ServiceDiff], app_file: str, target: PxtPath
 ) -> service_types.ServicePlan:
     """The plan that the given per-service diffs describe."""
-    from pixeltable.service import service_registry
+    from pixeltable.service.service_registry import ServiceDeployment
 
     declared = {diff['name'] for diff in diffs}
-    extras = sorted(d['service_name'] for d in service_registry.list_at(target) if d['service_name'] not in declared)
+    extras = sorted(d.service_name for d in ServiceDeployment.list(target) if d.service_name not in declared)
     summary: service_types.ServicePlanSummary = {
         'up_to_date': sum(1 for d in diffs if d['resolution'] == 'up_to_date'),
         'create': sum(1 for d in diffs if d['resolution'] == 'create'),
