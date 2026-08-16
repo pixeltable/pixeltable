@@ -59,8 +59,8 @@ pxt schema update app.py my_dir      # my_dir is the catalog directory the model
 pxt service update app.py my_dir     # start the services in the background
 ```
 
-`pxt service update app.py my_dir --foreground` serves them from the calling process instead, on one port,
-until interrupted -- the mode for a container entrypoint or a development loop.
+`pxt service run app.py my_dir` serves them from the calling process instead, on one port, until
+interrupted -- the mode for a container entrypoint or a development loop.
 
 The service exposes auto-generated [OpenAPI docs](https://fastapi.tiangolo.com/features/#automatic-docs)
 at `/docs`, and `pxt service list` reports where each one is listening:
@@ -356,6 +356,6 @@ Quick examples:
 ```bash
 pxt service diff   app.py my_dir     # what 'update' would change
 pxt service update app.py my_dir     # start the services in the background
-pxt service update app.py my_dir --foreground   # serve from this process instead
+pxt service run    app.py my_dir     # serve from this process instead, until interrupted
 pxt service list                     # what is running, and where
 ```

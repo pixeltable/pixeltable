@@ -559,6 +559,177 @@ pxt service update app.py my_dir    # serve this file's services against them
 `TARGET` is the catalog directory the models bind against, so one file can be applied to a development
 directory and a production one.
 
+### `pxt service` verbs
+
+| Command | Description |
+|---|---|
+| `pxt service diff APP TARGET` | Report what `update` would change; exit `2` if anything is pending |
+| `pxt service update APP TARGET` | Start the services `APP` declares, and restart the ones whose declaration changed |
+| `pxt service run APP TARGET` | Serve them from this process instead, until interrupted |
+| `pxt service prune APP TARGET` | Stop and forget the services at `TARGET` that `APP` does not declare |
+| `pxt service stop NAME...` | Stop the named services |
+| `pxt service list [TARGET]` | What is running locally, and where |
+| `pxt service example` | Write a working application file to start from |
+
+Like the `schema` verbs, `diff` reports drift in its exit status: `0` in agreement, `2` changes pending,
+`3` refused, `1` error. So a CI gate needs no output parsing.
+
+### Flags
+
+| Flag | Verbs | Description |
+|---|---|---|
+| `--json` | all | Emit machine-readable JSON |
+| `-f`, `--force` | `update`, `prune` | Skip the `[y/N]` prompt |
+| `-n`, `--dry-run` | `update`, `prune` | Print the intended change; don't apply it |
+| `--allow-destructive` | `update` | Permit changes that stop serving a route callers may be using |
+| `--host`, `--port` | `run` | Bind address and port (default `127.0.0.1:8000`) |
+
+### Background and foreground
+
+`update` starts **one background process per service**, each on its own port, and records it so `list` and
+`stop` can find it again. A service that crashes disappears from `list` with no cleanup step, because a
+record is only as live as the process it names.
+
+```bash
+pxt service update app.py my_dir
+pxt service list
+# my_dir/ingest  http://127.0.0.1:41273  pid 51234  /home/me/app.py
+pxt service stop ingest
+```
+
+`run` serves every service the file declares from the calling process instead, on one port, until
+interrupted. That is the mode for a container entrypoint or a development loop. It has no idle outcome and
+records nothing, which is why it is a verb of its own rather than a mode of `update`:
+
+```bash
+pxt service run app.py my_dir --port 9000
+# Pixeltable is running on http://localhost:9000
+#   Routes: 4
+#   API docs at http://localhost:9000/docs
+```
+
+### Restarts
+
+A service binds its models once, when its process starts, so a changed declaration is applied by replacing
+the process. `diff` reports which services that would interrupt, and `update` says so before it does it.
+Adding a route is additive; changing or removing one stops serving a contract a caller may be using, so it
+needs `--allow-destructive`.
+
+## Cloud
+
+`pxt db` and `pxt org` manage cloud-hosted databases and organizations. All cloud commands require `PIXELTABLE_API_KEY` to be configured (see [Configuration](/platform/configuration)).
+
+All cloud commands accept `--json` for machine-readable output.
+
+### `pixeltable.toml` reference
+
+Cloud operations that affect a database's runtime image read configuration from `pixeltable.toml` in the current directory.
+
+#### `[pixeltable.database]` — runtime bundle config
+
+Read by `pxt db update-runtime`. Defines which local files to bundle and, optionally, a custom Pixeltable source branch.
+
+```toml
+[pixeltable.database]
+# Include/exclude patterns for project files bundled into the runtime image.
+# Glob patterns relative to the project root.
+include = ["app/**", "models/**"]
+exclude = ["__pycache__", "*.pyc", ".git", ".env", "*.egg-info", ".venv"]
+
+# Optional: build Pixeltable itself from source instead of the published PyPI release.
+# Use this to deploy changes from a feature branch before they are released.
+[pixeltable.database.pixeltable_source]
+git    = "https://github.com/pixeltable/pixeltable.git"
+branch = "my-feature-branch"
+# rev  = "abc1234"  # pin to a specific commit or tag instead of branch HEAD
+```
+
+### `pxt db`
+
+Manage cloud-hosted Pixeltable databases. A database is a hosted Pixeltable instance with its own compute, storage, and Python runtime.
+
+Database URIs use the form `pxt://org:db`. Valid states: `PROVISIONING`, `STARTING`, `AVAILABLE`, `UPDATING`, `STOPPING`, `STOPPED`, `FAILED`.
+
+The URI argument is optional: with it omitted, these commands use `db_uri` from the Pixeltable config file (see [Configuration](/platform/configuration)), so a project that sets it can run `pxt db status` and friends with no argument.
+
+#### `pxt db create`
+
+```bash
+pxt db create pxt://myorg:mydb
+pxt db create pxt://myorg:mydb --location aws --region us-east-1
+```
+
+| Argument / flag | Description |
+|---|---|
+| `db_uri` | `pxt://org:db` |
+| `--location` | Cloud provider (default: `aws`) |
+| `--region` | Region (default: `us-east-1`) |
+
+Provisions a new database. Polls until state is `AVAILABLE`.
+
+#### `pxt db list`
+
+```bash
+pxt db list pxt://myorg
+pxt db list pxt://myorg --json
+```
+
+#### `pxt db status`
+
+```bash
+pxt db status pxt://myorg:mydb
+```
+
+Prints current state, endpoint, location, and timestamps.
+
+#### `pxt db start`
+
+```bash
+pxt db start pxt://myorg:mydb
+```
+
+Wake a stopped database. Polls until `AVAILABLE`.
+
+#### `pxt db stop`
+
+```bash
+pxt db stop pxt://myorg:mydb
+```
+
+Stop a running database (releases compute; storage is preserved).
+
+#### `pxt db update`
+
+```bash
+pxt db update pxt://myorg:mydb --workers 2
+pxt db update pxt://myorg:mydb --cpu 1 --memory 2048 --disk 20
+```
+
+| Flag | Description |
+|---|---|
+| `--workers N` | Number of proxy daemon workers |
+| `--cpu N` | CPU cores per worker |
+| `--memory N` | Memory per worker in MB |
+| `--disk N` | Disk per worker in GB |
+
+Triggers a rolling restart; polls until `AVAILABLE`.
+
+#### `pxt db update-runtime`
+
+```bash
+pxt db update-runtime pxt://myorg:mydb
+```
+
+Reads `[pixeltable.database]` from `pixeltable.toml` in the current directory, packages the project bundle, uploads it, and triggers a CodeBuild image rebuild. Polls until the build completes or fails. Running services are restarted on the new image automatically.
+
+#### `pxt db delete`
+
+```bash
+pxt db delete pxt://myorg:mydb --json
+```
+
+Deletes the database, its storage, and all services. Irreversible.
+
 ### `pxt org`
 
 #### `pxt org list`

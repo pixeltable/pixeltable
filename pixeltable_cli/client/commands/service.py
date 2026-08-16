@@ -59,8 +59,15 @@ UPDATE_EPILOG = """\
 Examples:
   pxt service update app.py my_dir                       # start what is declared, restart what changed
   pxt service update app.py my_dir --allow-destructive   # also stop serving routes that changed or went away
-  pxt service update app.py my_dir --foreground          # serve it here instead, until interrupted
-  pxt service update app.py my_dir --foreground --port 9000
+"""
+
+RUN_EPILOG = """\
+Examples:
+  pxt service run app.py my_dir              # serve every service the file declares, until interrupted
+  pxt service run app.py my_dir --port 9000
+
+Nothing is recorded: the services run for as long as this process does. Use 'update' to run them in the
+background, where 'list' and 'stop' can find them again.
 """
 
 PRUNE_EPILOG = """\
@@ -83,7 +90,7 @@ Examples:
   pxt service list my_dir             # those bound at my_dir and below it
 """
 
-VERBS = ('diff', 'update', 'prune', 'stop', 'list', 'example')
+VERBS = ('diff', 'update', 'run', 'prune', 'stop', 'list', 'example')
 
 EXIT_IN_AGREEMENT = 0
 EXIT_ERROR = 1
@@ -114,6 +121,7 @@ def run(argv: list[str]) -> None:
             'usage: pxt service <verb> APP TARGET [options]\n\nverbs:\n'
             '  diff     show the changes that update would make; exit 2 if any are pending\n'
             '  update   start the services APP declares against TARGET, and restart the ones that changed\n'
+            '  run      serve them from this process instead, until interrupted\n'
             '  prune    stop and forget the services at TARGET that APP does not declare\n'
             '  stop     stop the named services\n'
             '  list     what is running locally, and where\n'
@@ -151,7 +159,7 @@ def run(argv: list[str]) -> None:
         _list(args.target, as_json=args.as_json)
         return
 
-    epilogs = {'diff': DIFF_EPILOG, 'update': UPDATE_EPILOG, 'prune': PRUNE_EPILOG}
+    epilogs = {'diff': DIFF_EPILOG, 'update': UPDATE_EPILOG, 'run': RUN_EPILOG, 'prune': PRUNE_EPILOG}
     # a usage error exits EXIT_ERROR, not argparse's 2, which here means that changes are pending
     ap = Parser(prog=f'pxt service {verb}', epilog=epilogs[verb], usage_exit_code=EXIT_ERROR)
     ap.add_argument('app', help='path to a Python file declaring services')
@@ -167,13 +175,9 @@ def run(argv: list[str]) -> None:
             dest='allow_destructive',
             help='permit changes that stop serving a route callers may be using',
         )
-        ap.add_argument(
-            '--foreground',
-            action='store_true',
-            help='serve every service the file declares from this process, until interrupted',
-        )
-        ap.add_argument('--host', default='127.0.0.1', help='bind address in the foreground (default: 127.0.0.1)')
-        ap.add_argument('--port', type=int, default=8000, help='bind port in the foreground (default: 8000)')
+    if verb == 'run':
+        ap.add_argument('--host', default='127.0.0.1', help='bind address (default: 127.0.0.1)')
+        ap.add_argument('--port', type=int, default=8000, help='bind port (default: 8000)')
     args = ap.parse_args(argv[1:])
 
     path = Path(args.app)
@@ -190,8 +194,8 @@ def run(argv: list[str]) -> None:
         _diff(app_file, args.target, as_json=args.as_json)
     elif verb == 'prune':
         _prune(app_file, args.target, as_json=args.as_json, force=args.force, dry_run=args.dry_run)
-    elif args.foreground:
-        _foreground(app_file, args.target, host=args.host, port=args.port, as_json=args.as_json)
+    elif verb == 'run':
+        _run_foreground(app_file, args.target, host=args.host, port=args.port, as_json=args.as_json)
     else:
         _update(
             app_file,
@@ -248,7 +252,7 @@ def _update(
     _print_plan(applied, as_json=as_json, applied=True)
 
 
-def _foreground(app_file: str, target: PxtPath, *, host: str, port: int, as_json: bool) -> None:
+def _run_foreground(app_file: str, target: PxtPath, *, host: str, port: int, as_json: bool) -> None:
     """Serve every service the file declares from this process, on one port, until interrupted.
 
     Nothing is recorded and nothing is reconciled: the services here are not deployments, they run for as
