@@ -143,3 +143,34 @@ class TestServiceRunner:
 
         ops = bridge.service_stop(['nosuch'], PxtPath(''))
         assert [(op['name'], op['status']) for op in ops] == [('nosuch', 'skipped')]
+
+    def test_example_app_is_servable(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        """The file 'pxt service example' writes declares both the tables and the services, as it says."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        from pixeltable_cli.client.commands.service import _EXAMPLE_APP
+        from pixeltable_cli.server import bridge
+        from pixeltable_cli.utils import PxtPath
+
+        app_file = tmp_path / 'app.py'
+        app_file.write_text(_EXAMPLE_APP, encoding='utf-8')
+        target = PxtPath('example')
+
+        # the same file drives both verbs: the models create the tables, the routers serve over them
+        bridge.schema_update(str(app_file), target)
+        assert pxt.get_table('example.docs') is not None
+
+        try:
+            plan = bridge.service_update(str(app_file), target)
+            assert [(d['name'], d['status']) for d in plan['services']] == [('ingest', 'applied')]
+            deployment = ServiceDeployment.read('ingest', 'example')
+            assert deployment is not None
+
+            resp = httpx.post(
+                f'{deployment.endpoint}/docs', json={'doc_id': 1, 'title': 'a title', 'body': None}, timeout=30.0
+            )
+            assert resp.status_code == 200, resp.text
+            assert resp.json() == {'title_upper': 'A TITLE'}
+        finally:
+            for d in ServiceDeployment.list('example'):
+                service_runner.stop(d)

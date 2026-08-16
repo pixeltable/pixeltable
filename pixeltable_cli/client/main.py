@@ -28,12 +28,11 @@ COMMANDS: dict[str, str] = {
     'revert': 'undo the last op(s) on a table',
     'schema': 'reconcile a directory with a class-based schema file (diff/update/prune/example)',
     'shell': 'interactive REPL (avoids per-command Python startup)',
-    'serve': 'run a user-defined HTTP service (insert/update/delete/query)',
     'daemon': 'control the daemon (start/stop/restart/status)',
     'localproxy': 'manage local proxy daemons (create/start/stop/delete)',
     'dashboard': 'print and open the dashboard URL',
     'db': 'manage hosted databases (create/list/status/start/stop/update/update-runtime/delete)',
-    'service': 'manage hosted services (create/update/list/status/start/stop/delete)',
+    'service': 'run the services an application file declares (diff/update/prune/stop/list/example)',
     'org': 'manage organizations (list/status)',
 }
 

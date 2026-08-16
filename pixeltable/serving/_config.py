@@ -1,20 +1,14 @@
-"""TOML-driven configuration for Pixeltable HTTP services."""
+"""The database configuration a project supplies in its pixeltable.toml."""
 
 from __future__ import annotations
 
 import importlib
 import logging
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import Any, TypeVar
 
 import pydantic
 
-import pixeltable as pxt
-import pixeltable.func as func
 from pixeltable import config, exceptions as excs
-from pixeltable.env import Env
-
-if TYPE_CHECKING:
-    import fastapi
 
 _logger = logging.getLogger(__name__)
 
@@ -64,11 +58,6 @@ def _lookup_config(cfg_block: str, name: str, cfg_type: type[T], error_code: exc
     return cfg
 
 
-def lookup_service_config(name: str) -> config.ServiceConfig:
-    """Lookup a ServiceConfig by name from the Pixeltable configuration."""
-    return _lookup_config('service', name, config.ServiceConfig, excs.ErrorCode.SERVICE_NOT_FOUND)
-
-
 def lookup_database_config() -> config.DatabaseConfig | None:
     """Return the database runtime config from Pixeltable configuration, or None if absent."""
     raw = config.Config.get().get_value('database', dict)
@@ -80,67 +69,3 @@ def lookup_database_config() -> config.DatabaseConfig | None:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid [pixeltable.database] configuration: {e}'
         ) from e
-
-
-def create_service_from_config(cfg: config.ServiceConfig, base_path: str = '') -> 'fastapi.FastAPI':
-    """Build a FastAPI instance from a ServiceConfig"""
-    Env.get().require_package('fastapi')
-    import fastapi
-
-    from pixeltable.serving import FastAPIRouter
-
-    def _resolve(relative: str) -> str:
-        return f'{base_path.rstrip("/")}/{relative.lstrip("/")}' if base_path else relative
-
-    app = fastapi.FastAPI(title=cfg.name)
-    router = FastAPIRouter()
-
-    for route in cfg.routes:
-        if isinstance(route, config.InsertRouteConfig):
-            t = pxt.get_table(_resolve(route.table))
-            router.add_insert_route(
-                t,
-                path=route.path,
-                inputs=route.inputs,
-                uploadfile_inputs=route.uploadfile_inputs,
-                outputs=route.outputs,
-                return_fileresponse=route.return_fileresponse,
-                export_sql=route.export_sql,
-                background=route.background,
-            )
-        elif isinstance(route, config.UpdateRouteConfig):
-            t = pxt.get_table(_resolve(route.table))
-            router.add_update_route(
-                t,
-                path=route.path,
-                inputs=route.inputs,
-                outputs=route.outputs,
-                return_fileresponse=route.return_fileresponse,
-                export_sql=route.export_sql,
-                background=route.background,
-            )
-        elif isinstance(route, config.DeleteRouteConfig):
-            t = pxt.get_table(_resolve(route.table))
-            router.add_delete_route(t, path=route.path, match_columns=route.match_columns, background=route.background)
-        elif isinstance(route, config.QueryRouteConfig):
-            query_fn = _resolve_module_attr(route.query)
-            if not isinstance(query_fn, func.QueryTemplateFunction):
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_CONFIGURATION,
-                    f'query reference {route.query!r} resolved to {type(query_fn).__name__}, '
-                    f'expected a @pxt.query or retrieval_udf',
-                )
-            router.add_query_route(
-                path=route.path,
-                query=query_fn,
-                inputs=route.inputs,
-                uploadfile_inputs=route.uploadfile_inputs,
-                one_row=route.one_row,
-                return_fileresponse=route.return_fileresponse,
-                background=route.background,
-                method=route.method,
-            )
-        _logger.info(f'registered {route.type} route: {route.path}')
-
-    app.include_router(router, prefix=cfg.prefix)
-    return app

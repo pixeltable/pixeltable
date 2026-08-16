@@ -15,17 +15,18 @@ from ..utils import get_request, post_request
 _EXAMPLE_APP = '''\
 """Pixeltable application, written by 'pxt service example'.
 
-A service is a FastAPIRouter with routes declared against the models in a schema file. The models name
-tables; the target given to 'pxt service update' says which directory those tables live in, so the same
-file can be served against a development directory and a production one.
+One file holds both: the models, which name the tables, and the services, which serve routes over them.
+The target given on the command line says which catalog directory those tables live in, so the same file
+can be applied to a development directory and a production one.
 
-    pxt schema update schema.py TARGET     # create the tables the routes need
+    pxt schema update app.py TARGET        # create the tables the models declare
     pxt service update app.py TARGET       # serve this file's services against them
 """
 
 from __future__ import annotations  # required to declare a model on Python 3.14+
 
 import pixeltable as pxt
+import pixeltable.functions as pxtf
 from pixeltable.serving import FastAPIRouter
 
 TableModel = pxt.model_base()
@@ -35,16 +36,17 @@ class Docs(TableModel, name='docs'):
     doc_id: pxt.Int
     title: pxt.String
     body: pxt.String | None
+    title_upper = pxtf.string.upper(title)  # a computed column: an assignment, not an annotation
 
 
 # the router names the service; without name= it takes the name of the variable holding it
 ingest = FastAPIRouter(name='ingest')
 
-# POST /docs inserts a row and returns the columns named in outputs
-ingest.add_insert_route(Docs, path='/docs', inputs=['doc_id', 'title', 'body'], outputs=['doc_id'])
+# POST /docs inserts a row and returns the computed column
+ingest.add_insert_route(Docs, path='/docs', inputs=[Docs.doc_id, Docs.title, Docs.body], outputs=[Docs.title_upper])
 
-# GET /docs/search returns rows; a query route serves a @pxt.query function
-ingest.add_compute_route(Docs, path='/titles', inputs=['title'], outputs=['title'])
+# POST /titles computes without storing a row
+ingest.add_compute_route(Docs, path='/titles', inputs=[Docs.title], outputs=[Docs.title_upper])
 '''
 
 DIFF_EPILOG = """\
@@ -57,19 +59,21 @@ UPDATE_EPILOG = """\
 Examples:
   pxt service update app.py my_dir                       # start what is declared, restart what changed
   pxt service update app.py my_dir --allow-destructive   # also stop serving routes that changed or went away
+  pxt service update app.py my_dir --foreground          # serve it here instead, until interrupted
+  pxt service update app.py my_dir --foreground --port 9000
 """
 
 PRUNE_EPILOG = """\
 Examples:
-  pxt service prune app.py my_dir     # stop and forget deployments the file does not declare
+  pxt service prune app.py my_dir     # stop and forget the services the file does not declare
 
 A stopped service can be started again with 'pxt service update'.
 """
 
 STOP_EPILOG = """\
 Examples:
-  pxt service stop ingest             # a bare name, when only one deployment has it
-  pxt service stop my_dir/ingest      # the deployment of that name under my_dir
+  pxt service stop ingest             # a bare name, when only one target has a service of that name
+  pxt service stop my_dir/ingest      # the service of that name under my_dir
   pxt service stop ingest reader
 """
 
@@ -110,7 +114,7 @@ def run(argv: list[str]) -> None:
             'usage: pxt service <verb> APP TARGET [options]\n\nverbs:\n'
             '  diff     show the changes that update would make; exit 2 if any are pending\n'
             '  update   start the services APP declares against TARGET, and restart the ones that changed\n'
-            '  prune    stop and forget the deployments at TARGET that APP does not declare\n'
+            '  prune    stop and forget the services at TARGET that APP does not declare\n'
             '  stop     stop the named services\n'
             '  list     what is running locally, and where\n'
             '  example  write a working application file to start from\n\n'
@@ -163,6 +167,13 @@ def run(argv: list[str]) -> None:
             dest='allow_destructive',
             help='permit changes that stop serving a route callers may be using',
         )
+        ap.add_argument(
+            '--foreground',
+            action='store_true',
+            help='serve every service the file declares from this process, until interrupted',
+        )
+        ap.add_argument('--host', default='127.0.0.1', help='bind address in the foreground (default: 127.0.0.1)')
+        ap.add_argument('--port', type=int, default=8000, help='bind port in the foreground (default: 8000)')
     args = ap.parse_args(argv[1:])
 
     path = Path(args.app)
@@ -179,6 +190,8 @@ def run(argv: list[str]) -> None:
         _diff(app_file, args.target, as_json=args.as_json)
     elif verb == 'prune':
         _prune(app_file, args.target, as_json=args.as_json, force=args.force, dry_run=args.dry_run)
+    elif args.foreground:
+        _foreground(app_file, args.target, host=args.host, port=args.port, as_json=args.as_json)
     else:
         _update(
             app_file,
@@ -233,6 +246,28 @@ def _update(
         '/api/localservice/update', {'app_file': app_file, 'target': target, 'allow_destructive': allow_destructive}
     )
     _print_plan(applied, as_json=as_json, applied=True)
+
+
+def _foreground(app_file: str, target: PxtPath, *, host: str, port: int, as_json: bool) -> None:
+    """Serve every service the file declares from this process, on one port, until interrupted.
+
+    Nothing is recorded and nothing is reconciled: the services here are not deployments, they run for as
+    long as this process does. That is what makes it the mode for a container entrypoint or a dev loop.
+    """
+    # this command runs the server itself, so unlike the rest of the client it needs pixeltable in-process
+    import uvicorn
+
+    from pixeltable.serving._app import build_app
+
+    app = build_app(app_file, base_path=target)
+    n_routes = len(app.routes)
+    display_host = 'localhost' if host in ('0.0.0.0', '::') else host
+    url = f'http://{display_host}:{port}'
+    if as_json:
+        print(json.dumps({'status': 'started', 'host': host, 'port': port, 'url': url, 'routes': n_routes}))
+    else:
+        print(f'Pixeltable is running on {url}\n  Routes: {n_routes}\n  API docs at {url}/docs')
+    uvicorn.run(app, host=host, port=port, log_config=None)
 
 
 def _prune(app_file: str, target: PxtPath, *, as_json: bool, force: bool, dry_run: bool) -> None:
