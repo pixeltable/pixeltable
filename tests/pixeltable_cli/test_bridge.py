@@ -11,6 +11,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.functions.video import frame_iterator
+from pixeltable.utils import app_module
 from pixeltable_cli.server import bridge
 from pixeltable_cli.utils import PxtPath
 
@@ -456,7 +457,7 @@ class TestBridge:
                 """
             )
         )
-        services = bridge._load_services(str(app_file))
+        services = app_module.load_services(str(app_file))
         # a router that names the service it declares is that name; one that does not takes its variable's
         assert sorted(services) == ['ingest', 'notes-api']
         reader, ingest = services['notes-api'], services['ingest']
@@ -478,7 +479,7 @@ class TestBridge:
                 """
             )
         )
-        services = bridge._load_services(str(custom_file))
+        services = app_module.load_services(str(custom_file))
         assert sorted(services) == ['app', 'plain']
         assert isinstance(services['app'], fastapi.FastAPI)
 
@@ -492,9 +493,9 @@ class TestBridge:
         ):
             bad_file.write_text(f'from pixeltable.serving import FastAPIRouter\n{src}\n')
             with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=msg):
-                bridge._load_services(str(bad_file))
+                app_module.load_services(str(bad_file))
         with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match='application file not found'):
-            bridge._load_services(str(tmp_path / 'nosuch.py'))
+            app_module.load_services(str(tmp_path / 'nosuch.py'))
 
     def test_service_diff(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """How the services deployed at a target differ from the ones an application file declares."""
@@ -551,7 +552,7 @@ class TestBridge:
         assert (diff['route_comparison'], diff['state'], diff['endpoint']) == ('unavailable', None, None)
         assert diff['route_detail'] is not None
 
-        declared = bridge._load_services(str(app_file))['ingest'].service_spec('ingest')  # type: ignore[union-attr]
+        declared = app_module.load_services(str(app_file))['ingest'].service_spec('ingest')  # type: ignore[union-attr]
         deploy('ingest', declared)
         plan = bridge.service_diff(str(app_file), target)
         (diff,) = plan['services']
