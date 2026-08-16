@@ -578,6 +578,9 @@ class TableVersion:
 
     def _init_idxs(self, idxs: list[tuple[index.IndexBase, schema.IndexMd]]) -> None:
         """Initialize those of idxs that are visible in the current schema version."""
+        if len(idxs) == 0:
+            return
+        assert self.supports_idxs
         for idx, idx_md in idxs:
             if idx_md.is_visible_in_version(self.schema_version):
                 self._init_idx(idx, idx_md)
