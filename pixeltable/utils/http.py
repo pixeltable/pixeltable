@@ -2,6 +2,7 @@ import logging
 import re
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from http import HTTPStatus
@@ -62,6 +63,12 @@ def is_retryable_error(exc: Exception) -> tuple[bool, float | None]:
     if err_md is not None and err_md[0]:
         retry_after = err_md[1]
         return err_md[0], retry_after if retry_after is not None and retry_after >= 0 else None
+
+    # Transport-level failures are retryable.
+    if isinstance(exc, (urllib.error.URLError, ConnectionError, TimeoutError)) and not isinstance(
+        exc, urllib.error.HTTPError
+    ):
+        return True, None
 
     # Check common rate limit keywords in exception message
     error_msg = str(exc).lower()

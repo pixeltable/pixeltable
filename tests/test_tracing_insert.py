@@ -29,7 +29,7 @@ class TestInsertTracing:
     """End-to-end span nesting for the insert() path: operation -> row -> udf cell."""
 
     def _make_table(self) -> pxt.Table:
-        t = pxt.create_table('tracing_test', {'c': pxt.Int}, if_exists='replace')
+        t = pxt.create_table('tracing_test', {'c': pxt.Int | None}, if_exists='replace')
         t.add_computed_column(inc=pxtf.math.abs(t.c))
         return t
 
@@ -71,7 +71,7 @@ class TestInsertTracing:
             SubscriberRegistry.get().unsubscribe(sub)
 
     def test_batched_udf_span_is_ambient(self, uses_db: None) -> None:
-        t = pxt.create_table('tracing_test', {'c': pxt.Int}, if_exists='replace')
+        t = pxt.create_table('tracing_test', {'c': pxt.Int | None}, if_exists='replace')
         t.add_computed_column(inc=batch_add_one(t.c))
         sub = RecordingSubscriber()
         SubscriberRegistry.get().subscribe(sub)
@@ -103,7 +103,7 @@ class TestInsertTracing:
             telemetry.set_span_level(telemetry.INFO)
 
     def test_failed_insert_records_exc(self, uses_db: None) -> None:
-        t = pxt.create_table('tracing_test', {'c': pxt.Int}, if_exists='replace')
+        t = pxt.create_table('tracing_test', {'c': pxt.Int | None}, if_exists='replace')
         t.add_computed_column(out=fail_on_three(t.c))
         sub = RecordingSubscriber()
         SubscriberRegistry.get().subscribe(sub)
@@ -118,7 +118,7 @@ class TestInsertTracing:
 
     def test_failed_insert_ends_row_spans(self, uses_db: None) -> None:
         """Row spans opened before an abort must still be ended so subscribers see on_span_end()."""
-        t = pxt.create_table('tracing_test', {'c': pxt.Int}, if_exists='replace')
+        t = pxt.create_table('tracing_test', {'c': pxt.Int | None}, if_exists='replace')
         t.add_computed_column(out=fail_on_three(t.c))
         sub = RecordingSubscriber()
         SubscriberRegistry.get().subscribe(sub)

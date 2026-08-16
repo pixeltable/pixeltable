@@ -121,6 +121,7 @@
                       "sdk/latest/jina",
                       "sdk/latest/llama_cpp",
                       "sdk/latest/mistralai",
+                      "sdk/latest/nebius",
                       "sdk/latest/ollama",
                       "sdk/latest/openai",
                       "sdk/latest/openrouter",

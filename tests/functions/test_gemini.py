@@ -42,7 +42,7 @@ class TestGemini:
 
         from pixeltable.functions.gemini import generate_content
 
-        t = pxt.create_table('test_tbl', {'contents': pxt.String, 'row_id': pxt.Int})
+        t = pxt.create_table('test_tbl', {'contents': pxt.String | None, 'row_id': pxt.Int | None})
         t.add_computed_column(output=generate_content(t.contents, model=model))
 
         if 'flash' in model:
@@ -90,7 +90,7 @@ class TestGemini:
 
         images = get_image_files()[:2]
 
-        t = pxt.create_table('test_tbl', {'id': pxt.Int, 'image': pxt.Image})
+        t = pxt.create_table('test_tbl', {'id': pxt.Int | None, 'image': pxt.Image | None})
         t.add_computed_column(
             output=generate_content([t.image, "Describe what's in this image."], model='gemini-2.5-flash-lite')
         )
@@ -112,7 +112,7 @@ class TestGemini:
         video_files.append('s3://pxt-test/pytest-resources/large_videos/6mb.mp4')
         video_files.append('s3://pxt-test/pytest-resources/large_videos/35mb.mp4')
 
-        t = pxt.create_table('test_tbl', {'id': pxt.Int, 'video': pxt.Video})
+        t = pxt.create_table('test_tbl', {'id': pxt.Int | None, 'video': pxt.Video | None})
         config = types.GenerateContentConfig(
             media_resolution='MEDIA_RESOLUTION_LOW', system_instruction='Analyze the visual content only. Ignore audio.'
         )
@@ -140,7 +140,7 @@ class TestGemini:
 
         from pixeltable.functions.gemini import generate_content, generate_images
 
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String | None})
         t.add_computed_column(
             response=generate_content(
                 t.prompt, model='gemini-3.1-flash-image-preview', config={'response_modalities': ['IMAGE']}
@@ -158,7 +158,7 @@ class TestGemini:
         assert image.size[0] > 0 and image.size[1] > 0
 
         # Passing a Gemini image-generation model to `generate_images` (which is for Imagen) must fail.
-        t2 = pxt.create_table('test_tbl_fail', {'prompt': pxt.String})
+        t2 = pxt.create_table('test_tbl_fail', {'prompt': pxt.String | None})
         validate_update_status(t2.insert(prompt='anything'), expected_rows=1)
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='Nano Banana'):
             t2.select(output=generate_images(t2.prompt, model='gemini-3.1-flash-image-preview')).collect()
@@ -169,7 +169,7 @@ class TestGemini:
         from pixeltable.functions import gemini
 
         def make_table(tools: pxt.Tools, tool_choice: pxt.ToolChoice) -> pxt.Table:
-            t = pxt.create_table('test_tbl', {'prompt': pxt.String}, if_exists='replace')
+            t = pxt.create_table('test_tbl', {'prompt': pxt.String | None}, if_exists='replace')
             t.add_computed_column(
                 response=gemini.generate_content(t.prompt, model='gemini-3.1-flash-lite', tools=tools)
             )
@@ -185,7 +185,7 @@ class TestGemini:
 
         from pixeltable.functions.gemini import generate_images
 
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String | None})
         t.add_computed_column(output=generate_images(t.prompt, model='imagen-4.0-generate-001'))
         config = GenerateImagesConfigDict(aspect_ratio='4:3')
         t.add_computed_column(output2=generate_images(t.prompt, model='imagen-4.0-generate-001', config=config))
@@ -204,7 +204,9 @@ class TestGemini:
         from pixeltable.functions.gemini import generate_videos
 
         duration = 4
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String, 'image': pxt.Image, 'video': pxt.Video})
+        t = pxt.create_table(
+            'test_tbl', {'prompt': pxt.String | None, 'image': pxt.Image | None, 'video': pxt.Video | None}
+        )
         t.add_computed_column(
             output=generate_videos(
                 t.prompt, t.image, model='veo-3.0-generate-001', config={'duration_seconds': duration}
@@ -244,7 +246,9 @@ class TestGemini:
         skip_test_if_no_client('gemini')
         from pixeltable.functions.gemini import generate_videos
 
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String, 'ref1': pxt.Image, 'ref2': pxt.Image})
+        t = pxt.create_table(
+            'test_tbl', {'prompt': pxt.String | None, 'ref1': pxt.Image | None, 'ref2': pxt.Image | None}
+        )
         t.add_computed_column(
             output=generate_videos(
                 t.prompt,
@@ -275,7 +279,7 @@ class TestGemini:
         skip_test_if_no_client('gemini')
         from pixeltable.functions.gemini import generate_speech
 
-        t = pxt.create_table('test_tbl', {'text': pxt.String})
+        t = pxt.create_table('test_tbl', {'text': pxt.String | None})
         t.add_computed_column(audio=generate_speech(t.text, model='gemini-3.1-flash-tts-preview', voice='Kore'))
         validate_update_status(t.insert(text='Hello, this is a test of Gemini text to speech.'), expected_rows=1)
         results = t.collect()
@@ -288,7 +292,7 @@ class TestGemini:
         skip_test_if_no_client('gemini')
         from pixeltable.functions.gemini import generate_speech
 
-        t = pxt.create_table('test_tbl', {'text': pxt.String})
+        t = pxt.create_table('test_tbl', {'text': pxt.String | None})
         t.add_computed_column(
             audio=generate_speech(t.text, model='gemini-2.5-flash-preview-tts', voices={'Alice': 'Kore', 'Bob': 'Puck'})
         )
@@ -306,7 +310,7 @@ class TestGemini:
         from pixeltable.functions.gemini import transcribe
 
         audio_files = get_audio_files()
-        t = pxt.create_table('test_tbl', {'audio': pxt.Audio})
+        t = pxt.create_table('test_tbl', {'audio': pxt.Audio | None})
         t.add_computed_column(
             transcript=transcribe(t.audio, model='gemini-3-flash-preview', prompt='Transcribe this audio recording.')
         )
@@ -321,7 +325,7 @@ class TestGemini:
         skip_test_if_no_client('gemini')
         from pixeltable.functions.gemini import embed_content
 
-        t = pxt.create_table('test', {'rowid': pxt.Int, 'text': pxt.String})
+        t = pxt.create_table('test', {'rowid': pxt.Int | None, 'text': pxt.String | None})
 
         # Test embeddings as computed columns
         t.add_computed_column(embed0=embed_content(t.text, model='gemini-embedding-2'))
@@ -385,7 +389,7 @@ class TestGemini:
         num_rows = 30
         model = 'gemini-2.5-flash-lite'
 
-        t = pxt.create_table('scheduler_tbl', {'word1': pxt.String, 'word2': pxt.String})
+        t = pxt.create_table('scheduler_tbl', {'word1': pxt.String | None, 'word2': pxt.String | None})
         t.add_computed_column(prompt='Use "' + t.word1 + '" and "' + t.word2 + '" in one short sentence.')
         t.add_computed_column(response=generate_content(t.prompt, model=model))
 
@@ -430,7 +434,7 @@ class TestGemini:
         #     next(file for file in get_documents() if 'Vector_database.pdf' in file),
         # )
 
-        t = pxt.create_table('test_tbl_image', {'id': pxt.Int, 'image': pxt.Image})
+        t = pxt.create_table('test_tbl_image', {'id': pxt.Int | None, 'image': pxt.Image | None})
         t.add_embedding_index(t.image, embedding=embed_content.using(model='gemini-embedding-2'))
         validate_update_status(t.insert({'id': n, 'image': image} for n, image in enumerate(images)), expected_rows=2)
 
@@ -448,7 +452,7 @@ class TestGemini:
         )
         assert res[1]['sim'] - res[0]['sim'] > 0.1  # as before, in reverse
 
-        t = pxt.create_table('test_tbl_audio', {'id': pxt.Int, 'audio': pxt.Audio})
+        t = pxt.create_table('test_tbl_audio', {'id': pxt.Int | None, 'audio': pxt.Audio | None})
         t.add_embedding_index(t.audio, embedding=embed_content.using(model='gemini-embedding-2'))
         validate_update_status(
             t.insert({'id': n, 'audio': audio_file} for n, audio_file in enumerate(audio)), expected_rows=2
@@ -465,7 +469,7 @@ class TestGemini:
         res = t.select(t.id, sim=t.audio.similarity(string='A recording of music playing')).order_by(t.id).collect()
         assert res[1]['sim'] - res[0]['sim'] > 0.1
 
-        t = pxt.create_table('test_tbl_video', {'id': pxt.Int, 'video': pxt.Video})
+        t = pxt.create_table('test_tbl_video', {'id': pxt.Int | None, 'video': pxt.Video | None})
         t.add_embedding_index(t.video, embedding=embed_content.using(model='gemini-embedding-2'))
         validate_update_status(
             t.insert({'id': n, 'video': video_file} for n, video_file in enumerate(video)), expected_rows=2

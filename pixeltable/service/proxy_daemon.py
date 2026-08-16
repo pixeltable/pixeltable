@@ -159,8 +159,9 @@ def create(db: str) -> None:
 def start(db: str, test_mode: bool = False) -> str:
     """Ensure a daemon for db is running and ready; return its endpoint.
 
-    test_mode starts the daemon with --test (DEBUG logging + test-only endpoints). It only takes effect if this
-    call actually launches the daemon; an already-running one is returned as is.
+    test_mode starts the daemon with --test (enables test-only endpoints and diagnostic detail on the errors it
+    returns). It only takes effect if this call actually launches the daemon; an already-running one is returned
+    as is.
     """
     create(db)
     ep = endpoint(db)
@@ -300,7 +301,7 @@ def _drop_database(db: str) -> None:
 def _build_app(test_mode: bool = False) -> 'FastAPI':
     """The app served by the daemon: a /rpc endpoint running the generic dispatch and a /health endpoint.
 
-    test_mode enables the test-only endpoints.
+    test_mode enables the test-only endpoints, and lets /rpc return the diagnostic detail of the errors it reports.
 
     fastapi is imported here rather than at module level because it is an optional dependency, needed
     only when the daemon is actually served.
@@ -316,7 +317,7 @@ def _build_app(test_mode: bool = False) -> 'FastAPI':
         request_json, request_parts = decode_body(await request.body())
         # dispatch is synchronous and touches the database; keep it off the event loop
         response_json, response_parts = await run_in_threadpool(
-            proxy_dispatch.handle, request_json.decode(), request_parts
+            proxy_dispatch.handle, request_json.decode(), request_parts, include_error_detail=test_mode
         )
         return Response(
             content=encode_body(response_json.encode(), response_parts), media_type='application/octet-stream'
@@ -358,14 +359,10 @@ def _serve(test_mode: bool = False) -> None:
     binds to that address and port instead and skips the lock file. Used when an
     external orchestrator (e.g. a sidecar) handles routing and discovery.
 
-    test_mode: logs at DEBUG and exposes the test-only endpoints.
+    test_mode: exposes the test-only endpoints and returns diagnostic detail with errors.
     """
     # mark this process as a hosted-catalog server (no client-accessible local store) before the catalog inits
     os.environ['PIXELTABLE_PROXY_DAEMON'] = '1'
-    if test_mode:
-        # Enable verbose logging
-        for name in ('pixeltable', 'sqlalchemy.engine'):
-            logging.getLogger(name).setLevel(logging.DEBUG)
     try:
         import uvicorn
     except ModuleNotFoundError as e:
@@ -384,12 +381,8 @@ def _serve(test_mode: bool = False) -> None:
     daemon_host = config.get_string_value('daemon_host')
     daemon_port = config.get_int_value('daemon_port')
 
-    log_level = 'info'
-    configured_log_level = config.get_string_value('log_level')
-    if configured_log_level is not None:
-        log_level = configured_log_level.lower()
-    elif test_mode:
-        log_level = 'debug'
+    # pixeltable log level also drives uvicorn
+    log_level = logging.getLogger('pixeltable').getEffectiveLevel()
 
     # log_config=None suppresses uvicorn's own logging setup which results in closing every handler registered so far.
     # Note: at this point, uvicorn logging has already been configured by Env.

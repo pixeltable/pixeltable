@@ -16,7 +16,7 @@ class TestTogether:
         skip_test_if_no_client('together')
         from pixeltable.functions.together import completions
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         t.add_computed_column(
             output=completions(prompt=t.input, model='Qwen/Qwen3.5-9B', model_kwargs={'stop': ['\n']})
         )
@@ -46,7 +46,7 @@ class TestTogether:
         skip_test_if_no_client('together')
         from pixeltable.functions.together import chat_completions
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         messages = [{'role': 'user', 'content': t.input}]
         t.add_computed_column(
             output=chat_completions(messages=messages, model='openai/gpt-oss-20b', model_kwargs={'stop': ['\n']})
@@ -79,7 +79,7 @@ class TestTogether:
         skip_test_if_no_client('together')
         from pixeltable.functions.together import embeddings
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         t.add_computed_column(embed=embeddings(input=t.input, model='intfloat/multilingual-e5-large-instruct'))
         validate_update_status(t.insert(input='Together AI provides a variety of embeddings models.'), 1)
         assert len(t.collect()['embed'][0]) > 0
@@ -90,7 +90,7 @@ class TestTogether:
         skip_test_if_no_client('together')
         from pixeltable.functions.together import image_generations
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String, 'negative_prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None, 'negative_prompt': pxt.String | None})
         t.add_computed_column(
             img=image_generations(t.input, model='black-forest-labs/FLUX.1-schnell', model_kwargs={'steps': 5})
         )
