@@ -173,8 +173,9 @@ class TestOperationalTable:
             2,
         )
 
-        tbl.add_embedding_index('text', embedding=local_embedding.using(dim=512))
+        tbl.add_embedding_index('text', idx_name='text_idx', embedding=local_embedding.using(dim=512))
         reload_catalog(do_reload_catalog)
+        assert 'text_idx' in tbl.get_metadata()['indexes']
 
         validate_update_status(
             tbl.insert(
@@ -197,6 +198,15 @@ class TestOperationalTable:
         res = tbl.select(tbl.id).order_by(sim, asc=False).collect()['id']
         assert res[0] == 2, res
         assert 4 not in res, res
+
+        tbl.drop_embedding_index(idx_name='text_idx')
+        reload_catalog(do_reload_catalog)
+        assert 'text_idx' not in tbl.get_metadata()['indexes']
+        with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND):
+            _ = tbl.text.similarity(string='Espresso machines build pressure in order to extract the coffee.')
+
+        validate_update_status(tbl.insert([{'id': 5, 'text': 'A new row inserted after the index was dropped.'}]), 1)
+        assert tbl.count() == 5
 
     def test_unsupported_ops(self, uses_db: None) -> None:
         operational_tbl = pxt.create_table('t0', {'n': pxt.Int | None}, _is_data_versioned=False)
