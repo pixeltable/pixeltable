@@ -6,13 +6,35 @@ These carry no reference to a catalog object, so any module can depend on them.
 from __future__ import annotations
 
 import dataclasses
-from typing import Any
+from typing import Any, NamedTuple
 from uuid import UUID
 
 import pixeltable.type_system as ts
 from pixeltable.metadata import schema
 
-from .globals import MediaValidation, QColumnId
+from .globals import MediaValidation
+
+
+@dataclasses.dataclass(frozen=True)
+class QColumnId:
+    """Qualified column id"""
+
+    tbl_id: UUID
+    col_id: int
+
+
+class TableVersionKey(NamedTuple):
+    tbl_id: UUID
+    effective_version: int | None
+
+    def as_dict(self) -> dict:
+        return {'id': str(self.tbl_id), 'effective_version': self.effective_version}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> TableVersionKey:
+        tbl_id = UUID(d['id'])
+        effective_version = d['effective_version']
+        return cls(tbl_id, effective_version)
 
 
 @dataclasses.dataclass(frozen=True)

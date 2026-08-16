@@ -11,8 +11,6 @@ from .globals import (
     IfNotExistsParam,
     IndexSpec,
     MediaValidation,
-    QColumnId,
-    TableVersionKey,
     is_valid_identifier,
     normalize_schema,
 )
@@ -27,7 +25,7 @@ from .table_path import TableMdPath, TablePath, TablePathKey, TableVersionPath
 from .table_proxy import TableProxy
 from .table_version import TableVersion
 from .table_version_handle import ColumnHandle, TableVersionHandle
-from .types import ColumnVersionMd
+from .types import ColumnVersionMd, QColumnId, TableVersionKey
 from .update_status import RowCountStats, UpdateStatus
 from .view import View
 from .view_proxy import ViewProxy

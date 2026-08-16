@@ -14,11 +14,11 @@ from pixeltable import type_system as ts
 from pixeltable.utils import parse_local_file_path
 
 from ..exprs import ColumnRef
-from .globals import TableVersionKey, normalize_schema
+from .globals import normalize_schema
 from .path import Path as CatalogPath
 from .table import Table
 from .table_path import TableMdPath, TablePathKey
-from .types import TableVersionMd
+from .types import TableVersionKey, TableVersionMd
 
 if TYPE_CHECKING:
     from pathlib import Path

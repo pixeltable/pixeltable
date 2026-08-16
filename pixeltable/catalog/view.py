@@ -14,12 +14,12 @@ from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 
 from .column import Column
-from .globals import IndexSpec, MediaValidation, TableVersionKey
+from .globals import IndexSpec, MediaValidation
 from .local_table import LocalTable
 from .table_path import TablePath, TableVersionPath
 from .table_version_handle import TableVersionHandle
 from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, LoadViewOp, TableOp, TableOpsBuilder
-from .types import ColumnVersionMd, TableVersionMd
+from .types import ColumnVersionMd, TableVersionKey, TableVersionMd
 from .update_status import UpdateStatus
 from .utils import create_table_version_md
 

@@ -37,12 +37,12 @@ from .globals import (
     IfNotExistsParam,
     MediaValidation,
     OnErrorParam,
-    QColumnId,
     is_valid_identifier,
 )
 from .table import Table
 from .table_path import TableVersionPath
 from .table_version_handle import TableVersionHandle
+from .types import QColumnId
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:

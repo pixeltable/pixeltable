@@ -12,8 +12,8 @@ from pixeltable.env import Env
 from pixeltable.metadata import schema
 
 from .column import Column
-from .globals import IndexSpec, MediaValidation, TableVersionKey
-from .types import TableVersionMd
+from .globals import IndexSpec, MediaValidation
+from .types import TableVersionKey, TableVersionMd
 
 if TYPE_CHECKING:
     from .table_version import TableVersion

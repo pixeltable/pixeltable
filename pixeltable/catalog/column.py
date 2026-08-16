@@ -20,8 +20,8 @@ from pixeltable.type_system import sa_type_as_dict
 from pixeltable.types import ColumnSpec
 from pixeltable.utils.object_stores import ObjectOps
 
-from .globals import MediaValidation, QColumnId, is_system_column_name, is_valid_identifier
-from .types import ColumnVersionMd
+from .globals import MediaValidation, is_system_column_name, is_valid_identifier
+from .types import ColumnVersionMd, QColumnId
 
 if TYPE_CHECKING:
     from .table_version import TableVersion

@@ -30,7 +30,7 @@ from pixeltable.utils.fault_injection import FaultLocation
 from .catalog_base import CatalogBase
 from .column import Column
 from .dir import Dir
-from .globals import DirEntry, IfExistsParam, IfNotExistsParam, IndexSpec, MediaValidation, QColumnId, TableVersionKey
+from .globals import DirEntry, IfExistsParam, IfNotExistsParam, IndexSpec, MediaValidation
 from .insertable_table import InsertableTable
 from .local_table import LocalTable
 from .model import IndexDeclaration, TableSchemaChangeSet, prepare_model, prepare_model_updates
@@ -40,7 +40,7 @@ from .table_path import TablePath, TableVersionPath
 from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
 from .tbl_ops import DeleteTableMdOp, OpStatus, TableOp
-from .types import TableVersionMd
+from .types import QColumnId, TableVersionKey, TableVersionMd
 from .update_status import UpdateStatus
 from .view import View
 

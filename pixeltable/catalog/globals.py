@@ -3,9 +3,8 @@ from __future__ import annotations
 import dataclasses
 import enum
 import itertools
-from collections.abc import Iterator, Mapping
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
-from uuid import UUID
 
 from typing_extensions import TypeForm
 
@@ -19,6 +18,7 @@ if TYPE_CHECKING:
     from pixeltable.globals import TableDataSource
 
     from .column import Column
+    from .types import ColumnVersionMd
 
 # name of the position column in a component view
 _POS_COLUMN_NAME = 'pos'
@@ -27,33 +27,6 @@ _ROWID_COLUMN_NAME = '_rowid'
 # Set of symbols that are predefined in the `InsertableTable` class (and are therefore not allowed as column names).
 # This will be populated lazily to avoid circular imports.
 _PREDEF_SYMBOLS: set[str] | None = None
-
-
-@dataclasses.dataclass(frozen=True)
-class QColumnId:
-    """Qualified column id"""
-
-    tbl_id: UUID
-    col_id: int
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class TableVersionKey:
-    tbl_id: UUID
-    effective_version: int | None
-
-    # Allow unpacking as a tuple
-    def __iter__(self) -> Iterator[Any]:
-        return iter((self.tbl_id, self.effective_version))
-
-    def as_dict(self) -> dict:
-        return {'id': str(self.tbl_id), 'effective_version': self.effective_version}
-
-    @classmethod
-    def from_dict(cls, d: dict) -> TableVersionKey:
-        tbl_id = UUID(d['id'])
-        effective_version = d['effective_version']
-        return cls(tbl_id, effective_version)
 
 
 @dataclasses.dataclass
