@@ -56,14 +56,12 @@ from pixeltable.service.management_protocol import (
     UpdateRuntimeRequest,
     UpdateServiceRequest,
 )
-from pixeltable.serving import _config as serving_config
 from pixeltable_cli import schema_types as wire, utils
 from pixeltable_cli.client import confirm, hosted, main as client_main, parser as client_parser, utils as client_utils
 from pixeltable_cli.client.commands import (
     daemon as daemon_cmd,
     db as db_cmd,
     org as org_cmd,
-    service as service_cmd,
     shell as shell_cmd,
     status as status_cmd,
 )
@@ -1594,8 +1592,6 @@ class TestHostedCommandHelp:
         [
             (db_cmd, ['--help'], ['create', 'list', 'update', 'update-runtime', 'status']),
             (db_cmd, ['update', '--help'], ['--workers', '--cpu']),
-            (service_cmd, ['--help'], ['create', 'update', 'stop', 'start', 'status']),
-            (service_cmd, ['update', '--help'], ['--workers']),
             (org_cmd, ['--help'], ['list', 'status']),
         ],
     )
@@ -1788,24 +1784,6 @@ class TestHostedCommandRequests:
             (db_cmd, ['start', 'pxt://acme:main'], server_routes.start_db, StartDbRequest(org='acme', db='main')),
             (db_cmd, ['stop', 'pxt://acme:main'], server_routes.stop_db, StopDbRequest(org='acme', db='main')),
             (db_cmd, ['delete', 'pxt://acme:main'], server_routes.delete_db, DeleteDbRequest(org='acme', db='main')),
-            (
-                service_cmd,
-                ['start', 'pxt://acme:main/services/svc'],
-                server_routes.start_service,
-                StartServiceRequest(org='acme', db='main', service_name='svc'),
-            ),
-            (
-                service_cmd,
-                ['stop', 'pxt://acme:main/services/svc'],
-                server_routes.stop_service,
-                StopServiceRequest(org='acme', db='main', service_name='svc'),
-            ),
-            (
-                service_cmd,
-                ['delete', 'pxt://acme:main/services/svc'],
-                server_routes.delete_service,
-                DeleteServiceRequest(org='acme', db='main', service_name='svc'),
-            ),
         ],
     )
     def test_command_body(
@@ -1818,22 +1796,6 @@ class TestHostedCommandRequests:
     ) -> None:
         body = self._posted_body(monkeypatch, module, argv)
         assert _forwarded_request(monkeypatch, handler, body=body) == expected
-
-    def test_service_create_and_update_bodies(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
-        svc_config = ServiceConfig(name='svc')
-        monkeypatch.setattr(serving_config, 'lookup_service_config', lambda name: svc_config)
-
-        argv = ['create', 'svc', '--base-uri', 'pxt://acme:main/dir', '--workers', '3']
-        body = self._posted_body(monkeypatch, service_cmd, argv)
-        assert _forwarded_request(monkeypatch, server_routes.create_service, body=body) == CreateServiceRequest(
-            org='acme', db='main', service_name='svc', base_path='dir', workers_min=3, service_config=svc_config
-        )
-
-        argv = ['update', 'pxt://acme:main/services/svc', '--workers', '4']
-        body = self._posted_body(monkeypatch, service_cmd, argv)
-        assert _forwarded_request(monkeypatch, server_routes.update_service, body=body) == UpdateServiceRequest(
-            org='acme', db='main', service_name='svc', workers_min=4, service_config=svc_config
-        )
 
     @pytest.mark.parametrize('db', ['main', 'my-db', 'db1', 'video-search', 'a' * 29])
     def test_create_db_accepts_valid_name(self, db: str) -> None:
