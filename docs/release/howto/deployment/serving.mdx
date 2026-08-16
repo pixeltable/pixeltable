@@ -1,14 +1,14 @@
 ---
 title: Serving Tables and Queries over HTTP
 sidebarTitle: HTTP Serving
-description: Configure and deploy Pixeltable endpoints using a TOML service file or Python code.
+description: Configure and deploy Pixeltable endpoints from an application file or in Python code.
 ---
 
 ## Overview
 
 Pixeltable can expose table operations and queries as HTTP endpoints via
-`pixeltable.serving.FastAPIRouter`. You can configure endpoints either
-programmatically in Python or declaratively with a TOML service file.
+`pixeltable.serving.FastAPIRouter`. You can build the application yourself in Python, or declare the
+services in an application file and let `pxt service` run them.
 
 This page builds on the HTTP-based paths from the
 [Deployment Strategies](/howto/deployment/overview#deployment-strategies)
@@ -17,56 +17,59 @@ overview:
 - [Approach 2: Pixeltable as Full Backend](/howto/deployment/overview#approach-2-pixeltable-as-full-backend):
   use the Pixeltable SDK's `FastAPIRouter` when you already have, or are
   building, a FastAPI app.
-- [Approach 3: Declarative Serving](/howto/deployment/overview#approach-3-declarative-serving-pxt-serve):
-  use the Pixeltable CLI command `pxt serve` when you want Pixeltable to create
-  and run the FastAPI app from TOML or CLI flags.
+- [Approach 3: Declarative Serving](/howto/deployment/overview#approach-3-declarative-serving-pxt-service):
+  use `pxt service` when you want Pixeltable to create and run the FastAPI app from an application file.
 
 FastAPI and uvicorn are optional dependencies. Install them before using
-`pxt serve` or the Python serving API:
+`pxt service` or the Python serving API:
 
 ```bash
 pip install 'fastapi[standard]'
 ```
 
-## Quickstart (TOML)
+## Quickstart (application file)
 
-This is the primary config-file path for [Approach 3: Declarative Serving](/howto/deployment/overview#approach-3-declarative-serving-pxt-serve).
+This is the declarative path: one file declares the models that name the tables and the services that serve
+routes over them, and `pxt service` runs it. Write a file to start from with `pxt service example --out app.py`:
 
-Add a `[tool.pixeltable]` section to your `pyproject.toml`:
+```python
+# app.py
+from __future__ import annotations
 
-```toml
-# pyproject.toml
-[[tool.pixeltable.service]]
-name = "my-service"
-port = 8000
-modules = ["schema"]   # Python modules to import (creates tables/views)
+import pixeltable as pxt
+from pixeltable.serving import FastAPIRouter
 
-[[tool.pixeltable.service.routes]]
-type = "insert"
-table = "my_dir.my_table"
-path = "/insert"
-inputs = ["prompt"]
-outputs = ["prompt", "result"]
+TableModel = pxt.model_base()
+
+
+class Docs(TableModel, name='docs'):
+    doc_id: pxt.Int
+    prompt: pxt.String
+    result = generate(prompt)  # a computed column
+
+
+ingest = FastAPIRouter(name='ingest')
+ingest.add_insert_route(Docs, path='/insert', inputs=[Docs.prompt], outputs=[Docs.result])
 ```
 
-Start the service:
+Create the tables the models declare, then serve the file against them:
 
 ```bash
-pxt serve my-service
+pxt schema update app.py my_dir      # my_dir is the catalog directory the models bind to
+pxt service update app.py my_dir     # start the services in the background
 ```
 
-<Note>
-You can also use a standalone TOML file (`pxt serve my-service --config service.toml`) with the same route syntax but `[[service]]` and `[[service.routes]]` as top-level keys. The `pyproject.toml` format is preferred for new projects.
-</Note>
+`pxt service update app.py my_dir --foreground` serves them from the calling process instead, on one port,
+until interrupted -- the mode for a container entrypoint or a development loop.
 
-The service is now running at `http://localhost:8000` with auto-generated
-[OpenAPI docs](https://fastapi.tiangolo.com/features/#automatic-docs) at `/docs`.
+The service exposes auto-generated [OpenAPI docs](https://fastapi.tiangolo.com/features/#automatic-docs)
+at `/docs`, and `pxt service list` reports where each one is listening:
 
 ```bash
 curl -X POST http://localhost:8000/insert \
   -H 'Content-Type: application/json' \
   -d '{"prompt": "a sunset over the ocean"}'
-# {"prompt": "a sunset over the ocean", "result": "..."}
+# {"result": "..."}
 ```
 
 ## Quickstart (Python)
@@ -111,9 +114,7 @@ router.add_compute_route(
 # POST /preview {"prompt": "..."} → computed fields; table unchanged
 ```
 
-This is identical to `add_insert_route`, except no row is inserted. For declarative
-TOML/`pxt serve` configs, `type = "compute"` is currently treated as an insert alias;
-use the Python `FastAPIRouter` API when you need true non-persisting compute.
+This is identical to `add_insert_route`, except no row is inserted.
 
 <Warning>
 `@pxt.query` eagerly evaluates the function body at decoration time. Create tables
@@ -121,34 +122,6 @@ use the Python `FastAPIRouter` API when you need true non-persisting compute.
 table creation idempotent. See the
 [migration guide](/migrate/from-hand-written-endpoints) for examples.
 </Warning>
-
-## Quickstart (single-endpoint CLI)
-
-This is a single-endpoint CLI path for [Approach 3: Declarative Serving](/howto/deployment/overview#approach-3-declarative-serving-pxt-serve).
-
-For quick experiments and one-off endpoints, you can skip the TOML file and
-configure a single route directly on the command line:
-
-```bash
-# one insert endpoint
-pxt serve insert --table my_dir.my_table --path /generate \
-  --inputs prompt --outputs prompt result --port 8000
-
-# one update endpoint
-pxt serve update --table my_dir.my_table --path /update \
-  --inputs prompt --outputs id prompt result
-
-# one delete endpoint
-pxt serve delete --table my_dir.my_table --path /delete
-
-# one query endpoint
-pxt serve query --query myapp.queries.search_docs --path /search
-```
-
-Single-endpoint mode accepts the same fields as the equivalent `[[service.routes]]`
-TOML entry. It is meant for development and ad-hoc serving; for anything
-beyond that use the TOML file (it is the only way to expose more than one
-endpoint).
 
 ## Decorator-style routes
 
@@ -192,16 +165,14 @@ Decorator routes support the same `background=True` flag as the non-decorator
 forms; when enabled, the decorated function's return value is delivered as the
 background-job result.
 
-The decorator forms are Python-only -- there is no equivalent in the TOML
-service file.
+The decorator forms are Python-only.
 
 ## Exporting rows to an external database
 
 Insert and update routes can export each successful request as a row in an
-external SQL database. Configure it via the Python API, the TOML service file,
-or the CLI; all three forms route through the same `SqlExport` specification.
-Each request performs the Pixeltable insert/update first; only if it succeeds
-does the row get written to the external table.
+external SQL database, specified by `SqlExport`. Each request performs the
+Pixeltable insert/update first; only if it succeeds does the row get written to
+the external table.
 
 **Python API.** Pass an `export_sql=SqlExport(...)` argument to
 `add_insert_route`, `add_update_route`, or the decorator forms.
@@ -220,34 +191,6 @@ router.add_insert_route(
         table='generations',
     ),
 )
-```
-
-**TOML.** Add a nested `[routes.export_sql]` table under any insert or update
-route. The same fields apply.
-
-```toml
-[[routes]]
-type = "insert"
-table = "my_dir.my_table"
-path = "/generate"
-inputs = ["prompt"]
-outputs = ["prompt", "result"]
-
-[routes.export_sql]
-db_connect = "postgresql+psycopg://user:pw@host/analytics"
-table = "generations"
-# db_schema = "public"  # optional
-# method = "insert"         # default; alternatives: "update", "merge" (not yet supported)
-```
-
-**CLI.** Single-endpoint mode supports the same fields via `--export-sql-*`
-flags on `pxt serve insert` and `pxt serve update`.
-
-```bash
-pxt serve insert --table my_dir.my_table --path /generate \
-  --inputs prompt --outputs prompt result \
-  --export-sql-db-connect 'postgresql+psycopg://user:pw@host/analytics' \
-  --export-sql-table generations
 ```
 
 The row written to the target is the response body: the same columns as
@@ -284,307 +227,64 @@ See [`SqlExport`](https://docs.pixeltable.com/sdk/latest/pixeltable/serving/SqlE
 for the full target specification.
 
 <Warning>
-Connection strings with embedded passwords land in plaintext on disk (TOML)
-or in process listings (CLI). Don't commit `service.toml`; consider a
-connection string that pulls credentials from the environment or a
-`.pgpass`-style file. Env-var substitution within the TOML is not yet
-supported.
+A connection string with an embedded password lands in plaintext in the
+application file. Prefer one that pulls its credentials from the environment or
+a `.pgpass`-style file, or bind it to a `pxt.Secret` config var.
 </Warning>
-
-## TOML Service File Reference
-
-### `[service]` (optional)
-
-Top-level settings for the FastAPI application and server.
-
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `title` | string | `"Pixeltable"` | Title shown in the OpenAPI docs |
-| `prefix` | string | `""` | URL prefix prepended to all route paths (must be empty or start with `/`) |
-| `host` | string | `"0.0.0.0"` | Server bind address |
-| `port` | integer | `8000` | Server bind port |
-
-### `modules` (optional)
-
-A list of additional Python modules to import at startup, for their
-registration side effects. The module that hosts a query route's dotted
-path is imported automatically, so this is only needed when you depend
-on `@pxt.query` / `@pxt.udf` definitions in *other* modules that wouldn't
-otherwise be loaded.
-
-```toml
-modules = ["myapp.queries", "myapp.udfs"]
-```
-
-### `[[service.routes]]`
-
-Each `[[service.routes]]` entry defines one HTTP endpoint. The `type` field determines
-the route kind and which additional fields are valid.
-
-#### Common fields
-
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `type` | `"insert"` / `"compute"` / `"update"` / `"delete"` / `"query"` | yes | -- | Route kind. In `pxt serve` TOML, `"compute"` is currently an alias for `"insert"`; use Python `add_compute_route` for non-persisting compute. |
-| `path` | string | yes | -- | URL path (e.g., `"/generate"`) |
-| `background` | bool | no | `false` | Run the operation in a background thread and return a job handle |
-
-When `background = true`, the endpoint returns immediately with:
-
-```json
-{"id": "abc123", "job_url": "http://localhost:8000/jobs/abc123"}
-```
-
-Poll `job_url` until `status` is `"done"` or `"error"`.
-
----
-
-### Insert routes
-
-Insert a single row into a table and return the resulting column values.
-
-```toml
-[[service.routes]]
-type = "insert"
-table = "my_dir/my_table"
-path = "/generate"
-inputs = ["prompt"]
-outputs = ["prompt", "result"]
-```
-
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `table` | string | yes | -- | Pixeltable table path |
-| `inputs` | list of strings | no | all non-computed columns | Columns to accept as request fields |
-| `uploadfile_inputs` | list of strings | no | -- | Columns to accept as file uploads (multipart) |
-| `outputs` | list of strings | no | all columns | Columns to include in the response |
-| `return_fileresponse` | bool | no | `false` | Return the single media-typed output as a raw file download |
-| `export_sql` | nested table | no | -- | Export each request as a row into an external SQL database. See [Exporting rows to an external database](#exporting-rows-to-an-external-database). |
-
-**File uploads:** when `uploadfile_inputs` is set, the request uses `multipart/form-data`
-instead of JSON. All other inputs become form fields.
-
-```toml
-[[service.routes]]
-type = "insert"
-table = "my_dir/images"
-path = "/resize"
-inputs = ["width", "height"]
-uploadfile_inputs = ["image"]
-outputs = ["resized"]
-return_fileresponse = true
-```
-
-```bash
-curl -X POST http://localhost:8000/resize \
-  -F image=@photo.jpg -F width=640 -F height=480 \
-  --output resized.jpg
-```
-
----
-
-### Update routes
-
-Update a single row identified by its primary key values, and return the updated
-columns (including any computed columns that depend on them).
-
-```toml
-[[service.routes]]
-type = "update"
-table = "my_dir/my_table"
-path = "/update"
-inputs = ["prompt"]
-outputs = ["id", "prompt", "result"]
-```
-
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `table` | string | yes | -- | Pixeltable table path (must have a primary key) |
-| `inputs` | list of strings | no | all non-PK, non-computed, non-media columns | Columns to update (PK columns are always in the request body but cannot appear here) |
-| `outputs` | list of strings | no | all columns | Columns to include in the response |
-| `return_fileresponse` | bool | no | `false` | Return the single media-typed output as a raw file download |
-| `export_sql` | nested table | no | -- | Export each request as a row into an external SQL database. See [Exporting rows to an external database](#exporting-rows-to-an-external-database). |
-
-The request body carries the primary key values (to identify the row) plus the
-values to update, as JSON fields:
-
-```bash
-curl -X POST http://localhost:8000/update \
-  -H 'Content-Type: application/json' \
-  -d '{"id": 42, "prompt": "updated text"}'
-# {"id": 42, "prompt": "updated text", "result": "..."}
-```
-
-If the identified row does not exist, the endpoint returns HTTP 404. Computed
-columns that depend on any updated column are automatically recomputed and
-appear in the response.
-
-<Note>
-Media-typed columns (image, video, audio, document) cannot currently be
-updated. To replace a media value, delete the row and insert a new one.
-</Note>
-
----
-
-<Note>
-Delete routes use HTTP **POST**, not the HTTP DELETE method. Update client-side fetch calls accordingly.
-</Note>
-
-### Delete routes
-
-Delete rows matching the given column values and return the count of rows affected.
-
-```toml
-[[service.routes]]
-type = "delete"
-table = "my_dir/my_table"
-path = "/delete"
-```
-
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `table` | string | yes | -- | Pixeltable table path |
-| `match_columns` | list of strings | no | primary key columns | Columns to match on (AND-ed equality) |
-
-```bash
-curl -X POST http://localhost:8000/delete \
-  -H 'Content-Type: application/json' \
-  -d '{"id": 42}'
-# {"num_rows": 1}
-```
-
-To delete by a non-primary-key column:
-
-```toml
-[[service.routes]]
-type = "delete"
-table = "my_dir/my_table"
-path = "/delete-by-tag"
-match_columns = ["tag"]
-```
-
----
-
-<Note>
-Media columns (`pxt.Image`, `pxt.Video`, `pxt.Audio`, `pxt.Document`) serialize as URL strings (e.g., `/media/path/to/file.pdf`). The client receives a string, not binary data.
-</Note>
-
-### Query routes
-
-Execute a `@pxt.query` or `retrieval_udf` function and return the results.
-
-```toml
-[[service.routes]]
-type = "query"
-path = "/search"
-query = "myapp.queries.search_docs"
-```
-
-| Field | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `query` | string | yes | -- | Dotted Python path to a `@pxt.query` or `retrieval_udf` function |
-| `inputs` | list of strings | no | all query parameters | Parameters to accept as request fields |
-| `uploadfile_inputs` | list of strings | no | -- | Parameters to accept as file uploads (not supported with `method = "get"`) |
-| `one_row` | bool | no | `false` | Expect exactly one result row (404 on 0, 409 on >1) |
-| `return_fileresponse` | bool | no | `false` | Return the single media-typed result as a raw file |
-| `method` | `"get"` / `"post"` | no | `"post"` | HTTP method for the endpoint |
-
-The `query` field is a dotted Python path (e.g., `"myapp.queries.search_docs"`);
-the module portion is imported automatically when the route is resolved.
-
-**Multi-row response** (default):
-
-```bash
-curl -X POST http://localhost:8000/search \
-  -H 'Content-Type: application/json' \
-  -d '{"query_text": "hello"}'
-# {"rows": [{"id": 1, "text": "hello world", "score": 0.95}, ...]}
-```
-
-**Single-row lookup** (`one_row = true`):
-
-```toml
-[[service.routes]]
-type = "query"
-path = "/lookup"
-query = "myapp.queries.lookup_by_id"
-one_row = true
-method = "get"
-```
-
-```bash
-curl 'http://localhost:8000/lookup?id=42'
-# {"id": 42, "name": "Alice", "email": "alice@example.com"}
-```
-
----
 
 ## Full example
 
-```toml
-[[service]]
-name = "image-processing-service"
-port = 8080
+One application file, declaring the models and every kind of route over them:
 
-modules = ["myapp.queries"]
+```python
+# app.py
+from __future__ import annotations
 
-# Insert an image and get back processed outputs
-[[service.routes]]
-type = "insert"
-table = "myapp/images"
-path = "/process"
-inputs = ["width", "height"]
-uploadfile_inputs = ["image"]
-outputs = ["thumbnail", "embedding"]
+import pixeltable as pxt
+from pixeltable.serving import FastAPIRouter
 
-# Insert with background processing for slow pipelines
-[[service.routes]]
-type = "insert"
-table = "myapp/videos"
-path = "/ingest"
-background = true
+TableModel = pxt.model_base()
 
-# Update a row by primary key (returns the updated columns incl. computed ones)
-[[service.routes]]
-type = "update"
-table = "myapp/images"
-path = "/images/update"
-inputs = ["tag"]
-outputs = ["id", "tag", "thumbnail"]
 
-# Delete by primary key
-[[service.routes]]
-type = "delete"
-table = "myapp/images"
-path = "/images/delete"
+class Images(TableModel, name='images'):
+    image: pxt.Image
+    width: pxt.Int
+    height: pxt.Int
+    tag: pxt.String | None
+    thumbnail = image.resize(size=(128, 128))
 
-# Delete by a non-PK column
-[[service.routes]]
-type = "delete"
-table = "myapp/images"
-path = "/images/delete-by-tag"
-match_columns = ["tag"]
 
-# Search via a @pxt.query function
-[[service.routes]]
-type = "query"
-path = "/search"
-query = "myapp.queries.search_images"
+@pxt.query
+def search_images(text: str) -> pxt.Query:
+    return Images.where(Images.tag == text).select(Images.thumbnail)
 
-# Single-row lookup via GET
-[[service.routes]]
-type = "query"
-path = "/lookup"
-query = "myapp.queries.lookup_by_id"
-one_row = true
-method = "get"
 
-# Return a raw image file from a query
-[[service.routes]]
-type = "query"
-path = "/thumbnail"
-query = "myapp.queries.get_thumbnail"
-return_fileresponse = true
+images = FastAPIRouter(name='image-processing')
+
+# insert an image and get back the processed outputs; the image arrives as a file upload
+images.add_insert_route(
+    Images,
+    path='/process',
+    inputs=[Images.width, Images.height],
+    uploadfile_inputs=['image'],
+    outputs=[Images.thumbnail],
+)
+
+# background processing, for a pipeline too slow to answer in one request
+images.add_insert_route(Images, path='/ingest', background=True)
+
+# update a row by primary key; the response carries the recomputed columns
+images.add_update_route(Images, path='/images/update', inputs=[Images.tag], outputs=[Images.thumbnail])
+
+# delete by primary key, and by a non-key column
+images.add_delete_route(Images, path='/images/delete')
+images.add_delete_route(Images, path='/images/delete-by-tag', match_columns=['tag'])
+
+# a query route serves a @pxt.query function
+images.add_query_route(path='/search', query=search_images)
+
+# a single-row lookup over GET, returning the image itself rather than JSON
+images.add_query_route(path='/thumbnail', query=search_images, one_row=True, method='get', return_fileresponse=True)
 ```
 
 ## Reading Back Computed Columns After Insert
@@ -654,7 +354,8 @@ For the full `pxt` command-line reference (all subcommands, flags, and usage pat
 Quick examples:
 
 ```bash
-pxt serve my-service --config service.toml          # named service
-pxt serve insert --table my_dir.my_table --path /gen --inputs prompt  # single endpoint
-pxt serve my-service --config service.toml --dry-run # validate without starting
+pxt service diff   app.py my_dir     # what 'update' would change
+pxt service update app.py my_dir     # start the services in the background
+pxt service update app.py my_dir --foreground   # serve from this process instead
+pxt service list                     # what is running, and where
 ```

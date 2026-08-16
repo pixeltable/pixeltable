@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal
+
+from typing_extensions import TypedDict  # pydantic requires this spelling on Python < 3.12
 
 
 class RouteSpec(TypedDict):

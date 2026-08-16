@@ -8,7 +8,7 @@ import shutil
 import threading
 import typing
 from pathlib import Path
-from typing import Annotated, Any, ClassVar, Generic, Literal, NamedTuple, TypeVar
+from typing import Any, ClassVar, Generic, Literal, NamedTuple, TypeVar
 
 import pydantic
 import toml
@@ -22,7 +22,7 @@ T = TypeVar('T')
 ConfVarT = TypeVar('ConfVarT', bound=str)
 
 
-# Pydantic models for service and deployment configuration.
+# Pydantic models for deployment configuration.
 
 
 class SqlExport(pydantic.BaseModel):
@@ -56,89 +56,6 @@ class SqlExport(pydantic.BaseModel):
     table: str
     db_schema: str | None = None
     method: Literal['insert', 'update', 'merge'] = 'insert'
-
-
-class RouteConfigBase(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra='forbid')
-
-    path: str
-    background: bool = False
-
-    @pydantic.field_validator('path')
-    @classmethod
-    def _validate_path(cls, v: str) -> str:
-        if not v.startswith('/'):
-            raise ValueError(f"path must start with '/' (got {v!r})")
-        return v
-
-
-# Right now, 'compute' simply functions as an alias for 'insert' (that is permitted by `pxt deploy`).
-# TODO: Implement a separate 'compute' operation (possibly still reusing `InsertRouteConfig`) once
-#     `Table.compute()` has been implemented.
-class InsertRouteConfig(RouteConfigBase):
-    type: Literal['compute', 'insert']
-    table: str
-    inputs: list[str] | None = None
-    uploadfile_inputs: list[str] | None = None
-    outputs: list[str] | None = None
-    return_fileresponse: bool = False
-    export_sql: SqlExport | None = None
-
-
-class UpdateRouteConfig(RouteConfigBase):
-    type: Literal['update']
-    table: str
-    inputs: list[str] | None = None
-    outputs: list[str] | None = None
-    return_fileresponse: bool = False
-    export_sql: SqlExport | None = None
-
-
-class DeleteRouteConfig(RouteConfigBase):
-    type: Literal['delete']
-    table: str
-    match_columns: list[str] | None = None
-
-
-class QueryRouteConfig(RouteConfigBase):
-    type: Literal['query']
-    query: str  # module:attr path to a @pxt.query or retrieval_udf
-    inputs: list[str] | None = None
-    uploadfile_inputs: list[str] | None = None
-    one_row: bool = False
-    return_fileresponse: bool = False
-    method: Literal['get', 'post'] = 'post'
-
-
-RouteConfig = Annotated[
-    InsertRouteConfig | UpdateRouteConfig | DeleteRouteConfig | QueryRouteConfig, pydantic.Field(discriminator='type')
-]
-
-
-class ServiceConfig(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra='forbid')
-
-    name: str
-    prefix: str = ''
-    host: str = '0.0.0.0'
-    port: int = 8000
-    routes: list[RouteConfig] = pydantic.Field(default_factory=list)
-
-    @pydantic.field_validator('name')
-    @classmethod
-    def _validate_name(cls, v: str) -> str:
-        from pixeltable.catalog import is_valid_identifier
-
-        if not is_valid_identifier(v, allow_hyphens=True):
-            raise ValueError(f'{v!r} is not a valid Pixeltable identifier')
-        return v
-
-    @pydantic.field_validator('prefix')
-    @classmethod
-    def _validate_prefix(cls, v: str) -> str:
-        if v and not v.startswith('/'):
-            raise ValueError(f"prefix must be empty or start with '/' (got {v!r})")
-        return v
 
 
 class PixeltableSource(pydantic.BaseModel):
@@ -657,7 +574,6 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         's3_profile': 'AWS config profile name used to access S3 storage',
         'b2_profile': 'AWS config profile name used to access Backblaze B2 storage',
         'tigris_profile': 'AWS config profile name used to access Tigris object storage',
-        'service': ('Service configurations', list[ServiceConfig]),
         'database': 'Database configuration: runtime image, and variable/secret bindings',
         'daemon_host': 'Listen address for the proxy daemon in fixed-address mode (e.g. 0.0.0.0)',
         'daemon_port': ('Listen port for the proxy daemon in fixed-address mode (e.g. 8000)', int),

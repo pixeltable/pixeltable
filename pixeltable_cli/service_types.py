@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Literal
 
 from typing_extensions import TypedDict
 
@@ -51,8 +51,8 @@ class ServiceDiff(_Status):
 
     name: str
     exists: bool
-    state: Optional[str]  # the deployment's state, None when it does not exist
-    endpoint: Optional[str]
+    state: str | None  # the deployment's state, None when it does not exist
+    endpoint: str | None
 
     # the catalog path the definition's models bind against
     base_path: PxtPath
@@ -64,7 +64,7 @@ class ServiceDiff(_Status):
     resolution: ServiceResolution
 
     route_comparison: RouteComparison
-    route_detail: Optional[str]  # why the routes were not compared, when they were not
+    route_detail: str | None  # why the routes were not compared, when they were not
 
     # empty for a create, which subsumes the additions that constitute it
     ops: list[ServiceChangeOp]
@@ -115,7 +115,7 @@ class ServiceDeployment(TypedDict):
     app_file: str  # the file the service was served from
 
 
-def delete_service_op(name: str, endpoint: Optional[str], status: OpStatus) -> ServiceChangeOp:
+def delete_service_op(name: str, endpoint: str | None, status: OpStatus) -> ServiceChangeOp:
     """The operation for deleting the named deployment, in the given status."""
     served = '' if endpoint is None else f' at {endpoint}'
     return {

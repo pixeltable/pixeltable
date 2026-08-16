@@ -18,7 +18,6 @@ from typing import (
     Literal,
     Mapping,
     NamedTuple,
-    Optional,
     Sequence,
     TypeVar,
     Union,
@@ -107,11 +106,11 @@ class JobStatusResponse(pydantic.BaseModel):
     status: Literal['pending', 'done', 'error']
 
     # only set for status == 'error'
-    error: Optional[str] = None
+    error: str | None = None
 
     # the per-route response_model produced by add_insert_route(); typed as Any since it varies by route
     # only set for status == 'done'
-    result: Optional[Any] = None
+    result: Any | None = None
 
 
 # Name used to register the /media/{path:path} route. Insert routes use this name with
@@ -403,7 +402,7 @@ class FastAPIRouter(fastapi.APIRouter):
     A FastAPI `APIRouter` that exposes Pixeltable table operations as HTTP endpoints.
 
     `FastAPIRouter` is for apps that already have a FastAPI server. If you do
-    not have one, use `pxt serve` from the CLI; Pixeltable creates and runs the
+    not have one, use `pxt service` from the CLI; Pixeltable creates and runs the
     FastAPI app for you. Learn more here: [HTTP Serving](https://docs.pixeltable.com/howto/deployment/serving).
     """
 
@@ -1055,7 +1054,7 @@ class FastAPIRouter(fastapi.APIRouter):
             response_model = list[output_model]  # type: ignore[valid-type]
         elif route_type == 'compute':
             # a non-iterator compute can return null when a filter drops the row
-            response_model = Optional[output_model]
+            response_model = output_model | None
         else:
             response_model = output_model
 

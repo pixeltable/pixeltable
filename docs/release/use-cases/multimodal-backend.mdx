@@ -190,7 +190,7 @@ Add multimodal intelligence to applications with two deployment patterns.
       <Step title="Built-in HTTP Serving">
         Expose tables and queries as HTTP endpoints with a TOML config or a single CLI command
 
-        [`pxt serve`](/howto/deployment/serving), [`FastAPIRouter`](/howto/deployment/serving#quickstart-python)
+        [`pxt service`](/howto/deployment/serving), [`FastAPIRouter`](/howto/deployment/serving#quickstart-python)
 
         ```toml
         # service.toml
@@ -212,7 +212,7 @@ Add multimodal intelligence to applications with two deployment patterns.
         ```
 
         ```bash
-        pxt serve image-service --config service.toml
+        pxt service update app.py my_dir
         ```
 
         <CardGroup cols={2}>

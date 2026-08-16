@@ -79,7 +79,7 @@ class TestServiceRunner:
         app_file = self._write_app(tmp_path)
         with pxt_raises(pxt.ErrorCode.SERVICE_NOT_FOUND, match='declares no service named'):
             service_runner.start(app_file, 'nosuch', '')
-        assert ServiceDeployment.list(recursive=True) == []
+        assert ServiceDeployment.read('nosuch', '') is None
 
     def test_update_prune_stop_list(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """update starts what is declared and restarts what changed; prune and stop take deployments down."""
