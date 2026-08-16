@@ -554,9 +554,9 @@ def service_diff(app_file: str, target: PxtPath) -> service_types.ServicePlan:
 def _service_diff(name: str, service: FastAPIRouter | fastapi.FastAPI, target: PxtPath) -> service_types.ServiceDiff:
     """How the deployment of one declared service at target differs from its declaration."""
     # imported here rather than at module scope: pixeltable.serving pulls in fastapi, an optional dependency
-    from pixeltable.service.service_registry import ServiceDeployment
     from pixeltable.serving import FastAPIRouter
     from pixeltable.serving._diff import compare_specs
+    from pixeltable.serving.service_registry import ServiceDeployment
 
     deployment = ServiceDeployment.read(name, target)
     ops: list[service_types.ServiceChangeOp] = []
@@ -612,7 +612,7 @@ def _plan_from_service_diffs(
     diffs: list[service_types.ServiceDiff], app_file: str, target: PxtPath
 ) -> service_types.ServicePlan:
     """The plan that the given per-service diffs describe."""
-    from pixeltable.service.service_registry import ServiceDeployment
+    from pixeltable.serving.service_registry import ServiceDeployment
 
     declared = {diff['name'] for diff in diffs}
     extras = sorted(d.service_name for d in ServiceDeployment.list(target) if d.service_name not in declared)

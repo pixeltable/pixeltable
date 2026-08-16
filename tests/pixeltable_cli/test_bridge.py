@@ -500,7 +500,7 @@ class TestBridge:
     def test_service_diff(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """How the services deployed at a target differ from the ones an application file declares."""
         skip_test_if_not_installed('fastapi')
-        from pixeltable.service.service_registry import ServiceDeployment
+        from pixeltable.serving.service_registry import ServiceDeployment
 
         app_file = tmp_path / 'app.py'
         app_file.write_text(
