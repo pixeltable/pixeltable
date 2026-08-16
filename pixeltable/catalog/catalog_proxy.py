@@ -20,11 +20,11 @@ if TYPE_CHECKING:
 
     from .dir import Dir
     from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation
-    from .metadata_types import TableVersionMd
     from .model import IndexDeclaration
     from .path import Path
     from .table import Table
     from .table_path import TablePath
+    from .types import TableVersionMd
 
 
 class CatalogProxy(CatalogBase):
@@ -122,7 +122,7 @@ class CatalogProxy(CatalogBase):
         custom_metadata: Any,
         iterator: func.GeneratingFunctionCall | None,
         base: 'Query | None',
-        idxs: dict[str, 'IndexDeclaration'],
+        idxs: list['IndexDeclaration'],
     ) -> tuple[Table, bool]:
         args = {
             'path': path,

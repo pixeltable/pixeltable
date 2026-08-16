@@ -16,7 +16,7 @@ env:
   GRAFANA_INSTANCE_ID: '1465844'
   GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY_PERF_TEST }}
-  UV_VERSION: 0.9.3
+  UV_VERSION: 0.12.3
 
 jobs:
   random-ops:

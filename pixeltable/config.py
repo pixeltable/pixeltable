@@ -234,18 +234,19 @@ class Secret(str):
 class ConfigVar(Generic[ConfVarT]):
     """A reference to a database variable or secret, declared at module scope.
 
-    A declaration names the variable; the target it is applied to supplies the value:
+    A declaration names the variable; the target it is applied to supplies the value.
 
-        MEDIA_DEST = pxt.ConfigVar('media_dest', pxt.URI)
+    Declare a variable and apply it to a column:
 
-        class Videos(TableModel, name='videos'):
-            clip = pxt.Column(value=..., destination=MEDIA_DEST)
+    ```python
+    MEDIA_DEST = pxt.ConfigVar('media_dest', pxt.URI)
 
-    Code reads it, because code runs on the target:
 
-        @pxt.udf
-        def summarize(text: str) -> str:
-            return _call(text, key=API_KEY.value())
+    class Videos(TableModel, name='videos'):
+        clip = pxt.Column(value=..., destination=MEDIA_DEST)
+    ```
+
+    Code that runs on the target reads the bound value with `value()`.
     """
 
     TAG = '$confvar'
@@ -266,7 +267,15 @@ class ConfigVar(Generic[ConfVarT]):
         return SECRET_SECTION if issubclass(self.type_, Secret) else VAR_SECTION
 
     def value(self) -> ConfVarT:
-        """The bound value, converted to the declared type. Raises if the target has no binding for it."""
+        """The bound value, converted to the declared type. Raises if the target has no binding for it.
+
+        Examples:
+            Read a secret from a udf, which runs on the target:
+
+            >>> @pxt.udf
+            ... def summarize(text: str) -> str:
+            ...     return _call(text, key=API_KEY.value())
+        """
         v = Config.get().get_value(self.name, self.type_, section=self.section)
         if v is None:
             raise excs.RequestError(
@@ -301,7 +310,7 @@ class ConfigVar(Generic[ConfVarT]):
         return f'ConfigVar({self.name!r}, {self.type_.__name__})'
 
     def __str__(self) -> str:
-        """The reference form, '$<name>', which is how a declared config var reads in metadata."""
+        """The reference form, `$<name>`, which is how a declared config var reads in metadata."""
         return f'${self.name}'
 
     def __format__(self, format_spec: str) -> str:
@@ -638,6 +647,8 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'time_zone': 'Default time zone for timestamps',
         'hide_warnings': 'Hide warnings from the console',
         'verbosity': 'Verbosity level for console output',
+        'log_level': "Level of the 'pixeltable' logger, eg DEBUG (default: INFO)",
+        'sql_log_level': "Level of the 'sqlalchemy.engine' logger: INFO logs SQL statements (default: WARNING)",
         'show_progress': 'Show a progress tracker for long-running operations (default: false)',
         'api_key': 'API key for Pixeltable cloud',
         'input_media_dest': 'Default destination URI for input media data',
@@ -674,7 +685,6 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
     },
     'hf': {'token': 'Hugging Face access token'},
     'imagen': {'rate_limits': 'Per-model rate limits for Imagen API requests'},
-    'reve': {'api_key': 'Reve API key', 'rate_limit': 'Rate limit for Reve API requests (requests per minute)'},
     'groq': {'api_key': 'Groq API key', 'rate_limit': 'Rate limit for Groq API requests'},
     'jina': {'api_key': 'Jina AI API key', 'rate_limit': 'Rate limit for Jina AI API requests'},
     'mistral': {'api_key': 'Mistral API key', 'rate_limit': 'Rate limit for Mistral API requests'},

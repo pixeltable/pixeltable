@@ -122,7 +122,9 @@ def execute_perf_test(
     print(f'Using model: {model}')
     print(f'Generating {n} rows x {t} tokens')
 
-    tbl = pxt.create_table('sentence_tbl', {'word1': pxt.String, 'word2': pxt.String}, if_exists='replace')
+    tbl = pxt.create_table(
+        'sentence_tbl', {'word1': pxt.String | None, 'word2': pxt.String | None}, if_exists='replace'
+    )
     tbl.add_computed_column(prompt=provider.prompt_udf(t, tbl.word1, tbl.word2))
     tbl.add_computed_column(response=provider.udf(tbl.prompt, model=model, **provider.kwargs))
 

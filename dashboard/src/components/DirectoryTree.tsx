@@ -1,10 +1,13 @@
 import { useState, useMemo, useEffect } from 'react'
 import type { TreeNode } from '@/types'
 import { cn } from '@/lib/utils'
-import { KindBadge } from './KindBadge'
 import {
   Folder,
   FolderOpen,
+  Table2,
+  Eye,
+  Camera,
+  Copy,
   ChevronRight,
   ChevronDown,
   Search,
@@ -19,10 +22,23 @@ interface DirectoryTreeProps {
   onSelect: (path: string, type: string) => void
 }
 
-function getDirectoryIcon(isOpen: boolean) {
-  return isOpen
-    ? <FolderOpen className="h-3.5 w-3.5 text-foreground shrink-0" />
-    : <Folder className="h-3.5 w-3.5 text-foreground shrink-0" />
+function getNodeIcon(type: string, isOpen: boolean = false) {
+  switch (type) {
+    case 'directory':
+      return isOpen
+        ? <FolderOpen className="h-3.5 w-3.5 text-k-yellow shrink-0" />
+        : <Folder className="h-3.5 w-3.5 text-k-yellow shrink-0" />
+    case 'table':
+      return <Table2 className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+    case 'view':
+      return <Eye className="h-3.5 w-3.5 text-purple-400 shrink-0" />
+    case 'snapshot':
+      return <Camera className="h-3.5 w-3.5 text-orange-400 shrink-0" />
+    case 'replica':
+      return <Copy className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+    default:
+      return <Table2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+  }
 }
 
 function countDescendants(node: TreeNode): number {
@@ -97,9 +113,7 @@ function TreeItem({ node, level, selectedPath, onSelect, filter, collapsedAll }:
           <span className="w-3.5 h-3.5 shrink-0" />
         )}
 
-        {isDirectory
-          ? getDirectoryIcon(isOpen)
-          : <span className="w-3.5 h-3.5 shrink-0" />}
+        {getNodeIcon(node.kind, isOpen)}
         <span className="flex-1 text-[13px] truncate">{node.name}</span>
 
         {hasErrors && !isDirectory && (
@@ -114,8 +128,11 @@ function TreeItem({ node, level, selectedPath, onSelect, filter, collapsedAll }:
           </span>
         )}
 
-        {!isDirectory && <KindBadge kind={node.kind} />}
-
+        {!isDirectory && node.version !== null && (
+          <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
+            v{node.version}
+          </span>
+        )}
       </button>
 
       {isDirectory && hasChildren && isOpen && (
@@ -137,7 +154,8 @@ function TreeItem({ node, level, selectedPath, onSelect, filter, collapsedAll }:
   )
 }
 
-export function DirectoryTree({ nodes, selectedPath, onSelect }: DirectoryTreeProps) {
+/** Sticky Filter + Collapse-all under the catalog switcher; tree scrolls below. */
+export function DirectoryTreePanel({ nodes, selectedPath, onSelect }: DirectoryTreeProps) {
   const [filter, setFilter] = useState('')
   const [collapsedAll, setCollapsedAll] = useState(0)
   const totalCount = useMemo(() => countAllNodes(nodes), [nodes])
@@ -146,45 +164,56 @@ export function DirectoryTree({ nodes, selectedPath, onSelect }: DirectoryTreePr
 
   if (nodes.length === 0) {
     return (
-      <div className="text-center py-8 text-muted-foreground">
-        <Folder className="h-8 w-8 mx-auto mb-2 opacity-50" />
-        <p className="text-xs">No directories or tables found</p>
-        <p className="text-[11px] mt-1 text-muted-foreground">
-          Create tables using the Python SDK
-        </p>
+      <div className="flex flex-1 flex-col min-h-0">
+        <div className="flex-1 overflow-y-auto min-h-0">
+          <div className="text-center py-8 text-muted-foreground">
+            <Folder className="h-8 w-8 mx-auto mb-2 opacity-50 text-k-yellow" />
+            <p className="text-xs">No directories or tables found</p>
+            <p className="text-[11px] mt-1 text-muted-foreground">
+              Create tables using the Python SDK
+            </p>
+          </div>
+        </div>
       </div>
     )
   }
 
   return (
-    <div>
+    <div className="flex flex-1 flex-col min-h-0">
       {showFilter && (
-        <div className="px-2 pb-1.5 flex items-center gap-1">
-          <div className="relative flex-1">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+        <div className="flex shrink-0 items-center gap-1 px-0.5 pb-1.5">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
             <input
               type="text"
               value={filter}
               onChange={e => setFilter(e.target.value)}
               placeholder="Filter…"
-              className="h-6 w-full pl-6 pr-6 text-[11px] rounded border border-border/40 bg-background/50 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring/30"
+              className="h-7 w-full rounded-md border border-border/40 bg-background/40 pl-7 pr-7 text-[12px] text-foreground placeholder:text-muted-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring/30"
             />
             {filter && (
-              <button onClick={() => setFilter('')} className="absolute right-1.5 top-1/2 -translate-y-1/2">
-                <X className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+              <button
+                type="button"
+                onClick={() => setFilter('')}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
+                aria-label="Clear filter"
+              >
+                <X className="h-3 w-3" />
               </button>
             )}
           </div>
           <button
+            type="button"
             onClick={() => setCollapsedAll(c => c + 1)}
-            className="h-6 w-6 flex items-center justify-center rounded border border-border/40 bg-background/50 text-muted-foreground hover:text-foreground transition-colors shrink-0"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent text-muted-foreground transition-colors hover:border-border/40 hover:bg-background/40 hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring/40"
             title="Collapse all"
+            aria-label="Collapse all"
           >
-            <ChevronsDownUp className="h-3 w-3" />
+            <ChevronsDownUp className="h-3.5 w-3.5" />
           </button>
         </div>
       )}
-      <div className="space-y-px">
+      <div className="min-h-0 flex-1 space-y-px overflow-y-auto">
         {nodes.map((node) => (
           <TreeItem
             key={node.path}
@@ -200,3 +229,6 @@ export function DirectoryTree({ nodes, selectedPath, onSelect }: DirectoryTreePr
     </div>
   )
 }
+
+/** @deprecated Prefer DirectoryTreePanel (sticky toolbar). */
+export const DirectoryTree = DirectoryTreePanel

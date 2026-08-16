@@ -154,7 +154,7 @@ class TestConfig:
         os.environ['PIXELTABLE_CONFIG'] = str(config_file)
         Config.init(reinit=True)
         try:
-            t = pxt.create_table('cached_md', {'img': pxt.Image}, if_exists='replace')
+            t = pxt.create_table('cached_md', {'img': pxt.Image | None}, if_exists='replace')
             t.add_computed_column(thumb=t.img.rotate(90), destination=pxt.ConfigVar('media_dest', pxt.URI), stored=True)
             # metadata names the variable rather than where it currently points
             assert t.get_metadata()['columns']['thumb']['destination'] == '$media_dest'

@@ -13,10 +13,10 @@ from pixeltable.utils.filecache import FileCache
 from .column import Column
 from .globals import IndexSpec, MediaValidation, OnErrorParam
 from .local_table import LocalTable
-from .metadata_types import TableVersionMd
 from .table_path import TableVersionPath
 from .table_version_handle import TableVersionHandle
 from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, TableOp, TableOpsBuilder
+from .types import TableVersionMd
 from .update_status import UpdateStatus
 from .utils import create_table_version_md
 
@@ -66,7 +66,7 @@ class InsertableTable(LocalTable):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'Primary key column {pk_col!r} cannot be nullable. '
-                    f'Declare it as `Required` instead: `pxt.Required[pxt.{col.col_type._to_base_str()}]`',
+                    f'Declare it as non-nullable instead: `pxt.{col.col_type._to_base_str()}`',
                 )
             col.is_pk = True
 

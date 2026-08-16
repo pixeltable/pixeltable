@@ -25,10 +25,10 @@ from pydantic import BaseModel, PrivateAttr
 from pixeltable import exprs, func, type_system as ts
 from pixeltable.catalog.dir import Dir
 from pixeltable.catalog.globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation
-from pixeltable.catalog.metadata_types import TableVersionMd
 from pixeltable.catalog.model import BtreeIndex, EmbeddingIndex
 from pixeltable.catalog.path import Path
 from pixeltable.catalog.table_path import TablePath, TablePathKey, TableVersionPath
+from pixeltable.catalog.types import TableVersionMd
 from pixeltable.catalog.update_status import RowCountStats, UpdateStatus
 from pixeltable.metadata import VERSION as MD_SCHEMA_VERSION, schema
 from pixeltable.query_clauses import SampleClause

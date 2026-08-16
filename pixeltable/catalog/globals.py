@@ -3,9 +3,10 @@ from __future__ import annotations
 import dataclasses
 import enum
 import itertools
-from collections.abc import Iterator, Mapping
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
-from uuid import UUID
+
+from typing_extensions import TypeForm
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
@@ -17,7 +18,7 @@ if TYPE_CHECKING:
     from pixeltable.globals import TableDataSource
 
     from .column import Column
-    from .metadata_types import ColumnVersionMd
+    from .types import ColumnVersionMd
 
 # name of the position column in a component view
 _POS_COLUMN_NAME = 'pos'
@@ -26,33 +27,6 @@ _ROWID_COLUMN_NAME = '_rowid'
 # Set of symbols that are predefined in the `InsertableTable` class (and are therefore not allowed as column names).
 # This will be populated lazily to avoid circular imports.
 _PREDEF_SYMBOLS: set[str] | None = None
-
-
-@dataclasses.dataclass(frozen=True)
-class QColumnId:
-    """Qualified column id"""
-
-    tbl_id: UUID
-    col_id: int
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class TableVersionKey:
-    tbl_id: UUID
-    effective_version: int | None
-
-    # Allow unpacking as a tuple
-    def __iter__(self) -> Iterator[Any]:
-        return iter((self.tbl_id, self.effective_version))
-
-    def as_dict(self) -> dict:
-        return {'id': str(self.tbl_id), 'effective_version': self.effective_version}
-
-    @classmethod
-    def from_dict(cls, d: dict) -> TableVersionKey:
-        tbl_id = UUID(d['id'])
-        effective_version = d['effective_version']
-        return cls(tbl_id, effective_version)
 
 
 @dataclasses.dataclass
@@ -72,8 +46,8 @@ class IndexSpec(NamedTuple):
     identified by the Column instance the builder assigns an id to; one that already exists, in this table or a
     base, by its metadata.
 
-    TODO: once the minimum Python is 3.11, make this generic in the column type, so that a declared spec is an
-    IndexSpec[str] and a resolved one an IndexSpec[Column].
+    TODO: make this generic in the column type, so that a declared spec is an IndexSpec[str] and a
+    resolved one an IndexSpec[Column].
     """
 
     indexed_column: 'str | Column | ColumnVersionMd'
@@ -165,12 +139,12 @@ def is_system_column_name(name: str) -> bool:
 def col_type_from_spec(column_spec: ColumnSpec) -> ts.ColumnType:
     """The ColumnType that a column defined by `column_spec` will have."""
     if 'type' in column_spec:
-        return ts.ColumnType.normalize_type(column_spec['type'], nullable_default=True, allow_builtin_types=False)
+        return ts.ColumnType.normalize_type(column_spec['type'], allow_builtin_types=False)
     assert 'value' in column_spec
     return column_spec['value'].col_type
 
 
-def normalize_schema(schema: Mapping[str, type | ColumnSpec | exprs.Expr]) -> dict[str, ColumnSpec]:
+def normalize_schema(schema: Mapping[str, TypeForm | ColumnSpec | exprs.Expr]) -> dict[str, ColumnSpec]:
     """Canonicalize a create_table schema to a {name: ColumnSpec} mapping with resolved ColumnTypes."""
     from pixeltable import exprs
 
@@ -189,9 +163,7 @@ def normalize_schema(schema: Mapping[str, type | ColumnSpec | exprs.Expr]) -> di
         else:
             raise excs.RequestError(excs.ErrorCode.TYPE_MISMATCH, f'Invalid spec for column {name!r}: {spec!r}')
         if col_spec.get('type') is not None:
-            col_spec['type'] = ts.ColumnType.normalize_type(
-                col_spec['type'], nullable_default=True, allow_builtin_types=False
-            )
+            col_spec['type'] = ts.ColumnType.normalize_type(col_spec['type'], allow_builtin_types=False)
         result[name] = cast(ColumnSpec, col_spec)
     return result
 

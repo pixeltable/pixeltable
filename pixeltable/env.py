@@ -52,6 +52,26 @@ _DEFAULT_PROXY_DOMAIN = 'pxt.run'
 _DEFAULT_PROXY_PORT = 9000
 
 
+def init_log_level(logger: logging.Logger, config: Config, config_key: str, *, default: int) -> None:
+    """Set logger's level from the config option 'pixeltable.<config_key>', falling back to default.
+
+    A logger whose level has already been set keeps it.
+    """
+    if logger.level != logging.NOTSET:
+        return
+    level_name = config.get_string_value(config_key)
+    if level_name is None:
+        logger.setLevel(default)
+        return
+    level = logging.getLevelNamesMapping().get(level_name.strip().upper())
+    if level is None:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f"Invalid value for configuration parameter 'pixeltable.{config_key}': {level_name}",
+        )
+    logger.setLevel(level)
+
+
 def store_app_name() -> str:
     """The application_name that this process's connections report to the store.
 
@@ -358,8 +378,7 @@ class Env:
         stdout_handler.setLevel(map_level(self._verbosity))
         stdout_handler.addFilter(ConsoleMessageFilter())
         pxt_logger = logging.getLogger('pixeltable')
-        if pxt_logger.level == logging.NOTSET:
-            pxt_logger.setLevel(logging.INFO)
+        init_log_level(pxt_logger, config, 'log_level', default=logging.INFO)
         pxt_logger.propagate = False
         pxt_logger.addHandler(stdout_handler)
         self._managed_logging_handlers.append((pxt_logger, stdout_handler))
@@ -374,8 +393,7 @@ class Env:
 
         # Configure sqlalchemy logging. Pixeltable users don't need to see the SQL queries by default
         sql_logger = logging.getLogger('sqlalchemy.engine')
-        if sql_logger.level == logging.NOTSET:
-            sql_logger.setLevel(logging.WARNING)
+        init_log_level(sql_logger, config, 'sql_log_level', default=logging.WARNING)
         sql_logger.addHandler(fh)
         sql_logger.propagate = False
         self._managed_logging_handlers.append((sql_logger, fh))
@@ -786,7 +804,6 @@ class Env:
         self.__register_package('pydantic')
         self.__register_package('pyiceberg')
         self.__register_package('replicate')
-        self.__register_package('reve')
         self.__register_package('runwayml')
         self.__register_package('scenedetect')
         self.__register_package('sentencepiece')

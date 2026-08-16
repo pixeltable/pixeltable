@@ -11,15 +11,12 @@ from .globals import (
     IfNotExistsParam,
     IndexSpec,
     MediaValidation,
-    QColumnId,
-    TableVersionKey,
     is_valid_identifier,
     normalize_schema,
 )
 from .insertable_table import InsertableTable
 from .insertable_table_proxy import InsertableTableProxy
 from .local_table import LocalTable
-from .metadata_types import ColumnVersionMd
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
 from .table import Table
@@ -28,6 +25,7 @@ from .table_path import TableMdPath, TablePath, TablePathKey, TableVersionPath
 from .table_proxy import TableProxy
 from .table_version import TableVersion
 from .table_version_handle import ColumnHandle, TableVersionHandle
+from .types import ColumnVersionMd, QColumnId, TableVersionKey
 from .update_status import RowCountStats, UpdateStatus
 from .view import View
 from .view_proxy import ViewProxy

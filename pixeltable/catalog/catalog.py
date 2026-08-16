@@ -31,16 +31,16 @@ from pixeltable.utils.fault_injection import FaultLocation
 from .catalog_base import CatalogBase
 from .column import Column
 from .dir import Dir
-from .globals import DirEntry, IfExistsParam, IfNotExistsParam, IndexSpec, MediaValidation, QColumnId, TableVersionKey
+from .globals import DirEntry, IfExistsParam, IfNotExistsParam, IndexSpec, MediaValidation
 from .insertable_table import InsertableTable
 from .local_table import LocalTable
-from .metadata_types import TableVersionMd
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
 from .table_path import TablePath, TableVersionPath
 from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
 from .tbl_ops import DeleteTableMdOp, OpStatus, TableOp
+from .types import QColumnId, TableVersionKey, TableVersionMd
 from .update_status import UpdateStatus
 from .view import View
 
@@ -1751,7 +1751,7 @@ class Catalog(CatalogBase):
         custom_metadata: Any,
         iterator: func.GeneratingFunctionCall | None,
         base: 'pxt.Query | None',
-        idxs: dict[str, model.IndexDeclaration],
+        idxs: list[model.IndexDeclaration],
     ) -> tuple[LocalTable, bool]:
         """Create a table or view from a declarative model.
 

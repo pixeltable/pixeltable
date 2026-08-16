@@ -28,9 +28,9 @@ The dashboard is a **read-only inspector**. You browse and debug your data visua
 
 ### Browse the catalog
 
-The left sidebar shows your full directory tree: directories, tables, views, and snapshots. Each entry displays its kind and error count. Click any table to open it, or click a directory to see a summary with aggregate stats and a list of child tables.
+The left sidebar has a sticky **Local / Cloud** catalog switcher. You browse **one active catalog** at a time: the in-process local home by default, or a hosted database you attach with a `pxt://org:db` URI. The tree under the switcher shows that catalog’s directories, tables, views, snapshots, and replicas. Each entry shows its kind (icon next to the name), version (`vN` when present), and error marks when relevant. Click a table to open it, or a directory for a summary and child list.
 
-A global search panel (**Cmd/Ctrl + K**) lets you find directories, tables, and columns by name.
+Large catalogs get a **Filter…** field under the switcher to narrow the tree by name. That is separate from global search: **Cmd/Ctrl + K** (search icon in the sidebar header) finds directories, tables, and columns across attached catalogs.
 
 ### Inspect table data
 
@@ -40,7 +40,7 @@ The main table view has three tabs:
 - **Lineage** - shows the table's position in the pipeline: its base table, derived views, and column-level dependency graphs.
 - **History** - version list with change types (inserts, updates, deletes) and timestamps.
 
-Above the data grid, a collapsible **Schema** panel shows every column with its type, whether it is computed (with the Python expression), stored vs. unstored, and any embedding indexes.
+Above the data grid, a collapsible **COLUMNS** panel lists every column with its type, whether it is computed, stored vs. unstored, and any embedding indexes. Collapse it to a compact chip summary of the schema; expand for the full table. Click a computed expression to open a readable view (with a Raw toggle); Copy keeps the original string.
 
 ### Filter and search rows
 
@@ -56,7 +56,7 @@ Images and videos render inline in the data grid. Click any media cell to open a
 
 ### Explore the pipeline
 
-The **Lineage** page (accessible from the sidebar) shows a full-instance pipeline graph built with React Flow. Every table and view appears as a node, with edges showing relationships (base table, iterator, query dependencies).
+The **Lineage** page (lineage icon in the sidebar header, next to Search) shows a full-instance pipeline graph built with React Flow. Every table and view appears as a node, with edges showing relationships (base table, iterator, query dependencies).
 
 Click any node to open a detail drawer with:
 

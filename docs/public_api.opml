@@ -132,13 +132,18 @@
           </outline>
 
           <outline text="class|pixeltable.ColumnMetadata" />
+          <outline text="class|pixeltable.ConfigVar">
+            <outline text="method|pixeltable.ConfigVar.value" />
+          </outline>
           <outline text="class|pixeltable.DirContents" />
           <outline text="class|pixeltable.DirectoryNode" />
           <outline text="class|pixeltable.IndexMetadata" />
+          <outline text="class|pixeltable.Secret" />
           <outline text="class|pixeltable.TableMetadata" />
           <outline text="class|pixeltable.TableNode" />
           <outline text="class|pixeltable.TreeNode" />
           <outline text="class|pixeltable.UpdateStatus" />
+          <outline text="class|pixeltable.URI" />
           <outline text="class|pixeltable.VersionMetadata" />
         </outline>
         <outline text="class|pixeltable.types.ColumnSpec" />
@@ -469,9 +474,6 @@
         </outline>
         <outline text="module|pixeltable.functions.replicate">
           <outline text="udf|pixeltable.functions.replicate.run" />
-        </outline>
-        <outline text="module|pixeltable.functions.reve">
-          <outline text="udf|pixeltable.functions.reve.create" />
         </outline>
         <outline text="module|pixeltable.functions.runwayml">
           <outline text="udf|pixeltable.functions.runwayml.text_to_image" />

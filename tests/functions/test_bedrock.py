@@ -50,7 +50,7 @@ def _run_converse_text(model_ids: list[str]) -> None:
     from pixeltable.functions.bedrock import converse
 
     for model_id in model_ids:
-        t = pxt.create_table(_tbl_name(model_id), {'input': pxt.String})
+        t = pxt.create_table(_tbl_name(model_id), {'input': pxt.String | None})
         messages = [{'role': 'user', 'content': [{'text': t.input}]}]
         t.add_computed_column(output=converse(messages, model_id=model_id))
         validate_update_status(t.insert(input='What is 2+2?'), expected_rows=1)
@@ -123,7 +123,7 @@ def _converse_image_messages(t: pxt.Table) -> list:
 
 
 @pytest.mark.remote_api
-@pytest.mark.expensive
+@pytest.mark.very_expensive
 @pytest.mark.usefixtures('bedrock_us_east_1')
 @rerun_on_network_error()
 class TestBedrock:
@@ -131,7 +131,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'image': pxt.Image})
+        t = pxt.create_table('tbl', {'image': pxt.Image | None})
         t.add_computed_column(
             response=invoke_model(
                 {'inputType': 'image', 'image': {'mediaSource': {'base64String': t.image}}},
@@ -146,7 +146,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'image': pxt.Image})
+        t = pxt.create_table('tbl', {'image': pxt.Image | None})
         t.add_computed_column(
             response=invoke_model(
                 {
@@ -165,7 +165,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'audio': pxt.Audio})
+        t = pxt.create_table('tbl', {'audio': pxt.Audio | None})
         t.add_computed_column(
             response=invoke_model(
                 {'inputType': 'audio', 'audio': {'mediaSource': {'base64String': t.audio}}},
@@ -181,7 +181,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'video': pxt.Video})
+        t = pxt.create_table('tbl', {'video': pxt.Video | None})
         t.add_computed_column(
             response=invoke_model(
                 {'inputType': 'video', 'video': {'mediaSource': {'base64String': t.video}}},
@@ -197,7 +197,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'video': pxt.Video})
+        t = pxt.create_table('tbl', {'video': pxt.Video | None})
         t.add_computed_column(
             response=invoke_model(
                 # Pegasus uses a flat schema: inputPrompt + mediaSource at top level (no inputType nesting)
@@ -215,7 +215,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'image': pxt.Image})
+        t = pxt.create_table('tbl', {'image': pxt.Image | None})
         t.add_computed_column(
             response=invoke_model(
                 {
@@ -246,7 +246,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import converse
 
-        t = pxt.create_table('tbl', {'input': pxt.String})
+        t = pxt.create_table('tbl', {'input': pxt.String | None})
         messages = [{'role': 'user', 'content': [{'text': t.input}]}]
         t.add_computed_column(
             output=converse(
@@ -267,7 +267,7 @@ class TestBedrock:
         from pixeltable.functions import bedrock
 
         def make_table(tools: pxt.Tools, tool_choice: pxt.ToolChoice) -> pxt.Table:
-            t = pxt.create_table('tbl', {'prompt': pxt.String})
+            t = pxt.create_table('tbl', {'prompt': pxt.String | None})
             messages = [{'role': 'user', 'content': [{'text': t.prompt}]}]
             t.add_computed_column(
                 response=bedrock.converse(
@@ -283,7 +283,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'image': pxt.Image})
+        t = pxt.create_table('tbl', {'image': pxt.Image | None})
         t.add_computed_column(
             response=invoke_model(
                 {
@@ -309,7 +309,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'video': pxt.Video})
+        t = pxt.create_table('tbl', {'video': pxt.Video | None})
         t.add_computed_column(
             response=invoke_model(
                 {
@@ -335,7 +335,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import converse
 
-        t = pxt.create_table('tbl', {'image': pxt.Image})
+        t = pxt.create_table('tbl', {'image': pxt.Image | None})
         t.add_computed_column(output=converse(_converse_image_messages(t), model_id='amazon.nova-lite-v1:0'))
         image_filepaths = get_image_files()[:1]
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
@@ -345,7 +345,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import converse
 
-        t = pxt.create_table('tbl', {'video': pxt.Video})
+        t = pxt.create_table('tbl', {'video': pxt.Video | None})
         messages = [
             {
                 'role': 'user',
@@ -364,7 +364,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'prompt': pxt.String})
+        t = pxt.create_table('tbl', {'prompt': pxt.String | None})
         t.add_computed_column(
             video=invoke_model(
                 {
@@ -383,7 +383,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'text': pxt.String})
+        t = pxt.create_table('tbl', {'text': pxt.String | None})
         t.add_computed_column(
             response=invoke_model(
                 {'inputText': t.text, 'dimensions': 256, 'normalize': True}, model_id='amazon.titan-embed-text-v2:0'
@@ -398,7 +398,7 @@ class TestBedrock:
 
         model_ids = ['amazon.titan-embed-text-v1', 'amazon.titan-embed-text-v2:0']
         for model_id in model_ids:
-            t = pxt.create_table(_tbl_name(model_id), {'text': pxt.String})
+            t = pxt.create_table(_tbl_name(model_id), {'text': pxt.String | None})
             t.add_embedding_index('text', string_embed=embed.using(model_id=model_id))
             t.insert(_TEXT_ROWS)
             _assert_text_similarity(t)
@@ -407,7 +407,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import embed
 
-        t = pxt.create_table('tbl', {'text': pxt.String})
+        t = pxt.create_table('tbl', {'text': pxt.String | None})
         t.add_computed_column(embedding=embed(t.text, model_id='amazon.titan-embed-text-v2:0', dimensions=256))
         validate_update_status(t.insert(text='Hello, world!'), expected_rows=1)
         assert len(t.collect()[0]['embedding']) == 256
@@ -418,7 +418,7 @@ class TestBedrock:
 
         img_paths = get_image_files()[:3]
         for model_id in ['amazon.titan-embed-image-v1']:
-            t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image})
+            t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image | None})
             t.add_embedding_index('image', image_embed=embed.using(model_id=model_id))
             t.insert([{'image': p} for p in img_paths])
             _assert_image_similarity(t, img_paths)
@@ -427,7 +427,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import embed
 
-        t = pxt.create_table('tbl', {'text': pxt.String})
+        t = pxt.create_table('tbl', {'text': pxt.String | None})
         t.add_embedding_index(
             'text', string_embed=embed.using(model_id='amazon.nova-2-multimodal-embeddings-v1:0', dimensions=1024)
         )
@@ -439,7 +439,7 @@ class TestBedrock:
         from pixeltable.functions.bedrock import embed
 
         img_paths = get_image_files()[:3]
-        t = pxt.create_table('tbl', {'image': pxt.Image})
+        t = pxt.create_table('tbl', {'image': pxt.Image | None})
         t.add_embedding_index(
             'image', image_embed=embed.using(model_id='amazon.nova-2-multimodal-embeddings-v1:0', dimensions=1024)
         )
@@ -450,7 +450,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'audio': pxt.Audio})
+        t = pxt.create_table('tbl', {'audio': pxt.Audio | None})
         t.add_computed_column(
             response=invoke_model(
                 {
@@ -472,7 +472,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'video': pxt.Video})
+        t = pxt.create_table('tbl', {'video': pxt.Video | None})
         t.add_computed_column(
             response=invoke_model(
                 {
@@ -503,7 +503,7 @@ class TestBedrock:
         from pixeltable.functions.bedrock import embed
 
         for model_id in ['cohere.embed-english-v3', 'cohere.embed-multilingual-v3']:
-            t = pxt.create_table(_tbl_name(model_id), {'text': pxt.String})
+            t = pxt.create_table(_tbl_name(model_id), {'text': pxt.String | None})
             t.add_embedding_index('text', string_embed=embed.using(model_id=model_id))
             t.insert(_TEXT_ROWS)
             _assert_text_similarity(t)
@@ -512,7 +512,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import embed
 
-        t = pxt.create_table('tbl', {'text': pxt.String})
+        t = pxt.create_table('tbl', {'text': pxt.String | None})
         t.add_computed_column(embedding=embed(t.text, model_id='cohere.embed-v4:0'))
         validate_update_status(t.insert(text='Hello, world!'), expected_rows=1)
         assert len(t.collect()[0]['embedding']) == 1536
@@ -521,7 +521,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import embed
 
-        t = pxt.create_table('tbl', {'text': pxt.String})
+        t = pxt.create_table('tbl', {'text': pxt.String | None})
         t.add_computed_column(embedding=embed(t.text, model_id='cohere.embed-v4:0', dimensions=512))
         validate_update_status(t.insert(text='Hello, world!'), expected_rows=1)
         assert len(t.collect()[0]['embedding']) == 512
@@ -531,7 +531,7 @@ class TestBedrock:
         from pixeltable.functions.bedrock import embed
 
         img_paths = get_image_files()[:3]
-        t = pxt.create_table('tbl', {'image': pxt.Image})
+        t = pxt.create_table('tbl', {'image': pxt.Image | None})
         t.add_embedding_index('image', image_embed=embed.using(model_id='cohere.embed-v4:0'))
         t.insert([{'image': p} for p in img_paths])
         _assert_image_similarity(t, img_paths)
@@ -540,7 +540,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'image': pxt.Image})
+        t = pxt.create_table('tbl', {'image': pxt.Image | None})
         t.add_computed_column(
             response=invoke_model(
                 {
@@ -571,7 +571,7 @@ class TestBedrock:
 
         image_filepaths = get_image_files()[:1]
         model_id = 'us.meta.llama4-maverick-17b-instruct-v1:0'
-        t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image})
+        t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image | None})
         t.add_computed_column(output=converse(_converse_image_messages(t), model_id=model_id))
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
         assert t.collect()[0]['output']['output']['message']['content'][0]['text'], (
@@ -585,7 +585,7 @@ class TestBedrock:
         model_ids = ['us.mistral.pixtral-large-2502-v1:0', 'mistral.magistral-small-2509']
         image_filepaths = get_image_files()[:1]
         for model_id in model_ids:
-            t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image})
+            t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image | None})
             t.add_computed_column(response=invoke_model(_image_url_body(t), model_id=model_id))
             validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
             _assert_openai_compat_response(t.select(t.response).collect(), model_id)
@@ -596,7 +596,7 @@ class TestBedrock:
 
         image_filepaths = get_image_files()[:1]
         model_id = 'us.mistral.pixtral-large-2502-v1:0'
-        t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image})
+        t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image | None})
         t.add_computed_column(output=converse(_converse_image_messages(t), model_id=model_id))
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
         assert t.collect()[0]['output']['output']['message']['content'][0]['text'], (
@@ -614,7 +614,7 @@ class TestBedrock:
         model_ids = ['google.gemma-3-4b-it', 'google.gemma-3-12b-it', 'google.gemma-3-27b-it']
         image_filepaths = get_image_files()[:1]
         for model_id in model_ids:
-            t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image})
+            t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image | None})
             t.add_computed_column(response=invoke_model(_image_url_body(t), model_id=model_id))
             validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
             _assert_openai_compat_response(t.select(t.response).collect(), model_id)
@@ -625,7 +625,7 @@ class TestBedrock:
 
         image_filepaths = get_image_files()[:1]
         model_id = 'google.gemma-3-12b-it'
-        t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image})
+        t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image | None})
         t.add_computed_column(output=converse(_converse_image_messages(t), model_id=model_id))
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
         assert t.collect()[0]['output']['output']['message']['content'][0]['text'], (
@@ -638,7 +638,7 @@ class TestBedrock:
 
         image_filepaths = get_image_files()[:1]
         model_id = 'nvidia.nemotron-nano-12b-v2'
-        t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image})
+        t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image | None})
         t.add_computed_column(response=invoke_model(_image_url_body(t), model_id=model_id))
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
         _assert_openai_compat_response(t.select(t.response).collect(), model_id)
@@ -649,7 +649,7 @@ class TestBedrock:
 
         image_filepaths = get_image_files()[:1]
         model_id = 'nvidia.nemotron-nano-12b-v2'
-        t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image})
+        t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image | None})
         t.add_computed_column(output=converse(_converse_image_messages(t), model_id=model_id))
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
         assert t.collect()[0]['output']['output']['message']['content'][0]['text'], (
@@ -662,7 +662,7 @@ class TestBedrock:
 
         image_filepaths = get_image_files()[:1]
         model_id = 'moonshotai.kimi-k2.5'
-        t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image})
+        t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image | None})
         t.add_computed_column(response=invoke_model(_image_url_body(t), model_id=model_id))
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
         _assert_openai_compat_response(t.select(t.response).collect(), model_id)
@@ -673,7 +673,7 @@ class TestBedrock:
 
         image_filepaths = get_image_files()[:1]
         model_id = 'moonshotai.kimi-k2.5'
-        t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image})
+        t = pxt.create_table(_tbl_name(model_id) + '_cv', {'image': pxt.Image | None})
         t.add_computed_column(output=converse(_converse_image_messages(t), model_id=model_id))
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
         assert t.collect()[0]['output']['output']['message']['content'][0]['text'], (
@@ -686,7 +686,7 @@ class TestBedrock:
 
         image_filepaths = get_image_files()[:1]
         model_id = 'qwen.qwen3-vl-235b-a22b'
-        t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image})
+        t = pxt.create_table(_tbl_name(model_id), {'image': pxt.Image | None})
         t.add_computed_column(response=invoke_model(_image_url_body(t), model_id=model_id))
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
         _assert_openai_compat_response(t.select(t.response).collect(), model_id)
@@ -696,7 +696,7 @@ class TestBedrock:
         from pixeltable.functions.bedrock import converse
 
         image_filepaths = get_image_files()[:1]
-        t = pxt.create_table('tbl_qwen_vl_cv', {'image': pxt.Image})
+        t = pxt.create_table('tbl_qwen_vl_cv', {'image': pxt.Image | None})
         t.add_computed_column(output=converse(_converse_image_messages(t), model_id='qwen.qwen3-vl-235b-a22b'))
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
         assert t.collect()[0]['output']['output']['message']['content'][0]['text']
@@ -707,7 +707,7 @@ class TestBedrock:
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
 
-        t = pxt.create_table('tbl', {'prompt': pxt.String})
+        t = pxt.create_table('tbl', {'prompt': pxt.String | None})
         t.add_computed_column(
             response=invoke_model(
                 {'prompt': t.prompt, 'mode': 'text-to-image', 'aspect_ratio': '1:1', 'output_format': 'jpeg'},
