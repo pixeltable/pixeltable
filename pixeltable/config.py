@@ -234,18 +234,19 @@ class Secret(str):
 class ConfigVar(Generic[ConfVarT]):
     """A reference to a database variable or secret, declared at module scope.
 
-    A declaration names the variable; the target it is applied to supplies the value:
+    A declaration names the variable; the target it is applied to supplies the value.
 
-        MEDIA_DEST = pxt.ConfigVar('media_dest', pxt.URI)
+    Declare a variable and apply it to a column:
 
-        class Videos(TableModel, name='videos'):
-            clip = pxt.Column(value=..., destination=MEDIA_DEST)
+    ```python
+    MEDIA_DEST = pxt.ConfigVar('media_dest', pxt.URI)
 
-    Code reads it, because code runs on the target:
 
-        @pxt.udf
-        def summarize(text: str) -> str:
-            return _call(text, key=API_KEY.value())
+    class Videos(TableModel, name='videos'):
+        clip = pxt.Column(value=..., destination=MEDIA_DEST)
+    ```
+
+    Code that runs on the target reads the bound value with `value()`.
     """
 
     TAG = '$confvar'
@@ -266,7 +267,15 @@ class ConfigVar(Generic[ConfVarT]):
         return SECRET_SECTION if issubclass(self.type_, Secret) else VAR_SECTION
 
     def value(self) -> ConfVarT:
-        """The bound value, converted to the declared type. Raises if the target has no binding for it."""
+        """The bound value, converted to the declared type. Raises if the target has no binding for it.
+
+        Examples:
+            Read a secret from a udf, which runs on the target:
+
+            >>> @pxt.udf
+            ... def summarize(text: str) -> str:
+            ...     return _call(text, key=API_KEY.value())
+        """
         v = Config.get().get_value(self.name, self.type_, section=self.section)
         if v is None:
             raise excs.RequestError(
