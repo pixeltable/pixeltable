@@ -1046,18 +1046,23 @@ class TableVersion:
         return to_drop
 
     def _drop_columns(self, cols: Iterable[Column]) -> None:
-        """Mark columns as dropped"""
+        """Mark columns as dropped on a data-versioned table. On an operational table, remove them outright"""
         assert self.is_mutable
 
         for col in cols:
-            col.schema_version_drop = self.schema_version
             if col.name is not None:
                 assert col.name in self.cols_by_name
                 del self.cols_by_name[col.name]
             assert col.id in self.cols_by_id
             del self.cols_by_id[col.id]
             # update stored md
-            self._tbl_md.column_md[col.id].schema_version_drop = col.schema_version_drop
+            if self.is_data_versioned:
+                col.schema_version_drop = self.schema_version
+                self._tbl_md.column_md[col.id].schema_version_drop = col.schema_version_drop
+            else:
+                if col.is_stored:
+                    self.store_tbl.drop_column(col, if_exists=False)
+                del self._tbl_md.column_md[col.id]
             del self._schema_version_md.columns[col.id]
 
         # Update positions of user columns
