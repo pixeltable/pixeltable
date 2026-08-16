@@ -16,10 +16,10 @@ from pixeltable.types import ColumnSpec
 from .column import Column
 from .globals import IndexSpec, MediaValidation, TableVersionKey
 from .local_table import LocalTable
-from .metadata_types import ColumnVersionMd, TableVersionMd
 from .table_path import TablePath, TableVersionPath
 from .table_version_handle import TableVersionHandle
 from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, LoadViewOp, TableOp, TableOpsBuilder
+from .types import ColumnVersionMd, TableVersionMd
 from .update_status import UpdateStatus
 from .utils import create_table_version_md
 

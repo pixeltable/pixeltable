@@ -39,8 +39,8 @@ class ColumnMetadata(TypedDict):
     destination: str | None
     """An object store destination for computed files, if one is configured.
 
-    A destination declared as a config var reads as '$(name)' rather than as the location it currently
-    resolves to.
+    A destination declared as a config var reads as `$<name>` rather than as the location it currently
+    resolves to; see [`ConfigVar`][pixeltable.ConfigVar].
     """
 
 

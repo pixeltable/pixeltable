@@ -154,6 +154,7 @@ class TestConcurrentModelUpdate:
         class BaseV2(TM2, name='test_table'):
             id: pxt.Int
             text: pxt.String | None
+
             __indexes__ = [EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))]
 
         if family == 'update_all':
@@ -316,6 +317,7 @@ class TestConcurrentModelUpdate:
         class BaseV2(TM2, name='test_table'):
             id: pxt.Int
             text: pxt.String | None
+
             __indexes__ = [EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))]
 
         if family == 'update_all':
@@ -374,6 +376,7 @@ class TestConcurrentModelUpdate:
         class Base(TM, name='test_table'):
             id: pxt.Int
             text: pxt.String | None
+
             __indexes__ = [EmbeddingIndex(text, embedding=dummy_embedding.using(n=768), name='ix')]
 
         TM.create_all(ROOT)
@@ -486,6 +489,7 @@ class TestConcurrentModelUpdate:
         class Base(TM, name='test_table'):
             id: pxt.Int
             text: pxt.String | None
+
             __indexes__ = [EmbeddingIndex(text, embedding=dummy_embedding.using(n=768))]
 
         class View(TM, name='test_view', base=Base):

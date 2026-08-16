@@ -15,10 +15,10 @@ from pixeltable.utils import parse_local_file_path
 
 from ..exprs import ColumnRef
 from .globals import TableVersionKey, normalize_schema
-from .metadata_types import TableVersionMd
 from .path import Path as CatalogPath
 from .table import Table
 from .table_path import TableMdPath, TablePathKey
+from .types import TableVersionMd
 
 if TYPE_CHECKING:
     from pathlib import Path

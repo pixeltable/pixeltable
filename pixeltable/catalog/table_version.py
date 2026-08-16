@@ -26,7 +26,6 @@ from pixeltable.utils.object_stores import ObjectOps
 
 from .column import Column
 from .globals import _ROWID_COLUMN_NAME, IndexSpec, MediaValidation, QColumnId, TableVersionKey, is_valid_identifier
-from .metadata_types import TableVersionMd
 from .tbl_ops import (
     CreateColumnMdOp,
     CreateStoreColumnsOp,
@@ -38,6 +37,7 @@ from .tbl_ops import (
     TableOp,
     TableOpsBuilder,
 )
+from .types import TableVersionMd
 from .update_status import RowCountStats, UpdateStatus
 from .utils import generate_idx_name, validate_idxs
 

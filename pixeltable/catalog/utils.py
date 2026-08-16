@@ -13,7 +13,7 @@ from pixeltable.metadata import schema
 
 from .column import Column
 from .globals import IndexSpec, MediaValidation, TableVersionKey
-from .metadata_types import TableVersionMd
+from .types import TableVersionMd
 
 if TYPE_CHECKING:
     from .table_version import TableVersion

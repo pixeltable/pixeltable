@@ -33,7 +33,6 @@ from .dir import Dir
 from .globals import DirEntry, IfExistsParam, IfNotExistsParam, IndexSpec, MediaValidation, QColumnId, TableVersionKey
 from .insertable_table import InsertableTable
 from .local_table import LocalTable
-from .metadata_types import TableVersionMd
 from .model import IndexDeclaration, TableSchemaChangeSet, prepare_model, prepare_model_updates
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
@@ -41,6 +40,7 @@ from .table_path import TablePath, TableVersionPath
 from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
 from .tbl_ops import DeleteTableMdOp, OpStatus, TableOp
+from .types import TableVersionMd
 from .update_status import UpdateStatus
 from .view import View
 

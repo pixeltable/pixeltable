@@ -1,6 +1,6 @@
-"""The metadata records describing a table and its columns.
+"""Pure data types describing a table and its columns.
 
-Pure data: these carry no reference to a catalog object, so any module can depend on them.
+These carry no reference to a catalog object, so any module can depend on them.
 """
 
 from __future__ import annotations

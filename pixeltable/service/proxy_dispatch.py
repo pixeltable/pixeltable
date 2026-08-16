@@ -34,7 +34,7 @@ _logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from pixeltable.catalog import LocalTable
-    from pixeltable.catalog.metadata_types import TableVersionMd
+    from pixeltable.catalog.types import TableVersionMd
     from pixeltable.catalog.update_status import UpdateStatus
 
 

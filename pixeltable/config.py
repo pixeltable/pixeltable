@@ -301,7 +301,7 @@ class ConfigVar(Generic[ConfVarT]):
         return f'ConfigVar({self.name!r}, {self.type_.__name__})'
 
     def __str__(self) -> str:
-        """The reference form, '$<name>', which is how a declared config var reads in metadata."""
+        """The reference form, `$<name>`, which is how a declared config var reads in metadata."""
         return f'${self.name}'
 
     def __format__(self, format_spec: str) -> str:

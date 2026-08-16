@@ -1573,6 +1573,8 @@ class TestTableModel:
             name='test_query_view',
             base=ExampleTable.select(ExampleTable.id, ExampleTable.value, plusone=(ExampleTable.value + 1))
             .where(ExampleTable.value > 0.5)
+            # a sample that selects every row: the view is defined by a sample clause, yet its contents
+            # remain exactly the rows the where clause admits
             .sample(fraction=1.0, seed=1),
         ):
             fc1 = ExampleTable.id + 1

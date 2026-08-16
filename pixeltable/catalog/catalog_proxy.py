@@ -20,11 +20,11 @@ if TYPE_CHECKING:
 
     from .dir import Dir
     from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation
-    from .metadata_types import TableVersionMd
     from .model import IndexDeclaration
     from .path import Path
     from .table import Table
     from .table_path import TablePath
+    from .types import TableVersionMd
 
 
 class CatalogProxy(CatalogBase):

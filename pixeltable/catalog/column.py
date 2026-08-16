@@ -21,7 +21,7 @@ from pixeltable.types import ColumnSpec
 from pixeltable.utils.object_stores import ObjectOps
 
 from .globals import MediaValidation, QColumnId, is_system_column_name, is_valid_identifier
-from .metadata_types import ColumnVersionMd
+from .types import ColumnVersionMd
 
 if TYPE_CHECKING:
     from .table_version import TableVersion
@@ -434,12 +434,9 @@ class Column:
 
     @property
     def display_destination(self) -> str | None:
-        """The destination as user-facing metadata reports it.
-
-        A config var reads as '$<name>': the location it resolves to is a property of the target, and
-        showing it would hide that the column follows whatever the variable is bound to.
-        """
+        """The destination as user-facing metadata reports it."""
         if isinstance(self._explicit_destination, ConfigVar):
+            # display the config var name, not the resolved value
             return str(self._explicit_destination)
         return self.destination
 
