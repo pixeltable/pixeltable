@@ -62,7 +62,7 @@ def validate_idxs(
                     'Add the index to the base table instead.',
                 )
             assert isinstance(idx_col, Column), repr(idx_col)
-            index.BtreeIndex.validate_column(idx_col)
+            index.BtreeIndex.validate_column(idx_col.column_version_md())
             if idx_col.name in new_btree_col_names or idx_col.name in btree_col_names:
                 raise excs.AlreadyExistsError(
                     excs.ErrorCode.INDEX_ALREADY_EXISTS, f'A B-tree index already exists on column {idx_col.name!r}.'
@@ -152,7 +152,9 @@ def create_table_version_md(
     idxs_to_create: list[IndexSpec] = []
     if has_default_idxs and (view_md is None or not view_md.is_snapshot):
         idxs_to_create.extend(
-            IndexSpec(col, None, index.BtreeIndex()) for col in cols if index.BtreeIndex.can_index(col)
+            IndexSpec(col, None, index.BtreeIndex(uses_value_col=is_data_versioned))
+            for col in cols
+            if index.BtreeIndex.can_index(col)
         )
 
     # an index on a column of this table must reference the instance in cols, which is the one that got an id
@@ -174,9 +176,14 @@ def create_table_version_md(
         # a column of this table was given its id above, so its metadata is only derivable now
         idx_col_md = idx_col.column_version_md() if isinstance(idx_col, Column) else idx_col
         val_col, undo_col = Column.create_index_columns(
-            tbl_handle, idx_col_md, idx, next(column_ids), next(column_ids), 0
+            tbl_handle,
+            idx_col_md,
+            idx,
+            schema_version=0,
+            is_data_versioned=is_data_versioned,
+            next_col_id=lambda: next(column_ids),
         )
-        index_cols.extend([val_col, undo_col])
+        index_cols.extend(c for c in (val_col, undo_col) if c is not None)
 
         idx_id = next(index_ids)
         resolved_idx_name: str
@@ -191,8 +198,8 @@ def create_table_version_md(
             name=resolved_idx_name,
             indexed_col_id=idx_col_md.id,
             indexed_col_tbl_id=str(idx_col_md.qcolid.tbl_id),
-            index_val_col_id=val_col.id,
-            index_val_undo_col_id=undo_col.id,
+            index_val_col_id=None if val_col is None else val_col.id,
+            index_val_undo_col_id=None if undo_col is None else undo_col.id,
             schema_version_add=0,
             schema_version_drop=None,
             class_fqn=idx_cls.__module__ + '.' + idx_cls.__name__,

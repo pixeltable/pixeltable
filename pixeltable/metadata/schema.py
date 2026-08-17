@@ -142,8 +142,11 @@ class IndexMd:
     name: str
     indexed_col_tbl_id: str  # UUID of the table (as string) that contains column being indexed
     indexed_col_id: int  # column being indexed
-    index_val_col_id: int  # column holding the values to be indexed
-    index_val_undo_col_id: int  # column holding index values for deleted rows
+    # Column holding the values to be indexed; None if the index is directly on the user column.
+    index_val_col_id: int | None
+    # Undo column is only used with data-versioned tables, and only if the index has a dedicated value column. It holds
+    # index values for non-live row versions.
+    index_val_undo_col_id: int | None
     schema_version_add: int
     schema_version_drop: int | None
     class_fqn: str
