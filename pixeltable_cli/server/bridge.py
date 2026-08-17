@@ -15,7 +15,7 @@ import logging
 import re
 import urllib.parse
 import urllib.request
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
@@ -921,6 +921,7 @@ def service_list(target: PxtPath | None = None) -> list[service_types.ServiceDep
             pid=d.pid,
             created_at=d.created_at,
             app_file=d.app_file,
+            spec=cast(service_types.ServiceSpec, d.spec),
         )
         for d in sorted(deployments, key=lambda d: (d.base_path, d.service_name))
     ]

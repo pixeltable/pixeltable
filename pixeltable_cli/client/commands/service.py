@@ -231,6 +231,9 @@ def _update(
 ) -> None:
     plan = _service_plan(app_file, target)
     if plan['in_agreement']:
+        # report the same shape as a run that applied something, so a caller reading --json sees one form
+        for service in plan['services']:
+            service['status'] = 'skipped'
         _print_plan(plan, as_json=as_json)
         sys.exit(EXIT_IN_AGREEMENT)
     if dry_run:
@@ -323,6 +326,10 @@ def _stop(names: list[str], *, as_json: bool) -> None:
 
 def _list(target: str | None, *, as_json: bool) -> None:
     running = _running(target)
+    if target is not None and len(running) == 0:
+        # nothing is bound at that directory, so the argument names one service rather than a directory:
+        # a single service is inspected the way `describe` inspects one table
+        running = _matching(_running(), target)
     if as_json:
         print(json.dumps(running, indent=2))
         return
@@ -332,6 +339,14 @@ def _list(target: str | None, *, as_json: bool) -> None:
     width = max(len(_address(d)) for d in running)
     for d in running:
         print(f'{_address(d):<{width}s}  {d["endpoint"]}  pid {d["pid"]}  {d["app_file"]}')
+        prefix = d['spec']['prefix']
+        for route in d['spec']['routes']:
+            served = ', '.join(route['outputs']) if len(route['outputs']) > 0 else '-'
+            accepted = ', '.join([*route['inputs'], *(f'{n} (file)' for n in route['uploadfile_inputs'])])
+            print(
+                f'    {route["method"]:<5s} {prefix}{route["path"]:<24s} {route["route_type"]:<8s} '
+                f'in: {accepted or "-"}  out: {served}'
+            )
 
 
 def _running(target: str | None = None) -> list[ServiceDeployment]:

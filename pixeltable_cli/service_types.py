@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 from typing_extensions import TypedDict
 
@@ -104,6 +104,38 @@ class ServicePlan(_PlanOps):
     summary: ServicePlanSummary
 
 
+class RouteSpec(TypedDict):
+    """Mirror of pixeltable.serving.RouteSpec: one route of a service definition."""
+
+    method: Literal['GET', 'POST']
+    path: str
+    route_type: Literal['insert', 'update', 'delete', 'compute', 'query']
+
+    # the model a route is declared against, or the catalog path of the table; a query route written against
+    # tables has neither
+    model: str | None
+    table: str | None
+
+    inputs: list[str]
+    uploadfile_inputs: list[str]
+    outputs: list[str]
+    match_columns: list[str]
+
+    background: bool
+    return_fileresponse: bool
+    one_row: bool
+    export_sql: dict[str, Any] | None
+    query: str | None
+
+
+class ServiceSpec(TypedDict):
+    """Mirror of pixeltable.serving.ServiceSpec: everything an application file declares about one service."""
+
+    name: str
+    prefix: str
+    routes: list[RouteSpec]
+
+
 class ServiceDeployment(TypedDict):
     """A service running locally, as `pxt service list` reports it."""
 
@@ -113,6 +145,7 @@ class ServiceDeployment(TypedDict):
     pid: int
     created_at: float
     app_file: str  # the file the service was served from
+    spec: ServiceSpec  # what it serves
 
 
 def delete_service_op(name: str, endpoint: str | None, status: OpStatus) -> ServiceChangeOp:
@@ -134,12 +167,14 @@ def delete_service_op(name: str, endpoint: str | None, status: OpStatus) -> Serv
 __all__ = [
     'OpStatus',
     'RouteComparison',
+    'RouteSpec',
     'ServiceChangeOp',
     'ServiceDeployment',
     'ServiceDiff',
     'ServicePlan',
     'ServicePlanSummary',
     'ServiceResolution',
+    'ServiceSpec',
     'Severity',
     'delete_service_op',
 ]
