@@ -9,6 +9,7 @@ pytestmark = pytest.mark.local('UDF/integration test')
 
 
 @pytest.mark.remote_api
+@pytest.mark.very_expensive
 @rerun_on_network_error()
 class TestMistral:
     def test_chat_completions(self, uses_db: None) -> None:
@@ -16,7 +17,7 @@ class TestMistral:
         skip_test_if_no_client('mistral')
         from pixeltable.functions.mistralai import chat_completions
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         msgs = [{'role': 'user', 'content': t.input}]
         t.add_computed_column(output=chat_completions(messages=msgs, model='mistral-small-latest'))
         t.add_computed_column(
@@ -44,7 +45,7 @@ class TestMistral:
         skip_test_if_no_client('mistral')
         from pixeltable.functions.mistralai import fim_completions
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String, 'suffix': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None, 'suffix': pxt.String | None})
         t.add_computed_column(output=fim_completions(prompt=t.input, model='codestral-latest'))
         t.add_computed_column(
             output2=fim_completions(
@@ -80,7 +81,7 @@ class TestMistral:
         skip_test_if_no_client('mistral')
         from pixeltable.functions.mistralai import embeddings
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         t.add_computed_column(embed=embeddings(t.input, model='mistral-embed'))
         validate_update_status(t.insert(input='A chunk of text that will be embedded.'), 1)
         assert isinstance(t.embed.col_type, ts.ArrayType)

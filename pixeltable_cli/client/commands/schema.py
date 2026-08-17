@@ -22,8 +22,8 @@ TableModel = pxt.model_base()
 
 
 class Docs(TableModel, name='docs'):
-    title: pxt.Required[pxt.String]           # a stored column; without Required it is nullable
-    body: pxt.String
+    title: pxt.String                         # a stored column
+    body: pxt.String | None                   # a stored column that may be null
     title_upper = pxtf.string.upper(title)    # a computed column: an assignment, not an annotation
 
 
@@ -53,34 +53,38 @@ TableModel = pxt.model_base()
 class Docs(TableModel, name='docs'):
     """One model becomes one table, named by name=."""
 
-    # an annotation declares a stored column; pxt.Required makes it non-nullable
-    doc_id: pxt.Required[pxt.Int]
-    title: pxt.Required[pxt.String]
-    body: pxt.String
-    published: pxt.Timestamp
-    tags: pxt.Json
-    rating: pxt.Float
-    is_draft: pxt.Bool
-    embedding: pxt.Array[(384,), pxt.Float]
-    source: pxt.Document  # a media column takes a local path or a URL on insert
+    # an annotation declares a stored column
+    doc_id: pxt.Int
+    title: pxt.String
+    body: pxt.String | None
+    published: pxt.Timestamp | None
+    tags: pxt.Json | None
+    rating: pxt.Float | None
+    is_draft: pxt.Bool | None
+    embedding: pxt.Array[(384,), pxt.Float] | None
+    source: pxt.Document | None  # a media column takes a local path or a URL on insert
 
     # an assignment declares a computed column, evaluated on insert and on update
     title_upper = pxtf.string.upper(title)
     summary = pxtf.string.slice(body, 0, 80)
 
     # an embedding index makes a column searchable by similarity
-    body_idx = pxt.EmbeddingIndex(
-        body, embedding=pxtf.huggingface.sentence_transformer.using(model_id='intfloat/e5-large-v2')
-    )
+    __indexes__ = [
+        pxt.EmbeddingIndex(
+            body,
+            embedding=pxtf.huggingface.sentence_transformer.using(model_id='sentence-transformers/all-MiniLM-L6-v2'),
+            name='body_idx',
+        )
+    ]
 
 
 class Recordings(TableModel, name='recordings'):
     """The other media types, and the column properties an annotation cannot express."""
 
-    recording_id: pxt.Required[pxt.Int]
-    cover: pxt.Image
-    narration: pxt.Audio
-    clip: pxt.Video
+    recording_id: pxt.Int
+    cover: pxt.Image | None
+    narration: pxt.Audio | None
+    clip: pxt.Video | None
 
     thumbnail = pxt.Column(value=cover.rotate(90), stored=False)  # computed on read, never stored
     scan = pxt.Column(type=pxt.Image, media_validation='on_read', comment='validated on read, not on insert')

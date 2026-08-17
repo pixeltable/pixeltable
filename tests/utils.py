@@ -240,14 +240,14 @@ def create_table_data(
 
 def create_test_tbl(name: str = 'test_tbl') -> pxt.Table:
     schema: dict[str, type | ColumnSpec] = {
-        'c1': {'type': pxt.Required[pxt.String], 'comment': 'String column with no nulls'},
-        'c1n': {'type': pxt.String, 'custom_metadata': {'nullable': True}},
-        'c2': pxt.Required[pxt.Int],
-        'c3': pxt.Required[pxt.Float],
-        'c4': pxt.Required[pxt.Bool],
-        'c5': pxt.Required[pxt.Timestamp],
-        'c6': pxt.Required[pxt.Json],
-        'c7': pxt.Required[pxt.Json],
+        'c1': {'type': pxt.String, 'comment': 'String column with no nulls'},
+        'c1n': {'type': pxt.String | None, 'custom_metadata': {'nullable': True}},
+        'c2': pxt.Int,
+        'c3': pxt.Float,
+        'c4': pxt.Bool,
+        'c5': pxt.Timestamp,
+        'c6': pxt.Json,
+        'c7': pxt.Json,
     }
     t = pxt.create_table(name, schema, primary_key='c2')
     t.add_computed_column(c8=pxt.array([[1, 2, 3], [4, 5, 6]]))
@@ -300,7 +300,7 @@ def create_test_tbl(name: str = 'test_tbl') -> pxt.Table:
 
 
 def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0) -> pxt.Table:
-    schema = {'img': pxt.Required[pxt.Image], 'category': pxt.Required[pxt.String], 'split': pxt.Required[pxt.String]}
+    schema = {'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
     tbl = pxt.create_table(name, schema)
     rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
     if num_rows > 0:
@@ -325,21 +325,21 @@ def assert_schema_eq(actual: pxt.Table, expected: pxt.Table) -> None:
 # Schema (column name -> type) used by create_all_datatypes_tbl(); exposed so tests can build schema_overrides
 # from public Pixeltable types without reaching into a column's internal ColumnType.
 ALL_DATATYPES_SCHEMA: dict[str, Any] = {
-    'row_id': pxt.Required[pxt.Int],
-    'c_array': pxt.Array[(10,), pxt.Float],
-    'c_audio': pxt.Audio,
-    'c_bool': pxt.Bool,
-    'c_date': pxt.Date,
-    'c_float': pxt.Float,
-    'c_image': pxt.Image,
-    'c_int': pxt.Int,
-    'c_json': pxt.Json,
-    'c_string': pxt.String,
-    'c_timestamp': pxt.Timestamp,
-    'c_uuid': pxt.UUID,
-    'c_binary': pxt.Binary,
-    'c_video': pxt.Video,
-    'c_document': pxt.Document,
+    'row_id': pxt.Int,
+    'c_array': pxt.Array[(10,), pxt.Float] | None,
+    'c_audio': pxt.Audio | None,
+    'c_bool': pxt.Bool | None,
+    'c_date': pxt.Date | None,
+    'c_float': pxt.Float | None,
+    'c_image': pxt.Image | None,
+    'c_int': pxt.Int | None,
+    'c_json': pxt.Json | None,
+    'c_string': pxt.String | None,
+    'c_timestamp': pxt.Timestamp | None,
+    'c_uuid': pxt.UUID | None,
+    'c_binary': pxt.Binary | None,
+    'c_video': pxt.Video | None,
+    'c_document': pxt.Document | None,
 }
 
 
@@ -1003,6 +1003,7 @@ NETWORK_ERROR_PATTERNS = [
     'Timeout',
     'ExternalServiceError',
     'URLError',
+    'Remote end closed connection',
 ]
 
 
@@ -1202,7 +1203,7 @@ def _(dim: int) -> ts.ArrayType:
 
 def btree_idxs(t: pxt.Table) -> dict[str, str]:
     """The names of `t`'s B-tree indexes, mapped to the column each one indexes."""
-    btree_md = [info for info in t.get_metadata()['indices'].values() if info['index_type'] == 'btree']
+    btree_md = [info for info in t.get_metadata()['indexes'].values() if info['index_type'] == 'btree']
     assert all(len(info['columns']) == 1 for info in btree_md)
     return {info['name']: info['columns'][0] for info in btree_md}
 
@@ -1232,5 +1233,5 @@ def schema_from_tbl_md(metadata: pxt.TableMetadata) -> dict[str, str]:
             }
             for name, info in metadata['columns'].items()
         },
-        'indices': metadata['indices'],
+        'indexes': metadata['indexes'],
     }

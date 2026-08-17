@@ -426,7 +426,7 @@ def indexes(req: Request) -> models.IdxsResponse:
             md = pxt.get_table(p).get_metadata()
         except excs.NotFoundError:
             continue
-        for name, idx in md['indices'].items():
+        for name, idx in md['indexes'].items():
             if embedding and idx['index_type'] != 'embedding':
                 continue
             params = idx.get('parameters')
@@ -603,7 +603,7 @@ def _to_entry(node: TreeNode, details: bool) -> models.LsEntry:
     if details:
         md = pxt.get_table(node['path']).get_metadata()
         cols = md['columns']
-        indices = md['indices']
+        indices = md['indexes']
         entry.num_cols = len(cols)
         has_computed = any(c['is_computed'] for c in cols.values())
         entry.flags = ('c' if has_computed else '') + ('i' if len(indices) > 0 else '')

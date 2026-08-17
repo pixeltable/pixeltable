@@ -1855,7 +1855,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
           <div ref={schemaContentRef} className="flex flex-col h-full min-h-0 bg-card">
           <ColumnChips
             columns={Object.values(metadata.columns)}
-            indices={Object.values(metadata.indices).filter(idx => idx.index_type === 'embedding')}
+            indices={Object.values(metadata.indexes ?? {}).filter(idx => idx.index_type === 'embedding')}
             tableMediaValidation={metadata.media_validation}
             expanded={schemaExpanded}
             onToggle={toggleSchema}
