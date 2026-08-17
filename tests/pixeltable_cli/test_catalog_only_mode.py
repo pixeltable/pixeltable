@@ -1,17 +1,16 @@
-"""Route surface in catalog-only mode (PIXELTABLE_SERVER_MODE=catalog_only) vs a full daemon.
+"""Route surface in catalog-only mode (cli_server.catalog_only) vs a full daemon.
 
-The allow-list is read at import time, so each case reloads the module under a patched environment.
+The allow-list is read at import time, so each case reloads the module under a config override.
 """
 
 import importlib
-import os
 from collections.abc import Iterator
-from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
 import pytest
 
+from pixeltable.config import Config
 from pixeltable_cli.server import daemon, http_server, routes as routes_module
 
 # Reachable in both modes; must match routes.CATALOG_ROUTES, enumerated here independently.
@@ -69,14 +68,12 @@ _MANAGEMENT_ROUTES = {
 
 
 def _reload(catalog_only: bool) -> Iterator[None]:
-    env = {**os.environ}
-    if catalog_only:
-        env['PIXELTABLE_SERVER_MODE'] = routes_module.CATALOG_ONLY_MODE
-    else:
-        env.pop('PIXELTABLE_SERVER_MODE', None)
-    with patch.dict(os.environ, env, clear=True):
+    Config.init({'cli_server.catalog_only': catalog_only}, reinit=True)
+    try:
         importlib.reload(routes_module)
         yield
+    finally:
+        Config.init({}, reinit=True)
 
 
 @pytest.fixture
@@ -104,26 +101,29 @@ class TestCatalogOnlyRouteSurface:
     def test_every_route_is_served_when_not_catalog_only(self, full_routes: None) -> None:
         assert not _unreachable(_CATALOG_ROUTES | _MANAGEMENT_ROUTES)
 
-    def test_mode_is_read_from_config(self) -> None:
-        with patch.dict(os.environ, {'PIXELTABLE_SERVER_MODE': routes_module.CATALOG_ONLY_MODE}):
+    def test_catalog_only_is_read_from_config(self) -> None:
+        try:
+            Config.init({'cli_server.catalog_only': True}, reinit=True)
             assert routes_module.in_catalog_only_mode()
-        with patch.dict(os.environ, {'PIXELTABLE_SERVER_MODE': 'something_else'}):
+            Config.init({'cli_server.catalog_only': False}, reinit=True)
             assert not routes_module.in_catalog_only_mode()
-        env = {k: v for k, v in os.environ.items() if k != 'PIXELTABLE_SERVER_MODE'}
-        with patch.dict(os.environ, env, clear=True):
+            Config.init({}, reinit=True)
             assert not routes_module.in_catalog_only_mode()
+        finally:
+            Config.init({}, reinit=True)
 
 
 class TestFixedAddressMode:
-    """A configured daemon_host/daemon_port makes the daemon a plain foreground server, as a pod needs."""
+    """A configured cli_server host/port makes the daemon a plain foreground server, as a pod needs."""
 
     @staticmethod
-    def _configured(host: str | None, port: int | None) -> Any:
-        """Stand in for Config so neither the environment nor a developer's config.toml decides the branch."""
-        return patch(
-            'pixeltable_cli.server.daemon.Config.get',
-            return_value=SimpleNamespace(get_string_value=lambda key: host, get_int_value=lambda key: port),
-        )
+    def _configured(host: str | None, port: int | None) -> None:
+        overrides: dict[str, Any] = {}
+        if host is not None:
+            overrides['cli_server.host'] = host
+        if port is not None:
+            overrides['cli_server.port'] = port
+        Config.init(overrides, reinit=True)
 
     def test_bind_defaults_to_loopback(self) -> None:
         server = http_server.bind(0)
@@ -132,39 +132,40 @@ class TestFixedAddressMode:
         finally:
             server.server_close()
 
-    def test_daemon_host_skips_the_pidfile_handshake(self) -> None:
-        # A pod has no peer daemon to arbitrate with, so main() must not write a pidfile or probe for one.
+    def test_host_skips_the_pidfile_handshake(self) -> None:
+        self._configured('0.0.0.0', 0)
         with (
-            self._configured('0.0.0.0', 0),
             patch('pixeltable_cli.server.daemon.run') as run,
             patch('pixeltable_cli.server.daemon.bind') as bind,
             patch('pixeltable_cli.server.daemon._write_pidfile') as write_pidfile,
             patch('pixeltable_cli.server.daemon.is_running') as is_running,
         ):
             daemon.main()
+        Config.init({}, reinit=True)
         bind.assert_called_once_with(0, '0.0.0.0')
         run.assert_called_once()
         write_pidfile.assert_not_called()
         is_running.assert_not_called()
 
-    def test_daemon_port_alone_selects_fixed_address_mode(self) -> None:
-        # Matches proxy_daemon: either half of the pair is enough, and the host falls back to loopback.
+    def test_port_alone_selects_fixed_address_mode(self) -> None:
+        self._configured(None, 0)
         with (
-            self._configured(None, 0),
             patch('pixeltable_cli.server.daemon.run'),
             patch('pixeltable_cli.server.daemon.bind') as bind,
             patch('pixeltable_cli.server.daemon._write_pidfile') as write_pidfile,
         ):
             daemon.main()
+        Config.init({}, reinit=True)
         bind.assert_called_once_with(0, '127.0.0.1')
         write_pidfile.assert_not_called()
 
-    def test_without_daemon_config_the_local_path_is_unchanged(self) -> None:
+    def test_without_cli_server_config_the_local_path_is_unchanged(self) -> None:
+        self._configured(None, None)
         with (
-            self._configured(None, None),
-            patch.dict(os.environ, {'PXT_PORT': '0'}),
+            patch('pixeltable_cli.server.daemon.get_port', return_value=0),
             patch('pixeltable_cli.server.daemon.run'),
             patch('pixeltable_cli.server.daemon._write_pidfile') as write_pidfile,
         ):
             daemon.main()
+        Config.init({}, reinit=True)
         write_pidfile.assert_called_once()

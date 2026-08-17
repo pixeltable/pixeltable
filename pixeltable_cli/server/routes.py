@@ -44,12 +44,8 @@ from .router import RawResponse, Request, Router
 _STARTED_AT = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 
-# Catalog operations plus the dashboard routes, and nothing else.
-CATALOG_ONLY_MODE = 'catalog_only'
-
-
 def in_catalog_only_mode() -> bool:
-    return Config.get().get_string_value('server_mode') == CATALOG_ONLY_MODE
+    return Config.get().get_bool_value('catalog_only', section='cli_server') is True
 
 
 # Everything a catalog-only daemon serves. An allow-list rather than a list of exclusions.

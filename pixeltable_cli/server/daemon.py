@@ -58,10 +58,10 @@ def _remove_pidfile_if_ours() -> None:
 
 def main() -> None:
     config = Config.get()
-    daemon_host = config.get_string_value('daemon_host')
-    daemon_port = config.get_int_value('daemon_port')
-    if daemon_host is not None or daemon_port is not None:
-        run(bind(daemon_port if daemon_port is not None else get_port(), daemon_host or '127.0.0.1'))
+    host = config.get_string_value('host', section='cli_server')
+    port = config.get_int_value('port', section='cli_server')
+    if host is not None or port is not None:
+        run(bind(port if port is not None else get_port(), host or '127.0.0.1'))
         return
 
     port = get_port()

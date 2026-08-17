@@ -199,9 +199,6 @@ def resources(request: pytest.FixtureRequest) -> Iterator[Resources]:
 
     r = Resources(org=_ORG, db=db, svc_name=_SVC_NAME, db_uri=db_uri, svc_uri=svc_uri, table_uri=table_uri)
 
-    # Created here rather than by a test: a test that sets up state for later tests makes every
-    # later test unrunnable on its own. `pxt db create` is still exercised -- this is the same command,
-    # and a failure here fails the whole module loudly.
     _pxt('db', 'create', db_uri)
     try:
         yield r
@@ -246,8 +243,7 @@ def svc_base(resources: Resources, service: str) -> str:
 @pytest.fixture(scope='module')
 def catalog_table(resources: Resources) -> str:
     """Create e2e_items with 5 rows and a computed column."""
-    # replace, not ignore: a retry after a failure that landed the insert would otherwise hit a
-    # duplicate primary key, or leave more than the 5 rows every later test counts on.
+    # replace: each retry starts from an empty table, so the insert cannot duplicate a primary key.
     code = f"""
         import pixeltable as pxt
         pxt.init()
@@ -404,9 +400,7 @@ class TestCloudE2E:
         assert 'inserted: 20' in out, f'concurrent inserts did not all land:\n{out}'
         assert 'count: 20' in out, f'concurrent-insert final count wrong:\n{out}'
 
-    # The CLI server: an always-on catalog daemon at /cli on the service host, serving the same
-    # routes as a local pxt daemon minus the control-plane proxy and /api/cwd. Runs here, after the
-    # SDK tests have created e2e_items and before the database is deleted.
+    # CLI server routes, served at /cli on the service host.
 
     def test_health(self, resources: Resources) -> None:
         r = _cli(resources.db, '/api/health')
