@@ -199,7 +199,7 @@ def resources(request: pytest.FixtureRequest) -> Iterator[Resources]:
 
     r = Resources(org=_ORG, db=db, svc_name=_SVC_NAME, db_uri=db_uri, svc_uri=svc_uri, table_uri=table_uri)
 
-    # Created here rather than by test_db_create: a test that sets up state for later tests makes every
+    # Created here rather than by a test: a test that sets up state for later tests makes every
     # later test unrunnable on its own. `pxt db create` is still exercised -- this is the same command,
     # and a failure here fails the whole module loudly.
     _pxt('db', 'create', db_uri)
@@ -246,6 +246,8 @@ def svc_base(resources: Resources, service: str) -> str:
 @pytest.fixture(scope='module')
 def catalog_table(resources: Resources) -> str:
     """Create e2e_items with 5 rows and a computed column."""
+    # replace, not ignore: a retry after a failure that landed the insert would otherwise hit a
+    # duplicate primary key, or leave more than the 5 rows every later test counts on.
     code = f"""
         import pixeltable as pxt
         pxt.init()
@@ -253,19 +255,19 @@ def catalog_table(resources: Resources) -> str:
             '{resources.table_uri}',
             {{'id': pxt.Required[pxt.Int], 'name': pxt.String}},
             primary_key='id',
-            if_exists='ignore',
+            if_exists='replace',
         )
-        t.add_computed_column(name_upper=t.name.upper(), if_exists='ignore')
+        t.add_computed_column(name_upper=t.name.upper())
         t.insert([{{'id': i, 'name': f'item_{{i}}'}} for i in range(5)])
         print('rows:', t.count())
     """
     for attempt in range(4):
         out = _sdk(code)
-        if 'rows:' in out:
+        if 'rows: 5' in out:
             return resources.table_uri
         if attempt < 3:
             time.sleep(20)
-    raise AssertionError(f'could not ensure {resources.table_uri}:\n{out}')
+    raise AssertionError(f'could not ensure {resources.table_uri} has 5 rows:\n{out}')
 
 
 class TestCloudE2E:
@@ -277,17 +279,13 @@ class TestCloudE2E:
         out = _pxt_json('org', 'status', f'pxt://{resources.org}')
         assert resources.org in out
 
-    def test_db_create(self, resources: Resources) -> None:
+    def test_db_status(self, resources: Resources) -> None:
         out = _pxt_json('db', 'status', resources.db_uri)
         assert 'AVAILABLE' in out
         assert resources.db in out
 
     def test_db_list(self, resources: Resources) -> None:
         out = _pxt_json('db', 'list', f'pxt://{resources.org}')
-        assert resources.db in out
-
-    def test_db_status(self, resources: Resources) -> None:
-        out = _pxt_json('db', 'status', resources.db_uri)
         assert resources.db in out
 
     def test_db_update(self, resources: Resources) -> None:
