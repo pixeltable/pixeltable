@@ -144,8 +144,6 @@ class Router:
 
     def __init__(self, allowed: Iterable[tuple[str, str]] | None = None) -> None:
         self._routes: dict[tuple[str, str], Handler] = {}
-        # None serves everything registered. A set is an allow-list, so a route added later stays
-        # unreachable until someone lists it.
         self._allowed = None if allowed is None else frozenset(allowed)
 
     def get(self, path: str) -> Callable[[Handler], Handler]:

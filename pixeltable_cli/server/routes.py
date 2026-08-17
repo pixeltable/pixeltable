@@ -52,10 +52,7 @@ def in_catalog_only_mode() -> bool:
     return Config.get().get_string_value('server_mode') == CATALOG_ONLY_MODE
 
 
-# Everything a catalog-only daemon serves. An allow-list rather than a list of exclusions, so a route
-# added later is unreachable in a hosted pod until someone puts it here deliberately. What it keeps
-# out: the management routes call the control plane with the daemon's own API key, which would let
-# any caller act as the pod, and /api/cwd keeps per-session state in process memory.
+# Everything a catalog-only daemon serves. An allow-list rather than a list of exclusions.
 CATALOG_ROUTES = frozenset(
     {
         ('GET', '/api/health'),
