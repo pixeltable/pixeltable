@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -174,14 +175,21 @@ class Column:
         tbl_handle: TableVersionHandle,
         col: catalog.ColumnVersionMd,
         idx: index.IndexBase,
-        val_col_id: int,
-        undo_col_id: int,
+        *,
         schema_version: int,
-    ) -> tuple[Column, Column]:
-        """Create value and undo columns for an index."""
+        is_data_versioned: bool,
+        next_col_id: Callable[[], int],
+    ) -> tuple[Column | None, Column | None]:
+        """Create the columns that idx needs in order to index col.
+
+        Returns (value column, undo column), both of which are optional.
+        """
+        if not idx.uses_value_col:
+            return None, None
+
         value_expr = idx.create_value_expr(col)
         val_col = cls(
-            col_id=val_col_id,
+            col_id=next_col_id(),
             name=None,
             computed_with=value_expr,
             sa_col_type=idx.get_index_sa_type(value_expr.col_type),
@@ -192,9 +200,11 @@ class Column:
             tbl_handle=tbl_handle,
         )
         val_col.col_type = val_col.col_type.copy(nullable=True)
+        if not is_data_versioned:
+            return val_col, None
 
         undo_col = cls(
-            col_id=undo_col_id,
+            col_id=next_col_id(),
             name=None,
             col_type=val_col.col_type,
             sa_col_type=val_col.sa_col_type,

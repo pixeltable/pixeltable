@@ -163,6 +163,11 @@ class EmbeddingIndex(IndexBase):
                 excs.ErrorCode.INVALID_ARGUMENT, f"Invalid precision '{precision}'. Must be one of: {valid_values}"
             ) from None
 
+    @property
+    def uses_value_col(self) -> bool:
+        # the embeddings are always materialized in a value column
+        return True
+
     def create_value_expr(self, c: catalog.ColumnVersionMd) -> exprs.Expr:
         if c.col_type._type not in (
             ts.ColumnType.Type.STRING,
