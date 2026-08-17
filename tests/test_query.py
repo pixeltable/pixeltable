@@ -28,6 +28,7 @@ from .utils import (
     skip_test_if_not_installed,
     validate_repr,
     validate_update_status,
+    versioned_and_operational,
 )
 
 
@@ -1250,9 +1251,10 @@ class TestQuery:
 
         benchmark(select_inexpensive)
 
-    def test_query_after_column_drop(self, make_catalog_path: Callable[[str], str]) -> None:
+    @versioned_and_operational
+    def test_query_after_column_drop(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('t_drop'), {'a': pxt.Int, 'b': pxt.Int})
+        t = pxt.create_table(p('t_drop'), {'a': pxt.Int, 'b': pxt.Int}, _is_data_versioned=is_data_versioned)
         validate_update_status(t.insert([{'a': i, 'b': i * 10} for i in range(10)]), expected_rows=10)
         q = t.select(t.a, t.b)
         assert len(q.collect()) == 10
@@ -1262,9 +1264,12 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='dropped'):
             q.collect()
 
-    def test_query_after_column_drop_and_add(self, make_catalog_path: Callable[[str], str]) -> None:
+    @versioned_and_operational
+    def test_query_after_column_drop_and_add(
+        self, make_catalog_path: Callable[[str], str], is_data_versioned: bool
+    ) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('t_readd'), {'a': pxt.Int, 'keep': pxt.Int})
+        t = pxt.create_table(p('t_readd'), {'a': pxt.Int, 'keep': pxt.Int}, _is_data_versioned=is_data_versioned)
         validate_update_status(t.insert([{'a': 1, 'keep': 0}]), expected_rows=1)
         q = t.select(t.a)
         assert len(q.collect()) == 1
@@ -1275,9 +1280,10 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='dropped'):
             q.collect()
 
-    def test_query_after_schema_change(self, make_catalog_path: Callable[[str], str]) -> None:
+    @versioned_and_operational
+    def test_query_after_schema_change(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('t_add'), {'c1': pxt.Int | None})
+        t = pxt.create_table(p('t_add'), {'c1': pxt.Int | None}, _is_data_versioned=is_data_versioned)
         q_c1 = t.where(t.c1 > 1).select(t.c1)
         q_where = t.where(t.c1 > 1)
         q_select = t.where(t.c1 > 1).select()
@@ -1297,10 +1303,15 @@ class TestQuery:
         assert len(res) == 1
         assert res[0] == {'c1': 2}
 
-    def test_order_by_after_schema_change(self, make_catalog_path: Callable[[str], str]) -> None:
+    @versioned_and_operational
+    def test_order_by_after_schema_change(
+        self, make_catalog_path: Callable[[str], str], is_data_versioned: bool
+    ) -> None:
         p = make_catalog_path
         # Confirm where/order_by/limit clauses don't capture stale select-list state.
-        t = pxt.create_table(p('t_add_ob'), {'c1': pxt.Int | None, 'c2': pxt.Int | None})
+        t = pxt.create_table(
+            p('t_add_ob'), {'c1': pxt.Int | None, 'c2': pxt.Int | None}, _is_data_versioned=is_data_versioned
+        )
         t.insert([{'c1': i, 'c2': 5 - i} for i in range(5)])
         q = t.where(t.c1 >= 1).order_by(t.c2)
         assert list(q.schema.keys()) == ['c1', 'c2']

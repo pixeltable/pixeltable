@@ -34,7 +34,6 @@ SLIM_TESTS = ' '.join(
         'exprs',
         'function',
         'index',
-        'operational_table',
         'snapshot',
         'table',
         'table_model',

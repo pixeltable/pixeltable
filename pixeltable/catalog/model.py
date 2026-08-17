@@ -180,6 +180,7 @@ class TableSpec(TypedDict):
     media_validation: MediaValidation
     comment: str | None
     custom_metadata: Any
+    is_data_versioned: bool
 
 
 def _col_type_from_spec(column_spec: ColumnSpec) -> ts.ColumnType:
@@ -489,6 +490,7 @@ class TableModelMeta(type):
         media_validation: Literal['on_read', 'on_write'] = 'on_write',
         comment: str | None = None,
         custom_metadata: Any = None,
+        _is_data_versioned: bool = True,
     ) -> MutableMapping[str, object]:
         if len(bases) == 0:
             # This is a model_base() class. No special processing.
@@ -549,6 +551,14 @@ class TableModelMeta(type):
                         f'`model_base()` as `{cls_name}`.',
                     )
 
+            # A view is always of the same kind as its base. Operational views aren't supported yet.
+            if base is not None and (
+                not _is_data_versioned or not base.from_clause.__table_spec__['is_data_versioned']
+            ):
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'{display_name}: operational views are not supported yet.'
+                )
+
             # Validate iterator
             if iterator is not None:
                 if base is None:
@@ -591,6 +601,7 @@ class TableModelMeta(type):
                     'media_validation': media_validation_,
                     'comment': comment,
                     'custom_metadata': custom_metadata,
+                    'is_data_versioned': _is_data_versioned,
                 },
                 eval_globals=caller.f_globals,
                 eval_locals=caller.f_locals,
@@ -774,6 +785,7 @@ class TableModelMeta(type):
             iterator=table_spec['iterator'],
             base=base,
             idxs=cls.__indexes__,
+            is_data_versioned=table_spec['is_data_versioned'],
         )
 
         if was_created:
@@ -1153,7 +1165,13 @@ class TableDiff(TypedDict):
 
 # Table-level attribute names that are reported as a single grouped diff (as opposed to `kind`/`iterator`/`filter`/
 # `sample`, which each get their own diff line).
-_TABLE_PROP_NAMES: tuple[str, ...] = ('media_validation', 'comment', 'custom_metadata', 'has_default_idxs')
+_TABLE_PROP_NAMES: tuple[str, ...] = (
+    'media_validation',
+    'comment',
+    'custom_metadata',
+    'has_default_idxs',
+    'is_data_versioned',
+)
 
 
 def _resolution(exists: bool, ops: list[SchemaChangeOp]) -> DiffResolution:
@@ -1230,6 +1248,7 @@ class _TableProperties:
     media_validation: str
     comment: str | None
     custom_metadata: Any
+    is_data_versioned: bool
 
     @classmethod
     def from_model(cls, model: TableModelMeta) -> _TableProperties:
@@ -1239,13 +1258,17 @@ class _TableProperties:
             media_validation=spec['media_validation'].name.lower(),
             comment=spec['comment'],
             custom_metadata=spec['custom_metadata'],
+            is_data_versioned=spec['is_data_versioned'],
         )
 
     @classmethod
     def from_metadata(cls, md: TableMetadata) -> _TableProperties:
         """The comparable table-level properties of an existing table, drawn from its `TableMetadata`."""
         return cls(
-            media_validation=md['media_validation'], comment=md['comment'], custom_metadata=md['custom_metadata']
+            media_validation=md['media_validation'],
+            comment=md['comment'],
+            custom_metadata=md['custom_metadata'],
+            is_data_versioned=md['is_data_versioned'],
         )
 
 
@@ -1442,6 +1465,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                     )
 
             # Table-level properties that differ (media_validation/comment/custom_metadata); unsupported for now.
+            # A is_data_versioned diff is permanently unsupported.
             model_table_props = _TableProperties.from_model(model)
             existing_table_props = _TableProperties.from_metadata(existing_md)
             for prop in model_table_props.__dataclass_fields__:

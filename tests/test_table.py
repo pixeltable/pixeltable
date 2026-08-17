@@ -17,6 +17,7 @@ import pydantic
 import pytest
 
 import pixeltable as pxt
+import pixeltable.exceptions as excs
 import pixeltable.functions as pxtf
 from pixeltable.env import Env
 from pixeltable.exprs import ColumnRef
@@ -49,6 +50,7 @@ from .utils import (
     stock_price,
     validate_repr,
     validate_update_status,
+    versioned_and_operational,
 )
 
 test_unstored_table_base_val: int = 0
@@ -113,7 +115,10 @@ class TestTable:
         def value(self) -> int:
             return 1
 
-    def test_create(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
+    @versioned_and_operational
+    def test_create(
+        self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester, is_data_versioned: bool
+    ) -> None:
         p = make_catalog_path
         pxt.create_dir(p('dir1'))
         schema: dict[str, Any] = {
@@ -122,8 +127,8 @@ class TestTable:
             'c3': pxt.Float | None,
             'c4': pxt.Timestamp | None,
         }
-        tbl = pxt.create_table(p('test'), schema)
-        _ = pxt.create_table(p('dir1/test'), schema)
+        tbl = pxt.create_table(p('test'), schema, _is_data_versioned=is_data_versioned)
+        _ = pxt.create_table(p('dir1/test'), schema, _is_data_versioned=is_data_versioned)
 
         with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Invalid path: 1test'):
             pxt.create_table(p('1test'), schema)
@@ -299,7 +304,8 @@ class TestTable:
         ):
             pxt.move(p('tbl1'), p('tbl1'))
 
-    def test_columns(self, make_catalog_path: Callable[[str], str]) -> None:
+    @versioned_and_operational
+    def test_columns(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
         schema: dict[str, Any] = {
             'c1': pxt.String | None,
@@ -307,7 +313,7 @@ class TestTable:
             'c3': pxt.Float | None,
             'c4': pxt.Timestamp | None,
         }
-        t = pxt.create_table(p('test'), schema)
+        t = pxt.create_table(p('test'), schema, _is_data_versioned=is_data_versioned)
         assert t.columns() == ['c1', 'c2', 'c3', 'c4']
 
     def test_table_metadata(self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> None:
@@ -2597,9 +2603,10 @@ class TestTable:
         t.insert(str_col='Hello there.')  # Succeeds because column 'bad' is dropped
         pxt.drop_table(p('test'))
 
-    def test_insert_string_with_null(self, make_catalog_path: Callable[[str], str]) -> None:
+    @versioned_and_operational
+    def test_insert_string_with_null(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test'), {'c1': pxt.String | None})
+        t = pxt.create_table(p('test'), {'c1': pxt.String | None}, _is_data_versioned=is_data_versioned)
 
         t.insert([{'c1': 'this is a python\x00string'}])
         assert t.count() == 1
@@ -3005,6 +3012,98 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as excinfo:
             img_t.delete(where=img_t.img.width > 100)
         assert 'not expressible' in str(excinfo.value)
+
+    @versioned_and_operational
+    def test_crud(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
+        """Validates row CRUD operations on a table."""
+        p = make_catalog_path
+        t = pxt.create_table(
+            p('crud'),
+            {'id': pxt.Int, 'name': pxt.String, 'val': pxt.Float | None},
+            _is_data_versioned=is_data_versioned,
+        )
+        t.add_computed_column(val_x2=t.val * 2)
+
+        # insert
+        validate_update_status(
+            t.insert([{'id': i, 'name': f'n{i}', 'val': float(i)} for i in range(5)]), expected_rows=5
+        )
+        assert t.count() == 5
+
+        # select/where/order_by/limit, and the computed column
+        res = t.select(t.id, t.name).order_by(t.id).collect()
+        assert list(res['id']) == [0, 1, 2, 3, 4]
+        assert list(res['name']) == ['n0', 'n1', 'n2', 'n3', 'n4']
+        assert t.where(t.val > 2.0).count() == 2
+        assert t.select(t.id).where(t.name == 'n3').collect()['id'] == [3]
+        assert t.select(t.id).order_by(t.id, asc=False).limit(2).collect()['id'] == [4, 3]
+        assert t.select(t.val_x2).order_by(t.id).collect()['val_x2'] == [0.0, 2.0, 4.0, 6.0, 8.0]
+
+        if is_data_versioned:
+            # update, cascading to the computed column; operational tables don't support update() yet
+            validate_update_status(t.update({'val': 100.0}, where=t.id == 0), expected_rows=1)
+            assert t.select(t.val, t.val_x2).where(t.id == 0).collect()[0] == {'val': 100.0, 'val_x2': 200.0}
+
+        # delete
+        validate_update_status(t.delete(where=t.id < 2), expected_rows=2)
+        assert t.count() == 3
+        assert t.select(t.id).order_by(t.id).collect()['id'] == [2, 3, 4]
+
+        # the table is still writable after a delete, and the computed column is populated on the new row
+        validate_update_status(t.insert([{'id': 5, 'name': 'n5', 'val': 5.0}]), expected_rows=1)
+        assert t.count() == 4
+        assert t.select(t.val_x2).where(t.id == 5).collect()['val_x2'] == [10.0]
+
+        # all of it survives a catalog reload
+        reload_catalog()
+        t = pxt.get_table(p('crud'))
+        assert t.count() == 4
+        assert t.select(t.id, t.val_x2).order_by(t.id).collect()['id'] == [2, 3, 4, 5]
+
+    @versioned_and_operational
+    def test_add_drop_column(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
+        """Add and drop columns on a populated table. Validates values, dependencies, and persistence."""
+        p = make_catalog_path
+        t = pxt.create_table(
+            p('add_drop'), {'c_int': pxt.Int, 'c_str': pxt.String}, _is_data_versioned=is_data_versioned
+        )
+        validate_update_status(t.insert([{'c_int': i, 'c_str': f'str{i}'} for i in range(3)]), expected_rows=3)
+
+        # a plain column starts out empty on the existing rows
+        t.add_column(c_float=pxt.Float | None)
+        assert t.order_by(t.c_int).collect()['c_float'] == [None] * 3
+
+        # a computed column is backfilled over the existing rows
+        t.add_computed_column(c_double=t.c_int * 2)
+        assert t.order_by(t.c_int).collect()['c_double'] == [0, 2, 4]
+
+        # both are populated on rows inserted after the schema change
+        validate_update_status(t.insert([{'c_int': 3, 'c_str': 'str3', 'c_float': 1.5}]), expected_rows=1)
+        rows = t.order_by(t.c_int).collect()
+        assert rows['c_float'] == [None, None, None, 1.5]
+        assert rows['c_double'] == [0, 2, 4, 6]
+
+        # a column that another column depends on cannot be dropped
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match="Cannot drop column 'c_int' because the following columns depend on it",
+        ):
+            t.drop_column('c_int')
+
+        t.drop_column('c_double')
+        t.drop_column('c_float')
+        assert list(t.get_metadata()['columns']) == ['c_int', 'c_str']
+
+        # the schema change and the surviving data are both persisted
+        reload_catalog()
+        t = pxt.get_table(p('add_drop'))
+        assert list(t.get_metadata()['columns']) == ['c_int', 'c_str']
+        assert t.order_by(t.c_int).collect()['c_int'] == [0, 1, 2, 3]
+
+        # the name of a dropped column can be reused
+        t.add_column(c_double=pxt.Int | None)
+        assert list(t.get_metadata()['columns']) == ['c_int', 'c_str', 'c_double']
+        assert t.order_by(t.c_int).collect()['c_double'] == [None] * 4
 
     def test_computed_cols(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
@@ -4416,3 +4515,17 @@ class TestTable:
                 p('tbl_invalid'),
                 {'c': {'type': pxt.Int | None, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
             )
+
+    @pytest.mark.local("Operational table feature, does'n need to run with proxy")
+    def test_unsupported_operational_tbl_ops(self, uses_db: None) -> None:
+        operational_tbl = pxt.create_table('t0', {'n': pxt.Int | None}, _is_data_versioned=False)
+        data_versioned_tbl = pxt.create_table('t1', {'n': pxt.Int | None}, _is_data_versioned=True)
+
+        # Joins between data-versioned and operational tables are not supported.
+        with pytest.raises(excs.Error, match='join is not supported between data-versioned and operational tables'):
+            data_versioned_tbl.select().join(operational_tbl, on=(data_versioned_tbl.n == operational_tbl.n))
+        with pytest.raises(excs.Error, match='join is not supported between data-versioned and operational tables'):
+            operational_tbl.select().join(data_versioned_tbl, on=(data_versioned_tbl.n == operational_tbl.n))
+
+        with pytest.raises(excs.Error, match='Revert is supported on data-versioned tables only'):
+            operational_tbl.revert()

@@ -23,6 +23,7 @@ from .utils import (
     dummy_embedding,
     get_image_files,
     pxt_raises,
+    reload_catalog,
     schema_from_tbl_md,
     skip_test_if_not_installed,
     validate_update_status,
@@ -409,6 +410,88 @@ class TestTableModel:
             r'\s*has_default_idxs: model=False, existing=True'
         ):
             TableModelV3.diff_all(root)
+
+    def test_operational_table_model(self, make_catalog_path: Callable[[str], str]) -> None:
+        """A model can declare an operational table, and update_all() can evolve its schema."""
+        p = make_catalog_path
+        root = p('')
+        TableModel = pxt.model_base()
+
+        class Events(TableModel, name='events', _is_data_versioned=False):
+            id: pxt.Int
+            name: pxt.String | None
+            upper = name.upper()  # computed column
+
+            __indexes__ = [BtreeIndex(name)]
+
+        TableModel.create_all(root)
+        tbl = Events.table
+        assert tbl.get_metadata()['is_data_versioned'] is False
+        assert btree_idxs(tbl) == {'idx0': 'name'}
+        validate_update_status(Events.insert([{'id': i, 'name': f'n{i}'} for i in range(3)]), 3)
+        assert tbl.order_by(tbl.id).collect()['upper'] == ['N0', 'N1', 'N2']
+
+        # add a column, add an index, drop a column, drop an index -- all in a single update_all()
+        TableModelV2 = pxt.model_base()
+
+        class EventsV2(TableModelV2, name='events', _is_data_versioned=False):
+            id: pxt.Int
+            name: pxt.String | None
+            extra: pxt.Int | None
+            doubled = id * 2  # computed column, backfilled over the existing rows
+
+            __indexes__ = [BtreeIndex(id)]
+
+        assert TableModelV2.get_model_diff(root)['events']['resolution'] == 'update_destructive'
+        TableModelV2.update_all(root, allow_destructive=True)
+        assert TableModelV2.get_model_diff(root)['events']['resolution'] == 'up_to_date'
+
+        assert list(tbl.get_metadata()['columns']) == ['id', 'name', 'extra', 'doubled']
+        assert btree_idxs(tbl) == {'idx0': 'id'}
+        rows = tbl.order_by(tbl.id).collect()
+        assert rows['doubled'] == [0, 2, 4]
+        assert rows['extra'] == [None] * 3
+
+        reload_catalog()
+        tbl = pxt.get_table(p('events'))
+        assert list(tbl.get_metadata()['columns']) == ['id', 'name', 'extra', 'doubled']
+        assert btree_idxs(tbl) == {'idx0': 'id'}
+        validate_update_status(tbl.insert([{'id': 3, 'name': 'n3', 'extra': 7}]), 1)
+        assert tbl.where(tbl.id == 3).collect()['doubled'] == [6]
+
+    def test_operational_table_model_diff(self, make_catalog_path: Callable[[str], str]) -> None:
+        """There is no conversion between the two table kinds, so a mismatched model is unsupported."""
+        p = make_catalog_path
+        root = p('')
+        TableModel = pxt.model_base()
+
+        class Versioned(TableModel, name='versioned'):
+            id: pxt.Int
+
+        class Operational(TableModel, name='operational', _is_data_versioned=False):
+            id: pxt.Int
+
+        TableModel.create_all(root)
+        assert Versioned.table.get_metadata()['is_data_versioned'] is True
+        assert Operational.table.get_metadata()['is_data_versioned'] is False
+
+        # flip both declarations
+        TableModelV2 = pxt.model_base()
+
+        class VersionedV2(TableModelV2, name='versioned', _is_data_versioned=False):
+            id: pxt.Int
+
+        class OperationalV2(TableModelV2, name='operational'):
+            id: pxt.Int
+
+        diff = TableModelV2.get_model_diff(root)
+        assert diff['versioned']['resolution'] == 'unsupported'
+        assert diff['operational']['resolution'] == 'unsupported'
+        with capture_console_output(
+            match=r'the following table properties have changed \(FATAL\):\n'
+            r'\s*is_data_versioned: model=False, existing=True'
+        ):
+            TableModelV2.diff_all(root)
 
     def test_btree_index_validation(self, make_catalog_path: Callable[[str], str]) -> None:
         """`update_all()` and `create_all()` enforce the same B-tree eligibility rules as `Table.add_btree_index()`."""

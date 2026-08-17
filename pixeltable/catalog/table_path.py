@@ -334,9 +334,6 @@ class TableVersionPath(TablePath):
         return ROOT_PATH
 
     def version(self) -> int | None:
-        # TODO(PXT-1101): t.version() for operational tables should just mirror t.schema_version()
-        if not self.is_data_versioned():
-            return None
         return self._cached_tv().version
 
     def effective_version(self) -> int | None:
@@ -589,7 +586,7 @@ class TableMdPath(TablePath):
         return MediaValidation[self.md.schema_version_md.media_validation.upper()]
 
     def version(self) -> int | None:
-        return self.md.version_md.version if self.md.tbl_md.is_data_versioned else None
+        return self.md.version_md.version
 
     def effective_version(self) -> int | None:
         return self._effective_version

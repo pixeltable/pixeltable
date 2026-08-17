@@ -71,6 +71,7 @@ class CatalogBase(abc.ABC):
         iterator: func.GeneratingFunctionCall | None,
         base: 'Query | None',
         idxs: list['IndexDeclaration'],
+        is_data_versioned: bool,
     ) -> tuple[Table, bool]: ...
 
     @abc.abstractmethod

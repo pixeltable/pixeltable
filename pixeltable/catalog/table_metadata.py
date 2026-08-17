@@ -87,8 +87,8 @@ class TableMetadata(TypedDict):
     """`True` if this table is a view."""
     is_snapshot: bool
     """`True` if this table is a snapshot."""
-    version: int | None
-    """The current version of the table or None if it's not data-versioned."""
+    version: int
+    """The current version of the table."""
     version_created: datetime.datetime
     """The timestamp when this table version was created."""
     schema_version: int

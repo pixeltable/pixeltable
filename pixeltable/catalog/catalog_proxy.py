@@ -122,6 +122,7 @@ class CatalogProxy(CatalogBase):
         iterator: func.GeneratingFunctionCall | None,
         base: 'Query | None',
         idxs: list['IndexDeclaration'],
+        is_data_versioned: bool,
     ) -> tuple[Table, bool]:
         args = {
             'path': path,
@@ -134,6 +135,7 @@ class CatalogProxy(CatalogBase):
             'iterator': iterator,
             'base': base.as_dict() if base is not None else None,
             'idxs': idxs,
+            'is_data_versioned': is_data_versioned,
         }
         md, was_created = self.client.send_request('CatalogBase', 'create_from_model', args)
         return self._make_table(md, is_anon_snapshot=False), was_created

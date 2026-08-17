@@ -1751,6 +1751,7 @@ class Catalog(CatalogBase):
         iterator: func.GeneratingFunctionCall | None,
         base: 'pxt.Query | None',
         idxs: list[model.IndexDeclaration],
+        is_data_versioned: bool,
     ) -> tuple[LocalTable, bool]:
         """Create a table or view from a declarative model.
 
@@ -1786,12 +1787,13 @@ class Catalog(CatalogBase):
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,
                 has_default_idxs=has_default_idxs,
-                is_data_versioned=True,
+                is_data_versioned=is_data_versioned,
                 additional_idxs=resolved_idxs,
                 explicit_tbl_id=tbl_id,
             )
 
         else:
+            assert is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
             return self._create_view(
                 path=path,
                 base=base._first_tbl,
