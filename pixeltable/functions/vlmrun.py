@@ -62,18 +62,24 @@ _sync_client_cache: dict[str, Any] = {}
 
 
 def _vlmrun_sync_client() -> Any:
-    """Return a cached synchronous ``VLMRun`` client (lazy, thread-safe)."""
-    if 'client' in _sync_client_cache:
-        return _sync_client_cache['client']
+    """Return a cached synchronous ``VLMRun`` client (lazy, thread-safe).
+
+    Keyed by API key, so that a credential change within a single process yields a new client
+    rather than silently reusing one built from stale credentials.
+    """
+    Env.get().require_package('vlmrun')
+    api_key = _vlmrun_client().api_key
+    client = _sync_client_cache.get(api_key)
+    if client is not None:
+        return client
     with _sync_client_lock:
-        if 'client' in _sync_client_cache:
-            return _sync_client_cache['client']
-        Env.get().require_package('vlmrun')
+        client = _sync_client_cache.get(api_key)
+        if client is not None:
+            return client
         from vlmrun.client import VLMRun  # type: ignore[import-untyped]
 
-        api_key = _vlmrun_client().api_key
         client = VLMRun(api_key=api_key, base_url='https://agent.vlm.run/v1')
-        _sync_client_cache['client'] = client
+        _sync_client_cache[api_key] = client
         return client
 
 
@@ -323,6 +329,31 @@ async def _download_artifact(object_id: str, session_id: str, *, timeout: float 
     return await asyncio.to_thread(_fetch)
 
 
+async def _download_url(url: str, *, timeout: float) -> bytes:
+    """Download raw bytes from a direct (non-artifact) media URL.
+
+    Transport failures and non-2xx responses are surfaced as `ExternalServiceError`, so that
+    callers see the same error type here as on the artifact path.
+    """
+    import requests
+
+    def _fetch() -> bytes:
+        resp = requests.get(url, timeout=timeout)
+        resp.raise_for_status()
+        return resp.content
+
+    try:
+        return await asyncio.to_thread(_fetch)
+    except requests.RequestException as exc:
+        status_code = exc.response.status_code if exc.response is not None else None
+        raise pxt.ExternalServiceError(
+            pxt.ErrorCode.PROVIDER_ERROR,
+            f'Download failed for {url}: {exc}',
+            provider='vlmrun',
+            status_code=status_code,
+        ) from exc
+
+
 async def _poll_redirect(location: str, *, timeout: float) -> dict[str, Any]:
     """Poll a 303 redirect target until the completion result is ready.
 
@@ -347,6 +378,10 @@ async def _poll_redirect(location: str, *, timeout: float) -> dict[str, Any]:
                         f'Long-running request did not complete within {timeout}s',
                         provider='vlmrun',
                     ) from None
+                # a long-poll timeout consumes the full 120s socket timeout, but a transport
+                # error (DNS/TLS/network blip) can return immediately; pause so those don't
+                # spin the loop
+                await asyncio.sleep(min(2.0, max(0.0, deadline - time.monotonic())))
                 continue
             if resp.status_code in (200, 201) and resp.content:  # completion body is ready
                 return resp.json()
@@ -693,7 +728,6 @@ async def generate_video(
     """
     Env.get().require_package('vlmrun')
     Env.get().require_package('openai')
-    import requests
 
     content: list[dict[str, Any]] = [{'type': 'text', 'text': prompt}]
     if image is not None:
@@ -728,12 +762,7 @@ async def generate_video(
         data = await _download_artifact(ref, session_id, timeout=timeout)
     else:
         # Direct URL — download the video
-        def _download_video() -> bytes:
-            resp = requests.get(ref, timeout=timeout)
-            resp.raise_for_status()
-            return resp.content
-
-        data = await asyncio.to_thread(_download_video)
+        data = await _download_url(ref, timeout=timeout)
     path = TempStore.create_path(extension='.mp4')
     path.write_bytes(data)
     return str(path)
@@ -783,7 +812,6 @@ async def generate_document(
     """
     Env.get().require_package('vlmrun')
     Env.get().require_package('openai')
-    import requests
 
     content: list[dict[str, Any]] = [
         {'type': 'text', 'text': prompt},
@@ -817,12 +845,7 @@ async def generate_document(
         data = await _download_artifact(ref, session_id, timeout=timeout)
     else:
         # Direct URL — download the document
-        def _download_doc() -> bytes:
-            resp = requests.get(ref, timeout=timeout)
-            resp.raise_for_status()
-            return resp.content
-
-        data = await asyncio.to_thread(_download_doc)
+        data = await _download_url(ref, timeout=timeout)
     path = TempStore.create_path(extension='.pdf')
     path.write_bytes(data)
     return str(path)
