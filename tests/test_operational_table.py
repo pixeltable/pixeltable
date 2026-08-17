@@ -1,3 +1,5 @@
+import random
+import string
 from typing import Any
 
 import pytest
@@ -5,7 +7,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 
-from .utils import ReloadTester, validate_update_status
+from .utils import ReloadTester, btree_idxs, local_embedding, pxt_raises, reload_catalog, validate_update_status
 
 pytestmark = pytest.mark.local('TODO: convert; operational-table feature')
 
@@ -97,6 +99,114 @@ class TestOperationalTable:
 
         rows = tbl.select(tbl.n).order_by(tbl.n).limit(10, offset=10).collect()
         assert len(rows) == 0
+
+    def test_default_btree_indexes(self, uses_db: None) -> None:
+        tbl = pxt.create_table(
+            'test',
+            {'c_int': pxt.Int, 'c_str': pxt.String, 'c_bool': pxt.Bool},
+            _is_data_versioned=False,
+            has_default_idxs=True,
+        )
+        # bools aren't eligible for a B-tree index
+        assert btree_idxs(tbl) == {'idx0': 'c_int', 'idx1': 'c_str'}
+
+        validate_update_status(tbl.insert([{'c_int': i, 'c_str': f'str{i}', 'c_bool': True} for i in range(3)]), 3)
+        assert tbl.where(tbl.c_str == 'str1').count() == 1
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_added_btree_index(self, uses_db: None, do_reload_catalog: bool) -> None:
+        tbl = pxt.create_table('test', {'c_int': pxt.Int, 'c_str': pxt.String}, _is_data_versioned=False)
+        assert btree_idxs(tbl) == {}
+
+        validate_update_status(tbl.insert([{'c_int': i, 'c_str': f'str{i}'} for i in range(5)]), 5)
+
+        tbl.add_btree_index('c_int')
+        tbl.add_btree_index(tbl.c_str, idx_name='str_idx')
+
+        reload_catalog(do_reload_catalog)
+        assert btree_idxs(tbl) == {'idx0': 'c_int', 'str_idx': 'c_str'}
+
+        assert tbl.where(tbl.c_int == 2).count() == 1
+        assert tbl.where(tbl.c_int < 2).order_by(tbl.c_int).collect()['c_int'] == [0, 1]
+        assert tbl.where(tbl.c_str > 'str2').order_by(tbl.c_int).collect()['c_int'] == [3, 4]
+
+        assert tbl.where(tbl.c_int == 0).count() == 1
+        validate_update_status(tbl.delete(where=tbl.c_str < 'str1'), 1)
+        assert tbl.where(tbl.c_int == 0).count() == 0
+
+        tbl.drop_index(column=tbl.c_int)
+        reload_catalog(do_reload_catalog)
+        assert btree_idxs(tbl) == {'str_idx': 'c_str'}
+        assert tbl.where(tbl.c_int == 0).count() == 0
+
+    def test_oversized_index_key(self, uses_db: None) -> None:
+        """Indexed string value exceeds the B-tree limit imposed by Postgresql."""
+        # Note: the value has to be incompressible to exceed the limit
+        rng = random.Random(0)
+        long_str = ''.join(rng.choices(string.ascii_letters + string.digits, k=4000))
+
+        tbl = pxt.create_table('test', {'c_str': pxt.String}, _is_data_versioned=False)
+        tbl.add_btree_index('c_str')
+        with pxt_raises(
+            pxt.ErrorCode.CONSTRAINT_VIOLATION, match="Value too large for the btree index on column 'c_str'"
+        ):
+            tbl.insert([{'c_str': long_str}])
+
+        # the same limit applies when the index is built over existing rows
+        tbl.drop_index(column='c_str')
+        validate_update_status(tbl.insert([{'c_str': long_str}]), 1)
+        with pxt_raises(
+            pxt.ErrorCode.CONSTRAINT_VIOLATION, match="Value too large for the btree index on column 'c_str'"
+        ):
+            tbl.add_btree_index('c_str')
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_embedding_index(self, uses_db: None, do_reload_catalog: bool) -> None:
+        tbl = pxt.create_table('test', {'id': pxt.Int, 'text': pxt.String}, _is_data_versioned=False)
+        validate_update_status(
+            tbl.insert(
+                [
+                    {'id': 0, 'text': 'The cat dozed on the warm windowsill and watched the birds outside.'},
+                    {'id': 1, 'text': 'Volcanic eruptions can reshape an entire coastline within days.'},
+                ]
+            ),
+            2,
+        )
+
+        tbl.add_embedding_index('text', idx_name='text_idx', embedding=local_embedding.using(dim=512))
+        reload_catalog(do_reload_catalog)
+        assert 'text_idx' in tbl.get_metadata()['indexes']
+
+        validate_update_status(
+            tbl.insert(
+                [
+                    {'id': 2, 'text': 'An espresso machine builds up pressure to extract coffee.'},
+                    {'id': 3, 'text': 'The quarterly earnings report exceeded every analyst forecast.'},
+                    {'id': 4, 'text': 'Migratory whales navigate by sensing the magnetic field of the earth.'},
+                ]
+            ),
+            3,
+        )
+        assert tbl.count() == 5
+
+        sim = tbl.text.similarity(string='Volcanic eruptions reshape entire coastlines in a matter of days.')
+        assert tbl.select(tbl.id).order_by(sim, asc=False).limit(1).collect()['id'] == [1]
+
+        validate_update_status(tbl.delete(where=tbl.id == 4), 1)
+
+        sim = tbl.text.similarity(string='Espresso machines build pressure in order to extract the coffee.')
+        res = tbl.select(tbl.id).order_by(sim, asc=False).collect()['id']
+        assert res[0] == 2, res
+        assert 4 not in res, res
+
+        tbl.drop_embedding_index(idx_name='text_idx')
+        reload_catalog(do_reload_catalog)
+        assert 'text_idx' not in tbl.get_metadata()['indexes']
+        with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND):
+            _ = tbl.text.similarity(string='Espresso machines build pressure in order to extract the coffee.')
+
+        validate_update_status(tbl.insert([{'id': 5, 'text': 'A new row inserted after the index was dropped.'}]), 1)
+        assert tbl.count() == 5
 
     def test_unsupported_ops(self, uses_db: None) -> None:
         operational_tbl = pxt.create_table('t0', {'n': pxt.Int | None}, _is_data_versioned=False)

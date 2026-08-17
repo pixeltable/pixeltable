@@ -18,6 +18,15 @@ class IndexBase(abc.ABC):
     the specific subclass.
     """
 
+    @property
+    @abc.abstractmethod
+    def uses_value_col(self) -> bool:
+        """True if the index is created on a dedicated index value column, rather than on the indexed column itself.
+
+        Only an index that uses a value column needs create_value_expr(), records_value_errors() and
+        get_index_sa_type(); those aren't called otherwise.
+        """
+
     @abc.abstractmethod
     def create_value_expr(self, c: catalog.Column) -> exprs.Expr:
         """
@@ -33,16 +42,12 @@ class IndexBase(abc.ABC):
         """Return the sqlalchemy type of the index value column"""
 
     @abc.abstractmethod
-    def sa_create_stmt(self, store_index_name: str, sa_value_col: sql.Column) -> sql.Compiled:
-        """Return a sqlalchemy statement for creating the index"""
+    def sa_create_stmt(self, store_index_name: str, sa_col: sql.Column) -> sql.Compiled:
+        """Return a sqlalchemy statement for creating the index on sa_col"""
 
-    def sa_drop_stmt(self, store_index_name: str, sa_value_col: sql.Column) -> sql.Compiled:
+    def sa_drop_stmt(self, store_index_name: str) -> sql.Executable:
         """Return a sqlalchemy statement for dropping the index"""
-        from sqlalchemy.dialects import postgresql
-
-        return sql.schema.DropIndex(sql.Index(store_index_name, sa_value_col), if_exists=True).compile(
-            dialect=postgresql.dialect()
-        )
+        return sql.text(f'DROP INDEX IF EXISTS {store_index_name}')
 
     @classmethod
     @abc.abstractmethod

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import logging
+import re
 import time
 from typing import Any, Iterator
 from uuid import UUID
@@ -337,25 +338,50 @@ class StoreBase:
         for id in self.tbl_version.get().idxs:
             self.create_index(id)
 
+    @classmethod
+    def _index_row_size_error(cls, idx_info: catalog.TableVersion.IndexInfo) -> excs.RequestError:
+        """Construct the user-facing error for a Postgres 'index row size exceeds maximum' error on idx_info."""
+        return excs.RequestError(
+            excs.ErrorCode.CONSTRAINT_VIOLATION,
+            f'Value too large for the {idx_info.idx.display_name()} index on column {idx_info.col.name!r}',
+        )
+
     def create_index(self, idx_id: int) -> None:
         """Create index if not exists"""
-        idx_info = self.tbl_version.get().idxs[idx_id]
-        stmt = idx_info.idx.sa_create_stmt(self.tbl_version.get()._store_idx_name(idx_id), idx_info.val_col.sa_col)
-        self._exec_if_not_exists(str(stmt), wait_for_table=True)
+        tv = self.tbl_version.get()
+        idx_info = tv.idxs[idx_id]
+        indexed_sa_col = idx_info.indexed_sa_col
+        assert indexed_sa_col.table is self.sa_tbl, idx_info
+        stmt = idx_info.idx.sa_create_stmt(tv._store_idx_name(idx_id), indexed_sa_col)
+        try:
+            self._exec_if_not_exists(str(stmt), wait_for_table=True)
+        except sql.exc.OperationalError as e:
+            if (
+                isinstance(idx_info.idx, BtreeIndex)
+                and not idx_info.idx.uses_value_col
+                and isinstance(e.orig, psycopg.errors.ProgramLimitExceeded)
+            ):
+                # An existing value in the table is too long for the new b-tree index
+                raise self._index_row_size_error(idx_info) from e
+            raise
 
     def drop_index(self, idx_id: int) -> None:
         """Drop index if exists"""
         idx_info = self.tbl_version.get().idxs[idx_id]
         store_index_name = self.tbl_version.get()._store_idx_name(idx_id)
-        stmt = idx_info.idx.sa_drop_stmt(store_index_name, idx_info.val_col.sa_col)
+        stmt = idx_info.idx.sa_drop_stmt(store_index_name)
         with get_runtime().begin_xact(for_write=True) as conn:
             try:
-                conn.execute(sql.text(str(stmt)))
+                conn.execute(stmt)
             except (sql.exc.IntegrityError, sql.exc.ProgrammingError) as e:
                 Env.get().console_logger.info(f'{stmt} failed with: {e}')
                 if not isinstance(e.orig, psycopg.errors.UndefinedTable):
                     raise
                 # Table no longer exists -- nothing to drop, ignore error
+
+        # Rebuild the sqlalchemy schema to discard any stray sql.Indexes still linked to it.
+        # TODO(PXT-1271): stop sa_create_stmt() from mutating the store table. That will make this rebuild unnecessary.
+        self.create_sa_tbl()
 
     def validate(self) -> None:
         """Validate store table against self.table_version"""
@@ -514,19 +540,21 @@ class StoreBase:
     def insert_rows(
         self,
         exec_plan: ExecNode,
-        v_min: int | None,
         rowids: Iterator[int] | None = None,
         abort_on_exc: bool = False,
         return_rows: bool = False,
     ) -> tuple[set[int], RowCountStats, list[dict[str, Any]] | None]:
-        """Insert rows into the store table and update the catalog table's md
+        """Insert rows into the store table and update the catalog table's md.
+
+        On a data-versioned table the new rows get the table's current version as their v_min.
+
         Returns:
             set of column ids that have exceptions, row count stats, newly inserted rows (if return_rows)
         """
-        is_data_versioned = self.tbl_version.get().is_data_versioned
-        assert (v_min is not None) == is_data_versioned
-        if not is_data_versioned:
-            assert rowids is None
+        tbl_version = self.tbl_version.get()
+        is_data_versioned = tbl_version.is_data_versioned
+        v_min = tbl_version.version if is_data_versioned else None
+        assert is_data_versioned or rowids is None
         # TODO: total?
         num_excs = 0
         num_rows = 0
@@ -615,13 +643,17 @@ class StoreBase:
                 ) from e
             raise
         except sql.exc.OperationalError as e:
-            if isinstance(e.orig, psycopg.errors.ProgramLimitExceeded) and 'pk_idx_' in str(e.orig):
-                pk_col_names = [col.name for col in self.tbl_version.get().primary_key_columns()]
-                raise excs.RequestError(
-                    excs.ErrorCode.CONSTRAINT_VIOLATION,
-                    f'Primary key value too large for index: the combined size of the insert for columns '
-                    f'({", ".join(pk_col_names)}) exceeds the maximum btree index row size',
-                ) from e
+            if isinstance(e.orig, psycopg.errors.ProgramLimitExceeded):
+                if 'pk_idx_' in str(e.orig):
+                    pk_col_names = [col.name for col in self.tbl_version.get().primary_key_columns()]
+                    raise excs.RequestError(
+                        excs.ErrorCode.CONSTRAINT_VIOLATION,
+                        f'Primary key value too large for index: the combined size of the insert for columns '
+                        f'({", ".join(pk_col_names)}) exceeds the maximum btree index row size',
+                    ) from e
+                idx_info = self._offending_idx(e.orig)
+                if idx_info is not None:
+                    raise self._index_row_size_error(idx_info) from e
             raise
 
         # TODO: Inserting directly via psycopg delivers a small performance benefit, but is somewhat fraught due to
@@ -631,6 +663,16 @@ class StoreBase:
         # placeholders_str = ", ".join('%s' for _ in store_col_names)
         # stmt_text = f'INSERT INTO {self.sa_tbl.name} ({col_names_str}) VALUES ({placeholders_str})'
         # conn.exec_driver_sql(stmt_text, table_rows)
+
+    def _offending_idx(self, e: Exception) -> catalog.TableVersion.IndexInfo | None:
+        """Return the index named by the given Postgres error, or None if it doesn't name one of this table's."""
+        tv = self.tbl_version.get()
+        for idx_info in tv.idxs.values():
+            store_idx_name = tv._store_idx_name(idx_info.id)
+            # \b is a word boundary; it prevents 'idx_1' from matching 'idx_10'
+            if re.search(rf'\b{re.escape(store_idx_name)}\b', str(e)):
+                return idx_info
+        return None
 
     def _versions_clause(self, versions: list[int | None], match_on_vmin: bool) -> sql.ColumnElement[bool]:
         """Return filter for base versions"""
@@ -688,10 +730,12 @@ class StoreBase:
         )
         set_clause: dict[sql.Column, int | sql.Column] = {self.v_max_col: current_version}
         for index_info in self.tbl_version.get().idxs_by_name.values():
-            # copy value column to undo column
-            set_clause[index_info.undo_col.sa_col] = index_info.val_col.sa_col
-            # set value column to NULL
-            set_clause[index_info.val_col.sa_col] = None
+            if index_info.undo_col is not None:
+                # The index maintains an index value column and an undo column.
+                # copy value column to undo column
+                set_clause[index_info.undo_col.sa_col] = index_info.val_col.sa_col
+                # set value column to NULL
+                set_clause[index_info.val_col.sa_col] = None
 
         stmt = (
             sql.update(self.sa_tbl)
