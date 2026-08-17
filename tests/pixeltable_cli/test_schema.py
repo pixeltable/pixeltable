@@ -34,14 +34,27 @@ SCHEMA_SRC = dedent(
 )
 
 
+def assert_in_agreement(cli: PxtRunner, app: str, target: str) -> None:
+    """Assert that the target holds what the file declares: diff agrees, and no declared table is pending.
+
+    Whatever a command reported about the work it did, this is the reading that says the target converged.
+    An undeclared table is not a disagreement, so a target with extras still passes.
+    """
+    r = cli('schema', 'diff', app, target, '--json')
+    assert r.returncode == 0, r.stdout
+    assert r.json['in_agreement'], r.json
+    assert [t['resolution'] for t in r.json['tables']] == ['up_to_date'] * len(r.json['tables']), r.json['tables']
+
+
 class TestSchema:
-    def test_update(
+    def test_basic(
         self,
         cli: PxtRunner,
         apps: Callable[[str], str],
         make_catalog_path: Callable[[str], str],
         tmp_path: pathlib.Path,
     ) -> None:
+        """The first application of a file: create, use what it created, rerun, and hit a conflict."""
         p = make_catalog_path
         schema_file = tmp_path / 'app.py'
         schema_file.write_text(pathlib.Path(apps('basic.py')).read_text(encoding='utf-8'), encoding='utf-8')
@@ -65,6 +78,7 @@ class TestSchema:
         assert published.select(published.headline).collect()['headline'] == ['HELLO!']
         titles = pxt.get_table(f'{target}/titles')
         assert set(titles.columns()) == {'doc_id', 't', 'shouted'}
+        assert_in_agreement(cli, str(schema_file), target)
 
         # idempotent rerun: exit 0, nothing applied
         r = cli('schema', 'update', str(schema_file), target)
@@ -100,11 +114,12 @@ class TestSchema:
         assert 'update_all()' not in r.stderr
         assert 'pxt.move()' not in r.stderr
 
-    def test_update_migrates(
+    def test_evolution(
         self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
     ) -> None:
+        """Editing the file under data: an added column is applied as it stands, a dropped one is refused."""
         p = make_catalog_path
-        target = p('migrate')
+        target = p('evolve')
         cli('schema', 'update', apps('basic.py'), target)
         docs = pxt.get_table(f'{target}/docs')
         docs.insert([{'doc_id': 1, 'title': 'hello', 'body': 'world', 'published': True}])
@@ -116,22 +131,14 @@ class TestSchema:
         docs = pxt.get_table(f'{target}/docs')
         assert 'author' in docs.columns()
         assert docs.select(docs.title).collect()['title'] == ['hello']
+        assert_in_agreement(cli, apps('basic_added_column.py'), target)
 
-        r = cli('schema', 'diff', apps('basic_added_column.py'), target)
-        assert r.returncode == 0
-
-    def test_update_destructive(
-        self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
-    ) -> None:
-        p = make_catalog_path
-        target = p('destructive')
-        cli('schema', 'update', apps('basic.py'), target)
-
-        # dropping a column destroys its data, so it is refused without --allow-destructive
+        # dropping a column destroys its data, so it is refused without --allow-destructive; this file drops
+        # both the column just added and the one holding data
         schema_file = pathlib.Path(apps('basic_dropped_column.py'))
         r = cli('schema', 'update', str(schema_file), target, check=False)
         assert r.returncode == 3
-        assert 'refusing to apply 1 destructive operation(s)' in r.stderr
+        assert 'refusing to apply 2 destructive operation(s)' in r.stderr
         assert 'body' in pxt.get_table(f'{target}/docs').columns()
 
         # -n reports the same plan without applying it
@@ -143,13 +150,13 @@ class TestSchema:
         # the refusal is machine-readable too: the plan comes back with the destructive ops marked refused
         r = cli('schema', 'update', str(schema_file), target, '--json', check=False)
         assert r.returncode == 3
-        docs = next(t for t in r.json['tables'] if t['path'] == f'{target}/docs')
-        assert docs['status'] == 'refused'
-        assert [op['status'] for op in docs['ops']] == ['refused']
+        docs_plan = next(t for t in r.json['tables'] if t['path'] == f'{target}/docs')
+        assert docs_plan['status'] == 'refused'
+        assert [op['status'] for op in docs_plan['ops']] == ['refused', 'refused']
 
         r = cli('schema', 'update', str(schema_file), target, '-n', '--json', check=False)
         assert r.returncode == 2
-        assert [op['status'] for t in r.json['tables'] for op in t['ops']] == ['skipped']
+        assert [op['status'] for t in r.json['tables'] for op in t['ops']] == ['skipped', 'skipped']
 
         # -n applies nothing, even with the drop permitted and confirmed
         r = cli('schema', 'update', str(schema_file), target, '--allow-destructive', '-f', '-n', check=False)
@@ -158,10 +165,14 @@ class TestSchema:
 
         r = cli('schema', 'update', str(schema_file), target, '--allow-destructive', '-f', '--json')
         assert r.returncode == 0
-        docs = next(t for t in r.json['tables'] if t['path'] == f'{target}/docs')
-        assert docs['status'] == 'applied'
-        assert [op['status'] for op in docs['ops']] == ['applied']
-        assert 'body' not in pxt.get_table(f'{target}/docs').columns()
+        docs_plan = next(t for t in r.json['tables'] if t['path'] == f'{target}/docs')
+        assert docs_plan['status'] == 'applied'
+        assert [op['status'] for op in docs_plan['ops']] == ['applied', 'applied']
+        docs = pxt.get_table(f'{target}/docs')
+        assert 'body' not in docs.columns() and 'author' not in docs.columns()
+        # what the drops did not touch is still there, rows included
+        assert docs.select(docs.title, docs.title_upper).collect()[0] == {'title': 'hello', 'title_upper': 'HELLO'}
+        assert_in_agreement(cli, str(schema_file), target)
 
         # rerunning with the same flags reports the same nothing-to-do as an unflagged rerun does
         r = cli('schema', 'update', str(schema_file), target, '--allow-destructive', '-f')
@@ -235,25 +246,6 @@ class TestSchema:
         assert "column 'author' will be added  safe" in r.stdout
         assert "column 'body' will be dropped  DESTRUCTIVE" in r.stdout
 
-    def test_diff_extras(self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
-        p = make_catalog_path
-        schema_file = tmp_path / 'app_schema.py'
-        schema_file.write_text(SCHEMA_SRC)
-        target = p('extras')
-        cli('schema', 'update', str(schema_file), target)
-        pxt.create_table(f'{target}/scratch', {'x': pxt.Int | None})
-
-        # a table no model declares is reported, but update would not touch it, so the target is still in agreement
-        r = cli('schema', 'diff', str(schema_file), target, '--json')
-        assert r.returncode == 0
-        assert r.json['in_agreement']
-        assert r.json['extras'] == [f'{target}/scratch']
-        assert r.json['summary']['extras'] == 1
-
-        r = cli('schema', 'diff', str(schema_file), target)
-        assert f'! {target}/scratch' in r.stdout
-        assert 'extra (not in schema)' in r.stdout
-
     def test_iterator_view_and_indexes(
         self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
     ) -> None:
@@ -277,8 +269,7 @@ class TestSchema:
         sim = chunks.text.similarity(string='sentence')
         assert len(chunks.order_by(sim, asc=False).limit(1).collect()) == 1
 
-        r = cli('schema', 'diff', apps('search.py'), target)
-        assert r.returncode == 0
+        assert_in_agreement(cli, apps('search.py'), target)
 
     def test_media_columns(
         self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
@@ -305,8 +296,7 @@ class TestSchema:
         codec = recordings.audio_metadata.streams[0].codec_context.name
         assert recordings.select(codec=codec).collect()[0]['codec'] == 'flac'
 
-        r = cli('schema', 'diff', apps('media.py'), target)
-        assert r.returncode == 0
+        assert_in_agreement(cli, apps('media.py'), target)
 
     def test_routes_are_not_schema(
         self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
@@ -316,16 +306,18 @@ class TestSchema:
         cli('schema', 'update', apps('basic.py'), target)
 
         # the variant adds a route and nothing else, so the schema is already in agreement with it
-        r = cli('schema', 'diff', apps('basic_added_route.py'), target, '--json')
-        assert r.returncode == 0
-        assert r.json['in_agreement']
+        assert_in_agreement(cli, apps('basic_added_route.py'), target)
 
-    def test_prune(self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_extras_and_prune(
+        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+    ) -> None:
+        """A table the file does not declare: reported as an extra, left alone by update, dropped by prune."""
         p = make_catalog_path
         schema_file = tmp_path / 'app_schema.py'
         schema_file.write_text(SCHEMA_SRC)
         target = p('prune')
         cli('schema', 'update', str(schema_file), target)
+        assert_in_agreement(cli, str(schema_file), target)
 
         # nothing undeclared yet
         r = cli('schema', 'prune', str(schema_file), target, '-f')
@@ -336,6 +328,17 @@ class TestSchema:
         pxt.create_table(f'{target}/scratch', {'x': pxt.Int | None})
         scratch = pxt.get_table(f'{target}/scratch')
         pxt.create_view(f'{target}/scratch_view', scratch.where(scratch.x > 0))
+
+        # a table no model declares is reported, but update would not touch it, so the target is still in agreement
+        r = cli('schema', 'diff', str(schema_file), target, '--json')
+        assert r.returncode == 0
+        assert r.json['in_agreement']
+        assert sorted(r.json['extras']) == [f'{target}/scratch', f'{target}/scratch_view']
+        assert r.json['summary']['extras'] == 2
+
+        r = cli('schema', 'diff', str(schema_file), target)
+        assert f'! {target}/scratch' in r.stdout
+        assert 'extra (not in schema)' in r.stdout
 
         # -n lists the drops without performing them
         r = cli('schema', 'prune', str(schema_file), target, '-n', check=False)
@@ -364,8 +367,7 @@ class TestSchema:
         assert sorted(pxt.list_tables(target)) == [f'{target}/docs', f'{target}/titled_docs']
 
         # the declared tables are untouched, so the schema and the target still agree
-        r = cli('schema', 'diff', str(schema_file), target)
-        assert r.returncode == 0
+        assert_in_agreement(cli, str(schema_file), target)
 
     def test_prune_keeps_tables_with_declared_dependents(
         self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
@@ -450,7 +452,7 @@ class TestSchema:
         docs.insert([{'title': 'hello', 'body': 'world'}, {'title': '', 'body': 'untitled'}])
         titled = pxt.get_table(f'{target}/titled')
         assert titled.select(titled.headline).collect()['headline'] == ['HELLO!']
-        assert cli('schema', 'diff', str(schema_file), target).returncode == 0
+        assert_in_agreement(cli, str(schema_file), target)
 
         # --out writes the same bytes to a file, for either form
         out_file = tmp_path / 'out.py'
@@ -474,7 +476,7 @@ class TestSchema:
         # and applying it has to produce working tables, the embedding index included
         r = cli('schema', 'update', str(out_file), full_target)
         assert r.stdout.count('created') == 4
-        assert cli('schema', 'diff', str(out_file), full_target).returncode == 0  # nothing left to apply
+        assert_in_agreement(cli, str(out_file), full_target)  # nothing left to apply
         docs = pxt.get_table(f'{full_target}/docs')
         docs.insert(
             [
