@@ -517,12 +517,12 @@ class GeneratingFunctionCall:
         return cls(it, args, kwargs, bound_args, outputs, validation_error)
 
     def display_str(self) -> str:
-        # Build the iterator expression string: "iterator_name(arg1, arg2=expr2, ...)"
-        arg_strs: list[str] = []
-        for arg_expr in self.args:
-            arg_strs.append(arg_expr.display_str(inline=True))
-        for arg_name, arg_expr in self.kwargs.items():
-            arg_strs.append(f'{arg_name}={arg_expr.display_str(inline=True)}')
+        # Build the iterator expression string: "iterator_name(arg1, arg2=expr2, ...)". The keyword
+        # arguments are rendered in name order, so that the same call reads the same however it was written:
+        # a declaration is compared against a stored view by this string, and the two arrive here with the
+        # keywords in the order each was constructed with.
+        arg_strs: list[str] = [arg_expr.display_str(inline=True) for arg_expr in self.args]
+        arg_strs += [f'{name}={self.kwargs[name].display_str(inline=True)}' for name in sorted(self.kwargs)]
         return f'{self.it.name}({", ".join(arg_strs)})'
 
 

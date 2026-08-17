@@ -6,9 +6,12 @@ from textwrap import dedent
 
 import pixeltable as pxt
 
-from ..utils import skip_test_if_not_installed
+from ..utils import get_audio_files, get_documents, get_video_files, skip_test_if_not_installed
 from .conftest import PxtRunner
 
+# A minimal schema, for the cases that assert on an error message rather than on what Pixeltable can express.
+# The breadth -- column types, computed columns, views, iterator views, indexes, media -- comes from the shared
+# app corpus in apps/, which test_service.py drives through `pxt service`.
 SCHEMA_SRC = dedent(
     """
     from __future__ import annotations
@@ -32,19 +35,36 @@ SCHEMA_SRC = dedent(
 
 
 class TestSchema:
-    def test_update(self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_update(
+        self,
+        cli: PxtRunner,
+        apps: Callable[[str], str],
+        make_catalog_path: Callable[[str], str],
+        tmp_path: pathlib.Path,
+    ) -> None:
         p = make_catalog_path
-        schema_file = tmp_path / 'app_schema.py'
-        schema_file.write_text(SCHEMA_SRC)
+        schema_file = tmp_path / 'app.py'
+        schema_file.write_text(pathlib.Path(apps('basic.py')).read_text(encoding='utf-8'), encoding='utf-8')
         target = p('app')
 
         # create; the tables exist and compute afterwards
         r = cli('schema', 'update', str(schema_file), target)
-        assert r.stdout.count('created') == 2
+        assert r.stdout.count('created') == 3  # one table and its two views
         docs = pxt.get_table(f'{target}/docs')
-        docs.insert([{'title': 'hello', 'body': 'world'}, {'title': '', 'body': 'no title'}])
-        titled = pxt.get_table(f'{target}/titled_docs')
-        assert titled.select(titled.headline).collect()[0]['headline'] == 'HELLO!'
+        docs.insert(
+            [
+                {'doc_id': 1, 'title': 'hello', 'body': 'world', 'published': True},
+                {'doc_id': 2, 'title': '', 'body': 'no title', 'published': False},
+            ]
+        )
+        # computed columns compute, including the unstored one
+        row = docs.where(docs.doc_id == 1).select(docs.title_upper, docs.summary, docs.unstored).collect()[0]
+        assert row == {'title_upper': 'HELLO', 'summary': 'hello', 'unstored': 'hello'}
+        # a filtered view holds the rows its predicate admits, a projecting view the columns it selects
+        published = pxt.get_table(f'{target}/published')
+        assert published.select(published.headline).collect()['headline'] == ['HELLO!']
+        titles = pxt.get_table(f'{target}/titles')
+        assert set(titles.columns()) == {'doc_id', 't', 'shouted'}
 
         # idempotent rerun: exit 0, nothing applied
         r = cli('schema', 'update', str(schema_file), target)
@@ -55,7 +75,7 @@ class TestSchema:
         # json output: the plan that was applied, which is now empty of changes
         r = cli('schema', 'update', str(schema_file), target, '--json')
         assert r.json['in_agreement']
-        assert [t['resolution'] for t in r.json['tables']] == ['up_to_date', 'up_to_date']
+        assert [t['resolution'] for t in r.json['tables']] == ['up_to_date'] * 3
 
         # a model whose kind conflicts with the existing object (table vs view) is an error
         schema_file.write_text(
@@ -68,54 +88,47 @@ class TestSchema:
                 TableModel = pxt.model_base()
 
 
-                class TitledDocs(TableModel, name='titled_docs'):
+                class Published(TableModel, name='published'):
                     headline: pxt.String | None
                 """
             )
         )
         r = cli('schema', 'update', str(schema_file), target, check=False)
         assert r.returncode == 1
-        assert "specifies a table, but 'titled_docs' is a view" in r.stderr
+        assert "specifies a table, but 'published' is a view" in r.stderr
         # the way forward is named in the terms of the surface the caller is using
         assert 'update_all()' not in r.stderr
         assert 'pxt.move()' not in r.stderr
 
     def test_update_migrates(
-        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+        self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
     ) -> None:
         p = make_catalog_path
-        schema_file = tmp_path / 'app_schema.py'
-        schema_file.write_text(SCHEMA_SRC)
         target = p('migrate')
-        cli('schema', 'update', str(schema_file), target)
+        cli('schema', 'update', apps('basic.py'), target)
         docs = pxt.get_table(f'{target}/docs')
-        docs.insert([{'title': 'hello', 'body': 'world'}])
+        docs.insert([{'doc_id': 1, 'title': 'hello', 'body': 'world', 'published': True}])
 
         # an added column is safe, so it needs no flag, and the existing rows survive
-        schema_file.write_text(
-            SCHEMA_SRC.replace('body: pxt.String | None', 'body: pxt.String | None\n    author: pxt.String | None')
-        )
-        r = cli('schema', 'update', str(schema_file), target)
+        r = cli('schema', 'update', apps('basic_added_column.py'), target)
         assert r.returncode == 0
         assert 'updated' in r.stdout
         docs = pxt.get_table(f'{target}/docs')
         assert 'author' in docs.columns()
         assert docs.select(docs.title).collect()['title'] == ['hello']
 
-        r = cli('schema', 'diff', str(schema_file), target)
+        r = cli('schema', 'diff', apps('basic_added_column.py'), target)
         assert r.returncode == 0
 
     def test_update_destructive(
-        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+        self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
     ) -> None:
         p = make_catalog_path
-        schema_file = tmp_path / 'app_schema.py'
-        schema_file.write_text(SCHEMA_SRC)
         target = p('destructive')
-        cli('schema', 'update', str(schema_file), target)
+        cli('schema', 'update', apps('basic.py'), target)
 
         # dropping a column destroys its data, so it is refused without --allow-destructive
-        schema_file.write_text(SCHEMA_SRC.replace('    body: pxt.String | None\n', ''))
+        schema_file = pathlib.Path(apps('basic_dropped_column.py'))
         r = cli('schema', 'update', str(schema_file), target, check=False)
         assert r.returncode == 3
         assert 'refusing to apply 1 destructive operation(s)' in r.stderr
@@ -240,6 +253,72 @@ class TestSchema:
         r = cli('schema', 'diff', str(schema_file), target)
         assert f'! {target}/scratch' in r.stdout
         assert 'extra (not in schema)' in r.stdout
+
+    def test_iterator_view_and_indexes(
+        self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
+    ) -> None:
+        """A schema that declares an iterator view and indexes over what the iterator produces."""
+        target = make_catalog_path('app')
+        cli('schema', 'update', apps('search.py'), target)
+
+        articles = pxt.get_table(f'{target}/articles')
+        articles.insert([{'article_id': 1, 'body': 'One sentence. And a second one.'}])
+        assert articles.select(articles.word_count).collect()['word_count'] == [31]
+
+        # the view holds a row per sentence, with the column the iterator produces
+        chunks = pxt.get_table(f'{target}/chunks')
+        assert chunks.count() == 2
+        assert 'text' in chunks.columns()
+
+        # both indexes the models declare exist, and the embedding one answers a similarity query
+        indexes = chunks.get_metadata()['indexes']
+        assert [ix['index_type'] for ix in indexes.values()] == ['embedding']
+        assert [ix['index_type'] for ix in articles.get_metadata()['indexes'].values()] == ['btree']
+        sim = chunks.text.similarity(string='sentence')
+        assert len(chunks.order_by(sim, asc=False).limit(1).collect()) == 1
+
+        r = cli('schema', 'diff', apps('search.py'), target)
+        assert r.returncode == 0
+
+    def test_media_columns(
+        self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
+    ) -> None:
+        """A schema with media columns and a view over an iterator that extracts frames from them."""
+        target = make_catalog_path('app')
+        cli('schema', 'update', apps('media.py'), target)
+
+        clips = pxt.get_table(f'{target}/clips')
+        assert clips.get_metadata()['columns']['video']['type_'] == 'Video'
+        clips.insert([{'clip_id': 1, 'video': get_video_files()[0], 'caption': 'a clip'}])
+
+        # the media-typed computed column produced an image, and the iterator a row per frame
+        assert clips.get_metadata()['columns']['poster']['type_'] == 'Image | None'
+        assert clips.select(path=clips.poster.localpath).collect()[0]['path'].endswith(('.png', '.jpg', '.jpeg'))
+        assert pxt.get_table(f'{target}/frames').count() > 0
+
+        # the other media types, and a computed column reading one of them
+        recordings = pxt.get_table(f'{target}/recordings')
+        columns = recordings.get_metadata()['columns']
+        assert (columns['audio']['type_'], columns['transcript']['type_']) == ('Audio', 'Document')
+        transcript = next(d for d in get_documents() if d.endswith('simple.md'))
+        recordings.insert([{'recording_id': 1, 'audio': get_audio_files()[0], 'transcript': transcript}])
+        codec = recordings.audio_metadata.streams[0].codec_context.name
+        assert recordings.select(codec=codec).collect()[0]['codec'] == 'flac'
+
+        r = cli('schema', 'diff', apps('media.py'), target)
+        assert r.returncode == 0
+
+    def test_routes_are_not_schema(
+        self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
+    ) -> None:
+        """An application file's routes are invisible to the schema: only its models declare tables."""
+        target = make_catalog_path('app')
+        cli('schema', 'update', apps('basic.py'), target)
+
+        # the variant adds a route and nothing else, so the schema is already in agreement with it
+        r = cli('schema', 'diff', apps('basic_added_route.py'), target, '--json')
+        assert r.returncode == 0
+        assert r.json['in_agreement']
 
     def test_prune(self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         p = make_catalog_path

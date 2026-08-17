@@ -1,4 +1,5 @@
 import pathlib
+import time
 from collections.abc import Callable, Iterator
 from typing import Any
 
@@ -7,7 +8,7 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import get_video_files, skip_test_if_not_installed
+from ..utils import get_audio_files, get_documents, get_video_files, skip_test_if_not_installed
 from .conftest import BackgroundPxt, PxtRunner
 
 pytestmark = pytest.mark.local('a local service serves the in-process catalog')
@@ -63,6 +64,18 @@ def _post(endpoint: str, path: str, **body: Any) -> httpx.Response:
     resp = httpx.post(f'{endpoint}{path}', json=body, timeout=_REQUEST_TIMEOUT)
     assert resp.status_code == 200, resp.text
     return resp
+
+
+def _await_job(job_url: str, timeout: float = 120.0) -> Any:
+    """Poll a background job until it stops being pending, and return what it produced."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        status = httpx.get(job_url, timeout=_REQUEST_TIMEOUT).json()
+        if status['status'] != 'pending':
+            assert status['status'] == 'done', status
+            return status['result']
+        time.sleep(0.2)
+    raise AssertionError(f'the job at {job_url} was still pending after {timeout:.0f}s')
 
 
 def assert_not_serving(cli: PxtRunner, *names: str) -> None:
@@ -243,7 +256,7 @@ class TestService:
         skip_test_if_not_installed('uvicorn')
         target = make_catalog_path('app')
         deploy(cli, apps('media.py'), target)
-        assert_serving(cli, apps('media.py'), target, 'clips', 'frames')
+        assert_serving(cli, apps('media.py'), target, 'clips', 'frames', 'recordings')
 
         # a listing carries what each service serves, in Pixeltable's terms rather than OpenAPI's: a video
         # arrives as an upload, which a JSON schema would render as an indistinguishable string
@@ -258,19 +271,19 @@ class TestService:
 
         # the argument narrows the listing to one service, the way `describe` inspects one table
         assert sorted(services(cli, f'{target}/clips')) == ['clips']
-        assert sorted(services(cli, target)) == ['clips', 'frames']
+        assert sorted(services(cli, target)) == ['clips', 'frames', 'recordings']
 
         # the plain rendering shows the routes under each service
         out = cli('service', 'list', f'{target}/clips').stdout
         assert '/clips' in out and 'video (file)' in out, out
 
     def test_media(self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]) -> None:
-        """A video uploaded as form data, an iterator view over it, and a frame returned as a file."""
+        """The routes whose request or response is not JSON: file uploads, a file response, a background job."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
         app, target = apps('media.py'), make_catalog_path('app')
         deploy(cli, app, target)
-        running = assert_serving(cli, app, target, 'clips', 'frames')
+        running = assert_serving(cli, app, target, 'clips', 'frames', 'recordings')
 
         video = get_video_files()[0]
         with open(video, 'rb') as f:
@@ -293,7 +306,24 @@ class TestService:
         assert len(rows) > 1, rows
         assert all(row['thumb'].startswith('http') for row in rows), rows[0]
 
-        # stopping one service of a file leaves the other serving
+        # a background route answers with a job to poll, and the two uploads arrive in one request
+        audio = get_audio_files()[0]
+        transcript = next(d for d in get_documents() if d.endswith('simple.md'))
+        with open(audio, 'rb') as af, open(transcript, 'rb') as tf:
+            resp = httpx.post(
+                f'{running["recordings"]["endpoint"]}/recordings',
+                data={'recording_id': 1},
+                files={'audio': ('take.flac', af, 'audio/flac'), 'transcript': ('notes.md', tf, 'text/markdown')},
+                timeout=_REQUEST_TIMEOUT,
+            )
+        assert resp.status_code == 200, resp.text
+        result = _await_job(resp.json()['job_url'])
+        assert result['recording_id'] == 1, result
+        assert result['audio_metadata']['streams'][0]['codec_context']['name'] == 'flac', result
+        recordings = pxt.get_table(f'{target}/recordings')
+        assert recordings.where(recordings.recording_id == 1).count() == 1
+
+        # stopping one service of a file leaves the others serving
         cli('service', 'stop', f'{target}/frames')
         assert_not_serving(cli, 'frames')
         assert _post(running['clips']['endpoint'], '/poster', clip_id=4, video=f'file://{video}').status_code == 200

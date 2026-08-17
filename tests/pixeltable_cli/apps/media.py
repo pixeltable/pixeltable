@@ -28,6 +28,13 @@ class Frames(TableModel, name='frames', base=Clips, iterator=frame_iterator(vide
     thumb = frame.resize(size=(32, 32))  # type: ignore[name-defined]
 
 
+class Recordings(TableModel, name='recordings'):
+    recording_id = pxt.Column(type=pxt.Int, primary_key=True)
+    audio: pxt.Audio
+    transcript: pxt.Document
+    audio_metadata = audio.get_metadata()  # type: ignore[attr-defined]
+
+
 clips = FastAPIRouter(name='clips')
 
 # the video arrives as multipart/form-data rather than as a URL in a JSON body
@@ -56,4 +63,16 @@ frames.add_compute_route(
     path='/frames',
     inputs=[Clips.clip_id, Clips.video],  # type: ignore[arg-type]
     outputs=[Frames.thumb],
+)
+
+# two files in one request, and a response that arrives before the work is done: the caller gets a job url
+# to poll instead of the inserted row
+recordings = FastAPIRouter(name='recordings')
+recordings.add_insert_route(
+    Recordings,
+    path='/recordings',
+    inputs=[Recordings.recording_id],  # type: ignore[arg-type]
+    uploadfile_inputs=['audio', 'transcript'],
+    outputs=[Recordings.recording_id, Recordings.audio_metadata],
+    background=True,
 )
