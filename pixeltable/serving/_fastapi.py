@@ -82,6 +82,9 @@ _JOB_STATUS_ROUTE_NAME = 'pxt_serve_job_status'
 
 _EMBEDDED_OBJECT_TYPES: tuple[type, ...] = (np.ndarray, np.generic, PIL.Image.Image, bytes)
 
+# how many background requests a router runs at a time
+_N_BACKGROUND_WORKERS = 16
+
 
 def _validate_registered_schema(t: pxt.Table, schema_version: int) -> None:
     """Raise 409 if the table's schema changed since the route was registered.
@@ -331,7 +334,9 @@ class FastAPIRouter(fastapi.APIRouter):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self._executor = ThreadPoolExecutor(max_workers=16, thread_name_prefix='pxt-serve-background')
+        self._executor = ThreadPoolExecutor(
+            max_workers=_N_BACKGROUND_WORKERS, thread_name_prefix='pxt-serve-background'
+        )
         self._jobs = {}
         self._jobs_lock = threading.Lock()
         self._is_shut_down = False
@@ -370,9 +375,10 @@ class FastAPIRouter(fastapi.APIRouter):
         if self._is_shut_down:
             return
         self._is_shut_down = True
-        # queued behind the in-flight requests, so that the worker threads' event loops and clients are
-        # closed only after workers stop using them
-        close_threadpool_runtimes(self._executor)
+        if len(self._jobs) > 0:
+            # a background job ran, so a worker thread has a runtime to close; the calls queue behind the
+            # in-flight requests, so that the loops and clients are closed only after workers stop using them
+            close_threadpool_runtimes(self._executor, _N_BACKGROUND_WORKERS)
         # wait until in-flight requests are done and won't access _engine_cache
         self._executor.shutdown(wait=True, cancel_futures=True)
         for eng in self._engine_cache.values():

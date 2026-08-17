@@ -31,6 +31,9 @@ _thread_local = threading.local()
 
 _XACT_ISOLATION_LEVEL = 'REPEATABLE READ'
 
+# run_coro() runs one coroutine at a time, on a thread with an event loop that outlives the single call
+_N_RUN_CORO_WORKERS = 1
+
 _T = TypeVar('_T')
 
 
@@ -252,7 +255,7 @@ class Runtime:
     def run_coro(self, coro: Coroutine[Any, Any, _T]) -> _T:
         """Run a coroutine synchronously in a separate thread with its own persistent event loop."""
         if self._run_coro_executor is None:
-            self._run_coro_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            self._run_coro_executor = concurrent.futures.ThreadPoolExecutor(max_workers=_N_RUN_CORO_WORKERS)
 
         def run(coro: Coroutine[Any, Any, _T]) -> _T:
             # this runs in the _run_coro_executor's thread, with its own Runtime instance
@@ -351,25 +354,25 @@ def get_runtime() -> Runtime:
     return runtime
 
 
-def close_threadpool_runtimes(executor: concurrent.futures.ThreadPoolExecutor) -> None:
-    """Close the Runtime of every live worker thread of the given executor.
+def close_threadpool_runtimes(executor: concurrent.futures.ThreadPoolExecutor, n_workers: int) -> None:
+    """Close the Runtime of every worker thread of the given executor, which was created with n_workers.
 
     A worker thread that ran Pixeltable calls has a Runtime of its own, with an event loop and clients that
     only that thread can close; ending the thread leaves them for GC. Returns once every worker has closed
     its runtime, which for a busy one is after it finishes the work it is running.
     """
-    threads = executor._threads
-    if len(threads) == 0:
-        return
-
-    # use a barrier to force every close_runtime() call onto a different thread in the pool
-    barrier = threading.Barrier(len(threads))
+    # one task per worker slot, each waiting at the barrier until all of them run:
+    # - no thread can take a second task, so the calls land on n_workers distinct threads.
+    # - in a thread pool with a thread count below the maximum, submitting one task per *existing* thread would
+    #   not reach those that are still busy (since they're busy, the pool simply starts up more threads for the cleanup
+    #   task)
+    barrier = threading.Barrier(n_workers)
 
     def close_runtime() -> None:
         barrier.wait()
         get_runtime().close()
 
-    futures = [executor.submit(close_runtime) for _ in range(len(threads))]
+    futures = [executor.submit(close_runtime) for _ in range(n_workers)]
     for future in futures:
         future.result()
 
@@ -389,7 +392,7 @@ def reset_runtime() -> None:
             for tbl_version in local_catalog._tbl_versions.values():
                 tbl_version.is_validated = False
         if runtime._run_coro_executor is not None:
-            close_threadpool_runtimes(runtime._run_coro_executor)
+            close_threadpool_runtimes(runtime._run_coro_executor, _N_RUN_CORO_WORKERS)
             runtime._run_coro_executor.shutdown(wait=True)
             runtime._run_coro_executor = None
         runtime.close()

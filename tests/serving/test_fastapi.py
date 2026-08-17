@@ -5,7 +5,7 @@ import os
 import pathlib
 import time
 import urllib.parse
-from typing import Any, Callable, Iterator, Literal
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal
 
 import av
 import httpx
@@ -27,6 +27,10 @@ from tests.utils import (
     skip_test_if_not_installed,
     sleep,
 )
+
+if TYPE_CHECKING:
+    # fastapi is an optional dependency, so the tests that need it import it themselves and skip without it
+    from fastapi.testclient import TestClient
 
 
 @pxt.udf
@@ -87,8 +91,10 @@ _computation_loops: list[asyncio.AbstractEventLoop] = []
 
 
 @pxt.udf
-def record_loop(x: int) -> int:
+def record_loop(x: int, secs: float = 0.0) -> int:
+    """Record the loop of this computation, then hold its thread for secs."""
     _computation_loops.append(asyncio.get_running_loop())
+    time.sleep(secs)
     return x + 1
 
 
@@ -98,7 +104,7 @@ def record_loop(x: int) -> int:
 
 
 # the clients handed out by make_test_client() that have yet to see an app shutdown
-_live_clients: list[Any] = []
+_live_clients: list['TestClient'] = []
 
 
 @pytest.fixture(autouse=True)
@@ -106,7 +112,8 @@ def shut_down_test_apps() -> Iterator[None]:
     """Put every app built during a test through its lifespan shutdown, as a served app would go through it.
 
     The shutdown is what closes the worker threads' event loops and API clients, so leaving it out leaks
-    one of each per app for the rest of the session.
+    one of each per app for the rest of the session. A client a test entered itself is entered again here,
+    which runs its app's lifespan a second time.
     """
     yield
     while len(_live_clients) > 0:
@@ -114,7 +121,7 @@ def shut_down_test_apps() -> Iterator[None]:
             pass
 
 
-def make_test_client(router: Any) -> Any:
+def make_test_client(router: Any) -> 'TestClient':
     """Create a FastAPI app, include `router`, and return a TestClient."""
     import fastapi
     from fastapi.testclient import TestClient
@@ -944,13 +951,15 @@ class TestFastAPI:
         assert_sqlite_row(db_connect, 'bg_resize', {'resized': result['resized']}, {'resized': result['resized']})
 
     @pytest.mark.local('a background job computes in the router process only for an in-process catalog')
-    def test_background_job_teardown(self, uses_db: None) -> None:
+    @pytest.mark.parametrize('busy_at_shutdown', [False, True])
+    def test_background_job_teardown(self, uses_db: None, busy_at_shutdown: bool) -> None:
         """A background job runs on a worker thread with an event loop of its own, which app shutdown closes."""
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
         t = pxt.create_table('bg_teardown', {'x': pxt.Int})
-        t.add_computed_column(y=record_loop(t.x))
+        # in one scenario the job holds its worker until the shutdown, in the other it is done before it
+        t.add_computed_column(y=record_loop(t.x, 2.0 if busy_at_shutdown else 0.0))
         router = FastAPIRouter()
         router.add_insert_route(t, path='/bg', background=True)
         client = make_test_client(router)
@@ -959,13 +968,20 @@ class TestFastAPI:
         with client:
             resp = client.post('/bg', json={'x': 1})
             assert resp.status_code == 200, resp.text
-            await_background_job(client, resp.json(), require_pending=False)
+            if busy_at_shutdown:
+                # leave the context as soon as the job is on a worker, without waiting for it to finish
+                deadline = time.time() + 30.0
+                while len(_computation_loops) == n_loops and time.time() < deadline:
+                    time.sleep(0.01)
+            else:
+                await_background_job(client, resp.json(), require_pending=False)
             loops = _computation_loops[n_loops:]
             assert len(loops) == 1, 'the job did not run on a worker thread of its own'
             assert not loops[0].is_closed()
 
         # exiting the TestClient context fired the lifespan shutdown handler
-        assert loops[0].is_closed()
+        assert loops[0].is_closed(), 'app shutdown left the worker thread with an open event loop'
+        assert t.count() == 1, 'the job did not finish'
 
     def test_openapi(self, make_catalog_path: Callable[[str], str]) -> None:
         """Verify the generated OpenAPI schema reflects column comments, column types, and route shapes."""
