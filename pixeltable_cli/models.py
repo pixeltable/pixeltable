@@ -198,6 +198,13 @@ class SchemaUpdateBody(BaseModel):
     allow_destructive: bool = False
 
 
+class PatchSecretsBody(BaseModel):
+    org: str
+    db: str | None = None
+    set: dict[str, str] = {}
+    delete: list[str] = []
+
+
 class CwdBody(BaseModel):
     uri: str
 

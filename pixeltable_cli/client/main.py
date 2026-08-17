@@ -35,6 +35,7 @@ COMMANDS: dict[str, str] = {
     'db': 'manage hosted databases (create/list/status/start/stop/update/update-runtime/delete)',
     'service': 'manage hosted services (create/update/list/status/start/stop/delete)',
     'org': 'manage organizations (list/status)',
+    'secret': 'manage runtime secrets for an org or database (list/set/rm)',
 }
 
 
