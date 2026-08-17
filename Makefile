@@ -248,6 +248,7 @@ linkscheck: docs
 .PHONY: clean
 clean:
 	@rm -rf .make-install || true
+	@rm -rf .mypy_cache || true
 	@rm -rf pixeltable_cli/server/static || true
 	@rm -rf site || true
 	@rm -rf target || true

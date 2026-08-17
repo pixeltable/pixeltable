@@ -13,7 +13,7 @@ class TestVllm:
         skip_test_if_not_installed('vllm')
         from pixeltable.functions import vllm
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
 
         t.add_computed_column(
             messages=[
@@ -49,7 +49,7 @@ class TestVllm:
         skip_test_if_not_installed('vllm')
         from pixeltable.functions import vllm
 
-        t = pxt.create_table('test_gen_tbl', {'prompt': pxt.String})
+        t = pxt.create_table('test_gen_tbl', {'prompt': pxt.String | None})
 
         t.add_computed_column(
             output=vllm.generate(t.prompt, model='Qwen/Qwen2.5-0.5B-Instruct', engine_args={'max_model_len': 512})

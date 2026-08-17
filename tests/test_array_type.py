@@ -49,7 +49,7 @@ class TestArrayType:
         do_reload_catalog: bool,
         make_catalog_path: Callable[[str], str],
     ) -> None:
-        schema = {'array_col_req': pxt.Required[pxt.Array[col_dtype]], 'array_col_opt': pxt.Array[col_dtype]}
+        schema = {'array_col_req': pxt.Array[col_dtype], 'array_col_opt': pxt.Array[col_dtype] | None}
         pxt.create_table(make_catalog_path('test_numpy_dtypes'), schema, if_exists='replace')
         reload_catalog(do_reload_catalog)
         t = pxt.get_table(make_catalog_path('test_numpy_dtypes'))
@@ -109,7 +109,7 @@ class TestArrayType:
         self, init_env: None, make_catalog_path: Callable[[str], str]
     ) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test_numpy_dtypes'), {'array': pxt.Array})
+        t = pxt.create_table(p('test_numpy_dtypes'), {'array': pxt.Array | None})
         validate_update_status(t.insert(array=(1, 1)), 1)
         validate_update_status(t.insert(array=[1.0, 2.0]), 1)
         validate_update_status(t.insert(array=['abc', 'def']), 1)
@@ -123,11 +123,11 @@ class TestArrayType:
     ) -> None:
         p = make_catalog_path
         schema = {
-            'arr_1': pxt.Array[(1,), np.uint8],
-            'arr_2': pxt.Array[(2, 2), pxt.Float],
-            'arr_3': pxt.Array[(None,), pxt.String],
-            'arr_4': pxt.Array[(3, None, 2), np.int32],
-            'arr_5': pxt.Array,
+            'arr_1': pxt.Array[(1,), np.uint8] | None,
+            'arr_2': pxt.Array[(2, 2), pxt.Float] | None,
+            'arr_3': pxt.Array[(None,), pxt.String] | None,
+            'arr_4': pxt.Array[(3, None, 2), np.int32] | None,
+            'arr_5': pxt.Array | None,
         }
         pxt.create_table(p('test_numpy_dtypes'), schema)
         reload_catalog(do_reload_catalog)

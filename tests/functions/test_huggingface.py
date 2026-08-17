@@ -35,7 +35,7 @@ class TestHuggingface:
         skip_test_if_not_installed('sentence_transformers')
         from pixeltable.functions.huggingface import sentence_transformer
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String, 'bool_col': pxt.Bool})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None, 'bool_col': pxt.Bool | None})
         model_id = 'intfloat/e5-large-v2'
         t.add_computed_column(e5=sentence_transformer(t.input, model_id=model_id))
         sents = get_sentences()
@@ -63,7 +63,7 @@ class TestHuggingface:
         skip_test_if_not_installed('sentence_transformers')
         from pixeltable.functions.huggingface import sentence_transformer
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         sents = get_sentences(10)
         status = t.insert({'input': s} for s in sents)
         assert status.num_rows == len(sents)
@@ -100,7 +100,7 @@ class TestHuggingface:
         skip_test_if_not_installed('sentence_transformers')
         from pixeltable.functions.huggingface import cross_encoder
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         sents = get_sentences(10)
         status = t.insert({'input': s} for s in sents)
         assert status.num_rows == len(sents)
@@ -132,7 +132,7 @@ class TestHuggingface:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import clip
 
-        t = pxt.create_table('test_tbl', {'text': pxt.String, 'img': pxt.Image})
+        t = pxt.create_table('test_tbl', {'text': pxt.String | None, 'img': pxt.Image | None})
         num_rows = 10
         sents = get_sentences(num_rows)
         imgs = get_image_files()[:num_rows]
@@ -171,7 +171,7 @@ class TestHuggingface:
         from pixeltable.functions.huggingface import detr_for_object_detection
         from pixeltable.utils import coco
 
-        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+        t = pxt.create_table('test_tbl', {'img': pxt.Image | None})
         t.add_computed_column(
             detect=detr_for_object_detection(t.img, model_id='facebook/detr-resnet-50', threshold=0.8)
         )
@@ -188,14 +188,14 @@ class TestHuggingface:
         assert 'bowl' in label_text
         assert 'broccoli' in label_text
         # Test appropriate typing
-        assert t.get_metadata()['columns']['featured_object']['type_'] == 'String'
+        assert t.get_metadata()['columns']['featured_object']['type_'] == 'String | None'
 
     def test_detr_for_segmentation(self, uses_db: None) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import detr_for_segmentation
 
-        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+        t = pxt.create_table('test_tbl', {'img': pxt.Image | None})
         t.add_computed_column(
             seg=detr_for_segmentation(t.img, model_id='facebook/detr-resnet-50-panoptic', threshold=0.5)
         )
@@ -222,7 +222,7 @@ class TestHuggingface:
             pytest.skip('Skipping SAM 3 test: facebook/sam3 is gated and no Hugging Face token is configured')
         from pixeltable.functions.huggingface import sam3_for_segmentation
 
-        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+        t = pxt.create_table('test_tbl', {'img': pxt.Image | None})
         t.add_computed_column(seg=sam3_for_segmentation(t.img, text='orange', threshold=0.3))
         status = t.insert(img=SAMPLE_IMAGE_URL)
         assert status.num_rows == 1
@@ -260,7 +260,7 @@ class TestHuggingface:
             pytest.skip('Skipping SAM 3 test: facebook/sam3 is gated and no Hugging Face token is configured')
         from pixeltable.functions.huggingface import sam_automatic_mask_generation
 
-        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+        t = pxt.create_table('test_tbl', {'img': pxt.Image | None})
         t.add_computed_column(seg=sam_automatic_mask_generation(t.img, points_per_crop=16))
         status = t.insert(img=SAMPLE_IMAGE_URL)
         assert status.num_rows == 1
@@ -292,7 +292,7 @@ class TestHuggingface:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import sam3_for_segmentation
 
-        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+        t = pxt.create_table('test_tbl', {'img': pxt.Image | None})
         t.insert(img=SAMPLE_IMAGE_URL)
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='At least one of'):
@@ -314,7 +314,7 @@ class TestHuggingface:
         from pixeltable.functions.video import clip
 
         video_path = next(f for f in get_video_files() if f.endswith('bangkok_half_res.mp4'))
-        t = pxt.create_table('test_tbl', {'video': pxt.Video})
+        t = pxt.create_table('test_tbl', {'video': pxt.Video | None})
         v = pxt.create_view(
             'test_view', t, iterator=sam3_for_video_segmentation(t.video, text=['car'], max_frame_num_to_track=2)
         )
@@ -357,7 +357,7 @@ class TestHuggingface:
         from pixeltable.functions.huggingface import sam3_for_segmentation
         from pixeltable.functions.vision import overlay_segmentation
 
-        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+        t = pxt.create_table('test_tbl', {'img': pxt.Image | None})
         # threshold=1.0 guarantees zero detections (scores never exceed 1.0)
         t.add_computed_column(seg=sam3_for_segmentation(t.img, text='orange', threshold=1.0))
         t.add_computed_column(viz=overlay_segmentation(t.img, t.seg.masks))
@@ -376,7 +376,7 @@ class TestHuggingface:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import vit_for_image_classification
 
-        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+        t = pxt.create_table('test_tbl', {'img': pxt.Image | None})
         t.add_computed_column(
             img_class=vit_for_image_classification(t.img, model_id='google/vit-base-patch16-224', top_k=3)
         )
@@ -392,7 +392,7 @@ class TestHuggingface:
         skip_test_if_not_installed('sentencepiece', 'transformers')
         from pixeltable.functions.huggingface import speech2text_for_conditional_generation
 
-        t = pxt.create_table('test_tbl', {'audio': pxt.Audio})
+        t = pxt.create_table('test_tbl', {'audio': pxt.Audio | None})
         audio_file = next(
             file for file in get_audio_files() if file.endswith('jfk_1961_0109_cityuponahill-excerpt.flac')
         )
@@ -416,7 +416,7 @@ class TestHuggingface:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import text_generation
 
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String | None})
         test_prompts = ['The weather today is', 'The capital of France is']
 
         t.add_computed_column(
@@ -440,7 +440,7 @@ class TestHuggingface:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import text_classification
 
-        t = pxt.create_table('test_tbl', {'text': pxt.String})
+        t = pxt.create_table('test_tbl', {'text': pxt.String | None})
         test_texts = ['I love this product!', 'This is terrible.']
 
         # Test with a sentiment analysis model
@@ -468,7 +468,7 @@ class TestHuggingface:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import image_captioning
 
-        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+        t = pxt.create_table('test_tbl', {'img': pxt.Image | None})
 
         # Test with BLIP model
         t.add_computed_column(
@@ -489,7 +489,7 @@ class TestHuggingface:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import summarization
 
-        t = pxt.create_table('test_tbl', {'text': pxt.String})
+        t = pxt.create_table('test_tbl', {'text': pxt.String | None})
         long_text = (
             'Machine learning is a method of data analysis that automates analytical model building. '
             'It is a branch of artificial intelligence based on the idea that systems can learn from data, '
@@ -516,7 +516,7 @@ class TestHuggingface:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import question_answering
 
-        t = pxt.create_table('test_tbl', {'context': pxt.String, 'question': pxt.String})
+        t = pxt.create_table('test_tbl', {'context': pxt.String | None, 'question': pxt.String | None})
         context = 'Paris is the capital of France.'
         question = 'What is the capital of France?'
 
@@ -539,7 +539,7 @@ class TestHuggingface:
         skip_test_if_not_installed('sentencepiece', 'transformers')
         from pixeltable.functions.huggingface import translation
 
-        t = pxt.create_table('test_tbl', {'text': pxt.String})
+        t = pxt.create_table('test_tbl', {'text': pxt.String | None})
         english_text = 'Hello, how are you?'
 
         # Test with Helsinki-NLP translation model
@@ -558,7 +558,7 @@ class TestHuggingface:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import token_classification
 
-        t = pxt.create_table('test_tbl', {'text': pxt.String})
+        t = pxt.create_table('test_tbl', {'text': pxt.String | None})
         text_with_entities = 'Apple Inc. is located in Cupertino, California.'
 
         # Test with BERT NER model
@@ -582,7 +582,7 @@ class TestHuggingface:
         skip_test_if_not_installed('torchcodec', 'transformers')
         from pixeltable.functions.huggingface import automatic_speech_recognition
 
-        t = pxt.create_table('test_tbl', {'audio': pxt.Audio})
+        t = pxt.create_table('test_tbl', {'audio': pxt.Audio | None})
         audio_file = next(
             file for file in get_audio_files() if file.endswith('jfk_1961_0109_cityuponahill-excerpt.flac')
         )
@@ -603,7 +603,7 @@ class TestHuggingface:
         skip_test_if_not_installed('transformers', 'datasets', 'soundfile')
         from pixeltable.functions.huggingface import text_to_speech
 
-        t = pxt.create_table('test_tbl', {'text': pxt.String})
+        t = pxt.create_table('test_tbl', {'text': pxt.String | None})
         test_text = 'Hello world, this is a test.'
 
         # Test with SpeechT5 model
@@ -625,7 +625,7 @@ class TestHuggingface:
         skip_test_if_not_installed('diffusers')
         from pixeltable.functions.huggingface import text_to_image
 
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String | None})
         test_prompt = 'a simple red circle'
 
         # Test with Stable Diffusion (use small image size for faster testing)
@@ -653,7 +653,7 @@ class TestHuggingface:
         skip_test_if_not_installed('diffusers')
         from pixeltable.functions.huggingface import image_to_image
 
-        t = pxt.create_table('test_tbl', {'img': pxt.Image, 'prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'img': pxt.Image | None, 'prompt': pxt.String | None})
         test_prompt = 'turn this into a red circle'
 
         # Test with Stable Diffusion
@@ -679,7 +679,7 @@ class TestHuggingface:
         skip_test_if_not_installed('diffusers')
         from pixeltable.functions.huggingface import image_to_video
 
-        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+        t = pxt.create_table('test_tbl', {'img': pxt.Image | None})
 
         t.add_computed_column(
             video=image_to_video(

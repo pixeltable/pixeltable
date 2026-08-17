@@ -295,7 +295,7 @@ class TestCloudE2E:
         out = _pxt_json('db', 'status', resources.db_uri)
         assert resources.db in out
 
-    def test_sdk_create_table(self, resources: Resources, catalog_table: str) -> None:
+    def test_sdk_get_table(self, resources: Resources, catalog_table: str) -> None:
         code = f"""
             import pixeltable as pxt
             pxt.init()
@@ -354,7 +354,7 @@ class TestCloudE2E:
             pxt.init()
             t = pxt.create_table(
                 '{media_uri}',
-                {{'id': pxt.Required[pxt.Int], 'img': pxt.Image}},
+                {{'id': pxt.Int, 'img': pxt.Image}},
                 primary_key='id',
                 if_exists='replace_force',
             )
@@ -384,7 +384,7 @@ class TestCloudE2E:
             pxt.init()
             pxt.create_table(
                 '{conc_uri}',
-                {{'id': pxt.Required[pxt.Int], 'name': pxt.String}},
+                {{'id': pxt.Int, 'name': pxt.String}},
                 primary_key='id',
                 if_exists='replace_force',
             )
@@ -432,7 +432,7 @@ class TestCloudE2E:
     def test_table_row_count(self, resources: Resources, catalog_table: str) -> None:
         r = _cli(resources.db, '/api/tables/count', {'path': 'e2e_items'})
         assert r.status_code == 200, f'{r.status_code} {r.text[:300]}'
-        # test_sdk_create_table inserts 5; later service-route tests add more, so only assert a floor.
+        # catalog_table inserts 5; later service-route tests add more, so only assert a floor.
         assert r.json()['count'] >= 5, r.json()
 
     def test_table_rows(self, resources: Resources, catalog_table: str) -> None:
@@ -449,7 +449,7 @@ class TestCloudE2E:
     def test_table_columns(self, resources: Resources, catalog_table: str) -> None:
         r = _cli(resources.db, '/api/columns', {'path': 'e2e_items', 'computed': 'true'})
         assert r.status_code == 200, f'{r.status_code} {r.text[:300]}'
-        # name_upper is the computed column test_sdk_create_table adds.
+        # name_upper is the computed column catalog_table adds.
         assert 'name_upper' in r.text, f'computed column missing: {r.text[:400]}'
 
     def test_table_indexes(self, resources: Resources, catalog_table: str) -> None:

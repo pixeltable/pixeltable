@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, MutableMapping, Sequence, TypedDict
 from uuid import UUID
 
+from typing_extensions import TypeForm
+
 from pixeltable import catalog, exceptions as excs, exprs, func, index, type_system as ts
 from pixeltable.env import Env
 from pixeltable.exprs import ColumnRefByName
@@ -63,7 +65,7 @@ for method in FORWARDED_TABLE_METHODS:
 class Column:
     """A column specification used in a TableModel or ViewModel definition."""
 
-    type: type | None = None
+    type: TypeForm | None = None
     value: Any = None
     primary_key: bool | None = None
     stored: bool | None = None
@@ -183,7 +185,7 @@ class TableSpec(TypedDict):
 def _col_type_from_spec(column_spec: ColumnSpec) -> ts.ColumnType:
     """The ColumnType that a column defined by `column_spec` will have."""
     if 'type' in column_spec:
-        return ts.ColumnType.normalize_type(column_spec['type'], nullable_default=True, allow_builtin_types=False)
+        return ts.ColumnType.normalize_type(column_spec['type'], allow_builtin_types=False)
     assert 'value' in column_spec
     return column_spec['value'].col_type
 
@@ -449,7 +451,7 @@ class _ModelNamespace(dict):
                     excs.ErrorCode.INVALID_SCHEMA,
                     f'Could not resolve the type annotation {type_!r} for column {name!r}: {exc}',
                 ) from exc
-        type_ = ts.ColumnType.normalize_type(type_, nullable_default=True, allow_builtin_types=False)
+        type_ = ts.ColumnType.normalize_type(type_, allow_builtin_types=False)
         if name in self.known_cols:
             # We previously processed this column via `set_col_value()`. Sanity check the type.
             if _col_type_from_spec(self.known_cols[name]) != type_:
@@ -753,7 +755,7 @@ class TableModelMeta(type):
             spec = col_spec.copy()
             if 'type' in spec:
                 spec['type'] = ts.ColumnType.normalize_type(  # type: ignore[typeddict-item]
-                    spec['type'], nullable_default=True, allow_builtin_types=False
+                    spec['type'], allow_builtin_types=False
                 )
             columns[name] = spec
 
@@ -925,21 +927,33 @@ def prepare_model(
         user_cols[name] = catalog_col
         preceding_names.add(name)
 
-    # Resolve each declared index against the model's visible columns.
+    return iterator, additional_cols, _resolve_model_idxs(idxs, user_cols, display_name)
+
+
+def _resolve_model_idxs(
+    idxs: list[IndexDeclaration], user_cols: dict[str, catalog.Column], display_name: str
+) -> list[catalog.IndexSpec]:
+    """Resolve each declared index against the model's visible columns.
+
+    The returned specs record the indexed column by name. These columns names need to be substituted with
+    the corresponding catalog Columns.
+    """
     resolved_idxs: list[catalog.IndexSpec] = []
     for idx_spec in idxs:
+        idx_name: str | None = idx_spec.name if isinstance(idx_spec, EmbeddingIndex) else None
         if not isinstance(idx_spec.column, exprs.ColumnRefByName):
+            idx_display_name = f'Index {idx_name!r}' if idx_name is not None else 'Index'
             raise excs.RequestError(
-                excs.ErrorCode.INVALID_SCHEMA, f'Index in {display_name} has an invalid column reference.'
+                excs.ErrorCode.INVALID_SCHEMA, f'{idx_display_name} in {display_name} has an invalid column reference.'
             )
         col_name = idx_spec.column.name
+        idx_display_name = f'Index {idx_name!r}' if idx_name is not None else f'Index on column {col_name!r}'
         if col_name not in user_cols:
             raise excs.RequestError(
-                excs.ErrorCode.INVALID_SCHEMA, f'Index in {display_name} references unknown column {col_name!r}.'
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'{idx_display_name} in {display_name} references unknown column {col_name!r}.',
             )
-        col = user_cols[col_name]
         idx: index.IndexBase
-        idx_name: str | None
         if isinstance(idx_spec, EmbeddingIndex):
             idx = index.EmbeddingIndex(
                 metric=idx_spec.metric,
@@ -952,14 +966,13 @@ def prepare_model(
                 document_embed=idx_spec.document_embed,
                 column=user_cols[col_name],
             )
-            idx_name = idx_spec.name
         else:
             assert isinstance(idx_spec, BtreeIndex)
-            idx = index.BtreeIndex()
-            idx_name = None
+            # TODO(PXT-1294): a model always describes a data-versioned table, so the index gets a value column
+            idx = index.BtreeIndex(uses_value_col=True)
         resolved_idxs.append(catalog.IndexSpec(col_name, idx_name, idx))
 
-    return iterator, additional_cols, resolved_idxs
+    return resolved_idxs
 
 
 class TableSchemaChangeSet(TypedDict):
@@ -1067,41 +1080,9 @@ def prepare_model_updates(
 
     # Resolve each declared index against the model's visible columns.
     resolved_idxs: list[catalog.IndexSpec] = []
-    for idx_spec in new_idxs:
-        idx_display_name = (
-            f'Index {idx_spec.name!r}'
-            if isinstance(idx_spec, EmbeddingIndex) and idx_spec.name is not None
-            else f'Index on column {idx_spec.column.name!r}'
-        )
-        if not isinstance(idx_spec.column, exprs.ColumnRefByName):
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_SCHEMA, f'{idx_display_name} in {display_name} has an invalid column reference.'
-            )
-        col_name = idx_spec.column.name
-        if col_name not in user_cols:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_SCHEMA,
-                f'{idx_display_name} in {display_name} references unknown column {col_name!r}.',
-            )
-        idx: index.IndexBase
-        if isinstance(idx_spec, EmbeddingIndex):
-            idx = index.EmbeddingIndex(
-                metric=idx_spec.metric,
-                precision=idx_spec.precision,
-                embed=idx_spec.embedding,
-                string_embed=idx_spec.string_embed,
-                image_embed=idx_spec.image_embed,
-                audio_embed=idx_spec.audio_embed,
-                video_embed=idx_spec.video_embed,
-                document_embed=idx_spec.document_embed,
-                column=user_cols[col_name],
-            )
-        else:
-            assert isinstance(idx_spec, BtreeIndex)
-            idx = index.BtreeIndex()
-        resolved_idxs.append(
-            catalog.IndexSpec(user_cols[col_name], idx_spec.name if isinstance(idx_spec, EmbeddingIndex) else None, idx)
-        )
+    for idx_spec in _resolve_model_idxs(new_idxs, user_cols, display_name):
+        assert isinstance(idx_spec.indexed_column, str)
+        resolved_idxs.append(idx_spec._replace(indexed_column=user_cols[idx_spec.indexed_column]))
 
     return resolved_cols, resolved_idxs
 
@@ -1215,7 +1196,7 @@ class _ColumnProperties:
         value = spec.get('value')
         comment = spec.get('comment')
         return cls(
-            type=col_type._to_str(as_schema=True),
+            type=repr(col_type),
             value=exprs.Expr.from_object(value).display_str(inline=False) if value is not None else None,
             primary_key=spec.get('primary_key', False),
             stored=spec.get('stored', True),
@@ -1303,7 +1284,7 @@ def _format_column_spec(spec: ColumnSpec) -> str:
 
 
 def _add_column_change(col_name: str, spec: ColumnSpec) -> SchemaChangeOp:
-    details: SchemaChangeOpDetails = {'type': _col_type_from_spec(spec)._to_str(as_schema=True)}
+    details: SchemaChangeOpDetails = {'type': repr(_col_type_from_spec(spec))}
     value = spec.get('value')
     if value is not None:
         details['value'] = exprs.Expr.from_object(value).display_str(inline=False)
@@ -1835,7 +1816,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
                     spec = col_spec.copy()
                     if 'type' in spec:
                         spec['type'] = ts.ColumnType.normalize_type(  # type: ignore[typeddict-item]
-                            spec['type'], nullable_default=True, allow_builtin_types=False
+                            spec['type'], allow_builtin_types=False
                         )
                     origin: Literal['base_query', 'model_body'] = (
                         'base_query' if col_name in base_query_cols else 'model_body'

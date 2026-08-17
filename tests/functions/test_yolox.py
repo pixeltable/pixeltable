@@ -23,7 +23,7 @@ class TestYolox:
         skip_test_if_not_installed('yolox')
         from pixeltable.functions.yolox import yolox
 
-        t = pxt.create_table('yolox_test', {'image': pxt.Image})
+        t = pxt.create_table('yolox_test', {'image': pxt.Image | None})
         t.add_computed_column(detect_yolox_tiny=yolox(t.image, model_id='yolox_tiny'))
         t.add_computed_column(detect_yolox_nano=yolox(t.image, model_id='yolox_nano', threshold=0.2))
         t.add_computed_column(yolox_nano_bboxes=t.detect_yolox_nano.bboxes)

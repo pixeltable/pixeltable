@@ -7,6 +7,8 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 from uuid import UUID
 
+from typing_extensions import TypeForm
+
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.metadata import schema
@@ -261,7 +263,7 @@ def is_system_column_name(name: str) -> bool:
     return name in _PREDEF_SYMBOLS
 
 
-def normalize_schema(schema: Mapping[str, type | ColumnSpec | exprs.Expr]) -> dict[str, ColumnSpec]:
+def normalize_schema(schema: Mapping[str, TypeForm | ColumnSpec | exprs.Expr]) -> dict[str, ColumnSpec]:
     """Canonicalize a create_table schema to a {name: ColumnSpec} mapping with resolved ColumnTypes."""
     from pixeltable import exprs
 
@@ -280,9 +282,7 @@ def normalize_schema(schema: Mapping[str, type | ColumnSpec | exprs.Expr]) -> di
         else:
             raise excs.RequestError(excs.ErrorCode.TYPE_MISMATCH, f'Invalid spec for column {name!r}: {spec!r}')
         if col_spec.get('type') is not None:
-            col_spec['type'] = ts.ColumnType.normalize_type(
-                col_spec['type'], nullable_default=True, allow_builtin_types=False
-            )
+            col_spec['type'] = ts.ColumnType.normalize_type(col_spec['type'], allow_builtin_types=False)
         result[name] = cast(ColumnSpec, col_spec)
     return result
 

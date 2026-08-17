@@ -88,7 +88,7 @@ class ResultSet:
     def schema(self) -> dict[str, str]:
         """The result columns as a mapping from name to its type string."""
         # matches Table.get_metadata()
-        return {name: col_type._to_str(as_schema=True) for name, col_type in self._schema.items()}
+        return {name: repr(col_type) for name, col_type in self._schema.items()}
 
     def __len__(self) -> int:
         return len(self._rows)
@@ -242,7 +242,7 @@ class ResultCursor(Iterable[Row]):
     def schema(self) -> dict[str, str]:
         """The result columns as a mapping from name to its type string."""
         # matches Table.get_metadata()
-        return {name: col_type._to_str(as_schema=True) for name, col_type in self._schema.items()}
+        return {name: repr(col_type) for name, col_type in self._schema.items()}
 
     def open(self) -> None:
         """Start the underlying query and prepare the cursor for iteration.
@@ -667,9 +667,7 @@ class Query:
         out: dict[UUID, int] = {}
         for tbl in self._from_clause.tvps:
             for tvh in tbl.get_tbl_versions():
-                tv = tvh.get()
-                if tv.is_data_versioned:
-                    out[tvh.id] = tv.version
+                out[tvh.id] = tvh.get().version
         return out
 
     def _create_query_plan(self) -> exec.ExecPlan:
@@ -1003,11 +1001,7 @@ class Query:
         select_list = self._effective_select_list
         return pd.DataFrame(
             [
-                {
-                    'Name': name,
-                    'Type': expr.col_type._to_str(as_schema=True),
-                    'Expression': expr.display_str(inline=False),
-                }
+                {'Name': name, 'Type': repr(expr.col_type), 'Expression': expr.display_str(inline=False)}
                 for expr, name in select_list
             ]
         )

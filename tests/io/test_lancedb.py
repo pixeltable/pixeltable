@@ -27,16 +27,16 @@ class TestLanceDb:
         p = make_catalog_path
         n_rows = 1000
         schema = {
-            'row_id': pxt.Int,
-            'c_int': pxt.Int,
-            'c_float': pxt.Float,
-            'c_bool': pxt.Bool,
-            'c_string': pxt.String,
-            'c_timestamp': pxt.Timestamp,
-            'c_date': pxt.Date,
-            'c_json': pxt.Json,
-            'c_array': pxt.Array[(10,), pxt.Float],
-            'c_image': pxt.Image,
+            'row_id': pxt.Int | None,
+            'c_int': pxt.Int | None,
+            'c_float': pxt.Float | None,
+            'c_bool': pxt.Bool | None,
+            'c_string': pxt.String | None,
+            'c_timestamp': pxt.Timestamp | None,
+            'c_date': pxt.Date | None,
+            'c_json': pxt.Json | None,
+            'c_array': pxt.Array[(10,), pxt.Float] | None,
+            'c_image': pxt.Image | None,
         }
         t = pxt.create_table(p('test_export'), schema)
 
