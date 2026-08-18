@@ -125,9 +125,9 @@ class TestTable:
         tbl = pxt.create_table(p('test'), schema)
         _ = pxt.create_table(p('dir1/test'), schema)
 
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Invalid path: 1test'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*1test'):
             pxt.create_table(p('1test'), schema)
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Invalid path: bad name'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*bad name'):
             pxt.create_table(p('bad name'), {'c1': pxt.String | None})
         with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Versioned path not allowed here: .*test:120'):
             pxt.create_table(p('test:120'), schema)
@@ -139,7 +139,7 @@ class TestTable:
         _ = pxt.list_tables(p(''))
         _ = pxt.list_tables(p('dir1'))
 
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Invalid path: 1dir'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*1dir'):
             pxt.list_tables(p('1dir'))
         with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
             pxt.list_tables(p('dir2'))
@@ -163,11 +163,11 @@ class TestTable:
         pxt.create_dir(p('hyphenated-dir'))
         _ = pxt.create_table(p('hyphenated-dir/hyphenated-table'), schema)
 
-        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match="Path 'test' does not exist"):
+        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match=r"Path '.*test' does not exist"):
             pxt.drop_table(p('test'))
-        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match=r"Path 'dir1/test2' does not exist"):
+        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match=r"Path '.*dir1/test2' does not exist"):
             pxt.drop_table(p('dir1/test2'))
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .test2'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*\.test2'):
             pxt.drop_table(p('.test2'))
         with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Versioned path not allowed here: .*test2:120'):
             pxt.drop_table(p('test2:120'))
