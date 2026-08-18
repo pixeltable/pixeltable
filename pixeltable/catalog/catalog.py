@@ -1769,7 +1769,7 @@ class Catalog(CatalogBase):
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
 
         iterator, additional_cols, resolved_idxs = model.prepare_model(
-            tbl_handle, columns, display_name, iterator, base, idxs
+            tbl_handle, columns, display_name, iterator, base, idxs, is_data_versioned
         )
 
         # If the table already exists, rebind to it and report that nothing was created.
