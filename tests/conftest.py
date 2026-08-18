@@ -294,25 +294,23 @@ def cloud_db_base_uri(init_env: None) -> Iterator[str]:
         uri = f'pxt://pixeltable:pxttest-{uuid.uuid4().hex[:21]}'
 
         _logger.info('Creating temporary cloud test db: %s', uri)
-        subprocess.run(
-            ('pxt', 'db', 'create', uri), env=os.environ, text=True, timeout=900, check=True
-        )
+        subprocess.run(('pxt', 'db', 'create', uri), text=True, timeout=900, check=True)
 
     try:
         _logger.info('Checking cloud db status: %s', uri)
-        res = subprocess.run(
+        proc = subprocess.run(
             ('pxt', 'db', 'status', uri, '--json'), capture_output=True, text=True, timeout=60, check=True
         )
-        _logger.info(res.stdout.strip())
-        json_res = json.loads(res.stdout)
-        assert json_res['state'] == 'AVAILABLE', f"Cloud db is not ready: {uri}"
+        _logger.info(proc.stdout.strip())
+        res = json.loads(proc.stdout)
+        assert res['state'] == 'AVAILABLE', f'Cloud db is not ready: {uri}'
 
         yield uri
 
     finally:
         if use_temporary_db:
             _logger.info('Deleting temporary cloud test db: %s', uri)
-            proc = subprocess.run('pxt', 'db', 'delete', uri, timeout=900, check=False)
+            proc = subprocess.run(('pxt', 'db', 'delete', uri), text=True, timeout=900, check=False)
             if proc.returncode != 0:
                 _logger.warning('Failed to delete cloud test db: %s', uri)
 
