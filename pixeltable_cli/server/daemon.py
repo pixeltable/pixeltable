@@ -5,6 +5,7 @@ import os
 import sys
 import threading
 
+from pixeltable.config import Config
 from pixeltable_cli.client.utils import is_running
 from pixeltable_cli.server.http_server import bind, run
 from pixeltable_cli.utils import get_port, pidfile_path
@@ -56,6 +57,13 @@ def _remove_pidfile_if_ours() -> None:
 
 
 def main() -> None:
+    config = Config.get()
+    host = config.get_string_value('host', section='cli_server')
+    port = config.get_int_value('port', section='cli_server')
+    if host is not None or port is not None:
+        run(bind(port if port is not None else get_port(), host or '127.0.0.1'))
+        return
+
     port = get_port()
     try:
         server = bind(port)

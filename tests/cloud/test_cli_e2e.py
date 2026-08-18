@@ -49,7 +49,7 @@ _API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://dev-internal-api.pixelt
 _CLOUD_HOST = os.environ.get('PIXELTABLE_CLOUD_HOST', 'dev.pxt.run')
 
 
-# ── helpers ──────────────────────────────────────────────────────────────────
+# Helpers
 
 
 def _cloud_env() -> dict[str, str]:
@@ -117,6 +117,15 @@ def _get(url: str, params: dict | None = None, *, retries: int = 10, delay: floa
     return resp
 
 
+def _cli_base(db: str) -> str:
+    """https://{org}-{db}.svc.{cloud host}/cli -- the ALB path, not the pxt:// proxy host."""
+    return f'https://{_ORG}-{db}.svc.{_CLOUD_HOST}/cli'
+
+
+def _cli(db: str, path: str, params: dict | None = None) -> requests.Response:
+    return _get(f'{_cli_base(db)}{path}', params=params)
+
+
 def _wait_for_state(resource_type: str, uri: str, desired: str, *, timeout: int = 180, poll_interval: int = 5) -> str:
     """Poll `pxt <resource_type> status <uri> --json` until <desired> appears in output.
 
@@ -146,7 +155,7 @@ def _wait_for_state(resource_type: str, uri: str, desired: str, *, timeout: int 
     raise AssertionError(f'{resource_type} {uri} did not reach {desired} within {timeout}s.\nLast status:\n{out}')
 
 
-# ── resources fixture ─────────────────────────────────────────────────────────
+# Resources fixture
 
 
 _SVC_NAME = 'e2e-svc'  # must match [[pixeltable.service]] name in sample_app/pixeltable.toml
@@ -189,6 +198,8 @@ def resources(request: pytest.FixtureRequest) -> Iterator[Resources]:
     table_uri = f'{db_uri}/e2e_items'
 
     r = Resources(org=_ORG, db=db, svc_name=_SVC_NAME, db_uri=db_uri, svc_uri=svc_uri, table_uri=table_uri)
+
+    _pxt('db', 'create', db_uri)
     try:
         yield r
     finally:
@@ -200,7 +211,23 @@ def resources(request: pytest.FixtureRequest) -> Iterator[Resources]:
 
 
 @pytest.fixture(scope='module')
-def svc_base(resources: Resources) -> str:
+def service(resources: Resources) -> str:
+    """Guarantee the sample service is deployed, so a route test can be run on its own.
+
+    Deploying takes a CodeBuild round trip, so this is skipped when the service already exists -- the
+    common case when the whole module runs in order.
+    """
+    out = _pxt('service', 'list', resources.db_uri, '--json', check=False)
+    if resources.svc_name not in out:
+        _pxt_json(
+            'service', 'create', resources.svc_name, '--base-uri', resources.db_uri, '--workers', '1', cwd=_SAMPLE_APP
+        )
+    _wait_for_state('service', resources.svc_uri, 'AVAILABLE')
+    return resources.svc_name
+
+
+@pytest.fixture(scope='module')
+def svc_base(resources: Resources, service: str) -> str:
     """Root URL of the deployed service, as reported by `pxt service status`; routes hang off it."""
     out = _pxt_json('service', 'status', resources.svc_uri)
     json_line = next((line for line in out.splitlines() if line.startswith('{')), None)
@@ -210,7 +237,33 @@ def svc_base(resources: Resources) -> str:
     return endpoint.rstrip('/')
 
 
-# ── tests ─────────────────────────────────────────────────────────────────────
+# Tests
+
+
+@pytest.fixture(scope='module')
+def catalog_table(resources: Resources) -> str:
+    """Create e2e_items with 5 rows and a computed column."""
+    # replace: each retry starts from an empty table, so the insert cannot duplicate a primary key.
+    code = f"""
+        import pixeltable as pxt
+        pxt.init()
+        t = pxt.create_table(
+            '{resources.table_uri}',
+            {{'id': pxt.Int, 'name': pxt.String}},
+            primary_key='id',
+            if_exists='replace',
+        )
+        t.add_computed_column(name_upper=t.name.upper())
+        t.insert([{{'id': i, 'name': f'item_{{i}}'}} for i in range(5)])
+        print('rows:', t.count())
+    """
+    for attempt in range(4):
+        out = _sdk(code)
+        if 'rows: 5' in out:
+            return resources.table_uri
+        if attempt < 3:
+            time.sleep(20)
+    raise AssertionError(f'could not ensure {resources.table_uri} has 5 rows:\n{out}')
 
 
 class TestCloudE2E:
@@ -222,8 +275,7 @@ class TestCloudE2E:
         out = _pxt_json('org', 'status', f'pxt://{resources.org}')
         assert resources.org in out
 
-    def test_db_create(self, resources: Resources) -> None:
-        _pxt('db', 'create', resources.db_uri)
+    def test_db_status(self, resources: Resources) -> None:
         out = _pxt_json('db', 'status', resources.db_uri)
         assert 'AVAILABLE' in out
         assert resources.db in out
@@ -232,37 +284,22 @@ class TestCloudE2E:
         out = _pxt_json('db', 'list', f'pxt://{resources.org}')
         assert resources.db in out
 
-    def test_db_status(self, resources: Resources) -> None:
-        out = _pxt_json('db', 'status', resources.db_uri)
-        assert resources.db in out
-
     def test_db_update(self, resources: Resources) -> None:
         _pxt('db', 'update', resources.db_uri, '--workers', '2')
         out = _pxt_json('db', 'status', resources.db_uri)
         assert resources.db in out
 
-    def test_sdk_create_table(self, resources: Resources) -> None:
+    def test_sdk_get_table(self, resources: Resources, catalog_table: str) -> None:
         code = f"""
             import pixeltable as pxt
             pxt.init()
-            t = pxt.create_table(
-                '{resources.table_uri}',
-                {{'id': pxt.Int, 'name': pxt.String}},
-                primary_key='id',
-                if_exists='ignore',
-            )
-            t.add_computed_column(name_upper=t.name.upper(), if_exists='ignore')
-            status = t.insert([{{'id': i, 'name': f'item_{{i}}'}} for i in range(5)])
-            print('rows:', status.num_rows)
+            t = pxt.get_table('{resources.table_uri}')
+            print('rows:', t.count())
+            print('cols:', sorted(t.columns()))
         """
-        # Retry: proxy gateway may lag behind AVAILABLE state
-        for attempt in range(4):
-            out = _sdk(code)
-            if 'rows: 5' in out:
-                break
-            if attempt < 3:
-                time.sleep(20)
-        assert 'rows: 5' in out, f'SDK table create failed:\n{out}'
+        out = _sdk(code)
+        assert 'rows: 5' in out, f'table not created with 5 rows:\n{out}'
+        assert 'name_upper' in out, f'computed column missing:\n{out}'
 
     def test_sdk_list_tables(self, resources: Resources) -> None:
         code = f"""
@@ -363,10 +400,85 @@ class TestCloudE2E:
         assert 'inserted: 20' in out, f'concurrent inserts did not all land:\n{out}'
         assert 'count: 20' in out, f'concurrent-insert final count wrong:\n{out}'
 
-    def test_service_create(self, resources: Resources) -> None:
-        out = _pxt_json(
-            'service', 'create', resources.svc_name, '--base-uri', resources.db_uri, '--workers', '1', cwd=_SAMPLE_APP
-        )
+    # CLI server routes, served at /cli on the service host.
+
+    def test_health(self, resources: Resources) -> None:
+        r = _cli(resources.db, '/api/health')
+        assert r.status_code == 200, f'{r.status_code} {r.text[:300]}'
+        assert r.json().get('ok') is True
+
+    def test_requires_api_key(self, resources: Resources) -> None:
+        r = requests.get(f'{_cli_base(resources.db)}/api/dirs', timeout=15)
+        assert r.status_code == 401, f'unauthenticated call returned {r.status_code}'
+
+    def test_list_directory(self, resources: Resources, catalog_table: str) -> None:
+        r = _cli(resources.db, '/api/dirs', {'path': '', 'details': 'true'})
+        assert r.status_code == 200, f'{r.status_code} {r.text[:300]}'
+        assert 'e2e_items' in r.text, f'table not listed: {r.text[:400]}'
+
+    def test_list_directory_tree(self, resources: Resources, catalog_table: str) -> None:
+        r = _cli(resources.db, '/api/dirs', {'path': '', 'tree': 'true', 'counts': 'true'})
+        assert r.status_code == 200, f'{r.status_code} {r.text[:300]}'
+        assert r.json().get('tree') is not None
+
+    def test_table_row_count(self, resources: Resources, catalog_table: str) -> None:
+        r = _cli(resources.db, '/api/tables/count', {'path': 'e2e_items'})
+        assert r.status_code == 200, f'{r.status_code} {r.text[:300]}'
+        # catalog_table inserts 5; later service-route tests add more, so only assert a floor.
+        assert r.json()['count'] >= 5, r.json()
+
+    def test_table_rows(self, resources: Resources, catalog_table: str) -> None:
+        r = _cli(resources.db, '/api/tables/rows', {'path': 'e2e_items', 'n': 3})
+        assert r.status_code == 200, f'{r.status_code} {r.text[:300]}'
+        body = r.json()
+        assert body.get('rows'), f'no rows returned: {body}'
+        assert len(body['rows']) <= 3
+
+    def test_table_describe(self, resources: Resources, catalog_table: str) -> None:
+        r = _cli(resources.db, '/api/tables/describe', {'path': 'e2e_items'})
+        assert r.status_code == 200, f'{r.status_code} {r.text[:300]}'
+
+    def test_table_columns(self, resources: Resources, catalog_table: str) -> None:
+        r = _cli(resources.db, '/api/columns', {'path': 'e2e_items', 'computed': 'true'})
+        assert r.status_code == 200, f'{r.status_code} {r.text[:300]}'
+        # name_upper is the computed column catalog_table adds.
+        assert 'name_upper' in r.text, f'computed column missing: {r.text[:400]}'
+
+    def test_table_indexes(self, resources: Resources, catalog_table: str) -> None:
+        r = _cli(resources.db, '/api/indexes', {'path': 'e2e_items'})
+        assert r.status_code == 200, f'{r.status_code} {r.text[:300]}'
+
+    def test_table_history(self, resources: Resources, catalog_table: str) -> None:
+        r = _cli(resources.db, '/api/tables/history', {'path': 'e2e_items', 'n': 5})
+        assert r.status_code == 200, f'{r.status_code} {r.text[:300]}'
+
+    def test_dashboard_search(self, resources: Resources, catalog_table: str) -> None:
+        r = _cli(resources.db, '/api/dashboard/search', {'q': 'e2e', 'limit': 10})
+        assert r.status_code == 200, f'{r.status_code} {r.text[:300]}'
+        assert 'e2e_items' in r.text, f'search did not find the table: {r.text[:400]}'
+
+    def test_dashboard_table_meta(self, resources: Resources, catalog_table: str) -> None:
+        r = _cli(resources.db, '/api/dashboard/tables/meta', {'path': 'e2e_items'})
+        assert r.status_code == 200, f'{r.status_code} {r.text[:300]}'
+
+    def test_dashboard_table_data(self, resources: Resources, catalog_table: str) -> None:
+        r = _cli(resources.db, '/api/dashboard/tables/data', {'path': 'e2e_items', 'limit': 5, 'offset': 0})
+        assert r.status_code == 200, f'{r.status_code} {r.text[:300]}'
+
+    def test_status_and_config(self, resources: Resources) -> None:
+        assert _cli(resources.db, '/api/status').status_code == 200
+        r = _cli(resources.db, '/api/config')
+        assert r.status_code == 200
+        assert 'secret_access_key' not in r.text.lower(), 'config leaked a credential value'
+
+    @pytest.mark.parametrize('path', ['/api/dbs', '/api/orgs', '/api/cwd'])
+    def test_control_plane_routes_are_absent(self, resources: Resources, path: str) -> None:
+        """Catalog-only mode must not register them: they would call the control plane as the pod."""
+        r = requests.get(f'{_cli_base(resources.db)}{path}', headers={'X-api-key': _API_KEY}, timeout=15)
+        assert r.status_code == 404, f'{path} returned {r.status_code}, expected 404'
+
+    def test_service_create(self, resources: Resources, service: str) -> None:
+        out = _pxt_json('service', 'list', resources.db_uri)
         assert resources.svc_name in out
 
     def test_service_list(self, resources: Resources) -> None:

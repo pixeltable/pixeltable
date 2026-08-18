@@ -580,6 +580,11 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'daemon_port': ('Listen port for the proxy daemon in fixed-address mode (e.g. 8000)', int),
         'db_uri': 'Base pxt:// URI for remote catalog access (e.g. pxt://myorg:mydb)',
     },
+    'cli_server': {
+        'host': 'Listen address for the CLI server (e.g. 0.0.0.0); unset runs it as a local daemon',
+        'port': ('Listen port for the CLI server (e.g. 8000)', int),
+        'catalog_only': ('Serve catalog operations only, without the control-plane routes', bool),
+    },
     'anthropic': {'api_key': 'Anthropic API key'},
     'azure': {'storage_account_name': 'Azure storage account name', 'storage_account_key': 'Azure storage account key'},
     'bedrock': {

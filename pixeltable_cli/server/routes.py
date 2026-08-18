@@ -41,8 +41,46 @@ from pixeltable_cli.utils import identity
 from . import bridge
 from .router import RawResponse, Request, Router
 
-router = Router()
 _STARTED_AT = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+def in_catalog_only_mode() -> bool:
+    return Config.get().get_bool_value('catalog_only', section='cli_server') is True
+
+
+# Everything a catalog-only daemon serves. An allow-list rather than a list of exclusions.
+CATALOG_ROUTES = frozenset(
+    {
+        ('GET', '/api/health'),
+        ('GET', '/api/status'),
+        ('GET', '/api/config'),
+        ('GET', '/api/dirs'),
+        ('GET', '/api/tables/rows'),
+        ('GET', '/api/tables/row'),
+        ('GET', '/api/tables/count'),
+        ('GET', '/api/tables/errors'),
+        ('GET', '/api/tables/history'),
+        ('GET', '/api/tables/describe'),
+        ('GET', '/api/columns'),
+        ('GET', '/api/indexes'),
+        ('POST', '/api/tables/drop'),
+        ('POST', '/api/tables/revert'),
+        ('POST', '/api/dirs/drop'),
+        ('POST', '/api/move'),
+        ('POST', '/api/schema/diff'),
+        ('POST', '/api/schema/prune'),
+        ('POST', '/api/schema/update'),
+        ('GET', '/api/dashboard/search'),
+        ('GET', '/api/dashboard/tables/meta'),
+        ('GET', '/api/dashboard/tables/pipeline'),
+        ('GET', '/api/dashboard/pipeline'),
+        ('GET', '/api/dashboard/tables/data'),
+        ('GET', '/api/dashboard/tables/export'),
+    }
+)
+
+router = Router(CATALOG_ROUTES if in_catalog_only_mode() else None)
+
 
 # Freeze the identity fingerprint at import time so /health reports what the daemon was
 # launched with, not what os.environ looks like right now. Used to trigger a daemon restart.
