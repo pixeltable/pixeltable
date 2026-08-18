@@ -108,6 +108,18 @@ class Path:
         return cls(org=org, db=db, components=tuple(components), version=version)
 
     @classmethod
+    def localize(cls, path: str) -> str:
+        """Remove the pxt://org:db/ prefix from a path (if present)."""
+        normalized = cls._normalize(path)
+        if normalized.startswith('pxt://'):
+            m = _URI_RE.match(normalized)
+            if m is None:
+                raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'URI must have an organization: {path!r}')
+            path_part = m.group('rest') or ''
+            return path_part
+        return normalized
+
+    @classmethod
     def _normalize(cls, s: str) -> str:
         """Rewrite a recognized Pixeltable web URL to its canonical pxt:// form; otherwise unchanged."""
         for prefix in _URL_PREFIXES:

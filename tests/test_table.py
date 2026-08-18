@@ -3908,6 +3908,11 @@ class TestTable:
         catalog_mode: CatalogMode,
     ) -> None:
         p = make_catalog_path
+
+        def l(path: str) -> str:
+            """Localized version of p(path), without the pxt://org:db/ prefix"""
+            return pxt.catalog.Path.localize(p(path))
+
         validate_repr(
             test_tbl,
             f"""
@@ -3930,7 +3935,7 @@ class TestTable:
         validate_repr(
             v,
             f"""
-            view '{p('test_view')}' (of 'test_tbl')
+            view '{p('test_view')}' (of '{l('test_tbl')}')
 
              Column Name                  Type    Source           Computed With                      Comment
             -------------------------------------------------------------------------------------------------
@@ -3952,7 +3957,7 @@ class TestTable:
         validate_repr(
             v2,
             f"""
-            view '{p('test_subview')}' (of 'test_view', 'test_tbl')
+            view '{p('test_subview')}' (of '{l('test_view')}', '{l('test_tbl')}')
             Where: ~(c1 == None)
 
              Column Name                  Type        Source           Computed With                      Comment
@@ -3981,7 +3986,7 @@ class TestTable:
         validate_repr(
             s1,
             f"""
-            snapshot '{p('test_snap1')}' (of 'test_subview:2', 'test_view:0', 'test_tbl:2')
+            snapshot '{p('test_snap1')}' (of '{l('test_subview:2')}', '{l('test_view:0')}', '{l('test_tbl:2')}')
             Where: ~(c1 == None)
 
              Column Name                  Type        Source           Computed With                      Comment
@@ -4006,7 +4011,7 @@ class TestTable:
         validate_repr(
             s2,
             f"""
-            snapshot '{p('test_snap2')}' (of 'test_tbl:2')
+            snapshot '{p('test_snap2')}' (of '{l('test_tbl:2')}')
 
              Column Name                  Type    Source           Computed With                      Comment
             -------------------------------------------------------------------------------------------------
@@ -4026,7 +4031,7 @@ class TestTable:
         validate_repr(
             s3,
             f"""
-            snapshot '{p('test_snap3')}' (of 'test_tbl:2')
+            snapshot '{p('test_snap3')}' (of '{l('test_tbl:2')}')
 
              Column Name                  Type      Source           Computed With                      Comment
             ---------------------------------------------------------------------------------------------------
@@ -4065,8 +4070,8 @@ class TestTable:
         iterator_view_1 = pxt.create_view(p('iterator_view_1'), s1, iterator=DummyIterator(s1.c2))
         validate_repr(
             iterator_view_1,
-            """
-            view 'iterator_view_1' (of 'test_subview:2', 'test_view:0', 'test_tbl:2')
+            f"""
+            view 'iterator_view_1' (of '{l('test_subview:2')}', '{l('test_view:0')}', '{l('test_tbl:2')}')
 
              Column Name                  Type           Source           Computed With                      Comment
             --------------------------------------------------------------------------------------------------------
@@ -4096,8 +4101,8 @@ class TestTable:
         iterator_view_2.add_computed_column(iterator_view_2_col_2=stock_price(iterator_view_2.iterator_view_2_col_1))
         validate_repr(
             iterator_view_2,
-            """
-            view 'iterator_view_2' (of 'iterator_view_1', 'test_subview:2', 'test_view:0', 'test_tbl:2')
+            f"""
+            view 'iterator_view_2' (of '{l('iterator_view_1')}', '{l('test_subview:2')}', '{l('test_view:0')}', '{l('test_tbl:2')}')
 
                         Column Name                  Type           Source                       Computed With                      Comment
             -------------------------------------------------------------------------------------------------------------------------------
