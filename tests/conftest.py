@@ -50,12 +50,6 @@ DO_RERUN: bool = True
 
 def pytest_addoption(parser: argparsing.Parser) -> None:
     parser.addoption('--no-rerun', action='store_true', default=False, help='Do not rerun any failed tests.')
-    parser.addoption(
-        '--keep-cloud-resources',
-        action='store_true',
-        default=False,
-        help='Leave the hosted database and service created by the cloud e2e tests in place, for inspection.',
-    )
 
 
 def pytest_configure(config: PytestConfig) -> None:
@@ -309,8 +303,9 @@ def cloud_db_base_uri(init_env: None) -> Iterator[str]:
         res = subprocess.run(
             ('pxt', 'db', 'status', uri, '--json'), capture_output=True, text=True, timeout=60, check=True
         )
-        print(res.stdout)
-        assert 'AVAILABLE' in res.stdout
+        _logger.info(res.stdout.strip())
+        json_res = json.loads(res.stdout)
+        assert json_res['state'] == 'AVAILABLE', f"Cloud db is not ready: {uri}"
 
         yield uri
 
@@ -372,9 +367,14 @@ def make_catalog_path(
             return f'{prefix}/{path}' if path else prefix
 
     elif catalog_mode == 'cloud':
+        for required_cloud_env_var in ('PIXELTABLE_API_KEY', 'PIXELTABLE_API_URL', 'PIXELTABLE_CLOUD_HOST'):
+            if not os.environ.get(required_cloud_env_var):
+                pytest.skip(f'{required_cloud_env_var} is not set.')
+
         cloud_db_base_uri = request.getfixturevalue('cloud_db_base_uri')
         test_dir = uuid.uuid4().hex
         prefix = f'{cloud_db_base_uri}/test_{test_dir}'
+        _logger.info('Creating test directory in cloud catalog: %s', prefix)
         pxt.create_dir(prefix)
 
         def p(path: str) -> str:
@@ -388,6 +388,7 @@ def make_catalog_path(
     yield p
 
     if catalog_mode == 'cloud':
+        _logger.info('Dropping test directory in cloud catalog: %s', prefix)
         pxt.drop_dir(prefix, force=True, if_not_exists='ignore')
 
     _validate_catalog_state()

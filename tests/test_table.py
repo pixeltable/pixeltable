@@ -167,7 +167,7 @@ class TestTable:
             pxt.drop_table(p('test'))
         with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match=r"Path '.*dir1/test2' does not exist"):
             pxt.drop_table(p('dir1/test2'))
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*\.test2'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*.test2'):
             pxt.drop_table(p('.test2'))
         with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Versioned path not allowed here: .*test2:120'):
             pxt.drop_table(p('test2:120'))
@@ -280,14 +280,14 @@ class TestTable:
         pxt.create_table(p('tbl3'), {'c1': pxt.Int | None})
         assert sorted(pxt.list_tables(p(''))) == sorted([p('tbl2'), p('tbl3')])
 
-        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match=r"Path 'tbl3' already exists."):
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match=r"Path '.*tbl3' already exists."):
             pxt.move(p('tbl2'), p('tbl3'))
         assert sorted(pxt.list_tables(p(''))) == sorted([p('tbl2'), p('tbl3')])
 
         pxt.move(p('tbl2'), p('tbl3'), if_exists='ignore')
         assert sorted(pxt.list_tables(p(''))) == sorted([p('tbl2'), p('tbl3')])
 
-        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match=r"Path 'tbl1' does not exist."):
+        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match=r"Path '.*tbl1' does not exist."):
             pxt.move(p('tbl1'), p('tbl4'))
         assert sorted(pxt.list_tables(p(''))) == sorted([p('tbl2'), p('tbl3')])
 
