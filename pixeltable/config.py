@@ -255,10 +255,10 @@ class URI(str):
 
 
 class Secret(str):
-    """A configuration value that is redacted wherever it is shown.
+    """A configuration value whose repr is redacted.
 
-    The value is an ordinary string, usable wherever one is; only its repr is redacted. The type marks
-    the declaration, selecting the section the binding is read from.
+    The value is an ordinary string and only its repr is redacted, so printing or logging it any other way shows the
+    value.
     """
 
     def __repr__(self) -> str:
