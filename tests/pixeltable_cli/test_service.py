@@ -84,6 +84,28 @@ def assert_not_serving(cli: PxtRunner, *names: str) -> None:
 
 
 class TestService:
+    def test_deploying_needs_agreeing_config(
+        self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
+    ) -> None:
+        """A service inherits the daemon's config values, so a caller resolving them differently cannot deploy."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        app, target = apps('basic.py'), make_catalog_path('app')
+        cli('schema', 'update', app, target)
+        differing = {'OPENAI_API_KEY': 'sk-not-the-one-the-daemon-has'}
+
+        # the plan and the deployment are both refused, and the refusal names the variable and the remedy
+        for args in (('diff', app, target), ('update', app, target, '-f')):
+            r = cli('service', *args, env_overrides=differing, check=False)
+            assert r.returncode == 1, r.stdout
+            assert 'OPENAI_API_KEY' in r.stderr
+            assert 'pxt daemon restart' in r.stderr
+        assert services(cli) == {}, 'a refused update started something'
+
+        # the same commands run for a caller whose environment the daemon shares
+        deploy(cli, app, target)
+        assert_serving(cli, app, target, 'ingest')
+
     def test_basic(self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]) -> None:
         """The first deployment: declare, see what is pending, apply it, use it, take it down."""
         skip_test_if_not_installed('fastapi')

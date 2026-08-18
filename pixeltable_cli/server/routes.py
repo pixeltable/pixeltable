@@ -493,13 +493,13 @@ def schema_update(req: Request) -> schema_types.SchemaPlan:
     return _SCHEMA_PLAN.validate_python(applied)
 
 
-@router.post('/api/localservice/diff')
+@router.post('/api/localservice/diff', checks_env=True)
 def service_diff(req: Request) -> service_types.ServicePlan:
     body = req.body(models.ServiceDiffBody)
     return _SERVICE_PLAN.validate_python(bridge.service_diff(body.app_file, req.resolve_path(body.target)))
 
 
-@router.post('/api/localservice/update')
+@router.post('/api/localservice/update', checks_env=True)
 def service_update(req: Request) -> service_types.ServicePlan:
     body = req.body(models.ServiceUpdateBody)
     applied = bridge.service_update(
