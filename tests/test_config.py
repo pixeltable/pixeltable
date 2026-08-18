@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import sys
@@ -105,6 +106,56 @@ class TestConfig:
             'assert v is None, f"expected None, got {v!r}"\n',
             tmp,
         )
+
+    def test_env_var_names(self, tmp_path: Path) -> None:
+        """A setting is bound by its name uppercased, so only that spelling of a variable is read."""
+        config_file = tmp_path / 'config.toml'
+        config_file.write_text('[pixeltable.database.secrets]\ndeclared_in_file = "from-the-file"\n')
+
+        def config_var_keys(env_vars: dict[str, str]) -> list[str]:
+            """The secret names Config finds, resolved in a subprocess so the environment is exactly env_vars."""
+            code = (
+                'import json\n'
+                'from pixeltable.config import Config, SECRET_SECTION\n'
+                'print(json.dumps(sorted(ck.key for ck in Config.get().config_keys() '
+                'if ck.section == SECRET_SECTION)))'
+            )
+            result = subprocess.run(
+                (sys.executable, '-c', code),
+                capture_output=True,
+                check=True,
+                env={**os.environ, 'PIXELTABLE_CONFIG': str(config_file), **env_vars},
+            )
+            return json.loads(result.stdout.decode('utf-8').strip())
+
+        # a variable spelled as the name uppercased declares the var; any other spelling names nothing, and
+        # neither does a variable with no name after the prefix
+        assert config_var_keys({}) == ['declared_in_file']
+        assert config_var_keys({'PIXELTABLE_SECRET_FROM_ENV': 'x'}) == ['declared_in_file', 'from_env']
+        assert config_var_keys({'PIXELTABLE_SECRET_MiXeD': 'x'}) == ['declared_in_file']
+        assert config_var_keys({'PIXELTABLE_SECRET_': 'x'}) == ['declared_in_file']
+
+        # a declared name must be lowercase, so that it maps to exactly one env var name
+        with pytest.raises(pxt.Error, match='Invalid config var name'):
+            pxt.ConfigVar('MiXeD', pxt.Secret)
+        assert pxt.ConfigVar('from_env', pxt.Secret).env_var == 'PIXELTABLE_SECRET_FROM_ENV'
+
+    def test_miscased_env_var(self, tmp_path: Path) -> None:
+        """A variable differing only in case from one that is read generates a warning."""
+        result = subprocess.run(
+            (sys.executable, '-W', 'always', '-c', 'from pixeltable.config import Config\nConfig.get()'),
+            capture_output=True,
+            check=True,
+            env={
+                **os.environ,
+                'PIXELTABLE_Home': str(tmp_path / 'nope'),
+                'PIXELTABLE_CONFIG': str(tmp_path / 'c.toml'),
+            },
+        )
+        stderr = result.stderr.decode('utf-8')
+        assert 'Ignoring PIXELTABLE_Home' in stderr, stderr
+        assert 'did you mean PIXELTABLE_HOME' in stderr, stderr
+        assert not (tmp_path / 'nope').exists(), 'the mis-cased variable was used as the home directory'
 
     def test_reload_if_changed(self, tmp_path: Path) -> None:
         """The config file is re-read after it changes, which is how a running daemon picks up an edit."""

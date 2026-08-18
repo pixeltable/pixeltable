@@ -70,6 +70,15 @@ def pxt_daemon(init_env: None, tmp_path_factory: pytest.TempPathFactory) -> Iter
             raise RuntimeError(f'daemon did not come up within {startup_timeout}s; log tail:\n{tail}')
         yield port
     finally:
+        # a test may have restarted the daemon, in which case the process answering on the port is not the
+        # one started here; take that one down too, so the session leaves nothing behind
+        subprocess.run(
+            ['pxt', 'daemon', 'stop', '-f'],
+            env={**os.environ, 'PXT_PORT': str(port)},
+            capture_output=True,
+            check=False,
+            timeout=60,
+        )
         if prior_port is None:
             os.environ.pop('PXT_PORT', None)
         else:
@@ -98,9 +107,19 @@ def cli(pxt_daemon: int, make_catalog_path: Callable[[str], str]) -> PxtRunner:
     # make_catalog_path resets the catalog (like uses_db) and pulls in the local/proxy axis, so a test
     # using cli() auto-forks over both backends unless it is marked @pytest.mark.local. The CLI daemon and
     # this test process share PIXELTABLE_HOME, so both resolve a pxt:// path to the same local proxy daemon.
-    def _run(*args: str, check: bool = True, cwd: str | os.PathLike[str] | None = None) -> PxtResult:
+    def _run(
+        *args: str,
+        check: bool = True,
+        cwd: str | os.PathLike[str] | None = None,
+        env_overrides: dict[str, str | None] | None = None,
+    ) -> PxtResult:
         # BROWSER=true prevents an actual browser tab open on `pxt dashboard` when tests are run on a dev machine.
         env = {**os.environ, 'PXT_PORT': str(pxt_daemon), 'BROWSER': 'true'}
+        for name, value in (env_overrides or {}).items():
+            if value is None:
+                env.pop(name, None)
+            else:
+                env[name] = value
         try:
             r = subprocess.run(
                 ['pxt', *args],

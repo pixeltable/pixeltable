@@ -1,4 +1,5 @@
-import json
+from pixeltable_cli import models
+from pixeltable_cli.utils import env_fingerprint
 
 from ..parser import Parser
 from ..utils import get_request
@@ -18,7 +19,29 @@ Notes:
   A file path means the value came from the config file of this Pixeltable instance.
   Source 'unset' means neither carries the value; pixeltable falls back to its own default.
   Credential values (api_key, api_token, api_secret, auth_token) show '<redacted>' when set;
-  use the source field to tell set from unset for sensitive keys."""
+  use the source field to tell set from unset for sensitive keys.
+  The daemon resolves values from the environment it was started with, so credentials in your shell
+  aren't visible to the daemon if it wasn't started with them;  run `pxt daemon restart` to apply your current
+  environment variables."""
+
+
+def _report_env_differences(resp: models.ConfigResponse) -> None:
+    """Print the env vars the caller's environment and the daemon resolve differently, if any."""
+    daemon_values = resp.env_fingerprint
+    known: set[str] = set(resp.env_var_names) | set(daemon_values)
+    caller = {
+        name: h
+        for name, h in env_fingerprint().items()
+        if name in known or name.startswith(('PIXELTABLE_SECRET_', 'PIXELTABLE_VAR_'))
+    }
+    missing = sorted(name for name in caller if name not in daemon_values)
+    differing = sorted(name for name, h in caller.items() if name in daemon_values and daemon_values[name] != h)
+    if len(missing) > 0:
+        print(f'  not in the daemon: {", ".join(missing)}')
+    if len(differing) > 0:
+        print(f'  set to a different value in the daemon: {", ".join(differing)}')
+    if len(missing) > 0 or len(differing) > 0:
+        print('  run `pxt daemon restart` to serve with your environment')
 
 
 def run(argv: list[str]) -> None:
@@ -29,21 +52,22 @@ def run(argv: list[str]) -> None:
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)
 
-    resp = get_request('/api/config')
-    entries = resp['entries']
+    resp = models.ConfigResponse.model_validate(get_request('/api/config'))
+    entries = resp.entries
     if args.section is not None:
-        entries = [e for e in entries if e['section'] == args.section]
+        entries = [e for e in entries if e.section == args.section]
     if args.source is not None:
-        entries = [e for e in entries if e['source'] == args.source]
+        entries = [e for e in entries if e.source == args.source]
 
     if args.as_json:
-        print(json.dumps({'config_file': resp['config_file'], 'entries': entries}, indent=2))
+        print(resp.model_copy(update={'entries': entries}).model_dump_json(indent=2))
         return
 
-    print(f'config_file  {resp["config_file"]}')
+    print(f'config_file  {resp.config_file}')
+    _report_env_differences(resp)
 
-    set_entries = [e for e in entries if e['source'] != 'unset']
-    unset_entries = [e for e in entries if e['source'] == 'unset']
+    set_entries = [e for e in entries if e.source != 'unset']
+    unset_entries = [e for e in entries if e.source == 'unset']
 
     # With -v, descriptions land on a continuation line under each entry. To keep that
     # readable when nothing is set, list unset entries in the same table form (value '-')
@@ -51,26 +75,26 @@ def run(argv: list[str]) -> None:
     if args.verbose:
         rows = [*set_entries, *unset_entries]
         if len(rows) > 0:
-            key_width = max(len(f'{e["section"]}.{e["key"]}') for e in rows)
-            src_width = max(len(e['source']) for e in rows) + 2
+            key_width = max(len(f'{e.section}.{e.key}') for e in rows)
+            src_width = max(len(e.source) for e in rows) + 2
             for e in rows:
-                key = f'{e["section"]}.{e["key"]}'
-                src = f'[{e["source"]}]'
-                value = e['value'] if e['value'] is not None else '-'
+                key = f'{e.section}.{e.key}'
+                src = f'[{e.source}]'
+                value = e.value if e.value is not None else '-'
                 print(f'{key.ljust(key_width)}  {src.ljust(src_width)}  {value}')
-                print(f'    {e["description"]} ({e["expected_type"]})')
+                print(f'    {e.description} ({e.expected_type})')
         return
 
     if len(set_entries) > 0:
-        key_width = max(len(f'{e["section"]}.{e["key"]}') for e in set_entries)
-        src_width = max(len(e['source']) for e in set_entries) + 2  # +2 for surrounding []
+        key_width = max(len(f'{e.section}.{e.key}') for e in set_entries)
+        src_width = max(len(e.source) for e in set_entries) + 2  # +2 for surrounding []
         for e in set_entries:
-            key = f'{e["section"]}.{e["key"]}'
-            src = f'[{e["source"]}]'
-            print(f'{key.ljust(key_width)}  {src.ljust(src_width)}  {e["value"]}')
+            key = f'{e.section}.{e.key}'
+            src = f'[{e.source}]'
+            print(f'{key.ljust(key_width)}  {src.ljust(src_width)}  {e.value}')
 
     if len(unset_entries) > 0:
         if len(set_entries) > 0:
             print()
-        names = ', '.join(f'{e["section"]}.{e["key"]}' for e in unset_entries)
+        names = ', '.join(f'{e.section}.{e.key}' for e in unset_entries)
         print(f'not set: {names}')
