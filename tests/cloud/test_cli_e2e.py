@@ -249,7 +249,7 @@ def catalog_table(resources: Resources) -> str:
         pxt.init()
         t = pxt.create_table(
             '{resources.table_uri}',
-            {{'id': pxt.Required[pxt.Int], 'name': pxt.String}},
+            {{'id': pxt.Int, 'name': pxt.String}},
             primary_key='id',
             if_exists='replace',
         )
