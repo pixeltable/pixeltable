@@ -167,7 +167,7 @@ class TestTable:
             pxt.drop_table(p('test'))
         with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match=r"Path '.*dir1/test2' does not exist"):
             pxt.drop_table(p('dir1/test2'))
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*.test2'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*\.test2'):
             pxt.drop_table(p('.test2'))
         with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Versioned path not allowed here: .*test2:120'):
             pxt.drop_table(p('test2:120'))

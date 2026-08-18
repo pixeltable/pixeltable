@@ -91,7 +91,11 @@ class Path:
 
         if len(components) == 0 and not allow_empty_path:
             raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path: {path}')
-        # component identifier validation is enforced by __post_init__ at construction
+        # validate components here (before calling __post_init__) so that if validation fails, the error message
+        # exactly matches the input
+        if not all(is_valid_identifier(c, allow_hyphens=True) for c in components):
+            raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path: {path}')
+
         if version is not None and not allow_versioned_path:
             raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Versioned path not allowed here: {path}')
 
