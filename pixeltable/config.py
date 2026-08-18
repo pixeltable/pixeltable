@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -7,6 +8,8 @@ import re
 import shutil
 import threading
 import typing
+import warnings
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, ClassVar, Generic, Literal, NamedTuple, TypeVar
 
@@ -123,6 +126,37 @@ class DatabaseConfig(pydantic.BaseModel):
 VAR_SECTION = 'pixeltable.database.vars'
 SECRET_SECTION = 'pixeltable.database.secrets'
 
+# environment variable prefixes for the two sections above; the general section_key rule produces a name that's not
+# shell-compatible (contains '.')
+VAR_ENV_PREFIX = 'PIXELTABLE_VAR_'
+SECRET_ENV_PREFIX = 'PIXELTABLE_SECRET_'
+
+
+def value_fingerprint(value: str) -> str:
+    return hashlib.sha256(value.encode('utf-8')).hexdigest()[:12]
+
+
+# settings that cannot be provided via env vars
+_CONFIG_ONLY_KEYS = frozenset({'file_cache_size_g', 'file_cache_lease_s', 'input_media_dest', 'output_media_dest'})
+
+
+# config var names are lowercase; the env var name is the name uppercased
+_CONFIG_VAR_NAME_RE = r'[a-z_][a-z0-9_]*'
+
+
+def is_env_key(ck: ConfigKey) -> bool:
+    """True if this config setting can be set via an environment variable."""
+    return not (ck.section == 'pixeltable' and ck.key in _CONFIG_ONLY_KEYS)
+
+
+def env_var_name(section: str, key: str) -> str:
+    """The environment variable that binds section.key."""
+    if section == SECRET_SECTION:
+        return f'{SECRET_ENV_PREFIX}{key.upper()}'
+    if section == VAR_SECTION:
+        return f'{VAR_ENV_PREFIX}{key.upper()}'
+    return f'{section.upper()}_{key.upper()}'
+
 
 class URI(str):
     """A storage destination: an object-store URI, or a local filesystem path. Validates at construction."""
@@ -138,10 +172,10 @@ class URI(str):
 
 
 class Secret(str):
-    """A configuration value that is redacted wherever it is shown.
+    """A configuration value whose repr is redacted.
 
-    The value is an ordinary string, usable wherever one is; only its repr is redacted. The type marks
-    the declaration, selecting the section the binding is read from.
+    The value is an ordinary string and only its repr is redacted, so printing or logging it any other way shows the
+    value.
     """
 
     def __repr__(self) -> str:
@@ -175,6 +209,12 @@ class ConfigVar(Generic[ConfVarT]):
     type_: type[ConfVarT]
 
     def __init__(self, name: str, type_: type[ConfVarT]) -> None:
+        if re.fullmatch(_CONFIG_VAR_NAME_RE, name) is None:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'Invalid config var name {name!r}: lowercase letters, digits and underscores only, '
+                'not starting with a digit.',
+            )
         self.name = name
         self.type_ = type_
 
@@ -182,6 +222,11 @@ class ConfigVar(Generic[ConfVarT]):
     def section(self) -> str:
         """The configuration section this variable's binding is read from."""
         return SECRET_SECTION if issubclass(self.type_, Secret) else VAR_SECTION
+
+    @property
+    def env_var(self) -> str:
+        """The environment variable that binds this var."""
+        return env_var_name(self.section, self.name)
 
     def value(self) -> ConfVarT:
         """The bound value, converted to the declared type. Raises if the target has no binding for it.
@@ -266,6 +311,9 @@ class Config:
     __home: Path
     __config_file: Path
 
+    # env vars already reported as ignored, so the warning is issued once per process
+    __reported_env_vars: set[str]
+
     # modification time and size of the config file when it was last read, needed for reload_if_changed()
     __stamp: tuple[float, int] | None
 
@@ -282,9 +330,11 @@ class Config:
             print(f'Creating a Pixeltable instance at: {self.__home}')
             self.__home.mkdir()
 
+        self.__reported_env_vars = set()
         self.__config_file = Path(self.lookup_env('pixeltable', 'config', str(self.__home / 'config.toml')))
         self.__config_dict = self.__load_user_config()
         self.__stamp = self.__file_stamp()
+        self.__warn_about_miscased_env_vars()
 
     @property
     def home(self) -> Path:
@@ -453,10 +503,19 @@ class Config:
         return validated_config
 
     def lookup_env(self, section: str, key: str, default: Any = None) -> Any:
-        env_var = f'{section.upper()}_{key.upper()}'
-        if env_var in os.environ and len(os.environ[env_var]) > 0:
-            return os.environ[env_var]
-        return default
+        env_var = env_var_name(section, key)
+        if env_var not in os.environ or len(os.environ[env_var]) == 0:
+            return default
+        if section == 'pixeltable' and key in _CONFIG_ONLY_KEYS:
+            if env_var not in self.__reported_env_vars:
+                self.__reported_env_vars.add(env_var)
+                warnings.warn(
+                    f'Ignoring {env_var}: {section}.{key} can only be set via the config file ({self.__config_file}).',
+                    category=excs.PixeltableWarning,
+                    stacklevel=2,
+                )
+            return default
+        return os.environ[env_var]
 
     def __lookup_config_entry(self, section: str, key: str) -> tuple[Any, Path | None] | None:
         """Find key under section in __config_dict. Returns (value, source_path) or None."""
@@ -527,7 +586,7 @@ class Config:
         return self.get_value(key, list, section)
 
     def config_keys(self) -> list[ConfigKey]:
-        """Return all configuration settings from the known-schema registry."""
+        """Return all configuration settings: the known-schema registry, plus active config vars."""
         result: list[ConfigKey] = []
         for section, options in KNOWN_CONFIG_OPTIONS.items():
             for key, info in options.items():
@@ -536,6 +595,7 @@ class Config:
                 else:
                     description, expected_type = info, str
                 result.append(ConfigKey(section=section, key=key, description=description, expected_type=expected_type))
+        result.extend(self.__config_var_keys())
         return result
 
     def get_value_source(self, key: str, section: str = 'pixeltable') -> Path | Literal['env', 'unset']:
@@ -551,6 +611,82 @@ class Config:
             return 'unset'
         path = entry[1]
         return path if path is not None else 'unset'
+
+    def env_keys(self) -> list[ConfigKey]:
+        """The config settings that can be set via an environment variable."""
+        return [ck for ck in self.config_keys() if is_env_key(ck)]
+
+    def __config_var_keys(self) -> list[ConfigKey]:
+        """The config vars from the config file and the environment."""
+        result: list[ConfigKey] = []
+        for section, prefix, description in (
+            (VAR_SECTION, VAR_ENV_PREFIX, 'user-declared config var'),
+            (SECRET_SECTION, SECRET_ENV_PREFIX, 'user-declared secret'),
+        ):
+            keys = set(self.__section_keys(section))
+            for name, value in os.environ.items():
+                # a config setting supplied by an env var needs to be uppercase
+                suffix = name[len(prefix) :]
+                if not name.startswith(prefix) or value == '' or suffix != suffix.upper():
+                    continue
+                if re.fullmatch(_CONFIG_VAR_NAME_RE, suffix.lower()) is not None:
+                    keys.add(suffix.lower())
+            result.extend(
+                ConfigKey(section=section, key=key, description=description, expected_type=str) for key in sorted(keys)
+            )
+        return result
+
+    def __warn_about_miscased_env_vars(self) -> None:
+        """Warn about an environment variable that differs only in case from one this instance reads."""
+        recognized = {env_var_name(ck.section, ck.key) for ck in self.config_keys()}
+        for name in sorted(os.environ):
+            if name == name.upper() or not name.upper().startswith('PIXELTABLE_'):
+                continue
+            upper = name.upper()
+            if upper in recognized or upper.startswith((VAR_ENV_PREFIX, SECRET_ENV_PREFIX)):
+                warnings.warn(
+                    f'Ignoring {name}: environment variable names are uppercase; did you mean {upper}?',
+                    category=excs.PixeltableWarning,
+                    stacklevel=2,
+                )
+
+    def __section_keys(self, section: str) -> list[str]:
+        """The keys defined in section."""
+        parts = section.split('.')
+        node: Any = self.__config_dict.get(parts[0])
+        for p in parts[1:]:
+            if not isinstance(node, dict):
+                return []
+            entry = node.get(p)
+            node = entry[0] if isinstance(entry, tuple) else entry
+        return list(node) if isinstance(node, dict) else []
+
+    def env_fingerprint(self) -> dict[str, str]:
+        """Fingerprints of the values of env-settable settings, as {env var name: hash}."""
+        out: dict[str, str] = {}
+        for ck in self.env_keys():
+            value = self.get_value(ck.key, str, section=ck.section)
+            if value is not None and value != '':
+                out[env_var_name(ck.section, ck.key)] = value_fingerprint(value)
+        return out
+
+    def compare_env_values(self, other: Mapping[str, str]) -> tuple[list[str], list[str]]:
+        """Compare an env fingerprint with this instance's.
+
+        Returns (set for other but not here, resolved differently here). A name this instance does not
+        read config from is ignored, so an unrelated variable in the other's environment does not count. A
+        value this instance has and other does not is not a disagreement.
+        """
+        mine = self.env_fingerprint()
+        known = {env_var_name(ck.section, ck.key) for ck in self.env_keys()}
+        relevant = {
+            name: h
+            for name, h in other.items()
+            if name.startswith((VAR_ENV_PREFIX, SECRET_ENV_PREFIX)) or name in known
+        }
+        missing = sorted(name for name in relevant if name not in mine)
+        differing = sorted(name for name, h in relevant.items() if name in mine and mine[name] != h)
+        return missing, differing
 
 
 KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {

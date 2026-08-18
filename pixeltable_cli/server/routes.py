@@ -12,7 +12,7 @@ import sqlalchemy as sa
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.catalog import Path
-from pixeltable.config import Config
+from pixeltable.config import SECRET_SECTION, Config
 from pixeltable.env import Env
 from pixeltable.service import management_client
 from pixeltable.service.management_protocol import (
@@ -39,6 +39,7 @@ from pixeltable_cli import models, schema_types, service_types
 from pixeltable_cli.utils import identity
 
 from . import bridge
+from .daemon_state import state as daemon_state
 from .router import RawResponse, Request, Router
 
 router = Router()
@@ -57,7 +58,9 @@ _SERVICE_DEPLOYMENTS = pydantic.TypeAdapter(list[service_types.ServiceDeployment
 
 @router.get('/api/health')
 def health(_req: Request) -> models.HealthResponse:
-    return models.HealthResponse(ok=True, pid=os.getpid(), started_at=_STARTED_AT, **_IDENTITY)
+    return models.HealthResponse(
+        ok=True, pid=os.getpid(), started_at=_STARTED_AT, in_flight=daemon_state.in_flight_requests(), **_IDENTITY
+    )
 
 
 @router.get('/api/status')
@@ -92,7 +95,11 @@ def config(_req: Request) -> models.ConfigResponse:
     entries: list[models.ConfigEntry] = []
     for ck in Config.get().config_keys():
         source = Config.get().get_value_source(ck.key, section=ck.section)
-        is_sensitive = ck.key in client_creds or any(ck.key.endswith(s) for s in sensitive_suffixes)
+        is_sensitive = (
+            ck.section == SECRET_SECTION
+            or ck.key in client_creds
+            or any(ck.key.endswith(s) for s in sensitive_suffixes)
+        )
         if source == 'unset':
             value: str | None = None
         elif is_sensitive:
@@ -114,7 +121,12 @@ def config(_req: Request) -> models.ConfigResponse:
                 expected_type=getattr(ck.expected_type, '__name__', str(ck.expected_type)),
             )
         )
-    return models.ConfigResponse(config_file=str(Config.get().config_file), entries=entries)
+    return models.ConfigResponse(
+        config_file=str(Config.get().config_file),
+        entries=entries,
+        env_fingerprint=Config.get().env_fingerprint(),
+        env_var_names=daemon_state.known_env_vars(),
+    )
 
 
 @router.get('/api/dirs')
@@ -127,25 +139,21 @@ def list_dir(req: Request) -> models.LsResponse:
 
 @router.get('/api/cwd')
 def get_cwd(req: Request) -> models.CwdResponse:
-    from . import daemon  # local import avoids the daemon -> http_server -> routes cycle
-
-    return models.CwdResponse(uri=daemon.get_wd(req.headers.get('x-pxt-session')))
+    return models.CwdResponse(uri=daemon_state.get_wd(req.headers.get('x-pxt-session')))
 
 
 @router.post('/api/cwd')
 def set_cwd(req: Request) -> models.CwdResponse:
-    from . import daemon  # local import avoids the daemon -> http_server -> routes cycle
-
     session = req.headers.get('x-pxt-session')
     if session is None:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'no session; cannot set a working directory')
     resolved = req.resolve_path(req.body(models.CwdBody).uri)
     if resolved == '':
         # the catalog root is the default (no prefix), so a working directory that resolves to root clears it
-        daemon.clear_wd(session)
+        daemon_state.clear_wd(session)
         return models.CwdResponse(uri=None)
     _require_dir(resolved)
-    daemon.set_wd(session, resolved)
+    daemon_state.set_wd(session, resolved)
     return models.CwdResponse(uri=resolved)
 
 
@@ -182,7 +190,7 @@ def _reroot(nodes: list[TreeNode], catalog_root: str) -> None:
             _reroot(n['entries'], catalog_root)
 
 
-@router.get('/api/tables/rows')
+@router.get('/api/tables/rows', checks_env=True)
 def table_rows(req: Request) -> models.RowsResponse:
     path = req.resolve_path(req.query_str('path') or '')
     n = req.query_int('n', default=10, ge=1, le=1000)
@@ -215,7 +223,7 @@ def table_rows(req: Request) -> models.RowsResponse:
     return models.RowsResponse(columns=columns_list, rows=out_rows)
 
 
-@router.get('/api/tables/row')
+@router.get('/api/tables/row', checks_env=True)
 def table_row(req: Request) -> models.GetResponse:
     path = req.resolve_path(req.query_str('path') or '')
     pk = req.query_list('pk')
@@ -476,7 +484,7 @@ def schema_prune(req: Request) -> schema_types.SchemaPlan:
     return _SCHEMA_PLAN.validate_python(bridge.schema_prune(body.schema_file, req.resolve_path(body.catalog_dir)))
 
 
-@router.post('/api/schema/update')
+@router.post('/api/schema/update', checks_env=True)
 def schema_update(req: Request) -> schema_types.SchemaPlan:
     body = req.body(models.SchemaUpdateBody)
     applied = bridge.schema_update(
@@ -547,7 +555,7 @@ def dashboard_pipeline_root(_req: Request) -> dict[str, Any]:
     return bridge.get_pipeline(tbl_path=None)
 
 
-@router.get('/api/dashboard/tables/data')
+@router.get('/api/dashboard/tables/data', checks_env=True)
 def dashboard_table_data(req: Request) -> dict[str, Any]:
     path = req.resolve_path(req.query_str('path') or '')
     return bridge.get_table_data(
@@ -560,7 +568,7 @@ def dashboard_table_data(req: Request) -> dict[str, Any]:
     )
 
 
-@router.get('/api/dashboard/tables/export')
+@router.get('/api/dashboard/tables/export', checks_env=True)
 def dashboard_table_export(req: Request) -> RawResponse:
     path = req.resolve_path(req.query_str('path') or '')
     # Whole CSV is materialized in memory by bridge.export_table_csv before sending.
