@@ -4242,31 +4242,28 @@ class TestTable:
 
         with pxt_raises(
             pxt.ErrorCode.UNSUPPORTED_OPERATION,
-            match="Cannot drop column 'c1' because the following views depend on it",
-        ) as e:
+            match=r"Cannot drop column 'c1' because the following views depend on it:\n"
+            r'view: .*view1, predicate: c1 % 2 == 0\n'
+            r'view: .*view2, predicate: \(c1 \+ vc1\) % 2 == 0\n'
+            r'view: .*view3, predicate: \(\(vc1 \+ vc2\) - \(c1 \+ c2\)\) % 5 == 0',
+        ):
             t.drop_column('c1')
 
-        assert 'view: view1, predicate: c1 % 2 == 0' in str(e.value).lower()
-        assert 'view: view2, predicate: (c1 + vc1) % 2 == 0' in str(e.value).lower()
-        assert 'view: view3, predicate: ((vc1 + vc2) - (c1 + c2)) % 5 == 0' in str(e.value).lower()
-
         with pxt_raises(
             pxt.ErrorCode.UNSUPPORTED_OPERATION,
-            match="Cannot drop column 'c2' because the following views depend on it",
-        ) as e:
+            match=r"Cannot drop column 'c2' because the following views depend on it:\n"
+            r'view: .*view3, predicate: \(\(vc1 \+ vc2\) - \(c1 \+ c2\)\) % 5 == 0\n'
+            r'view: .*view4, predicate: c2 / vc3 < 19',
+        ):
             t.drop_column('c2')
 
-        assert 'view: view3, predicate: ((vc1 + vc2) - (c1 + c2)) % 5 == 0' in str(e.value).lower()
-        assert 'view: view4, predicate: c2 / vc3 < 19' in str(e.value).lower()
-
         with pxt_raises(
             pxt.ErrorCode.UNSUPPORTED_OPERATION,
-            match="Cannot drop column 'vc1' because the following views depend on it",
-        ) as e:
+            match=r"Cannot drop column 'vc1' because the following views depend on it:\n"
+            r'view: .*view2, predicate: \(c1 \+ vc1\) % 2 == 0\n'
+            r'view: .*view3, predicate: \(\(vc1 \+ vc2\) - \(c1 \+ c2\)\) % 5 == 0',
+        ):
             v1.drop_column('vc1')
-
-        assert 'view: view2, predicate: (c1 + vc1) % 2 == 0' in str(e.value).lower()
-        assert 'view: view3, predicate: ((vc1 + vc2) - (c1 + c2)) % 5 == 0' in str(e.value).lower()
 
     def test_drop_last_column(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
         p = make_catalog_path
