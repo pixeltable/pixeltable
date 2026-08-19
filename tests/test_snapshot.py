@@ -305,6 +305,34 @@ class TestSnapshot:
         v2 = pxt.get_table(p('v2'))
         verify(s1, s2, v1, v2)
 
+    def test_view_of_snapshot_with_columns(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('tbl'), {'a': pxt.Int | None})
+        rows = [{'a': 1}, {'a': 2}, {'a': 3}]
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+        s = pxt.create_snapshot(p('s'), t, additional_columns={'b': pxt.Int | None})
+        v = pxt.create_view(p('v'), s)
+        tbl_path = t._path()
+
+        def verify(s: pxt.Table, v: pxt.Table) -> None:
+            assert s.count() == len(rows)
+            assert v.count() == len(rows)
+            # get_base_table() opens its own transaction, so it is the call that goes through lock acquisition and
+            # the metadata refresh; describe(), which resolves the base from inside one, does not
+            if db_root.id == 'local':  # ViewProxy._get_base_table() is unimplemented
+                assert v.get_base_table()._path() == s._path()
+                assert s.get_base_table()._path() == tbl_path
+
+        verify(s, v)
+
+        # move the base past the version the snapshot pins
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+        assert t.count() == 2 * len(rows)
+        verify(s, v)
+
+        reload_catalog()
+        verify(pxt.get_table(p('s')), pxt.get_table(p('v')))
+
     def test_snapshot_of_view_chain(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl'), {'a': pxt.Int | None})

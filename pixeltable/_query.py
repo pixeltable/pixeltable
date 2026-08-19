@@ -601,9 +601,9 @@ class Query(QueryBase):
         self, args: dict[str, Any] | None = None, *, media_as_urls: bool = False
     ) -> Generator[list, None, None]:
         assert self._from_clause.is_local
-        tbl_ids = self.referenced_tbl_ids()
+        tbl_keys = self.referenced_tbl_keys()
         tvps = self._from_clause.tvps
-        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=tvps, read_tbl_ids=tbl_ids):
+        with get_runtime().catalog.begin_read_xact(tvps=tvps, tbl_keys=tbl_keys):
             try:
                 planned_exprs = self._compiled_select_list()
                 if media_as_urls:
@@ -621,7 +621,7 @@ class Query(QueryBase):
             except excs.ExprEvalError as e:
                 self._raise_expr_eval_err(e)
             except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
-                single_tbl = next(iter(tbl_ids)) if len(tbl_ids) == 1 else None
+                single_tbl = next(iter(tbl_keys)).tbl_id if len(tbl_keys) == 1 else None
                 get_runtime().catalog.convert_sql_exc(e, tbl_id=single_tbl)
                 raise  # just re-raise if not converted to a Pixeltable error
 
@@ -642,7 +642,7 @@ class Query(QueryBase):
         if not self._from_clause.is_local:
             return self._exec_proxy('collect', args=args).as_result_set()
         tvps = self._from_clause.tvps
-        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=tvps, read_tbl_ids=self.referenced_tbl_ids()):
+        with get_runtime().catalog.begin_read_xact(tvps=tvps, tbl_keys=self.referenced_tbl_keys()):
             schema = self.schema
             # url-mode takes the direct path; the cursor path (no args) stays as-is for normal execution
             if args is None and not media_as_urls:
@@ -717,7 +717,7 @@ class Query(QueryBase):
         is_grouped = self.group_by_clause is not None or self.grouping_tbl_key is not None
 
         assert self._from_clause.is_local
-        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=self._from_clause.tvps):
+        with get_runtime().catalog.begin_read_xact(tvps=self._from_clause.tvps):
             plan_root = count_query._ensure_plan().exec_root
             if not isinstance(plan_root, exec.SqlNode):
                 raise excs.RequestError(
@@ -900,8 +900,8 @@ class Query(QueryBase):
             return data_file_path
         else:
             assert self._from_clause.is_local
-            with get_runtime().catalog.begin_xact(
-                for_write=False, read_tvps=self._from_clause.tvps, read_tbl_ids=self.referenced_tbl_ids()
+            with get_runtime().catalog.begin_read_xact(
+                tvps=self._from_clause.tvps, tbl_keys=self.referenced_tbl_keys()
             ):
                 return write_coco_dataset(self, dest_path)
 
@@ -948,8 +948,8 @@ class Query(QueryBase):
             assert dest_path.is_dir()
         else:
             assert self._from_clause.is_local
-            with get_runtime().catalog.begin_xact(
-                for_write=False, read_tvps=self._from_clause.tvps, read_tbl_ids=self.referenced_tbl_ids()
+            with get_runtime().catalog.begin_read_xact(
+                tvps=self._from_clause.tvps, tbl_keys=self.referenced_tbl_keys()
             ):
                 # we need the metadata for PixeltablePytorchDataset
                 export_parquet(self, dest_path, inline_images=True, _write_md=True)

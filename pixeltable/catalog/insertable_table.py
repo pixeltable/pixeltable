@@ -15,7 +15,7 @@ from .globals import IndexSpec, MediaValidation, OnErrorParam
 from .local_table import LocalTable
 from .table_path import TableVersionPath
 from .table_version_handle import TableVersionHandle
-from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, TableOp, TableOpsBuilder
+from .tbl_ops import CreateTableMdOp, TableOp, TableOpsBuilder
 from .types import TableVersionMd
 from .update_status import UpdateStatus
 from .utils import create_table_version_md
@@ -76,8 +76,7 @@ class InsertableTable(LocalTable):
 
         ops = (
             TableOpsBuilder(md.tbl_md.tbl_id, tbl_version=md.tbl_md.current_version)
-            .add(CreateTableMdOp)
-            .add(CreateStoreTableOp)
+            .add(CreateTableMdOp, is_view=False)
             .build()
         )
         return md, ops
@@ -155,9 +154,10 @@ class InsertableTable(LocalTable):
 
         start_ts = time.perf_counter()
         status = pxt.UpdateStatus()
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-        ):
+        read_tbl_keys = (
+            data_source.pxt_query.referenced_tbl_keys() if isinstance(data_source, QueryTableDataConduit) else None
+        )
+        with get_runtime().catalog.begin_write_xact(tvps=[self._tbl_version_path], read_tbl_keys=read_tbl_keys):
             # in on_error='abort' mode the exec raises the internal ExprEvalError on the first failing cell;
             # convert it to a user-facing Error (on_error='ignore' records per-cell errors and never raises)
             try:
@@ -199,9 +199,7 @@ class InsertableTable(LocalTable):
         """
         fail_on_exception = OnErrorParam.fail_on_exception(on_error)
         start_ts = time.perf_counter()
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-        ):
+        with get_runtime().catalog.begin_write_xact(tvps=[self._tbl_version_path]):
             status = self._tbl_version.get().insert(
                 source=sql_source,
                 query=None,
@@ -230,9 +228,7 @@ class InsertableTable(LocalTable):
             >>> tbl.delete(tbl.a > 5)
         """
         self._validate_where(where)
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-        ):
+        with get_runtime().catalog.begin_write_xact(tvps=[self._tbl_version_path]):
             return self._tbl_version.get().delete(where=where)
 
     def _get_base_table(self) -> 'Table' | None:

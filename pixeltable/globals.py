@@ -274,8 +274,8 @@ def create_table(
         if isinstance(tbl, catalog.InsertableTable):
             if isinstance(data_source, QueryTableDataConduit):
                 query = data_source.pxt_query
-                with get_runtime().catalog.begin_xact(
-                    for_write=True, write_tvps=[tbl._tbl_version_path], lock_mutable_tree=True
+                with get_runtime().catalog.begin_write_xact(
+                    tvps=[tbl._tbl_version_path], read_tbl_keys=query.referenced_tbl_keys()
                 ):
                     tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
             elif not is_direct_query:
@@ -961,14 +961,14 @@ def ls(path: str = '') -> pd.DataFrame:
     To get a programmatic list of the directory's contents, use [get_dir_contents()][pixeltable.get_dir_contents]
     instead.
     """
-    from pixeltable.catalog import retry_loop
+    from pixeltable.catalog import retry_read_md_loop
     from pixeltable.metadata import schema
 
     path_obj = catalog.Path.parse(path, allow_empty_path=True)
     cat = get_runtime().get_catalog(path_obj)
     dir_entries = cat.get_dir_contents(path_obj)
 
-    @retry_loop(for_write=False)
+    @retry_read_md_loop()
     def op() -> list[list[str]]:
         rows: list[list[str]] = []
         for name, entry in dir_entries.items():

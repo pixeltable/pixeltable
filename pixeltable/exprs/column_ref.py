@@ -175,12 +175,12 @@ class ColumnRef(Expr):
 
     def recompute(self, *, cascade: bool = True, errors_only: bool = False) -> catalog.UpdateStatus:
         cat = get_runtime().catalog
-        with cat.begin_xact(for_write=False):
+        with cat.begin_read_md_xact():
             tbl = cat.get_table_by_id(self.col_md.tbl_id)
             tvp = tbl._tbl_version_path
 
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
-        with cat.begin_xact(for_write=True, write_tvps=[tvp], lock_mutable_tree=True):
+        with cat.begin_write_xact(tvps=[tvp]):
             col = self.col
             tbl_version = col.tbl_handle.get()
             if tbl_version.id != self.col_md.tbl_id:
@@ -531,7 +531,7 @@ class ColumnRef(Expr):
 
     def _descriptors(self) -> DescriptionHelper:
         col_name = self.col_md.name
-        with get_runtime().catalog.begin_xact():
+        with get_runtime().catalog.begin_read_md_xact():
             tbl = get_runtime().catalog.get_table_by_id(self.col_md.qcolid.tbl_id)
         # TODO: is this what we want? it's printing the path of the containing table, not of the context table
         helper = DescriptionHelper()

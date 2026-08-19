@@ -21,7 +21,7 @@ import sqlalchemy as sql
 
 from pixeltable import exceptions as excs
 from pixeltable._query import Query
-from pixeltable.catalog import InsertableTable, Path, TablePathKey, TableVersionKey, retry_loop
+from pixeltable.catalog import InsertableTable, Path, TablePathKey, TableVersionKey, retry_read_md_loop
 from pixeltable.env import Env
 from pixeltable.io.data_sources import SqlDataSource
 from pixeltable.row import RowBatch
@@ -67,7 +67,7 @@ def handle(
             if is_mutation:
                 # refuse to run if the client's snapshot_path_key is behind the current schema
                 snapshot_key = TablePathKey.from_dict(request.snapshot_path_key)
-                with cat.begin_xact(for_write=False):
+                with cat.begin_read_md_xact():
                     md = cat.read_md_for_export(tbl)
                 if snapshot_key != _current_key(md):
                     # return the current md and is_stale_md=True so the client refreshes and retries
@@ -80,7 +80,7 @@ def handle(
                 return _encode_response(ProxyResponse(result=result))
 
             # a mutation bumps the table version; return the new md so the client's path refreshes
-            with cat.begin_xact(for_write=False):
+            with cat.begin_read_md_xact():
                 md = cat.read_md_for_export(tbl)
             _logger.debug('%s.%s %s (%.2fs)', request.class_name, request.method, path_label, time.monotonic() - t0)
             return _encode_response(ProxyResponse(result=result, current_md=md))
@@ -231,7 +231,7 @@ def _deserialize_args(request: ProxyRequest) -> dict:
     proxy_protocol.deserialize_request() directly.
     """
 
-    @retry_loop(for_write=False)
+    @retry_read_md_loop()
     def deserialize() -> dict:
         return proxy_protocol.deserialize_request(request)
 
@@ -242,7 +242,7 @@ def _create_table(request: ProxyRequest) -> tuple[list, bool]:
     kwargs = _deserialize_args(request)
     cat = get_runtime().catalog
     tbl, was_created = cat.create_table(**kwargs)
-    with cat.begin_xact(for_write=False):
+    with cat.begin_read_md_xact():
         md = cat.read_md_for_export(tbl)
     return md, was_created
 
@@ -251,7 +251,7 @@ def _create_view(request: ProxyRequest) -> tuple[list, bool]:
     kwargs = _deserialize_args(request)
     cat = get_runtime().catalog
     tbl, was_created = cat.create_view(**kwargs)
-    with cat.begin_xact(for_write=False):
+    with cat.begin_read_md_xact():
         md = cat.read_md_for_export(tbl)
     return md, was_created
 
@@ -260,13 +260,13 @@ def _create_from_model(request: ProxyRequest) -> tuple[list, bool]:
     kwargs = _deserialize_args(request)
     base_dict = kwargs.pop('base')
 
-    @retry_loop(for_write=False)
+    @retry_read_md_loop()
     def build_base() -> Any:
         return None if base_dict is None else Query.from_dict(base_dict)
 
     cat = get_runtime().catalog
     tbl, was_created = cat.create_from_model(base=build_base(), **kwargs)
-    with cat.begin_xact(for_write=False):
+    with cat.begin_read_md_xact():
         md = cat.read_md_for_export(tbl)
     return md, was_created
 
@@ -283,7 +283,7 @@ def _get_table(request: ProxyRequest) -> list | None:
     tbl = cat.get_table(**kwargs)
     if tbl is None:
         return None
-    with cat.begin_xact(for_write=False):
+    with cat.begin_read_md_xact():
         return cat.read_md_for_export(tbl)
 
 
@@ -291,7 +291,7 @@ def _get_table_by_id(request: ProxyRequest) -> list | None:
     kwargs = _deserialize_args(request)
     cat = get_runtime().catalog
 
-    @retry_loop(for_write=False)
+    @retry_read_md_loop()
     def load() -> list | None:
         tbl = cat.get_table_by_id(**kwargs)
         return None if tbl is None else cat.read_md_for_export(tbl)
@@ -309,7 +309,7 @@ def _resolve_tbl(path_key: TablePathKey) -> LocalTable:
     tbl_id, effective_version = path_key.keys[0].tbl_id, path_key.keys[0].effective_version
     cat = get_runtime().catalog
 
-    @retry_loop(for_write=False)
+    @retry_read_md_loop()
     def resolve() -> LocalTable | None:
         return cat.get_table_by_id(tbl_id, effective_version)
 
@@ -425,7 +425,7 @@ def _insert_query(request: ProxyRequest, tbl: LocalTable) -> Any:
     kwargs = _deserialize_args(request)
 
     # from_dict() loads the query's table metadata, which is disallowed inside a plain transaction
-    @retry_loop(for_write=False)
+    @retry_read_md_loop()
     def build() -> Query:
         return Query.from_dict(kwargs['query'])
 
@@ -558,7 +558,7 @@ def _run_query(query_dict: dict, run: 'Callable[[Any], Any]') -> dict:
     from pixeltable._query import Query
 
     # from_dict() loads metadata
-    @retry_loop(for_write=False)
+    @retry_read_md_loop()
     def build() -> Query:
         return Query.from_dict(query_dict)
 
@@ -587,7 +587,7 @@ def _query_count(request: ProxyRequest) -> int:
 
     query_dict = proxy_protocol.deserialize_request(request)['query']
 
-    @retry_loop(for_write=False)
+    @retry_read_md_loop()
     def build() -> Query:
         return Query.from_dict(query_dict)
 
