@@ -24,47 +24,41 @@ VERY_EXPENSIVE_PYTEST = "-m 'not benchmark and not cloud_e2e'"
 
 # The core-functionality test modules that PR checks run on every push. This mirrors the `slimpytest` target in the
 # Makefile.
-SLIM_TESTS = ' '.join(
-    (
-        *(
-            f'tests/test_{name}.py'
-            for name in (
-                'alter_column',
-                'array_type',
-                'catalog',
-                'component_view',
-                'concurrent',
-                'concurrent_model',
-                'config',
-                'dirs',
-                'env',
-                'exceptions',
-                'exprs',
-                'fault_injection',
-                'file_cache',
-                'function',
-                'history',
-                'index',
-                'iterator',
-                'mcp',
-                'path',
-                'primary_key_index',
-                'query',
-                'sample',
-                'snapshot',
-                'table',
-                'table_model',
-                'table_model_2',
-                'types',
-                'view',
-            )
-        ),
-        'tests/serving/test_fastapi.py',
-        *(
-            f'tests/pixeltable_cli/test_{name}.py'
-            for name in ('bridge', 'internals', 'schema', 'serve_deploy', 'smoke')
-        ),
-    )
+SLIM_TESTS = (
+    'tests/test_alter_column.py '
+    'tests/test_array_type.py '
+    'tests/test_catalog.py '
+    'tests/test_component_view.py '
+    'tests/test_concurrent.py '
+    'tests/test_concurrent_model.py '
+    'tests/test_config.py '
+    'tests/test_dirs.py '
+    'tests/test_env.py '
+    'tests/test_exceptions.py '
+    'tests/test_exprs.py '
+    'tests/test_fault_injection.py '
+    'tests/test_file_cache.py '
+    'tests/test_function.py '
+    'tests/test_history.py '
+    'tests/test_index.py '
+    'tests/test_iterator.py '
+    'tests/test_mcp.py '
+    'tests/test_path.py '
+    'tests/test_primary_key_index.py '
+    'tests/test_query.py '
+    'tests/test_sample.py '
+    'tests/test_snapshot.py '
+    'tests/test_table.py '
+    'tests/test_table_model.py '
+    'tests/test_table_model_2.py '
+    'tests/test_types.py '
+    'tests/test_view.py '
+    'tests/serving/test_fastapi.py '
+    'tests/pixeltable_cli/test_bridge.py '
+    'tests/pixeltable_cli/test_internals.py '
+    'tests/pixeltable_cli/test_schema.py '
+    'tests/pixeltable_cli/test_serve_deploy.py '
+    'tests/pixeltable_cli/test_smoke.py'
 )
 
 MAIN_PLATFORM = 'ubuntu-24.04'
