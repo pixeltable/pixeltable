@@ -75,7 +75,6 @@ class MatrixConfig(NamedTuple):
     uv_options: str = ''
     pytest_options: str = DEFAULT_PYTEST
     pre_test_cmd: str = ''  # Extra bash command to be run just before tests
-    build_dashboard: bool = True  # Whether this config runs tests that need the dashboard SPA bundle
 
     @property
     def display_name(self) -> str:
@@ -91,7 +90,6 @@ class MatrixConfig(NamedTuple):
             'uv-options': self.uv_options,
             'pytest-options': self.pytest_options,
             'pre-test-cmd': self.pre_test_cmd,
-            'build-dashboard': str(self.build_dashboard).lower(),
         }
 
 
@@ -123,9 +121,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
     if trigger == 'pull_request':
         # On every push to a PR we run only the slim tests. It is strictly a subset of what the merge queue runs.
         configs.extend(
-            MatrixConfig(
-                'slim', 'py', platform, '3.11', pytest_options=f'{DEFAULT_PYTEST} {SLIM_TESTS}', build_dashboard=False
-            )
+            MatrixConfig('slim', 'py', platform, '3.11', pytest_options=f'{DEFAULT_PYTEST} {SLIM_TESTS}')
             for platform in (MAIN_PLATFORM, *BASIC_PLATFORMS)
         )
 
