@@ -297,6 +297,10 @@ def cloud_db_base_uri(init_env: None) -> Iterator[str]:
         subprocess.run(('pxt', 'db', 'create', uri), text=True, timeout=900, check=True)
 
     try:
+        if use_temporary_db:
+            _logger.info('Updating runtime on test db: %s', uri)
+            subprocess.run(('pxt', 'db', 'update-runtime', uri), text=True, timeout=1800, check=True)
+
         _logger.info('Checking cloud db status: %s', uri)
         proc = subprocess.run(
             ('pxt', 'db', 'status', uri, '--json'), capture_output=True, text=True, timeout=60, check=True

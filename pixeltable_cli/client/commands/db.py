@@ -7,6 +7,7 @@ import json
 import sys
 import urllib.request
 from pathlib import Path
+from typing import IO, Any
 
 from ..hosted import (
     RUNTIME_POLL_INTERVAL,
@@ -192,9 +193,24 @@ def _delete(args: argparse.Namespace) -> None:
         print(f"Deleted database '{db}'.")
 
 
+class _ProgressReader:
+    """File-like wrapper that advances a progress bar as the wrapped file is read."""
+
+    def __init__(self, f: IO[bytes], bar: Any) -> None:
+        self._f = f
+        self._bar = bar
+
+    def read(self, size: int = -1) -> bytes:
+        data = self._f.read(size)
+        self._bar.update(len(data))
+        return data
+
+
 def _update_runtime(args: argparse.Namespace) -> None:
-    # imported lazily: build_db_runtime_bundle pulls in pixeltable, which the stdlib-only client avoids
+    # imported lazily: these pull in pixeltable and tqdm, which the stdlib-only client avoids
     # loading for the other db subcommands
+    from tqdm import tqdm
+
     from pixeltable.serving.deploy import build_db_runtime_bundle
 
     org, db = resolve_db_uri(args.db_uri, prog='pxt db update-runtime')
@@ -213,35 +229,34 @@ def _update_runtime(args: argparse.Namespace) -> None:
         )
         sys.exit(1)
 
-    if not args.json_output:
-        print('Building runtime bundle...', end=' ', flush=True)
-    bundle_path = build_db_runtime_bundle(project_dir)
-    if not args.json_output:
-        size_mb = bundle_path.stat().st_size / (1024 * 1024)
-        print(f'done ({size_mb:.1f} MB)')
+    show_progress = not args.json_output
+    bundle_path = build_db_runtime_bundle(project_dir, show_progress=show_progress)
 
     try:
-        if not args.json_output:
-            print('Uploading bundle...', end=' ', flush=True)
         url_resp = get_request('/api/db/upload-url', {'org': org, 'db': db})
         presigned_url = url_resp['presigned_url']
         bundle_s3_key = url_resp['bundle_s3_key']
 
-        data = bundle_path.read_bytes()  # urllib wants a bytes-like body; the bundle is a small project tarball
-        req = urllib.request.Request(presigned_url, data=data, method='PUT')
-        req.add_header('Content-Type', 'application/octet-stream')
-        req.add_header('Content-Length', str(len(data)))
-        with urllib.request.urlopen(req, timeout=300) as r:
-            if r.status >= 400:
-                raise RuntimeError(f'Bundle upload failed: HTTP {r.status}')
-        if not args.json_output:
-            print('done')
+        bundle_size = bundle_path.stat().st_size
+        with (
+            bundle_path.open('rb') as f,
+            tqdm(
+                desc='Uploading runtime bundle', total=bundle_size, unit='B', unit_scale=True, disable=not show_progress
+            ) as bar,
+        ):
+            # urllib streams a file-like body in chunks, which lets the bar advance during the upload
+            req = urllib.request.Request(presigned_url, data=_ProgressReader(f, bar), method='PUT')
+            req.add_header('Content-Type', 'application/octet-stream')
+            req.add_header('Content-Length', str(bundle_size))
+            with urllib.request.urlopen(req, timeout=300) as r:
+                if r.status >= 400:
+                    raise RuntimeError(f'Bundle upload failed: HTTP {r.status}')
     finally:
         bundle_path.unlink(missing_ok=True)
 
     post_request('/api/db/update-runtime', {'org': org, 'db': db, 'bundle_s3_key': bundle_s3_key})
 
-    label = None if args.json_output else 'Waiting for runtime build...'
+    label = None if args.json_output else 'Waiting for runtime build (this may take 10 minutes or longer) ...'
     result = poll_state(
         '/api/db', {'org': org, 'db': db}, 'database', {'UPDATING'}, RUNTIME_POLL_INTERVAL, RUNTIME_POLL_TIMEOUT, label
     )
