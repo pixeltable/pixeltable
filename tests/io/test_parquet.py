@@ -214,7 +214,7 @@ class TestParquet:
         p = make_catalog_path
         empty_dir = tmp_path / 'empty'
         empty_dir.mkdir()
-        tab = pxt.create_table(p('empty_src'), {'c_id': pxt.Int})
+        tab = pxt.create_table(p('empty_src'), {'c_id': pxt.Int | None})
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='empty directory'):
             tab.insert(str(empty_dir), source_format='parquet')
 
@@ -229,7 +229,10 @@ class TestParquet:
         import pyarrow as pa
         from pyarrow import parquet
 
-        t = pxt.create_table(p('test1'), {'c1': pxt.Int, 'c2': pxt.String, 'c3': pxt.Timestamp, 'c4': pxt.Json})
+        t = pxt.create_table(
+            p('test1'),
+            {'c1': pxt.Int | None, 'c2': pxt.String | None, 'c3': pxt.Timestamp | None, 'c4': pxt.Json | None},
+        )
 
         tz = ZoneInfo('America/Anchorage')
         ts1 = datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz)
@@ -361,7 +364,7 @@ class TestParquet:
 
     def test_export_parquet_image(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         p = make_catalog_path
-        tab = pxt.create_table(p('test_image'), {'c1': pxt.Image})
+        tab = pxt.create_table(p('test_image'), {'c1': pxt.Image | None})
         tab.insert([{'c1': get_image_files()[0]}])
 
         export_path = tmp_path / 'exported_image.parquet'
@@ -387,7 +390,10 @@ class TestParquet:
         pa_parquet.write_table(img_data, str(img_pq))
 
         img_t = pxt.create_table(
-            p('valid_images'), source=str(img_pq), source_format='parquet', schema_overrides={'image_path': pxt.Image}
+            p('valid_images'),
+            source=str(img_pq),
+            source_format='parquet',
+            schema_overrides={'image_path': pxt.Image | None},
         )
         assert img_t.count() == 4
 
@@ -410,7 +416,7 @@ class TestParquet:
                 p('bad_data_tbl'),
                 source=str(bad_pq),
                 source_format='parquet',
-                schema_overrides={'image_path': pxt.Image},
+                schema_overrides={'image_path': pxt.Image | None},
                 on_error='abort',
             )
 
@@ -419,7 +425,7 @@ class TestParquet:
             p('bad_ignore'),
             source=str(bad_pq),
             source_format='parquet',
-            schema_overrides={'image_path': pxt.Image},
+            schema_overrides={'image_path': pxt.Image | None},
             on_error='ignore',
         )
         assert error_t.count() == 4
@@ -428,7 +434,7 @@ class TestParquet:
 
     def test_export_array(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test_array1'), {'idx': pxt.Int, 'a1': pxt.Array[(10, 10), np.int64]})
+        t = pxt.create_table(p('test_array1'), {'idx': pxt.Int | None, 'a1': pxt.Array[(10, 10), np.int64] | None})
         rows = [{'idx': i, 'a1': np.ones((10, 10), dtype=np.int64) * i} for i in range(1000)]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
 
@@ -438,7 +444,7 @@ class TestParquet:
 
     def test_export_ragged_array(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test_array1'), {'idx': pxt.Int, 'a1': pxt.Array[(None, None), np.int64]})
+        t = pxt.create_table(p('test_array1'), {'idx': pxt.Int | None, 'a1': pxt.Array[(None, None), np.int64] | None})
         rng = np.random.default_rng(0)
         rows = [
             {'idx': i, 'a1': np.ones((rng.integers(1, 10) + 1, rng.integers(1, 10) + 1), dtype=np.int64) * i}
@@ -451,7 +457,7 @@ class TestParquet:
         validate_parquet_files(export_path, rows)
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot export array column'):
-            u = pxt.create_table(p('test_array2'), {'idx': pxt.Int, 'a1': pxt.Array[np.int64]})
+            u = pxt.create_table(p('test_array2'), {'idx': pxt.Int | None, 'a1': pxt.Array[np.int64] | None})
             validate_update_status(u.insert(rows), expected_rows=len(rows))
             export_path = tmp_path / 'error.pq'
             pxt.io.export_parquet(u.order_by(u.idx), export_path)

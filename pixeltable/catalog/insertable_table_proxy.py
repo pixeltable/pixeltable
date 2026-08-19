@@ -342,7 +342,7 @@ class InsertableTableProxy(TableProxy):
         if schema_overrides is None:
             return None
         return {
-            name: t if isinstance(t, ts.ColumnType) else ts.ColumnType.normalize_type(t, nullable_default=True)
+            name: t if isinstance(t, ts.ColumnType) else ts.ColumnType.normalize_type(t)
             for name, t in schema_overrides.items()
         }
 

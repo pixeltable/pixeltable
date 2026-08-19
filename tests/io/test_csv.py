@@ -82,7 +82,13 @@ class TestCsv:
         """Nulls become empty strings in CSV."""
         p = make_catalog_path
         t = pxt.create_table(
-            p('test_csv_nulls'), {'c_int': pxt.Int, 'c_string': pxt.String, 'c_float': pxt.Float, 'c_json': pxt.Json}
+            p('test_csv_nulls'),
+            {
+                'c_int': pxt.Int | None,
+                'c_string': pxt.String | None,
+                'c_float': pxt.Float | None,
+                'c_json': pxt.Json | None,
+            },
         )
         t.insert(
             [
@@ -105,7 +111,7 @@ class TestCsv:
     def test_export_with_query(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """Test export with filtering and column selection."""
         p = make_catalog_path
-        t = pxt.create_table(p('test_csv_query'), {'c_int': pxt.Int, 'c_string': pxt.String})
+        t = pxt.create_table(p('test_csv_query'), {'c_int': pxt.Int | None, 'c_string': pxt.String | None})
         validate_update_status(t.insert([{'c_int': i, 'c_string': f'row_{i}'} for i in range(10)]), expected_rows=10)
 
         csv_path = tmp_path / 'filtered.csv'
@@ -126,7 +132,7 @@ class TestCsv:
     ) -> None:
         """Test CSV export with custom delimiters."""
         p = make_catalog_path
-        t = pxt.create_table(p('test_csv_delim'), {'c_int': pxt.Int, 'c_string': pxt.String})
+        t = pxt.create_table(p('test_csv_delim'), {'c_int': pxt.Int | None, 'c_string': pxt.String | None})
         t.insert([{'c_int': 1, 'c_string': 'hello'}, {'c_int': 2, 'c_string': 'world'}])
 
         csv_path = tmp_path / 'delimited.csv'
@@ -154,7 +160,7 @@ class TestCsv:
         dest_path.mkdir(parents=True, exist_ok=True)
         dest_uri = dest_path.as_uri()
 
-        t = pxt.create_table('test_csv_computed_dest', {'img': pxt.Image})
+        t = pxt.create_table('test_csv_computed_dest', {'img': pxt.Image | None})
         t.add_computed_column(rotated=t.img.rotate(90), destination=dest_uri)
         t.insert([{'img': f} for f in get_image_files()[:3]])
 

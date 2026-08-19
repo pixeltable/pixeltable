@@ -247,7 +247,7 @@ class TestCloudE2E:
             pxt.init()
             t = pxt.create_table(
                 '{resources.table_uri}',
-                {{'id': pxt.Required[pxt.Int], 'name': pxt.String}},
+                {{'id': pxt.Int, 'name': pxt.String}},
                 primary_key='id',
                 if_exists='ignore',
             )
@@ -311,7 +311,7 @@ class TestCloudE2E:
             pxt.init()
             t = pxt.create_table(
                 '{media_uri}',
-                {{'id': pxt.Required[pxt.Int], 'img': pxt.Image}},
+                {{'id': pxt.Int, 'img': pxt.Image}},
                 primary_key='id',
                 if_exists='replace_force',
             )
@@ -341,7 +341,7 @@ class TestCloudE2E:
             pxt.init()
             pxt.create_table(
                 '{conc_uri}',
-                {{'id': pxt.Required[pxt.Int], 'name': pxt.String}},
+                {{'id': pxt.Int, 'name': pxt.String}},
                 primary_key='id',
                 if_exists='replace_force',
             )

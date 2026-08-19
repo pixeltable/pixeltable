@@ -89,7 +89,7 @@ class TestString:
     )
 
     def test_all(self, uses_db: None) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.String})
+        t = pxt.create_table('test_tbl', {'s': pxt.String | None})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
         test_params: list[tuple[pxt.Function, Callable, list, dict]] = [
@@ -167,7 +167,7 @@ class TestString:
         assert actual == [s.count('relation') for s in self.TEST_STRS]
 
     def test_removeprefix(self, uses_db: None) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.String})
+        t = pxt.create_table('test_tbl', {'s': pxt.String | None})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
         # count() doesn't yet support non-SQL Where clauses
@@ -179,7 +179,7 @@ class TestString:
                 assert row['out'] == row['s']
 
     def test_removesuffix(self, uses_db: None) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.String})
+        t = pxt.create_table('test_tbl', {'s': pxt.String | None})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
         # count() doesn't yet support non-SQL Where clauses
@@ -191,7 +191,7 @@ class TestString:
                 assert row['out'] == row['s']
 
     def test_replace(self, uses_db: None) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.String})
+        t = pxt.create_table('test_tbl', {'s': pxt.String | None})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
         # count() doesn't yet support non-SQL Where clauses
@@ -205,7 +205,7 @@ class TestString:
         assert n == o
 
     def test_slice_replace(self, uses_db: None) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.String})
+        t = pxt.create_table('test_tbl', {'s': pxt.String | None})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
         # count() doesn't yet support non-SQL Where clauses
@@ -214,7 +214,7 @@ class TestString:
             assert row['out'] == row['s'][:50] + 'abc' + row['s'][51:]
 
     def test_partition(self, uses_db: None) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.String})
+        t = pxt.create_table('test_tbl', {'s': pxt.String | None})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
         # count() doesn't yet support non-SQL Where clauses
@@ -227,7 +227,7 @@ class TestString:
             assert row['parts'][1] == 'IBM'
 
     def test_rpartition(self, uses_db: None) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.String})
+        t = pxt.create_table('test_tbl', {'s': pxt.String | None})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
         # count() doesn't yet support non-SQL Where clauses
@@ -240,7 +240,7 @@ class TestString:
             assert row['parts'][1] == 'IBM'
 
     def test_wrap(self, uses_db: None) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.String})
+        t = pxt.create_table('test_tbl', {'s': pxt.String | None})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
         res = t.select(t.s, out=t.s.fill(5)).collect()
@@ -251,14 +251,14 @@ class TestString:
             assert row['out'] == textwrap.wrap(row['s'], 5)
 
     def test_slice(self, uses_db: None) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.String})
+        t = pxt.create_table('test_tbl', {'s': pxt.String | None})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
         res = t.select(t.s, out=t.s.slice(0, 4)).collect()
         for row in res:
             assert row['out'] == row['s'][0:4]
 
     def test_match(self, uses_db: None) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.String})
+        t = pxt.create_table('test_tbl', {'s': pxt.String | None})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
         # count() doesn't yet support non-SQL Where clauses
@@ -266,7 +266,7 @@ class TestString:
         assert len(t.where(t.s.match('codd', case=False)).collect()) == 2
 
     def test_fullmatch(self, uses_db: None) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.String})
+        t = pxt.create_table('test_tbl', {'s': pxt.String | None})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
         # count() doesn't yet support non-SQL Where clauses
@@ -274,14 +274,14 @@ class TestString:
         assert len(t.where(t.s.fullmatch('f', case=False)).collect()) == 1
 
     def test_pad(self, uses_db: None) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.String})
+        t = pxt.create_table('test_tbl', {'s': pxt.String | None})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
         res = t.select(t.s, out=t.s.pad(width=100, side='both')).collect()
         for row in res:
             assert row['out'] == row['s'].center(100)
 
     def test_normalize(self, uses_db: None) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.String})
+        t = pxt.create_table('test_tbl', {'s': pxt.String | None})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
         res = t.select(t.s, out=t.s.normalize('NFC')).collect()
@@ -289,7 +289,7 @@ class TestString:
             assert row['out'] == unicodedata.normalize('NFC', row['s'])
 
     def test_repeat(self, uses_db: None) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.String, 'n': pxt.Int})
+        t = pxt.create_table('test_tbl', {'s': pxt.String | None, 'n': pxt.Int | None})
         strs = ['a', 'b', 'c', 'd', 'e']
         validate_update_status(t.insert({'s': s, 'n': n} for n, s in enumerate(strs)), expected_rows=len(strs))
         res = t.select(t.s, t.n, out=t.s.repeat(t.n)).collect()
@@ -297,7 +297,7 @@ class TestString:
             assert row['out'] == row['s'] * row['n']
 
     def test_contains(self, uses_db: None) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.String})
+        t = pxt.create_table('test_tbl', {'s': pxt.String | None})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
         assert t.order_by(t.s).select(out=t.s.contains('IBM')).collect()['out'] == ['IBM' in s for s in self.TEST_STRS]
@@ -316,7 +316,7 @@ class TestString:
         ]
 
     def test_index(self, uses_db: None) -> None:
-        t = pxt.create_table('test_tbl', {'s': pxt.String})
+        t = pxt.create_table('test_tbl', {'s': pxt.String | None})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
@@ -336,7 +336,7 @@ class TestString:
             assert s[idx : idx + 3] == 'IBM'
 
     def test_format(self, uses_db: None) -> None:
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
 
         t.add_computed_column(s1=format('ABC {0}', t.input, t.input))
         t.add_computed_column(s2=format('DEF {this}', this=t.input))
@@ -357,7 +357,7 @@ class TestString:
 
     def test_string_splitter(self, uses_db: None) -> None:
         skip_test_if_not_installed('spacy')
-        t = pxt.create_table('test_tbl', {'s': pxt.String})
+        t = pxt.create_table('test_tbl', {'s': pxt.String | None})
         validate_update_status(t.insert([{'s': self.TEST_STR}]), expected_rows=1)
         v = pxt.create_view('test_view', t, iterator=string_splitter(t.s, 'sentence'))
         results = v.select(v.text).collect()
@@ -374,7 +374,7 @@ class TestString:
         """`upper`/`lower`/`capitalize` produce identical, correct results on SQL and Python paths
         for non-ASCII input.
         """
-        t = pxt.create_table('test_tbl', {'idx': pxt.Int, 's': pxt.String})
+        t = pxt.create_table('test_tbl', {'idx': pxt.Int | None, 's': pxt.String | None})
         validate_update_status(
             t.insert({'idx': i, 's': s} for i, s in enumerate(self.UNICODE_STRS)), expected_rows=len(self.UNICODE_STRS)
         )
@@ -397,7 +397,7 @@ class TestString:
         """Case-insensitive `contains` and `where(upper(...) == ...)` produce identical, correct
         results on SQL and Python paths for non-ASCII input.
         """
-        t = pxt.create_table('test_tbl', {'idx': pxt.Int, 's': pxt.String})
+        t = pxt.create_table('test_tbl', {'idx': pxt.Int | None, 's': pxt.String | None})
         validate_update_status(
             t.insert({'idx': i, 's': s} for i, s in enumerate(self.UNICODE_STRS)), expected_rows=len(self.UNICODE_STRS)
         )
@@ -424,7 +424,7 @@ class TestString:
         """Insert-time computed-column materialization (Python) and live `select upper(t.s)` (SQL)
         produce identical results on non-ASCII input, so `where(upper(t.s) == t.upper_s)` is a tautology.
         """
-        t = pxt.create_table('test_tbl', {'s': pxt.String})
+        t = pxt.create_table('test_tbl', {'s': pxt.String | None})
         t.add_computed_column(upper_s=upper(t.s))
         s = 'café'
         validate_update_status(t.insert([{'s': s}]), expected_rows=1)

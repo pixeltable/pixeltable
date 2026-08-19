@@ -274,6 +274,10 @@ make docs-deploy TARGET=dev
 
 `TARGET=dev` is the only deploy target agents may use or suggest. `TARGET=stage` and `TARGET=prod` are reserved for humans outside agent workflows.
 
+### Local Dashboard UI
+
+Before changing `dashboard/` or dashboard-facing APIs in `pixeltable_cli/server/`, read [`dashboard/DESIGN.md`](dashboard/DESIGN.md) (required) and [`dashboard/ARCHITECTURE.md`](dashboard/ARCHITECTURE.md). Follow DESIGN.md; justify any visual departure explicitly.
+
 ## Testing Against Remote APIs
 
 For tests that call external APIs (OpenAI, Anthropic, etc.):
@@ -337,11 +341,13 @@ def safe_process(value: Optional[str]) -> str:
 | `pixeltable/__init__.py` | Public API exports |
 | `pixeltable/catalog/table.py` | Table class implementation |
 | `pixeltable/catalog/view.py` | View class implementation |
-| `pixeltable/dashboard/` | Local web UI backend (server, bridge) |
 | `pixeltable/func/udf.py` | UDF decorator implementation |
 | `pixeltable/functions/` | AI provider integrations |
 | `pixeltable/io/` | Import/export functionality |
-| `dashboard/` | Local web UI frontend (React/Vite) |
+| `pixeltable_cli/` | CLI + daemon (serves dashboard API and static SPA) |
+| `dashboard/` | Local web UI frontend (React/Vite); see `dashboard/DESIGN.md` |
+| `dashboard/DESIGN.md` | Dashboard visual/UX source of truth (required for UI changes) |
+| `dashboard/ARCHITECTURE.md` | Dashboard stack and API map |
 | `pyproject.toml` | Dependencies and tool config |
 | `Makefile` | Build and test commands |
 

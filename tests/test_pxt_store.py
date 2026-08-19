@@ -27,7 +27,7 @@ class TestPxtStore:
 
         dest_uri = f'{PXT_DEST_URI}/bucket1'
 
-        t = pxt.create_table('test_pxt_store', schema={'img': pxt.Image})
+        t = pxt.create_table('test_pxt_store', schema={'img': pxt.Image | None})
         t.add_computed_column(img_rot=t.img.rotate(90), destination=dest_uri)
         validate_update_status(
             t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}]), expected_rows=1
@@ -46,7 +46,7 @@ class TestPxtStore:
 
         dest_uri = f'{PXT_DEST_URI}/src'
 
-        src_table = pxt.create_table('pxt_src', schema={'img': pxt.Image})
+        src_table = pxt.create_table('pxt_src', schema={'img': pxt.Image | None})
         src_table.add_computed_column(img_stored=src_table.img.rotate(90), destination=dest_uri)
         validate_update_status(
             src_table.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}]), expected_rows=1
@@ -55,7 +55,7 @@ class TestPxtStore:
         pxt_url = src_table.select(src_table.img_stored.fileurl).collect()['img_stored_fileurl'][0]
         assert pxt_url.startswith('pxtfs://')
 
-        reader_table = pxt.create_table('pxt_reader', schema={'img': pxt.Image})
+        reader_table = pxt.create_table('pxt_reader', schema={'img': pxt.Image | None})
         validate_update_status(reader_table.insert([{'img': pxt_url}]), expected_rows=1)
 
         result = reader_table.collect()
@@ -69,7 +69,7 @@ class TestPxtStore:
 
         dest_uri = f'{PXT_DEST_URI}/drop_test'
 
-        t = pxt.create_table('test_pxt_drop', schema={'img': pxt.Image})
+        t = pxt.create_table('test_pxt_drop', schema={'img': pxt.Image | None})
         t.add_computed_column(img_rot=t.img.rotate(90), destination=dest_uri)
         validate_update_status(
             t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}]), expected_rows=1
@@ -86,7 +86,7 @@ class TestPxtStore:
         from pixeltable.utils import pxt_store
 
         dest_uri = f'{PXT_DEST_URI}/quota_test'
-        t = pxt.create_table('test_pxt_quota', schema={'img': pxt.Image})
+        t = pxt.create_table('test_pxt_quota', schema={'img': pxt.Image | None})
         t.add_computed_column(img_rot=t.img.rotate(90), destination=dest_uri)
 
         img = 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'
