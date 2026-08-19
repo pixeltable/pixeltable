@@ -18,7 +18,7 @@ from .globals import IndexSpec, MediaValidation
 from .local_table import LocalTable
 from .table_path import TablePath, TableVersionPath
 from .table_version_handle import TableVersionHandle
-from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, LoadViewOp, TableOp, TableOpsBuilder
+from .tbl_ops import CreateTableMdOp, LoadViewOp, TableOp, TableOpsBuilder
 from .types import ColumnVersionMd, TableVersionKey, TableVersionMd
 from .update_status import UpdateStatus
 from .utils import create_table_version_md
@@ -314,8 +314,7 @@ class View(LocalTable):
             view_path = TableVersionPath(TableVersionHandle(key), base=base_version_path)
             ops = (
                 TableOpsBuilder(str(tbl_id), tbl_version=md.tbl_md.current_version)
-                .add(CreateTableMdOp)
-                .add(CreateStoreTableOp)
+                .add(CreateTableMdOp, is_view=True)
                 .add(LoadViewOp, view_path=view_path.as_dict())
                 .build()
             )
@@ -411,14 +410,19 @@ class View(LocalTable):
         )
 
     @property
-    def _base_tbl_id(self) -> UUID | None:
+    def _base_tbl_key(self) -> TableVersionKey | None:
         if self._tbl_version_path.tbl_id != self._id:
             # _tbl_version_path represents a different schema object from this one. This can only happen if this is a
             # named pure snapshot.
-            return self._tbl_version_path.tbl_id
+            return self._tbl_version_path.tbl_key
         if self._tbl_version_path.base is None:
             return None
-        return self._tbl_version_path.base.tbl_id
+        return self._tbl_version_path.base.tbl_key
+
+    @property
+    def _base_tbl_id(self) -> UUID | None:
+        key = self._base_tbl_key
+        return None if key is None else key.tbl_id
 
     def _get_base_table(self) -> 'Table' | None:
         """Returns the base table, or None if there is no separate base schema object.
@@ -427,11 +431,11 @@ class View(LocalTable):
         _tbl_version_path.tbl_id == self._id): it pins a version of this same table rather than sitting on top of a
         distinct base.
         """
-        base_tbl_id = self._base_tbl_id
-        if base_tbl_id is None:
+        base_tbl_key = self._base_tbl_key
+        if base_tbl_key is None:
             return None
-        with get_runtime().catalog.begin_xact(read_tbl_ids=[base_tbl_id]):
-            return get_runtime().catalog.get_table_by_id(base_tbl_id)
+        with get_runtime().catalog.begin_read_md_xact(tbl_keys=[base_tbl_key]):
+            return get_runtime().catalog.get_table_by_id(base_tbl_key.tbl_id)
 
     @property
     def _effective_base_versions(self) -> list[int | None]:

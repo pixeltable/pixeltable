@@ -3,7 +3,6 @@ from __future__ import annotations
 import abc
 import logging
 import re
-import time
 from typing import Any, Iterator
 from uuid import UUID
 
@@ -252,6 +251,12 @@ class StoreBase:
 
         self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs, *extra_constraints)
 
+    @classmethod
+    def drop(cls, tbl_id: UUID, is_view: bool) -> None:
+        """Drop the store table of the given table id in the current transaction."""
+        assert get_runtime().in_xact
+        get_runtime().conn.execute(sql.text(f'DROP TABLE {cls.storage_name(tbl_id, is_view)}'))
+
     @abc.abstractmethod
     def _rowid_join_predicate(self) -> sql.ColumnElement[bool]:
         """Return predicate for rowid joins to all bases"""
@@ -271,41 +276,34 @@ class StoreBase:
         assert isinstance(result, int)
         return result
 
-    def _exec_if_not_exists(self, stmt: str, wait_for_table: bool) -> None:
+    def _exec_if_not_exists(self, stmt: str) -> None:
         """
         Execute a statement containing 'IF NOT EXISTS' and ignore any duplicate object-related errors.
 
         The statement needs to run in a separate transaction, because the expected error conditions will abort the
         enclosing transaction (and the ability to run additional statements in that same transaction).
         """
-        while True:
-            with get_runtime().begin_xact(for_write=True) as conn:
-                try:
-                    if wait_for_table and not Env.get().is_using_cockroachdb:
-                        # Try to lock the table to make sure that it exists. This needs to run in the same transaction
-                        # as 'stmt' to avoid a race condition.
-                        # TODO: adapt this for CockroachDB
-                        lock_stmt = f'LOCK TABLE {self._storage_name()} IN ACCESS EXCLUSIVE MODE'
-                        conn.execute(sql.text(lock_stmt))
-                    conn.execute(sql.text(stmt))
+        with get_runtime().begin_xact(for_write=True) as conn:
+            try:
+                if not Env.get().is_using_cockroachdb:
+                    # Lock the table in the same transaction as 'stmt', to exclude a concurrent process rolling the
+                    # same pending op forward.
+                    # TODO: adapt this for CockroachDB
+                    lock_stmt = f'LOCK TABLE {self._storage_name()} IN ACCESS EXCLUSIVE MODE'
+                    conn.execute(sql.text(lock_stmt))
+                conn.execute(sql.text(stmt))
+            except (sql.exc.IntegrityError, sql.exc.ProgrammingError) as e:
+                Env.get().console_logger.info(f'{stmt} failed with: {e}')
+                if (
+                    isinstance(e.orig, psycopg.errors.UniqueViolation)
+                    and 'duplicate key value violates unique constraint' in str(e.orig)
+                ) or (
+                    isinstance(e.orig, (psycopg.errors.DuplicateObject, psycopg.errors.DuplicateTable))
+                    and 'already exists' in str(e.orig)
+                ):
+                    # the object already exists
                     return
-                except (sql.exc.IntegrityError, sql.exc.ProgrammingError) as e:
-                    Env.get().console_logger.info(f'{stmt} failed with: {e}')
-                    if (
-                        isinstance(e.orig, psycopg.errors.UniqueViolation)
-                        and 'duplicate key value violates unique constraint' in str(e.orig)
-                    ) or (
-                        isinstance(e.orig, (psycopg.errors.DuplicateObject, psycopg.errors.DuplicateTable))
-                        and 'already exists' in str(e.orig)
-                    ):
-                        # table already exists
-                        return
-                    elif isinstance(e.orig, psycopg.errors.UndefinedTable):
-                        # the Lock Table failed because the table doesn't exist yet; try again
-                        time.sleep(1)
-                        continue
-                    else:
-                        raise
+                raise
 
     def _store_tbl_exists(self) -> bool:
         """Returns True if the store table exists, False otherwise."""
@@ -318,35 +316,32 @@ class StoreBase:
             return res == 1
 
     def create(self) -> None:
-        """
-        Create or update store table to bring it in sync with self.sa_tbl. Idempotent.
+        """Create the store table, along with its system and user indexes, in the current transaction.
 
-        This runs a sequence of DDL statements (Create Table, Alter Table Add Column, Create Index), each of which
-        is run in its own transaction.
+        Not idempotent: must run in the transaction that creates table metadata.
         """
+        conn = get_runtime().conn
         postgres_dialect = sql.dialects.postgresql.dialect()
-
-        if not self._store_tbl_exists():
-            # run Create Table If Not Exists; we always need If Not Exists to avoid race conditions between concurrent
-            # Pixeltable processes
-            create_stmt = sql.schema.CreateTable(self.sa_tbl, if_not_exists=True).compile(dialect=postgres_dialect)
-            self._exec_if_not_exists(str(create_stmt), wait_for_table=False)
-        else:
-            # ensure that all columns exist by running Alter Table Add Column If Not Exists for all columns
-            for col in self.sa_tbl.columns:
-                stmt = self._add_column_stmt(col)
-                self._exec_if_not_exists(stmt, wait_for_table=True)
-            # TODO: do we also need to ensure that these columns are now visible (ie, is there another potential race
-            # condition here?)
-
-        # ensure that all system indices exist by running Create Index If Not Exists
+        create_stmt = sql.schema.CreateTable(self.sa_tbl).compile(dialect=postgres_dialect)
+        conn.execute(sql.text(str(create_stmt)))
         for idx in self.sa_tbl.indexes:
-            create_idx_stmt = sql.schema.CreateIndex(idx, if_not_exists=True).compile(dialect=postgres_dialect)
-            self._exec_if_not_exists(str(create_idx_stmt), wait_for_table=True)
+            create_idx_stmt = sql.schema.CreateIndex(idx).compile(dialect=postgres_dialect)
+            conn.execute(sql.text(str(create_idx_stmt)))
+        for idx_id in self.tbl_version.get().idxs:
+            _, idx_stmt = self._create_idx_stmt(idx_id)
+            conn.execute(sql.text(idx_stmt))
 
-        # ensure that all visible non-system indices exist by running appropriate create statements
-        for id in self.tbl_version.get().idxs:
-            self.create_index(id)
+        # Rebuild the sqlalchemy schema to discard the sql.Indexes that _create_idx_stmt() left linked to it; without
+        # this, a retry of the enclosing transaction would emit those CREATE INDEX statements twice.
+        # TODO(PXT-1271): stop sa_create_stmt() from mutating the store table. That will make this rebuild unnecessary.
+        self.create_sa_tbl()
+
+    def _create_idx_stmt(self, idx_id: int) -> tuple[catalog.TableVersion.IndexInfo, str]:
+        """Return the index's IndexInfo, along with the DDL statement that creates it."""
+        tv = self.tbl_version.get()
+        idx_info = tv.idxs[idx_id]
+        assert idx_info.indexed_sa_col.table is self.sa_tbl, idx_info
+        return idx_info, str(idx_info.idx.sa_create_stmt(tv._store_idx_name(idx_id), idx_info.indexed_sa_col))
 
     @classmethod
     def _index_row_size_error(cls, idx_info: catalog.TableVersion.IndexInfo) -> excs.RequestError:
@@ -358,13 +353,9 @@ class StoreBase:
 
     def create_index(self, idx_id: int) -> None:
         """Create index if not exists"""
-        tv = self.tbl_version.get()
-        idx_info = tv.idxs[idx_id]
-        indexed_sa_col = idx_info.indexed_sa_col
-        assert indexed_sa_col.table is self.sa_tbl, idx_info
-        stmt = idx_info.idx.sa_create_stmt(tv._store_idx_name(idx_id), indexed_sa_col)
+        idx_info, stmt = self._create_idx_stmt(idx_id)
         try:
-            self._exec_if_not_exists(str(stmt), wait_for_table=True)
+            self._exec_if_not_exists(stmt)
         except sql.exc.OperationalError as e:
             if (
                 isinstance(idx_info.idx, BtreeIndex)
@@ -392,19 +383,6 @@ class StoreBase:
         # Rebuild the sqlalchemy schema to discard any stray sql.Indexes still linked to it.
         # TODO(PXT-1271): stop sa_create_stmt() from mutating the store table. That will make this rebuild unnecessary.
         self.create_sa_tbl()
-
-    def drop(self) -> None:
-        """Drop store table"""
-        conn = get_runtime().conn
-        drop_stmt = f'DROP TABLE IF EXISTS {self._storage_name()}'
-        conn.execute(sql.text(drop_stmt))
-
-    def _add_column_stmt(self, sa_col: sql.Column) -> str:
-        col_type_str = sa_col.type.compile(dialect=sql.dialects.postgresql.dialect())
-        return (
-            f'ALTER TABLE {self._storage_name()} ADD COLUMN IF NOT EXISTS '
-            f'{sa_col.name} {col_type_str} {"NOT " if not sa_col.nullable else ""} NULL'
-        )
 
     def add_column(self, col: catalog.Column, if_not_exists: bool) -> None:
         """Add column(s) to the store-resident table based on a catalog column"""
@@ -448,6 +426,7 @@ class StoreBase:
             excs.Error if on_error='abort' and there was an exception during row evaluation
         """
         assert col.get_tbl().id == self.tbl_version.id
+        get_runtime().catalog.assert_rows_write_locked(self.tbl_version.get())
         num_excs = 0
         num_rows = 0
         # create temp table to store output of exec_plan, with the same primary key as the store table
@@ -537,6 +516,7 @@ class StoreBase:
         Returns:
             set of column ids that have exceptions, row count stats, newly inserted rows (if return_rows)
         """
+        get_runtime().catalog.assert_rows_write_locked(self.tbl_version.get())
         tbl_version = self.tbl_version.get()
         is_data_versioned = tbl_version.is_data_versioned
         v_min = tbl_version.version if is_data_versioned else None
@@ -680,6 +660,7 @@ class StoreBase:
     def delete_rows(self, where_clause: sql.ColumnElement[bool] | None) -> int:
         """Delete rows in an operational table. Use soft_delete_rows for data-versioned tables."""
         assert not self.tbl_version.get().is_data_versioned
+        get_runtime().catalog.assert_rows_write_locked(self.tbl_version.get())
         where_clause = sql.true() if where_clause is None else where_clause
         rowid_join_clause = self._rowid_join_predicate()
         assert rowid_join_clause.compare(sql.true()), 'TODO: implement for operational tables [PXT-1101]'
@@ -709,6 +690,7 @@ class StoreBase:
             number of deleted rows
         """
         assert self.tbl_version.get().is_data_versioned
+        get_runtime().catalog.assert_rows_write_locked(self.tbl_version.get())
         where_clause = sql.true() if where_clause is None else where_clause
         version_clause = sql.and_(self.v_min_col < current_version, self.v_max_col == schema.Table.MAX_VERSION)
         rowid_join_clause = self._rowid_join_predicate()

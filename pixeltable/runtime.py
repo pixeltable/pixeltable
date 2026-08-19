@@ -289,7 +289,7 @@ class Runtime:
     ) -> Iterator[sql.Connection]:
         """Start or join a database transaction.
 
-        Prefer Catalog.begin_xact() unless there is a specific reason to call this directly.
+        Prefer one of Catalog's begin_*_xact() methods unless there is a specific reason to call this directly.
 
         Args:
             for_write: unused (TODO use or remove)

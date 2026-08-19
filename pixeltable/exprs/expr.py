@@ -472,17 +472,25 @@ class Expr(abc.ABC):
     def _has_relative_path(self) -> bool:
         return any(c._has_relative_path() for c in self.components)
 
-    def tbl_ids(self) -> set[UUID]:
-        """Returns table ids referenced by this expr.
-
-        Must only access metadata, not execution structures (eg, TableVersion).
-        """
+    def tbl_keys(self) -> set[catalog.TableVersionKey]:
+        """Returns the table versions referenced by this expr."""
         from .column_ref import ColumnRef
         from .rowid_ref import RowidRef
 
-        col_ref_ids = {ref.col_md.qcolid.tbl_id for ref in self.subexprs(ColumnRef)}
-        rowid_ids = {ref.tbl_id for ref in self.subexprs(RowidRef)}
-        return col_ref_ids | rowid_ids
+        col_ref_keys = {
+            catalog.TableVersionKey(ref.col_md.qcolid.tbl_id, ref.col_md.col_effective_version)
+            for ref in self.subexprs(ColumnRef)
+        }
+        rowid_keys = {ref.tbl_key for ref in self.subexprs(RowidRef)}
+        return col_ref_keys | rowid_keys
+
+    def tbl_ids(self) -> set[UUID]:
+        """Returns the ids of the tables referenced by this expr."""
+        return {key.tbl_id for key in self.tbl_keys()}
+
+    @classmethod
+    def list_tbl_keys(cls, exprs_: Iterable[Expr]) -> set[catalog.TableVersionKey]:
+        return {key for e in exprs_ for key in e.tbl_keys()}
 
     @classmethod
     def list_tbl_ids(cls, exprs_: Iterable[Expr]) -> set[UUID]:

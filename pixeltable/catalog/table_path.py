@@ -73,6 +73,17 @@ class TablePath(abc.ABC):
             return [self.tbl_id]
 
     @property
+    def tbl_key(self) -> TableVersionKey:
+        return TableVersionKey(self.tbl_id, self.effective_version())
+
+    @property
+    def tbl_keys(self) -> list[TableVersionKey]:
+        """The key of every table on this path, leaf first."""
+        if self.base is None:
+            return [self.tbl_key]
+        return [self.tbl_key, *self.base.tbl_keys]
+
+    @property
     def root(self) -> TablePath:
         if self.base is None:
             return self
@@ -158,9 +169,6 @@ class TablePath(abc.ABC):
         while level.base is not None and level.base.num_rowid_columns() > idx:
             level = level.base
         return level
-
-    def rowid_normalized_base_id(self, idx: int) -> UUID:
-        return self.rowid_normalized_base(idx).tbl_id
 
     @abc.abstractmethod
     def get_column_md(self, qcolid: QColumnId) -> ColumnVersionMd: ...
@@ -287,7 +295,7 @@ class TableVersionPath(TablePath):
         if origin_catalog is cat and cached is not None and (not get_runtime().in_xact or cached.is_validated):
             return cached
 
-        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=[self]):
+        with get_runtime().catalog.begin_read_xact(tvps=[self]):
             new_tv = self.tbl_version.get()
         self._local.cached_tbl_version = new_tv
         self._local.origin_catalog = cat
