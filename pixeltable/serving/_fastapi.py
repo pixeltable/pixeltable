@@ -45,7 +45,6 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.exec.globals import INLINED_OBJECT_MD_KEY
 from pixeltable.serving import SqlExport
-from pixeltable.serving._diff import ServiceChangeOp, blocked_route_op
 from pixeltable.serving._spec import RouteSpec, ServiceSpec
 from pixeltable.serving.globals import SqlExporter
 from pixeltable.utils import image as image_utils
@@ -156,12 +155,6 @@ class _RegisteredRoute:
     def needs_binding(self) -> bool:
         """Whether the route is declared against a model rather than against the table(s) it serves."""
         return self.model_cls is not None
-
-    def referenced_col_names(self) -> tuple[str, ...]:
-        """Every column the route's contract depends on."""
-        if self.spec['route_type'] == 'query':
-            return self.query_cols
-        return (*self.spec['inputs'], *self.spec['outputs'], *self.spec['match_columns'])
 
 
 def _route_table_path(target: RouteTarget) -> catalog.TablePath:
@@ -465,58 +458,39 @@ class FastAPIRouter(fastapi.APIRouter):
         """The service name given to the constructor, or None if it was omitted."""
         return self._name
 
-    def get_service_diff(self, base_path: str = '') -> list[ServiceChangeOp]:
-        """Report what the tables under `base_path` cannot serve, as the operations that would fix it.
+    def _validate_model_routes(self, base_path: str = '') -> None:
+        """Check that every model a route references describes the table it names under `base_path`."""
+        referenced: dict[str, model.TableModelMeta] = {
+            route.model_cls.__table_spec__['name']: route.model_cls
+            for route in self._routes
+            if route.model_cls is not None
+        }
+        if len(referenced) == 0:
+            return  # every route is already resolved to the table it serves
 
-        Only the columns a route's request/response contract is built from are examined, so a table that has
-        drifted from the model declaring it in ways no route depends on produces no operation. Every operation
-        is 'blocked': the schema has to change before the route can be served, and the command that changes it
-        is in the operation's details. An empty list means every route is servable.
+        diffs = model.validate_models(referenced, base_path)
+        mismatched = {name: diff for name, diff in diffs.items() if diff['resolution'] != 'up_to_date'}
+        if len(mismatched) == 0:
+            return
 
-        Args:
-            base_path: The catalog directory the models bind against.
-        """
-        ops: list[ServiceChangeOp] = []
-        for route in self._routes:
-            if route.model_cls is None:
-                continue  # declared against a Table, so it already names what it serves
-
-            # resolve by path rather than through the model: enforcing the model's one-binding rule is bind()'s
-            # job, and a report has to describe any target, including one the model is not bound to
-            tbl_name = route.model_cls.__table_spec__['name']
-            tbl = pxt.get_table(f'{catalog.Path.dir_prefix(base_path)}{tbl_name}', if_not_exists='ignore')
-            if tbl is None:
-                ops.append(
-                    blocked_route_op(
-                        route.display_name, f'{route.display_name}: table {tbl_name!r} does not exist', base_path
-                    )
-                )
-                continue
-
-            cols_by_name = {col.name: col for col in tbl._tbl_path.column_md() if col.name is not None}
-            declared_by_name = {col.name: col for col in route.table_path.column_md() if col.name is not None}
-            for col_name in route.referenced_col_names():
-                actual = cols_by_name.get(col_name)
-                if actual is None:
-                    ops.append(
-                        blocked_route_op(
-                            route.display_name,
-                            f'{route.display_name}: {tbl._name()!r} has no column {col_name!r}',
-                            base_path,
-                        )
-                    )
-                    continue
-                declared = declared_by_name.get(col_name)
-                if declared is not None and actual.col_type != declared.col_type:
-                    ops.append(
-                        blocked_route_op(
-                            route.display_name,
-                            f'{route.display_name}: column {col_name!r} is {actual.col_type} in {tbl._name()!r}, '
-                            f'but the model declares {declared.col_type}',
-                            base_path,
-                        )
-                    )
-        return ops
+        # report every mismatch, so that one schema update settles all of them
+        detail = '\n'.join(line for name, diff in mismatched.items() for line in model.format_diff(name, diff))
+        target = '' if base_path == '' else f' {base_path}'
+        unsupported = sorted(name for name, diff in mismatched.items() if diff['resolution'] == 'unsupported')
+        if len(unsupported) == 0:
+            hint = f'Run `pxt schema update <app file>{target}` first.'
+        else:
+            hint = (
+                f'No schema update can reconcile {", ".join(repr(name) for name in unsupported)}: adjust the '
+                'existing table(s) manually, or adjust the models to be consistent with the catalog.'
+            )
+            if len(unsupported) < len(mismatched):
+                hint += f'\nRun `pxt schema update <app file>{target}` for the rest.'
+        raise excs.RequestError(
+            excs.ErrorCode.SCHEMA_MISMATCH,
+            f'Cannot serve the routes declared against '
+            f'{", ".join(repr(name) for name in sorted(mismatched))}:\n{detail}\n{hint}',
+        )
 
     def service_spec(self, name: str | None = None) -> ServiceSpec:
         """The service this router declares, as a record that can be serialized, stored and compared.
@@ -536,12 +510,10 @@ class FastAPIRouter(fastapi.APIRouter):
     def bind(self, base_path: str = '') -> None:
         """Resolve every route declared against a model to the table it names under `base_path`.
 
-        A router that declares any of its routes against a model cannot serve until it is bound: the model
-        names a table, and only a target supplies one. Routes declared against a `Table` are already
-        resolved and are left alone.
+        A router that declares any of its routes against a model cannot serve until it is bound to an actual table.
+        Routes declared against a `Table` are already resolved and are left alone.
 
-        Raises if a target table is missing, or if one does not supply the columns a route's request/response
-        contract is built from; `get_service_diff()` reports those as a list instead of raising.
+        Raises if a table a model names is missing, or if it no longer matches the model that names it.
 
         Args:
             base_path: The catalog directory the models bind against.
@@ -552,14 +524,7 @@ class FastAPIRouter(fastapi.APIRouter):
                 f'This router is already bound at {self._base_path!r}; it cannot also be bound at {base_path!r}.',
             )
 
-        ops = self.get_service_diff(base_path)
-        if len(ops) > 0:
-            detail = '\n'.join(f'  {op["description"]}' for op in ops)
-            commands = sorted({op['details']['command'] for op in ops if 'command' in op['details']})
-            hint = '' if len(commands) == 0 else '\nRun {} first.'.format(', '.join(repr(c) for c in commands))
-            raise excs.RequestError(
-                excs.ErrorCode.SCHEMA_MISMATCH, f'Cannot bind the router at {base_path!r}:\n{detail}{hint}'
-            )
+        self._validate_model_routes(base_path)
 
         for route in self._routes:
             if not route.needs_binding or self._is_bound(route):
@@ -1777,7 +1742,7 @@ class FastAPIRouter(fastapi.APIRouter):
             row_kwargs: dict[str, Any],
             url_for_media: Callable[[str], str],  # unused; part of the endpoint_op contract
         ) -> DeleteResponse:
-            # table references are thread-safe, so reuse the resolved one; re-validate the frozen contract
+            # Table references are thread-safe, so the binding is shared across requests
             tbl, schema_version = self._route_binding(route.route_id)
             _validate_registered_schema(tbl, schema_version)
 
@@ -2131,7 +2096,7 @@ class FastAPIRouter(fastapi.APIRouter):
         input_cols = [input_cols_by_name[name] for name in input_col_names]
 
         def run_dml(row_kwargs: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
-            # table references are thread-safe, so reuse the resolved one; re-validate the frozen contract
+            # Table references are thread-safe, so the binding is shared across requests
             tbl, schema_version = self._route_binding(route.route_id)
             _validate_registered_schema(tbl, schema_version)
             rows: Sequence[Mapping[str, Any]]

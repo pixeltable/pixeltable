@@ -41,13 +41,23 @@ if TYPE_CHECKING:
 _logger = logging.getLogger(__name__)
 
 
-def init() -> None:
+def init(config_overrides: dict[str, Any] | None = None) -> None:
     """Initializes the Pixeltable environment.
 
-    Settings come from the config file of the Pixeltable instance ($PIXELTABLE_HOME/config.toml) and from
-    environment variables.
+    Settings come from the config file of the Pixeltable instance ($PIXELTABLE_HOME/config.toml), from
+    environment variables, and from `config_overrides`.
+
+    Args:
+        config_overrides: Configuration settings for this process, keyed by `'<section>.<key>'`. A setting given
+            here takes precedence over the environment and the config file. Settings that apply to the instance
+            as a whole, such as `pixeltable.file_cache_size_g`, cannot be given here.
+
+    Examples:
+        Supply an API key and a database name for this process:
+
+        >>> pxt.init({'openai.api_key': 'sk-...', 'pixeltable.db': 'my_db'})
     """
-    Config.init()
+    Config.init(config_overrides if config_overrides is not None else {})
     _ = get_runtime().catalog
 
 

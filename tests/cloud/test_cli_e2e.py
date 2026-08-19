@@ -58,7 +58,7 @@ def _cloud_env(config_file: Path | None = None) -> dict[str, str]:
     e['PIXELTABLE_API_URL'] = _API_URL
     e['PIXELTABLE_CLOUD_HOST'] = _CLOUD_HOST
     if config_file is not None:
-        # `pxt service create` and `pxt service update` send the service that the configured file declares, so
+        # pxt service create and pxt service update send the service that the configured file declares, so
         # the file holding the service under test has to be the one they read
         e['PIXELTABLE_CONFIG'] = str(config_file)
     return e

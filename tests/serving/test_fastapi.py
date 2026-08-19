@@ -2329,11 +2329,10 @@ class TestFastAPI:
             assert thumb is not None
             return UplResp(thumb_url=thumb)
 
-        # uploads are recorded apart from the plain inputs, and both are part of the route's contract
+        # uploads are recorded apart from the plain inputs, and the inputs hold both
         route = next(route for route in router._routes if route.spec['path'] == '/upl')
         assert route.spec['uploadfile_inputs'] == (['image'] if use_uploadfile else [])
         assert route.spec['inputs'] == ['id', 'image']
-        assert 'image' in route.referenced_col_names()
 
         client = make_test_client(router)
 
@@ -3120,14 +3119,32 @@ class TestFastAPI:
         class BigNotes(TableModel, name='big_notes', base=Notes.where(Notes.val > 10)):
             doubled = Notes.val * 2
 
+        class Halved(TableModel, name='halved', base=Notes.where(Notes.val > 10).select(half=Notes.val / 2)):
+            plus = half + 1  # type: ignore[name-defined]  # noqa: F821  # the select() alias, in the body
+
         router = FastAPIRouter()
-        router.add_compute_route(BigNotes, path='/big', inputs=['note_id', 'val'], outputs=['doubled'])
+        router.add_compute_route(
+            BigNotes,
+            path='/big',
+            inputs=[Notes.note_id, Notes.val],  # type: ignore[arg-type]
+            outputs=[BigNotes.doubled],  # type: ignore[arg-type]
+        )
+        # a view whose base query has a select() list: the columns it projects are its own, alongside the ones
+        # its body declares
+        router.add_compute_route(
+            Halved,
+            path='/half',
+            inputs=[Notes.note_id, Notes.val],  # type: ignore[arg-type]
+            outputs=[Halved.half, Halved.plus],
+        )
         client = make_test_client(router)
 
         # the request takes the base's columns and the response the view's own, before either table exists
         schemas = client.get('/openapi.json').json()['components']['schemas']
         assert sorted(schemas['Body_compute_big_big_post']['properties']) == ['note_id', 'val']
         assert sorted(schemas['BigResponse']['properties']) == ['doubled']
+        assert sorted(schemas['Body_compute_half_half_post']['properties']) == ['note_id', 'val']
+        assert sorted(schemas['HalfResponse']['properties']) == ['half', 'plus']
 
         TableModel.create_all(p(''))
         router.bind(p(''))
@@ -3137,8 +3154,11 @@ class TestFastAPI:
         # and drops this one
         assert client.post('/big', json={'note_id': 2, 'val': 5}).json() is None
 
+        assert client.post('/half', json={'note_id': 3, 'val': 20}).json() == {'half': 10.0, 'plus': 11.0}
+        assert client.post('/half', json={'note_id': 4, 'val': 5}).json() is None
+
     def test_bind(self, make_catalog_path: Callable[[str], str]) -> None:
-        """bind() resolves model targets, reports what the tables cannot serve, and rejects a second target."""
+        """bind() resolves model targets, refuses what the tables cannot serve, and rejects a second target."""
         p = make_catalog_path
         skip_test_if_not_installed('fastapi')
         import fastapi
@@ -3158,19 +3178,16 @@ class TestFastAPI:
             return Notes.where(Notes.val > min_val).select(Notes.note)  # type: ignore[arg-type]
 
         router = FastAPIRouter()
-        router.add_insert_route(Notes, path='/ins', inputs=['note_id', 'val', 'note'], outputs=['note_id'])
+        router.add_insert_route(
+            Notes,
+            path='/ins',
+            inputs=[Notes.note_id, Notes.val, Notes.note],  # type: ignore[arg-type]
+            outputs=[Notes.note_id],  # type: ignore[arg-type]
+        )
         router.add_query_route(path='/q', query=notes_by_val)
 
-        # before the table exists, every route is blocked on a schema change, and the diff says which command
-        ops = router.get_service_diff(p(''))
-        assert len(ops) == 2, ops
-        assert {op['name'] for op in ops} == {'POST /ins', 'POST /q'}
-        assert all(op['target'] == 'route' for op in ops)
-        assert all(op['severity'] == 'blocked' for op in ops)
-        assert all("table 'notes' does not exist" in op['description'] for op in ops)
-        assert all(op['details']['command'].startswith('pxt schema update') for op in ops)
-
-        with pxt_raises(pxt.ErrorCode.SCHEMA_MISMATCH, match="table 'notes' does not exist"):
+        # before the table exists there is nothing to serve, and the refusal names the command that fixes it
+        with pxt_raises(pxt.ErrorCode.SCHEMA_MISMATCH, match=r"(?s)'notes'.*does not yet exist.*pxt schema update"):
             router.bind(p(''))
 
         # an unbound router refuses to start, rather than failing once per request
@@ -3180,7 +3197,6 @@ class TestFastAPI:
             pass
 
         TableModel.create_all(p(''))
-        assert router.get_service_diff(p('')) == []
         router.bind(p(''))
         client = make_test_client(router)
         resp = client.post('/ins', json={'note_id': 1, 'val': 10, 'note': 'hi'})
@@ -3191,21 +3207,89 @@ class TestFastAPI:
         with pxt_raises(pxt.ErrorCode.ALREADY_BOUND, match='already bound'):
             router.bind(p('elsewhere'))
 
-        # a diff against another target reports what is there, rather than raising over the existing binding
-        pxt.create_dir(p('elsewhere'))
-        ops = router.get_service_diff(p('elsewhere'))
-        assert len(ops) == 2, ops
-        assert all("table 'notes' does not exist" in op['description'] for op in ops)
-
-        # a column the route names, dropped from the table, blocks it; one it does not name is ignored
+        # any difference from the model stops it binding, whether a route names the column or not: what the
+        # routes serve is built from the declaration, and fixing the table is a schema change
         Notes.table.add_column(unrelated=pxt.String | None)
-        assert router.get_service_diff(p('')) == []
-        # 'note' is named by the insert route's request and by what the query route's query selects
+        with pxt_raises(pxt.ErrorCode.SCHEMA_MISMATCH, match=r"(?s)DROPPED.*'unrelated'"):
+            router.bind(p(''))
+        Notes.table.drop_column('unrelated')
         Notes.table.drop_column('note')
-        ops = router.get_service_diff(p(''))
-        assert len(ops) == 2, ops
-        assert {op['name'] for op in ops} == {'POST /ins', 'POST /q'}
-        assert all("'notes' has no column 'note'" in op['description'] for op in ops)
+        with pxt_raises(pxt.ErrorCode.SCHEMA_MISMATCH, match=r"(?s)ADDED.*'note'"):
+            router.bind(p(''))
+
+    def test_bind_mismatches(self, make_catalog_path: Callable[[str], str]) -> None:
+        """Every difference between a model and the table it names stops the routes declared against it."""
+        p = make_catalog_path
+        skip_test_if_not_installed('fastapi')
+
+        from pixeltable.serving import FastAPIRouter
+
+        TableModel = pxt.model_base()  # noqa: N806
+
+        class Notes(TableModel, name='notes'):
+            note_id = pxt.Column(type=pxt.Int, primary_key=True)
+            val: pxt.Int
+            __indexes__ = [pxt.BtreeIndex(val)]  # noqa: F821, RUF012
+
+        class Tags(TableModel, name='tags'):
+            tag_id = pxt.Column(type=pxt.Int, primary_key=True)
+            label: pxt.String
+
+        notes_router = FastAPIRouter()
+        notes_router.add_insert_route(
+            Notes,
+            path='/notes',
+            inputs=[Notes.note_id, Notes.val],  # type: ignore[arg-type]
+            outputs=[Notes.note_id],  # type: ignore[arg-type]
+        )
+
+        # a view where the model declares a table: the columns line up, so only the kind says it cannot serve,
+        # and nothing a schema update does turns one into the other
+        src = pxt.create_table(p('src'), {'note_id': pxt.Int, 'val': pxt.Int})
+        pxt.create_view(p('notes'), src.where(src.val > 0))
+        with pxt_raises(
+            pxt.ErrorCode.SCHEMA_MISMATCH, match=r'(?s)kind mismatch.*is a view.*No schema update can reconcile'
+        ):
+            notes_router.bind(p(''))
+
+        # a table whose key differs from the model's: an insert route would write rows the model cannot address
+        pxt.create_dir(p('nopk'))
+        pxt.create_table(p('nopk/notes'), {'note_id': pxt.Int, 'val': pxt.Int})
+        with pxt_raises(pxt.ErrorCode.SCHEMA_MISMATCH, match="'note_id'"):
+            notes_router.bind(p('nopk'))
+
+        # the same declaration against a table that satisfies it serves
+        pxt.create_dir(p('ok'))
+        TableModel.create_all(p('ok'))
+        notes_router.bind(p('ok'))
+        assert make_test_client(notes_router).post('/notes', json={'note_id': 1, 'val': 10}).status_code == 200
+
+        router = FastAPIRouter()
+        router.add_insert_route(
+            Notes,
+            path='/notes',
+            inputs=[Notes.note_id, Notes.val],  # type: ignore[arg-type]
+            outputs=[Notes.note_id],  # type: ignore[arg-type]
+        )
+        router.add_insert_route(
+            Tags,
+            path='/tags',
+            inputs=[Tags.tag_id, Tags.label],  # type: ignore[arg-type]
+            outputs=[Tags.tag_id],  # type: ignore[arg-type]
+        )
+        router.bind(p('ok'))
+
+        # an index the model declares, dropped from the table: a custom endpoint may rely on it, and no column
+        # differs, so nothing but the index says the table no longer matches
+        idx_name = next(iter(Notes.table.get_metadata()['indexes']))
+        Notes.table.drop_index(idx_name=idx_name)
+        with pxt_raises(pxt.ErrorCode.SCHEMA_MISMATCH, match=r'(?s)indexes.*ADDED.*pxt schema update'):
+            router.bind(p('ok'))
+
+        # a second table that also drifted: one refusal names both, so one schema update settles them
+        Tags.table.add_column(extra=pxt.String | None)
+        with pxt_raises(pxt.ErrorCode.SCHEMA_MISMATCH, match=r"(?s)'notes'.*'tags'"):
+            router.bind(p('ok'))
 
     def test_bind_table_targets(self, make_catalog_path: Callable[[str], str]) -> None:
         """A route declared against a Table needs no binding: it already names the table it serves."""
@@ -3220,8 +3304,8 @@ class TestFastAPI:
 
         router = FastAPIRouter()
         router.add_insert_route(t, path='/ins', inputs=['id', 'val'], outputs=['id'])
-        assert router.get_service_diff(p('')) == []
 
+        # no bind() call: the route already names the table it serves
         app = fastapi.FastAPI()
         app.include_router(router)
         with TestClient(app) as client:

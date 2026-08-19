@@ -621,13 +621,13 @@ needs `--allow-destructive`.
 
 All cloud commands accept `--json` for machine-readable output.
 
-### `pixeltable.toml` reference
+### Cloud configuration reference
 
 Cloud operations that affect a database's runtime image read configuration from `pixeltable.toml` in the current directory.
 
-#### `[pixeltable.database]` — runtime bundle config
+#### `[pixeltable.database]` — runtime image config
 
-Read by `pxt db update-runtime`. Defines which local files to bundle and, optionally, a custom Pixeltable source branch.
+Read by `pxt db update-runtime`, from `pixeltable.toml` in the current directory if that file declares the section, and from the Pixeltable config file otherwise. Defines which local files to package into the runtime image and, optionally, a custom Pixeltable source branch.
 
 ```toml
 [pixeltable.database]
@@ -720,7 +720,7 @@ Triggers a rolling restart; polls until `AVAILABLE`.
 pxt db update-runtime pxt://myorg:mydb
 ```
 
-Reads `[pixeltable.database]` from `pixeltable.toml` in the current directory, packages the project bundle, uploads it, and triggers a CodeBuild image rebuild. Polls until the build completes or fails. Running services are restarted on the new image automatically.
+Reads `[pixeltable.database]` (see the [cloud configuration reference](#cloud-configuration-reference)), packages the project files, uploads them, and triggers a CodeBuild image rebuild. Polls until the build completes or fails. Running services are restarted on the new image automatically.
 
 #### `pxt db delete`
 

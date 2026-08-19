@@ -145,25 +145,25 @@ class Router:
 
     _routes: dict[tuple[Method, str], Handler]  # key: route id = (method, path)
 
-    # routes registered with checks_env=True
-    _checks_env: set[tuple[Method, str]]  # set of route ids
+    # routes registered with checks_env=False
+    _skips_env_check: set[tuple[Method, str]]  # set of route ids
 
     def __init__(self) -> None:
         self._routes = {}
-        self._checks_env = set()
+        self._skips_env_check = set()
 
-    def get(self, path: str, *, checks_env: bool = False) -> Callable[[Handler], Handler]:
+    def get(self, path: str, *, checks_env: bool = True) -> Callable[[Handler], Handler]:
         return self._register('GET', path, checks_env)
 
-    def post(self, path: str, *, checks_env: bool = False) -> Callable[[Handler], Handler]:
+    def post(self, path: str, *, checks_env: bool = True) -> Callable[[Handler], Handler]:
         return self._register('POST', path, checks_env)
 
     def _register(self, method: Method, path: str, checks_env: bool) -> Callable[[Handler], Handler]:
         def decorator(fn: Handler) -> Handler:
             assert (method, path) not in self._routes, f'duplicate route {method} {path}'
             self._routes[method, path] = fn
-            if checks_env:
-                self._checks_env.add((method, path))
+            if not checks_env:
+                self._skips_env_check.add((method, path))
             return fn
 
         return decorator
@@ -172,5 +172,9 @@ class Router:
         return self._routes.get((method, url_path))
 
     def checks_env(self, method: Method, url_path: str) -> bool:
-        """Whether this route runs code whose result depends on an env-settable config value."""
-        return (method, url_path) in self._checks_env
+        """Whether this route requires the caller's config values to be the ones the daemon serves with.
+
+        True unless the route was registered with checks_env=False, which is for the routes that report on
+        the daemon and the ones that read catalog metadata.
+        """
+        return (method, url_path) not in self._skips_env_check

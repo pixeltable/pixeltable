@@ -31,16 +31,18 @@ class ServiceChangeOp(TypedDict):
     details: dict[str, str]  # 'from' and 'to' for an alter, 'command' for a blocked operation
 
 
-def blocked_route_op(route_name: str, description: str, base_path: str) -> ServiceChangeOp:
-    """The operation for a route that the schema at `base_path` has to satisfy before the route can be served."""
-    target = f' --target {base_path}' if base_path != '' else ''
+def blocked_schema_op(service_name: str, description: str, command: str) -> ServiceChangeOp:
+    """The operation for a service whose models do not describe the tables they name.
+
+    A schema update is the only thing that reconciles them, so the operation carries the command that runs it.
+    """
     return {
-        'target': 'route',
-        'name': route_name,
+        'target': 'service',
+        'name': service_name,
         'op': 'alter',
         'severity': 'blocked',
         'description': description,
-        'details': {'command': f'pxt schema update{target}'},
+        'details': {'command': command},
     }
 
 

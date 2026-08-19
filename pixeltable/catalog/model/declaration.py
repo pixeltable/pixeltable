@@ -667,7 +667,7 @@ class TableModelMeta(type):
         handle = TableVersionHandle(catalog.TableVersionKey(tbl_id, None))
         base = None if spec['base'] is None else spec['base'].to_declared_query()
         # prepare_model() substitutes column references in place, so hand it copies: inspecting a model must
-        # leave what it declares untouched, and it can be inspected any number of times
+        # leave what it declares untouched
         columns: dict[str, ColumnSpec] = {}
         for col_name, col_spec in cls.__columns__.items():
             copied = col_spec.copy()
@@ -677,6 +677,16 @@ class TableModelMeta(type):
         iterator, cols, idxs = prepare_model(
             handle, columns, spec['display_name'], spec['iterator'], base, cls.__indexes__
         )
+
+        # substitute column names with Column instances in idxs: create_table_version_md() requires
+        # IndexSpec.indexed_column to be a Column, not str
+        cols_by_name = {col.name: col for col in cols if col.name is not None}
+        idxs = [
+            idx._replace(indexed_column=cols_by_name[idx.indexed_column])
+            if isinstance(idx.indexed_column, str) and idx.indexed_column in cols_by_name
+            else idx
+            for idx in idxs
+        ]
 
         md: TableVersionMd
         base_md: list[TableVersionMd] = []

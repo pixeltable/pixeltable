@@ -547,15 +547,17 @@ def service_diff(app_file: str, target: PxtPath) -> service_types.ServicePlan:
         target: the catalog directory the services' models bind against.
     """
     services = load_services(app_file)
-    diffs = [_service_diff(name, service, target) for name, service in sorted(services.items())]
+    diffs = [_service_diff(name, service, app_file, target) for name, service in sorted(services.items())]
     return _plan_from_service_diffs(diffs, app_file, target)
 
 
-def _service_diff(name: str, service: FastAPIRouter | fastapi.FastAPI, target: PxtPath) -> service_types.ServiceDiff:
+def _service_diff(
+    name: str, service: FastAPIRouter | fastapi.FastAPI, app_file: str, target: PxtPath
+) -> service_types.ServiceDiff:
     """How the deployment of one declared service at target differs from its declaration."""
     # imported here rather than at module scope: pixeltable.serving pulls in fastapi, an optional dependency
     from pixeltable.serving import FastAPIRouter
-    from pixeltable.serving._diff import compare_specs
+    from pixeltable.serving._diff import blocked_schema_op, compare_specs
     from pixeltable.serving.service_registry import ServiceDeployment
 
     deployment = ServiceDeployment.read(name, target)
@@ -569,8 +571,13 @@ def _service_diff(name: str, service: FastAPIRouter | fastapi.FastAPI, target: P
         else:
             route_comparison = 'declarative'
             ops += [_service_plan_op(op) for op in compare_specs(deployment.spec, service.service_spec(name))]
-        # what the tables at the target cannot serve, whether or not the service is deployed
-        ops += [_service_plan_op(op) for op in service.get_service_diff(target)]
+        # the models the routes name have to describe the tables at the target, whether or not the service is
+        # deployed; _validate_model_routes() reports the discrepancy without binding anything
+        try:
+            service._validate_model_routes(target)
+        except excs.Error as e:
+            command = f'pxt schema update {app_file}' + ('' if target == '' else f' {target}')
+            ops.append(_service_plan_op(blocked_schema_op(name, e.message, command)))
     else:
         kind = 'custom'
         route_comparison = 'unavailable'

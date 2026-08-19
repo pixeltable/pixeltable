@@ -151,8 +151,9 @@ class _DaemonHandler(BaseHTTPRequestHandler):
 
     def _env_values_agree(self, req: Request) -> bool:
         """Whether this daemon's config values are the ones it recorded and the caller expects."""
-        daemon_state.ensure_env_values_recorded()
-        changed = daemon_state.changed_env_values()
+        daemon_state.ensure_env_fingerprint_recorded()
+        current = Config.get().env_fingerprint()
+        changed = daemon_state.changed_env_vars(current)
         if len(changed) > 0:
             # api clients are built from these values and cached per worker thread, so serving with the new
             # ones takes a new process
@@ -165,9 +166,9 @@ class _DaemonHandler(BaseHTTPRequestHandler):
                 http.HTTPStatus.CONFLICT,
             )
             return False
-        return self._caller_env_values_agree(req)
+        return self._caller_env_values_agree(req, current)
 
-    def _caller_env_values_agree(self, req: Request) -> bool:
+    def _caller_env_values_agree(self, req: Request, current: dict[str, str]) -> bool:
         """Whether the caller's config values match this daemon's, sending a 409 naming the difference if not."""
         header = req.headers.get(_ENV_HEADER)
         if header is None:
@@ -176,7 +177,7 @@ class _DaemonHandler(BaseHTTPRequestHandler):
             caller: dict[str, str] = json.loads(header)
         except json.JSONDecodeError:
             return True  # an unparseable fingerprint is no evidence of disagreement
-        missing, differing = Config.get().compare_env_values(caller)
+        missing, differing = Config.get().compare_env_values(caller, current)
         if len(missing) == 0 and len(differing) == 0:
             return True
 

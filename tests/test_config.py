@@ -10,19 +10,19 @@ import pytest
 import pixeltable as pxt
 from pixeltable.config import Config
 
-from .utils import get_image_files
+from .utils import get_image_files, pxt_raises
 
 
 class TestConfig:
     def test_config_errors(self, init_env: None, tmp_path: Path) -> None:
-        def spawn_cmd(env_vars: dict[str, str], expected_error_msg: str) -> None:
+        def spawn_cmd(env_vars: dict[str, str], expected_error_msg: str, init_arg: str = '') -> None:
             result = subprocess.run(
-                (sys.executable, '-c', 'import pixeltable as pxt\npxt.init()'),
+                (sys.executable, '-c', f'import pixeltable as pxt\npxt.init({init_arg})'),
                 capture_output=True,
                 check=False,
                 env={**os.environ, **env_vars},
             )
-            print(f'======= stderr with {env_vars} =======')
+            print(f'======= stderr with {env_vars} and pxt.init({init_arg}) =======')
             print(result.stderr.decode('utf-8'))
             assert result.returncode != 0
             assert expected_error_msg in result.stderr.decode('utf-8')
@@ -48,8 +48,33 @@ class TestConfig:
             "'pixeltable.verbosity': eggs",
         )
 
+        # an override names its setting as 'section.key' and reaches the same lookup an env var does
+        spawn_cmd(
+            {},
+            f'pixeltable.exceptions.RequestError: Not a directory: {tmp}',
+            init_arg=f'{{"pixeltable.home": "{tmp.as_posix()}"}}',
+        )
+        spawn_cmd(
+            {},
+            'pixeltable.exceptions.RequestError: Unrecognized configuration variable: pixeltable.not_a_config_var',
+            init_arg='{"pixeltable.not_a_config_var": "test"}',
+        )
+
+        # a setting that applies to the whole instance cannot be given per process
+        spawn_cmd(
+            {},
+            'pixeltable.exceptions.RequestError: Cannot override pixeltable.file_cache_size_g: '
+            'it can only be set via the config file.',
+            init_arg='{"pixeltable.file_cache_size_g": 5}',
+        )
+
         pxt.init()
         pxt.init()  # a second init() is a no-op
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_STATE,
+            match='Pixeltable has already been initialized; cannot specify new config values in the same session',
+        ):
+            pxt.init({'pixeltable.home': '.'})
 
     def test_dotted_section_lookup(self, tmp_path: Path) -> None:
         """Nested TOML tables like [openai.rate_limits] are stored as
@@ -140,6 +165,13 @@ class TestConfig:
             pxt.ConfigVar('MiXeD', pxt.Secret)
         assert pxt.ConfigVar('from_env', pxt.Secret).env_var == 'PIXELTABLE_SECRET_FROM_ENV'
 
+        # a declared type must be one the stored reference can name, so that the metadata reads back
+        class MySecret(pxt.Secret):
+            pass
+
+        with pytest.raises(pxt.Error, match="Invalid config var type 'MySecret': must be one of str, URI, Secret"):
+            pxt.ConfigVar('custom', MySecret)
+
     def test_miscased_env_var(self, tmp_path: Path) -> None:
         """A variable differing only in case from one that is read generates a warning."""
         result = subprocess.run(
@@ -177,6 +209,15 @@ class TestConfig:
             assert Config.reload_if_changed()
             assert media_dest.value() == 's3://second/bucket'
             assert not Config.reload_if_changed()
+
+            # an override is supplied by the process, so re-reading the file leaves it in place
+            Config.init({'openai.api_key': 'sk-override'}, reinit=True)
+            assert Config.get().get_string_value('api_key', section='openai') == 'sk-override'
+            time.sleep(0.01)
+            config_file.write_text('[pixeltable.database.vars]\nmedia_dest = "s3://third/bucket"\n')
+            assert Config.reload_if_changed()
+            assert media_dest.value() == 's3://third/bucket'
+            assert Config.get().get_string_value('api_key', section='openai') == 'sk-override'
         finally:
             if original_config is None:
                 os.environ.pop('PIXELTABLE_CONFIG', None)

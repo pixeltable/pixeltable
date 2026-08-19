@@ -69,6 +69,13 @@ def pxt_daemon(init_env: None, tmp_path_factory: pytest.TempPathFactory) -> Iter
         else:
             tail = log_path.read_text(errors='replace')[-500:]
             raise RuntimeError(f'daemon did not come up within {startup_timeout}s; log tail:\n{tail}')
+
+        # The client reports the interpreter behind the pxt script, which need not be spelled the way
+        # sys.executable is (python vs python3 in the same environment). ensure_running() restarts a daemon
+        # whose identity differs from the caller's and the replacement inherits the caller's environment, so
+        # provoke that restart here, with the environment this fixture started the daemon with.
+        subprocess.run(['pxt', 'ls', '/'], env=env, capture_output=True, check=False, timeout=60)
+        assert is_running()
         yield port
     finally:
         # a test may have restarted the daemon, in which case the process answering on the port is not the

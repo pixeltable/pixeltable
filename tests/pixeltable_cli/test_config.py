@@ -25,7 +25,7 @@ pytestmark = pytest.mark.local('the daemon under test is the one serving the in-
 _A_KEY = 'sk-pxt-test-aaaa'
 _ANOTHER_KEY = 'sk-pxt-test-bbbb'
 
-# a schema whose index makes `pxt schema update` load an embedding model, which takes seconds
+# a schema whose index makes pxt schema update load an embedding model, which takes seconds
 _SLOW_SCHEMA_SRC = dedent(
     """
     import pixeltable as pxt
@@ -71,6 +71,11 @@ class TestConfig:
         assert r.returncode != 0
         assert 'OPENAI_API_KEY' in r.stderr
         assert 'pxt daemon restart' in r.stderr
+
+        # any other work is refused too, without the endpoint having to ask for the check
+        r = cli('count', f'{target}/docs', env_overrides=with_key, check=False)
+        assert r.returncode != 0
+        assert 'OPENAI_API_KEY' in r.stderr
 
         # the commands needed to diagnose it keep working, and report the difference
         r = cli('config', env_overrides=with_key)

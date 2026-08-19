@@ -27,6 +27,7 @@ from .utils import (
     get_image_files,
     pxt_raises,
     reload_catalog,
+    reload_env,
     schema_from_tbl_md,
     skip_test_if_not_installed,
     validate_update_status,
@@ -2180,21 +2181,35 @@ class TestTableModel:
 
     @pytest.mark.local('a local filesystem destination is rejected for a hosted table')
     def test_config_var_destination(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
-        """A column destination declared as a pxt.ConfigVar follows whatever the target binds it to."""
+        """A column destination is resolved when a file is written, not when the column is declared.
+
+        A pxt.ConfigVar destination follows whatever the target binds it to, and a default destination the
+        instance configures belongs to no column's schema.
+        """
         p = make_catalog_path
         media_dir = tmp_path / 'media'
         media_dir.mkdir()
         other_dir = tmp_path / 'other'
         other_dir.mkdir()
+        default_dir = tmp_path / 'default'
+        default_dir.mkdir()
         config_file = tmp_path / 'config.toml'
-        config_file.write_text(f'[pixeltable.database.vars]\nmedia_dest = "{media_dir.as_posix()}"\n')
+
+        def write_config(media_dest: str) -> None:
+            config_file.write_text(
+                f'[pixeltable]\nfile_cache_size_g = 10\noutput_media_dest = "{default_dir.as_posix()}"\n'
+                f'[pixeltable.database.vars]\nmedia_dest = "{media_dest}"\n'
+            )
+
+        write_config(media_dir.as_posix())
 
         MEDIA_DEST = pxt.ConfigVar('media_dest', pxt.URI)
         MISSING = pxt.ConfigVar('no_such_var', pxt.URI)
 
         original_config = os.environ.get('PIXELTABLE_CONFIG')
         os.environ['PIXELTABLE_CONFIG'] = str(config_file)
-        Config.init(reinit=True)
+        # not Config.init(): output_media_dest is read when the Env is created
+        reload_env()
         try:
             TableModel = pxt.model_base()
 
@@ -2202,6 +2217,7 @@ class TestTableModel:
                 img: pxt.Image | None
                 thumbnail = pxt.Column(value=img.rotate(90), destination=MEDIA_DEST)
                 fixed = pxt.Column(value=img.rotate(180), destination=str(other_dir))
+                plain = img.rotate(270)
 
             TableModel.create_all(p(''))
 
@@ -2209,6 +2225,8 @@ class TestTableModel:
             md = pxt.get_table(p('docs')).get_metadata()
             assert md['columns']['thumbnail']['destination'] == '$media_dest'
             assert md['columns']['fixed']['destination'] == str(other_dir)
+            # output_media_dest is configuration, so a column that declares no destination reports none
+            assert md['columns']['plain']['destination'] is None
 
             # reading the table back from stored metadata reconstitutes the reference, and files still land
             # where it is bound
@@ -2216,10 +2234,12 @@ class TestTableModel:
             tbl = pxt.get_table(p('docs'))
             assert tbl.get_metadata()['columns']['thumbnail']['destination'] == '$media_dest'
             tbl.insert(img=get_image_files()[0])
-            assert media_dir.as_uri() in tbl.select(url=tbl.thumbnail.fileurl).collect()[0]['url']
+            row = tbl.select(bound=tbl.thumbnail.fileurl, unbound=tbl.plain.fileurl).collect()[0]
+            assert media_dir.as_uri() in row['bound']
+            assert default_dir.as_uri() in row['unbound']
 
-            # rebinding the variable is not a schema change
-            config_file.write_text(f'[pixeltable.database.vars]\nmedia_dest = "{other_dir.as_posix()}"\n')
+            # neither rebinding the variable nor the configured default is a schema change
+            write_config(other_dir.as_posix())
             Config.init(reinit=True)
             reload_catalog()
             diffs = TableModel.get_model_diff(p(''))
@@ -2230,7 +2250,7 @@ class TestTableModel:
                 MISSING.value()
 
             # the declared type validates the binding: a value that is not a storage address is rejected
-            config_file.write_text('[pixeltable.database.vars]\nmedia_dest = "s4://typo/bucket"\n')
+            write_config('s4://typo/bucket')
             Config.init(reinit=True)
             with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='media_dest'):
                 MEDIA_DEST.value()
@@ -2246,5 +2266,5 @@ class TestTableModel:
                 os.environ.pop('PIXELTABLE_CONFIG', None)
             else:
                 os.environ['PIXELTABLE_CONFIG'] = original_config
-            Config.init(reinit=True)
+            reload_env()
             reload_catalog()
