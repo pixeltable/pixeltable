@@ -37,7 +37,7 @@ class TestFabric:
         _skip_if_not_fabric()
         from pixeltable.functions import fabric
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         messages = [{'role': 'user', 'content': t.input}]
         t.add_computed_column(
             output=fabric.chat_completions(
@@ -55,7 +55,7 @@ class TestFabric:
         _skip_if_not_fabric()
         from pixeltable.functions import fabric
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         messages = [{'role': 'user', 'content': t.input}]
         # Reasoning models use max_completion_tokens, not max_tokens
         t.add_computed_column(
@@ -72,7 +72,7 @@ class TestFabric:
         _skip_if_not_fabric()
         from pixeltable.functions import fabric
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         messages = [{'role': 'user', 'content': t.input}]
         # Test that max_tokens in model_kwargs is automatically converted for reasoning models
         t.add_computed_column(
@@ -92,7 +92,7 @@ class TestFabric:
         _skip_if_not_fabric()
         from pixeltable.functions import fabric
 
-        t = pxt.create_table('test_tbl', {'text': pxt.String})
+        t = pxt.create_table('test_tbl', {'text': pxt.String | None})
         t.add_computed_column(embed=fabric.embeddings(t.text, model='text-embedding-3-small'))
         validate_update_status(
             t.insert([{'text': 'Hello, world!'}, {'text': 'Pixeltable is great for AI workflows.'}]), 2
@@ -111,7 +111,7 @@ class TestFabric:
         _skip_if_not_fabric()
         from pixeltable.functions import fabric
 
-        t = pxt.create_table('test_tbl', {'text': pxt.String})
+        t = pxt.create_table('test_tbl', {'text': pxt.String | None})
         t.add_computed_column(embed=fabric.embeddings(t.text, model='text-embedding-3-small'))
 
         # Insert multiple rows to test batching (batch_size=32)
@@ -128,7 +128,7 @@ class TestFabric:
         _skip_if_not_fabric()
         from pixeltable.functions import fabric
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         messages = [{'role': 'user', 'content': t.input}]
         # Test with explicit API version
         t.add_computed_column(
@@ -144,7 +144,7 @@ class TestFabric:
         _skip_if_not_fabric()
         from pixeltable.functions import fabric
 
-        t = pxt.create_table('test_tbl', {'text': pxt.String})
+        t = pxt.create_table('test_tbl', {'text': pxt.String | None})
         t.add_computed_column(
             embed=fabric.embeddings(t.text, model='text-embedding-3-small', api_version='2024-02-15-preview')
         )

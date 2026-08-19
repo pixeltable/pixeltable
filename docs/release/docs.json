@@ -121,11 +121,11 @@
                       "sdk/latest/jina",
                       "sdk/latest/llama_cpp",
                       "sdk/latest/mistralai",
+                      "sdk/latest/nebius",
                       "sdk/latest/ollama",
                       "sdk/latest/openai",
                       "sdk/latest/openrouter",
                       "sdk/latest/replicate",
-                      "sdk/latest/reve",
                       "sdk/latest/runwayml",
                       "sdk/latest/together",
                       "sdk/latest/twelvelabs",
@@ -355,7 +355,6 @@
               "howto/providers/working-with-openrouter",
               "howto/providers/working-with-pydantic",
               "howto/providers/working-with-replicate",
-              "howto/providers/working-with-reve",
               "howto/providers/working-with-runwayml",
               "howto/providers/working-with-tigris",
               "howto/providers/working-with-together",
@@ -734,10 +733,6 @@
     {
       "source": "/notebooks/integrations/working-with-replicate",
       "destination": "/howto/providers/working-with-replicate"
-    },
-    {
-      "source": "/notebooks/integrations/working-with-reve",
-      "destination": "/howto/providers/working-with-reve"
     },
     {
       "source": "/notebooks/integrations/working-with-runwayml",

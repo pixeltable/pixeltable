@@ -4,7 +4,6 @@ from typing import Any
 
 import sqlalchemy as sql
 
-import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 
 from .column_ref import ColumnRef
@@ -21,8 +20,6 @@ class Comparison(Expr):
     operator: ComparisonOperator
 
     def __init__(self, operator: ComparisonOperator, op1: Expr, op2: Expr):
-        from pixeltable import index
-
         super().__init__(ts.BoolType())
         self.operator = operator
 
@@ -38,18 +35,6 @@ class Comparison(Expr):
         else:
             self.is_search_arg_comparison = False
             self.components = [op1, op2]
-
-        if (
-            self.is_search_arg_comparison
-            and self._op2.col_type.is_string_type()
-            and len(self._op2.val) >= index.BtreeIndex.MAX_STRING_LEN
-        ):
-            # we can't use an index for this after all
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'String literal too long for comparison against indexed column {self._op1.col_md.name!r} '
-                f'(max length is {index.BtreeIndex.MAX_STRING_LEN - 1})',
-            )
 
         self.id = self._create_id()
 
@@ -84,25 +69,33 @@ class Comparison(Expr):
             return True
         return (t1.is_date_type() or t1.is_timestamp_type()) and (t2.is_date_type() or t2.is_timestamp_type())
 
-    def sql_expr(self, sql_elements: SqlElementCache) -> sql.ColumnElement | None:
+    def _can_use_index_value_col(self) -> bool:
+        """True if a value-column B-tree index can answer this comparison."""
         import pixeltable.index as index
 
+        assert self.is_search_arg_comparison
+        assert isinstance(self._op2, Literal)
+        if self._op2.col_type.is_string_type():
+            # Strings are truncated in the value column, so a value column can be used only for comparisons with
+            # literals shorter than the limit.
+            return len(self._op2.val) < index.BtreeIndex.MAX_STRING_LEN
+        return True
+
+    def sql_expr(self, sql_elements: SqlElementCache) -> sql.ColumnElement | None:
         if not self._sql_compatible(self._op1.col_type, self._op2.col_type):
             # e.g. string vs. json, or image vs. anything
             return None
 
         left = sql_elements.get(self._op1)
         if self.is_search_arg_comparison:
-            # reference the index value column if there is an index and this is not a snapshot
-            # (indices don't apply to snapshots)
-            tbl = self._op1.col.get_tbl()
-            idx_info = [
-                info for info in tbl.idxs_by_col.get(self._op1.col.qid, []) if isinstance(info.idx, index.BtreeIndex)
-            ]
-            if len(idx_info) > 0 and not tbl.is_snapshot:
-                # there shouldn't be multiple B-tree indices on a column
-                assert len(idx_info) == 1
-                left = idx_info[0].val_col.sa_col
+            assert isinstance(self._op1, ColumnRef)
+            col = self._op1.col
+            # indices don't apply to snapshots
+            tbl = col.get_tbl()
+            idx_info = None if tbl.is_snapshot else tbl.find_btree_index(col)
+            # Use the index's value column when possible
+            if idx_info is not None and idx_info.val_col is not None and self._can_use_index_value_col():
+                left = idx_info.val_col.sa_col
 
         right = sql_elements.get(self._op2)
         if left is None or right is None:

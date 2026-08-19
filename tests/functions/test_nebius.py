@@ -23,7 +23,7 @@ class TestNebius:
         skip_test_if_no_client('nebius')
         from pixeltable.functions.nebius import chat_completions
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         msgs = [{'role': 'system', 'content': 'You are a helpful assistant.'}, {'role': 'user', 'content': t.input}]
         t.add_computed_column(input_msgs=msgs)
         t.add_computed_column(
@@ -39,7 +39,7 @@ class TestNebius:
         skip_test_if_no_client('nebius')
         from pixeltable.functions.nebius import chat_completions
 
-        t = pxt.create_table('test_tbl', {'image': pxt.Image})
+        t = pxt.create_table('test_tbl', {'image': pxt.Image | None})
         msgs = [
             {
                 'role': 'user',
@@ -60,7 +60,7 @@ class TestNebius:
         skip_test_if_no_client('nebius')
         from pixeltable.functions.nebius import embeddings
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         t.add_computed_column(embedding=embeddings(t.input, model='Qwen/Qwen3-Embedding-8B'))
 
         type_info = t._get_schema()

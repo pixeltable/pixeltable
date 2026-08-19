@@ -17,7 +17,7 @@ class TestReplicate:
         skip_test_if_no_client('replicate')
         from pixeltable.functions.replicate import run
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         t.add_computed_column(
             output=run(
                 input={'system_prompt': 'You are a helpful assistant.', 'prompt': t.input},
@@ -34,13 +34,13 @@ class TestReplicate:
         skip_test_if_no_client('replicate')
         from pixeltable.functions.replicate import run
 
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String | None})
         t.add_computed_column(
             response=run(
                 input={'prompt': t.prompt, 'go_fast': True, 'megapixels': '1'}, ref='black-forest-labs/flux-schnell'
             )
         )
-        t.add_computed_column(image=t.response[0].astype(pxt.Image))
+        t.add_computed_column(image=t.response[0].astype(pxt.Image | None))
         validate_update_status(
             t.insert(prompt='Draw a pencil sketch of a friendly dinosaur playing tennis in a cornfield.'), 1
         )

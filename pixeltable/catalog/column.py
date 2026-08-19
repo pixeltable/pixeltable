@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pgvector.sqlalchemy
 import sqlalchemy as sql
+from typing_extensions import TypeForm
 
 import pixeltable.exprs as exprs
 import pixeltable.index as index
@@ -168,14 +170,21 @@ class Column:
         tbl_handle: TableVersionHandle,
         col: Column,
         idx: index.IndexBase,
-        val_col_id: int,
-        undo_col_id: int,
+        *,
         schema_version: int,
-    ) -> tuple[Column, Column]:
-        """Create value and undo columns for an index."""
+        is_data_versioned: bool,
+        next_col_id: Callable[[], int],
+    ) -> tuple[Column | None, Column | None]:
+        """Create the columns that idx needs in order to index col.
+
+        Returns (value column, undo column), both of which are optional.
+        """
+        if not idx.uses_value_col:
+            return None, None
+
         value_expr = idx.create_value_expr(col)
         val_col = cls(
-            col_id=val_col_id,
+            col_id=next_col_id(),
             name=None,
             computed_with=value_expr,
             sa_col_type=idx.get_index_sa_type(value_expr.col_type),
@@ -186,9 +195,11 @@ class Column:
             tbl_handle=tbl_handle,
         )
         val_col.col_type = val_col.col_type.copy(nullable=True)
+        if not is_data_versioned:
+            return val_col, None
 
         undo_col = cls(
-            col_id=undo_col_id,
+            col_id=next_col_id(),
             name=None,
             col_type=val_col.col_type,
             sa_col_type=val_col.sa_col_type,
@@ -202,7 +213,7 @@ class Column:
         return val_col, undo_col
 
     @classmethod
-    def create(cls, name: str, spec: ts.ColumnType | type | ColumnSpec | exprs.Expr) -> Column:
+    def create(cls, name: str, spec: ts.ColumnType | TypeForm | ColumnSpec | exprs.Expr) -> Column:
         col_type: ts.ColumnType | None = None
         value_expr: exprs.Expr | None = None
         primary_key: bool = False
@@ -215,7 +226,7 @@ class Column:
         sa_col_type: sql.types.TypeEngine | None = None
         # TODO: Should we fully deprecate passing ts.ColumnType here?
         if isinstance(spec, ts.ColumnType) or ts.is_type_form(spec):
-            col_type = ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)
+            col_type = ts.ColumnType.normalize_type(spec, allow_builtin_types=False)
             sa_col_type = col_type.to_sa_type()
         elif isinstance(spec, exprs.Expr):
             # create copy so we can modify it
@@ -236,7 +247,7 @@ class Column:
                 assert expr is not None, type(value_expr)
                 sa_col_type = expr.col_type.to_sa_type()
             if 'type' in spec:
-                col_type = ts.ColumnType.normalize_type(spec['type'], nullable_default=True, allow_builtin_types=False)
+                col_type = ts.ColumnType.normalize_type(spec['type'], allow_builtin_types=False)
                 sa_col_type = col_type.to_sa_type() if stored else None
             primary_key = spec.get('primary_key', False)
             media_validation_str = spec.get('media_validation')
