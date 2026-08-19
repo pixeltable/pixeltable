@@ -53,14 +53,14 @@ _IDENTITY: dict[str, Any] = identity()
 _SCHEMA_PLAN = pydantic.TypeAdapter(schema_types.SchemaPlan)
 
 
-@router.get('/api/health')
+@router.get('/api/health', checks_env=False)
 def health(_req: Request) -> models.HealthResponse:
     return models.HealthResponse(
         ok=True, pid=os.getpid(), started_at=_STARTED_AT, in_flight=daemon_state.in_flight_requests(), **_IDENTITY
     )
 
 
-@router.get('/api/status')
+@router.get('/api/status', checks_env=False)
 def status(req: Request) -> models.StatusResponse:
     sizes = req.query_bool('sizes')
     s = bridge.get_status()
@@ -82,7 +82,7 @@ def status(req: Request) -> models.StatusResponse:
     )
 
 
-@router.get('/api/config')
+@router.get('/api/config', checks_env=False)
 def config(_req: Request) -> models.ConfigResponse:
     # Two-layer redaction so a new sensitive key never silently leaks:
     # - params from registered API client factories
@@ -126,7 +126,7 @@ def config(_req: Request) -> models.ConfigResponse:
     )
 
 
-@router.get('/api/dirs')
+@router.get('/api/dirs', checks_env=False)
 def list_dir(req: Request) -> models.LsResponse:
     path = req.resolve_path(req.query_str('path') or '')
     return _list_dir(
@@ -134,12 +134,12 @@ def list_dir(req: Request) -> models.LsResponse:
     )
 
 
-@router.get('/api/cwd')
+@router.get('/api/cwd', checks_env=False)
 def get_cwd(req: Request) -> models.CwdResponse:
     return models.CwdResponse(uri=daemon_state.get_wd(req.headers.get('x-pxt-session')))
 
 
-@router.post('/api/cwd')
+@router.post('/api/cwd', checks_env=False)
 def set_cwd(req: Request) -> models.CwdResponse:
     session = req.headers.get('x-pxt-session')
     if session is None:
@@ -187,7 +187,7 @@ def _reroot(nodes: list[TreeNode], catalog_root: str) -> None:
             _reroot(n['entries'], catalog_root)
 
 
-@router.get('/api/tables/rows', checks_env=True)
+@router.get('/api/tables/rows')
 def table_rows(req: Request) -> models.RowsResponse:
     path = req.resolve_path(req.query_str('path') or '')
     n = req.query_int('n', default=10, ge=1, le=1000)
@@ -220,7 +220,7 @@ def table_rows(req: Request) -> models.RowsResponse:
     return models.RowsResponse(columns=columns_list, rows=out_rows)
 
 
-@router.get('/api/tables/row', checks_env=True)
+@router.get('/api/tables/row')
 def table_row(req: Request) -> models.GetResponse:
     path = req.resolve_path(req.query_str('path') or '')
     pk = req.query_list('pk')
@@ -342,7 +342,7 @@ def table_errors(req: Request) -> models.ErrorsResponse:
     return models.ErrorsResponse(entries=entries)
 
 
-@router.get('/api/tables/history')
+@router.get('/api/tables/history', checks_env=False)
 def table_history(req: Request) -> models.HistoryResponse:
     path = req.resolve_path(req.query_str('path') or '')
     n = req.query_int('n', default=None, ge=1)
@@ -376,14 +376,14 @@ def revert(req: Request) -> models.RevertResponse:
     return models.RevertResponse(path=path, from_version=from_version, to_version=to_version)
 
 
-@router.get('/api/tables/describe')
+@router.get('/api/tables/describe', checks_env=False)
 def describe_table(req: Request) -> models.DescribeResponse:
     path = req.resolve_path(req.query_str('path') or '')
     t = pxt.get_table(path)
     return models.DescribeResponse(text=repr(t), metadata=dict(t.get_metadata()))
 
 
-@router.get('/api/columns')
+@router.get('/api/columns', checks_env=False)
 def columns(req: Request) -> models.ColumnsResponse:
     path = req.query_str('path')
     computed = req.query_bool('computed')
@@ -419,7 +419,7 @@ def columns(req: Request) -> models.ColumnsResponse:
     return models.ColumnsResponse(entries=entries)
 
 
-@router.get('/api/indexes')
+@router.get('/api/indexes', checks_env=False)
 def indexes(req: Request) -> models.IdxsResponse:
     path = req.query_str('path')
     embedding = req.query_bool('embedding')
@@ -481,7 +481,7 @@ def schema_prune(req: Request) -> schema_types.SchemaPlan:
     return _SCHEMA_PLAN.validate_python(bridge.schema_prune(body.schema_file, req.resolve_path(body.catalog_dir)))
 
 
-@router.post('/api/schema/update', checks_env=True)
+@router.post('/api/schema/update')
 def schema_update(req: Request) -> schema_types.SchemaPlan:
     body = req.body(models.SchemaUpdateBody)
     applied = bridge.schema_update(
@@ -490,14 +490,14 @@ def schema_update(req: Request) -> schema_types.SchemaPlan:
     return _SCHEMA_PLAN.validate_python(applied)
 
 
-@router.get('/api/dashboard/search')
+@router.get('/api/dashboard/search', checks_env=False)
 def dashboard_search(req: Request) -> dict[str, Any]:
     q = req.query_str('q', default='') or ''
     additional_catalogs = req.query_list('catalogs')
     return bridge.search(q, additional_db_uris=additional_catalogs or None)
 
 
-@router.get('/api/dashboard/tables/meta')
+@router.get('/api/dashboard/tables/meta', checks_env=False)
 def dashboard_table_meta(req: Request) -> dict[str, Any]:
     path = req.resolve_path(req.query_str('path') or '')
     tbl = pxt.get_table(path)
@@ -506,18 +506,18 @@ def dashboard_table_meta(req: Request) -> dict[str, Any]:
     return md
 
 
-@router.get('/api/dashboard/tables/pipeline')
+@router.get('/api/dashboard/tables/pipeline', checks_env=False)
 def dashboard_pipeline(req: Request) -> dict[str, Any]:
     path = req.resolve_path(req.query_str('path') or '')
     return bridge.get_pipeline(tbl_path=path)
 
 
-@router.get('/api/dashboard/pipeline')
+@router.get('/api/dashboard/pipeline', checks_env=False)
 def dashboard_pipeline_root(_req: Request) -> dict[str, Any]:
     return bridge.get_pipeline(tbl_path=None)
 
 
-@router.get('/api/dashboard/tables/data', checks_env=True)
+@router.get('/api/dashboard/tables/data')
 def dashboard_table_data(req: Request) -> dict[str, Any]:
     path = req.resolve_path(req.query_str('path') or '')
     return bridge.get_table_data(
@@ -530,7 +530,7 @@ def dashboard_table_data(req: Request) -> dict[str, Any]:
     )
 
 
-@router.get('/api/dashboard/tables/export', checks_env=True)
+@router.get('/api/dashboard/tables/export')
 def dashboard_table_export(req: Request) -> RawResponse:
     path = req.resolve_path(req.query_str('path') or '')
     # Whole CSV is materialized in memory by bridge.export_table_csv before sending.

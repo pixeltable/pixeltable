@@ -464,7 +464,10 @@ class Config:
 
     @classmethod
     def reload_if_changed(cls) -> bool:
-        """Reload the config file if it changed since it was read. Returns True if it was reloaded."""
+        """Reload the config file if it changed since it was read. Returns True if it was reloaded.
+
+        Only the values Config resolves per lookup change as a result; the settings in Env are unchanged.
+        """
         with cls.__init_lock:
             if cls.__instance is None:
                 return False
@@ -777,14 +780,13 @@ class Config:
                 out[env_var_name(ck.section, ck.key)] = value_fingerprint(value)
         return out
 
-    def compare_env_values(self, other: Mapping[str, str]) -> tuple[list[str], list[str]]:
-        """Compare an env fingerprint with this instance's.
+    def compare_env_values(self, other: Mapping[str, str], mine: Mapping[str, str]) -> tuple[list[str], list[str]]:
+        """Compare the env fingerprint other with mine, as produced by env_fingerprint().
 
-        Returns (set for other but not here, resolved differently here). A name this instance does not
+        Returns (set for other but not in mine, resolved differently in mine). A name this instance does not
         read config from is ignored, so an unrelated variable in the other's environment does not count. A
-        value this instance has and other does not is not a disagreement.
+        value mine has and other does not is not a disagreement.
         """
-        mine = self.env_fingerprint()
         known = {env_var_name(ck.section, ck.key) for ck in self.env_keys()}
         relevant = {
             name: h

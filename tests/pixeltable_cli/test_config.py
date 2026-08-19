@@ -72,6 +72,11 @@ class TestConfig:
         assert 'OPENAI_API_KEY' in r.stderr
         assert 'pxt daemon restart' in r.stderr
 
+        # any other work is refused too, without the endpoint having to ask for the check
+        r = cli('count', f'{target}/docs', env_overrides=with_key, check=False)
+        assert r.returncode != 0
+        assert 'OPENAI_API_KEY' in r.stderr
+
         # the commands needed to diagnose it keep working, and report the difference
         r = cli('config', env_overrides=with_key)
         assert 'OPENAI_API_KEY' in r.stdout
