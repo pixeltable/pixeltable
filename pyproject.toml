@@ -289,6 +289,9 @@ strict_optional = false
 warn_return_any = true
 warn_unused_ignores = true
 
+[tool.pixeltable.database]
+include = ['pixeltable/_version.py']  # in .gitignore but required for Pixeltable to function
+
 [tool.pyright]
 typeCheckingMode = "off"
 extraPaths = ["packages/opentelemetry-instrumentation-pixeltable/src"]

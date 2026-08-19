@@ -163,8 +163,9 @@ class PixeltableSource(pydantic.BaseModel):
 class DatabaseRuntimeConfig(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(extra='forbid')
 
-    include: list[str] | None = None
     exclude: list[str] | None = None
+    include: list[str] | None = None
+    include_only: list[str] | None = None
     system_dependencies: list[str] | None = None
     # Override the runtime Python version.
     python_version: str | None = None

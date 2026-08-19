@@ -32,15 +32,26 @@ def _read_gitignore(project_dir: Path) -> list[str]:
     return gitignore.read_text().splitlines()
 
 
-def _collect_project_files(project_dir: Path, include: list[str] | None, exclude: list[str] | None) -> list[Path]:
-    if include is not None:
-        files = _resolve_patterns(project_dir, include)
+def _collect_project_files(project_dir: Path, exclude: list[str] | None, include: list[str] | None, include_only: list[str] | None) -> list[Path]:
+    if include_only is not None:
+        if include is not None or exclude is not None:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                'Cannot specify both include_only and include/exclude in [pixeltable.database] configuration',
+            )
+        files = _resolve_patterns(project_dir, include_only)
+
     else:
         files = {p for p in project_dir.rglob('*') if p.is_file()}
+        # Apply .gitignore excludes
+        files -= _resolve_patterns(project_dir, _read_gitignore(project_dir))
+        # Apply explicit excludes
+        if exclude is not None:
+            files -= _resolve_patterns(project_dir, exclude)
+        # Apply explicit includes (which override excludes)
+        if include is not None:
+            files |= _resolve_patterns(project_dir, include)
 
-    files -= _resolve_patterns(project_dir, _read_gitignore(project_dir))
-    if exclude is not None:
-        files -= _resolve_patterns(project_dir, exclude)
     return sorted(files)
 
 
@@ -147,8 +158,9 @@ def build_db_runtime_bundle(project_dir: Path | None = None) -> Path:
         raise FileNotFoundError(f'Project directory does not exist: {project_dir}')
 
     runtime_cfg = _load_database_runtime_config(project_dir)
-    include = runtime_cfg.include if runtime_cfg else None
     exclude = runtime_cfg.exclude if runtime_cfg else None
+    include = runtime_cfg.include if runtime_cfg else None
+    include_only = runtime_cfg.include_only if runtime_cfg else None
     system_dependencies: list[str] = (runtime_cfg.system_dependencies or []) if runtime_cfg else []
 
     # Config override wins; otherwise use the deploy environment's version.
@@ -156,7 +168,7 @@ def build_db_runtime_bundle(project_dir: Path | None = None) -> Path:
         f'{sys.version_info.major}.{sys.version_info.minor}'
     )
 
-    files_set = set(_collect_project_files(project_dir, include, exclude))
+    files_set = set(_collect_project_files(project_dir, exclude, include, include_only))
     # Lock files are always bundled regardless of .gitignore — they control reproducible installs.
     has_lockfile = False
     for lock_name in ('uv.lock', 'poetry.lock', 'requirements.txt'):
