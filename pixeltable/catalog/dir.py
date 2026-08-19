@@ -35,12 +35,12 @@ class Dir(SchemaObject):
 
     def _name(self) -> str:
         cat = get_runtime().catalog
-        with cat.begin_xact(for_write=False):
+        with cat.begin_read_md_xact():
             return cat.read_dir_record(self._id).md['name']
 
     def _dir_id(self) -> UUID | None:
         cat = get_runtime().catalog
-        with cat.begin_xact(for_write=False):
+        with cat.begin_read_md_xact():
             return cat.read_dir_record(self._id).parent_id
 
     def _path(self) -> Path:
