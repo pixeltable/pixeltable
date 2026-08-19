@@ -110,7 +110,7 @@ class Path:
     @classmethod
     def localize(cls, path: str) -> str:
         """Remove the pxt://org:db/ prefix from a path (if present)."""
-        p = Path.parse(path)
+        p = Path.parse(path, allow_empty_path=True, allow_versioned_path=True)
         return str(Path(components=p.components, version=p.version))
 
     @classmethod
