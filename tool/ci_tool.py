@@ -25,21 +25,45 @@ VERY_EXPENSIVE_PYTEST = "-m 'not benchmark and not cloud_e2e'"
 # The core-functionality test modules that PR checks run on every push. This mirrors the `slimpytest` target in the
 # Makefile.
 SLIM_TESTS = ' '.join(
-    f'tests/test_{name}.py'
-    for name in (
-        'alter_column',
-        'catalog',
-        'dirs',
-        'env',
-        'exprs',
-        'function',
-        'index',
-        'operational_table',
-        'snapshot',
-        'table',
-        'table_model',
-        'types',
-        'view',
+    (
+        *(
+            f'tests/test_{name}.py'
+            for name in (
+                'alter_column',
+                'array_type',
+                'catalog',
+                'component_view',
+                'concurrent',
+                'concurrent_model',
+                'config',
+                'dirs',
+                'env',
+                'exceptions',
+                'exprs',
+                'fault_injection',
+                'file_cache',
+                'function',
+                'history',
+                'index',
+                'iterator',
+                'mcp',
+                'path',
+                'primary_key_index',
+                'query',
+                'sample',
+                'snapshot',
+                'table',
+                'table_model',
+                'table_model_2',
+                'types',
+                'view',
+            )
+        ),
+        'tests/serving/test_fastapi.py',
+        *(
+            f'tests/pixeltable_cli/test_{name}.py'
+            for name in ('bridge', 'internals', 'schema', 'serve_deploy', 'smoke')
+        ),
     )
 )
 
