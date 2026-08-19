@@ -151,8 +151,8 @@ class _DaemonHandler(BaseHTTPRequestHandler):
 
     def _env_values_agree(self, req: Request) -> bool:
         """Whether this daemon's config values are the ones it recorded and the caller expects."""
-        daemon_state.ensure_env_values_recorded()
-        changed = daemon_state.changed_env_values()
+        daemon_state.ensure_env_fingerprint_recorded()
+        changed = daemon_state.changed_env_vars()
         if len(changed) > 0:
             # api clients are built from these values and cached per worker thread, so serving with the new
             # ones takes a new process

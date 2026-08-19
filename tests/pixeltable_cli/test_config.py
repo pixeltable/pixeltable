@@ -25,7 +25,7 @@ pytestmark = pytest.mark.local('the daemon under test is the one serving the in-
 _A_KEY = 'sk-pxt-test-aaaa'
 _ANOTHER_KEY = 'sk-pxt-test-bbbb'
 
-# a schema whose index makes `pxt schema update` load an embedding model, which takes seconds
+# a schema whose index makes pxt schema update load an embedding model, which takes seconds
 _SLOW_SCHEMA_SRC = dedent(
     """
     import pixeltable as pxt

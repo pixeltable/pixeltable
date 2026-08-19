@@ -14,8 +14,8 @@ from .diff import (
     _PY_MISMATCH_HINT,
     PY_DESTRUCTIVE_HINT,
     TableDiff,
-    _format_diff,
     base_query_columns,
+    format_diff,
     user_columns,
     validate_models,
 )
@@ -53,7 +53,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         diffs = validate_models(registered_models, catalog_dir)
         changed = [(name, d) for name, d in diffs.items() if d['exists'] and d['resolution'] != 'up_to_date']
         if len(changed) > 0:
-            detail = '\n'.join(line for name, d in changed for line in _format_diff(name, d))
+            detail = '\n'.join(line for name, d in changed for line in format_diff(name, d))
             raise excs.RequestError(
                 excs.ErrorCode.SCHEMA_MISMATCH,
                 f'One or more existing tables differ from their models.\n{detail}\n{_PY_MISMATCH_HINT}',
@@ -69,7 +69,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
         diffs = _get_model_diff(catalog_dir)
         lines: list[str] = []
         for name, d in diffs.items():
-            lines.extend(_format_diff(name, d))
+            lines.extend(format_diff(name, d))
         Env.get().console_logger.info('\n'.join(lines) if len(lines) > 0 else 'Catalog is up to date.')
 
     def _update_all(catalog_dir: str = '', *, allow_destructive: bool = False) -> dict[str, TableDiff]:
@@ -93,7 +93,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
 
         fatal = [(name, d) for name, d in diffs.items() if d['resolution'] == 'unsupported']
         if len(fatal) > 0:
-            detail = '\n'.join(line for name, d in fatal for line in _format_diff(name, d))
+            detail = '\n'.join(line for name, d in fatal for line in format_diff(name, d))
             raise excs.RequestError(
                 excs.ErrorCode.SCHEMA_MISMATCH,
                 'One or more tables cannot be updated, because their models are inconsistent '
@@ -104,7 +104,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
 
         destructive = [(name, d) for name, d in diffs.items() if d['resolution'] == 'update_destructive']
         if len(destructive) > 0 and not allow_destructive:
-            detail = '\n'.join(line for name, d in destructive for line in _format_diff(name, d))
+            detail = '\n'.join(line for name, d in destructive for line in format_diff(name, d))
             raise excs.RequestError(
                 excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE,
                 f'The following updates would result in destructive catalog changes.\n{detail}\n{PY_DESTRUCTIVE_HINT}',

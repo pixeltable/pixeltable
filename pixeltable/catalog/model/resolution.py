@@ -150,7 +150,7 @@ def _resolve_model_idxs(
 ) -> list[catalog.IndexSpec]:
     """Resolve each declared index against the model's visible columns.
 
-    The returned specs record the indexed column by name. These columns names need to be substituted with
+    The returned specs record the indexed column by name. These column names need to be substituted with
     the corresponding catalog Columns.
     """
     # imported here rather than at module scope: declaration imports this module

@@ -269,6 +269,8 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
     All metadata reads happen in a single transaction, and each diff's tbl_id and schema_versions record the catalog
     state it was computed against.
     """
+    import pixeltable as pxt
+
     from ..catalog import retry_loop
     from .declaration import BtreeIndex
 
@@ -289,7 +291,8 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
             model_sample = None if base is None or base.sample_clause is None else str(base.sample_clause)
 
             bound_path = f'{catalog_dir}{name}'
-            existing = model._resolve_tbl(catalog_dir, if_not_exists='ignore')
+            # don't call model._resolve_tbl(), which raises if the model is bound to a different directory
+            existing = pxt.get_table(bound_path, if_not_exists='ignore')
 
             ops: list[SchemaChangeOp]
 
@@ -547,7 +550,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
     return op()
 
 
-def _format_diff(name: str, diff: TableDiff) -> list[str]:
+def format_diff(name: str, diff: TableDiff) -> list[str]:
     """Human-readable lines describing how the model named `name` differs from the current catalog state."""
     kind = diff['kind']
     if not diff['exists']:

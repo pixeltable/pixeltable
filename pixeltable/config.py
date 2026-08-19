@@ -272,13 +272,11 @@ class ConfigVar(Generic[ConfVarT]):
 
     Declare a variable and apply it to a column:
 
-    ```python
-    MEDIA_DEST = pxt.ConfigVar('media_dest', pxt.URI)
-
-
-    class Videos(TableModel, name='videos'):
-        clip = pxt.Column(value=..., destination=MEDIA_DEST)
-    ```
+    >>> MEDIA_DEST = pxt.ConfigVar('media_dest', pxt.URI)
+    ...
+    ...
+    ... class Videos(TableModel, name='videos'):
+    ...     clip = pxt.Column(value=..., destination=MEDIA_DEST)
 
     Code that runs on the target reads the bound value with `value()`.
     """

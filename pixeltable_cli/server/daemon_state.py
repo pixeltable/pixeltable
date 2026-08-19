@@ -57,8 +57,8 @@ class DaemonState:
         with self._lock:
             return sorted(self._in_flight.values(), key=lambda r: r.started_at)
 
-    def ensure_env_values_recorded(self) -> None:
-        """Record the config values unless that already happened."""
+    def ensure_env_fingerprint_recorded(self) -> None:
+        """Record the fingerprints of the env-settable config values, unless they were recorded already."""
         if self._env_fingerprint is None:
             self._env_fingerprint = Config.get().env_fingerprint()
 
@@ -66,8 +66,8 @@ class DaemonState:
         """Every env var pixeltable reads config from, set or not."""
         return sorted(env_var_name(ck.section, ck.key) for ck in Config.get().env_keys())
 
-    def changed_env_values(self) -> list[str]:
-        """The env vars whose value no longer matches the recorded _env_values."""
+    def changed_env_vars(self) -> list[str]:
+        """The env vars whose value no longer matches the recorded _env_fingerprint."""
         if self._env_fingerprint is None:
             return []
         current = Config.get().env_fingerprint()
