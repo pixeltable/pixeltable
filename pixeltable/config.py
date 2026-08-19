@@ -292,6 +292,11 @@ class ConfigVar(Generic[ConfVarT]):
                 f'Invalid config var name {name!r}: lowercase letters, digits and underscores only, '
                 'not starting with a digit.',
             )
+        if type_ not in self._CONFVAR_TYPES.values():
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'Invalid config var type {type_.__name__!r}: must be one of {", ".join(self._CONFVAR_TYPES)}.',
+            )
         self.name = name
         self.type_ = type_
 

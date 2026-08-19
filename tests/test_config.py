@@ -165,6 +165,13 @@ class TestConfig:
             pxt.ConfigVar('MiXeD', pxt.Secret)
         assert pxt.ConfigVar('from_env', pxt.Secret).env_var == 'PIXELTABLE_SECRET_FROM_ENV'
 
+        # a declared type must be one the stored reference can name, so that the metadata reads back
+        class MySecret(pxt.Secret):
+            pass
+
+        with pytest.raises(pxt.Error, match="Invalid config var type 'MySecret': must be one of str, URI, Secret"):
+            pxt.ConfigVar('custom', MySecret)
+
     def test_miscased_env_var(self, tmp_path: Path) -> None:
         """A variable differing only in case from one that is read generates a warning."""
         result = subprocess.run(
