@@ -219,10 +219,6 @@ def value_fingerprint(value: str) -> str:
     return hashlib.sha256(value.encode('utf-8')).hexdigest()[:12]
 
 
-# settings that cannot be provided via env vars
-_CONFIG_ONLY_KEYS = frozenset({'file_cache_size_g', 'file_cache_lease_s', 'input_media_dest', 'output_media_dest'})
-
-
 # config var names are lowercase; the env var name is the name uppercased
 _CONFIG_VAR_NAME_RE = r'[a-z_][a-z0-9_]*'
 
@@ -391,6 +387,7 @@ class Config:
 
     __home: Path
     __config_file: Path
+    __config_overrides: dict[str, Any]
 
     # env vars already reported as ignored, so the warning is issued once per process
     __reported_env_vars: set[str]
@@ -401,8 +398,21 @@ class Config:
     # section -> key -> (value, source_path); source_path is None for settings that don't come from a file
     __config_dict: dict[str, dict[str, tuple[Any, Path | None]]]
 
-    def __init__(self) -> None:
+    def __init__(self, config_overrides: dict[str, Any]) -> None:
         assert self.__instance is None, 'Config is a singleton; use Config.get() to access the instance'
+
+        for var in config_overrides:
+            section, _, key = var.rpartition('.')
+            if section == 'pixeltable' and key in _CONFIG_ONLY_KEYS:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION,
+                    f'Cannot override {var}: it can only be set via the config file.',
+                )
+            if var not in KNOWN_CONFIG_OVERRIDES:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION, f'Unrecognized configuration variable: {var}'
+                )
+        self.__config_overrides = config_overrides
 
         self.__home = Path(self.lookup_env('pixeltable', 'home', str(Path.home() / '.pixeltable')))
         if self.__home.exists() and not self.__home.is_dir():
@@ -433,12 +443,19 @@ class Config:
         return cls.__instance
 
     @classmethod
-    def init(cls, reinit: bool = False) -> None:
+    def init(cls, config_overrides: dict[str, Any] | None = None, reinit: bool = False) -> None:
+        if config_overrides is None:
+            config_overrides = {}
         with cls.__init_lock:
             if reinit:
                 cls.__instance = None
             if cls.__instance is None:
-                cls.__instance = cls()
+                cls.__instance = cls(config_overrides)
+            elif len(config_overrides) > 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_STATE,
+                    'Pixeltable has already been initialized; cannot specify new config values in the same session',
+                )
 
     @classmethod
     def reload_if_changed(cls) -> bool:
@@ -448,8 +465,9 @@ class Config:
                 return False
             if cls.__instance.__file_stamp() == cls.__instance.__stamp:
                 return False
+            config_overrides = cls.__instance.__config_overrides
             cls.__instance = None
-            cls.__instance = cls()
+            cls.__instance = cls(config_overrides)
             return True
 
     def __file_stamp(self) -> tuple[float, int] | None:
@@ -584,6 +602,9 @@ class Config:
         return validated_config
 
     def lookup_env(self, section: str, key: str, default: Any = None) -> Any:
+        override_var = f'{section}.{key}'
+        if override_var in self.__config_overrides:
+            return self.__config_overrides[override_var]
         env_var = env_var_name(section, key)
         if env_var not in os.environ or len(os.environ[env_var]) == 0:
             return default
@@ -681,7 +702,7 @@ class Config:
 
     def get_value_source(self, key: str, section: str = 'pixeltable') -> Path | Literal['env', 'unset']:
         """Return the source of the config value returned by get_value():
-        - 'env': an environment variable is set
+        - 'env': an environment variable or a pxt.init() config override is set
         - Path: the config file the value came from
         - 'unset': neither carries the value
         """
@@ -862,4 +883,16 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
     'veo': {'rate_limits': 'Per-model rate limits for Veo API requests'},
     'voyage': {'api_key': 'Voyage AI API key', 'rate_limit': 'Rate limit for Voyage AI API requests'},
     'pypi': {'api_key': 'PyPI API key (for internal use only)'},
+}
+
+
+# settings that apply to the Pixeltable instance as a whole, and so can only be set in the config file
+_CONFIG_ONLY_KEYS = frozenset({'file_cache_size_g', 'file_cache_lease_s', 'input_media_dest', 'output_media_dest'})
+
+# the settings pxt.init() accepts, ie. the ones a single process may set
+KNOWN_CONFIG_OVERRIDES = {
+    f'{section}.{key}': info
+    for section, section_dict in KNOWN_CONFIG_OPTIONS.items()
+    for key, info in section_dict.items()
+    if not (section == 'pixeltable' and key in _CONFIG_ONLY_KEYS)
 }

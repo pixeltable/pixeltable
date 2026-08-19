@@ -3002,7 +3002,7 @@ class TestFastAPI:
             doubled = Notes.val * 2
 
         class Halved(TableModel, name='halved', base=Notes.where(Notes.val > 10).select(half=Notes.val / 2)):
-            plus = half + 1  # type: ignore[name-defined]  # the select() alias, referenceable in the body
+            plus = half + 1  # type: ignore[name-defined]  # noqa: F821  # the select() alias, in the body
 
         router = FastAPIRouter()
         router.add_compute_route(
