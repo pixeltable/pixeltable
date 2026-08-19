@@ -22,8 +22,7 @@ _logger = logging.getLogger(__name__)
 
 
 def _resolve_patterns(project_dir: Path, patterns: list[str]) -> set[Path]:
-    """Files under project_dir matching patterns, which use git wildmatch syntax (`*`, `**`, `!`, `dir/`).
-    """
+    """Files under project_dir matching patterns, which use git wildmatch syntax (`*`, `**`, `!`, `dir/`)."""
     # 'gitignore' names the pattern dialect to parse `patterns` with; no .gitignore file is read here
     spec = PathSpec.from_lines('gitignore', patterns)
     return {p for p in project_dir.rglob('*') if p.is_file() and spec.match_file(p.relative_to(project_dir))}

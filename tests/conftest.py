@@ -293,11 +293,10 @@ def cloud_db_base_uri(init_env: None) -> Iterator[str]:
     if use_temporary_db:
         uri = f'pxt://pixeltable:pxttest-{uuid.uuid4().hex[:21]}'
 
-        _logger.info('Creating temporary cloud test db: %s', uri)
-        subprocess.run(('pxt', 'db', 'create', uri), text=True, timeout=900, check=True)
-
     try:
         if use_temporary_db:
+            _logger.info('Creating temporary cloud test db: %s', uri)
+            subprocess.run(('pxt', 'db', 'create', uri), text=True, timeout=900, check=True)
             _logger.info('Updating runtime on test db: %s', uri)
             subprocess.run(('pxt', 'db', 'update-runtime', uri), text=True, timeout=1800, check=True)
 
