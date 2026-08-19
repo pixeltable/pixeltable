@@ -78,15 +78,47 @@ class TestView:
             join_df = t.join(u, on=t.c1 == u.c1)
             _ = pxt.create_view(p('join_view'), join_df)
 
+    def test_list_views(self, make_catalog_path: Callable[[str], str]) -> None:
+        p = make_catalog_path
+
+        def loc(path: str) -> str:
+            """Localized version of p(path), without the pxt://org:db/ prefix"""
+            return pxt.catalog.Path.localize(p(path))
+
+        t = pxt.create_table(p('tbl'), {'c1': pxt.Int | None})
+        # a hierarchy that both branches and nests: a subtree that gets traversed more than once shows up
+        # as a repeated path
+        v1 = pxt.create_view(p('v1'), t)
+        _ = pxt.create_view(p('v2'), t)
+        v1a = pxt.create_view(p('v1a'), v1)
+        v1b = pxt.create_view(p('v1b'), v1)
+        _ = pxt.create_view(p('v1a_i'), v1a)
+
+        assert sorted(t.list_views(recursive=False)) == [loc(path) for path in ('v1', 'v2')]
+        all_views = t.list_views()
+        assert sorted(all_views) == [loc(path) for path in ('v1', 'v1a', 'v1a_i', 'v1b', 'v2')]
+        # every view is listed exactly once, at every level of the hierarchy
+        assert len(all_views) == len(set(all_views))
+
+        assert sorted(v1.list_views(recursive=False)) == [loc(path) for path in ('v1a', 'v1b')]
+        assert sorted(v1.list_views()) == [loc(path) for path in ('v1a', 'v1a_i', 'v1b')]
+        assert v1a.list_views() == [loc('v1a_i')]
+        assert v1b.list_views() == []
+
     @pytest.mark.parametrize('do_reload_catalog', [False, True])
     def test_basic(self, do_reload_catalog: bool, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
+
+        def loc(path: str) -> str:
+            """Localized version of p(path), without the pxt://org:db/ prefix"""
+            return pxt.catalog.Path.localize(p(path))
+
         t = self.create_tbl(p)
 
         # create view with filter and computed columns
         schema: dict[str, Any] = {'v1': t.c3 * 2.0, 'v2': t.c6.f5}
         v = pxt.create_view(p('test_view'), t.where(t.c2 < 10), additional_columns=schema)
-        assert t.list_views() == ['test_view']
+        assert t.list_views() == [loc('test_view')]
         # TODO: test repr more thoroughly
         _ = repr(v)
         assert_resultset_eq(
@@ -211,7 +243,7 @@ class TestView:
         assert p('test_view_on_view') in pxt.list_tables(p(''))
         # if_exists='replace' cannot drop a view with a dependent view.
         # it should raise an error and recommend using 'replace_force'
-        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match="the following depend on it: 'test_view_on_view'"):
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match=r"the following depend on it: '.*test_view_on_view'"):
             v3 = pxt.create_view(p('test_view'), t, if_exists='replace')
         assert p('test_view_on_view') in pxt.list_tables(p(''))
         # past a handful of dependents the message lists the first few in sorted order and counts the rest;
