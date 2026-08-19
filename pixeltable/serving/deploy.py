@@ -244,7 +244,7 @@ def build_db_runtime_bundle(project_dir: Path | None = None, show_progress: bool
     print(f'A runtime bundle will be built containing {len(files)} files from {project_dir}.')
     print(
         'By default, all files not ignored by .gitignore are included; '
-        'you can override this with include/exclude in pixeltable.toml.'
+        'you can adjust this behavior with include/exclude in pixeltable.toml.'
     )
 
     conda_env_yaml = _export_conda_env()
