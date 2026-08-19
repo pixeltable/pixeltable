@@ -444,11 +444,15 @@ class Column:
 
     @property
     def display_destination(self) -> str | None:
-        """The destination as user-facing metadata reports it."""
-        if isinstance(self._explicit_destination, ConfigVar):
-            # display the config var name, not the resolved value
-            return str(self._explicit_destination)
-        return self.destination
+        """The destination this column declares, as user-facing metadata reports it.
+
+        Not self.destination: that falls back to the instance-wide default for a stored media column, which is
+        configuration rather than part of the schema.
+        """
+        if self._explicit_destination is None:
+            return None
+        # a ConfigVar displays as its name, not as the location it currently resolves to
+        return str(self._explicit_destination)
 
     def get_tbl(self) -> TableVersion:
         tv = self.tbl_handle.get()

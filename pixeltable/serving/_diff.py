@@ -26,16 +26,3 @@ class ServiceChangeOp(TypedDict):
     severity: Severity
     description: str  # one sentence, ready to print
     details: dict[str, str]  # 'from' and 'to' for an alter, 'command' for a blocked operation
-
-
-def blocked_route_op(route_name: str, description: str, base_path: str) -> ServiceChangeOp:
-    """The operation for a route that the schema at `base_path` has to satisfy before the route can be served."""
-    target = f' --target {base_path}' if base_path != '' else ''
-    return {
-        'target': 'route',
-        'name': route_name,
-        'op': 'alter',
-        'severity': 'blocked',
-        'description': description,
-        'details': {'command': f'pxt schema update{target}'},
-    }

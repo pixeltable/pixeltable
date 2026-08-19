@@ -148,10 +148,6 @@ class _RouteSpec:
         """The route as it reads in a diff, eg 'POST /v1/ingest'."""
         return f'{self.method} {self.path}'
 
-    def referenced_col_names(self) -> tuple[str, ...]:
-        """Every column the route's contract depends on."""
-        return (*self.input_cols, *self.output_cols, *self.match_cols)
-
 
 def _route_table_path(target: RouteTarget) -> catalog.TablePath:
     if isinstance(target, model.TableModelMeta):

@@ -3001,14 +3001,32 @@ class TestFastAPI:
         class BigNotes(TableModel, name='big_notes', base=Notes.where(Notes.val > 10)):
             doubled = Notes.val * 2
 
+        class Halved(TableModel, name='halved', base=Notes.where(Notes.val > 10).select(half=Notes.val / 2)):
+            plus = half + 1  # type: ignore[name-defined]  # the select() alias, referenceable in the body
+
         router = FastAPIRouter()
-        router.add_compute_route(BigNotes, path='/big', inputs=['note_id', 'val'], outputs=['doubled'])
+        router.add_compute_route(
+            BigNotes,
+            path='/big',
+            inputs=[Notes.note_id, Notes.val],  # type: ignore[arg-type]
+            outputs=[BigNotes.doubled],  # type: ignore[arg-type]
+        )
+        # a view whose base query has a select() list: the columns it projects are its own, alongside the ones
+        # its body declares
+        router.add_compute_route(
+            Halved,
+            path='/half',
+            inputs=[Notes.note_id, Notes.val],  # type: ignore[arg-type]
+            outputs=[Halved.half, Halved.plus],
+        )
         client = make_test_client(router)
 
         # the request takes the base's columns and the response the view's own, before either table exists
         schemas = client.get('/openapi.json').json()['components']['schemas']
         assert sorted(schemas['Body_compute_big_big_post']['properties']) == ['note_id', 'val']
         assert sorted(schemas['BigResponse']['properties']) == ['doubled']
+        assert sorted(schemas['Body_compute_half_half_post']['properties']) == ['note_id', 'val']
+        assert sorted(schemas['HalfResponse']['properties']) == ['half', 'plus']
 
         TableModel.create_all(p(''))
         router.bind(p(''))
@@ -3017,6 +3035,9 @@ class TestFastAPI:
         assert client.post('/big', json={'note_id': 1, 'val': 20}).json() == {'doubled': 40}
         # and drops this one
         assert client.post('/big', json={'note_id': 2, 'val': 5}).json() is None
+
+        assert client.post('/half', json={'note_id': 3, 'val': 20}).json() == {'half': 10.0, 'plus': 11.0}
+        assert client.post('/half', json={'note_id': 4, 'val': 5}).json() is None
 
     def test_bind(self, make_catalog_path: Callable[[str], str]) -> None:
         """bind() resolves model targets, refuses what the tables cannot serve, and rejects a second target."""
@@ -3035,7 +3056,12 @@ class TestFastAPI:
             note: pxt.String | None
 
         router = FastAPIRouter()
-        router.add_insert_route(Notes, path='/ins', inputs=['note_id', 'val', 'note'], outputs=['note_id'])
+        router.add_insert_route(
+            Notes,
+            path='/ins',
+            inputs=[Notes.note_id, Notes.val, Notes.note],  # type: ignore[arg-type]
+            outputs=[Notes.note_id],  # type: ignore[arg-type]
+        )
 
         # before the table exists there is nothing to serve, and the refusal names the command that fixes it
         with pxt_raises(pxt.ErrorCode.SCHEMA_MISMATCH, match=r"(?s)'notes'.*does not yet exist.*pxt schema update"):
@@ -3085,7 +3111,12 @@ class TestFastAPI:
             label: pxt.String
 
         notes_router = FastAPIRouter()
-        notes_router.add_insert_route(Notes, path='/notes', inputs=['note_id', 'val'], outputs=['note_id'])
+        notes_router.add_insert_route(
+            Notes,
+            path='/notes',
+            inputs=[Notes.note_id, Notes.val],  # type: ignore[arg-type]
+            outputs=[Notes.note_id],  # type: ignore[arg-type]
+        )
 
         # a view where the model declares a table: the columns line up, so only the kind says it cannot serve,
         # and nothing a schema update does turns one into the other
@@ -3109,8 +3140,18 @@ class TestFastAPI:
         assert make_test_client(notes_router).post('/notes', json={'note_id': 1, 'val': 10}).status_code == 200
 
         router = FastAPIRouter()
-        router.add_insert_route(Notes, path='/notes', inputs=['note_id', 'val'], outputs=['note_id'])
-        router.add_insert_route(Tags, path='/tags', inputs=['tag_id', 'label'], outputs=['tag_id'])
+        router.add_insert_route(
+            Notes,
+            path='/notes',
+            inputs=[Notes.note_id, Notes.val],  # type: ignore[arg-type]
+            outputs=[Notes.note_id],  # type: ignore[arg-type]
+        )
+        router.add_insert_route(
+            Tags,
+            path='/tags',
+            inputs=[Tags.tag_id, Tags.label],  # type: ignore[arg-type]
+            outputs=[Tags.tag_id],  # type: ignore[arg-type]
+        )
         router.bind(p('ok'))
 
         # an index the model declares, dropped from the table: a custom endpoint may rely on it, and no column
