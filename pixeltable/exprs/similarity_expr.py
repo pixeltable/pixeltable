@@ -74,8 +74,8 @@ class SimilarityExpr(Expr):
             and self.idx_name == other.idx_name
         )
 
-    def tbl_ids(self) -> set[UUID]:
-        return {self.table_version_key.tbl_id} | super().tbl_ids()
+    def tbl_keys(self) -> set[catalog.TableVersionKey]:
+        return {self.table_version_key} | super().tbl_keys()
 
     @classmethod
     def get_refd_column_ids(cls, expr_dict: dict[str, Any]) -> set[catalog.QColumnId]:

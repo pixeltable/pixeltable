@@ -88,6 +88,7 @@ class ErrorCode(enum.Enum):
     # ConcurrencyError (7xxx)
     SERIALIZATION_FAILURE = 7000, 409, True
     CONCURRENT_MODIFICATION = 7001, 409, True
+    SCHEMA_CHANGE_IN_PROGRESS = 7002, 409, True
 
 
 class Error(Exception):

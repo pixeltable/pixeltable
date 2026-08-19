@@ -92,8 +92,6 @@ class LocalTable(Table):
     def _name(self) -> str:
         from pixeltable.catalog import retrying_read
 
-        # retrying_read(), not begin_xact(): this is also called as a top-level statement (eg while preparing an
-        # insert), where a dropped connection has to be retried rather than raised
         return retrying_read(lambda: get_runtime().catalog.read_tbl_record(self._id).md['name'])
 
     def _dir_id(self) -> UUID | None:
@@ -102,9 +100,9 @@ class LocalTable(Table):
         return retrying_read(lambda: get_runtime().catalog.read_tbl_record(self._id).dir_id)
 
     def get_metadata(self) -> 'TableMetadata':
-        from pixeltable.catalog import retry_loop
+        from pixeltable.catalog import retry_read_md_loop
 
-        @retry_loop(for_write=False)
+        @retry_read_md_loop()
         def op() -> 'TableMetadata':
             return self._get_metadata()
 
@@ -217,10 +215,10 @@ class LocalTable(Table):
         return getattr(self, name)
 
     def list_views(self, *, recursive: bool = True) -> list[str]:
-        from pixeltable.catalog import retry_loop
+        from pixeltable.catalog import retry_read_md_loop
 
-        # we need retry_loop() here, because we end up loading Tables for the views
-        @retry_loop(read_tvps=[self._tbl_version_path])
+        # Loading view metadata can encounter pending operations, requiring a retry of the whole listing.
+        @retry_read_md_loop(tbl_keys=self._tbl_version_path.tbl_keys)
         def op() -> list[str]:
             paths: list[str] = []
             for t in self._get_views(recursive=recursive):
@@ -282,7 +280,7 @@ class LocalTable(Table):
         path = self._tbl_version_path
         self._validate_compute()
         try:
-            with get_runtime().catalog.begin_xact(read_tbl_ids=path.tbl_ids):
+            with get_runtime().catalog.begin_read_xact(tbl_keys=path.tbl_keys):
                 output_md = self._resolve_compute_outputs(outputs)
                 # input rows supply values for the base table's columns
                 base_tbl = self._get_base_tables()[-1] if path.is_view() else self
@@ -371,7 +369,7 @@ class LocalTable(Table):
                 helper.append(f'Custom Metadata: {Formatter.summarize_json(self._get_custom_metadata())}')
             return helper
 
-        return retrying_read(op, read_tvps=[self._tbl_version_path])
+        return retrying_read(op, tbl_keys=self._tbl_version_path.tbl_keys)
 
     def _col_descriptor(self, columns: list[str] | None = None) -> tuple[pd.DataFrame, list[int] | None]:
         """Generates column descriptor DataFrame and a list of vertical separators.
@@ -527,14 +525,14 @@ class LocalTable(Table):
         schema: Mapping[str, TypeForm | ColumnSpec],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
-        from pixeltable.catalog import retry_loop
+        from pixeltable.catalog import retry_schema_change_loop
 
         self._validate_column_schema(schema)
         schema = fold_mapping_keys(schema)
 
         # a retry loop is necessary because drop column needs it
         # lock_mutable_tree=True: we might end up having to drop existing columns, which requires locking the tree
-        @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)
+        @retry_schema_change_loop(tvps=[self._tbl_version_path], lock_mutable_tree=True)
         def do_add_columns() -> list[Column] | None:
             self._check_mutable('add columns to')
 
@@ -597,10 +595,10 @@ class LocalTable(Table):
         if_exists: Literal['error', 'ignore', 'replace'] = 'error',
         **kwargs: exprs.Expr,
     ) -> UpdateStatus:
-        from pixeltable.catalog import retry_loop
+        from pixeltable.catalog import retry_schema_change_loop
 
         # a retry loop is necessary because drop column needs it.
-        @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)
+        @retry_schema_change_loop(tvps=[self._tbl_version_path], lock_mutable_tree=True)
         def do_add_computed_column() -> UpdateStatus:
             self._check_mutable('add columns to')
             self._check_single_column_kwarg(
@@ -673,14 +671,14 @@ class LocalTable(Table):
 
     @telemetry.spanned('pixeltable.drop_column', set_current=True)
     def drop_column(self, column: str | ColumnRef, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
-        from pixeltable.catalog import retry_loop
+        from pixeltable.catalog import retry_schema_change_loop
 
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
 
         # Retry loop is necessary because table metadata is loaded inside.
         # Note: the provided ColumnRef may belong to a different table.
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
-        @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)
+        @retry_schema_change_loop(tvps=[self._tbl_version_path], lock_mutable_tree=True)
         def do_drop_column() -> None:
             self._check_mutable('drop columns from')
             col: Column = None
@@ -757,20 +755,18 @@ class LocalTable(Table):
     @telemetry.spanned('pixeltable.rename_column', set_current=True)
     def rename_column(self, old_name: str, new_name: str) -> None:
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=False
-        ):
+        with get_runtime().catalog.begin_schema_change_xact(tvps=[self._tbl_version_path]):
             self._check_mutable('rename columns of')
             self._tbl_version.get().rename_column(old_name, new_name)
 
     @telemetry.spanned('pixeltable.alter_column', set_current=True)
     def alter_column(self, column: str | ColumnRef, *, type_: TypeForm) -> None:
-        from pixeltable.catalog import retry_loop
+        from pixeltable.catalog import retry_schema_change_loop
 
         new_col_type = ts.ColumnType.normalize_type(type_, allow_builtin_types=False)
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
 
-        @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)
+        @retry_schema_change_loop(tvps=[self._tbl_version_path], lock_mutable_tree=True)
         def do_alter_column() -> None:
             self._check_mutable('alter columns of')
 
@@ -815,12 +811,12 @@ class LocalTable(Table):
     def alter_computed_column(
         self, *, recompute: bool = True, cascade: bool = True, **kwargs: 'exprs.Expr'
     ) -> UpdateStatus:
-        from pixeltable.catalog import retry_loop
+        from pixeltable.catalog import retry_schema_change_loop
 
         self._check_single_column_kwarg('alter_computed_column', '`col_name=expression`', kwargs)
         col_name, spec = next(iter(kwargs.items()))
 
-        @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)
+        @retry_schema_change_loop(tvps=[self._tbl_version_path], lock_mutable_tree=True)
         def do_alter_computed_column() -> UpdateStatus:
             self._check_mutable('alter columns of')
 
@@ -878,9 +874,7 @@ class LocalTable(Table):
             # Index name must be a valid pixeltable column name
             Column.validate_name(idx_name)
 
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-        ):
+        with get_runtime().catalog.begin_schema_change_xact(tvps=[self._tbl_version_path], lock_mutable_tree=True):
             tv = self._tbl_version.get()
             col = self._resolve_column_parameter(column)
 
@@ -924,9 +918,7 @@ class LocalTable(Table):
         self._validate_embedding_args(embedding, string_embed, image_embed)
 
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-        ):
+        with get_runtime().catalog.begin_schema_change_xact(tvps=[self._tbl_version_path], lock_mutable_tree=True):
             self._check_mutable('add an index to')
             col = self._resolve_column_parameter(column)
 
@@ -1016,9 +1008,7 @@ class LocalTable(Table):
             )
 
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-        ):
+        with get_runtime().catalog.begin_schema_change_xact(tvps=[self._tbl_version_path], lock_mutable_tree=True):
             col: Column = None
             if idx_name is None:
                 col = self._resolve_column_parameter(column)
@@ -1058,9 +1048,7 @@ class LocalTable(Table):
             )
 
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-        ):
+        with get_runtime().catalog.begin_schema_change_xact(tvps=[self._tbl_version_path], lock_mutable_tree=True):
             col: Column = None
             if idx_name is None:
                 col = self._resolve_column_parameter(column)
@@ -1175,9 +1163,7 @@ class LocalTable(Table):
         self._validate_update_value_spec(value_spec)
         self._validate_where(where)
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-        ):
+        with get_runtime().catalog.begin_write_xact(tvps=[self._tbl_version_path]):
             self._check_mutable('update')
             tv = self._tbl_version.get()
             result = tv.update(value_spec, where, cascade, return_rows=return_rows)
@@ -1195,9 +1181,7 @@ class LocalTable(Table):
         return_rows: bool = False,
     ) -> UpdateStatus:
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-        ):
+        with get_runtime().catalog.begin_write_xact(tvps=[self._tbl_version_path]):
             self._check_mutable('update')
             rows = list(rows)
             if len(rows) == 0:
@@ -1262,8 +1246,7 @@ class LocalTable(Table):
     ) -> UpdateStatus:
         cat = get_runtime().catalog
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
-        # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
-        with cat.begin_xact(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True):
+        with cat.begin_write_xact(tvps=[self._tbl_version_path]):
             self._check_mutable('recompute columns of')
             if len(columns) == 0:
                 raise excs.RequestError(
@@ -1318,9 +1301,7 @@ class LocalTable(Table):
     @telemetry.spanned('pixeltable.revert', set_current=True)
     def revert(self) -> None:
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
-        with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
-        ):
+        with get_runtime().catalog.begin_schema_change_xact(tvps=[self._tbl_version_path], lock_mutable_tree=True):
             self._check_mutable('revert')
             tv = self._tbl_version.get()
             if not tv.is_data_versioned:
