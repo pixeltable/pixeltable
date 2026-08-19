@@ -19,11 +19,11 @@ class TestGroq:
 
         t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         msgs = [{'role': 'user', 'content': t.input}]
-        t.add_computed_column(output=chat_completions(messages=msgs, model='llama-3.1-8b-instant'))
+        t.add_computed_column(output=chat_completions(messages=msgs, model='openai/gpt-oss-20b'))
         t.add_computed_column(
             output2=chat_completions(
                 messages=msgs,
-                model='llama-3.1-8b-instant',
+                model='openai/gpt-oss-20b',
                 model_kwargs={
                     'temperature': 0.8,
                     'top_p': 0.95,
@@ -47,9 +47,7 @@ class TestGroq:
         t = pxt.create_table('test_tbl', {'prompt': pxt.String | None})
         messages = [{'role': 'user', 'content': t.prompt}]
         t.add_computed_column(
-            response=groq.chat_completions(
-                model='llama-3.1-8b-instant', messages=messages, tools=tools, tool_choice=None
-            )
+            response=groq.chat_completions(model='openai/gpt-oss-20b', messages=messages, tools=tools, tool_choice=None)
         )
         t.add_computed_column(tool_calls=groq.invoke_tools(tools, t.response))
 
