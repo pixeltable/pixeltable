@@ -196,6 +196,9 @@ def _delete(args: argparse.Namespace) -> None:
 class _ProgressReader:
     """File-like wrapper that advances a progress bar as the wrapped file is read."""
 
+    f: IO[bytes]
+    bar: Any
+
     def __init__(self, f: IO[bytes], bar: Any) -> None:
         self._f = f
         self._bar = bar

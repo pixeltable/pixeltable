@@ -110,14 +110,8 @@ class Path:
     @classmethod
     def localize(cls, path: str) -> str:
         """Remove the pxt://org:db/ prefix from a path (if present)."""
-        normalized = cls._normalize(path)
-        if normalized.startswith('pxt://'):
-            m = _URI_RE.match(normalized)
-            if m is None:
-                raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'URI must have an organization: {path!r}')
-            path_part = m.group('rest') or ''
-            return path_part
-        return normalized
+        p = Path.parse(path)
+        return str(Path(components=p.components, version=p.version))
 
     @classmethod
     def _normalize(cls, s: str) -> str:
