@@ -44,12 +44,15 @@ _SLOW_SCHEMA_SRC = dedent(
 
 
 @pytest.fixture(autouse=True)
-def daemon_without_test_env_vars(cli: PxtRunner) -> Iterator[None]:
-    """Leave behind a daemon that has none of the env vars these tests set."""
+def daemon_serving_the_test_process_values(cli: PxtRunner) -> Iterator[None]:
+    """Leave behind a daemon serving with the values this process's environment holds.
+
+    A test here restarts the daemon with values of its own. A later caller supplies none of them, and a daemon
+    still holding them refuses that caller's work.
+    """
     yield
-    no_key: dict[str, str | None] = {'OPENAI_API_KEY': None}
-    cli('daemon', 'stop', '-f', check=False, env_overrides=no_key)
-    cli('daemon', 'start', env_overrides=no_key)
+    cli('daemon', 'stop', '-f', check=False)
+    cli('daemon', 'start')
 
 
 def make_table(target: str) -> None:
@@ -65,6 +68,8 @@ class TestConfig:
         target = make_catalog_path('cfg')
         make_table(target)
         with_key = {'OPENAI_API_KEY': _A_KEY}
+        without_key: dict[str, str | None] = {'OPENAI_API_KEY': None}
+        cli('daemon', 'restart', env_overrides=without_key)
 
         # work that could compute with the credential is refused, and the refusal says what to do about it
         r = cli('rows', f'{target}/docs', '-n', '1', env_overrides=with_key, check=False)
@@ -85,7 +90,7 @@ class TestConfig:
         cli('describe', f'{target}/docs', env_overrides=with_key)
 
         # a caller that binds nothing asked for no particular value, so its work runs
-        assert 'hello' in cli('rows', f'{target}/docs', '-n', '1').stdout
+        assert 'hello' in cli('rows', f'{target}/docs', '-n', '1', env_overrides=without_key).stdout
 
         # adopting the caller's environment takes a restart, after which the same command runs
         cli('daemon', 'restart', env_overrides=with_key)
@@ -115,6 +120,7 @@ class TestConfig:
         target = make_catalog_path('cfg')
         make_table(target)
         other_endpoint = {'OPENAI_BASE_URL': 'https://example.invalid/v1'}
+        cli('daemon', 'restart', env_overrides={'OPENAI_BASE_URL': None})
 
         r = cli('rows', f'{target}/docs', '-n', '1', env_overrides=other_endpoint, check=False)
         assert r.returncode != 0
@@ -229,12 +235,13 @@ class TestConfig:
 
         time.sleep(0.01)  # the file stamp is (mtime, size), so a rewrite needs a distinct mtime
         config_file.write_text(
-            f'[pixeltable]\nfile_cache_size_g = 1.0\n\n[openai]\napi_key = "{_A_KEY}"\n', encoding='utf-8'
+            f'[pixeltable]\nfile_cache_size_g = 1.0\n\n[pixeltable.database.secrets]\npxt_test_key = "{_A_KEY}"\n',
+            encoding='utf-8',
         )
 
         r = cli('rows', f'{target}/docs', '-n', '1', env_overrides=own_config, check=False)
         assert r.returncode != 0
-        assert 'OPENAI_API_KEY' in r.stderr
+        assert 'PIXELTABLE_SECRET_PXT_TEST_KEY' in r.stderr
         assert 'pxt daemon restart' in r.stderr
         assert _A_KEY not in r.stderr
 
@@ -242,8 +249,10 @@ class TestConfig:
         cli('daemon', 'restart', env_overrides=own_config)
         assert 'hello' in cli('rows', f'{target}/docs', '-n', '1', env_overrides=own_config).stdout
         entries = cli('config', '--json', env_overrides=own_config).json['entries']
-        openai_key = next(e for e in entries if (e['section'], e['key']) == ('openai', 'api_key'))
-        assert openai_key['source'] == str(config_file)
+        test_key = next(
+            e for e in entries if (e['section'], e['key']) == ('pixeltable.database.secrets', 'pxt_test_key')
+        )
+        assert test_key['source'] == str(config_file)
 
     def test_an_unparseable_config_file_is_reported(
         self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
