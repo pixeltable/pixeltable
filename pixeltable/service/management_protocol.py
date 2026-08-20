@@ -7,7 +7,7 @@ import re
 from enum import Enum
 from typing import Literal, Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from pixeltable.config import ServiceConfig
 
@@ -36,9 +36,8 @@ class ServiceOperationType(str, Enum):
 
     LIST_ORGS = 'list_orgs'
 
-    SET_SECRET = 'set_secret'
-    DELETE_SECRET = 'delete_secret'
     LIST_SECRETS = 'list_secrets'
+    PATCH_SECRETS = 'patch_secrets'
 
 
 # Db operations
@@ -141,29 +140,6 @@ class GetBundleUploadUrlResponse(BaseModel):
 # Secrets
 
 
-class SetSecretRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.SET_SECRET] = ServiceOperationType.SET_SECRET
-    org: str
-    db: Optional[str] = None
-    key: str
-    value: str
-
-
-class SetSecretResponse(BaseModel):
-    key: str
-
-
-class DeleteSecretRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.DELETE_SECRET] = ServiceOperationType.DELETE_SECRET
-    org: str
-    db: Optional[str] = None
-    key: str
-
-
-class DeleteSecretResponse(BaseModel):
-    key: str
-
-
 class ListSecretsRequest(BaseModel):
     operation_type: Literal[ServiceOperationType.LIST_SECRETS] = ServiceOperationType.LIST_SECRETS
     org: str
@@ -172,6 +148,20 @@ class ListSecretsRequest(BaseModel):
 
 class ListSecretsResponse(BaseModel):
     keys: list[str]
+
+
+class PatchSecretsRequest(BaseModel):
+    """One scope's secrets changed together: `set` upserts, `delete` removes, applied atomically."""
+
+    operation_type: Literal[ServiceOperationType.PATCH_SECRETS] = ServiceOperationType.PATCH_SECRETS
+    org: str
+    db: Optional[str] = None
+    set: dict[str, str] = Field(default_factory=dict)
+    delete: list[str] = Field(default_factory=list)
+
+
+class PatchSecretsResponse(BaseModel):
+    keys: list[str]  # every key in the scope after the patch
 
 
 # Services
