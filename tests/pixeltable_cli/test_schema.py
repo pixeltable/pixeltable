@@ -250,6 +250,7 @@ class TestSchema:
         self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
     ) -> None:
         """A schema that declares an iterator view and indexes over what the iterator produces."""
+        skip_test_if_not_installed('spacy')  # the view's iterator splits on sentences
         target = make_catalog_path('app')
         cli('schema', 'update', apps('search.py'), target)
 
@@ -291,7 +292,8 @@ class TestSchema:
         recordings = pxt.get_table(f'{target}/recordings')
         columns = recordings.get_metadata()['columns']
         assert (columns['audio']['type_'], columns['transcript']['type_']) == ('Audio', 'Document')
-        transcript = next(d for d in get_documents() if d.endswith('simple.md'))
+        # a .txt document parses with no optional package, unlike .md and the office formats
+        transcript = next(d for d in get_documents() if d.endswith('pxtbrief.txt'))
         recordings.insert([{'recording_id': 1, 'audio': get_audio_files()[0], 'transcript': transcript}])
         codec = recordings.audio_metadata.streams[0].codec_context.name
         assert recordings.select(codec=codec).collect()[0]['codec'] == 'flac'
