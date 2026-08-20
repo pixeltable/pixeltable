@@ -1112,7 +1112,9 @@ def check_media_store_count(
     else:
         # hosted catalog: the objects live in the daemon's media store. The tests use the default media config,
         # where both the input and output dest are the daemon's home media dir, so count there directly.
-        actual = ObjectOps.count(tbl._id, tbl_version, dest=str(proxy_daemon.proxy_home(tbl._tbl_path.catalog_uri.db) / 'media'))
+        actual = ObjectOps.count(
+            tbl._id, tbl_version, dest=str(proxy_daemon.proxy_home(tbl._tbl_path.catalog_uri.db) / 'media')
+        )
 
     assert actual == expected_count, f'expected {expected_count} media objects, found {actual}'
 

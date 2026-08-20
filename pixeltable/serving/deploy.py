@@ -179,7 +179,6 @@ def _load_database_config(project_dir: Path) -> DatabaseConfig | None:
     return _validate_database_config(cfg) if cfg is not None else None
 
 
-
 def _load_database_config_from_toml(toml_path: Path, resolution: list[str]) -> DatabaseConfig | None:
     if not toml_path.is_file():
         return None
@@ -187,9 +186,7 @@ def _load_database_config_from_toml(toml_path: Path, resolution: list[str]) -> D
     try:
         cfg = toml.load(toml_path)
     except Exception as e:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid TOML in {toml_path.name}: {e}'
-        ) from e
+        raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid TOML in {toml_path.name}: {e}') from e
 
     for key in resolution:
         if not isinstance(cfg, dict) or key not in cfg:

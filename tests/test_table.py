@@ -1021,7 +1021,7 @@ class TestTable:
         # the media column is compared by content; columns that quote the stored file path (the localpath, and the
         # bad video's error message) are compared only over a collocated store, where the two tables share the
         # source file rather than each holding a distinct shipped copy
-        on_read_path_cols =  [on_read_tbl.media.localpath, on_read_tbl.media.errormsg] if catalog_mode == 'local' else []
+        on_read_path_cols = [on_read_tbl.media.localpath, on_read_tbl.media.errormsg] if catalog_mode == 'local' else []
         on_read_res = reload_tester.run_query(
             on_read_tbl.select(
                 on_read_tbl.media, *on_read_path_cols, on_read_tbl.media.errortype, on_read_tbl.is_bad_media
