@@ -28,7 +28,6 @@ from .utils import (
     skip_test_if_not_installed,
     validate_repr,
     validate_update_status,
-    versioned_and_operational,
 )
 
 
@@ -1251,7 +1250,6 @@ class TestQuery:
 
         benchmark(select_inexpensive)
 
-    @versioned_and_operational
     def test_query_after_column_drop(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('t_drop'), {'a': pxt.Int, 'b': pxt.Int}, _is_data_versioned=is_data_versioned)
@@ -1264,7 +1262,6 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='dropped'):
             q.collect()
 
-    @versioned_and_operational
     def test_query_after_column_drop_and_add(
         self, make_catalog_path: Callable[[str], str], is_data_versioned: bool
     ) -> None:
@@ -1280,7 +1277,6 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='dropped'):
             q.collect()
 
-    @versioned_and_operational
     def test_query_after_schema_change(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('t_add'), {'c1': pxt.Int | None}, _is_data_versioned=is_data_versioned)
@@ -1303,7 +1299,6 @@ class TestQuery:
         assert len(res) == 1
         assert res[0] == {'c1': 2}
 
-    @versioned_and_operational
     def test_order_by_after_schema_change(
         self, make_catalog_path: Callable[[str], str], is_data_versioned: bool
     ) -> None:

@@ -50,7 +50,6 @@ from .utils import (
     stock_price,
     validate_repr,
     validate_update_status,
-    versioned_and_operational,
 )
 
 test_unstored_table_base_val: int = 0
@@ -115,7 +114,6 @@ class TestTable:
         def value(self) -> int:
             return 1
 
-    @versioned_and_operational
     def test_create(
         self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester, is_data_versioned: bool
     ) -> None:
@@ -304,7 +302,6 @@ class TestTable:
         ):
             pxt.move(p('tbl1'), p('tbl1'))
 
-    @versioned_and_operational
     def test_columns(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
         schema: dict[str, Any] = {
@@ -2603,7 +2600,6 @@ class TestTable:
         t.insert(str_col='Hello there.')  # Succeeds because column 'bad' is dropped
         pxt.drop_table(p('test'))
 
-    @versioned_and_operational
     def test_insert_string_with_null(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('test'), {'c1': pxt.String | None}, _is_data_versioned=is_data_versioned)
@@ -3013,7 +3009,6 @@ class TestTable:
             img_t.delete(where=img_t.img.width > 100)
         assert 'not expressible' in str(excinfo.value)
 
-    @versioned_and_operational
     def test_crud(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         """Validates row CRUD operations on a table."""
         p = make_catalog_path
@@ -3060,7 +3055,6 @@ class TestTable:
         assert t.count() == 4
         assert t.select(t.id, t.val_x2).order_by(t.id).collect()['id'] == [2, 3, 4, 5]
 
-    @versioned_and_operational
     def test_add_drop_column(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         """Add and drop columns on a populated table. Validates values, dependencies, and persistence."""
         p = make_catalog_path

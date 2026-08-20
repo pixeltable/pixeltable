@@ -48,13 +48,6 @@ TESTS_DIR = Path(os.path.dirname(__file__))
 # The catalog backend a test runs against: 'local' (in-process), 'proxy' (local daemon), or 'cloud' (NLB proxy).
 CatalogMode = Literal['local', 'proxy', 'cloud']
 
-# Runs the decorated test (or test class) against both table types, passing the type as an `is_data_versioned: bool`
-# parameter that the test hands to create_table().
-versioned_and_operational = pytest.mark.parametrize(
-    'is_data_versioned', [True, False], ids=['data_versioned', 'operational']
-)
-
-
 _ERROR_GROUP_TO_CLS: dict[int, type[pxt.Error]] = {
     0: pxt.Error,
     1: pxt.NotFoundError,

@@ -4,12 +4,11 @@ import pytest
 
 import pixeltable as pxt
 
-from .utils import pxt_raises, reload_catalog, validate_update_status, versioned_and_operational
+from .utils import pxt_raises, reload_catalog, validate_update_status
 
 
 class TestAlterColumn:
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    @versioned_and_operational
     def test_alter_column(
         self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool, is_data_versioned: bool
     ) -> None:
@@ -35,7 +34,6 @@ class TestAlterColumn:
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='expected non-None'):
                 t.insert(c1=None)
 
-    @versioned_and_operational
     def test_alter_column_via_reference(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         t = pxt.create_table(make_catalog_path('test_tbl'), {'c1': pxt.Float}, _is_data_versioned=is_data_versioned)
         t.add_column(c2=pxt.Float)
@@ -43,7 +41,6 @@ class TestAlterColumn:
         t.alter_column(t.c2, type_=pxt.Float | None)
         validate_update_status(t.insert(c1=None, c2=None), 1)
 
-    @versioned_and_operational
     def test_alter_column_same_type(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         t = pxt.create_table(
             make_catalog_path('test_tbl'), {'c1': pxt.Int | None}, _is_data_versioned=is_data_versioned
@@ -55,7 +52,6 @@ class TestAlterColumn:
         assert vers_before == vers_after
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    @versioned_and_operational
     def test_alter_column_history(
         self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool, is_data_versioned: bool
     ) -> None:

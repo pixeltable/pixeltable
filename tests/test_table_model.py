@@ -27,13 +27,11 @@ from .utils import (
     schema_from_tbl_md,
     skip_test_if_not_installed,
     validate_update_status,
-    versioned_and_operational,
 )
 
 
 class TestTableModel:
     @pytest.mark.parametrize('root', ['', 'dir/subdir'])
-    @versioned_and_operational
     def test_table_model_basic(
         self, root: str, make_catalog_path: Callable[[str], str], is_data_versioned: bool
     ) -> None:
@@ -546,7 +544,6 @@ class TestTableModel:
 
         assert btree_idxs(Defaults.table) == {'idx0': 'txt'}
 
-    @versioned_and_operational
     def test_all_table_exprs(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
         TableModel = pxt.model_base()
@@ -1535,7 +1532,6 @@ class TestTableModel:
         ):
             TableModelV2.update_all(root)
 
-    @versioned_and_operational
     def test_update_all(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         """`update_all()` applies purely additive changes (new columns and indexes) to existing tables."""
         skip_test_if_not_installed('imagehash')

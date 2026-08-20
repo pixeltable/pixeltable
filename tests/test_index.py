@@ -29,7 +29,6 @@ from .utils import (
     rerun_on_network_error,
     skip_test_if_not_installed,
     validate_update_status,
-    versioned_and_operational,
 )
 
 
@@ -954,21 +953,18 @@ class TestIndex:
 
     BTREE_TEST_NUM_ROWS = 10001  # ~10k rows: incentivize Postgres to use the index
 
-    @versioned_and_operational
     def test_int_btree(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
         random.seed(1)
         data = [random.randint(0, 2**63 - 1) for _ in range(self.BTREE_TEST_NUM_ROWS)]
         self.run_btree_test(p, data, pxt.Int, is_data_versioned)
 
-    @versioned_and_operational
     def test_float_btree(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
         random.seed(1)
         data = [random.uniform(0, sys.float_info.max) for _ in range(self.BTREE_TEST_NUM_ROWS)]
         self.run_btree_test(p, data, pxt.Float, is_data_versioned)
 
-    @versioned_and_operational
     def test_string_btree(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
 
@@ -1007,7 +1003,6 @@ class TestIndex:
         assert t.where(t.data >= s).count() == 2
         assert t.where(t.data > s).count() == 1
 
-    @versioned_and_operational
     def test_timestamp_btree(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
         random.seed(1)
@@ -1021,7 +1016,6 @@ class TestIndex:
         ]
         self.run_btree_test(p, data, pxt.Timestamp, is_data_versioned)
 
-    @versioned_and_operational
     def test_date_btree(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
         random.seed(1)
@@ -1035,7 +1029,6 @@ class TestIndex:
         ]
         self.run_btree_test(p, data, pxt.Date, is_data_versioned)
 
-    @versioned_and_operational
     def test_add_btree_index(
         self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function, is_data_versioned: bool
     ) -> None:
@@ -1159,7 +1152,6 @@ class TestIndex:
         v.add_btree_index('segment_start')
         assert set(btree_idxs(v).values()) == {'segment_start'}
 
-    @versioned_and_operational
     def test_default_idxs(
         self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function, is_data_versioned: bool
     ) -> None:
@@ -1383,7 +1375,6 @@ class TestIndex:
             t.add_embedding_index('vec', string_embed=str.split)  # type: ignore[arg-type]
 
     @pytest.mark.parametrize('index_type', ['btree', 'embedding'])
-    @versioned_and_operational
     def test_drop_index(
         self,
         index_type: str,
@@ -1432,7 +1423,6 @@ class TestIndex:
         t = pxt.get_table(p('index_drop_test'))
         assert idx_name not in t.get_metadata()['indexes']
 
-    @versioned_and_operational
     def test_similarity_index_lifecycle(
         self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function, is_data_versioned: bool
     ) -> None:

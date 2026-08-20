@@ -299,15 +299,22 @@ def proxy_daemon_db(init_env: None, worker_id: str) -> Iterator[str]:
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
-    """Drive the catalog-backend axis: any test that (transitively) reaches catalog_mode runs against both
-    'local' and 'proxy', unless marked @pytest.mark.local, in which case it runs 'local' only.
+    """Drive the catalog-backend and data-versioning axes.
 
-    With --cloud, tests run against the cloud catalog instead of local/proxy.
+    catalog_mode: any test that (transitively) reaches catalog_mode runs against both 'local' and 'proxy',
+    unless marked @pytest.mark.local, in which case it runs 'local' only. With --cloud, tests run against the
+    cloud catalog instead of local/proxy.
+
+    is_data_versioned: any test that (transitively) reaches is_data_versioned runs against both a
+    data-versioned and an operational table.
 
     metafunc.fixturenames is the transitive fixture closure, so a test reaching make_catalog_path (directly
-    or via an adapted fixture like test_tbl) auto-forks with no per-test boilerplate. Tests that touch neither
-    catalog_mode nor make_catalog_path run once.
+    or via an adapted fixture like test_tbl) or is_data_versioned auto-forks with no per-test boilerplate.
+    Tests that touch neither axis run once.
     """
+    if 'is_data_versioned' in metafunc.fixturenames:
+        metafunc.parametrize('is_data_versioned', [True, False], ids=['data_versioned', 'operational'])
+
     if 'catalog_mode' not in metafunc.fixturenames:
         return
     if metafunc.definition.get_closest_marker('local') is not None:
