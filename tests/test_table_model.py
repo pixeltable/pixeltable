@@ -358,7 +358,7 @@ class TestTableModel:
                 'has_default_idxs': False,
                 'is_view': False,
                 'is_snapshot': False,
-                # on operational tables, an insert does not advance the version
+                # an insert advances the version on a data-versioned table only
                 'version': 1 if is_data_versioned else 0,
                 'schema_version': 0,
                 'comment': None,
@@ -1747,10 +1747,10 @@ class TestTableModel:
             v = ExampleQueryViewV3
             res = v.order_by(v.plustwo).collect()
             assert res['plustwo'] == [3.0, 4.0, 5.0, 6.0]
-        else:
-            tbl = ExampleTableV3.table
-            res = tbl.order_by(tbl.id).select(tbl.id, tbl.doubled).collect()
-            assert res['doubled'] == [2.0, 4.0, 6.0, 8.0]
+
+        tbl = ExampleTableV3.table
+        res = tbl.order_by(tbl.id).select(tbl.id, tbl.doubled).collect()
+        assert res['doubled'] == [2.0, 4.0, 6.0, 8.0]
 
         # The schema and data survive a catalog reload, and the table stays writable.
         reload_catalog()
