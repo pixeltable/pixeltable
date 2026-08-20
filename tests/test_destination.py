@@ -10,7 +10,6 @@ from typing import Callable, ClassVar
 
 import pytest
 import requests
-from _pytest.mark.structures import ParameterSet
 
 import pixeltable as pxt
 from pixeltable.config import Config
@@ -26,7 +25,7 @@ from .utils import CatalogMode, MediaStore, pxt_raises, rerun_on_network_error, 
 class TestDestination:
     # The destinations exercised below, each mapped to its parametrization. Every target other than
     # LOCAL_STORE talks to a live third-party object store, so those params run only on the very_expensive tier.
-    TESTED_DESTINATIONS: ClassVar[dict[StorageTarget, ParameterSet]] = {
+    TESTED_DESTINATIONS: ClassVar[dict[StorageTarget, object]] = {
         StorageTarget.AZURE_STORE: pytest.param(StorageTarget.AZURE_STORE, marks=pytest.mark.very_expensive),
         StorageTarget.B2_STORE: pytest.param(StorageTarget.B2_STORE, marks=pytest.mark.very_expensive),
         StorageTarget.GCS_STORE: pytest.param(StorageTarget.GCS_STORE, marks=pytest.mark.very_expensive),
