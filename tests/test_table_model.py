@@ -33,11 +33,14 @@ from .utils import (
 
 class TestTableModel:
     @pytest.mark.parametrize('root', ['', 'dir/subdir'])
-    def test_table_model_basic(self, root: str, make_catalog_path: Callable[[str], str]) -> None:
+    @versioned_and_operational
+    def test_table_model_basic(
+        self, root: str, make_catalog_path: Callable[[str], str], is_data_versioned: bool
+    ) -> None:
         p = make_catalog_path
         TableModel = pxt.model_base()
 
-        class ExampleTableModel(TableModel, name='test_table'):
+        class ExampleTableModel(TableModel, name='test_table', _is_data_versioned=is_data_versioned):
             id: pxt.Int
             name: pxt.String | None
             value: pxt.Float | None
@@ -79,6 +82,7 @@ class TestTableModel:
         tbl2 = pxt.create_table(
             f'{expected_path}_2',
             {'id': pxt.Int, 'name': pxt.String | None, 'value': pxt.Float | None, 'img': pxt.Image | None},
+            _is_data_versioned=is_data_versioned,
         )
         tbl2.add_computed_column(incr=tbl2.value + 1)
         tbl2.add_computed_column(descr=pxtf.string.format('Name: {name}', name=tbl2.name))
@@ -295,11 +299,12 @@ class TestTableModel:
                         },
                     },
                 },
-                'is_data_versioned': True,
+                'is_data_versioned': is_data_versioned,
                 'has_default_idxs': False,
                 'is_view': False,
                 'is_snapshot': False,
-                'version': 1,
+                # on operational tables, an insert does not advance the version
+                'version': 1 if is_data_versioned else 0,
                 'schema_version': 0,
                 'comment': None,
                 'custom_metadata': None,
