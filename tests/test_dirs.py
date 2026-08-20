@@ -273,8 +273,14 @@ class TestDirs:
         assert pxt.list_tables(p('dir2')) == [p('dir2/dir1/sub1/t2')]
 
         pxt.create_dir(p('dir2/sub1'))
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be identical'):
-            pxt.move(p('dir2/sub1'), p('dir2/sub1'))
+        # source == destination is a no-op, as is a move that differs only in case
+        pxt.move(p('dir2/sub1'), p('dir2/sub1'))
+        pxt.move(p('dir2/sub1'), p('dir2/SUB1'))
+        assert p('dir2/sub1') in pxt.list_dirs(p('dir2'))
+        # ... but a missing source still behaves like any other move
+        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND):
+            pxt.move(p('dir2/nope'), p('dir2/NOPE'))
+        pxt.move(p('dir2/nope'), p('dir2/NOPE'), if_not_exists='ignore')
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='into its own subdirectory'):
             pxt.create_dir(p('dir2/sub1/subsub1'))
             pxt.move(p('dir2/sub1'), p('dir2/sub1/subsub1'))

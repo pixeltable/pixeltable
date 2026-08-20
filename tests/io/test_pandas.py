@@ -104,19 +104,19 @@ class TestPandas:
         t1 = import_csv(p('online_foods'), 'tests/data/datasets/onlinefoods.csv')
         assert t1.count() == 388
         assert t1._get_schema() == {
-            'Age': ts.IntType(nullable=True),
-            'Gender': ts.StringType(nullable=True),
-            'Marital_Status': ts.StringType(nullable=True),
-            'Occupation': ts.StringType(nullable=True),
-            'Monthly_Income': ts.StringType(nullable=True),
-            'Educational_Qualifications': ts.StringType(nullable=True),
-            'Family_size': ts.IntType(nullable=True),
+            'age': ts.IntType(nullable=True),
+            'gender': ts.StringType(nullable=True),
+            'marital_status': ts.StringType(nullable=True),
+            'occupation': ts.StringType(nullable=True),
+            'monthly_income': ts.StringType(nullable=True),
+            'educational_qualifications': ts.StringType(nullable=True),
+            'family_size': ts.IntType(nullable=True),
             'latitude': ts.FloatType(nullable=True),
             'longitude': ts.FloatType(nullable=True),
-            'Pin_code': ts.IntType(nullable=True),
-            'Output': ts.StringType(nullable=True),
-            'Feedback': ts.StringType(nullable=True),
-            'Unnamed__12': ts.StringType(nullable=True),
+            'pin_code': ts.IntType(nullable=True),
+            'output': ts.StringType(nullable=True),
+            'feedback': ts.StringType(nullable=True),
+            'unnamed__12': ts.StringType(nullable=True),
         }
         assert t1.where((t1.Gender == 'Male') & (t1.Occupation == 'Self Employeed')).count() == 38  # [sic]
 
@@ -133,13 +133,13 @@ class TestPandas:
         t2 = import_csv(p('ibm'), 'tests/data/datasets/classeurIBM.csv', primary_key='Date')
         assert t2.count() == 4263
         assert t2._get_schema() == {
-            'Date': ts.StringType(nullable=False),  # Primary key is non-nullable
-            'Open': ts.FloatType(nullable=True),
-            'High': ts.FloatType(nullable=True),
-            'Low': ts.FloatType(nullable=True),
-            'Close': ts.FloatType(nullable=True),
-            'Volume': ts.IntType(nullable=True),
-            'Adj_Close': ts.FloatType(nullable=True),
+            'date': ts.StringType(nullable=False),  # Primary key is non-nullable
+            'open': ts.FloatType(nullable=True),
+            'high': ts.FloatType(nullable=True),
+            'low': ts.FloatType(nullable=True),
+            'close': ts.FloatType(nullable=True),
+            'volume': ts.IntType(nullable=True),
+            'adj_close': ts.FloatType(nullable=True),
         }
 
         t3 = import_csv(p('edge_cases'), 'tests/data/datasets/edge-cases.csv', parse_dates=['ts', 'ts_n'])
@@ -184,8 +184,8 @@ class TestPandas:
             ensure_s3_pytest_resources_access()
         tab = pxt.create_table(p('from_remote_csv'), source=source)
         assert tab.count() == 388
-        assert 'Age' in tab.columns()
-        assert 'Output' in tab.columns()
+        assert 'age' in tab.columns()  # source column names are folded, like any other identifier
+        assert 'output' in tab.columns()
         assert tab.where((tab.Gender == 'Female') & (tab.Marital_Status == 'Married')).count() == 49
 
     def test_insert_pandas_csv(self, make_catalog_path: Callable[[str], str]) -> None:
@@ -236,9 +236,9 @@ class TestPandas:
             ensure_s3_pytest_resources_access()
         tab = pxt.create_table(p('from_remote_excel'), source=source, source_format='excel')
         assert tab.count() == 700
-        assert tab._get_schema()['Date'] == ts.TimestampType(nullable=True)
+        assert tab._get_schema()['date'] == ts.TimestampType(nullable=True)
         entry = tab.limit(1).collect()[0]
-        assert entry['Date'] == datetime.datetime(2014, 1, 1, 0, 0).astimezone(None)
+        assert entry['date'] == datetime.datetime(2014, 1, 1, 0, 0).astimezone(None)
 
     def test_import_pandas_excel(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
@@ -247,15 +247,15 @@ class TestPandas:
 
         t4 = import_excel(p('fin_sample'), 'tests/data/datasets/Financial Sample.xlsx')
         assert t4.count() == 700
-        assert t4._get_schema()['Date'] == ts.TimestampType(nullable=True)
+        assert t4._get_schema()['date'] == ts.TimestampType(nullable=True)
         entry = t4.limit(1).collect()[0]
-        assert entry['Date'] == datetime.datetime(2014, 1, 1, 0, 0).astimezone(None)
+        assert entry['date'] == datetime.datetime(2014, 1, 1, 0, 0).astimezone(None)
 
         t5 = import_excel(p('sale_data'), 'tests/data/datasets/SaleData.xlsx')
         assert t5.count() == 45
-        assert t5._get_schema()['OrderDate'] == ts.TimestampType(nullable=True)
+        assert t5._get_schema()['orderdate'] == ts.TimestampType(nullable=True)
         # Ensure valid mapping of 'NaT' -> None
-        assert t5.where(t5.Units == 278).collect()[0]['OrderDate'] is None
+        assert t5.where(t5.Units == 278).collect()[0]['orderdate'] is None
 
         t6 = import_excel(p('questions'), 'docs/resources/rag-demo/Q-A-Rag.xlsx')
         assert t6.count() == 8

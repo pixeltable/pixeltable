@@ -99,6 +99,33 @@ class scaled_iterator(pxt.PxtIterator):
         self.i = pos
 
 
+class MixedCaseRow(TypedDict):
+    MyOutput: int
+    Frame: int
+
+
+@pxt.iterator(unstored_cols=['Frame'])
+class mixed_case_iterator(pxt.PxtIterator):
+    """Declares mixed-case outputs; the view columns fold, while __next__ keeps yielding the declared spellings."""
+
+    def __init__(self, n: int):
+        self.n = n
+        self.i = 0
+
+    def __next__(self) -> MixedCaseRow:
+        if self.i >= self.n:
+            raise StopIteration
+        row: MixedCaseRow = {'MyOutput': self.i * 2, 'Frame': self.i}
+        self.i += 1
+        return row
+
+    def close(self) -> None:
+        pass
+
+    def seek(self, pos: int, **kwargs: Any) -> None:
+        self.i = pos
+
+
 class TestComponentView:
     @pytest.mark.skip(reason='surfaces a bug (DuplicateAlias)')
     def test_same_base_join(self, make_catalog_path: Callable[[str], str]) -> None:
@@ -562,3 +589,27 @@ class TestComponentView:
         assert [r['icol'] for r in v3_rows] == [0]
         assert [r['scol'] for r in v3_rows] == ['s 0']
         assert [r['derived'] for r in v3_rows] == ['t 1_suffix']
+
+    def test_case_insensitive_iterator_outputs(self, make_catalog_path: Callable[[str], str]) -> None:
+        """The iterator's output names become view columns and fold; the runtime field names do not."""
+        p = make_catalog_path
+        t = pxt.create_table(p('base'), {'n': pxt.Int})
+        t.insert([{'n': 3}])
+        v = pxt.create_view(p('v'), t, iterator=mixed_case_iterator(n=t.n))
+
+        assert 'myoutput' in v.columns()
+        assert 'frame' in v.columns()
+        # the view still populates, which is the regression test for folding the outputs key but not orig_name
+        assert sorted(v.select(v.MyOutput).collect()['myoutput']) == [0, 2, 4]
+        # unstored_cols is a list of output names and folds along with them
+        assert not v.get_metadata()['columns']['frame']['is_stored']
+        assert sorted(v.select(v.FRAME).collect()['frame']) == [0, 1, 2]
+
+    def test_case_insensitive_iterator_output_collision(self, make_catalog_path: Callable[[str], str]) -> None:
+        """A declared view column that folds onto an iterator output is rejected."""
+        p = make_catalog_path
+        t = pxt.create_table(p('base'), {'n': pxt.Int})
+        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA):
+            pxt.create_view(
+                p('v'), t, iterator=mixed_case_iterator(n=t.n), additional_columns={'MYOUTPUT': pxt.Int | None}
+            )

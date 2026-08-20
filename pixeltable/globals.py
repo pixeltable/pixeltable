@@ -625,10 +625,8 @@ def move(
     if if_exists_ not in (catalog.IfExistsParam.ERROR, catalog.IfExistsParam.IGNORE):
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "`if_exists` must be one of 'error' or 'ignore'")
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-    if path == new_path:
-        raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION, 'move(): source and destination cannot be identical'
-        )
+    # note: the source == destination case is handled in Catalog._move, on the parsed paths; two spellings that
+    # differ only in case denote the same path
     path_obj, new_path_obj = catalog.Path.parse(path), catalog.Path.parse(new_path)
     if path_obj.catalog_uri != new_path_obj.catalog_uri:
         raise excs.RequestError(

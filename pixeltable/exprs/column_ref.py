@@ -12,6 +12,7 @@ import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import func
+from pixeltable.catalog.globals import fold_identifier
 from pixeltable.runtime import get_runtime
 
 from ..utils.description_helper import DescriptionHelper
@@ -441,7 +442,9 @@ class ColumnRef(Expr):
         tbl = get_runtime().get_table_by_id(self.col_md.tbl_id, version=self.col_md.effective_version)
         assert tbl is not None
         # get_idx_md() resolves the concrete index, raising if idx is ambiguous or doesn't exist.
-        idx_md = tbl._tbl_path.get_idx_md(self.col_md.qcolid, idx, EmbeddingIndex)
+        idx_md = tbl._tbl_path.get_idx_md(
+            self.col_md.qcolid, None if idx is None else fold_identifier(idx), EmbeddingIndex
+        )
 
         # init_args carries one '<modality>_embed' entry per supported modality (see EmbeddingIndex.as_dict()).
         # Array columns are exempt: similarity search uses the raw vector directly.
@@ -505,7 +508,9 @@ class ColumnRef(Expr):
 
         tbl = get_runtime().get_table_by_id(self.col_md.tbl_id, version=self.col_md.effective_version)
         assert tbl is not None
-        idx_md = tbl._tbl_path.get_idx_md(self.col_md.qcolid, idx, EmbeddingIndex)
+        idx_md = tbl._tbl_path.get_idx_md(
+            self.col_md.qcolid, None if idx is None else fold_identifier(idx), EmbeddingIndex
+        )
         val_qcolid = catalog.QColumnId(UUID(idx_md.indexed_col_tbl_id), idx_md.index_val_col_id)
         return ColumnRef(tbl._tbl_path.get_column_md(val_qcolid))
 
@@ -595,12 +600,16 @@ class ColumnRef(Expr):
             iterator_args = data_row[self.iter_arg_ctx.target_slot_idxs[0]]
             self.iterator = col.get_tbl().iterator_call.eval(iterator_args)
             self.base_rowid = data_row.pk[: self.base_rowid_len]
-        stored_outputs = {col_ref.col.name: data_row[col_ref.slot_idx] for col_ref in self.iter_outputs}
-        assert all(name is not None for name in stored_outputs)
+        # the iterator's own field names (orig_name), which are not the folded column names
+        outputs = col.get_tbl().iterator_call.outputs
+        assert outputs is not None
+        stored_outputs = {
+            outputs[col_ref.col.name].orig_name: data_row[col_ref.slot_idx] for col_ref in self.iter_outputs
+        }
         assert isinstance(self.iterator, func.PxtIterator)  # Otherwise we could not have an unstored column
         self.iterator.seek(data_row.pk[self.pos_idx], **stored_outputs)
         res = next(self.iterator)
-        data_row[self.slot_idx] = res[col.name]
+        data_row[self.slot_idx] = res[outputs[col.name].orig_name]
 
     def _as_dict(self) -> dict:
         # we omit self.components, even if this is a validating ColumnRef, because init() will recreate it

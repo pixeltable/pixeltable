@@ -1310,6 +1310,18 @@ class Catalog(CatalogBase):
         self._move(path, new_path, if_exists, if_not_exists)
 
     def _move(self, path: Path, new_path: Path, if_exists: IfExistsParam, if_not_exists: IfNotExistsParam) -> None:
+        if path == new_path:
+            # Nothing to move. Still resolve the source, so that a missing one raises (or is ignored) exactly as it
+            # would for any other move. We can't run the full _prepare_dir_op here: it would look up the destination,
+            # find the source itself, and report PATH_ALREADY_EXISTS.
+            _, _, src_obj = self._prepare_dir_op(
+                drop_dir_path=path.parent,
+                drop_name=path.name,
+                raise_if_not_exists=(if_not_exists == IfNotExistsParam.ERROR),
+            )
+            assert src_obj is not None or if_not_exists == IfNotExistsParam.IGNORE
+            return
+
         dest_obj, dest_dir, src_obj = self._prepare_dir_op(
             add_dir_path=new_path.parent,
             add_name=new_path.name,

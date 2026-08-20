@@ -490,7 +490,11 @@ class Env:
                 raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Unsupported DBMS {dialect}')
             _logger.info(f'Using database at: {self.db_url}')
         else:
-            self._db_name = config.get_string_value('db') or 'pixeltable'
+            # the database name is an identifier, and is folded everywhere else it enters (Path, pxt localproxy)
+            from pixeltable.catalog.globals import fold_identifier  # local: env<->catalog is circular
+
+            db_name = config.get_string_value('db')
+            self._db_name = fold_identifier(db_name) if db_name else 'pixeltable'
             self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
             self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=None)
             self._db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')
