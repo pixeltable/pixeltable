@@ -1,3 +1,5 @@
+import functools
+import http.server
 import json
 import logging
 import os
@@ -6,6 +8,8 @@ import platform
 import shutil
 import subprocess
 import sys
+import threading
+import urllib.parse
 import uuid
 from typing import Callable, Iterator
 
@@ -33,6 +37,7 @@ from pixeltable.utils.sql import add_option_to_db_url
 
 from .utils import (
     IN_CI,
+    TESTS_DIR,
     CatalogMode,
     ReloadTester,
     create_all_datatypes_tbl,
@@ -509,6 +514,50 @@ def test_tbl(make_catalog_path: Callable[[str], str]) -> pxt.Table:
 @pytest.fixture(scope='function')
 def reload_tester(init_env: None) -> ReloadTester:
     return ReloadTester()
+
+
+_SERVED_DIR = TESTS_DIR.parent  # repo root
+
+
+class _QuietHandler(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, *args: object) -> None:
+        pass
+
+
+class SampleFileServer:
+    """Handle on the HTTP server started by the `sample_file_server` fixture, which serves the repo tree."""
+
+    base_url: str
+
+    def __init__(self, base_url: str) -> None:
+        self.base_url = base_url
+
+    def url(self, path: str | pathlib.Path) -> str:
+        """Return the http:// URL of `path`, given either as an absolute path in the repo or relative to its root."""
+        rel_path = pathlib.Path(path)
+        if rel_path.is_absolute():
+            assert rel_path.is_relative_to(_SERVED_DIR)
+            rel_path = rel_path.relative_to(_SERVED_DIR)
+        return self.base_url + urllib.parse.quote(rel_path.as_posix())
+
+
+@pytest.fixture
+def sample_file_server() -> Iterator[SampleFileServer]:
+    """Serve the local sample files (`tests/data`, `docs/resources`, ...) over a localhost HTTP server.
+
+    Tests that need a file reachable by http:// URL (rather than a local path or file:// URL) can get one with
+    `sample_file_server.url(<path of the file>)`, exercising the same download path as an internet URL without the
+    latency and flakiness of fetching one. Requesting a path that isn't in the tree yields a genuine 404.
+    """
+    handler = functools.partial(_QuietHandler, directory=str(_SERVED_DIR))
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield SampleFileServer(f'http://127.0.0.1:{server.server_address[1]}/')
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 @pytest.fixture(scope='function')

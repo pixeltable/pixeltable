@@ -227,7 +227,7 @@ jobs:
         # The pxt daemon serves the SPA bundle when the dashboard feature flag is enabled;
         # tests/pixeltable_cli/test_smoke.py exercises that path. The build output is gitignored,
         # so CI has to produce it before the test job runs.
-        if: ${{ matrix.test-category == 'py' && matrix.build-dashboard == 'true' }}
+        if: ${{ matrix.test-category == 'py' }}
         run: |
           conda install -y -c conda-forge nodejs
           cd dashboard && npm install --silent && npm run build

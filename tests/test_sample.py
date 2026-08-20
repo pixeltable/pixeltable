@@ -5,7 +5,7 @@ import pytest
 
 import pixeltable as pxt
 
-from .utils import SAMPLE_IMAGE_URL, ReloadTester, create_test_tbl, pxt_raises, rerun_on_network_error
+from .utils import SAMPLE_IMAGE_FILE_PATH, ReloadTester, create_test_tbl, pxt_raises
 
 
 def _local_path(name: str) -> str:
@@ -343,14 +343,13 @@ class TestSample:
         n = len(t.select().sample(fraction=0.01, seed=0).collect())
         assert v.count() == n
 
-    @rerun_on_network_error()
     def test_sample_iterator(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         print('\n\nCREATE TABLE WITH ONE IMAGE COLUMN\n')
         t = pxt.create_table(p('test_tile_tbl'), {'image': pxt.Image | None})
 
         print('\n\nINSERT ONE IMAGE\n')
-        t.insert(image=SAMPLE_IMAGE_URL)
+        t.insert(image=SAMPLE_IMAGE_FILE_PATH)
 
         print('\n\nSAMPLE IMAGE FROM TABLE\n')
         query = t.select().sample(fraction=0.001, seed=4171780)
