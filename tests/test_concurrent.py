@@ -1,8 +1,10 @@
+import sys
 import threading
 import time
 from typing import Callable
 
 import pytest
+import traceback
 
 import pixeltable as pxt
 from tests.utils import DummyIterator, validate_update_status
@@ -39,6 +41,12 @@ def _run_workers(target: Callable[[int], None], n_threads: int) -> list[tuple[in
 
 
 class TestConcurrentOps:
+    def _assert_no_errors(self, errors: list[tuple[int, BaseException]]) -> None:
+        for thread, error in errors:
+            print(f'======= Exception from thread {thread} ======')
+            traceback.print_exception(error, file=sys.stdout)
+        assert len(errors) == 0, f'There were {len(errors)} exception(s) on concurrent threads; stack traces printed above.'
+
     @pytest.mark.parametrize('num_threads,rows_per_thread', [(4, 100)])
     def test_concurrent_insert_and_select(
         self, make_catalog_path: Callable[[str], str], num_threads: int, rows_per_thread: int
@@ -72,7 +80,7 @@ class TestConcurrentOps:
         for th in threads:
             th.join()
 
-        assert errors == [], f'Worker threads raised exceptions: {errors}'
+        self._assert_no_errors(errors)
 
         result = t.select(t.thread_id, t.row_idx, t.value, t.doubled, t.offset).collect()
         assert len(result) == num_threads * rows_per_thread
@@ -101,7 +109,7 @@ class TestConcurrentOps:
                 assert all(row['b'] == row['a'] * 10 for row in rows)
 
         errors = _run_workers(worker1, n_threads=self.NUM_THREADS)
-        assert errors == [], f'errors: {errors[:3]}'
+        self._assert_no_errors(errors)
 
         q = t.where(t.a > 50).select(sum_ab=t.a + t.b, double_a=t.a * 2).order_by(t.a)
 
@@ -114,7 +122,7 @@ class TestConcurrentOps:
                 assert rows[0]['sum_ab'] == 51 + 510
 
         errors = _run_workers(worker2, n_threads=self.NUM_THREADS)
-        assert errors == [], f'errors: {errors[:3]}'
+        self._assert_no_errors(errors)
 
     def test_shared_query_extended(self, make_catalog_path: Callable[[str], str]) -> None:
         """A Query built on the main thread can be extended on a worker thread via builder methods."""
@@ -131,7 +139,7 @@ class TestConcurrentOps:
                 assert rows[0]['a'] == 50
 
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
-        assert errors == [], f'errors: {errors[:3]}'
+        self._assert_no_errors(errors)
 
     def test_shared_colrefs(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
@@ -146,7 +154,7 @@ class TestConcurrentOps:
                 assert len(rows) == 100
 
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
-        assert errors == [], f'errors: {errors[:3]}'
+        self._assert_no_errors(errors)
 
     def test_shared_view_query1(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
@@ -162,7 +170,7 @@ class TestConcurrentOps:
                 assert len(rows) == 50
 
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
-        assert errors == [], f'errors: {errors[:3]}'
+        self._assert_no_errors(errors)
 
     def test_shared_view_query2(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
@@ -178,7 +186,7 @@ class TestConcurrentOps:
                 assert len(rows) == 3 + 5
 
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
-        assert errors == [], f'errors: {errors[:3]}'
+        self._assert_no_errors(errors)
 
     def test_non_collect_queries(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
@@ -194,7 +202,7 @@ class TestConcurrentOps:
                 assert len(q.tail(5)) == 5
 
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
-        assert errors == [], f'errors: {errors[:3]}'
+        self._assert_no_errors(errors)
 
     def test_shared_query_udf(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
@@ -218,7 +226,7 @@ class TestConcurrentOps:
                 assert all(len(result[i, 'rows']) == 11 for i in range(n_rows))
 
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
-        assert errors == [], f'errors: {errors[:3]}'
+        self._assert_no_errors(errors)
 
     def test_shared_query_udf_cross_table(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
@@ -240,7 +248,7 @@ class TestConcurrentOps:
                 assert all(len(result[i, 'rows']) == 11 for i in range(n_rows))
 
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
-        assert errors == [], f'errors: {errors[:3]}'
+        self._assert_no_errors(errors)
 
     def test_concurrent_select_insert(self, make_catalog_path: Callable[[str], str]) -> None:
         """
@@ -332,7 +340,10 @@ class TestConcurrentOps:
         for th in threads:
             th.join()
 
-        assert errors == [], f'errors: {errors[:3]}'
+        print('======== ERRORS:')
+        if len(errors) > 0:
+            traceback.print_exception(errors[0][1])
+        self._assert_no_errors(errors)
         assert t.count() == n0 + n_writers * writes_per_writer
 
     def test_shared_join(self, make_catalog_path: Callable[[str], str]) -> None:
@@ -351,7 +362,7 @@ class TestConcurrentOps:
                 assert all(row['out'] == row['i'] + row['f'] for row in rows)
 
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
-        assert errors == [], f'errors: {errors[:3]}'
+        self._assert_no_errors(errors)
 
     def test_shared_join2(self, make_catalog_path: Callable[[str], str]) -> None:
         """Table instances from the main thread can be reused in worker threads to create join queries."""
@@ -366,7 +377,7 @@ class TestConcurrentOps:
             assert len(t1.select().join(t2, on=t1.id == t2.id).collect()) == 5
 
         errors = _run_workers(worker, n_threads=1)
-        assert errors == [], f'worker raised: {errors[0][1]!r}'
+        self._assert_no_errors(errors)
 
     def test_shared_snapshot_query(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
@@ -381,7 +392,7 @@ class TestConcurrentOps:
                 assert len(q.collect()) == 10
 
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
-        assert errors == [], f'errors: {errors[:3]}'
+        self._assert_no_errors(errors)
 
     def test_table_methods(self, make_catalog_path: Callable[[str], str]) -> None:
         """Table read methods and at least one mutating op are usable from a thread other
@@ -425,7 +436,7 @@ class TestConcurrentOps:
             (writer if tid == 0 else reader)(tid)
 
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
-        assert not errors, f'workers raised: {errors!r}'
+        self._assert_no_errors(errors)
 
         # Final count: initial row + writer's inserts.
         assert t.count() == 1 + n_inserts_per_writer
