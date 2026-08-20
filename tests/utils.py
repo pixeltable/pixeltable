@@ -1119,23 +1119,19 @@ def check_media_store_count(
     assert actual == expected_count, f'expected {expected_count} media objects, found {actual}'
 
 
-class TempStoreView:
-    """Counts the transient (temp) store backing a table's catalog, for both in-process and hosted catalogs.
+def check_temp_store_count(tbl: pxt.Table, expected_count: int, catalog_mode: CatalogMode) -> None:
+    """Count the objects in the temp store of the catalog tbl lives in."""
+    if catalog_mode == 'cloud':
+        return  # temp store not reachable; don't assert anything
 
-    Media files produced while running a query land in the temp store of whichever process runs the query: this
-    process for an in-process catalog, the proxy daemon (proxy_home(db)/tmp) for a hosted one. Tests co-locate the
-    daemon, so its temp store is read directly off the filesystem.
-    """
+    actual: int
+    catalog_uri = tbl._tbl_path.catalog_uri
+    if catalog_uri.db is None:
+        actual = TempStore.count()
+    else:
+        actual = LocalStore(proxy_daemon.proxy_home(catalog_uri.db) / 'tmp').count(None)
 
-    @classmethod
-    def count(cls, tbl: pxt.Table) -> int:
-        """Count the objects in the temp store of the catalog tbl lives in."""
-        catalog_uri = tbl._tbl_path.catalog_uri
-        if catalog_uri.db is None:
-            return TempStore.count()
-        from pixeltable.service import proxy_daemon
-
-        return LocalStore(proxy_daemon.proxy_home(catalog_uri.db) / 'tmp').count(None)
+    assert actual == expected_count, f'expected {expected_count} temp objects, found {actual}'
 
 
 def validate_repr(t: Any, expected: str) -> None:
