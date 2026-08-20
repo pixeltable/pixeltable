@@ -225,5 +225,5 @@ class TestDbRuntimeBundle:
         )
         monkeypatch.chdir(tmp_path)
         Config.init(reinit=True)
-        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'Invalid \[pixeltable\.database\]'):
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'Invalid \[pixeltable\.clouddb\]'):
             build_db_runtime_bundle(tmp_path)
