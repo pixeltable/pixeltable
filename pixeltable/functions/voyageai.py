@@ -2,7 +2,7 @@
 Pixeltable UDFs
 that wrap various endpoints from the Voyage AI API. In order to use them, you must
 first `pip install voyageai` and configure your Voyage AI credentials, as described in
-the [Working with Voyage AI](https://docs.pixeltable.com/notebooks/integrations/working-with-voyageai) tutorial.
+the [Working with Voyage AI](https://docs.pixeltable.com/howto/providers/working-with-voyageai) tutorial.
 """
 
 from typing import TYPE_CHECKING, Any, Literal, TypedDict

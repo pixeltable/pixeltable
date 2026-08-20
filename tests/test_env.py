@@ -46,7 +46,7 @@ class TestEnvReset:
         assert env1._db_name == dbname
 
         # Create a simple table
-        t = pxt.create_table('test_table', {'col1': pxt.String})
+        t = pxt.create_table('test_table', {'col1': pxt.String | None})
         t.insert([{'col1': 'test_data'}])
         assert t.count() == 1
 
@@ -69,7 +69,7 @@ class TestEnvReset:
         # Environment 1
         _reset_env(reinit=True, db_name=dbname1)
 
-        t1 = pxt.create_table('table1', {'name': pxt.String})
+        t1 = pxt.create_table('table1', {'name': pxt.String | None})
         t1.insert([{'name': 'env1_data'}])
 
         # Switch to Environment 2
@@ -79,7 +79,7 @@ class TestEnvReset:
         assert env2._db_name == dbname2
 
         # Create different table in env2
-        t2 = pxt.create_table('table2', {'value': pxt.Int})
+        t2 = pxt.create_table('table2', {'value': pxt.Int | None})
         t2.insert([{'value': 42}])
 
         # Verify table1 doesn't exist in env2
@@ -112,9 +112,11 @@ class TestEnvReset:
         pxt.create_dir('analytics/reports')
 
         # Create tables with different features
-        t1 = pxt.create_table('users', {'user_id': pxt.Int, 'username': pxt.String, 'active': pxt.Bool})
+        t1 = pxt.create_table(
+            'users', {'user_id': pxt.Int | None, 'username': pxt.String | None, 'active': pxt.Bool | None}
+        )
 
-        t2 = pxt.create_table('analytics/reports/sales', {'sale_id': pxt.Int, 'amount': pxt.Float})
+        t2 = pxt.create_table('analytics/reports/sales', {'sale_id': pxt.Int | None, 'amount': pxt.Float | None})
 
         # Add computed column
         t2.add_computed_column(amount_doubled=t2.amount * 2)
@@ -153,3 +155,49 @@ class TestEnvReset:
         t2_new = pxt.get_table('analytics/reports/sales')
         result = t2_new.where(t2_new.sale_id == 1).select(t2_new.amount_doubled).collect()
         assert result[0]['amount_doubled'] == 300.0
+
+
+class TestApiKey:
+    def test_require_api_key(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv('PIXELTABLE_API_KEY', 'sk-test')
+        assert Env.get().require_api_key() == 'sk-test'
+        assert Env.get().require_api_key('create a database') == 'sk-test'
+
+        monkeypatch.delenv('PIXELTABLE_API_KEY', raising=False)
+        monkeypatch.setattr(Config, 'get_string_value', lambda self, key, section='pixeltable': None)
+        with pxt_raises(excs.ErrorCode.MISSING_CREDENTIALS, match='A Pixeltable API key is required\\. Set it with'):
+            Env.get().require_api_key()
+        with pxt_raises(
+            excs.ErrorCode.MISSING_CREDENTIALS, match='API key is required to create a database\\. Set it with'
+        ):
+            Env.get().require_api_key('create a database')
+
+
+class TestProxyEndpoint:
+    @pytest.mark.parametrize(
+        ('cloud_host', 'expected'),
+        [
+            (None, ('acme-main.pxt.run', 9000)),
+            ('dev.pxt.run', ('acme-main.dev.pxt.run', 9000)),
+            ('localhost:9443', ('acme-main.localhost', 9443)),
+        ],
+    )
+    def test_proxy_endpoint(
+        self, cloud_host: str | None, expected: tuple[str, int], init_env: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        if cloud_host is None:
+            monkeypatch.delenv('PIXELTABLE_CLOUD_HOST', raising=False)
+        else:
+            monkeypatch.setenv('PIXELTABLE_CLOUD_HOST', cloud_host)
+        assert Env.get().proxy_endpoint('acme', 'main') == expected
+
+    @pytest.mark.parametrize(
+        ('cloud_host', 'error'),
+        [('dev.pxt.run:https', "port 'https' is not a valid integer"), (':9000', 'missing host')],
+    )
+    def test_proxy_endpoint_rejects(
+        self, cloud_host: str, error: str, init_env: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv('PIXELTABLE_CLOUD_HOST', cloud_host)
+        with pxt_raises(excs.ErrorCode.GENERIC_USER_ERROR, match=error):
+            Env.get().proxy_endpoint('acme', 'main')

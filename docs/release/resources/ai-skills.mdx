@@ -1,0 +1,17 @@
+---
+title: 'AI Skills'
+sidebarTitle: 'AI Skills'
+description: 'Teach AI coding assistants to write correct Pixeltable code'
+---
+
+export const Redirect = ({ to }) => {
+  if (typeof window !== 'undefined') {
+    // Hard navigation so the browser applies the hash after the page loads.
+    window.location.assign(to);
+  }
+  return null;
+};
+
+<Redirect to="/overview/building-pixeltable-with-llms#set-up-your-ai-tool" />
+
+[Set Up Your AI Tool](/overview/building-pixeltable-with-llms#set-up-your-ai-tool)

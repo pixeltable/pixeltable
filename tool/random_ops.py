@@ -85,17 +85,17 @@ OP_NAMES = {name for name, _, _ in TABLE_OPS}
 
 # Basic schema for all tables created by RandomTableOps. Additional columns may be added or removed as the script
 # progresses, but the basic columns (bc_*) will always be present.
-# For each Required column, the script randomly decides to keep or drop Required.
+# For each non-nullable column, the script randomly decides whether to make it nullable.
 BASIC_SCHEMA: dict[str, Any] = {
-    'bc_string': pxt.Required[pxt.String],
-    'bc_int': pxt.Required[pxt.Int],
-    'bc_float': pxt.Required[pxt.Float],
-    'bc_bool': pxt.Required[pxt.Bool],
-    'bc_timestamp': pxt.Required[pxt.Timestamp],
-    'bc_date': pxt.Required[pxt.Date],
-    'bc_array': pxt.Array,
-    'bc_json': pxt.Json,
-    'bc_image': pxt.Image,
+    'bc_string': pxt.String,
+    'bc_int': pxt.Int,
+    'bc_float': pxt.Float,
+    'bc_bool': pxt.Bool,
+    'bc_timestamp': pxt.Timestamp,
+    'bc_date': pxt.Date,
+    'bc_array': pxt.Array | None,
+    'bc_json': pxt.Json | None,
+    'bc_image': pxt.Image | None,
 }
 
 # Initial rows to populate a newly created table. These will be augmented by additional rows as the script runs.
@@ -223,7 +223,7 @@ class RandomTableOps:
         logging.getLogger('pixeltable').setLevel(logging.DEBUG)
         logging.getLogger('pixeltable').addHandler(random_ops_log_handler)
 
-        logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
+        logging.getLogger('sqlalchemy.engine').setLevel(logging.INFO)
 
     def _flush_stats(self, *, force: bool = False) -> None:
         if self.stats_file is None:
@@ -247,12 +247,11 @@ class RandomTableOps:
     @staticmethod
     def make_schema() -> dict[str, Any]:
         """Generates a schema for the new table based on BASIC_SCHEMA."""
-        schema: dict[str, type] = {}
+        schema: dict[str, Any] = {}
         for col_name, col_type in BASIC_SCHEMA.items():
-            schema[col_name] = col_type
-            # Randomly drop Required type wrapper if present
-            if random.random() < 0.2 and hasattr(col_type, '__origin__') and col_type.__origin__ is pxt.Required:
-                schema[col_name] = col_type.__args__[0]
+            # Randomly make a column nullable; `| None` is idempotent, so this is a no-op for the columns
+            # that BASIC_SCHEMA already declares nullable
+            schema[col_name] = col_type | None if random.random() < 0.2 else col_type
         return schema
 
     def get_random_tbl(self, allow_base_tbl: bool = True, allow_view: bool = True) -> pxt.Table | None:
@@ -367,7 +366,7 @@ class RandomTableOps:
         t = self.get_random_tbl()
         n = int(random.uniform(0, self.config.num_column_names))
         cname = f'c{n}'
-        t.add_column(**{cname: pxt.String}, if_exists='ignore')
+        t.add_column(**{cname: pxt.String | None}, if_exists='ignore')
         return success(f'Added data column {cname!r} to {self.tbl_descr(t)}.')
 
     def add_computed_column(self) -> OpResult:
@@ -424,10 +423,10 @@ class RandomTableOps:
 
     def alter_column_nullable(self) -> OpResult:
         t = self.get_random_tbl(allow_view=False)
-        required_cols = [col_name for col_name in BASIC_SCHEMA if not getattr(t, col_name).col_type.nullable]
-        if not required_cols:
-            return success(f'No Required columns to alter in {self.tbl_descr(t)}.')
-        col_name = random.choice(required_cols)
+        non_nullable_cols = [col_name for col_name in BASIC_SCHEMA if not getattr(t, col_name).col_type.nullable]
+        if not non_nullable_cols:
+            return success(f'No non-nullable columns to alter in {self.tbl_descr(t)}.')
+        col_name = random.choice(non_nullable_cols)
         col_ref = getattr(t, col_name)
         t.alter_column(col_name, type_=col_ref.col_type.copy(nullable=True))
         return success(f'Altered column {col_name!r} to nullable in {self.tbl_descr(t)}.')

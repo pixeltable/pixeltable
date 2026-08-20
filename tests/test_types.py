@@ -2,6 +2,7 @@
 # ruff: noqa: RUF031
 
 import datetime
+import typing
 import uuid
 from typing import Any, Dict, List, Literal, Optional, Tuple, TypedDict, Union
 
@@ -9,7 +10,6 @@ import numpy as np
 import PIL.Image
 import pydantic
 import pytest
-import typing_extensions
 
 from pixeltable import exceptions as excs
 from pixeltable.type_system import (
@@ -69,11 +69,9 @@ class TypedDict3(TypedDict):
     f: List[int]  # Python 3.8-style List
 
 
-# typing_extensions.TypedDict honors the Required/NotRequired markers when computing __optional_keys__ on all
-# supported Python versions (typing.TypedDict only does so on 3.11+)
-class TypedDict4(typing_extensions.TypedDict, total=False):
-    a: typing_extensions.Required[int]  # explicit Required field marker (value type is Int; key is required)
-    b: typing_extensions.NotRequired[str]  # explicit NotRequired field marker
+class TypedDict4(TypedDict, total=False):
+    a: typing.Required[int]  # explicit Required field marker (value type is Int; key is required)
+    b: typing.NotRequired[str]  # explicit NotRequired field marker
     c: float  # optional by total=False
 
 
@@ -299,31 +297,27 @@ class TestTypes:
             (Literal[1, 2.0, 3], FloatType(nullable=False), 'Float'),
             (Literal['a', 'b', None], StringType(nullable=True), 'String'),  # noqa: PYI061
         )
-        for py_type, pxt_type, string in test_cases:
+        for x, pxt_type, string in test_cases:
+            py_type: Any = x  # We need to explicitly type this as Any to avoid a silly mypy subscripting bug
             print(py_type)
             non_nullable_pxt_type = pxt_type.copy(nullable=False)
             nullable_pxt_type = pxt_type.copy(nullable=True)
             assert non_nullable_pxt_type.matches(pxt_type)  # sanity check behavior of matches() and copy()
             assert nullable_pxt_type.matches(pxt_type)
 
+            # a bare type is non-nullable; nullability must be spelled out explicitly
             assert ColumnType.from_python_type(py_type) == pxt_type
-            assert ColumnType.from_python_type(Required[py_type]) == non_nullable_pxt_type
             assert ColumnType.from_python_type(Optional[py_type]) == nullable_pxt_type
             assert ColumnType.from_python_type(Union[None, py_type]) == nullable_pxt_type  # noqa: RUF036
             assert ColumnType.from_python_type(py_type | None) == nullable_pxt_type
             assert ColumnType.from_python_type(None | py_type) == nullable_pxt_type  # noqa: RUF036
 
-            assert ColumnType.from_python_type(py_type, nullable_default=True) == nullable_pxt_type
-            assert ColumnType.from_python_type(Required[py_type], nullable_default=True) == non_nullable_pxt_type
-            assert ColumnType.from_python_type(Optional[py_type], nullable_default=True) == nullable_pxt_type
-            assert ColumnType.from_python_type(Union[None, py_type], nullable_default=True) == nullable_pxt_type  # noqa: RUF036
-            assert ColumnType.from_python_type(py_type | None, nullable_default=True) == nullable_pxt_type
-            assert ColumnType.from_python_type(None | py_type, nullable_default=True) == nullable_pxt_type  # noqa: RUF036
+            # `Required[T]` is deprecated, but still resolves to a non-nullable `T`
+            with pytest.warns(excs.PixeltableDeprecationWarning, match=r'`Required\[T\]` is deprecated'):
+                assert ColumnType.from_python_type(Required[py_type]) == non_nullable_pxt_type
 
             assert str(non_nullable_pxt_type) == string
             assert str(nullable_pxt_type) == f'{string} | None'
-            assert non_nullable_pxt_type._to_str(as_schema=True) == f'Required[{string}]'
-            assert nullable_pxt_type._to_str(as_schema=True) == string
 
     def test_supertype(self, init_env: None) -> None:
         test_cases = [

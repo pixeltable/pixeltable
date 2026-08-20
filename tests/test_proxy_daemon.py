@@ -151,10 +151,9 @@ class TestProxyDaemon:
         assert proxy_protocol.collect_remote_keys(args) == expected
 
     def test_prepare_once_on_stale_retry(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from pixeltable.catalog.path import Path as CatalogPath
         from pixeltable.service.proxy_client import ProxyClient
 
-        client = ProxyClient('http://127.0.0.1:1', CatalogPath.parse('pxt://local:somedb', allow_empty_path=True))
+        client = ProxyClient.local('http://127.0.0.1:1')
         prepare_calls = 0
         orig_prepare = ProxyClient._prepare
 
@@ -173,6 +172,21 @@ class TestProxyDaemon:
         )
         assert result == 'ok'
         assert prepare_calls == 1
+
+    def test_transport_part_sinks(self) -> None:
+        # media parts travel inline to a local daemon, but out of band (via R2) to a hosted db
+        from pixeltable.service.proxy_client import HttpTransport, R2PartSink, TunnelTransport
+
+        local_sink = HttpTransport('http://127.0.0.1:1').new_part_sink()
+        assert type(local_sink) is proxy_protocol.PartSink
+
+        tunnel = TunnelTransport('org1', 'db1', 'key', host='h', port=443)
+        remote_sink = tunnel.new_part_sink()
+        next_sink = tunnel.new_part_sink()
+        assert isinstance(remote_sink, R2PartSink)
+        assert isinstance(next_sink, R2PartSink)
+        # each request gets its own uploads/ prefix
+        assert next_sink._key_prefix != remote_sink._key_prefix
 
     @staticmethod
     def _install_fake_upload_store(

@@ -9,6 +9,7 @@ pytestmark = pytest.mark.local('UDF/integration test')
 
 
 @pytest.mark.remote_api
+@pytest.mark.very_expensive
 @rerun(reruns=4, reruns_delay=8)
 class TestGroq:
     def test_chat_completions(self, uses_db: None) -> None:
@@ -16,7 +17,7 @@ class TestGroq:
         skip_test_if_no_client('groq')
         from pixeltable.functions.groq import chat_completions
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
         msgs = [{'role': 'user', 'content': t.input}]
         t.add_computed_column(output=chat_completions(messages=msgs, model='llama-3.1-8b-instant'))
         t.add_computed_column(
@@ -43,7 +44,7 @@ class TestGroq:
         from pixeltable.functions import groq
 
         tools = pxt.tools(stock_price)
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String | None})
         messages = [{'role': 'user', 'content': t.prompt}]
         t.add_computed_column(
             response=groq.chat_completions(

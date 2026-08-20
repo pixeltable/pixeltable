@@ -25,7 +25,7 @@ from pydantic import BaseModel, PrivateAttr
 from pixeltable import exceptions as excs, exprs, func, type_system as ts
 from pixeltable.catalog.dir import Dir
 from pixeltable.catalog.globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation, TableVersionMd
-from pixeltable.catalog.model import EmbeddingIndex
+from pixeltable.catalog.model import BtreeIndex, EmbeddingIndex
 from pixeltable.catalog.path import Path
 from pixeltable.catalog.table_path import TablePath, TablePathKey, TableVersionPath
 from pixeltable.catalog.update_status import RowCountStats, UpdateStatus
@@ -162,6 +162,12 @@ def _serialize(obj: Any, sink: PartSink) -> Any:
         # scalars); serialize field-by-field so the nested Exprs/Functions round-trip via their own handlers.
         return {
             _TAG: 'EmbeddingIndex',
+            'v': {f.name: _serialize(getattr(obj, f.name), PartSink()) for f in dataclasses.fields(obj)},
+        }
+    if isinstance(obj, BtreeIndex):
+        # A declarative model's B-tree-index spec (a dataclass wrapping an Expr column ref).
+        return {
+            _TAG: 'BtreeIndex',
             'v': {f.name: _serialize(getattr(obj, f.name), PartSink()) for f in dataclasses.fields(obj)},
         }
     if isinstance(obj, DirEntry):
@@ -315,6 +321,8 @@ def _deserialize(
             return func.GeneratingFunctionCall.from_dict(v)
         if tag == 'EmbeddingIndex':
             return EmbeddingIndex(**{name: _deserialize(val, []) for name, val in v.items()})
+        if tag == 'BtreeIndex':
+            return BtreeIndex(**{name: _deserialize(val, []) for name, val in v.items()})
         if tag == 'DirEntry':
             table = v['table']
             return DirEntry(

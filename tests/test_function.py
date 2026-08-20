@@ -131,7 +131,7 @@ class TestFunction:
         # a udf without a fully-qualified path (forced here via _force_stored) can't be persisted into a
         # computed column, but still works as a query expression
         p = make_catalog_path
-        t = pxt.create_table(p('test'), {'c1': pxt.Int, 'c2': pxt.Float})
+        t = pxt.create_table(p('test'), {'c1': pxt.Int | None, 'c2': pxt.Float | None})
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
         status = t.insert(rows)
         assert status.num_rows == len(rows)
@@ -154,7 +154,7 @@ class TestFunction:
         # .using() on a module UDF yields a storable template (its inlined expression references the function by
         # path), so it can back a computed column; .using() on a local UDF inlines a pickled function and cannot
         p = make_catalog_path
-        t = pxt.create_table(p('test'), {'c1': pxt.Int, 'c2': pxt.Float})
+        t = pxt.create_table(p('test'), {'c1': pxt.Int | None, 'c2': pxt.Float | None})
         t.insert([{'c1': i, 'c2': i + 0.5} for i in range(10)])
 
         from_module = self.f1.using(c=2.0, d=3.0)
@@ -177,7 +177,7 @@ class TestFunction:
         # a @pxt.query is serialized by value, so it is storable only if its clauses embed no pickled function: one
         # built from storable exprs can back a computed column, one that filters with a local UDF cannot
         p = make_catalog_path
-        t = pxt.create_table(p('test'), {'c1': pxt.Int, 'c2': pxt.Float})
+        t = pxt.create_table(p('test'), {'c1': pxt.Int | None, 'c2': pxt.Float | None})
         t.insert([{'c1': i, 'c2': i + 0.5} for i in range(10)])
 
         @pxt.query
@@ -224,7 +224,7 @@ class TestFunction:
         assert wc.is_storable
 
         p = make_catalog_path
-        t = pxt.create_table(p('articles'), {'content': pxt.String})
+        t = pxt.create_table(p('articles'), {'content': pxt.String | None})
         t.add_computed_column(word_count=wc(t.content))
         t.insert([{'content': 'a b c'}, {'content': 'one two three four'}])
         assert sorted(row['word_count'] for row in t.collect()) == [3, 4]
@@ -426,7 +426,7 @@ class TestFunction:
 
     def test_member_access_udf(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test'), {'c1': pxt.String, 'c2': pxt.Int})
+        t = pxt.create_table(p('test'), {'c1': pxt.String | None, 'c2': pxt.Int | None})
         rows = [{'c1': 'a', 'c2': 1}, {'c1': 'b', 'c2': 2}]
         validate_update_status(t.insert(rows))
         result = t.select(t.c2.increment(), t.c2.successor, t.c1.append('x')).collect()
@@ -471,7 +471,7 @@ class TestFunction:
         skip_test_if_not_installed('imagehash')
 
         name = p('test')
-        t = pxt.create_table(name, {'c1': pxt.Int, 'c2': pxt.Float})
+        t = pxt.create_table(name, {'c1': pxt.Int | None, 'c2': pxt.Float | None})
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
         validate_update_status(t.insert(rows))
 
@@ -519,7 +519,7 @@ class TestFunction:
         reload_tester.run_query(t.select(t.query1, t.query2, t.query3).order_by(t.c1))
 
         # query parameter applies to a Python-side expr in the inner select list
-        img_tbl = pxt.create_table(p('img_test'), {'id': pxt.Int, 'img': pxt.Image})
+        img_tbl = pxt.create_table(p('img_test'), {'id': pxt.Int | None, 'img': pxt.Image | None})
         img_paths = get_image_files()[:5]
         img_tbl.insert([{'id': i, 'img': p} for i, p in enumerate(img_paths)])
 
@@ -539,7 +539,7 @@ class TestFunction:
 
     def test_query_bound_limit_offset(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test'), {'c1': pxt.Int})
+        t = pxt.create_table(p('test'), {'c1': pxt.Int | None})
         t.insert([{'c1': i} for i in range(10)])
 
         @pxt.query(return_scalar=True)
@@ -583,7 +583,7 @@ class TestFunction:
         assert all("'offset'" in m for m in msgs if m is not None)
 
         # negative limit/offset coming from a column at runtime (Variable bound per-row from a row value)
-        neg = pxt.create_table(p('test_neg'), {'c1': pxt.Int, 'n': pxt.Int})
+        neg = pxt.create_table(p('test_neg'), {'c1': pxt.Int | None, 'n': pxt.Int | None})
         neg.insert([{'c1': i, 'n': -1 if i % 2 == 0 else 1} for i in range(10)])
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match="'limit'"):
             neg.add_computed_column(c=head(neg.n), on_error='abort')
@@ -592,7 +592,7 @@ class TestFunction:
 
     def test_query2(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        schema = {'query_text': pxt.String, 'i': pxt.Int}
+        schema: dict[str, Any] = {'query_text': pxt.String | None, 'i': pxt.Int | None}
         queries = pxt.create_table(p('queries'), schema)
         query_rows = [
             {'query_text': 'how much is the stock of AI companies up?', 'i': 1},
@@ -600,7 +600,7 @@ class TestFunction:
         ]
         validate_update_status(queries.insert(query_rows), expected_rows=len(query_rows))
 
-        chunks = pxt.create_table(p('test_doc_chunks'), {'text': pxt.String})
+        chunks = pxt.create_table(p('test_doc_chunks'), {'text': pxt.String | None})
         chunks.insert(
             [
                 {'text': 'the stock of artificial intelligence companies is up 1000%'},
@@ -647,11 +647,20 @@ class TestFunction:
         res = queries.select(queries.i, out=retrieval_scalar(queries.query_text, queries.i)).collect()
         assert all(len(out) == 2 and all(isinstance(x, str) for x in out) for out in res['out'])
 
+    # This tests a specific edge case where calling drop_dir() as the first action after a catalog reload can lead
+    # to a circular initialization failure.
+    # It is currently broken, because it depends on the order in which tables are being dropped, which in turn
+    # depends on the order in which table ids are being returned by the query that identifies which tables to drop.
+    # If 'tbl' is dropped before 'retrieval', we get an error when trying to drop 'retrieval' (it tries to load
+    # the required TableVersion, which requires deserializing the value expr for the 'result' column, which
+    # references 'view', which no longer exists).
+    # TODO: find a general solution
+    @pytest.mark.filterwarnings("ignore:The computed column 'result' in table 'retrieval' is no longer valid")
     def test_query_over_view(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         pxt.create_dir(p('test'))
-        t = pxt.create_table(p('test/tbl'), {'a': pxt.String})
-        v = pxt.create_view(p('test/view'), t, additional_columns={'text': pxt.String})
+        t = pxt.create_table(p('test/tbl'), {'a': pxt.String | None})
+        v = pxt.create_view(p('test/view'), t, additional_columns={'text': pxt.String | None})
 
         @pxt.query
         def retrieve() -> pxt.Query:
@@ -659,7 +668,7 @@ class TestFunction:
 
         assert_type_eq(retrieve.signature.return_type, pxt.Json[[{'text': pxt.String | None}]])
 
-        retrieval = pxt.create_table(p('test/retrieval'), {'n': pxt.Int})
+        retrieval = pxt.create_table(p('test/retrieval'), {'n': pxt.Int | None})
         retrieval.add_computed_column(result=retrieve())
         assert retrieval.result.col_type == retrieve.signature.return_type
 
@@ -671,15 +680,7 @@ class TestFunction:
         assert len(res) == 1
         assert len(res[0]['result']) == 20
 
-        # This tests a specific edge case where calling drop_dir() as the first action after a catalog reload can lead
-        # to a circular initialization failure.
-        # It is currently broken, because it depends on the order in which tables are being dropped, which in turn
-        # depends on the order in which table ids are being returned by the query that identifies which tables to drop.
-        # If 'tbl' is dropped before 'retrieval', we get an error when trying to drop 'retrieval' (it tries to load
-        # the required TableVersion, which requires deserializing the value expr for the 'result' column, which
-        # references 'view', which no longer exists).
-        # TODO: find a general solution
-        # reload_catalog()
+        reload_catalog()
         pxt.drop_dir(p('test'), force=True)
 
     def test_query_with_limit(self, test_tbl: pxt.Table) -> None:
@@ -718,7 +719,7 @@ class TestFunction:
 
             @pxt.query
             def q_cast(n: float) -> pxt.Query:
-                return t.select(t.c4).limit(n.astype(pxt.Int))  # type: ignore[attr-defined]
+                return t.select(t.c4).limit(n.astype(pxt.Int | None))  # type: ignore[attr-defined]
 
         # column reference is not allowed for limit
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='limit'):
@@ -736,7 +737,7 @@ class TestFunction:
 
             @pxt.query
             def q_off_cast(n: float) -> pxt.Query:
-                return t.select(t.c4).limit(10, offset=n.astype(pxt.Int))  # type: ignore[attr-defined]
+                return t.select(t.c4).limit(10, offset=n.astype(pxt.Int | None))  # type: ignore[attr-defined]
 
         # column reference is not allowed for offset
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='offset'):
@@ -762,7 +763,7 @@ class TestFunction:
 
     def test_query_json_mapper(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test'), {'c1': pxt.Int, 'c2': pxt.Float})
+        t = pxt.create_table(p('test'), {'c1': pxt.Int | None, 'c2': pxt.Float | None})
         t_rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
         validate_update_status(t.insert(t_rows), 100)
 
@@ -772,7 +773,7 @@ class TestFunction:
 
         assert_type_eq(lt_x.signature.return_type, pxt.Json[[{'c2': pxt.Float | None, 'c1': pxt.Int | None}]])
 
-        u = pxt.create_table(p('test2'), {'c': pxt.Json})
+        u = pxt.create_table(p('test2'), {'c': pxt.Json | None})
         u.add_computed_column(out=pxtf.map(u.c['*'], lambda x: lt_x(x)))
         u_rows = [{'c': [i, i + 1, i + 2]} for i in range(10)]
         validate_update_status(u.insert(u_rows), len(u_rows))
@@ -780,7 +781,7 @@ class TestFunction:
 
     def test_query_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        schema = {'a': pxt.Int, 'b': pxt.Int}
+        schema: dict[str, Any] = {'a': pxt.Int | None, 'b': pxt.Int | None}
         t = pxt.create_table(p('test'), schema)
         rows = [{'a': i, 'b': i + 1} for i in range(100)]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
@@ -797,7 +798,7 @@ class TestFunction:
         stored Query without raising; affected columns become invalid, but the host table and views over it must still
         load."""
         p = make_catalog_path
-        src = pxt.create_table(p('src'), {'id': pxt.Required[pxt.Int], 'val': pxt.Required[pxt.Int], 'extra': pxt.Int})
+        src = pxt.create_table(p('src'), {'id': pxt.Int, 'val': pxt.Int, 'extra': pxt.Int | None})
         validate_update_status(src.insert([{'id': i, 'val': i * 10, 'extra': i} for i in range(5)]), expected_rows=5)
 
         # Three query UDFs over src, each with a different stored Query shape:
@@ -816,7 +817,7 @@ class TestFunction:
         def q_select_star(n: int) -> pxt.Query:
             return src.select().limit(n)
 
-        host = pxt.create_table(p('host'), {'threshold': pxt.Required[pxt.Int]})
+        host = pxt.create_table(p('host'), {'threshold': pxt.Int})
         host.add_computed_column(rows_col=q_col(host.threshold))
         host.add_computed_column(rows_tbl=q_tbl(host.threshold))
         host.add_computed_column(rows_star=q_select_star(5))
@@ -881,7 +882,7 @@ class TestFunction:
         assert len(pb3.signatures[0].required_parameters) == 0
         assert pb2.signatures[0].required_parameters[0].name == 'p2'
 
-        t = pxt.create_table(p('test'), {'c1': pxt.String, 'c2': pxt.String, 'c3': pxt.String})
+        t = pxt.create_table(p('test'), {'c1': pxt.String | None, 'c2': pxt.String | None, 'c3': pxt.String | None})
         t.insert(c1='a', c2='b', c3='c')
         t.add_computed_column(pb1=pb1(t.c1, t.c3))
         t.add_computed_column(pb2=pb2(t.c2))
@@ -917,7 +918,7 @@ class TestFunction:
         assert len(pb3.signatures[0].required_parameters) == 0
         assert pb2.signatures[0].required_parameters[0].name == 'p3'
 
-        t = pxt.create_table(p('test'), {'c1': pxt.String, 'c2': pxt.String, 'c3': pxt.String})
+        t = pxt.create_table(p('test'), {'c1': pxt.String | None, 'c2': pxt.String | None, 'c3': pxt.String | None})
         t.insert(c1='a', c2='b', c3='c')
         t.add_computed_column(pb1=pb1(t.c1, t.c3))
         t.add_computed_column(pb2=pb2(t.c3))
@@ -1339,11 +1340,11 @@ class TestFunction:
         """
         p = make_catalog_path
 
-        t = pxt.create_table(p('test1'), {'ts1': pxt.Timestamp})
+        t = pxt.create_table(p('test1'), {'ts1': pxt.Timestamp | None})
         t.add_computed_column(seconds_since_epoch=udf_with_timestamp_constants(t.ts1))
         t.add_computed_column(seconds_since_2000=udf_with_timestamp_constants(t.ts1, ts2=datetime(2000, 1, 1)))
 
-        t = pxt.create_table(p('test2'), {'a': pxt.Array[pxt.Float, (6,)]})
+        t = pxt.create_table(p('test2'), {'a': pxt.Array[pxt.Float, (6,)] | None})
         t.add_computed_column(add_one=udf_with_array_constants(t.a))
         t.add_computed_column(add_zeros=udf_with_array_constants(t.a, b=np.zeros(6, dtype=np.float32)))
 
@@ -1370,7 +1371,7 @@ class TestFunction:
         """
         import tests.test_function  # noqa: PLW0406
 
-        t = pxt.create_table('test', {'c1': pxt.String})
+        t = pxt.create_table('test', {'c1': pxt.String | None})
         t.insert(c1='xyz')
 
         def mimic(fn: func.CallableFunction) -> None:
@@ -1629,7 +1630,7 @@ class TestFunction:
         def _(b: str) -> ts.ColumnType:
             raise ImportError('This is a mock ImportError.')
 
-        t = pxt.create_table('test', {'c1': pxt.String})
+        t = pxt.create_table('test', {'c1': pxt.String | None})
         t.insert(c1='xyz')
         t.add_computed_column(result=tests.test_function.evolving_udf(t.c1, 'constant'))
 
@@ -1644,7 +1645,7 @@ class TestFunction:
 
         # Now try using it as an embedding index.
         mimic(udf_base_version)
-        t = pxt.create_table('test', {'c1': pxt.String}, if_exists='replace')
+        t = pxt.create_table('test', {'c1': pxt.String | None}, if_exists='replace')
         t.add_embedding_index('c1', embedding=tests.test_function.evolving_udf.using(b='constant'))
         t.insert(c1='xyz')
 
@@ -1660,9 +1661,7 @@ class TestFunction:
 
     @pytest.mark.local('builds a retrieval tool from a table')
     def test_retrieval_tool(self, uses_db: None) -> None:
-        t = pxt.create_table(
-            'customers', {'customer_id': pxt.Required[pxt.String], 'name': pxt.Required[pxt.String], 'sales': pxt.Int}
-        )
+        t = pxt.create_table('customers', {'customer_id': pxt.String, 'name': pxt.String, 'sales': pxt.Int | None})
         t.insert(
             [{'customer_id': 'Q371A', 'name': 'Aaron Siegel'}, {'customer_id': 'B117F', 'name': 'Marcel Kornacker'}]
         )
@@ -1725,13 +1724,13 @@ class TestFunction:
         assert fn3.comment() == "I'm a tool that LLMs can use to do stuff."
 
         # use the retrieval UDF to define a computed column, and verify its type
-        lookup = pxt.create_table('lookup', {'lookup_id': pxt.Required[pxt.String]})
+        lookup = pxt.create_table('lookup', {'lookup_id': pxt.String})
         lookup.add_computed_column(matching=fn2(customer_id=lookup.lookup_id))
         assert lookup.matching.col_type == fn2.signature.return_type
 
     @pytest.mark.local('builds a query function from a table via Function.from_table')
     def test_from_table(self, uses_db: None) -> None:
-        schema = {'in1': pxt.Required[pxt.Int], 'in2': pxt.Required[pxt.String], 'in3': pxt.Float, 'in4': pxt.Image}
+        schema: dict[str, Any] = {'in1': pxt.Int, 'in2': pxt.String, 'in3': pxt.Float | None, 'in4': pxt.Image | None}
         t = pxt.create_table('test', schema)
         t.add_computed_column(out1=(t.in1 + 5))
         t.add_computed_column(out2=(t.in3 + t.out1))
@@ -1754,7 +1753,7 @@ class TestFunction:
             """
         ).strip()  # fmt: skip
 
-        u = pxt.create_table('udf_test', {'a': pxt.String, 'b': pxt.Image})
+        u = pxt.create_table('udf_test', {'a': pxt.String | None, 'b': pxt.Image | None})
         u.insert(a='grapefruit')
         u.insert(a='canteloupe')
         u.add_computed_column(result=fn(19, u.a, in3=11.0))
@@ -1784,11 +1783,11 @@ class TestFunction:
 
         # table_as_udf on a view
         v = pxt.create_view('test_view', t)
-        v.add_column(in5=pxt.Json)
+        v.add_column(in5=pxt.Json | None)
         v.add_computed_column(out5=(v.out1 + v.in3 + v.in5.number))
 
         vv = pxt.create_view('test_subview', v, comment='This is an example table comment.')
-        vv.add_column(in6=pxt.Json)
+        vv.add_column(in6=pxt.Json | None)
         vv.add_computed_column(out6=(vv.out5 + v.out1 + t.in3 + vv.in6.number))
 
         fn2 = pxt.udf(vv)
@@ -1874,7 +1873,7 @@ class TestFunction:
     def test_required_parameter_missing(self, make_catalog_path: Callable[[str], str]) -> None:
         """Tests scenarios in which a required input parameter for a UDF or UDA is missing."""
         p = make_catalog_path
-        t = pxt.create_table(p('test'), {'col_0': pxt.Int, 'col_1': pxt.Int, 'col_2': pxt.String})
+        t = pxt.create_table(p('test'), {'col_0': pxt.Int | None, 'col_1': pxt.Int | None, 'col_2': pxt.String | None})
         t.insert(
             [
                 {'col_0': 1, 'col_1': 1, 'col_2': 'abc'},
@@ -1902,20 +1901,20 @@ class TestFunction:
         p = make_catalog_path
 
         # Text overload: estimator param 'content' matches the resolved signature
-        t_text = pxt.create_table(p('test_est_text'), {'content': pxt.String})
+        t_text = pxt.create_table(p('test_est_text'), {'content': pxt.String | None})
         t_text.add_computed_column(emb=mock_embed(t_text.content))
         validate_update_status(t_text.insert([{'content': 'hello world'}, {'content': 'foo bar'}]))
 
         # Image overload: estimator param 'content' matches the resolved signature
         images = get_image_files()[:2]
-        t_img = pxt.create_table(p('test_est_img'), {'content': pxt.Image})
+        t_img = pxt.create_table(p('test_est_img'), {'content': pxt.Image | None})
         t_img.add_computed_column(emb=mock_embed(t_img.content))
         validate_update_status(t_img.insert([{'content': img} for img in images]))
 
         # Video overload: estimator param 'content' does NOT exist in the resolved signature
         # (the video overload uses 'video', not 'content')
         videos = get_video_files()[:2]
-        t_vid = pxt.create_table(p('test_est_vid'), {'video': pxt.Video})
+        t_vid = pxt.create_table(p('test_est_vid'), {'video': pxt.Video | None})
         t_vid.add_computed_column(emb=mock_embed(t_vid.video))
         with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='not in the resolved function signature'):
             t_vid.insert([{'video': v} for v in videos])
@@ -1923,14 +1922,14 @@ class TestFunction:
     def test_resource_estimator_non_polymorphic(self, make_catalog_path: Callable[[str], str]) -> None:
         """resource_estimator works for a plain (non-polymorphic) UDF."""
         p = make_catalog_path
-        t = pxt.create_table(p('test_est_plain'), {'content': pxt.String})
+        t = pxt.create_table(p('test_est_plain'), {'content': pxt.String | None})
         t.add_computed_column(emb=mock_embed_plain(t.content))
         validate_update_status(t.insert([{'content': 'hello world'}, {'content': 'foo bar'}]))
 
     def test_resource_estimator_batch(self, make_catalog_path: Callable[[str], str]) -> None:
         """resource_estimator works for a batched UDF."""
         p = make_catalog_path
-        t = pxt.create_table(p('test_est_batch'), {'content': pxt.String})
+        t = pxt.create_table(p('test_est_batch'), {'content': pxt.String | None})
         t.add_computed_column(emb=mock_embed_batch(t.content))
         validate_update_status(t.insert([{'content': 'hello world'}, {'content': 'foo bar'}, {'content': 'baz qux'}]))
 
@@ -1938,19 +1937,19 @@ class TestFunction:
         """A sync UDF with a resource_pool must raise an error (scalar, batched, and polymorphic)."""
         p = make_catalog_path
         # scalar
-        t1 = pxt.create_table(p('test_sync_rp'), {'text': pxt.String})
+        t1 = pxt.create_table(p('test_sync_rp'), {'text': pxt.String | None})
         t1.add_computed_column(result=sync_udf_with_rp(t1.text))
         with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='resource_pool requires an async function'):
             t1.insert([{'text': 'hello'}])
 
         # batched
-        t2 = pxt.create_table(p('test_sync_batch_rp'), {'text': pxt.String})
+        t2 = pxt.create_table(p('test_sync_batch_rp'), {'text': pxt.String | None})
         t2.add_computed_column(result=sync_batched_udf_with_rp(t2.text))
         with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='resource_pool requires an async function'):
             t2.insert([{'text': f'hello {i}'} for i in range(8)])
 
         # polymorphic resolved to a sync overload
-        t3 = pxt.create_table(p('test_sync_poly_rp'), {'num': pxt.Int})
+        t3 = pxt.create_table(p('test_sync_poly_rp'), {'num': pxt.Int | None})
         t3.add_computed_column(result=sync_poly_udf_with_rp(t3.num))
         with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='resource_pool requires an async function'):
             t3.insert([{'num': 1}])
@@ -1960,7 +1959,7 @@ class TestFunction:
         p = make_catalog_path
         from .module_with_future_annotations import future_annotations_udf
 
-        t = pxt.create_table(p('test_future_annotations'), {'a': pxt.Int})
+        t = pxt.create_table(p('test_future_annotations'), {'a': pxt.Int | None})
         t.add_computed_column(col=future_annotations_udf(t.a))
         t.insert(a=1)
         res = t.select(t.col).collect()

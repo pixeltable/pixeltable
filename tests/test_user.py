@@ -16,24 +16,24 @@ class TestUser:
     def test_user_namespace(self, uses_db: None) -> None:
         pxt.create_dir('test_dir')
         pxt.create_dir('test_dir/subdir')
-        t = pxt.create_table('test_dir/test_tbl', {'col': pxt.Int})
-        _ = pxt.create_table('test_dir/subdir/test_tbl', {'col': pxt.Int})
+        t = pxt.create_table('test_dir/test_tbl', {'col': pxt.Int | None})
+        _ = pxt.create_table('test_dir/subdir/test_tbl', {'col': pxt.Int | None})
         t.insert(col=5)
 
         get_runtime().catalog.create_user('marcel')
         Env.get().user = 'marcel'
         pxt.create_dir('test_dir')
         pxt.create_dir('test_dir/subdir')
-        marcel_t = pxt.create_table('test_dir/test_tbl', {'col': pxt.Int})
-        _ = pxt.create_table('test_dir/subdir/test_tbl', {'col': pxt.Int})
+        marcel_t = pxt.create_table('test_dir/test_tbl', {'col': pxt.Int | None})
+        _ = pxt.create_table('test_dir/subdir/test_tbl', {'col': pxt.Int | None})
         marcel_t.insert(col=22)
 
         get_runtime().catalog.create_user('asiegel')
         Env.get().user = 'asiegel'
         pxt.create_dir('test_dir')
         pxt.create_dir('test_dir/subdir')
-        asiegel_t = pxt.create_table('test_dir/test_tbl', {'col': pxt.Int})
-        _ = pxt.create_table('test_dir/subdir/test_tbl', {'col': pxt.Int})
+        asiegel_t = pxt.create_table('test_dir/test_tbl', {'col': pxt.Int | None})
+        _ = pxt.create_table('test_dir/subdir/test_tbl', {'col': pxt.Int | None})
         asiegel_t.insert(col=4171780)
 
         assert t.select().collect()['col'] == [5]

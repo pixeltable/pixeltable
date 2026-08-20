@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import abc
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, overload
 
 import pandas as pd
-from typing_extensions import overload
+from typing_extensions import TypeForm
 
 from pixeltable import exceptions as excs
 
@@ -221,14 +221,16 @@ class Table(SchemaObject):
     @abc.abstractmethod
     def add_columns(
         self,
-        schema: Mapping[str, type | ColumnSpec],
+        schema: Mapping[str, TypeForm | ColumnSpec],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
         """
         Adds multiple columns to the table. The columns must be concrete (non-computed) columns; to add computed
         columns, use [`add_computed_column()`][pixeltable.catalog.Table.add_computed_column] instead.
 
-        The format of the `schema` argument is a dict mapping column names to their types.
+        The format of the `schema` argument is a dict mapping column names to their types. A bare type such as
+        `pxt.Int` declares a non-nullable column; use `pxt.Int | None` to allow nulls. Note that a column added
+        to a table that already has rows must be nullable.
 
         Args:
             schema: A dictionary mapping column names to a `type` or a [`ColumnSpec`][pixeltable.ColumnSpec] dict.
@@ -254,7 +256,7 @@ class Table(SchemaObject):
             Add multiple columns to the table `my_table`:
 
             >>> tbl = pxt.get_table('my_table')
-            ... schema = {'new_col_1': pxt.Int, 'new_col_2': pxt.String}
+            ... schema = {'new_col_1': pxt.Int | None, 'new_col_2': pxt.String | None}
             ... tbl.add_columns(schema)
 
             It is also possible to specify column metadata using a dict:
@@ -262,11 +264,11 @@ class Table(SchemaObject):
             >>> tbl = pxt.get_table('my_table')
             ... schema = {
             ...     'new_col_1': {
-            ...         'type': pxt.Image,
+            ...         'type': pxt.Image | None,
             ...         'stored': True,
             ...         'media_validation': 'on_write',
             ...     },
-            ...     'new_col_2': pxt.String,
+            ...     'new_col_2': pxt.String | None,
             ... }
             ... tbl.add_columns(schema)
         """
@@ -276,7 +278,7 @@ class Table(SchemaObject):
         self,
         *,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-        **kwargs: type | ColumnSpec,
+        **kwargs: TypeForm | ColumnSpec,
     ) -> UpdateStatus:
         """
         Adds an ordinary (non-computed) column to the table.
@@ -301,13 +303,13 @@ class Table(SchemaObject):
         Examples:
             Add an int column:
 
-            >>> tbl.add_column(new_col=pxt.Int)
+            >>> tbl.add_column(new_col=pxt.Int | None)
 
             Add a column with column metadata using a dict:
 
             >>> tbl.add_column(
             ...     img_col={
-            ...         'type': pxt.Image,
+            ...         'type': pxt.Image | None,
             ...         'stored': True,
             ...         'media_validation': 'on_write',
             ...     }
@@ -315,14 +317,14 @@ class Table(SchemaObject):
 
             Alternatively, adding a column can also be expressed using `add_columns`:
 
-            >>> tbl.add_columns({'new_col': pxt.Int})
+            >>> tbl.add_columns({'new_col': pxt.Int | None})
 
             As well as with column metadata:
 
             >>> tbl.add_columns(
             ...     {
             ...         'img_col': {
-            ...             'type': pxt.Image,
+            ...             'type': pxt.Image | None,
             ...             'stored': True,
             ...             'media_validation': 'on_write',
             ...         }
@@ -437,7 +439,7 @@ class Table(SchemaObject):
         """
 
     @abc.abstractmethod
-    def alter_column(self, column: str | ColumnRef, *, type_: type) -> None:
+    def alter_column(self, column: str | ColumnRef, *, type_: TypeForm) -> None:
         """Alter the type of a column.
 
         Currently, the only supported change is widening a non-computed column from non-nullable to
@@ -452,10 +454,10 @@ class Table(SchemaObject):
             current type, or if the change cannot be performed for any other reason.
 
         Examples:
-            Make a previously required column nullable:
+            Make a previously non-nullable column nullable:
 
-            >>> tbl = pxt.create_table('my_table', {'col': pxt.Required[pxt.String]})
-            ... tbl.alter_column('col', type_=pxt.String)
+            >>> tbl = pxt.create_table('my_table', {'col': pxt.String})
+            ... tbl.alter_column('col', type_=pxt.String | None)
         """
 
     @abc.abstractmethod
@@ -492,8 +494,8 @@ class Table(SchemaObject):
         Args:
             column: The name of, or reference to, the column to be indexed; must be a `String`, `Image`, `Audio`,
                 `Video`, `Document`, or `Array` column.
-            idx_name: An optional name for the index. If not specified, a name such as `'idx0'` will be generated
-                automatically. If specified, the name must be unique for this table and a valid pixeltable column name.
+            idx_name: An optional name for the index. If not specified, a unique name will be generated automatically.
+                If specified, the name must be unique for this table and a valid pixeltable column name.
                 When `idx_name` is omitted, duplicates are detected by the index definition (the embedding
                 function(s), `metric`, and `precision`) on the column: re-adding an index with an identical
                 definition is governed by `if_exists`.
@@ -569,6 +571,47 @@ class Table(SchemaObject):
         """
 
     @abc.abstractmethod
+    def add_btree_index(
+        self, column: str | ColumnRef, *, idx_name: str | None = None, if_exists: Literal['error', 'ignore'] = 'error'
+    ) -> None:
+        """
+        Add a B-tree index to the table. Once the index is created, it will be automatically kept up-to-date as new
+        rows are inserted into and existing rows are updated in the table.
+
+        A B-tree index accelerates equality and range comparisons (used in `where` clauses) and `order_by` on the
+        indexed column. Any non-boolean scalar column (`String`, `Int`, `Float`, `Timestamp`, `Date`) or non-computed
+        media column (`Image`, `Video`, `Audio`, `Document`) is supported; the index on a media column is over the
+        file URL. The column must be stored and, if a media column, must not be produced by a view iterator.
+
+        Only tables created with `has_default_idxs=False` (the default) accept explicit B-tree indexes. A table
+        created with `has_default_idxs=True` indexes its eligible columns automatically, and its B-tree indexes
+        cannot be managed separately from their respective columns.
+
+        Args:
+            column: The name of, or reference to, the column to be indexed; must be an indexable scalar or media
+                column (see above).
+            idx_name: An optional name for the index. If not specified, a unique name will be generated automatically.
+                If specified, the name must be unique for this table and a valid pixeltable column name.
+            if_exists: Directive for handling an existing B-tree index on the same column, or an existing index with
+                the same name. Must be one of `'error'`, `'ignore'`.
+
+        Raises:
+            Error: If the column already has a B-tree index and `if_exists='error'`, if `idx_name` is already in use
+                by another index, if the specified column does not exist, or if the column has a type that does not
+                support a B-tree index.
+
+        Examples:
+            Add an index to the `name` column of the table `my_table`:
+
+            >>> tbl = pxt.get_table('my_table')
+            >>> tbl.add_btree_index('name')
+
+            The column may also be specified by reference, and the index may be given an explicit name:
+
+            >>> tbl.add_btree_index(tbl.name, idx_name='name_idx')
+        """
+
+    @abc.abstractmethod
     def drop_embedding_index(
         self,
         *,
@@ -632,6 +675,9 @@ class Table(SchemaObject):
         Drop an index from the table. Either a column name or an index name (but not both) must be
         specified. If a column name or reference is specified, it must be a column containing exactly one index;
         otherwise the specific index name must be provided instead.
+
+        The B-tree indexes of a table created with `has_default_idxs=True` cannot be dropped: they are managed
+        automatically, together with the columns they index.
 
         Args:
             column: The name of, or reference to, the column from which to drop the index.
@@ -910,7 +956,7 @@ class Table(SchemaObject):
                 f'`where` argument must be a valid Pixeltable expression; got `{type(where)}`',
             )
 
-    def _validate_column_schema(self, schema: Mapping[str, type | ColumnSpec]) -> None:
+    def _validate_column_schema(self, schema: Mapping[str, TypeForm | ColumnSpec]) -> None:
         from .column import Column
 
         for name, spec in schema.items():

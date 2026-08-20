@@ -16,7 +16,7 @@ COMMANDS: dict[str, str] = {
     'columns': 'list columns across tables (optionally one)',
     'idxs': 'list indexes across tables (optionally one)',
     'rows': 'peek the first N rows of a table',
-    'get': 'look up a single row by primary key',
+    'get': 'look up a single table row by primary key',
     'count': 'count rows in a table',
     'status': 'show daemon/runtime state',
     'config': 'show resolved configuration: every documented setting, its value, and its source',
@@ -26,13 +26,15 @@ COMMANDS: dict[str, str] = {
     'rename': 'rename a table/view/dir in place',
     'mv': 'move a table/view/dir to a different directory',
     'revert': 'undo the last op(s) on a table',
-    'schema': 'create tables from a class-based schema file (schema update)',
+    'schema': 'reconcile a directory with a class-based schema file (diff/update/prune/example)',
     'shell': 'interactive REPL (avoids per-command Python startup)',
     'serve': 'run a user-defined HTTP service (insert/update/delete/query)',
-    'deploy': 'deploy a service to Pixeltable cloud',
     'daemon': 'control the daemon (start/stop/restart/status)',
     'localproxy': 'manage local proxy daemons (create/start/stop/delete)',
     'dashboard': 'print and open the dashboard URL',
+    'db': 'manage hosted databases (create/list/status/start/stop/update/update-runtime/delete)',
+    'service': 'manage hosted services (create/update/list/status/start/stop/delete)',
+    'org': 'manage organizations (list/status)',
 }
 
 

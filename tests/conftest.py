@@ -48,6 +48,18 @@ DO_RERUN: bool = True
 
 def pytest_addoption(parser: argparsing.Parser) -> None:
     parser.addoption('--no-rerun', action='store_true', default=False, help='Do not rerun any failed tests.')
+    parser.addoption(
+        '--cloud',
+        metavar='pxt://ORG:DB',
+        default=None,
+        help='Run tests against a cloud database, e.g. --cloud=pxt://pixeltable:clitest-e2e1',
+    )
+    parser.addoption(
+        '--keep-cloud-resources',
+        action='store_true',
+        default=False,
+        help='Leave the hosted database and service created by the cloud e2e tests in place, for inspection.',
+    )
 
 
 def pytest_configure(config: PytestConfig) -> None:
@@ -136,6 +148,10 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
     os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
     os.environ['PIXELTABLE_API_URL'] = 'https://preprod-internal-api.pixeltable.com'
     os.environ['FIFTYONE_DATABASE_DIR'] = f'{home_dir}/.fiftyone'
+    # Verbose logging, for this process and for every pixeltable process it spawns (the proxy daemon, the pxt CLI
+    # daemon)
+    os.environ['PIXELTABLE_LOG_LEVEL'] = 'DEBUG'
+    os.environ['PIXELTABLE_SQL_LOG_LEVEL'] = 'INFO'
     if IN_CI:
         # In CI, we use a separate Hugging Face cache directory for each worker since _clear_hf_caches()
         # deletes the cache between tests.
@@ -156,6 +172,8 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
         'FIFTYONE_DATABASE_DIR',
         'HF_HOME',
         'PIXELTABLE_DB_CONNECT_STR',
+        'PIXELTABLE_LOG_LEVEL',
+        'PIXELTABLE_SQL_LOG_LEVEL',
     ):
         print(f'{var:25} = {os.environ.get(var)}')
 
@@ -179,12 +197,10 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
     stdout_handler = logging.StreamHandler(stream=sys.stdout)
     stdout_handler.setFormatter(logging.Formatter(LOG_FMT_STR))
     pxt_logger = logging.getLogger('pixeltable')
-    pxt_logger.setLevel(logging.DEBUG)
     pxt_logger.addHandler(stdout_handler)
     test_logger = logging.getLogger('pixeltable_test')
     test_logger.setLevel(logging.DEBUG)
     test_logger.addHandler(stdout_handler)
-    logging.getLogger('sqlalchemy.engine').setLevel(logging.DEBUG)
 
     yield
     FileCache.get().validate()
@@ -273,7 +289,7 @@ def proxy_daemon_db(init_env: None, worker_id: str) -> Iterator[str]:
     from pixeltable.service import proxy_daemon
 
     db = _worker_db_name(worker_id)
-    proxy_daemon.start(db)
+    proxy_daemon.start(db, test_mode=True)
     try:
         yield db
     finally:
@@ -286,6 +302,8 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """Drive the catalog-backend axis: any test that (transitively) reaches catalog_mode runs against both
     'local' and 'proxy', unless marked @pytest.mark.local, in which case it runs 'local' only.
 
+    With --cloud, tests run against the cloud catalog instead of local/proxy.
+
     metafunc.fixturenames is the transitive fixture closure, so a test reaching make_catalog_path (directly
     or via an adapted fixture like test_tbl) auto-forks with no per-test boilerplate. Tests that touch neither
     catalog_mode nor make_catalog_path run once.
@@ -295,16 +313,19 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     if metafunc.definition.get_closest_marker('local') is not None:
         # local-only: don't fork the axis; catalog_mode defaults to 'local' and the nodeid stays unparametrized
         return
-    metafunc.parametrize('catalog_mode', ['local', 'proxy'], indirect=True)
+    if metafunc.config.getoption('--cloud', default=None) is not None:
+        metafunc.parametrize('catalog_mode', ['cloud'], indirect=True)
+    else:
+        metafunc.parametrize('catalog_mode', ['local', 'proxy'], indirect=True)
 
 
 @pytest.fixture(scope='function')
 def catalog_mode(request: pytest.FixtureRequest) -> CatalogMode:
-    """The catalog backend under test: 'local' (in-process) or 'proxy' (delegated to a local daemon).
+    """The catalog backend under test: 'local', 'proxy' (local daemon), or 'cloud' (cloud proxy via NLB).
 
-    The local/proxy axis is assigned by pytest_generate_tests(); a test marked @pytest.mark.local isn't
+    The axis is assigned by pytest_generate_tests(); a test marked @pytest.mark.local isn't
     parametrized and gets 'local' here. Request this alongside make_catalog_path() to gate assertions that only
-    make sense in one mode (e.g. inspecting the client-side LocalStore, which is empty over proxy).
+    make sense in one mode (e.g. inspecting the client-side LocalStore, which is empty over proxy/cloud).
     """
     return getattr(request, 'param', 'local')
 
@@ -330,12 +351,30 @@ def make_catalog_path(
 
         def p(path: str) -> str:
             return f'{prefix}/{path}' if path else prefix
+    elif catalog_mode == 'cloud':
+        import uuid as _uuid
+
+        db_uri = request.config.getoption('--cloud')
+        # If db_uri has a sub-path (e.g. pxt://org:db/tests), create it first.
+        uri_path = db_uri[len('pxt://') :].split('/', 1)
+        if len(uri_path) > 1 and uri_path[1]:
+            pxt.create_dir(db_uri, if_exists='ignore')
+        # Each test run gets its own namespace so tests don't collide.
+        run_id = _uuid.uuid4().hex[:8]
+        prefix = f'{db_uri}/test_{run_id}'
+        pxt.create_dir(prefix)
+
+        def p(path: str) -> str:
+            return f'{prefix}/{path}' if path else prefix
     else:
 
         def p(path: str) -> str:
             return path
 
     yield p
+
+    if catalog_mode == 'cloud':
+        pxt.drop_dir(prefix, force=True, if_not_exists='ignore')
 
     _validate_catalog_state()
 
@@ -384,6 +423,7 @@ def _clear_hf_caches() -> None:
                     'openai/clip-vit-base-patch32',
                     'intfloat/e5-large-v2',
                     'sentence-transformers/all-mpnet-base-v2',
+                    'sentence-transformers/all-MiniLM-L6-v2',
                 )
                 for revision in repo.revisions
             ]
@@ -472,8 +512,8 @@ def test_tbl_exprs(test_tbl: pxt.Table) -> list[exprs.Expr]:
         t.c8[0, 1:],
         t.c2.isin([1, 2, 3]),
         t.c2.isin(t.c6.f5),
-        t.c2.astype(pxt.Float),
-        (t.c2 + 1).astype(pxt.Float),
+        t.c2.astype(pxt.Float | None),
+        (t.c2 + 1).astype(pxt.Float | None),
         t.c2.apply(str),
         (t.c2 + 1).apply(str),
         t.c3.apply(str),

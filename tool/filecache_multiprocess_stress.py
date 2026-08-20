@@ -10,7 +10,7 @@ would surface as a worker exception (nonzero exit).
 Media is served from a local HTTP server so the run is self-contained and offline. An isolated temporary
 home (with its own embedded Postgres) is created and removed per run, so this never touches a real instance.
 
-    python scripts/filecache_multiprocess_stress.py [--procs 4] [--images 100] [--rows 25] [--rounds 20]
+    python tool/filecache_multiprocess_stress.py [--procs 4] [--images 100] [--rows 25] [--rounds 20]
 
 Exits 0 if every worker succeeded, 1 otherwise.
 """
@@ -104,7 +104,9 @@ def _worker(worker_id: int, port: int, n_images: int, rows: int, rounds: int, n_
     errors: list[Exception | None] = [None] * n_threads
     try:
         tbls = [
-            pxt.create_table(f'stress_{worker_id}_{thread_id}', {'idx': pxt.Int, 'img': pxt.Image}, if_exists='replace')
+            pxt.create_table(
+                f'stress_{worker_id}_{thread_id}', {'idx': pxt.Int | None, 'img': pxt.Image | None}, if_exists='replace'
+            )
             for thread_id in range(n_threads)
         ]
 

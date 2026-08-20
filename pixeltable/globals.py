@@ -10,6 +10,7 @@ from uuid import UUID
 import pandas as pd
 import pydantic
 from pandas.io.formats.style import Styler
+from typing_extensions import TypeForm
 
 from pixeltable import Query, catalog, exceptions as excs, exprs, func, type_system as ts
 from pixeltable.catalog import DirEntry, TablePath
@@ -55,12 +56,12 @@ def init(config_overrides: dict[str, Any] | None = None, additional_config_files
 
 def create_table(
     path: str,
-    schema: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None,
+    schema: Mapping[str, TypeForm | ColumnSpec | exprs.Expr] | None = None,
     *,
     source: TableDataSource | None = None,
     source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
     schema_overrides: dict[str, Any] | None = None,
-    create_default_idxs: bool = True,
+    has_default_idxs: bool = False,
     on_error: Literal['abort', 'ignore'] = 'abort',
     primary_key: str | list[str] | None = None,
     comment: str | None = None,
@@ -68,7 +69,7 @@ def create_table(
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     extra_args: dict[str, Any] | None = None,  # Additional arguments to data source provider
-    _is_versioned: bool = True,
+    _is_data_versioned: bool = True,
 ) -> catalog.Table:
     """Create a new base table. Exactly one of `schema` or `source` must be provided.
 
@@ -80,7 +81,8 @@ def create_table(
 
     Args:
         path: Pixeltable path (qualified name) of the table, such as `'my_table'` or `'my_dir/my_subdir/my_table'`.
-        schema: Schema for the new table, mapping column names to Pixeltable types.
+        schema: Schema for the new table, mapping column names to Pixeltable types. A bare type such as
+            `pxt.Int` declares a non-nullable column; use `pxt.Int | None` to allow nulls.
         source: A data source (file, URL, Table, Query, or list of rows) to import from.
         source_format: Must be used in conjunction with a `source`.
             If specified, then the given format will be used to read the source data. (Otherwise,
@@ -88,8 +90,9 @@ def create_table(
         schema_overrides: Must be used in conjunction with a `source`.
             If specified, then columns in `schema_overrides` will be given the specified types.
             (Pixeltable will attempt to infer the types of any columns not specified.)
-        create_default_idxs: If True, creates a B-tree index on every scalar and media column that is not computed,
-            except for boolean columns.
+        has_default_idxs: If `True`, creates a default B-tree index on each eligible column, including future
+            columns. Defaults to `False`; see [`Table.add_btree_index()`][pixeltable.Table.add_btree_index] for column
+            eligibility and for adding an index explicitly.
         on_error: Determines the behavior if an error occurs while evaluating a computed column or detecting an
             invalid media file (such as a corrupt image) for one of the inserted rows.
 
@@ -194,9 +197,7 @@ def create_table(
         if schema_overrides is not None:
             for col_name, py_type in schema_overrides.items():
                 try:
-                    src_schema_overrides[col_name] = ts.ColumnType.normalize_type(
-                        py_type, nullable_default=True, allow_builtin_types=False
-                    )
+                    src_schema_overrides[col_name] = ts.ColumnType.normalize_type(py_type, allow_builtin_types=False)
                 except excs.Error as e:
                     raise excs.RequestError(
                         excs.ErrorCode.INVALID_TYPE, f'Invalid type for schema_overrides[{col_name!r}]: {e.message}'
@@ -241,8 +242,8 @@ def create_table(
             comment=comment,
             custom_metadata=custom_metadata,
             media_validation=media_validation_,
-            create_default_idxs=create_default_idxs,
-            is_versioned=_is_versioned,
+            has_default_idxs=has_default_idxs,
+            is_data_versioned=_is_data_versioned,
         )
     )
 
@@ -287,9 +288,9 @@ def create_view(
     path: str,
     base: catalog.Table | Query,
     *,
-    additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None,
+    additional_columns: Mapping[str, TypeForm | ColumnSpec | exprs.Expr] | None = None,
     is_snapshot: bool = False,
-    create_default_idxs: bool = False,
+    has_default_idxs: bool = False,
     iterator: func.GeneratingFunctionCall | None = None,
     comment: str | None = None,
     custom_metadata: Any = None,
@@ -308,8 +309,9 @@ def create_view(
             [`create_table`][pixeltable.create_table].
         is_snapshot: Whether the view is a snapshot. Setting this to `True` is equivalent to calling
             [`create_snapshot`][pixeltable.create_snapshot].
-        create_default_idxs: Whether to create default indexes on the view's columns (the base's columns are excluded).
-            Cannot be `True` for snapshots.
+        has_default_idxs: If `True`, creates a default B-tree index on each eligible column of the view (the base's
+            columns are excluded). Cannot be `True` for snapshots. Defaults to `False`; see
+            [`Table.add_btree_index()`][pixeltable.Table.add_btree_index] for column eligibility.
         iterator: The iterator to use for this view. If specified, then this view will be a one-to-many view of
             the base table.
         comment: Optional comment for the view.
@@ -361,7 +363,7 @@ def create_view(
         ...     'my_view', tbl.where(tbl.col1 > 100), if_exists='replace_force'
         ... )
     """
-    if is_snapshot and create_default_idxs is True:
+    if is_snapshot and has_default_idxs is True:
         raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot create default indexes on a snapshot')
     tbl_path: TablePath
     select_list: list[tuple[exprs.Expr, str | None]] | None = None
@@ -384,7 +386,7 @@ def create_view(
         raise excs.RequestError(excs.ErrorCode.TYPE_MISMATCH, '`base` must be an instance of `Table` or `Query`')
     assert isinstance(base, (catalog.Table, Query))
 
-    # assert tbl_version_path.is_versioned(), 'TODO: implement for unversioned tables [PXT-1101]'
+    assert tbl_path.is_data_versioned(), 'TODO: implement for operational tables [PXT-1101]'
 
     path_obj = catalog.Path.parse(path)
     if tbl_path.catalog_uri != path_obj.catalog_uri:
@@ -437,7 +439,7 @@ def create_view(
             sample_clause=sample_clause,
             additional_columns=additional_columns,
             is_snapshot=is_snapshot,
-            create_default_idxs=create_default_idxs,
+            has_default_idxs=has_default_idxs,
             iterator=iterator,
             comment=comment,
             custom_metadata=custom_metadata,
@@ -460,7 +462,7 @@ def create_snapshot(
     path_str: str,
     base: catalog.Table | Query,
     *,
-    additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None,
+    additional_columns: Mapping[str, TypeForm | ColumnSpec | exprs.Expr] | None = None,
     iterator: func.GeneratingFunctionCall | None = None,
     comment: str | None = None,
     custom_metadata: Any = None,
