@@ -27,6 +27,7 @@ from .utils import (
     schema_from_tbl_md,
     skip_test_if_not_installed,
     validate_update_status,
+    versioned_and_operational,
 )
 
 
@@ -410,54 +411,6 @@ class TestTableModel:
             r'\s*has_default_idxs: model=False, existing=True'
         ):
             TableModelV3.diff_all(root)
-
-    def test_operational_table_model(self, make_catalog_path: Callable[[str], str]) -> None:
-        """A model can declare an operational table, and update_all() can evolve its schema."""
-        p = make_catalog_path
-        root = p('')
-        TableModel = pxt.model_base()
-
-        class Events(TableModel, name='events', _is_data_versioned=False):
-            id: pxt.Int
-            name: pxt.String | None
-            upper = name.upper()  # computed column
-
-            __indexes__ = [BtreeIndex(name)]
-
-        TableModel.create_all(root)
-        tbl = Events.table
-        assert tbl.get_metadata()['is_data_versioned'] is False
-        assert btree_idxs(tbl) == {'idx0': 'name'}
-        validate_update_status(Events.insert([{'id': i, 'name': f'n{i}'} for i in range(3)]), 3)
-        assert tbl.order_by(tbl.id).collect()['upper'] == ['N0', 'N1', 'N2']
-
-        # add a column, add an index, drop a column, drop an index -- all in a single update_all()
-        TableModelV2 = pxt.model_base()
-
-        class EventsV2(TableModelV2, name='events', _is_data_versioned=False):
-            id: pxt.Int
-            name: pxt.String | None
-            extra: pxt.Int | None
-            doubled = id * 2  # computed column, backfilled over the existing rows
-
-            __indexes__ = [BtreeIndex(id)]
-
-        assert TableModelV2.get_model_diff(root)['events']['resolution'] == 'update_destructive'
-        TableModelV2.update_all(root, allow_destructive=True)
-        assert TableModelV2.get_model_diff(root)['events']['resolution'] == 'up_to_date'
-
-        assert list(tbl.get_metadata()['columns']) == ['id', 'name', 'extra', 'doubled']
-        assert btree_idxs(tbl) == {'idx0': 'id'}
-        rows = tbl.order_by(tbl.id).collect()
-        assert rows['doubled'] == [0, 2, 4]
-        assert rows['extra'] == [None] * 3
-
-        reload_catalog()
-        tbl = pxt.get_table(p('events'))
-        assert list(tbl.get_metadata()['columns']) == ['id', 'name', 'extra', 'doubled']
-        assert btree_idxs(tbl) == {'idx0': 'id'}
-        validate_update_status(tbl.insert([{'id': 3, 'name': 'n3', 'extra': 7}]), 1)
-        assert tbl.where(tbl.id == 3).collect()['doubled'] == [6]
 
     def test_operational_table_model_diff(self, make_catalog_path: Callable[[str], str]) -> None:
         """There is no conversion between the two table kinds, so a mismatched model is unsupported."""
@@ -1575,7 +1528,8 @@ class TestTableModel:
         ):
             TableModelV2.update_all(root)
 
-    def test_update_all(self, make_catalog_path: Callable[[str], str]) -> None:
+    @versioned_and_operational
+    def test_update_all(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         """`update_all()` applies purely additive changes (new columns and indexes) to existing tables."""
         skip_test_if_not_installed('imagehash')
 
@@ -1584,24 +1538,26 @@ class TestTableModel:
 
         TableModel = pxt.model_base()
 
-        class ExampleTable(TableModel, name='test_table'):
+        class ExampleTable(TableModel, name='test_table', _is_data_versioned=is_data_versioned):
             id: pxt.Int
             value: pxt.Float | None
             image: pxt.Image | None
 
             __indexes__ = [EmbeddingIndex(image, embedding=dummy_embedding.using(n=768), name='embed_a')]
 
-        class ExampleView(TableModel, name='test_view', base=ExampleTable):
-            vc1 = ExampleTable.value + 1
+        if is_data_versioned:
 
-        class ExampleQueryView(
-            TableModel,
-            name='test_query_view',
-            base=ExampleTable.select(ExampleTable.id, ExampleTable.value, plusone=(ExampleTable.value + 1))
-            .where(ExampleTable.value > 0.5)
-            .sample(n=10, seed=1),
-        ):
-            fc1 = ExampleTable.id + 1
+            class ExampleView(TableModel, name='test_view', base=ExampleTable):
+                vc1 = ExampleTable.value + 1
+
+            class ExampleQueryView(
+                TableModel,
+                name='test_query_view',
+                base=ExampleTable.select(ExampleTable.id, ExampleTable.value, plusone=(ExampleTable.value + 1))
+                .where(ExampleTable.value > 0.5)
+                .sample(n=10, seed=1),
+            ):
+                fc1 = ExampleTable.id + 1
 
         TableModel.create_all(root)
 
@@ -1612,7 +1568,7 @@ class TestTableModel:
         # embedding/b-tree indexes on the table, new columns on the views. No drops, no kind/iterator mismatch.
         TableModelV2 = pxt.model_base()
 
-        class ExampleTableV2(TableModelV2, name='test_table'):
+        class ExampleTableV2(TableModelV2, name='test_table', _is_data_versioned=is_data_versioned):
             id: pxt.Int
             value: pxt.Float | None
             image: pxt.Image | None
@@ -1629,25 +1585,27 @@ class TestTableModel:
                 BtreeIndex(id),  # new
             ]
 
-        class ExampleViewV2(TableModelV2, name='test_view', base=ExampleTableV2):
-            vc1 = ExampleTableV2.value + 1
-            vc2 = ExampleTableV2.value + 2  # new column
-            plus_twenty = ExampleTableV2.plus_ten + 10  # new column that depends on a new column of the base table
+        if is_data_versioned:
 
-        class ExampleQueryViewV2(
-            TableModelV2,
-            name='test_query_view',
-            base=ExampleTableV2.select(
-                ExampleTableV2.id,
-                ExampleTableV2.value,
-                ExampleTableV2.note,
-                plusone=(ExampleTableV2.value + 1),
-                plustwo=(ExampleTableV2.value + 2),
-            )
-            .where(ExampleTableV2.value > 0.5)
-            .sample(n=10, seed=1),
-        ):
-            fc1 = ExampleTableV2.id + 1
+            class ExampleViewV2(TableModelV2, name='test_view', base=ExampleTableV2):
+                vc1 = ExampleTableV2.value + 1
+                vc2 = ExampleTableV2.value + 2  # new column
+                plus_twenty = ExampleTableV2.plus_ten + 10  # new column depending on a new base-table column
+
+            class ExampleQueryViewV2(
+                TableModelV2,
+                name='test_query_view',
+                base=ExampleTableV2.select(
+                    ExampleTableV2.id,
+                    ExampleTableV2.value,
+                    ExampleTableV2.note,
+                    plusone=(ExampleTableV2.value + 1),
+                    plustwo=(ExampleTableV2.value + 2),
+                )
+                .where(ExampleTableV2.value > 0.5)
+                .sample(n=10, seed=1),
+            ):
+                fc1 = ExampleTableV2.id + 1
 
         # Purely additive, so no `allow_destructive` needed.
         TableModelV2.update_all(root)
@@ -1659,7 +1617,8 @@ class TestTableModel:
         assert set(tbl_md['indexes'].keys()) == {'embed_a', 'embed_b', 'embed_c', 'idx0'}
         assert tbl_md['indexes']['idx0']['index_type'] == 'btree'
         assert tbl_md['indexes']['idx0']['columns'] == ['id']
-        assert 'vc2' in ExampleViewV2.get_metadata()['columns']
+        if is_data_versioned:
+            assert 'vc2' in ExampleViewV2.get_metadata()['columns']
 
         # The new computed column is backfilled for the existing rows.
         tbl = ExampleTableV2.table
@@ -1670,7 +1629,7 @@ class TestTableModel:
         # (`plus_*`, `note`, `vc1`) have no dependents, so the only obstacle is that dropping is destructive.
         TableModelV3 = pxt.model_base()
 
-        class ExampleTableV3(TableModelV3, name='test_table'):
+        class ExampleTableV3(TableModelV3, name='test_table', _is_data_versioned=is_data_versioned):
             id: pxt.Int
             value: pxt.Float | None
             image: pxt.Image | None
@@ -1681,20 +1640,22 @@ class TestTableModel:
             __indexes__ = [EmbeddingIndex(image, embedding=dummy_embedding.using(n=512), name='embed_b')]
             # embed_a, embed_c, and idx0 are dropped
 
-        class ExampleViewV3(TableModelV3, name='test_view', base=ExampleTableV3):
-            vc2 = ExampleTableV3.value + 2  # kept
-            vc3 = ExampleTableV3.value + 3  # added
-            # 'vc1' dropped
+        if is_data_versioned:
 
-        class ExampleQueryViewV3(
-            TableModelV3,
-            name='test_query_view',
-            # 'note' and 'plusone' dropped from the query
-            base=ExampleTableV3.select(ExampleTableV3.id, ExampleTableV3.value, plustwo=(ExampleTableV3.value + 2))
-            .where(ExampleTableV3.value > 0.5)
-            .sample(n=10, seed=1),
-        ):
-            fc1 = ExampleTableV3.id + 1
+            class ExampleViewV3(TableModelV3, name='test_view', base=ExampleTableV3):
+                vc2 = ExampleTableV3.value + 2  # kept
+                vc3 = ExampleTableV3.value + 3  # added
+                # 'vc1' dropped
+
+            class ExampleQueryViewV3(
+                TableModelV3,
+                name='test_query_view',
+                # 'note' and 'plusone' dropped from the query
+                base=ExampleTableV3.select(ExampleTableV3.id, ExampleTableV3.value, plustwo=(ExampleTableV3.value + 2))
+                .where(ExampleTableV3.value > 0.5)
+                .sample(n=10, seed=1),
+            ):
+                fc1 = ExampleTableV3.id + 1
 
         # Refuses without opt-in, since columns are being dropped.
         with pxt_raises(excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE, match='destructive'):
@@ -1707,8 +1668,9 @@ class TestTableModel:
         assert {'doubled', 'label'} <= set(tbl_md['columns'].keys())
         assert not ({'plus_ten', 'note'} & set(tbl_md['columns'].keys()))
         assert set(tbl_md['indexes'].keys()) == {'embed_b'}
-        view_md = ExampleViewV3.get_metadata()
-        assert 'vc3' in view_md['columns'] and 'vc1' not in view_md['columns']
+        if is_data_versioned:
+            view_md = ExampleViewV3.get_metadata()
+            assert 'vc3' in view_md['columns'] and 'vc1' not in view_md['columns']
 
         # Try inserting something at the end of all the updates.
         images = get_image_files()
@@ -1718,10 +1680,27 @@ class TestTableModel:
         ]
         ExampleTableV3.insert(rows)
 
-        # the sample view guarantees no row order, so order the query rather than the result
-        v = ExampleQueryViewV3
-        res = v.order_by(v.plustwo).collect()
-        assert res['plustwo'] == [3.0, 4.0, 5.0, 6.0]
+        if is_data_versioned:
+            # the sample view guarantees no row order, so order the query rather than the result
+            v = ExampleQueryViewV3
+            res = v.order_by(v.plustwo).collect()
+            assert res['plustwo'] == [3.0, 4.0, 5.0, 6.0]
+        else:
+            tbl = ExampleTableV3.table
+            res = tbl.order_by(tbl.id).select(tbl.id, tbl.doubled).collect()
+            assert res['doubled'] == [2.0, 4.0, 6.0, 8.0]
+
+        # The schema and data survive a catalog reload, and the table stays writable.
+        reload_catalog()
+        tbl = pxt.get_table(p('test_table'))
+        assert tbl.get_metadata()['is_data_versioned'] == is_data_versioned
+        assert {'doubled', 'label'} <= set(tbl.get_metadata()['columns'].keys())
+        # a data-versioned insert also cascades into the two views
+        expected_rows = 3 if is_data_versioned else 1
+        validate_update_status(
+            tbl.insert([{'id': 5, 'value': 5.0, 'image': images[0], 'label': 'five'}]), expected_rows
+        )
+        assert tbl.where(tbl.id == 5).collect()['doubled'] == [10.0]
 
     def test_update_all_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """`update_all()` raises an error if a model's schema is inconsistent with the existing table."""
