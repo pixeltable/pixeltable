@@ -170,8 +170,10 @@ class DatabaseConfig(pydantic.BaseModel):
 
     model_config = pydantic.ConfigDict(extra='forbid')
 
-    include: list[str] | None = None
-    exclude: list[str] | None = None
+    exclude: list[str] | None = None  # glob patterns to exclude from the bundle
+    include: list[str] | None = None  # glob patterns to explicitly include (overrides exclude or .gitignore)
+    include_only: list[str] | None = None  # glob patterns to include as the *only* files in the bundle
+    # (must be used independently of exclude/include)
     system_dependencies: list[str] | None = None
     # Override the runtime Python version.
     python_version: str | None = None

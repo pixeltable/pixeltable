@@ -125,9 +125,9 @@ class TestTable:
         tbl = pxt.create_table(p('test'), schema)
         _ = pxt.create_table(p('dir1/test'), schema)
 
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Invalid path: 1test'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*1test'):
             pxt.create_table(p('1test'), schema)
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Invalid path: bad name'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*bad name'):
             pxt.create_table(p('bad name'), {'c1': pxt.String | None})
         with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Versioned path not allowed here: .*test:120'):
             pxt.create_table(p('test:120'), schema)
@@ -139,7 +139,7 @@ class TestTable:
         _ = pxt.list_tables(p(''))
         _ = pxt.list_tables(p('dir1'))
 
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Invalid path: 1dir'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*1dir'):
             pxt.list_tables(p('1dir'))
         with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
             pxt.list_tables(p('dir2'))
@@ -163,11 +163,11 @@ class TestTable:
         pxt.create_dir(p('hyphenated-dir'))
         _ = pxt.create_table(p('hyphenated-dir/hyphenated-table'), schema)
 
-        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match="Path 'test' does not exist"):
+        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match=r"Path '.*test' does not exist"):
             pxt.drop_table(p('test'))
-        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match=r"Path 'dir1/test2' does not exist"):
+        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match=r"Path '.*dir1/test2' does not exist"):
             pxt.drop_table(p('dir1/test2'))
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .test2'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*\.test2'):
             pxt.drop_table(p('.test2'))
         with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Versioned path not allowed here: .*test2:120'):
             pxt.drop_table(p('test2:120'))
@@ -280,14 +280,14 @@ class TestTable:
         pxt.create_table(p('tbl3'), {'c1': pxt.Int | None})
         assert sorted(pxt.list_tables(p(''))) == sorted([p('tbl2'), p('tbl3')])
 
-        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match=r"Path 'tbl3' already exists."):
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match=r"Path '.*tbl3' already exists."):
             pxt.move(p('tbl2'), p('tbl3'))
         assert sorted(pxt.list_tables(p(''))) == sorted([p('tbl2'), p('tbl3')])
 
         pxt.move(p('tbl2'), p('tbl3'), if_exists='ignore')
         assert sorted(pxt.list_tables(p(''))) == sorted([p('tbl2'), p('tbl3')])
 
-        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match=r"Path 'tbl1' does not exist."):
+        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match=r"Path '.*tbl1' does not exist."):
             pxt.move(p('tbl1'), p('tbl4'))
         assert sorted(pxt.list_tables(p(''))) == sorted([p('tbl2'), p('tbl3')])
 
@@ -3908,6 +3908,11 @@ class TestTable:
         catalog_mode: CatalogMode,
     ) -> None:
         p = make_catalog_path
+
+        def loc(path: str) -> str:
+            """Localized version of p(path), without the pxt://org:db/ prefix"""
+            return pxt.catalog.Path.localize(p(path))
+
         validate_repr(
             test_tbl,
             f"""
@@ -3930,7 +3935,7 @@ class TestTable:
         validate_repr(
             v,
             f"""
-            view '{p('test_view')}' (of 'test_tbl')
+            view '{p('test_view')}' (of '{loc('test_tbl')}')
 
              Column Name                  Type    Source           Computed With                      Comment
             -------------------------------------------------------------------------------------------------
@@ -3952,7 +3957,7 @@ class TestTable:
         validate_repr(
             v2,
             f"""
-            view '{p('test_subview')}' (of 'test_view', 'test_tbl')
+            view '{p('test_subview')}' (of '{loc('test_view')}', '{loc('test_tbl')}')
             Where: ~(c1 == None)
 
              Column Name                  Type        Source           Computed With                      Comment
@@ -3981,7 +3986,7 @@ class TestTable:
         validate_repr(
             s1,
             f"""
-            snapshot '{p('test_snap1')}' (of 'test_subview:2', 'test_view:0', 'test_tbl:2')
+            snapshot '{p('test_snap1')}' (of '{loc('test_subview:2')}', '{loc('test_view:0')}', '{loc('test_tbl:2')}')
             Where: ~(c1 == None)
 
              Column Name                  Type        Source           Computed With                      Comment
@@ -4006,7 +4011,7 @@ class TestTable:
         validate_repr(
             s2,
             f"""
-            snapshot '{p('test_snap2')}' (of 'test_tbl:2')
+            snapshot '{p('test_snap2')}' (of '{loc('test_tbl:2')}')
 
              Column Name                  Type    Source           Computed With                      Comment
             -------------------------------------------------------------------------------------------------
@@ -4026,7 +4031,7 @@ class TestTable:
         validate_repr(
             s3,
             f"""
-            snapshot '{p('test_snap3')}' (of 'test_tbl:2')
+            snapshot '{p('test_snap3')}' (of '{loc('test_tbl:2')}')
 
              Column Name                  Type      Source           Computed With                      Comment
             ---------------------------------------------------------------------------------------------------
@@ -4065,8 +4070,8 @@ class TestTable:
         iterator_view_1 = pxt.create_view(p('iterator_view_1'), s1, iterator=DummyIterator(s1.c2))
         validate_repr(
             iterator_view_1,
-            """
-            view 'iterator_view_1' (of 'test_subview:2', 'test_view:0', 'test_tbl:2')
+            f"""
+            view 'iterator_view_1' (of '{loc('test_subview:2')}', '{loc('test_view:0')}', '{loc('test_tbl:2')}')
 
              Column Name                  Type           Source           Computed With                      Comment
             --------------------------------------------------------------------------------------------------------
@@ -4096,8 +4101,8 @@ class TestTable:
         iterator_view_2.add_computed_column(iterator_view_2_col_2=stock_price(iterator_view_2.iterator_view_2_col_1))
         validate_repr(
             iterator_view_2,
-            """
-            view 'iterator_view_2' (of 'iterator_view_1', 'test_subview:2', 'test_view:0', 'test_tbl:2')
+            f"""
+            view 'iterator_view_2' (of '{loc('iterator_view_1')}', '{loc('test_subview:2')}', '{loc('test_view:0')}', '{loc('test_tbl:2')}')
 
                         Column Name                  Type           Source                       Computed With                      Comment
             -------------------------------------------------------------------------------------------------------------------------------
@@ -4237,31 +4242,28 @@ class TestTable:
 
         with pxt_raises(
             pxt.ErrorCode.UNSUPPORTED_OPERATION,
-            match="Cannot drop column 'c1' because the following views depend on it",
-        ) as e:
+            match=r"Cannot drop column 'c1' because the following views depend on it:\n"
+            r'view: .*view1, predicate: c1 % 2 == 0\n'
+            r'view: .*view2, predicate: \(c1 \+ vc1\) % 2 == 0\n'
+            r'view: .*view3, predicate: \(\(vc1 \+ vc2\) - \(c1 \+ c2\)\) % 5 == 0',
+        ):
             t.drop_column('c1')
 
-        assert 'view: view1, predicate: c1 % 2 == 0' in str(e.value).lower()
-        assert 'view: view2, predicate: (c1 + vc1) % 2 == 0' in str(e.value).lower()
-        assert 'view: view3, predicate: ((vc1 + vc2) - (c1 + c2)) % 5 == 0' in str(e.value).lower()
-
         with pxt_raises(
             pxt.ErrorCode.UNSUPPORTED_OPERATION,
-            match="Cannot drop column 'c2' because the following views depend on it",
-        ) as e:
+            match=r"Cannot drop column 'c2' because the following views depend on it:\n"
+            r'view: .*view3, predicate: \(\(vc1 \+ vc2\) - \(c1 \+ c2\)\) % 5 == 0\n'
+            r'view: .*view4, predicate: c2 / vc3 < 19',
+        ):
             t.drop_column('c2')
 
-        assert 'view: view3, predicate: ((vc1 + vc2) - (c1 + c2)) % 5 == 0' in str(e.value).lower()
-        assert 'view: view4, predicate: c2 / vc3 < 19' in str(e.value).lower()
-
         with pxt_raises(
             pxt.ErrorCode.UNSUPPORTED_OPERATION,
-            match="Cannot drop column 'vc1' because the following views depend on it",
-        ) as e:
+            match=r"Cannot drop column 'vc1' because the following views depend on it:\n"
+            r'view: .*view2, predicate: \(c1 \+ vc1\) % 2 == 0\n'
+            r'view: .*view3, predicate: \(\(vc1 \+ vc2\) - \(c1 \+ c2\)\) % 5 == 0',
+        ):
             v1.drop_column('vc1')
-
-        assert 'view: view2, predicate: (c1 + vc1) % 2 == 0' in str(e.value).lower()
-        assert 'view: view3, predicate: ((vc1 + vc2) - (c1 + c2)) % 5 == 0' in str(e.value).lower()
 
     def test_drop_last_column(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
         p = make_catalog_path
