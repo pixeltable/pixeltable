@@ -33,6 +33,10 @@ _XACT_ISOLATION_LEVEL = 'REPEATABLE READ'
 
 # run_coro() runs one coroutine at a time, on a thread with an event loop that outlives the single call
 _N_RUN_CORO_WORKERS = 1
+_RUN_CORO_THREAD_PREFIX = 'pxt-run-coro'
+
+# how long close_threadpool_runtimes() waits for a worker
+_TEARDOWN_TIMEOUT_S = 30.0
 
 _T = TypeVar('_T')
 
@@ -216,7 +220,18 @@ class Runtime:
         self._clients.clear()
 
     def close(self) -> None:
-        """Close this runtime's clients, and the event loop if this runtime created it."""
+        """Close this runtime's clients and the runtimes of its run_coro() threads, plus the event loop if this
+        runtime created it."""
+        # close_threadpool_runtimes() submits to the executor and waits, which deadlocks when the caller is one of
+        # its own workers; a worker closes the runtime it created for itself, never this one
+        if self._run_coro_executor is not None and not threading.current_thread().name.startswith(
+            _RUN_CORO_THREAD_PREFIX
+        ):
+            executor = self._run_coro_executor
+            self._run_coro_executor = None
+            close_threadpool_runtimes(executor, _N_RUN_CORO_WORKERS)
+            executor.shutdown(wait=True)
+
         loop = self._event_loop
         self._event_loop = None
 
@@ -255,7 +270,9 @@ class Runtime:
     def run_coro(self, coro: Coroutine[Any, Any, _T]) -> _T:
         """Run a coroutine synchronously in a separate thread with its own persistent event loop."""
         if self._run_coro_executor is None:
-            self._run_coro_executor = concurrent.futures.ThreadPoolExecutor(max_workers=_N_RUN_CORO_WORKERS)
+            self._run_coro_executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=_N_RUN_CORO_WORKERS, thread_name_prefix=_RUN_CORO_THREAD_PREFIX
+            )
 
         def run(coro: Coroutine[Any, Any, _T]) -> _T:
             # this runs in the _run_coro_executor's thread, with its own Runtime instance
@@ -360,6 +377,8 @@ def close_threadpool_runtimes(executor: concurrent.futures.ThreadPoolExecutor, n
     A worker thread that ran Pixeltable calls has a Runtime of its own, with an event loop and clients that
     only that thread can close; ending the thread leaves them for GC. Returns once every worker has closed
     its runtime, which for a busy one is after it finishes the work it is running.
+
+    Waits at most _TEARDOWN_TIMEOUT_S per step.
     """
     # one task per worker slot, each waiting at the barrier until all of them run:
     # - no thread can take a second task, so the calls land on n_workers distinct threads.
@@ -369,12 +388,19 @@ def close_threadpool_runtimes(executor: concurrent.futures.ThreadPoolExecutor, n
     barrier = threading.Barrier(n_workers)
 
     def close_runtime() -> None:
-        barrier.wait()
+        try:
+            barrier.wait(timeout=_TEARDOWN_TIMEOUT_S)
+        except threading.BrokenBarrierError:
+            # the first timeout breaks the barrier for every waiter, so the others stop waiting here too
+            _logger.debug('Timed out waiting for the other workers of %r', executor)
         get_runtime().close()
 
     futures = [executor.submit(close_runtime) for _ in range(n_workers)]
     for future in futures:
-        future.result()
+        try:
+            future.result(timeout=_TEARDOWN_TIMEOUT_S)
+        except concurrent.futures.TimeoutError:
+            _logger.debug('Worker of %r did not close its runtime within %ss', executor, _TEARDOWN_TIMEOUT_S)
 
 
 def reset_runtime() -> None:
@@ -391,9 +417,5 @@ def reset_runtime() -> None:
             # Invalidate all existing TableVersion instances to force reloading of metadata,
             for tbl_version in local_catalog._tbl_versions.values():
                 tbl_version.is_validated = False
-        if runtime._run_coro_executor is not None:
-            close_threadpool_runtimes(runtime._run_coro_executor, _N_RUN_CORO_WORKERS)
-            runtime._run_coro_executor.shutdown(wait=True)
-            runtime._run_coro_executor = None
         runtime.close()
     _thread_local.runtime = Runtime()

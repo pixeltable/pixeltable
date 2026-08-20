@@ -153,19 +153,17 @@ class ExecNode(abc.ABC):
                 async for batch in aiter(self):
                     result_queue.put(batch)
 
-            try:
-                # asyncio.Runner gives this thread the same loop teardown that asyncio.run() performs
-                with asyncio.Runner() as runner:
-                    try:
-                        runner.run(produce())
-                        result_queue.put(ExecNode._THREAD_QUEUE_SENTINEL)
-                    except BaseException as e:
-                        result_queue.put(e)
-                    finally:
-                        # the clients are bound to this loop, so they have to be closed while it is open
-                        runner.run(thread_runtime.close_clients())
-            finally:
-                telemetry.exit_context(hooks_token)
+            # asyncio.Runner gives this thread the same loop teardown that asyncio.run() performs
+            with asyncio.Runner() as runner:
+                try:
+                    runner.run(produce())
+                    result_queue.put(ExecNode._THREAD_QUEUE_SENTINEL)
+                except BaseException as e:
+                    result_queue.put(e)
+                finally:
+                    # the clients are bound to this loop, so they have to be closed while it is open
+                    runner.run(thread_runtime.close_clients())
+                    telemetry.exit_context(hooks_token)
 
         thread = threading.Thread(target=run, daemon=True)
         thread.start()

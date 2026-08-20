@@ -376,6 +376,9 @@ class FastAPIRouter(fastapi.APIRouter):
             return
         self._is_shut_down = True
         if len(self._jobs) > 0:
+            # cancel what we can, to speed up close_threadpool_runtimes()
+            for job in list(self._jobs.values()):
+                job.cancel()
             # a background job ran, so a worker thread has a runtime to close; the calls queue behind the
             # in-flight requests, so that the loops and clients are closed only after workers stop using them
             close_threadpool_runtimes(self._executor, _N_BACKGROUND_WORKERS)
