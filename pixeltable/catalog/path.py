@@ -91,7 +91,11 @@ class Path:
 
         if len(components) == 0 and not allow_empty_path:
             raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path: {path}')
-        # component identifier validation is enforced by __post_init__ at construction
+        # validate components here (before calling __post_init__) so that if validation fails, the error message
+        # exactly matches the input
+        if not all(is_valid_identifier(c, allow_hyphens=True) for c in components):
+            raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path: {path}')
+
         if version is not None and not allow_versioned_path:
             raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Versioned path not allowed here: {path}')
 
@@ -102,6 +106,12 @@ class Path:
         cls, components: tuple[str, ...], *, version: int | None = None, org: str | None = None, db: str | None = None
     ) -> Path:
         return cls(org=org, db=db, components=tuple(components), version=version)
+
+    @classmethod
+    def localize(cls, path: str) -> str:
+        """Remove the pxt://org:db/ prefix from a path (if present)."""
+        p = Path.parse(path, allow_empty_path=True, allow_versioned_path=True)
+        return str(Path(components=p.components, version=p.version))
 
     @classmethod
     def _normalize(cls, s: str) -> str:
