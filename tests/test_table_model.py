@@ -541,11 +541,12 @@ class TestTableModel:
 
         assert btree_idxs(Defaults.table) == {'idx0': 'txt'}
 
-    def test_all_table_exprs(self, make_catalog_path: Callable[[str], str]) -> None:
+    @versioned_and_operational
+    def test_all_table_exprs(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
         TableModel = pxt.model_base()
 
-        class AllExprsTableModel(TableModel, name='all_exprs_table'):
+        class AllExprsTableModel(TableModel, name='all_exprs_table', _is_data_versioned=is_data_versioned):
             id: pxt.Int | None
             name: pxt.String | None
             value: pxt.Float | None
@@ -589,6 +590,7 @@ class TestTableModel:
                 'arr': pxt.Array | None,
                 'img': pxt.Image | None,
             },
+            _is_data_versioned=is_data_versioned,
         )
         tbl2.add_computed_column(arith_add=tbl2.value + 1)
         tbl2.add_computed_column(arith_radd=1 + tbl2.value)
