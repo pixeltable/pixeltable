@@ -23,19 +23,19 @@ class TestDirs:
         # the created dirs are verified to exist at the expected paths by the get_dir_contents checks below
 
         # invalid names
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Invalid path: 1dir'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*1dir'):
             pxt.create_dir(p('1dir'))
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Invalid path: _dir1'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*_dir1'):
             pxt.create_dir(p('_dir1'))
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Invalid path: dir 1'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*dir 1'):
             pxt.create_dir(p('dir 1'))
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: dir1..sub2'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*dir1..sub2'):
             pxt.create_dir(p('dir1..sub2'))
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: dir1.sub2.'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*dir1.sub2.'):
             pxt.create_dir(p('dir1.sub2.'))
         with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*dir1:sub2.'):
             pxt.create_dir(p('dir1:sub2.'))
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Versioned path not allowed here: .*dir1:120'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Versioned path not allowed here: .*dir1:120'):
             pxt.create_dir(p('dir1:120'))
 
         # existing dirs raise error by default
@@ -54,7 +54,7 @@ class TestDirs:
         with pxt_raises(pxt.ErrorCode.DIRECTORY_NOT_FOUND, match=r'does not exist. Create it first with:'):
             pxt.create_dir(p('dir2/sub2'))
         make_tbl(p('t2'))
-        with pxt_raises(pxt.ErrorCode.DIRECTORY_NOT_FOUND, match="Directory 't2' does not exist"):
+        with pxt_raises(pxt.ErrorCode.DIRECTORY_NOT_FOUND, match=r"Directory '.*t2' does not exist"):
             pxt.create_dir(p('t2/sub2'))
 
         # new client: force loading from store
@@ -215,12 +215,12 @@ class TestDirs:
         make_tbl(p('dir1/t1'))
 
         # bad name
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Invalid path: 1dir'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*1dir'):
             pxt.drop_dir(p('1dir'))
         # bad path
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: dir1..sub1'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*dir1..sub1'):
             pxt.drop_dir(p('dir1..sub1'))
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Versioned path not allowed here: .*dir1:120'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Versioned path not allowed here: .*dir1:120'):
             pxt.drop_dir(p('dir1:120'))
         # doesn't exist
         self._test_drop_if_not_exists(p, 'dir2')
