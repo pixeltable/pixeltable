@@ -3,8 +3,9 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 
+from ..conftest import SampleFileServer
 from ..utils import (
-    SAMPLE_IMAGE_URL,
+    SAMPLE_IMAGE_FILE_PATH,
     rerun_on_network_error,
     skip_test_if_no_client,
     skip_test_if_not_installed,
@@ -34,7 +35,7 @@ class TestNebius:
         result = t.collect()
         assert 'paris' in result['chat_output'][0]['choices'][0]['message']['content'].lower()
 
-    def test_vision(self, uses_db: None) -> None:
+    def test_vision(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('nebius')
         from pixeltable.functions.nebius import chat_completions
@@ -51,7 +52,7 @@ class TestNebius:
         ]
         t.add_computed_column(response=chat_completions(msgs, model='Qwen/Qwen2.5-VL-72B-Instruct'))
 
-        validate_update_status(t.insert(image=SAMPLE_IMAGE_URL), 1)
+        validate_update_status(t.insert(image=sample_file_server.url(SAMPLE_IMAGE_FILE_PATH)), 1)
         result = t.collect()
         assert 'broccoli' in result['response'][0]['choices'][0]['message']['content'].lower()
 

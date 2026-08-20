@@ -9,7 +9,7 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable.functions.image import alpha_composite, blend, composite, stitch_tiles, tile_iterator
 
-from ..utils import SAMPLE_IMAGE_URL, get_image_files, pxt_raises, rerun_on_network_error
+from ..utils import SAMPLE_IMAGE_FILE_PATH, get_image_files, pxt_raises
 
 pytestmark = pytest.mark.local('UDF/integration test')
 
@@ -96,10 +96,9 @@ class TestImage:
                 size=(200, 300), mode='RGB', nullable=nullable
             )
 
-    @rerun_on_network_error()
     def test_tile_iterator(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'image': pxt.Image | None})
-        t.insert(image=SAMPLE_IMAGE_URL)
+        t.insert(image=SAMPLE_IMAGE_FILE_PATH)
         v = pxt.create_view('test_view', t, iterator=tile_iterator(t.image, (100, 100), overlap=(10, 10)))
         image: Image = t.collect()[0]['image']
         results = v.select(v.pos, v.tile, v.tile_coord, v.tile_box).order_by(v.pos).collect()
@@ -194,10 +193,9 @@ class TestImage:
         assert len(result) == 1
         assert result[0]['stitched'] is None
 
-    @rerun_on_network_error()
     def test_tile_iterator_errors(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'image': pxt.Image | None})
-        t.insert(image=SAMPLE_IMAGE_URL)
+        t.insert(image=SAMPLE_IMAGE_FILE_PATH)
 
         # Test overlap >= tile_size
         for overlap in ((0, 100), (100, 0)):
