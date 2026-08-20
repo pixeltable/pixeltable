@@ -184,14 +184,14 @@ class TestAudio:
         video_t.insert({'video': path} for path in video_filepaths)
 
         shipped_files = len(video_filepaths) if catalog_mode == 'proxy' else 0
-        check_media_store_count(video_t, shipped_files, 'local', default_output_dest=True)
+        check_media_store_count(video_t, shipped_files, catalog_mode, default_output_dest=True)
         # extract audio
         video_t.add_computed_column(audio=video_t.video.extract_audio(format='mp3'))
         rows_with_audio = video_t.where(video_t.audio != None).count()
         assert rows_with_audio > 0
         check_media_store_count(video_t, rows_with_audio + shipped_files, catalog_mode, default_output_dest=True)
         video_t.revert()
-        check_media_store_count(video_t, shipped_files, 'local', default_output_dest=True)
+        check_media_store_count(video_t, shipped_files, catalog_mode, default_output_dest=True)
 
     @pytest.mark.local('TODO: convert; audio-splitter view')
     def test_audio_splitter_single_file(self, uses_db: None, reload_tester: ReloadTester) -> None:

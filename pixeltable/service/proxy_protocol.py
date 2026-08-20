@@ -377,6 +377,11 @@ def _remote_part_path(key: str, remote_parts: dict[str, str] | None) -> str:
             excs.ErrorCode.INVALID_CONFIGURATION,
             f'Cannot localize uploaded media object {key!r}: this receiver has no access to uploaded objects',
         )
+    if key not in remote_parts:
+        raise excs.RequestError(
+            excs.ErrorCode.STORAGE_NOT_FOUND,
+            f'Cannot localize uploaded media object {key!r}: object was not prefetched on this receiver',
+        )
     return remote_parts[key]
 
 

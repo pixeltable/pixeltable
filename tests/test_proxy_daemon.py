@@ -113,7 +113,7 @@ class TestProxyDaemon:
         assert np.array_equal(out_row['arr'], np.arange(3))
 
         # a remote key without a remote_parts map cannot be localized
-        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION):
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='has no access to uploaded objects'):
             proxy_protocol._deserialize(wire, sink.binary_parts, None, None)
 
     def test_inline_sink_wire_format(self, tmp_path: pathlib.Path) -> None:
@@ -298,7 +298,9 @@ class TestProxyDaemon:
         assert store_uris == []
 
         # keys outside uploads/ (e.g. persisted store objects) are rejected before any download
-        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT):
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_ARGUMENT, match=r"Invalid uploaded media object key: 'pixeltable/data/foo\.png'"
+        ):
             proxy_dispatch._prefetch_remote_parts(self._remote_file_request('pixeltable/data/foo.png'))
 
         # a missing object is reported as an expired/incomplete upload, naming the key
@@ -307,7 +309,10 @@ class TestProxyDaemon:
 
         # without the container's org/db in the environment, remote keys cannot be localized
         monkeypatch.delenv('PXTCLOUD_ORG')
-        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION):
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_CONFIGURATION,
+            match=r'Internal error: PXTCLOUD_ORG and PXTCLOUD_DB are not present in the container.',
+        ):
             proxy_dispatch._prefetch_remote_parts(self._remote_file_request('uploads/req/0.png'))
 
     def test_handle_cleans_remote_parts(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
