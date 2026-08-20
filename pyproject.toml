@@ -72,6 +72,7 @@ dependencies = [
     "pypdfium2>=4.30.0",
     "pathspec>=0.10.2",
     "psutil>=5.9",
+    "tqdm>=4.64",
     "typing-extensions>=4.15",
 ]
 
@@ -288,6 +289,11 @@ show_error_codes = true
 strict_optional = false
 warn_return_any = true
 warn_unused_ignores = true
+
+[tool.pixeltable.database]
+# we need the repo for the uv-dynamic-versioning install, and pixeltable/_version.py in order for the
+# package to function. Both are ignored by default
+include = ['.git/**', 'pixeltable/_version.py']
 
 [tool.pyright]
 typeCheckingMode = "off"

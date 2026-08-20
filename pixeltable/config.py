@@ -87,8 +87,10 @@ class DatabaseConfig(pydantic.BaseModel):
 
     model_config = pydantic.ConfigDict(extra='forbid')
 
-    include: list[str] | None = None
-    exclude: list[str] | None = None
+    exclude: list[str] | None = None  # glob patterns to exclude from the bundle
+    include: list[str] | None = None  # glob patterns to explicitly include (overrides exclude or .gitignore)
+    include_only: list[str] | None = None  # glob patterns to include as the *only* files in the bundle
+    # (must be used independently of exclude/include)
     system_dependencies: list[str] | None = None
     # Override the runtime Python version.
     python_version: str | None = None
@@ -809,8 +811,8 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
 }
 
 
-# settings that apply to the Pixeltable instance as a whole, and so can only be set in the config file
-_CONFIG_ONLY_KEYS = frozenset({'file_cache_size_g', 'file_cache_lease_s', 'input_media_dest', 'output_media_dest'})
+# settings that govern the file cache the whole instance shares, and so can only be set in the config file
+_CONFIG_ONLY_KEYS = frozenset({'file_cache_size_g', 'file_cache_lease_s'})
 
 # the settings pxt.init() accepts, ie. the ones a single process may set
 KNOWN_CONFIG_OVERRIDES = {

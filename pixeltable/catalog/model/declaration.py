@@ -678,26 +678,17 @@ class TableModelMeta(type):
             handle, columns, spec['display_name'], spec['iterator'], base, cls.__indexes__
         )
 
-        # substitute column names with Column instances in idxs: create_table_version_md() requires
-        # IndexSpec.indexed_column to be a Column, not str
-        cols_by_name = {col.name: col for col in cols if col.name is not None}
-        idxs = [
-            idx._replace(indexed_column=cols_by_name[idx.indexed_column])
-            if isinstance(idx.indexed_column, str) and idx.indexed_column in cols_by_name
-            else idx
-            for idx in idxs
-        ]
-
         md: TableVersionMd
         base_md: list[TableVersionMd] = []
         if base is None:
+            # create_table_version_md() requires IndexSpec.indexed_column to be a Column, not str;
+            # View._create_md() takes the name and resolves it against the view's visible columns
             cols_by_name = {col.name: col for col in cols if col.name is not None}
-            assert all(isinstance(idx_spec.indexed_column, str) for idx_spec in idxs)  # indexed cols identified by name
-            resolved_idxs = [
-                catalog.IndexSpec(
-                    indexed_column=cols_by_name[cast(str, spec_.indexed_column)], idx_name=spec_.idx_name, idx=spec_.idx
-                )
-                for spec_ in idxs
+            idxs = [
+                idx._replace(indexed_column=cols_by_name[idx.indexed_column])
+                if isinstance(idx.indexed_column, str) and idx.indexed_column in cols_by_name
+                else idx
+                for idx in idxs
             ]
             md = create_table_version_md(
                 tbl_id=tbl_id,
@@ -709,7 +700,7 @@ class TableModelMeta(type):
                 has_default_idxs=spec['has_default_idxs'],
                 view_md=None,
                 is_data_versioned=True,
-                additional_idxs=resolved_idxs,
+                additional_idxs=idxs,
             )
         else:
             base_path = base._from_clause._first_tbl
