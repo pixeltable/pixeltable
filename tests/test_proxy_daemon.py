@@ -247,7 +247,7 @@ class TestProxyDaemon:
         monkeypatch: pytest.MonkeyPatch, objects: dict[str, bytes], store_uris: list[str]
     ) -> None:
         """Route ObjectOps.get_store to a fake store serving objects (keyed store-relative, i.e. without the
-        'uploads/' prefix) and configure the daemon's org/db identity."""
+        'uploads/' prefix) and put the daemon's org/db identity in the environment."""
         from pixeltable.utils.object_stores import ObjectOps
 
         class FakeStore:
@@ -262,8 +262,8 @@ class TestProxyDaemon:
             return FakeStore()
 
         monkeypatch.setattr(ObjectOps, 'get_store', staticmethod(fake_get_store))
-        monkeypatch.setenv('PIXELTABLE_DAEMON_ORG', 'org1')
-        monkeypatch.setenv('PIXELTABLE_DAEMON_DB', 'db1')
+        monkeypatch.setenv('PXTCLOUD_ORG', 'org1')
+        monkeypatch.setenv('PXTCLOUD_DB', 'db1')
 
     @staticmethod
     def _remote_file_request(*keys: str) -> proxy_protocol.ProxyRequest:
@@ -305,8 +305,8 @@ class TestProxyDaemon:
         with pxt_raises(pxt.ErrorCode.STORAGE_NOT_FOUND, match=r'uploads/req/9\.png.*expired'):
             proxy_dispatch._prefetch_remote_parts(self._remote_file_request('uploads/req/9.png'))
 
-        # without a configured daemon identity, remote keys cannot be localized
-        monkeypatch.delenv('PIXELTABLE_DAEMON_ORG')
+        # without the container's org/db in the environment, remote keys cannot be localized
+        monkeypatch.delenv('PXTCLOUD_ORG')
         with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION):
             proxy_dispatch._prefetch_remote_parts(self._remote_file_request('uploads/req/0.png'))
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import os
 import pathlib
 import shutil
 import time
@@ -22,7 +23,6 @@ from pixeltable import exceptions as excs
 from pixeltable._query import Query
 from pixeltable.catalog import InsertableTable, Path, TablePathKey, retry_loop
 from pixeltable.catalog.table_version import TableVersionKey
-from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.data_sources import SqlDataSource
 from pixeltable.row import RowBatch
@@ -154,16 +154,12 @@ def _prefetch_remote_parts(request: ProxyRequest) -> None:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT, f'Invalid uploaded media object key: {remote_key!r}'
             )
-    # daemon_org/daemon_db are deliberately not registered config options: they identify the hosted database
-    # this daemon serves, which only the cloud environment that launched it knows. PIXELTABLE_DAEMON_ORG and
-    # PIXELTABLE_DAEMON_DB are the only way to set them.
-    org = Config.get().get_string_value('daemon_org')
-    db = Config.get().get_string_value('daemon_db')
-    if org is None or db is None:
+    org = os.environ.get('PXTCLOUD_ORG')
+    db = os.environ.get('PXTCLOUD_DB')
+    if not (org and db):
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
-            'This daemon cannot localize uploaded media objects: PIXELTABLE_DAEMON_ORG/PIXELTABLE_DAEMON_DB '
-            'are not set in its environment',
+            'Internal error: PXTCLOUD_ORG and PXTCLOUD_DB are not present in the container.',
         )
     store = ObjectOps.get_store(f'pxtfs://{org}:{db}/home/uploads/', False)
 
