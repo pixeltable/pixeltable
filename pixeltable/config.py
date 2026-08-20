@@ -566,6 +566,10 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'verbosity': 'Verbosity level for console output',
         'log_level': "Level of the 'pixeltable' logger, eg DEBUG (default: INFO)",
         'sql_log_level': "Level of the 'sqlalchemy.engine' logger: INFO logs SQL statements (default: WARNING)",
+        'log_to_stderr': (
+            'Also write the log files to stderr, so a container log collector can see them (default: false)',
+            bool,
+        ),
         'show_progress': 'Show a progress tracker for long-running operations (default: false)',
         'api_key': 'API key for Pixeltable cloud',
         'input_media_dest': 'Default destination URI for input media data',
