@@ -12,6 +12,7 @@ import random
 import re
 import shutil
 import subprocess
+import sys
 import sysconfig
 import time
 import uuid
@@ -1069,6 +1070,19 @@ class DummyIterator2(pxt.PxtIterator[DummyIterator2Out]):
         return result
 
 
+def _process_lifetime_loop_ids() -> set[int]:
+    """The ids of the event loops that a third-party library keeps open for as long as the process runs.
+
+    lancedb.background_loop starts a loop when the module is imported and offers no way to close it, so a
+    worker that imported lancedb has one open loop that no teardown can account for.
+    """
+    module = sys.modules.get('lancedb.background_loop')
+    if module is None:
+        return set()
+    loop = getattr(module.LOOP, 'loop', None)
+    return set() if loop is None else {id(loop)}
+
+
 def open_async_resources() -> list[str]:
     """Describes every event loop and HTTP client session that is still open, one string each.
 
@@ -1077,9 +1091,10 @@ def open_async_resources() -> list[str]:
     reported here after a teardown is such a leak.
     """
     gc.collect()
+    ignored_loop_ids = _process_lifetime_loop_ids()
     resources: list[str] = []
     for obj in gc.get_objects():
-        if isinstance(obj, asyncio.AbstractEventLoop) and not obj.is_closed():
+        if isinstance(obj, asyncio.AbstractEventLoop) and not obj.is_closed() and id(obj) not in ignored_loop_ids:
             resources.append(f'event loop {type(obj).__name__} at {id(obj):#x}')
         elif isinstance(obj, aiohttp.ClientSession) and not obj.closed:
             resources.append(f'aiohttp session at {id(obj):#x}')
