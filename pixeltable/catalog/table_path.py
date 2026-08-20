@@ -333,7 +333,7 @@ class TableVersionPath(TablePath):
     def catalog_uri(self) -> Path:
         return ROOT_PATH
 
-    def version(self) -> int | None:
+    def version(self) -> int:
         return self._cached_tv().version
 
     def effective_version(self) -> int | None:

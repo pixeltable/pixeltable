@@ -558,7 +558,8 @@ class TableModelMeta(type):
                 )
             if base is not None and not base.from_clause.__table_spec__['is_data_versioned']:
                 raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'{display_name}: the base table and the view have mismatching is_data_versioned'
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{display_name}: the base table and the view have mismatching is_data_versioned',
                 )
 
             # Validate iterator

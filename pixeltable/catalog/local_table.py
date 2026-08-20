@@ -198,7 +198,7 @@ class LocalTable(Table):
             iterator_call=None,
         )
 
-    def _get_version(self) -> int | None:
+    def _get_version(self) -> int:
         """Return the version of this table or None if not data-versioned.
 
         Used by tests to ascertain version changes.
