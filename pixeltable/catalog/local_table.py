@@ -242,7 +242,8 @@ class LocalTable(Table):
         if mutable_only:
             views = [t for t in views if t._tbl_version_path.is_mutable()]
         if recursive:
-            views.extend(t for view in views for t in view._get_views(recursive=True, mutable_only=mutable_only))
+            descendants = [t for view in views for t in view._get_views(recursive=True, mutable_only=mutable_only)]
+            views.extend(descendants)
         return views
 
     def columns(self) -> list[str]:
@@ -681,7 +682,7 @@ class LocalTable(Table):
 
             if len(dependent_views) > 0:
                 dependent_views_str = '\n'.join(
-                    f'view: {view._path()}, predicate: {predicate}' for view, predicate in dependent_views
+                    sorted(f'view: {view._path()}, predicate: {predicate}' for view, predicate in dependent_views)
                 )
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
