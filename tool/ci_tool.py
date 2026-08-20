@@ -24,23 +24,41 @@ VERY_EXPENSIVE_PYTEST = "-m 'not benchmark and not cloud_e2e'"
 
 # The core-functionality test modules that PR checks run on every push. This mirrors the `slimpytest` target in the
 # Makefile.
-SLIM_TESTS = ' '.join(
-    f'tests/test_{name}.py'
-    for name in (
-        'alter_column',
-        'catalog',
-        'dirs',
-        'env',
-        'exprs',
-        'function',
-        'index',
-        'operational_table',
-        'snapshot',
-        'table',
-        'table_model',
-        'types',
-        'view',
-    )
+SLIM_TESTS = (
+    'tests/test_alter_column.py',
+    'tests/test_array_type.py',
+    'tests/test_catalog.py',
+    'tests/test_component_view.py',
+    'tests/test_concurrent.py',
+    'tests/test_concurrent_model.py',
+    'tests/test_config.py',
+    'tests/test_dirs.py',
+    'tests/test_env.py',
+    'tests/test_exceptions.py',
+    'tests/test_exprs.py',
+    'tests/test_fault_injection.py',
+    'tests/test_file_cache.py',
+    'tests/test_function.py',
+    'tests/test_history.py',
+    'tests/test_index.py',
+    'tests/test_iterator.py',
+    'tests/test_mcp.py',
+    'tests/test_path.py',
+    'tests/test_primary_key_index.py',
+    'tests/test_query.py',
+    'tests/test_sample.py',
+    'tests/test_snapshot.py',
+    'tests/test_table.py',
+    'tests/test_table_model.py',
+    'tests/test_table_model_2.py',
+    'tests/test_types.py',
+    'tests/test_view.py',
+    'tests/serving/test_fastapi.py',
+    'tests/pixeltable_cli/test_bridge.py',
+    'tests/pixeltable_cli/test_internals.py',
+    'tests/pixeltable_cli/test_schema.py',
+    'tests/pixeltable_cli/test_serve_deploy.py',
+    'tests/pixeltable_cli/test_smoke.py',
 )
 
 MAIN_PLATFORM = 'ubuntu-24.04'
@@ -57,7 +75,6 @@ class MatrixConfig(NamedTuple):
     uv_options: str = ''
     pytest_options: str = DEFAULT_PYTEST
     pre_test_cmd: str = ''  # Extra bash command to be run just before tests
-    build_dashboard: bool = True  # Whether this config runs tests that need the dashboard SPA bundle
 
     @property
     def display_name(self) -> str:
@@ -73,7 +90,6 @@ class MatrixConfig(NamedTuple):
             'uv-options': self.uv_options,
             'pytest-options': self.pytest_options,
             'pre-test-cmd': self.pre_test_cmd,
-            'build-dashboard': str(self.build_dashboard).lower(),
         }
 
 
@@ -104,10 +120,9 @@ def generate_matrix(args: argparse.Namespace) -> None:
 
     if trigger == 'pull_request':
         # On every push to a PR we run only the slim tests. It is strictly a subset of what the merge queue runs.
+        slim_pytest = DEFAULT_PYTEST + ' ' + ' '.join(SLIM_TESTS)
         configs.extend(
-            MatrixConfig(
-                'slim', 'py', platform, '3.11', pytest_options=f'{DEFAULT_PYTEST} {SLIM_TESTS}', build_dashboard=False
-            )
+            MatrixConfig('slim', 'py', platform, '3.11', pytest_options=slim_pytest)
             for platform in (MAIN_PLATFORM, *BASIC_PLATFORMS)
         )
 
