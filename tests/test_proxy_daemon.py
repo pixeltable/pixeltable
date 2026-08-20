@@ -188,6 +188,60 @@ class TestProxyDaemon:
         # each request gets its own uploads/ prefix
         assert next_sink._key_prefix != remote_sink._key_prefix
 
+    def test_r2_sink_defers_uploads(
+        self, init_env: None, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """R2PartSink mints keys while serializing and performs every upload in flush()."""
+        from pixeltable.service.proxy_client import R2PartSink
+        from pixeltable.utils.object_stores import FileDestination, ObjectOps
+
+        uploaded: dict[str, tuple[pathlib.Path, bytes]] = {}
+        store_uris: list[str] = []
+
+        class FakeStore:
+            def copy_local_file(self, src_path: pathlib.Path, dest: FileDestination) -> str:
+                assert dest.remote_key is not None
+                uploaded[dest.remote_key] = (src_path, src_path.read_bytes())
+                return dest.url
+
+        def fake_get_store(dest: Any, allow_obj_name: bool, col_name: Any = None) -> Any:
+            store_uris.append(dest)
+            return FakeStore()
+
+        monkeypatch.setattr(ObjectOps, 'get_store', staticmethod(fake_get_store))
+
+        src = tmp_path / 'cat.png'
+        PIL.Image.new('RGB', (8, 6), color=(1, 2, 3)).save(src, format='PNG')
+        sink = R2PartSink('org1', 'db1')
+        # the same path twice, plus an in-memory value (which stages a temp file)
+        keys = [sink.add_media_file(str(src)), sink.add_media_file(str(src)), sink.add_media_bytes(b'raw', '.jpg')]
+
+        # nothing has been uploaded yet, and no credentials have been fetched
+        assert uploaded == {}
+        assert store_uris == []
+        # repeated references to one path get distinct keys (the daemon consumes each localized file)
+        assert len(set(keys)) == 3
+        assert all(k.startswith(sink._key_prefix) for k in keys)
+
+        sink.flush()
+        # one store (one credential fetch) for the whole request, scoped to its own prefix
+        assert store_uris == [f'pxtfs://org1:db1/home/{sink._key_prefix}']
+        assert set(uploaded) == set(keys)
+        assert uploaded[keys[0]][1] == uploaded[keys[1]][1] == src.read_bytes()
+        assert uploaded[keys[2]][1] == b'raw'
+
+        # the file staged for the in-memory value was removed after its upload; the caller's own file was not
+        staged = uploaded[keys[2]][0]
+        assert TempStore.contains_path(staged)
+        assert not staged.exists()
+        assert uploaded[keys[0]][0] == src
+        assert src.exists()
+
+        # flush() drained the queue, so a second call uploads nothing
+        store_uris.clear()
+        sink.flush()
+        assert store_uris == []
+
     @staticmethod
     def _install_fake_upload_store(
         monkeypatch: pytest.MonkeyPatch, objects: dict[str, bytes], store_uris: list[str]

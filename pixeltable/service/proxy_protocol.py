@@ -67,6 +67,9 @@ class PartSink:
         with open(path, 'rb') as f:
             return self.add_inline(f.read())
 
+    def flush(self) -> None:
+        """Complete any work the sink deferred while serializing; a no-op for inline parts."""
+
 
 @dataclasses.dataclass
 class LocalFile:
@@ -400,6 +403,7 @@ def serialize_args(args: dict[str, Any], sink: PartSink) -> dict[str, Any]:
     """Encode a request's args for the wire; binary values go to sink (see _serialize())."""
     wire_args = _serialize(args, sink)
     assert isinstance(wire_args, dict)
+    sink.flush()  # an out-of-band sink defers its transfers to here, where they can run concurrently
     return wire_args
 
 
