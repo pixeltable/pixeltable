@@ -23,9 +23,12 @@ from pixeltable.service.management_protocol import (
     GetBundleUploadUrlRequest,
     GetDbRequest,
     GetServiceRequest,
+    DeleteSecretRequest,
     ListDbRequest,
     ListOrgsRequest,
+    ListSecretsRequest,
     ListServicesRequest,
+    SetSecretRequest,
     StartDbRequest,
     StartServiceRequest,
     StopDbRequest,
@@ -707,6 +710,21 @@ def get_org(req: Request) -> dict[str, Any]:
 @router.get('/api/dbs')
 def list_dbs(req: Request) -> dict[str, Any]:
     return management_client.api_call(ListDbRequest(org=req.required_query_str('org')))
+
+
+@router.get('/api/secrets')
+def list_secrets(req: Request) -> dict[str, Any]:
+    return management_client.api_call(ListSecretsRequest(org=req.required_query_str('org'), db=req.query_str('db')))
+
+
+@router.post('/api/secrets')
+def set_secret(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(SetSecretRequest))
+
+
+@router.post('/api/secrets/delete')
+def delete_secret(req: Request) -> dict[str, Any]:
+    return management_client.api_call(req.body(DeleteSecretRequest))
 
 
 @router.post('/api/dbs')
