@@ -570,8 +570,6 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'sql_log_level': "Level of the 'sqlalchemy.engine' logger: INFO logs SQL statements (default: WARNING)",
         'show_progress': 'Show a progress tracker for long-running operations (default: false)',
         'api_key': 'API key for Pixeltable cloud',
-        'daemon_org': 'Org slug of the hosted database a proxy daemon serves',
-        'daemon_db': 'Database slug of the hosted database a proxy daemon serves',
         'input_media_dest': 'Default destination URI for input media data',
         'output_media_dest': 'Default destination URI for output (computed) media data',
         'r2_profile': 'AWS config profile name used to access R2 storage',
