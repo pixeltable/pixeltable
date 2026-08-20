@@ -124,25 +124,21 @@ class IfNotExistsParam(enum.Enum):
 
 
 def fold_identifier(name: str) -> str:
-    """Fold an identifier to its stored form. Identifiers are ASCII, so this matches SQL lower()."""
+    """Fold an identifier to its stored form."""
     return name.lower()
 
 
 def fold_mapping_keys(m: Mapping[str, _T], *, kind: str = 'Column') -> dict[str, _T]:
-    """Fold the keys of a user-supplied mapping, rejecting keys that collide once folded.
-
-    The collision check has to happen here rather than downstream: building the folded dict silently discards all but
-    the last of a colliding group.
-    """
+    """Fold the keys of a user-supplied mapping, raising INVALID_SCHEMA if keys collide once folded."""
     by_folded: dict[str, list[str]] = {}
     for name in m:
         by_folded.setdefault(fold_identifier(name), []).append(name)
-    for folded, names in by_folded.items():
+    for _, names in by_folded.items():
         if len(names) > 1:
             spellings = ', '.join(repr(n) for n in names)
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA,
-                f'{kind} names are case-insensitive, but {spellings} were all specified (they all denote {folded!r}).',
+                f'{kind} names are case-insensitive, but {spellings} were specified',
             )
     return {fold_identifier(name): spec for name, spec in m.items()}
 
