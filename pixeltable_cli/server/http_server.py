@@ -25,8 +25,10 @@ from urllib.parse import parse_qs, unquote, urlparse
 import pydantic
 
 from pixeltable import exceptions as excs
+from pixeltable.config import Config
 
-from .router import RawResponse, Request
+from .daemon_state import state as daemon_state
+from .router import Method, RawResponse, Request
 from .routes import router
 
 _logger = logging.getLogger('pixeltable.pixeltable_cli')
@@ -40,6 +42,10 @@ _STATIC_DIR = Path(__file__).parent / 'static'
 # Resolve presence once at import time: the bundle does not appear or vanish during the
 # daemon's lifetime, so re-stat'ing per request would add a syscall to the hot path.
 _HAS_STATIC_BUNDLE = _STATIC_DIR.exists()
+
+
+# Header carrying the caller's env fingerprint: {env var name: hash of its value}, no values.
+_ENV_HEADER = 'x-pxt-env-fingerprint'
 
 
 class _DaemonHandler(BaseHTTPRequestHandler):
@@ -69,10 +75,27 @@ class _DaemonHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         self._dispatch('POST')
 
-    def _dispatch(self, method: str) -> None:
+    def _dispatch(self, method: Method) -> None:
+        # Users edit the config file directly, so pick up an edit here rather than at the next daemon
+        # restart. Doing it once per request means a request sees one consistent set of values.
         parsed = urlparse(self.path)
         url_path = unquote(parsed.path)
         query = parse_qs(parsed.query, keep_blank_values=True)
+
+        # /api/health does not need the config file
+        if url_path != '/api/health':
+            try:
+                if Config.reload_if_changed():
+                    _logger.info('Reloaded %s', Config.get().config_file)
+            except excs.Error as e:
+                self._send_json({'detail': str(e), 'error_code': e.error_code.name}, e.http_status)
+                return
+            except Exception as e:
+                self._send_json(
+                    {'detail': f'{type(e).__name__}: {e}', 'traceback': traceback.format_exc()},
+                    http.HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
+                return
 
         handler = router.match(method, url_path)
         if handler is None:
@@ -92,6 +115,13 @@ class _DaemonHandler(BaseHTTPRequestHandler):
         else:
             body_bytes = b''
         req = Request(query=query, body_bytes=body_bytes, headers={k.lower(): v for k, v in self.headers.items()})
+        if router.checks_env(method, url_path) and not self._env_values_agree(req):
+            return
+
+        # health and status requests finish instantly
+        request_id = (
+            None if url_path in ('/api/health', '/api/status') else daemon_state.begin_request(method, url_path)
+        )
         try:
             result = handler(req)
         except excs.Error as e:
@@ -110,10 +140,60 @@ class _DaemonHandler(BaseHTTPRequestHandler):
             )
             return
 
+        finally:
+            if request_id is not None:
+                daemon_state.end_request(request_id)
+
         if isinstance(result, RawResponse):
             self._send_raw(result)
         else:
             self._send_json(_to_jsonable(result))
+
+    def _env_values_agree(self, req: Request) -> bool:
+        """Whether this daemon's config values are the ones it recorded and the caller expects."""
+        daemon_state.ensure_env_fingerprint_recorded()
+        current = Config.get().env_fingerprint()
+        changed = daemon_state.changed_env_vars(current)
+        if len(changed) > 0:
+            # api clients are built from these values and cached per worker thread, so serving with the new
+            # ones takes a new process
+            self._send_json(
+                {
+                    'detail': f'{Config.get().config_file} now has different values for: {", ".join(changed)}.\n'
+                    'Run `pxt daemon restart` to serve with them.',
+                    'error_code': 'STALE_CONFIG',
+                },
+                http.HTTPStatus.CONFLICT,
+            )
+            return False
+        return self._caller_env_values_agree(req, current)
+
+    def _caller_env_values_agree(self, req: Request, current: dict[str, str]) -> bool:
+        """Whether the caller's config values match this daemon's, sending a 409 naming the difference if not."""
+        header = req.headers.get(_ENV_HEADER)
+        if header is None:
+            return True
+        try:
+            caller: dict[str, str] = json.loads(header)
+        except json.JSONDecodeError:
+            return True  # an unparseable fingerprint is no evidence of disagreement
+        missing, differing = Config.get().compare_env_values(caller, current)
+        if len(missing) == 0 and len(differing) == 0:
+            return True
+
+        detail: list[str] = []
+        if len(missing) > 0:
+            detail.append(f"set in your environment but not in this daemon's: {', '.join(missing)}")
+        if len(differing) > 0:
+            detail.append(f'bound to a different value here: {", ".join(differing)}')
+        self._send_json(
+            {
+                'detail': '; '.join(detail) + '.\nRun `pxt daemon restart` to serve with your environment.',
+                'error_code': 'STALE_CONFIG',
+            },
+            http.HTTPStatus.CONFLICT,
+        )
+        return False
 
     # Cap request body size. Localhost-only daemon, but a misbehaving local client could
     # otherwise pin a thread on a multi-GB read or exhaust memory in pydantic validation.

@@ -185,6 +185,15 @@ def _snapshot_pixeltable_env(environ: dict[str, str] | None = None) -> dict[str,
     return {k: _redact_env_value(k, env[k]) for k in sorted(env) if k.startswith('PIXELTABLE_')}
 
 
+def env_fingerprint(environ: dict[str, str] | None = None) -> dict[str, str]:
+    """Returns dict mapping every set environment variable to a hash of its value.
+
+    The hash is the same as value_fingerprint() in config.py.
+    """
+    env = os.environ if environ is None else environ
+    return {name: hashlib.sha256(env[name].encode('utf-8')).hexdigest()[:12] for name in sorted(env) if env[name] != ''}
+
+
 def identity() -> dict[str, Any]:
     pxt_version = _pxt_version()
     pxt_install_dir = _pxt_install_dir()

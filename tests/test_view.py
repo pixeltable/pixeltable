@@ -7,6 +7,7 @@ import PIL
 import pytest
 
 import pixeltable as pxt
+from pixeltable import functions as pxtf
 from pixeltable.func import Batch
 from pixeltable.types import ColumnSpec
 
@@ -73,10 +74,42 @@ class TestView:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Cannot delete from a view\.'):
             _ = v.delete()
 
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Cannot use `create_view` after `join`.'):
-            u = pxt.create_table(p('joined_tbl'), {'c1': pxt.String | None})
-            join_df = t.join(u, on=t.c1 == u.c1)
-            _ = pxt.create_view(p('join_view'), join_df)
+        # base-query clauses that create_view() rejects
+        u = pxt.create_table(p('joined_tbl'), {'c1': pxt.String | None})
+        rejected_clauses = [
+            (t.group_by(t.c2), 'group_by'),
+            (v.group_by(t), 'group_by'),
+            (t.distinct(), 'group_by'),
+            (t.select(t.c2).distinct(), 'group_by'),
+            (t.order_by(t.c2), 'order_by'),
+            (t.limit(10), 'limit'),
+            (t.limit(10, offset=5), 'limit'),
+            (t.join(u, on=t.c1 == u.c1), 'join'),
+        ]
+        for query, clause in rejected_clauses:
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION, match=rf'`{clause}` cannot be used in a view definition\.'
+            ):
+                _ = pxt.create_view(p('bad_view'), query)
+
+        # an aggregate makes a row's value depend on which other rows are present
+        for query in [t.select(total=pxtf.sum(t.c2)), t.select(pxtf.sum(t.c2))]:
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'aggregates over the base table'):
+                _ = pxt.create_view(p('bad_view'), query)
+
+        # a non-snapshot view requires repeatable sampling: fractional and unstratified
+        for query in [
+            t.sample(n=10),
+            t.sample(fraction=0.5, stratify_by=t.c2),
+            t.sample(n_per_stratum=2, stratify_by=t.c2),
+        ]:
+            with pxt_raises(
+                pxt.ErrorCode.UNSUPPORTED_OPERATION,
+                match=r'A view that is not a snapshot can only be defined by fractional, unstratified sampling\.',
+            ):
+                _ = pxt.create_view(p('bad_view'), query)
+        # a snapshot is not maintained, so it admits sampling that a view cannot reproduce
+        _ = pxt.create_view(p('sampled_snapshot'), t.sample(n=10), is_snapshot=True)
 
     def test_list_views(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
@@ -406,22 +439,6 @@ class TestView:
             )
             with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=expected_err):
                 v.add_computed_column(**{col_name: 'bbb'}, if_exists='replace')
-
-    def test_from_query(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
-        t = self.create_tbl(p)
-
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
-            pxt.create_view(p('test_view'), t.group_by(t.c2))
-        assert 'Cannot use `create_view` after `group_by`' in str(exc_info.value)
-
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
-            pxt.create_view(p('test_view'), t.order_by(t.c2))
-        assert 'Cannot use `create_view` after `order_by`' in str(exc_info.value)
-
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
-            pxt.create_view(p('test_view'), t.limit(10))
-        assert 'Cannot use `create_view` after `limit`' in str(exc_info.value)
 
     def test_parallel_views(self, make_catalog_path: Callable[[str], str]) -> None:
         """Two views over the same base table, with non-overlapping filters"""

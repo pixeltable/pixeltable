@@ -76,7 +76,7 @@ class TestDestination:
         t = pxt.create_table(p('test_dest_errors'), schema={'img': pxt.Image | None})
 
         # destination type and scheme are checked regardless of the catalog kind
-        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='must be a string or path'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='must be a string, a path, or a ConfigVar'):
             t.add_computed_column(img_rot=t.img.rotate(90), destination=27)
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be a valid reference to a supported'):
             t.add_computed_column(img_rot=t.img.rotate(90), destination='https://anything/')

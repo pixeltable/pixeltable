@@ -69,13 +69,13 @@ def lookup_service_config(name: str) -> config.ServiceConfig:
     return _lookup_config('service', name, config.ServiceConfig, excs.ErrorCode.SERVICE_NOT_FOUND)
 
 
-def lookup_database_runtime_config() -> config.DatabaseRuntimeConfig | None:
+def lookup_database_config() -> config.DatabaseConfig | None:
     """Return the database runtime config from Pixeltable configuration, or None if absent."""
     raw = config.Config.get().get_value('database', dict)
     if raw is None:
         return None
     try:
-        return config.DatabaseRuntimeConfig.model_validate(raw)
+        return config.DatabaseConfig.model_validate(raw)
     except Exception as e:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid [pixeltable.database] configuration: {e}'

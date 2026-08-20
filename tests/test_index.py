@@ -2,7 +2,6 @@ import datetime
 import random
 import string
 import sys
-from pathlib import Path
 from typing import Any, Callable, Literal
 
 import numpy as np
@@ -16,6 +15,7 @@ import pixeltable.type_system as ts
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip
 
+from .conftest import SampleFileServer
 from .utils import (
     CatalogMode,
     ReloadTester,
@@ -91,6 +91,7 @@ class TestIndex:
         clip_or_local: tuple[pxt.Function, bool],
         reload_tester: ReloadTester,
         catalog_mode: CatalogMode,
+        sample_file_server: SampleFileServer,
     ) -> None:
         embed, is_dummy_model = clip_or_local
         skip_test_if_not_installed('imagehash')
@@ -102,13 +103,12 @@ class TestIndex:
         sample_img_localpath = res[0, 'img_localpath']
         sample_img_file_url = res[0, 'img_fileurl']
         # A PIL image is a self-contained similarity input that works in both modes. A local path, file:// URL, or
-        # an http URL rebuilt from the original filename only identifies the same image against a collocated store:
+        # an http URL rebuilt from the original path only identifies the same image against a collocated store:
         # over the proxy .localpath is a fetched cache copy (hashed name) and .fileurl is a fetchable daemon URL.
         img_inputs: list[Any] = [sample_img]
         if catalog_mode == 'local':
             assert 'file:/' in sample_img_file_url
-            sample_img_filename = Path(sample_img_localpath).name
-            sample_img_http_url = f'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/imagenette2-160/{sample_img_filename}'
+            sample_img_http_url = sample_file_server.url(sample_img_localpath)
             img_inputs += [sample_img_localpath, sample_img_file_url, sample_img_http_url]
 
         for metric, is_asc in [('cosine', False), ('ip', False), ('l2', True)]:

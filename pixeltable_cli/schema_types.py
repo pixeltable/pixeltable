@@ -6,7 +6,7 @@ from pixeltable_cli.utils import PxtPath
 
 OpStatus = Literal['applied', 'skipped', 'refused', 'failed']
 
-# Mirror of pixeltable.catalog.model.DiffResolution
+# Mirror of pixeltable.catalog.model.diff.DiffResolution
 DiffResolution = Literal['up_to_date', 'create', 'update_additive', 'update_destructive', 'unsupported']
 
 
@@ -29,7 +29,7 @@ class SchemaChangeOpDetails(TypedDict, total=False):
 
 
 class SchemaChangeOp(_Status):
-    """Mirror of pixeltable.catalog.model.SchemaChangeOp: one operation reconciling a table with its model."""
+    """Mirror of pixeltable.catalog.model.diff.SchemaChangeOp: one operation reconciling a table with its model."""
 
     target: Literal['column', 'index', 'table']
 
@@ -45,7 +45,7 @@ class SchemaChangeOp(_Status):
 
 
 class TableDiff(_Status):
-    """Mirror of pixeltable.catalog.model.TableDiff: how one table differs from the model that declares it."""
+    """Mirror of pixeltable.catalog.model.diff.TableDiff: how one table differs from the model that declares it."""
 
     path: str
     model_cls: str

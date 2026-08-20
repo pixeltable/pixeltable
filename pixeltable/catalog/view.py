@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 import dataclasses
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 from uuid import UUID
 
 import pixeltable.exceptions as excs
@@ -16,13 +16,15 @@ from pixeltable.types import ColumnSpec
 from .column import Column
 from .globals import IndexSpec, MediaValidation
 from .local_table import LocalTable
-from .table_path import TableVersionPath
-from .table_version import TableVersion, TableVersionKey, TableVersionMd
+from .table_path import TablePath, TableVersionPath
 from .table_version_handle import TableVersionHandle
 from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, LoadViewOp, TableOp, TableOpsBuilder
+from .types import ColumnVersionMd, TableVersionKey, TableVersionMd
 from .update_status import UpdateStatus
+from .utils import create_table_version_md
 
 if TYPE_CHECKING:
+    from pixeltable._query import Query
     from pixeltable.globals import TableDataSource
     from pixeltable.plan import SampleClause
 
@@ -56,6 +58,36 @@ class View(LocalTable):
         return 'table'
 
     @classmethod
+    def validate_view_query(cls, query: Query, *, is_snapshot: bool = False) -> None:
+        """Verify that a view can be defined by query."""
+        for clause_name, is_present in (
+            ('group_by', query.group_by_clause is not None or query.grouping_tbl_key is not None),
+            ('order_by', query.order_by_clause is not None),
+            ('limit', query.limit_val is not None or query.offset_val is not None),
+            ('join', query._has_joins()),
+        ):
+            if is_present:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'`{clause_name}` cannot be used in a view definition.'
+                )
+
+        if query.select_list is not None:
+            for expr, name in query.select_list:
+                if expr.contains_(cls=exprs.FunctionCall, filter=lambda e: cast(exprs.FunctionCall, e).is_agg_fn_call):
+                    item = 'the `select()` list' if name is None else f'`select()` item {name!r}'
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'{item} aggregates over the base table: {expr}\n'
+                        'Aggregates are not allowed in a view definition.',
+                    )
+
+        if query.sample_clause is not None and not is_snapshot and not query.sample_clause.is_repeatable:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                'A view that is not a snapshot can only be defined by fractional, unstratified sampling.',
+            )
+
+    @classmethod
     def select_list_to_additional_columns(
         cls, select_list: list[tuple[exprs.Expr, str | None]]
     ) -> dict[str, ColumnSpec]:
@@ -73,15 +105,15 @@ class View(LocalTable):
         return r
 
     @classmethod
-    def _create(
+    def _create_md(
         cls,
         tbl_id: UUID,
         name: str,
-        base: TableVersionPath,
+        base: TablePath,
         select_list: list[tuple[exprs.Expr, str | None]] | None,
         additional_columns: list[Column],
-        predicate: 'exprs.Expr' | None,
-        sample_clause: 'SampleClause' | None,
+        predicate: exprs.Expr | None,
+        sample_clause: SampleClause | None,
         is_snapshot: bool,
         has_default_idxs: bool,
         comment: str | None,
@@ -89,7 +121,7 @@ class View(LocalTable):
         media_validation: MediaValidation,
         iterator_call: func.GeneratingFunctionCall | None,
         additional_idxs: list[IndexSpec],
-    ) -> tuple[TableVersionMd, list[TableOp] | None]:
+    ) -> TableVersionMd:
         from pixeltable.exprs import InlineDict
 
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
@@ -137,10 +169,10 @@ class View(LocalTable):
 
         # resolve the indexed column names against the view's visible columns, which shadow base columns of the same
         # name; base columns are only visible with select(*)
-        cols_by_name = {col.name: col for col in columns if col.name is not None}
+        cols_by_name: dict[str, Column | ColumnVersionMd] = {col.name: col for col in columns if col.name is not None}
         if include_base_columns:
-            for col in base.columns():
-                cols_by_name.setdefault(col.name, col)
+            for col_md in base.column_md():
+                cols_by_name.setdefault(col_md.name, col_md)
         resolved_idxs: list[IndexSpec] = []
         for idx_spec in additional_idxs:
             assert isinstance(idx_spec.indexed_column, str)
@@ -193,10 +225,11 @@ class View(LocalTable):
         iterator_args_expr: exprs.Expr = InlineDict(iterator_call.bound_args) if iterator_call is not None else None
         if iterator_args_expr is not None:
             iterator_args_expr.validate_storable("A view's iterator arguments")
-        base_version_path = cls._get_snapshot_path(base) if is_snapshot else base
-
+        base_version_path: TablePath = base
         # if this is a snapshot, we need to retarget all exprs to the snapshot tbl versions
         if is_snapshot:
+            assert isinstance(base, TableVersionPath), 'a snapshot pins table versions, which only a live path has'
+            base_version_path = cls._get_snapshot_path(base)
             predicate = predicate.retarget_path(base_version_path) if predicate is not None else None
             if sample_clause is not None:
                 exprs.Expr.retarget_path_list(sample_clause.stratify_exprs, base_version_path)
@@ -216,7 +249,7 @@ class View(LocalTable):
             iterator_call=iterator_call.as_dict() if iterator_call is not None else None,
         )
 
-        md = TableVersion.create_initial_md(
+        return create_table_version_md(
             tbl_id,
             name,
             columns,
@@ -228,12 +261,49 @@ class View(LocalTable):
             has_default_idxs=has_default_idxs,
             additional_idxs=resolved_idxs,
         )
+
+    @classmethod
+    def _create(
+        cls,
+        tbl_id: UUID,
+        name: str,
+        base: TableVersionPath,
+        select_list: list[tuple[exprs.Expr, str | None]] | None,
+        additional_columns: list[Column],
+        predicate: exprs.Expr | None,
+        sample_clause: SampleClause | None,
+        is_snapshot: bool,
+        has_default_idxs: bool,
+        comment: str | None,
+        custom_metadata: Any,
+        media_validation: MediaValidation,
+        iterator_call: func.GeneratingFunctionCall | None,
+        additional_idxs: list[IndexSpec],
+    ) -> tuple[TableVersionMd, list[TableOp] | None]:
+        """Assemble the view's metadata, plus the ops that bring it into being."""
+        md = cls._create_md(
+            tbl_id,
+            name,
+            base,
+            select_list,
+            additional_columns,
+            predicate,
+            sample_clause,
+            is_snapshot,
+            has_default_idxs,
+            comment,
+            custom_metadata,
+            media_validation,
+            iterator_call,
+            additional_idxs,
+        )
         if md.tbl_md.is_pure_snapshot:
             # this is purely a snapshot: no store table to create or load
             return md, None
         else:
             assert tbl_id == UUID(md.tbl_md.tbl_id)
             key = TableVersionKey(tbl_id, 0 if is_snapshot else None)
+            base_version_path = cls._get_snapshot_path(base) if is_snapshot else base
             view_path = TableVersionPath(TableVersionHandle(key), base=base_version_path)
             ops = (
                 TableOpsBuilder(str(tbl_id), tbl_version=md.tbl_md.current_version)

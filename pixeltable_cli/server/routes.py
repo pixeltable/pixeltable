@@ -12,7 +12,7 @@ import sqlalchemy as sa
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.catalog import Path
-from pixeltable.config import Config
+from pixeltable.config import SECRET_SECTION, Config
 from pixeltable.env import Env
 from pixeltable.service import management_client
 from pixeltable.service.management_protocol import (
@@ -39,6 +39,7 @@ from pixeltable_cli import models, schema_types
 from pixeltable_cli.utils import identity
 
 from . import bridge
+from .daemon_state import state as daemon_state
 from .router import RawResponse, Request, Router
 
 router = Router()
@@ -52,12 +53,14 @@ _IDENTITY: dict[str, Any] = identity()
 _SCHEMA_PLAN = pydantic.TypeAdapter(schema_types.SchemaPlan)
 
 
-@router.get('/api/health')
+@router.get('/api/health', checks_env=False)
 def health(_req: Request) -> models.HealthResponse:
-    return models.HealthResponse(ok=True, pid=os.getpid(), started_at=_STARTED_AT, **_IDENTITY)
+    return models.HealthResponse(
+        ok=True, pid=os.getpid(), started_at=_STARTED_AT, in_flight=daemon_state.in_flight_requests(), **_IDENTITY
+    )
 
 
-@router.get('/api/status')
+@router.get('/api/status', checks_env=False)
 def status(req: Request) -> models.StatusResponse:
     sizes = req.query_bool('sizes')
     s = bridge.get_status()
@@ -79,7 +82,7 @@ def status(req: Request) -> models.StatusResponse:
     )
 
 
-@router.get('/api/config')
+@router.get('/api/config', checks_env=False)
 def config(_req: Request) -> models.ConfigResponse:
     # Two-layer redaction so a new sensitive key never silently leaks:
     # - params from registered API client factories
@@ -89,7 +92,11 @@ def config(_req: Request) -> models.ConfigResponse:
     entries: list[models.ConfigEntry] = []
     for ck in Config.get().config_keys():
         source = Config.get().get_value_source(ck.key, section=ck.section)
-        is_sensitive = ck.key in client_creds or any(ck.key.endswith(s) for s in sensitive_suffixes)
+        is_sensitive = (
+            ck.section == SECRET_SECTION
+            or ck.key in client_creds
+            or any(ck.key.endswith(s) for s in sensitive_suffixes)
+        )
         if source == 'unset':
             value: str | None = None
         elif is_sensitive:
@@ -111,10 +118,15 @@ def config(_req: Request) -> models.ConfigResponse:
                 expected_type=getattr(ck.expected_type, '__name__', str(ck.expected_type)),
             )
         )
-    return models.ConfigResponse(config_file=str(Config.get().config_file), entries=entries)
+    return models.ConfigResponse(
+        config_file=str(Config.get().config_file),
+        entries=entries,
+        env_fingerprint=Config.get().env_fingerprint(),
+        env_var_names=daemon_state.known_env_vars(),
+    )
 
 
-@router.get('/api/dirs')
+@router.get('/api/dirs', checks_env=False)
 def list_dir(req: Request) -> models.LsResponse:
     path = req.resolve_path(req.query_str('path') or '')
     return _list_dir(
@@ -122,27 +134,23 @@ def list_dir(req: Request) -> models.LsResponse:
     )
 
 
-@router.get('/api/cwd')
+@router.get('/api/cwd', checks_env=False)
 def get_cwd(req: Request) -> models.CwdResponse:
-    from . import daemon  # local import avoids the daemon -> http_server -> routes cycle
-
-    return models.CwdResponse(uri=daemon.get_wd(req.headers.get('x-pxt-session')))
+    return models.CwdResponse(uri=daemon_state.get_wd(req.headers.get('x-pxt-session')))
 
 
-@router.post('/api/cwd')
+@router.post('/api/cwd', checks_env=False)
 def set_cwd(req: Request) -> models.CwdResponse:
-    from . import daemon  # local import avoids the daemon -> http_server -> routes cycle
-
     session = req.headers.get('x-pxt-session')
     if session is None:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'no session; cannot set a working directory')
     resolved = req.resolve_path(req.body(models.CwdBody).uri)
     if resolved == '':
         # the catalog root is the default (no prefix), so a working directory that resolves to root clears it
-        daemon.clear_wd(session)
+        daemon_state.clear_wd(session)
         return models.CwdResponse(uri=None)
     _require_dir(resolved)
-    daemon.set_wd(session, resolved)
+    daemon_state.set_wd(session, resolved)
     return models.CwdResponse(uri=resolved)
 
 
@@ -334,7 +342,7 @@ def table_errors(req: Request) -> models.ErrorsResponse:
     return models.ErrorsResponse(entries=entries)
 
 
-@router.get('/api/tables/history')
+@router.get('/api/tables/history', checks_env=False)
 def table_history(req: Request) -> models.HistoryResponse:
     path = req.resolve_path(req.query_str('path') or '')
     n = req.query_int('n', default=None, ge=1)
@@ -368,14 +376,14 @@ def revert(req: Request) -> models.RevertResponse:
     return models.RevertResponse(path=path, from_version=from_version, to_version=to_version)
 
 
-@router.get('/api/tables/describe')
+@router.get('/api/tables/describe', checks_env=False)
 def describe_table(req: Request) -> models.DescribeResponse:
     path = req.resolve_path(req.query_str('path') or '')
     t = pxt.get_table(path)
     return models.DescribeResponse(text=repr(t), metadata=dict(t.get_metadata()))
 
 
-@router.get('/api/columns')
+@router.get('/api/columns', checks_env=False)
 def columns(req: Request) -> models.ColumnsResponse:
     path = req.query_str('path')
     computed = req.query_bool('computed')
@@ -411,7 +419,7 @@ def columns(req: Request) -> models.ColumnsResponse:
     return models.ColumnsResponse(entries=entries)
 
 
-@router.get('/api/indexes')
+@router.get('/api/indexes', checks_env=False)
 def indexes(req: Request) -> models.IdxsResponse:
     path = req.query_str('path')
     embedding = req.query_bool('embedding')
@@ -482,14 +490,14 @@ def schema_update(req: Request) -> schema_types.SchemaPlan:
     return _SCHEMA_PLAN.validate_python(applied)
 
 
-@router.get('/api/dashboard/search')
+@router.get('/api/dashboard/search', checks_env=False)
 def dashboard_search(req: Request) -> dict[str, Any]:
     q = req.query_str('q', default='') or ''
     additional_catalogs = req.query_list('catalogs')
     return bridge.search(q, additional_db_uris=additional_catalogs or None)
 
 
-@router.get('/api/dashboard/tables/meta')
+@router.get('/api/dashboard/tables/meta', checks_env=False)
 def dashboard_table_meta(req: Request) -> dict[str, Any]:
     path = req.resolve_path(req.query_str('path') or '')
     tbl = pxt.get_table(path)
@@ -498,13 +506,13 @@ def dashboard_table_meta(req: Request) -> dict[str, Any]:
     return md
 
 
-@router.get('/api/dashboard/tables/pipeline')
+@router.get('/api/dashboard/tables/pipeline', checks_env=False)
 def dashboard_pipeline(req: Request) -> dict[str, Any]:
     path = req.resolve_path(req.query_str('path') or '')
     return bridge.get_pipeline(tbl_path=path)
 
 
-@router.get('/api/dashboard/pipeline')
+@router.get('/api/dashboard/pipeline', checks_env=False)
 def dashboard_pipeline_root(_req: Request) -> dict[str, Any]:
     return bridge.get_pipeline(tbl_path=None)
 

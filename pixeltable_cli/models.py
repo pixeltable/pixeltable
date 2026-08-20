@@ -17,6 +17,16 @@ def _validate_pxt_path(v: str | None) -> str | None:
 PxtPath = Annotated[utils.PxtPath, AfterValidator(_validate_pxt_path)]
 
 
+# the verbs the daemon dispatches
+Method = Literal['GET', 'POST']
+
+
+class InFlightRequest(BaseModel):
+    method: Method
+    path: str
+    started_at: float
+
+
 class HealthResponse(BaseModel):
     ok: bool
     service: Literal['pxt'] = 'pxt'
@@ -33,6 +43,9 @@ class HealthResponse(BaseModel):
     pixeltable_home: str
     pixeltable_pgdata: str
     pixeltable_config_file: str
+
+    # requests being served right now, oldest first
+    in_flight: list[InFlightRequest] = Field(default_factory=list)
 
     # PIXELTABLE_*-prefixed env vars at daemon-startup time. Values for keys naming a
     # credential are replaced with a sha256 prefix so /health doesn't leak secrets; the
@@ -138,6 +151,11 @@ class ConfigEntry(BaseModel):
 class ConfigResponse(BaseModel):
     config_file: str
     entries: list[ConfigEntry]
+
+    # {env var name: hash of the value}
+    env_fingerprint: dict[str, str] = Field(default_factory=dict)
+    # all recognized env vars
+    env_var_names: list[str] = Field(default_factory=list)
 
 
 class CountResponse(BaseModel):

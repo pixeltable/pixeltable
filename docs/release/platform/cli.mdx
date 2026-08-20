@@ -562,10 +562,10 @@ The `schema` commands additionally report drift in their exit status (`0` in syn
 
 #### Named service (TOML config)
 
-Define your routes in a TOML file and start everything with one command:
+Define your routes in the Pixeltable config file and start everything with one command:
 
 ```toml
-# service.toml
+# ~/.pixeltable/config.toml
 [[pixeltable.service]]
 name = "my-service"
 port = 8000
@@ -584,7 +584,14 @@ query = "myapp.queries.search_docs"
 ```
 
 ```bash
-pxt serve my-service --config service.toml
+pxt serve my-service
+```
+
+To keep a service definition alongside a project instead, put it in its own file and point
+`PIXELTABLE_CONFIG` at that file:
+
+```bash
+PIXELTABLE_CONFIG=service.toml pxt serve my-service
 ```
 
 ```text Output
@@ -617,7 +624,7 @@ Every `pxt serve` subcommand accepts these flags:
 | `--host` | string | `0.0.0.0` | Bind address (overrides TOML `host`) |
 | `--port` | integer | `8000` | Bind port (overrides TOML `port`) |
 | `--prefix` | string | `""` | URL prefix prepended to all routes (must start with `/` or be empty) |
-| `--config` | string | | Path to an additional TOML config file to merge |
+| `--otel` | flag | | Enable OpenTelemetry instrumentation (requires `pip install 'pixeltable[otel]'`) |
 | `--dry-run` | flag | | Print the resolved config and exit without starting the server |
 | `--json` | flag | | Emit machine-readable JSON on stdout (startup) or stderr (errors) |
 
@@ -636,7 +643,7 @@ Errors (including port conflicts) emit to stderr:
 Combine `--dry-run` and `--json` to validate a config in CI without starting a server:
 
 ```bash
-pxt serve my-service --config service.toml --dry-run --json
+PIXELTABLE_CONFIG=service.toml pxt serve my-service --dry-run --json
 ```
 
 ### `pxt serve insert`
@@ -752,7 +759,7 @@ pxt serve insert --table my_dir.my_table --path /generate \
 #### Validate a config without starting a server
 
 ```bash
-pxt serve my-service --config service.toml --dry-run
+PIXELTABLE_CONFIG=service.toml pxt serve my-service --dry-run
 ```
 
 ```text Output
@@ -767,7 +774,7 @@ Routes (2):
 #### Override port for local development
 
 ```bash
-pxt serve my-service --config service.toml --port 9000
+PIXELTABLE_CONFIG=service.toml pxt serve my-service --port 9000
 ```
 
 #### File upload endpoint
@@ -804,13 +811,13 @@ Poll `job_url` until `status` is `"done"` or `"error"`.
 
 All cloud commands accept `--json` for machine-readable output.
 
-### `pixeltable.toml` reference
+### Cloud configuration reference
 
-Cloud operations that affect a database's runtime image or service routes read configuration from `pixeltable.toml` in the current directory.
+Cloud operations that affect a database's runtime image or service routes read their configuration from TOML.
 
-#### `[pixeltable.database]` — runtime bundle config
+#### `[pixeltable.database]` — runtime image config
 
-Read by `pxt db update-runtime`. Defines which local files to bundle and, optionally, a custom Pixeltable source branch.
+Read by `pxt db update-runtime`, from `pixeltable.toml` in the current directory if that file declares the section, and from the Pixeltable config file otherwise. Defines which local files to package into the runtime image and, optionally, a custom Pixeltable source branch.
 
 ```toml
 [pixeltable.database]
@@ -829,12 +836,11 @@ branch = "my-feature-branch"
 
 #### `[[pixeltable.service]]` — service route config
 
-Read by `pxt service create` and `pxt service update`. Each `[[pixeltable.service]]` block defines one named service; `name` must match the service name argument passed to `pxt service create`.
+Read by `pxt service create` and `pxt service update`, from the Pixeltable config file (`$PIXELTABLE_HOME/config.toml`, or the file `PIXELTABLE_CONFIG` names). Each `[[pixeltable.service]]` block defines one named service; `name` must match the service name argument passed to `pxt service create`.
 
 ```toml
 [[pixeltable.service]]
 name    = "my-service"
-modules = ["app"]        # Python modules imported at service startup
 
 # INSERT / COMPUTE — append a row, trigger computed columns, return outputs
 [[pixeltable.service.routes]]
@@ -962,7 +968,7 @@ Triggers a rolling restart; polls until `AVAILABLE`.
 pxt db update-runtime pxt://myorg:mydb
 ```
 
-Reads `[pixeltable.database]` from `pixeltable.toml` in the current directory, packages the project bundle, uploads it, and triggers a CodeBuild image rebuild. Polls until the build completes or fails. Running services are restarted on the new image automatically.
+Reads `[pixeltable.database]` (see the [cloud configuration reference](#cloud-configuration-reference)), packages the project files, uploads them, and triggers a CodeBuild image rebuild. Polls until the build completes or fails. Running services are restarted on the new image automatically.
 
 #### `pxt db delete`
 
@@ -987,14 +993,14 @@ pxt service create my-service --base-uri pxt://myorg:mydb --workers 2
 
 | Argument / flag | Description |
 |---|---|
-| `name` | Service name; must match a `[[pixeltable.service]]` block in `pixeltable.toml` |
+| `name` | Service name; must match a `[[pixeltable.service]]` block in the Pixeltable config file |
 | `--base-uri URI` | `pxt://org:db[/<dir>]` — database and optional base path prefix for routes |
 | `--workers N` | Number of workers (default: 1) |
 | `--cpu N` | CPU cores per worker (default: 0.5) |
 | `--memory N` | Memory per worker in MB (default: 512) |
 | `--disk N` | Disk per worker in GB (default: 10) |
 
-Reads route config from the `[[pixeltable.service]]` block matching `name` in `pixeltable.toml`. Polls until `AVAILABLE`.
+Reads route config from the `[[pixeltable.service]]` block matching `name` in the Pixeltable config file. Polls until `AVAILABLE`.
 
 #### `pxt service list`
 
@@ -1035,7 +1041,7 @@ pxt service update pxt://myorg:mydb/services/my-service --workers 2
 | `--memory N` | Memory per worker in MB |
 | `--disk N` | Disk per worker in GB |
 
-Re-reads `[[pixeltable.service]]` from `pixeltable.toml` for route config changes. Triggers a rolling restart if routes changed; polls until `AVAILABLE`.
+Re-reads `[[pixeltable.service]]` from the Pixeltable config file for route config changes. Triggers a rolling restart if routes changed; polls until `AVAILABLE`.
 
 #### `pxt service delete`
 
