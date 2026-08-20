@@ -505,8 +505,11 @@ def dashboard_pipeline(req: Request) -> dict[str, Any]:
 
 
 @router.get('/api/dashboard/pipeline')
-def dashboard_pipeline_root(_req: Request) -> dict[str, Any]:
-    return bridge.get_pipeline(tbl_path=None)
+def dashboard_pipeline_root(req: Request) -> dict[str, Any]:
+    raw = req.query_str('path')
+    if raw is None or raw in ('', 'local'):
+        return bridge.get_pipeline(tbl_path=None)
+    return bridge.get_pipeline(tbl_path=req.resolve_path(raw))
 
 
 @router.get('/api/dashboard/tables/data')

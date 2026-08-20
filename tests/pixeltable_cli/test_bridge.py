@@ -255,6 +255,14 @@ class TestBridge:
 
         # No path returns the full catalog.
         assert {n['path'] for n in bridge.get_pipeline()['nodes']} == {'sc/root', 'sc/mid', 'sc/leaf', 'sc/other'}
+        # Catalog-root aliases are the same full local DAG.
+        assert {n['path'] for n in bridge.get_pipeline('')['nodes']} == {'sc/root', 'sc/mid', 'sc/leaf', 'sc/other'}
+        assert {n['path'] for n in bridge.get_pipeline('local')['nodes']} == {
+            'sc/root',
+            'sc/mid',
+            'sc/leaf',
+            'sc/other',
+        }
 
     def test_pipeline_view_edge(self, uses_db: None) -> None:
         pxt.create_dir('pp')
