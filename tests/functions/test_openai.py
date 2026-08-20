@@ -707,18 +707,14 @@ class TestOpenai:
         assert any('Apple' in answer for answer in r2['answer'])
 
     @rerun(reruns=3, reruns_delay=8)
-    def test_azure_openai(self, uses_db: None) -> None:
+    def test_azure_openai(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
         skip_test_if_not_installed('openai')
         if not os.environ.get('AZURE_OPENAI_API_KEY'):
             pytest.skip('`AZURE_OPENAI_API_KEY` is not set.')
-        Config.init(
-            {
-                'openai.api_key': os.environ['AZURE_OPENAI_API_KEY'],
-                'openai.base_url': 'https://pixeltable1.openai.azure.com/openai/v1/',
-                'openai.api_version': 'preview',
-            },
-            reinit=True,
-        )
+        monkeypatch.setenv('OPENAI_API_KEY', os.environ['AZURE_OPENAI_API_KEY'])
+        monkeypatch.setenv('OPENAI_BASE_URL', 'https://pixeltable1.openai.azure.com/openai/v1/')
+        monkeypatch.setenv('OPENAI_API_VERSION', 'preview')
+        Config.init(reinit=True)
         from pixeltable.functions.openai import chat_completions
 
         t = pxt.create_table('test_tbl', {'input': pxt.String | None})

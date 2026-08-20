@@ -180,7 +180,7 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
         # Config caches the home directory on first use, and Env._set_up() reads it from there. A test that
         # reached Config before this fixture ran would have cached the user's real home, which the Env rebuild
         # below would then adopt; re-read it now that PIXELTABLE_HOME points at this worker's directory.
-        Config.init({}, reinit=True)
+        Config.init(reinit=True)
         # We need to call `Env._init_env()` with `reinit_db=True`. This is because if a previous test run was
         # interrupted (e.g., by an inopportune Ctrl-C), there may be residual DB artifacts that interfere with
         # initialization.
@@ -241,7 +241,7 @@ def _reset_catalog_state() -> None:
     # Clean the DB *before* reloading. This is because some tests
     # (such as test_migration.py) may leave the DB in a broken state.
     clean_db()
-    Config.init({}, reinit=True)
+    Config.init(reinit=True)
     Env.get().default_time_zone = None
     Env.get().user = None
     reload_catalog()

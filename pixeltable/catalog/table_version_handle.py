@@ -7,7 +7,8 @@ from uuid import UUID
 from pixeltable import exceptions as excs
 from pixeltable.runtime import get_runtime
 
-from .table_version import TableVersion, TableVersionKey
+from .table_version import TableVersion
+from .types import TableVersionKey
 
 if TYPE_CHECKING:
     from pixeltable.catalog import Column

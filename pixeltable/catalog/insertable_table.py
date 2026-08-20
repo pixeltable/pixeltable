@@ -14,10 +14,11 @@ from .column import Column
 from .globals import IndexSpec, MediaValidation, OnErrorParam
 from .local_table import LocalTable
 from .table_path import TableVersionPath
-from .table_version import TableVersion, TableVersionMd
 from .table_version_handle import TableVersionHandle
 from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, TableOp, TableOpsBuilder
+from .types import TableVersionMd
 from .update_status import UpdateStatus
+from .utils import create_table_version_md
 
 if TYPE_CHECKING:
     from pixeltable import exprs
@@ -76,7 +77,7 @@ class InsertableTable(LocalTable):
             for spec in additional_idxs
         ]
 
-        md = TableVersion.create_initial_md(
+        md = create_table_version_md(
             tbl_id,
             name,
             columns,
