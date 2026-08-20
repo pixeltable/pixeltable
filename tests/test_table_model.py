@@ -2226,7 +2226,9 @@ class TestTableModel:
             TableModel.create_all(p(''))
 
     @pytest.mark.local('a local filesystem destination is rejected for a hosted table')
-    def test_config_var_destination(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_config_var_destination(
+        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A column destination is resolved when a file is written, not when the column is declared.
 
         A pxt.ConfigVar destination follows whatever the target binds it to, and a default destination the
@@ -2252,6 +2254,9 @@ class TestTableModel:
         MEDIA_DEST = pxt.ConfigVar('media_dest', pxt.URI)
         MISSING = pxt.ConfigVar('no_such_var', pxt.URI)
 
+        # this test's config file needs to be the only source of a media destination, so drop any the environment sets
+        monkeypatch.delenv('PIXELTABLE_OUTPUT_MEDIA_DEST', raising=False)
+        monkeypatch.delenv('PIXELTABLE_INPUT_MEDIA_DEST', raising=False)
         original_config = os.environ.get('PIXELTABLE_CONFIG')
         os.environ['PIXELTABLE_CONFIG'] = str(config_file)
         # not Config.init(): output_media_dest is read when the Env is created
