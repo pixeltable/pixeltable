@@ -74,7 +74,7 @@ class TestDbRuntimeBundle:
 
         (tmp_path / 'pixeltable.toml').write_text(
             textwrap.dedent("""\
-                [pixeltable.database]
+                [pixeltable.clouddb]
                 exclude = ["*.py", "b_exclude.txt"]
                 include = ["a_include.py"]
             """)
@@ -131,7 +131,7 @@ class TestDbRuntimeBundle:
         """system_dependencies from pixeltable.toml are validated and written to metadata.json."""
         (tmp_path / 'pixeltable.toml').write_text(
             textwrap.dedent("""\
-                [pixeltable.database]
+                [pixeltable.clouddb]
                 system_dependencies = ["ffmpeg", "libpq"]
             """)
         )
@@ -219,7 +219,7 @@ class TestDbRuntimeBundle:
 
         (tmp_path / 'pixeltable.toml').write_text(
             textwrap.dedent("""\
-                [pixeltable.database]
+                [pixeltable.clouddb]
                 include = "not-a-list"
             """)
         )

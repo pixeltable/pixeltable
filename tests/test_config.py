@@ -135,7 +135,7 @@ class TestConfig:
     def test_env_var_names(self, tmp_path: Path) -> None:
         """A setting is bound by its name uppercased, so only that spelling of a variable is read."""
         config_file = tmp_path / 'config.toml'
-        config_file.write_text('[pixeltable.database.secrets]\ndeclared_in_file = "from-the-file"\n')
+        config_file.write_text('[pixeltable.clouddb.secrets]\ndeclared_in_file = "from-the-file"\n')
 
         def config_var_keys(env_vars: dict[str, str]) -> list[str]:
             """The secret names Config finds, resolved in a subprocess so the environment is exactly env_vars."""
@@ -195,7 +195,7 @@ class TestConfig:
     def test_reload_if_changed(self, tmp_path: Path) -> None:
         """The config file is re-read after it changes, which is how a running daemon picks up an edit."""
         config_file = tmp_path / 'config.toml'
-        config_file.write_text('[pixeltable.database.vars]\nmedia_dest = "s3://first/bucket"\n')
+        config_file.write_text('[pixeltable.clouddb.vars]\nmedia_dest = "s3://first/bucket"\n')
 
         media_dest = pxt.ConfigVar('media_dest', pxt.URI)
 
@@ -208,7 +208,7 @@ class TestConfig:
             assert not Config.reload_if_changed()
 
             time.sleep(0.01)  # the stamp is (mtime, size), so a same-size rewrite needs a distinct mtime
-            config_file.write_text('[pixeltable.database.vars]\nmedia_dest = "s3://second/bucket"\n')
+            config_file.write_text('[pixeltable.clouddb.vars]\nmedia_dest = "s3://second/bucket"\n')
             assert Config.reload_if_changed()
             assert media_dest.value() == 's3://second/bucket'
             assert not Config.reload_if_changed()
@@ -217,7 +217,7 @@ class TestConfig:
             Config.init({'openai.api_key': 'sk-override'}, reinit=True)
             assert Config.get().get_string_value('api_key', section='openai') == 'sk-override'
             time.sleep(0.01)
-            config_file.write_text('[pixeltable.database.vars]\nmedia_dest = "s3://third/bucket"\n')
+            config_file.write_text('[pixeltable.clouddb.vars]\nmedia_dest = "s3://third/bucket"\n')
             assert Config.reload_if_changed()
             assert media_dest.value() == 's3://third/bucket'
             assert Config.get().get_string_value('api_key', section='openai') == 'sk-override'
@@ -243,7 +243,7 @@ class TestConfig:
         other_dir = tmp_path / 'rebound'
         other_dir.mkdir()
         config_file = tmp_path / 'config.toml'
-        config_file.write_text(f'[pixeltable.database.vars]\nmedia_dest = "{media_dir.as_posix()}"\n')
+        config_file.write_text(f'[pixeltable.clouddb.vars]\nmedia_dest = "{media_dir.as_posix()}"\n')
 
         original_config = os.environ.get('PIXELTABLE_CONFIG')
         os.environ['PIXELTABLE_CONFIG'] = str(config_file)
@@ -257,7 +257,7 @@ class TestConfig:
             t.insert(img=get_image_files()[0])
             assert media_dir.as_uri() in t.select(url=t.thumb.fileurl).collect()[0]['url']
 
-            config_file.write_text(f'[pixeltable.database.vars]\nmedia_dest = "{other_dir.as_posix()}"\n')
+            config_file.write_text(f'[pixeltable.clouddb.vars]\nmedia_dest = "{other_dir.as_posix()}"\n')
             assert Config.reload_if_changed()
 
             # the declaration is unchanged, so the column still reads as the same variable
