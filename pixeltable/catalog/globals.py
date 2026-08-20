@@ -137,8 +137,7 @@ def fold_mapping_keys(m: Mapping[str, _T], *, kind: str = 'Column') -> dict[str,
         if len(names) > 1:
             spellings = ', '.join(repr(n) for n in names)
             raise excs.RequestError(
-                excs.ErrorCode.INVALID_SCHEMA,
-                f'{kind} names are case-insensitive, but {spellings} were specified',
+                excs.ErrorCode.INVALID_SCHEMA, f'{kind} names are case-insensitive, but {spellings} were specified'
             )
     return {fold_identifier(name): spec for name, spec in m.items()}
 
