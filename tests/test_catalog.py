@@ -59,8 +59,6 @@ class TestCatalog:
         _s2 = pxt.create_snapshot(p('test_dir/snapshot2'), v2, additional_columns={'c': pxt.String | None})
         t.insert(a=4171780)
         df = pxt.ls(p('test_dir'))
-        # a hosted (proxy) table's Base shows its full catalog uri, which widens the column vs local; compare row
-        # tokens so the assertion checks content (including the uris) independent of column padding.
         expected = f"""
             Name Kind Version Base
             snapshot1 snapshot {v1_name}:2
@@ -73,7 +71,10 @@ class TestCatalog:
         def tokens(s: str) -> list[list[str]]:
             return [line.split() for line in s.splitlines() if line.split()]
 
-        assert tokens(repr(df)) == tokens(expected)
+        # compare contents, not repr(): pandas truncates one this wide. Empty cells (a dir has no version
+        # or base) are dropped to match the expected tokens.
+        actual = [list(df.columns), *([v for v in row if v != ''] for row in df.itertuples(index=False))]
+        assert actual == tokens(expected)
 
     def test_cross_type_replacement(self, make_catalog_path: Callable[[str], str]) -> None:
         """Test that tables, views, and snapshots can replace each other with if_exists='replace'.
