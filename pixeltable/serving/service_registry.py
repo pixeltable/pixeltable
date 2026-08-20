@@ -7,7 +7,8 @@ layout means the services deployed against one directory are a single non-recurs
 
 The registry is derived, not authoritative: a record's liveness is the liveness of the process it names, so
 a service that crashed or was killed is absent from the next read, with no cleanup pass and no state that
-can contradict the process table.
+can contradict the process table. A record names its process by pid and creation time, because the OS
+reissues a pid once the process holding it exits.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from typing import TYPE_CHECKING
 
 from pixeltable import catalog, exceptions as excs
 from pixeltable.env import Env
-from pixeltable.utils.process import pid_alive
+from pixeltable.utils.process import is_pid, pid_alive, process_timestamp
 
 if TYPE_CHECKING:
     from pixeltable.serving import ServiceSpec
@@ -42,6 +43,10 @@ class ServiceDeployment:
 
     endpoint: str
     pid: int
+
+    # creation time of pid, as process_birth_id() reads it; None where the platform does not report one
+    process_started_at: float | None
+
     created_at: float
 
     # the file from which the service definition was loaded
@@ -113,6 +118,16 @@ class ServiceDeployment:
         if not names <= record.keys():
             return None
         deployment = cls(**{name: value for name, value in record.items() if name in names})
-        if type(deployment.pid) is not int:
-            return None  # bool is an int, and a pid of True would probe pid 1
-        return deployment if pid_alive(deployment.pid) else None
+        return deployment if deployment.is_live() else None
+
+    def is_live(self) -> bool:
+        """Whether the process this record was written for is still running.
+
+        A pid alone does not identify it: the OS reissues the pid of an exited process, so a record left
+        behind by a crash would otherwise report whichever process inherited it.
+        """
+        if not is_pid(self.pid) or not pid_alive(self.pid):
+            return False
+        if self.process_started_at is None:
+            return True  # nothing to compare against: the platform reported no creation time when writing
+        return process_timestamp(self.pid) == self.process_started_at

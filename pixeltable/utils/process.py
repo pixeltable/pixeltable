@@ -3,6 +3,8 @@
 import os
 import sys
 
+import psutil
+
 
 def _win_pid_alive(pid: int) -> bool:
     """Windows liveness check via the Win32 API.
@@ -36,8 +38,29 @@ def _win_pid_alive(pid: int) -> bool:
         kernel32.CloseHandle(handle)
 
 
+def is_pid(value: object) -> bool:
+    """True if value can name a process: an int above 0.
+
+    bool is an int, and 0 and negative values address the caller's process group rather than one process, so
+    passing them to os.kill() signals more than the intended target.
+    """
+    return type(value) is int and value > 0
+
+
+def process_timestamp(pid: int) -> float | None:
+    """The creation time of pid, or None if it cannot be read."""
+    if not is_pid(pid):
+        return None
+    try:
+        return psutil.Process(pid).create_time()
+    except (psutil.Error, OSError):
+        return None
+
+
 def pid_alive(pid: int) -> bool:
     """True if pid is a live process. An already-exited but unreaped child (zombie) counts as dead."""
+    if not is_pid(pid):
+        return False
     if sys.platform == 'win32':
         return _win_pid_alive(pid)
     try:

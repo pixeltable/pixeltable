@@ -245,7 +245,7 @@ This means:
 
 *Declarative Serving (`pxt service`):*
 - Same persistent storage as Full Backend.
-- API routes declared in `pyproject.toml`, no hand-written endpoint code.
+- API routes declared with `FastAPIRouter` in the application file, no hand-written endpoint code.
 
 All [Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit) deployment configs set `PIXELTABLE_HOME=/data/pixeltable` pointing to persistent storage (Docker volumes, K8s PVCs, or EFS). For large media workloads, configure external blob storage:
 

@@ -25,7 +25,7 @@ import httpx
 from pixeltable import catalog, exceptions as excs
 from pixeltable.config import Config
 from pixeltable.serving._app import build_app_for_services, load_service_routers
-from pixeltable.utils.process import pid_alive
+from pixeltable.utils.process import pid_alive, process_timestamp
 
 from .service_registry import ServiceDeployment
 
@@ -115,16 +115,38 @@ def start(app_file: str, name: str, base_path: str = '') -> ServiceDeployment:
     returncode = proc.poll()
     if returncode is None:
         msg += '; its process is still running but never reported healthy'
+        # take the process down and drop the record it wrote, so that nothing is left claiming this target
+        _terminate(proc)
+        unhealthy = ServiceDeployment.read(name, base_path)
+        if unhealthy is not None and unhealthy.pid == proc.pid:
+            unhealthy.remove()
     else:
         msg += f'; its process exited with code {returncode}'
     tail = _tail_log(path)
     if tail != '':
-        msg += f'\n--- service log tail ({path}) ---\n{tail}'
+        msg += f'\n--- service log tail ---\n{tail}'
     raise excs.Error(excs.ErrorCode.INTERNAL_ERROR, msg)
+
+
+def _terminate(proc: subprocess.Popen) -> None:
+    """Stop proc and reap it, escalating to kill if it does not exit."""
+    proc.terminate()
+    try:
+        proc.wait(timeout=_STOP_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        try:
+            proc.wait(timeout=_STOP_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            _logger.warning('Service process %d did not exit', proc.pid)
 
 
 def stop(deployment: ServiceDeployment) -> None:
     """Terminate a service's process and remove its record."""
+    if not deployment.is_live():
+        # the recorded process is gone; its pid may belong to something else by now
+        deployment.remove()
+        return
     pid: int | None = deployment.pid
     try:
         os.kill(pid, signal.SIGTERM)
@@ -172,6 +194,7 @@ def _serve(app_file: str, name: str, base_path: str) -> None:
         base_path=base_path,
         endpoint=f'http://127.0.0.1:{port}',
         pid=os.getpid(),
+        process_started_at=process_timestamp(os.getpid()),
         created_at=time.time(),
         app_file=str(Path(app_file).resolve()),
         spec=spec,
