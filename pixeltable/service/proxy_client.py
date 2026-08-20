@@ -71,7 +71,7 @@ def _replace_media_paths(obj: Any, make_url: Callable[[str], str]) -> Any:
     return obj
 
 
-_MAX_UPLOAD_THREADS = 16  # matches the daemon's download pool (see proxy_dispatch._prefetch_remote_parts)
+_MAX_UPLOAD_THREADS = 16
 
 
 class R2PartSink(PartSink):

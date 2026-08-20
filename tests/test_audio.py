@@ -15,9 +15,9 @@ from pixeltable.utils import av as av_utils
 
 from .utils import (
     CatalogMode,
-    MediaStore,
     ReloadTester,
     TempStoreView,
+    check_media_store_count,
     get_audio_file,
     get_audio_files,
     get_video_files,
@@ -76,7 +76,7 @@ class TestAudio:
         # the default store holds one extracted-audio file per video with audio; over the proxy it additionally
         # holds each input video, shipped and persisted there (local references the source files in place)
         shipped_videos = len(video_filepaths) if catalog_mode == 'proxy' else 0
-        assert MediaStore.count(video_t, default_output_dest=True) == videos_with_audio + shipped_videos
+        check_media_store_count(video_t, videos_with_audio + shipped_videos, catalog_mode, default_output_dest=True)
         assert video_t.where(video_t.audio != None).count() == videos_with_audio
         tmp_files_before = TempStoreView.count(video_t)
 
@@ -176,22 +176,22 @@ class TestAudio:
         reload_tester.run_reload_test()
 
     def test_audio_splitter_on_videos_revert_media_store(
-        self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester
+        self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester, catalog_mode: CatalogMode
     ) -> None:
         p = make_catalog_path
         video_filepaths = get_video_files()
         video_t = pxt.create_table(p('videos'), {'video': pxt.Video | None})
         video_t.insert({'video': path} for path in video_filepaths)
 
-        pre_count = MediaStore.count(video_t, default_output_dest=True)
+        shipped_files = len(video_filepaths) if catalog_mode == 'proxy' else 0
+        check_media_store_count(video_t, shipped_files, 'local', default_output_dest=True)
         # extract audio
         video_t.add_computed_column(audio=video_t.video.extract_audio(format='mp3'))
-        post_count = MediaStore.count(video_t, default_output_dest=True)
-        assert post_count > pre_count  # Some files should have been added
-
+        rows_with_audio = video_t.where(video_t.audio != None).count()
+        assert rows_with_audio > 0
+        check_media_store_count(video_t, rows_with_audio + shipped_files, catalog_mode, default_output_dest=True)
         video_t.revert()
-        final_count = MediaStore.count(video_t, default_output_dest=True)
-        assert final_count == pre_count  # Reverting should remove the added files
+        check_media_store_count(video_t, shipped_files, 'local', default_output_dest=True)
 
     @pytest.mark.local('TODO: convert; audio-splitter view')
     def test_audio_splitter_single_file(self, uses_db: None, reload_tester: ReloadTester) -> None:
