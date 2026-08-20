@@ -125,6 +125,8 @@ def generate_matrix(args: argparse.Namespace) -> None:
             MatrixConfig('slim', 'py', platform, '3.11', pytest_options=slim_pytest)
             for platform in (MAIN_PLATFORM, *BASIC_PLATFORMS)
         )
+        # Also exercise the newest supported Python on the main platform
+        configs.append(MatrixConfig('slim', 'py', MAIN_PLATFORM, '3.14', pytest_options=slim_pytest))
 
     else:
         # A non-PR trigger: merge queue, workflow dispatch, or schedule.
