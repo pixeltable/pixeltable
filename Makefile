@@ -165,7 +165,11 @@ fullpytest: install
 slimpytest: install
 	@echo 'Running `pytest` on a slim configuration ...'
 	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) \
-	    tests/test_{alter_column,catalog,dirs,env,exprs,function,index,operational_table,snapshot,table,table_model,types,view}.py
+	    tests/test_{alter_column,array_type,catalog,component_view,concurrent,concurrent_model,config,dirs,env}.py \
+	    tests/test_{exceptions,exprs,fault_injection,file_cache,function,history,index,iterator,mcp,path}.py \
+	    tests/test_{primary_key_index,query,sample,snapshot,table,table_model,table_model_2,types,view}.py \
+	    tests/serving/test_fastapi.py \
+	    tests/pixeltable_cli/test_{bridge,internals,schema,serve_deploy,smoke}.py
 
 .PHONY: nbtest
 nbtest: install

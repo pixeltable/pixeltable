@@ -933,6 +933,8 @@ def stock_price(ticker: str) -> float:
         return 0.0
 
 
+# Local path to a sample image to use in tests. Use it whenever possible instead of fetching files over the network.
+SAMPLE_IMAGE_FILE_PATH = str(TESTS_DIR.parent / 'docs' / 'resources' / 'images' / '000000000009.jpg')
 SAMPLE_IMAGE_URL = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000009.jpg'
 
 

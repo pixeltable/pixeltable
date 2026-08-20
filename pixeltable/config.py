@@ -296,8 +296,8 @@ class ConfigKey(NamedTuple):
     description: str
     # human-readable summary for help output
     expected_type: Any
-    # type get_value() should coerce to; defaults to str. May be a parameterized generic
-    # (eg list[ServiceConfig]) rather than a plain type, so we widen to Any.
+    # type get_value() should coerce to; defaults to str. May be a parameterized generic (eg list[str])
+    # rather than a plain type, so we widen to Any.
 
 
 class Config:

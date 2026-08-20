@@ -40,6 +40,54 @@ def tag(s: str, label: str) -> str:
 
 
 class TestTableModel:
+    def test_table_path(self, make_catalog_path: Callable[[str], str]) -> None:
+        """A model describes its shape before the table exists, and the description matches what gets created."""
+        p = make_catalog_path
+        from pixeltable.functions.video import frame_iterator
+
+        TableModel = pxt.model_base()
+
+        class Base(TableModel, name='base'):
+            vid: pxt.Video | None
+            val: pxt.Int
+
+        class Plain(TableModel, name='plain', base=Base):
+            doubled = Base.val * 2
+
+        class Filtered(TableModel, name='filtered', base=Base.where(Base.val > 10)):
+            tripled = Base.val * 3
+
+        class Projected(TableModel, name='projected', base=Base.select(v=Base.val)):
+            plus = v + 1  # type: ignore[name-defined]  # the select() alias, referenceable in the body
+
+        class Frames(TableModel, name='frames', base=Base, iterator=frame_iterator(video=Base.vid, fps=1)):
+            pass
+
+        models = [Base, Plain, Filtered, Projected, Frames]
+        declared = {m: m.table_path() for m in models}
+
+        assert not declared[Base].is_view()
+        assert all(declared[m].is_view() for m in (Plain, Filtered, Projected, Frames))
+        assert declared[Frames].has_iterator()
+        assert not any(declared[m].has_iterator() for m in (Plain, Filtered, Projected))
+        # a select() view projects the base rather than inheriting it
+        assert [c.name for c in declared[Projected].column_md()] == ['v', 'plus']
+        assert [c.name for c in declared[Plain].column_md()] == ['doubled', 'vid', 'val']
+
+        TableModel.create_all(p(''))
+
+        for m in models:
+            actual = m.table._tbl_path
+            assert [c.name for c in declared[m].column_md()] == [c.name for c in actual.column_md()], m.__name__
+            assert [c.col_type for c in declared[m].column_md()] == [c.col_type for c in actual.column_md()], m.__name__
+            assert declared[m].is_view() == actual.is_view(), m.__name__
+            assert declared[m].has_iterator() == actual.has_iterator(), m.__name__
+            # the ids are synthesized, so the description is of a shape and not of anything in the catalog
+            assert declared[m].tbl_id != actual.tbl_id, m.__name__
+
+        # inspecting a model leaves its declaration alone: the same shape is reported after the tables exist
+        assert all(m.table_path() is declared[m] for m in models)
+
     @pytest.mark.parametrize('root', ['', 'dir/subdir'])
     def test_table_model_basic(self, root: str, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
@@ -2100,6 +2148,8 @@ class TestTableModel:
         class Projected(TableModel, name='projected', base=Base.select(v=Base.val)):
             plus = v + 1  # type: ignore[name-defined]
 
+        assert [c.name for c in Projected.table_path().column_md()] == ['v', 'plus']
+
     def test_table_model_validation_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """Errors that arise from a schema mismatch between a model and an existing table."""
         p = make_catalog_path
@@ -2180,7 +2230,9 @@ class TestTableModel:
             TableModel.create_all(p(''))
 
     @pytest.mark.local('a local filesystem destination is rejected for a hosted table')
-    def test_config_var_destination(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_config_var_destination(
+        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A column destination is resolved when a file is written, not when the column is declared.
 
         A pxt.ConfigVar destination follows whatever the target binds it to, and a default destination the
@@ -2206,6 +2258,9 @@ class TestTableModel:
         MEDIA_DEST = pxt.ConfigVar('media_dest', pxt.URI)
         MISSING = pxt.ConfigVar('no_such_var', pxt.URI)
 
+        # this test's config file needs to be the only source of a media destination, so drop any the environment sets
+        monkeypatch.delenv('PIXELTABLE_OUTPUT_MEDIA_DEST', raising=False)
+        monkeypatch.delenv('PIXELTABLE_INPUT_MEDIA_DEST', raising=False)
         original_config = os.environ.get('PIXELTABLE_CONFIG')
         os.environ['PIXELTABLE_CONFIG'] = str(config_file)
         # not Config.init(): output_media_dest is read when the Env is created

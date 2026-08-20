@@ -28,6 +28,8 @@ _ANOTHER_KEY = 'sk-pxt-test-bbbb'
 # a schema whose index makes pxt schema update load an embedding model, which takes seconds
 _SLOW_SCHEMA_SRC = dedent(
     """
+    from __future__ import annotations
+
     import pixeltable as pxt
     from pixeltable.functions.huggingface import sentence_transformer
 
@@ -192,6 +194,8 @@ class TestConfig:
         schema_file.write_text(
             dedent(
                 """
+                from __future__ import annotations
+
                 import pixeltable as pxt
 
                 MEDIA_DEST = pxt.ConfigVar('pxt_test_dest', pxt.URI)
