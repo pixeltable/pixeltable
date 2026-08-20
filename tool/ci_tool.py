@@ -25,40 +25,40 @@ VERY_EXPENSIVE_PYTEST = "-m 'not benchmark and not cloud_e2e'"
 # The core-functionality test modules that PR checks run on every push. This mirrors the `slimpytest` target in the
 # Makefile.
 SLIM_TESTS = (
-    'tests/test_alter_column.py '
-    'tests/test_array_type.py '
-    'tests/test_catalog.py '
-    'tests/test_component_view.py '
-    'tests/test_concurrent.py '
-    'tests/test_concurrent_model.py '
-    'tests/test_config.py '
-    'tests/test_dirs.py '
-    'tests/test_env.py '
-    'tests/test_exceptions.py '
-    'tests/test_exprs.py '
-    'tests/test_fault_injection.py '
-    'tests/test_file_cache.py '
-    'tests/test_function.py '
-    'tests/test_history.py '
-    'tests/test_index.py '
-    'tests/test_iterator.py '
-    'tests/test_mcp.py '
-    'tests/test_path.py '
-    'tests/test_primary_key_index.py '
-    'tests/test_query.py '
-    'tests/test_sample.py '
-    'tests/test_snapshot.py '
-    'tests/test_table.py '
-    'tests/test_table_model.py '
-    'tests/test_table_model_2.py '
-    'tests/test_types.py '
-    'tests/test_view.py '
-    'tests/serving/test_fastapi.py '
-    'tests/pixeltable_cli/test_bridge.py '
-    'tests/pixeltable_cli/test_internals.py '
-    'tests/pixeltable_cli/test_schema.py '
-    'tests/pixeltable_cli/test_serve_deploy.py '
-    'tests/pixeltable_cli/test_smoke.py'
+    'tests/test_alter_column.py',
+    'tests/test_array_type.py',
+    'tests/test_catalog.py',
+    'tests/test_component_view.py',
+    'tests/test_concurrent.py',
+    'tests/test_concurrent_model.py',
+    'tests/test_config.py',
+    'tests/test_dirs.py',
+    'tests/test_env.py',
+    'tests/test_exceptions.py',
+    'tests/test_exprs.py',
+    'tests/test_fault_injection.py',
+    'tests/test_file_cache.py',
+    'tests/test_function.py',
+    'tests/test_history.py',
+    'tests/test_index.py',
+    'tests/test_iterator.py',
+    'tests/test_mcp.py',
+    'tests/test_path.py',
+    'tests/test_primary_key_index.py',
+    'tests/test_query.py',
+    'tests/test_sample.py',
+    'tests/test_snapshot.py',
+    'tests/test_table.py',
+    'tests/test_table_model.py',
+    'tests/test_table_model_2.py',
+    'tests/test_types.py',
+    'tests/test_view.py',
+    'tests/serving/test_fastapi.py',
+    'tests/pixeltable_cli/test_bridge.py',
+    'tests/pixeltable_cli/test_internals.py',
+    'tests/pixeltable_cli/test_schema.py',
+    'tests/pixeltable_cli/test_serve_deploy.py',
+    'tests/pixeltable_cli/test_smoke.py',
 )
 
 MAIN_PLATFORM = 'ubuntu-24.04'
@@ -120,8 +120,9 @@ def generate_matrix(args: argparse.Namespace) -> None:
 
     if trigger == 'pull_request':
         # On every push to a PR we run only the slim tests. It is strictly a subset of what the merge queue runs.
+        slim_pytest = DEFAULT_PYTEST + ' ' + ' '.join(SLIM_TESTS)
         configs.extend(
-            MatrixConfig('slim', 'py', platform, '3.11', pytest_options=f'{DEFAULT_PYTEST} {SLIM_TESTS}')
+            MatrixConfig('slim', 'py', platform, '3.11', pytest_options=slim_pytest)
             for platform in (MAIN_PLATFORM, *BASIC_PLATFORMS)
         )
 
