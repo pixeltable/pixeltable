@@ -119,6 +119,8 @@ class TestTableModel:
                 EmbeddingIndex(img, embedding=dummy_embedding.using(n=768), name='clip_idx'),
             ]
 
+        assert ExampleTableModel.table_path().is_data_versioned() == is_data_versioned
+
         expected_path = f'{p(root)}/test_table'.lstrip('/')
         if root != '':
             pxt.create_dir(p(root), parents=True)

@@ -861,7 +861,7 @@ class TableModelMeta(type):
                 media_validation=spec['media_validation'],
                 has_default_idxs=spec['has_default_idxs'],
                 view_md=None,
-                is_data_versioned=True,
+                is_data_versioned=spec['is_data_versioned'],
                 additional_idxs=idxs,
             )
         else:
