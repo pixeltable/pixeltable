@@ -194,25 +194,25 @@ Add multimodal intelligence to applications with two deployment patterns.
 
         ```toml
         # service.toml
-        [[service]]
+        [[pixeltable.service]]
         name = "image-service"
         port = 8000
 
-        [[service.routes]]
+        [[pixeltable.service.routes]]
         type = "insert"
         table = "app/images"
         path = "/upload"
         uploadfile_inputs = ["image"]
         outputs = ["image", "caption"]
 
-        [[service.routes]]
+        [[pixeltable.service.routes]]
         type = "query"
         path = "/search"
         query = "app.queries.search_images"
         ```
 
         ```bash
-        pxt serve image-service --config service.toml
+        PIXELTABLE_CONFIG=service.toml pxt serve image-service
         ```
 
         <CardGroup cols={2}>

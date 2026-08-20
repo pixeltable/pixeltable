@@ -38,6 +38,7 @@ from pixeltable.service import proxy_daemon
 from pixeltable.types import ColumnSpec
 from pixeltable.utils import sha256sum
 from pixeltable.utils.console_output import ConsoleMessageFilter, ConsoleOutputHandler
+from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.object_stores import ObjectOps
 
@@ -886,6 +887,14 @@ def reload_catalog(reload: bool = True) -> None:
     pxt.init()
 
 
+def reload_env() -> None:
+    """Re-read the config file and rebuild the Env from it, keeping the configured database."""
+    reset_runtime()
+    Config.init(reinit=True)
+    Env._init_env()
+    FileCache.init()
+
+
 @contextmanager
 def capture_console_output(match: str | None = None) -> Iterator[StringIO]:
     pxt_logger = logging.getLogger('pixeltable')
@@ -925,6 +934,8 @@ def stock_price(ticker: str) -> float:
         return 0.0
 
 
+# Local path to a sample image to use in tests. Use it whenever possible instead of fetching files over the network.
+SAMPLE_IMAGE_FILE_PATH = str(TESTS_DIR.parent / 'docs' / 'resources' / 'images' / '000000000009.jpg')
 SAMPLE_IMAGE_URL = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000009.jpg'
 
 

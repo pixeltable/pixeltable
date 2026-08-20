@@ -22,6 +22,7 @@ import psutil
 from pixeltable_cli.utils import (
     _IDENTITY_KEYS,
     _resolve_pixeltable_home,
+    env_fingerprint,
     get_port,
     identity,
     pidfile_path,
@@ -325,7 +326,8 @@ def _request(method: str, path: str, body: dict[str, Any] | None = None, params:
             # doseq=True expands list values into repeated params (?pk=a&pk=b).
             url += '?' + urllib.parse.urlencode(filtered, doseq=True)
 
-    headers: dict[str, str] = {'X-Pxt-Session': session_key()}
+    # the daemon compares the env fingerprint with its own and returns an error if the env has changed
+    headers: dict[str, str] = {'X-Pxt-Session': session_key(), 'X-Pxt-Env-Fingerprint': json.dumps(env_fingerprint())}
     data: bytes | None = None
     if body is not None:
         data = json.dumps(body).encode()

@@ -11,8 +11,9 @@ import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
 from pixeltable.config import Config
 
+from ..conftest import SampleFileServer
 from ..utils import (
-    SAMPLE_IMAGE_URL,
+    SAMPLE_IMAGE_FILE_PATH,
     pxt_raises,
     rerun,
     rerun_on_network_error,
@@ -374,7 +375,7 @@ class TestOpenai:
         assert res[0]['tool_calls'] == {'get_customer_info': [[{'customer_id': 'Q371A', 'name': 'Aaron Siegel'}]]}
 
     @pytest.mark.expensive
-    def test_gpt_vision(self, uses_db: None) -> None:
+    def test_gpt_vision(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
         from pixeltable.functions.openai import chat_completions, vision
@@ -390,7 +391,9 @@ class TestOpenai:
             pxt.exceptions.PixeltableDeprecationWarning,
             match=r'vision\(\) is deprecated as a separate API; use chat_completions\(\) or responses\(\) instead',
         ):
-            validate_update_status(t.insert(prompt="What's in this image?", img=SAMPLE_IMAGE_URL), 1)
+            validate_update_status(
+                t.insert(prompt="What's in this image?", img=sample_file_server.url(SAMPLE_IMAGE_FILE_PATH)), 1
+            )
         result = t.collect()
         assert 'broccoli' in result['response'][0].lower()
         assert 'broccoli' in result['response_2'][0]['choices'][0]['message']['content'].lower()
@@ -478,7 +481,7 @@ class TestOpenai:
         assert t.get_metadata()['columns']['first']['type_'] == 'Image | None'
 
     @pytest.mark.expensive
-    def test_image_edits_gpt_image(self, uses_db: None) -> None:
+    def test_image_edits_gpt_image(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
         from pixeltable.functions.openai import image_edits
@@ -497,7 +500,7 @@ class TestOpenai:
         assert "'data': Json[(Image, ...)]" in edited_type
         assert "'usage':" in edited_type
 
-        validate_update_status(t.insert(img=SAMPLE_IMAGE_URL), 1)
+        validate_update_status(t.insert(img=sample_file_server.url(SAMPLE_IMAGE_FILE_PATH)), 1)
         result = t.collect()
         assert isinstance(result['edited'][0]['data'][0], PIL.Image.Image)
 
@@ -704,18 +707,14 @@ class TestOpenai:
         assert any('Apple' in answer for answer in r2['answer'])
 
     @rerun(reruns=3, reruns_delay=8)
-    def test_azure_openai(self, uses_db: None) -> None:
+    def test_azure_openai(self, uses_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
         skip_test_if_not_installed('openai')
         if not os.environ.get('AZURE_OPENAI_API_KEY'):
             pytest.skip('`AZURE_OPENAI_API_KEY` is not set.')
-        Config.init(
-            {
-                'openai.api_key': os.environ['AZURE_OPENAI_API_KEY'],
-                'openai.base_url': 'https://pixeltable1.openai.azure.com/openai/v1/',
-                'openai.api_version': 'preview',
-            },
-            reinit=True,
-        )
+        monkeypatch.setenv('OPENAI_API_KEY', os.environ['AZURE_OPENAI_API_KEY'])
+        monkeypatch.setenv('OPENAI_BASE_URL', 'https://pixeltable1.openai.azure.com/openai/v1/')
+        monkeypatch.setenv('OPENAI_API_VERSION', 'preview')
+        Config.init(reinit=True)
         from pixeltable.functions.openai import chat_completions
 
         t = pxt.create_table('test_tbl', {'input': pxt.String | None})
@@ -769,7 +768,9 @@ class TestOpenai:
 
         assert status.num_excs == 0, f'{status.num_excs} rows failed permanently'
 
-    def test_shared_rate_limits_pool_different_signatures(self, uses_db: None) -> None:
+    def test_shared_rate_limits_pool_different_signatures(
+        self, uses_db: None, sample_file_server: SampleFileServer
+    ) -> None:
         """Verify that functions sharing a rate-limits pool with different resource estimators work correctly.
 
         chat_completions and vision share a pool but each has its own resource_estimator with different
@@ -786,7 +787,8 @@ class TestOpenai:
             pxt.exceptions.PixeltableDeprecationWarning,
             match=r'vision\(\) is deprecated as a separate API; use chat_completions\(\) or responses\(\) instead',
         ):
-            validate_update_status(t.insert([{'img': SAMPLE_IMAGE_URL}, {'img': SAMPLE_IMAGE_URL}]), expected_rows=2)
+            img_url = sample_file_server.url(SAMPLE_IMAGE_FILE_PATH)
+            validate_update_status(t.insert([{'img': img_url}, {'img': img_url}]), expected_rows=2)
         result = t.collect()
         assert len(result) == 2
         for row in result:
