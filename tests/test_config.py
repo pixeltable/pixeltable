@@ -157,7 +157,9 @@ class TestConfig:
         # neither does a variable with no name after the prefix
         assert config_var_keys({}) == ['declared_in_file']
         assert config_var_keys({'PIXELTABLE_SECRET_FROM_ENV': 'x'}) == ['declared_in_file', 'from_env']
-        assert config_var_keys({'PIXELTABLE_SECRET_MiXeD': 'x'}) == ['declared_in_file']
+        if sys.platform != 'win32':
+            # Windows environment variable names are case-insensitive, so there this is the uppercase variable
+            assert config_var_keys({'PIXELTABLE_SECRET_MiXeD': 'x'}) == ['declared_in_file']
         assert config_var_keys({'PIXELTABLE_SECRET_': 'x'}) == ['declared_in_file']
 
         # a declared name must be lowercase, so that it maps to exactly one env var name
@@ -172,6 +174,7 @@ class TestConfig:
         with pytest.raises(pxt.Error, match="Invalid config var type 'MySecret': must be one of str, URI, Secret"):
             pxt.ConfigVar('custom', MySecret)
 
+    @pytest.mark.skipif(sys.platform == 'win32', reason='environment variable names are case-insensitive on Windows')
     def test_miscased_env_var(self, tmp_path: Path) -> None:
         """A variable differing only in case from one that is read generates a warning."""
         result = subprocess.run(

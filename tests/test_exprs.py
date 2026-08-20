@@ -7,8 +7,6 @@ import json
 import math
 import os
 import re
-import urllib.parse
-import urllib.request
 import uuid
 from pathlib import Path
 from typing import Any, Callable, NamedTuple
@@ -238,11 +236,11 @@ class TestExprs:
         stored_urls = set(res.iloc[:, 0])
         assert len(stored_urls) == len(res)
         if catalog_mode == 'local':
-            all_urls = {urllib.parse.urljoin('file:', urllib.request.pathname2url(path)) for path in get_image_files()}
+            all_urls = {Path(path).as_uri() for path in get_image_files()}
             assert stored_urls <= all_urls
         else:
             # over the proxy each fileurl is a fetchable daemon media URL, not the local source file
-            assert all(urllib.parse.urlparse(u).scheme in ('http', 'https') and '/media/' in u for u in stored_urls)
+            assert all(u.startswith(('http://', 'https://')) and '/media/' in u for u in stored_urls)
 
         # localpath
         res = img_t.select(img_t.img.localpath).collect().to_pandas()
