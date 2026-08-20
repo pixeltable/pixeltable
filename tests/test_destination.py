@@ -10,6 +10,7 @@ from typing import Callable, ClassVar
 
 import pytest
 import requests
+from _pytest.mark.structures import ParameterSet
 
 import pixeltable as pxt
 from pixeltable.config import Config
@@ -23,16 +24,18 @@ from .utils import CatalogMode, MediaStore, pxt_raises, rerun_on_network_error, 
 
 @rerun_on_network_error()
 class TestDestination:
-    TESTED_DESTINATIONS = (
-        StorageTarget.AZURE_STORE,
-        StorageTarget.B2_STORE,
-        StorageTarget.GCS_STORE,
-        StorageTarget.LOCAL_STORE,
-        StorageTarget.PIXELTABLE_STORE,
-        StorageTarget.R2_STORE,
-        StorageTarget.S3_STORE,
-        StorageTarget.TIGRIS_STORE,
-    )
+    # The destinations exercised below, each mapped to its parametrization. Every target other than
+    # LOCAL_STORE talks to a live third-party object store, so those params run only on the very_expensive tier.
+    TESTED_DESTINATIONS: ClassVar[dict[StorageTarget, ParameterSet]] = {
+        StorageTarget.AZURE_STORE: pytest.param(StorageTarget.AZURE_STORE, marks=pytest.mark.very_expensive),
+        StorageTarget.B2_STORE: pytest.param(StorageTarget.B2_STORE, marks=pytest.mark.very_expensive),
+        StorageTarget.GCS_STORE: pytest.param(StorageTarget.GCS_STORE, marks=pytest.mark.very_expensive),
+        StorageTarget.LOCAL_STORE: pytest.param(StorageTarget.LOCAL_STORE),
+        StorageTarget.PIXELTABLE_STORE: pytest.param(StorageTarget.PIXELTABLE_STORE, marks=pytest.mark.very_expensive),
+        StorageTarget.R2_STORE: pytest.param(StorageTarget.R2_STORE, marks=pytest.mark.very_expensive),
+        StorageTarget.S3_STORE: pytest.param(StorageTarget.S3_STORE, marks=pytest.mark.very_expensive),
+        StorageTarget.TIGRIS_STORE: pytest.param(StorageTarget.TIGRIS_STORE, marks=pytest.mark.very_expensive),
+    }
 
     @classmethod
     def resolve_destination_uri(cls, dest_id: StorageTarget, skip_on_failure: bool = True) -> str | None:
@@ -108,6 +111,7 @@ class TestDestination:
                 img_rot=t.img.rotate(90), destination='tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'
             )
 
+    @pytest.mark.very_expensive
     def test_invalid_bucket(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('boto3')
@@ -213,7 +217,7 @@ class TestDestination:
         with pytest.raises(ValueError, match='Invalid pxtfs:// store URI'):
             ObjectPath.parse_object_storage_addr('pxtfs://org:db/homebucket', allow_obj_name=False)
 
-    @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS)
+    @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS.values())
     def test_destination(
         self, make_catalog_path: Callable[[str], str], dest_id: StorageTarget, catalog_mode: CatalogMode
     ) -> None:
@@ -294,7 +298,7 @@ class TestDestination:
         assert ObjectOps.count(save_id, dest=dest1_uri) == 0
         assert ObjectOps.count(save_id, dest=dest2_uri) == 0
 
-    @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS)
+    @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS.values())
     def test_dest_two_copies(
         self, make_catalog_path: Callable[[str], str], dest_id: StorageTarget, catalog_mode: CatalogMode
     ) -> None:
@@ -370,6 +374,7 @@ class TestDestination:
         # Ensure that local file is copied to a specified destination
         assert ObjectOps.count(t._id, dest=dest1_uri) == len(r)
 
+    @pytest.mark.very_expensive
     def test_dest_all(self, make_catalog_path: Callable[[str], str]) -> None:
         """Test destination with all available storage targets"""
         p = make_catalog_path
@@ -443,6 +448,7 @@ class TestDestination:
             assert ObjectOps.count(t._id, dest=uri) == 0
 
     @pytest.mark.local('media destination/object-store internals')
+    @pytest.mark.very_expensive
     def test_presigned_url_all_destinations(self, uses_db: None) -> None:
         """Test presigned_url UDF for all cloud storage destinations"""
         # Exclude LOCAL_STORE as it doesn't support presigned URLs
@@ -565,6 +571,7 @@ class TestDestination:
     }
 
     @pytest.mark.local('media destination/object-store internals')
+    @pytest.mark.very_expensive
     @pytest.mark.parametrize('dest_id', PUBLIC_TEST_OBJECTS.keys())
     def test_public_download(self, uses_db: None, dest_id: StorageTarget) -> None:
         """Test downloading a media object from a public Store"""
