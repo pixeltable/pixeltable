@@ -66,6 +66,9 @@ BASIC_PLATFORMS = ('macos-15', 'windows-2025')
 EXPENSIVE_PLATFORMS = ('ubuntu-small-t4',)
 ALTERNATIVE_PLATFORMS = ('ubuntu-24.04-arm', 'macos-15-intel')
 
+# The GitHub event names that pytest.yml is triggered on
+TRIGGERS = ('pull_request', 'merge_group', 'schedule', 'workflow_dispatch')
+
 
 class MatrixConfig(NamedTuple):
     display_name_prefix: str
@@ -99,16 +102,9 @@ def new_bucket_addr() -> str:
     return f's3://pxt-test/pytest-media-dest/{date_str}/{bucket_uuid}'
 
 
-def generate_matrix(args: argparse.Namespace) -> None:
-    """Generate test matrix configuration."""
-    output_file = args.output_file
-    trigger = args.trigger
-    force_all = args.force_all
-    print('Generating test matrix configuration.')
-    print('Output file : ', output_file)
-    print('Triggered on: ', trigger)
-    print('Force all   : ', force_all)
-    print()
+def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> list[MatrixConfig]:
+    """Return the matrix configurations to run for the given trigger."""
+    assert trigger in TRIGGERS, trigger
 
     # Run on every trigger: static checks, plus the tests under a no-dev-dependencies install, once with the default
     # resolution and once with required deps pinned to their minimum versions.
@@ -131,7 +127,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
     else:
         # A non-PR trigger: merge queue, workflow dispatch, or schedule.
 
-        configs.extend(MatrixConfig('standard', 'py', os, '3.11') for os in BASIC_PLATFORMS)
+        configs.extend(MatrixConfig('standard', 'py', platform, '3.11') for platform in BASIC_PLATFORMS)
 
         configs.append(MatrixConfig('random-ops', 'random-ops', MAIN_PLATFORM, '3.11', uv_options='--no-dev'))
         configs.append(MatrixConfig('otel', 'otel', MAIN_PLATFORM, '3.11', uv_options='--no-dev --extra otel'))
@@ -143,7 +139,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
             )
             configs.append(MatrixConfig('notebooks++', 'ipynb', 'ubuntu-large', '3.11'))
 
-            configs.extend(MatrixConfig('standard', 'py', os, '3.11') for os in EXPENSIVE_PLATFORMS)
+            configs.extend(MatrixConfig('standard', 'py', platform, '3.11') for platform in EXPENSIVE_PLATFORMS)
 
         else:
             configs.append(MatrixConfig('standard+', 'py', 'ubuntu-large', '3.11', pytest_options=EXPENSIVE_PYTEST))
@@ -152,7 +148,9 @@ def generate_matrix(args: argparse.Namespace) -> None:
             configs.append(MatrixConfig('notebooks+', 'ipynb', 'ubuntu-large', '3.11'))
 
         # Standard test suite on main & basic platforms on Python 3.14
-        configs.extend(MatrixConfig('standard', 'py', os, '3.14') for os in (MAIN_PLATFORM, *BASIC_PLATFORMS))
+        configs.extend(
+            MatrixConfig('standard', 'py', platform, '3.14') for platform in (MAIN_PLATFORM, *BASIC_PLATFORMS)
+        )
 
         # Standard test suite on Ubuntu on intermediate Python versions
         configs.extend(MatrixConfig('standard', 'py', MAIN_PLATFORM, py) for py in ('3.11', '3.12', '3.13'))
@@ -162,11 +160,13 @@ def generate_matrix(args: argparse.Namespace) -> None:
 
         # Minimal tests on alternative platforms (we don't run the standard suite on these, since dev dependencies
         # can be hit-or-miss)
-        configs.extend(MatrixConfig('minimal', 'py', os, '3.11', uv_options='--no-dev') for os in ALTERNATIVE_PLATFORMS)
+        configs.extend(
+            MatrixConfig('minimal', 'py', platform, '3.11', uv_options='--no-dev') for platform in ALTERNATIVE_PLATFORMS
+        )
 
         # Minimal tests with S3 media destination. We use a unique bucket name that incorporates today's date, so that
         # different test runs don't interfere with each other and any stale data is easy to clean up.
-        if os.environ.get('AWS_ACCESS_KEY_ID'):
+        if has_aws_credentials:
             configs.append(
                 MatrixConfig(
                     's3-output-dest',
@@ -179,7 +179,21 @@ def generate_matrix(args: argparse.Namespace) -> None:
             )
 
     configs.sort(key=lambda cfg: cfg.display_name)
+    return configs
 
+
+def generate_matrix(args: argparse.Namespace) -> None:
+    """Generate test matrix configuration."""
+    output_file = args.output_file
+    trigger = args.trigger
+    force_all = args.force_all
+    print('Generating test matrix configuration.')
+    print('Output file : ', output_file)
+    print('Triggered on: ', trigger)
+    print('Force all   : ', force_all)
+    print()
+
+    configs = build_configs(trigger, force_all, has_aws_credentials=bool(os.environ.get('AWS_ACCESS_KEY_ID')))
     matrix = {'include': [cfg.matrix_entry for cfg in configs]}
 
     print(json.dumps(matrix, indent=4))
@@ -200,7 +214,7 @@ def main() -> NoReturn:
     # generate-matrix subcommand
     matrix_parser = subparsers.add_parser('generate-matrix', help='Generate test matrix configuration')
     matrix_parser.add_argument('output_file', help='Output file for the test matrix')
-    matrix_parser.add_argument('trigger', help='CI trigger type')
+    matrix_parser.add_argument('trigger', choices=TRIGGERS, help='CI trigger type')
     matrix_parser.add_argument('--force-all', action='store_true', help='Force generation of all configurations')
     matrix_parser.set_defaults(func=generate_matrix)
 
