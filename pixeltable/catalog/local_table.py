@@ -199,7 +199,7 @@ class LocalTable(Table):
         )
 
     def _get_version(self) -> int:
-        """Return the version of this table or None if not data-versioned.
+        """Return the current version of this table.
 
         Used by tests to ascertain version changes.
         """
