@@ -514,8 +514,17 @@ def clean_db(drop_md_tables: bool = False) -> None:
 
 
 @pytest.fixture(scope='function')
-def test_tbl(make_catalog_path: Callable[[str], str]) -> pxt.Table:
-    return create_test_tbl(make_catalog_path('test_tbl'))
+def test_tbl(make_catalog_path: Callable[[str], str], request: pytest.FixtureRequest) -> pxt.Table:
+    """The standard test table.
+
+    A test that also declares `is_data_versioned` gets the table that variant calls for; every other test gets a
+    data-versioned table. The fixture deliberately does not request `is_data_versioned` itself: that
+    would put it in every dependent test's fixture closure and fork the entire suite.
+    """
+    is_data_versioned = (
+        request.getfixturevalue('is_data_versioned') if 'is_data_versioned' in request.fixturenames else True
+    )
+    return create_test_tbl(make_catalog_path('test_tbl'), is_data_versioned=is_data_versioned)
 
 
 @pytest.fixture(scope='function')

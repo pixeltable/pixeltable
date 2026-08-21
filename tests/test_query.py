@@ -67,7 +67,9 @@ class TestQuery:
 
         return t1, t2, t3
 
-    def test_select_where(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+    def test_select_where(
+        self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str], is_data_versioned: bool
+    ) -> None:
         p = make_catalog_path
         t = test_tbl
         res1 = t.collect()
@@ -340,7 +342,7 @@ class TestQuery:
         print(res)
         assert len(res) == 4
 
-    def test_limit_basic(self, test_tbl: pxt.Table) -> None:
+    def test_limit_basic(self, test_tbl: pxt.Table, is_data_versioned: bool) -> None:
         t = test_tbl
 
         # Basic return shape: length and schema preserved
@@ -523,7 +525,9 @@ class TestQuery:
         assert rows == []
         assert list(cur.schema.keys()) == ['c1', 'c2']
 
-    def test_head_tail(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+    def test_head_tail(
+        self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str], is_data_versioned: bool
+    ) -> None:
         p = make_catalog_path
         t = test_tbl
         res = t.head(10).to_pandas()
@@ -576,7 +580,7 @@ class TestQuery:
                Limit           10""",
         )
 
-    def test_count(self, test_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
+    def test_count(self, test_tbl: pxt.Table, is_data_versioned: bool) -> None:
         t = test_tbl
         cnt = t.count()
         assert cnt == 100

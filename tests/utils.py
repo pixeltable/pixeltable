@@ -120,13 +120,13 @@ def make_default_type(t: ts.ColumnType.Type) -> ts.ColumnType:
     raise AssertionError()
 
 
-def make_tbl(name: str = 'test', col_names: list[str] | None = None) -> pxt.Table:
+def make_tbl(name: str = 'test', col_names: list[str] | None = None, is_data_versioned: bool = True) -> pxt.Table:
     if col_names is None:
         col_names = ['c1']
     schema: dict[str, ts.ColumnType] = {}
     for i, col_name in enumerate(col_names):
         schema[f'{col_name}'] = make_default_type(ts.ColumnType.Type(i % 5))
-    return pxt.create_table(name, schema)  # type: ignore[arg-type]
+    return pxt.create_table(name, schema, _is_data_versioned=is_data_versioned)  # type: ignore[arg-type]
 
 
 def create_table_data(
