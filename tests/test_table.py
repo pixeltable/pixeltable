@@ -4346,31 +4346,8 @@ class TestTable:
             t.drop_column('c2')
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_add_columns_with_metadata(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
-        p = make_catalog_path
-        t = pxt.create_table(p('tbl'), {'c1': pxt.Int | None, 'c2': pxt.String | None})
-
-        # invalid metadata parameters are rejected
-        with pxt_raises(
-            pxt.ErrorCode.INVALID_ARGUMENT, match=r"media_validation must be one of: \['on_read', 'on_write']"
-        ):
-            t.add_columns({'non_existing_col1': {'type': pxt.Image | None, 'media_validation': 'on_error'}})  # type: ignore[dict-item]
-        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match="'stored' must be a bool; got <class 'float'>"):
-            t.add_columns({'non_existing_col1': {'type': pxt.Image | None, 'stored': float}})  # type: ignore[dict-item]
-
-        # valid metadata parameters are accepted
-        t.add_columns({'c3': {'type': pxt.Image | None, 'stored': True, 'media_validation': 'on_write'}})
-
-        # make sure this metadata is persisted
-        reload_catalog(do_reload_catalog)
-
-        t = pxt.get_table(p('tbl'))
-        assert 'c3' in t.columns()
-        assert t.get_metadata()['columns']['c3']['is_stored']
-        assert t.get_metadata()['columns']['c3']['media_validation'] == 'on_write'
-
-    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_add_column_with_metadata(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
+        """Combined test for t.add_column() and t.add_columns()"""
         p = make_catalog_path
         t = pxt.create_table(p('tbl'), {'c1': pxt.Int | None, 'c2': pxt.String | None})
 
@@ -4388,26 +4365,28 @@ class TestTable:
 
         # valid metadata parameters are accepted
         t.add_column(c3={'type': pxt.Image | None, 'stored': True, 'media_validation': 'on_write'})
-
-        # verify column was added correctly
-        assert 'c3' in t.columns()
         assert t.get_metadata()['columns']['c3']['is_stored']
         assert t.get_metadata()['columns']['c3']['media_validation'] == 'on_write'
 
-        # add another column with on_read validation
-        t.add_column(c4={'type': pxt.Video | None, 'media_validation': 'on_read'})
-        assert 'c4' in t.columns()
+        # add_columns() carries per-column metadata across a batch
+        t.add_columns(
+            {
+                'c4': {'type': pxt.Video | None, 'media_validation': 'on_read'},
+                'c5': {'type': pxt.Image | None, 'stored': True},
+            }
+        )
         assert t.get_metadata()['columns']['c4']['media_validation'] == 'on_read'
+        assert t.get_metadata()['columns']['c5']['is_stored']
 
         # make sure this metadata is persisted
         reload_catalog(do_reload_catalog)
 
         t = pxt.get_table(p('tbl'))
-        assert 'c3' in t.columns()
+        assert list(t.get_metadata()['columns']) == ['c1', 'c2', 'c3', 'c4', 'c5']
         assert t.get_metadata()['columns']['c3']['is_stored']
         assert t.get_metadata()['columns']['c3']['media_validation'] == 'on_write'
-        assert 'c4' in t.columns()
         assert t.get_metadata()['columns']['c4']['media_validation'] == 'on_read'
+        assert t.get_metadata()['columns']['c5']['is_stored']
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_table_comment(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
