@@ -327,7 +327,11 @@ class S3Store(ObjectStoreBase):
         assert dest.remote_key is not None
         try:
             _logger.debug(f'Media Storage: copying {src_path} to {dest.url} : Key: {dest.remote_key}')
-            content_type = puremagic.from_file(str(src_path), mime=True)
+            content_type: str | None
+            try:
+                content_type = puremagic.from_file(str(src_path), mime=True)
+            except puremagic.PureError:
+                content_type = None
             extra_args = {'ContentType': content_type} if content_type is not None else None
             self.client().upload_file(
                 Filename=str(src_path), Bucket=self.bucket_name, Key=dest.remote_key, ExtraArgs=extra_args

@@ -2246,7 +2246,7 @@ class TestTableModel:
         def write_config(media_dest: str) -> None:
             config_file.write_text(
                 f'[pixeltable]\nfile_cache_size_g = 10\noutput_media_dest = "{default_dir.as_posix()}"\n'
-                f'[pixeltable.database.vars]\nmedia_dest = "{media_dest}"\n'
+                f'[pixeltable.clouddb.vars]\nmedia_dest = "{media_dest}"\n'
             )
 
         write_config(media_dir.as_posix())

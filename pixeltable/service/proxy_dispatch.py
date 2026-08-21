@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import os
 import pathlib
 import shutil
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Callable, cast
 from uuid import UUID, uuid4
 
@@ -26,6 +28,7 @@ from pixeltable.row import RowBatch
 from pixeltable.runtime import get_runtime
 from pixeltable.utils import parse_local_file_path
 from pixeltable.utils.local_store import TempStore
+from pixeltable.utils.object_stores import ObjectOps
 
 from . import proxy_protocol
 from .proxy_protocol import PROTOCOL_VERSION, LocalFile, MediaPath, ProxyRequest, ProxyResponse
@@ -70,6 +73,7 @@ def handle(
                     # return the current md and is_stale_md=True so the client refreshes and retries
                     return _encode_response(ProxyResponse(current_md=md, is_stale_md=True))
 
+            _prefetch_remote_parts(request)
             result = _convert_result(key, table_handler(request, tbl))
             if not is_mutation:
                 # a read leaves the schema unchanged, so the client's md stays valid; no need to send it back
@@ -86,6 +90,7 @@ def handle(
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, f'Unsupported proxy method: {request.class_name}.{request.method}'
             )
+        _prefetch_remote_parts(request)
         result = _convert_result(key, handler(request))
         _logger.debug('%s.%s (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
         return _encode_response(ProxyResponse(result=result))
@@ -123,12 +128,58 @@ def handle(
 
     finally:
         # best-effort removal of this request's uploaded temp files; missing_ok covers a file that a handler moved
-        # into a reassembled directory (those directories are removed by the handler that creates them)
-        for temp_path in request._uploaded_names:
+        # into a reassembled directory (those directories are removed by the handler that creates them) or that
+        # tbl.insert() moved into the media store
+        for temp_path in (*request._uploaded_names, *request._remote_parts.values()):
             try:
                 pathlib.Path(temp_path).unlink(missing_ok=True)
             except OSError:
                 pass
+
+
+def _prefetch_remote_parts(request: ProxyRequest) -> None:
+    """Localize the request's out-of-band media parts (R2 object keys) into TempStore before dispatch.
+
+    Runs outside any transaction so object-store I/O never holds a db connection, and after the staleness
+    gate so a withheld mutation downloads nothing. handle() unlinks the downloaded files.
+    """
+    keys = proxy_protocol.collect_remote_keys(request.args)
+    if len(keys) == 0:
+        return
+    for remote_key in keys:
+        # only client uploads may be localized; anything else (e.g. 'pixeltable/data/...' store objects)
+        # must not be readable through this daemon
+        if not remote_key.startswith('uploads/'):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, f'Invalid uploaded media object key: {remote_key!r}'
+            )
+    org = os.environ.get('PXTCLOUD_ORG')
+    db = os.environ.get('PXTCLOUD_DB')
+    if not (org and db):
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            'Internal error: PXTCLOUD_ORG and PXTCLOUD_DB are not present in the container.',
+        )
+    store = ObjectOps.get_store(f'pxtfs://{org}:{db}/home/uploads/', False)
+
+    def download(remote_key: str) -> None:
+        dest = TempStore.create_path(extension=pathlib.Path(remote_key).suffix)
+        # record before downloading so handle() also cleans up a partial download
+        request._remote_parts[remote_key] = str(dest)
+        try:
+            # the store re-prepends its 'uploads/' prefix to the given path
+            store.copy_object_to_local_file(remote_key[len('uploads/') :], dest)
+        except excs.NotFoundError as e:
+            # the stock 404 message blames the bucket, which is wrong here: the bucket exists, the object is
+            # gone (expired via the uploads/ lifecycle rule) or was never fully uploaded
+            raise excs.NotFoundError(
+                excs.ErrorCode.STORAGE_NOT_FOUND,
+                f'Uploaded media object {remote_key!r} not found (upload expired or incomplete); retry the operation',
+            ) from e
+
+    # concurrent downloads are safe: boto3 clients are thread-safe
+    with ThreadPoolExecutor(max_workers=min(16, len(keys))) as executor:
+        list(executor.map(download, keys))
 
 
 def _encode_local_path(value: Any) -> Any:
