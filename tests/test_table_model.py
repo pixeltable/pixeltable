@@ -508,6 +508,51 @@ class TestTableModel:
         ):
             TableModelV2.diff_all(root)
 
+    def test_primary_key_model(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
+        """A model-declared primary key is enforced, and survives the schema change that `update_all()` applies."""
+        p = make_catalog_path
+        root = p('')
+        TableModel = pxt.model_base()
+
+        class Notes(TableModel, name='notes', _is_data_versioned=is_data_versioned):
+            note_id = Column(type=pxt.Int, primary_key=True)
+            val: pxt.Int | None
+            obsolete: pxt.String | None
+
+        TableModel.create_all(root)
+        t = Notes.table
+        assert t.get_metadata()['columns']['note_id']['is_primary_key']
+        validate_update_status(t.insert([{'note_id': 1, 'val': 1}, {'note_id': 2, 'val': 2}]), expected_rows=2)
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='Duplicate primary key'):
+            t.insert([{'note_id': 1, 'val': 3}])
+
+        # one change set that both adds and drops a column
+        TableModelV2 = pxt.model_base()
+
+        class NotesV2(TableModelV2, name='notes', _is_data_versioned=is_data_versioned):
+            note_id = Column(type=pxt.Int, primary_key=True)
+            val: pxt.Int | None
+            extra: pxt.String | None
+
+        TableModelV2.update_all(root, allow_destructive=True)
+        t = NotesV2.table
+        assert list(t.get_metadata()['columns']) == ['note_id', 'val', 'extra']
+        assert t.get_metadata()['columns']['note_id']['is_primary_key']
+
+        # the key is still enforced afterwards, and the rows that were already there are intact
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='Duplicate primary key'):
+            t.insert([{'note_id': 1, 'extra': 'dupe'}])
+        validate_update_status(t.insert([{'note_id': 3, 'extra': 'e3'}]), expected_rows=1)
+        assert t.order_by(t.note_id).collect()['val'] == [1, 2, None]
+
+        # the same holds after a catalog reload
+        tbl_path = t.get_metadata()['path']
+        reload_catalog()
+        t = pxt.get_table(tbl_path)
+        assert t.get_metadata()['columns']['note_id']['is_primary_key']
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='Duplicate primary key'):
+            t.insert([{'note_id': 1}])
+
     def test_btree_index_validation(self, make_catalog_path: Callable[[str], str]) -> None:
         """`update_all()` and `create_all()` enforce the same B-tree eligibility rules as `Table.add_btree_index()`."""
         root = make_catalog_path('')
