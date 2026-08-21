@@ -9,7 +9,7 @@ name: tests
 #
 # On PR updates, additionally:
 #   - The 'slim' subset of the unit tests (SLIM_TESTS in tool/ci_tool.py) with Python 3.11 on ubuntu-24.04,
-#     macos-15, and windows-2025 runners.
+#     macos-15, and windows-2025 runners, plus with Python 3.14 on ubuntu-24.04.
 #
 # In merge queue, instead of the slim tests:
 #   - The full unit test suite with Python 3.11 on macos-15 and windows-2025 runners.
@@ -191,7 +191,7 @@ jobs:
       - name: Install ollama
         if: ${{ matrix.uv-options == '' && startsWith(matrix.os, 'ubuntu') && matrix.python-version == '3.11' }}
         run: |
-          curl -fsSL https://ollama.com/install.sh | sh
+          ./scripts/retry.sh 3 30 ./scripts/install-ollama.sh
           sleep 10  # Wait for the ollama server to start
           # Pull the models used for testing now, with retries, to safeguard against connection issues
           ./scripts/retry.sh 3 30 ollama pull 'qwen3:0.6b'
