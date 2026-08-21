@@ -45,6 +45,7 @@ from .utils import (
     create_test_tbl,
     local_embedding,
     reload_catalog,
+    validate_async_teardown,
 )
 
 _logger = logging.getLogger('pixeltable_test')
@@ -213,6 +214,8 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
                     engine.dispose()
         except Exception as e:
             _logger.warning(f'Failed to cleanup test schema {schema_name}: {e}')
+
+    validate_async_teardown()
 
 
 @pytest.fixture()
