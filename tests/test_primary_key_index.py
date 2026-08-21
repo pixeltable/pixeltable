@@ -51,6 +51,32 @@ class TestPrimaryKeyIndex:
         validate_update_status(t.insert([{'id': 3, 'name': 'dave'}]), expected_rows=1)
         assert t.count() == 3
 
+    def test_nullable_pk_rejected(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
+        """A nullable primary key is rejected however it is declared: Postgres admits duplicate NULLs."""
+        p = make_catalog_path
+        msg = r"Primary key column 'id' cannot be nullable"
+
+        # via the primary_key argument
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=msg):
+            pxt.create_table(p('t0'), {'id': pxt.Int | None}, primary_key='id', _is_data_versioned=is_data_versioned)
+
+        # via a column spec's 'primary_key' key, which reaches the column without going through that argument
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=msg):
+            pxt.create_table(
+                p('t1'), {'id': {'type': pxt.Int | None, 'primary_key': True}}, _is_data_versioned=is_data_versioned
+            )
+
+    def test_pk_via_column_spec(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
+        """A primary key can be declared by a column spec."""
+        p = make_catalog_path
+        t = pxt.create_table(
+            p('test_pk'), {'id': {'type': pxt.Int, 'primary_key': True}}, _is_data_versioned=is_data_versioned
+        )
+        assert t.get_metadata()['columns']['id']['is_primary_key']
+        validate_update_status(t.insert([{'id': 1}]), expected_rows=1)
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='Duplicate primary key'):
+            t.insert([{'id': 1}])
+
     def test_composite_pk(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         """Composite PK: partial matches are fine, exact matches are rejected, delete-reinsert works."""
         p = make_catalog_path

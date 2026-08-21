@@ -2018,6 +2018,12 @@ class TestTableModel:
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"references columns that are not in the model's scope"):
             RefsOutOfScope._create(p(''))
 
+        class NullablePk(TableModel, name='nullable_pk'):
+            note_id = Column(type=pxt.Int | None, primary_key=True)
+
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r"Primary key column 'note_id' cannot be nullable"):
+            NullablePk._create(p(''))
+
         # rejected by the class definition itself, before _create() is ever reached
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'cannot combine `has_default_idxs=True`'):
 

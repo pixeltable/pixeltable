@@ -1783,7 +1783,7 @@ class Catalog(CatalogBase):
                 path=path,
                 columns=additional_cols,
                 if_exists=IfExistsParam.ERROR,
-                primary_key=None,
+                primary_key=[name for name, spec in columns.items() if spec.get('primary_key', False)],
                 comment=comment,
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,

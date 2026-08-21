@@ -61,14 +61,15 @@ class InsertableTable(LocalTable):
                 raise excs.NotFoundError(
                     excs.ErrorCode.COLUMN_NOT_FOUND, f'Primary key column {pk_col!r} not found in table schema.'
                 )
-            col = columns[column_names.index(pk_col)]
-            if col.col_type.nullable:
+            columns[column_names.index(pk_col)].is_pk = True
+
+        for col in columns:
+            if col.is_pk and col.col_type.nullable:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Primary key column {pk_col!r} cannot be nullable. '
+                    f'Primary key column {col.name!r} cannot be nullable. '
                     f'Declare it as non-nullable instead: `pxt.{col.col_type._to_base_str()}`',
                 )
-            col.is_pk = True
 
         cols_by_name = {col.name: col for col in columns if col.name is not None}
         assert all(isinstance(spec.indexed_column, str) for spec in additional_idxs)
