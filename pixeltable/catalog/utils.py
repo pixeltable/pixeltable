@@ -151,12 +151,9 @@ def create_table_version_md(
     index_md: dict[int, schema.IndexMd] = {}
     idxs_to_create: list[IndexSpec] = []
     if has_default_idxs and (view_md is None or not view_md.is_snapshot):
-        # TODO: on an operational table, the default B-tree on the leading primary key column duplicates the
-        # unique index backing the primary key, so it costs index maintenance on every write without serving a
-        # lookup the primary key doesn't already serve. Skipping it is only valid for the leading column: a btree
-        # serves prefixes of its key, so the trailing columns of a composite primary key still need their own
-        # single-column indexes. Not skipped here because operational tables cannot have a primary key yet
-        # [PXT-1101]; revisit once they can.
+        # TODO: on an operational table, the default B-tree on the leading primary key column adds a cost in exchange
+        # for no benefit at all. We should be able to skip the default index on that one column (but none of
+        # the others).
         idxs_to_create.extend(
             IndexSpec(col, None, index.BtreeIndex(uses_value_col=is_data_versioned))
             for col in cols
