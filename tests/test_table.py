@@ -17,7 +17,6 @@ import pydantic
 import pytest
 
 import pixeltable as pxt
-import pixeltable.exceptions as excs
 import pixeltable.functions as pxtf
 from pixeltable.env import Env
 from pixeltable.exprs import ColumnRef
@@ -4480,5 +4479,5 @@ class TestTable:
         ):
             operational_tbl.select().join(data_versioned_tbl, on=(data_versioned_tbl.n == operational_tbl.n))
 
-        with pytest.raises(excs.Error, match='Revert is supported on data-versioned tables only'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Revert is supported on data-versioned tables only'):
             operational_tbl.revert()
