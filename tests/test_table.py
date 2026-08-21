@@ -4469,9 +4469,15 @@ class TestTable:
         data_versioned_tbl = pxt.create_table('t1', {'n': pxt.Int | None}, _is_data_versioned=True)
 
         # Joins between data-versioned and operational tables are not supported.
-        with pytest.raises(excs.Error, match='join is not supported between data-versioned and operational tables'):
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match='join is not supported between data-versioned and operational tables',
+        ):
             data_versioned_tbl.select().join(operational_tbl, on=(data_versioned_tbl.n == operational_tbl.n))
-        with pytest.raises(excs.Error, match='join is not supported between data-versioned and operational tables'):
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match='join is not supported between data-versioned and operational tables',
+        ):
             operational_tbl.select().join(data_versioned_tbl, on=(data_versioned_tbl.n == operational_tbl.n))
 
         with pytest.raises(excs.Error, match='Revert is supported on data-versioned tables only'):
