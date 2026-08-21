@@ -244,7 +244,7 @@ def create_table_data(
     return rows
 
 
-def create_test_tbl(name: str = 'test_tbl') -> pxt.Table:
+def create_test_tbl(name: str = 'test_tbl', is_data_versioned: bool = True) -> pxt.Table:
     schema: dict[str, type | ColumnSpec] = {
         'c1': {'type': pxt.String, 'comment': 'String column with no nulls'},
         'c1n': {'type': pxt.String | None, 'custom_metadata': {'nullable': True}},
@@ -255,7 +255,7 @@ def create_test_tbl(name: str = 'test_tbl') -> pxt.Table:
         'c6': pxt.Json,
         'c7': pxt.Json,
     }
-    t = pxt.create_table(name, schema, primary_key='c2')
+    t = pxt.create_table(name, schema, primary_key='c2', _is_data_versioned=is_data_versioned)
     t.add_computed_column(c8=pxt.array([[1, 2, 3], [4, 5, 6]]))
 
     num_rows = 100

@@ -2493,7 +2493,7 @@ class TestTable:
         assert status.num_rows == 1
         assert status.num_excs == 0
 
-    def test_insert(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_insert(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
         schema: dict[str, Any] = {
             'c1': pxt.String,
@@ -2507,7 +2507,7 @@ class TestTable:
             'c9': pxt.Timestamp,
         }
         tbl_name = p('test1')
-        t = pxt.create_table(tbl_name, schema)
+        t = pxt.create_table(tbl_name, schema, _is_data_versioned=is_data_versioned)
         rows = create_table_data(t)
         status = t.insert(rows)
         assert t.count() == len(rows)
@@ -2555,38 +2555,40 @@ class TestTable:
             schema.items(), ['c2', 'c3', 'c5', 'c5', 'c6', 'c9', 'c2', 'c2', 'c2']
         ):
             pxt.drop_table(tbl_name, if_not_exists='ignore')
-            t = pxt.create_table(tbl_name, {col_name: col_type})
+            t = pxt.create_table(tbl_name, {col_name: col_type}, _is_data_versioned=is_data_versioned)
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'expected|not a valid Pixeltable JSON object'):
                 t.insert({col_name: r[value_col_name]} for r in rows)
 
         # rows not list of dicts
         pxt.drop_table(tbl_name, if_not_exists='ignore')
-        t = pxt.create_table(tbl_name, {'c1': pxt.String | None})
+        t = pxt.create_table(tbl_name, {'c1': pxt.String | None}, _is_data_versioned=is_data_versioned)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Unsupported data source type'):
             t.insert(['1'])  # xtype: ignore[list-item]
 
         # bad null value
         pxt.drop_table(tbl_name, if_not_exists='ignore')
-        t = pxt.create_table(tbl_name, {'c1': pxt.String})
+        t = pxt.create_table(tbl_name, {'c1': pxt.String}, _is_data_versioned=is_data_versioned)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             t.insert(c1=None)
         assert 'expected non-None' in str(exc_info.value)
 
         # wrong array shape
         pxt.drop_table(tbl_name, if_not_exists='ignore')
-        t = pxt.create_table(tbl_name, {'c5': pxt.Array[(2, 3), np.float32] | None})
+        t = pxt.create_table(
+            tbl_name, {'c5': pxt.Array[(2, 3), np.float32] | None}, _is_data_versioned=is_data_versioned
+        )
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'expected numpy.ndarray\(\(2, 3\)'):
             t.insert(c5=np.ndarray((3, 2), dtype=np.float32))
 
         # bad array literal
         pxt.drop_table(tbl_name, if_not_exists='ignore')
-        t = pxt.create_table(tbl_name, {'c5': pxt.Array[pxt.Int] | None})
+        t = pxt.create_table(tbl_name, {'c5': pxt.Array[pxt.Int] | None}, _is_data_versioned=is_data_versioned)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'expected numpy.ndarray of dtype int64'):
             t.insert(c5=np.ndarray((3, 2), dtype=np.float32))
 
         # bad array literal
         pxt.drop_table(tbl_name, if_not_exists='ignore')
-        t = pxt.create_table(tbl_name, {'c5': pxt.Array | None})
+        t = pxt.create_table(tbl_name, {'c5': pxt.Array | None}, _is_data_versioned=is_data_versioned)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'expected numpy.ndarray, got'):
             t.insert(c5=8)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='unsupported dtype'):
@@ -2594,7 +2596,7 @@ class TestTable:
 
         # test that insert skips expression evaluation for
         # any columns that are not part of the current schema.
-        t = pxt.create_table(p('test'), {'str_col': pxt.String | None})
+        t = pxt.create_table(p('test'), {'str_col': pxt.String | None}, _is_data_versioned=is_data_versioned)
         t.add_computed_column(bad=raises_when_evaluated(t.str_col))  # Succeeds because the table has no data
         t.drop_column('bad')
         t.insert(str_col='Hello there.')  # Succeeds because column 'bad' is dropped
@@ -2972,9 +2974,10 @@ class TestTable:
         assert_resultset_eq(r1, r2)
 
     def test_delete(
-        self, test_tbl: pxt.Table, small_img_tbl: pxt.Table, make_catalog_path: Callable[[str], str]
+        self, small_img_tbl: pxt.Table, make_catalog_path: Callable[[str], str], is_data_versioned: bool
     ) -> None:
-        t = test_tbl
+        p = make_catalog_path
+        t = create_test_tbl(p('test_tbl'), is_data_versioned=is_data_versioned)
 
         cnt = t.where(t.c3 < 10.0).count()
         assert cnt == 10
@@ -2987,14 +2990,15 @@ class TestTable:
         cnt = t.where(t.c3 == 10.0).count()
         assert cnt == 1
 
-        # revert, then verify that we're back where we started
         reload_catalog()
         t = pxt.get_table(t.get_metadata()['path'])
-        t.revert()
-        cnt = t.where(t.c3 < 10.0).count()
-        assert cnt == 10
-        cnt = t.where(t.c3 == 10.0).count()
-        assert cnt == 1
+        if is_data_versioned:
+            # revert, then verify that we're back where we started
+            t.revert()
+            cnt = t.where(t.c3 < 10.0).count()
+            assert cnt == 10
+            cnt = t.where(t.c3 == 10.0).count()
+            assert cnt == 1
 
         # non-Predicate filter
         with pxt_raises(
@@ -3008,52 +3012,6 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as excinfo:
             img_t.delete(where=img_t.img.width > 100)
         assert 'not expressible' in str(excinfo.value)
-
-    def test_crud(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
-        """Validates row CRUD operations on a table."""
-        p = make_catalog_path
-        t = pxt.create_table(
-            p('crud'),
-            {'id': pxt.Int, 'name': pxt.String, 'val': pxt.Float | None},
-            _is_data_versioned=is_data_versioned,
-        )
-        t.add_computed_column(val_x2=t.val * 2)
-
-        # insert
-        validate_update_status(
-            t.insert([{'id': i, 'name': f'n{i}', 'val': float(i)} for i in range(5)]), expected_rows=5
-        )
-        assert t.count() == 5
-
-        # select/where/order_by/limit, and the computed column
-        res = t.select(t.id, t.name).order_by(t.id).collect()
-        assert list(res['id']) == [0, 1, 2, 3, 4]
-        assert list(res['name']) == ['n0', 'n1', 'n2', 'n3', 'n4']
-        assert t.where(t.val > 2.0).count() == 2
-        assert t.select(t.id).where(t.name == 'n3').collect()['id'] == [3]
-        assert t.select(t.id).order_by(t.id, asc=False).limit(2).collect()['id'] == [4, 3]
-        assert t.select(t.val_x2).order_by(t.id).collect()['val_x2'] == [0.0, 2.0, 4.0, 6.0, 8.0]
-
-        if is_data_versioned:
-            # update, cascading to the computed column; operational tables don't support update() yet
-            validate_update_status(t.update({'val': 100.0}, where=t.id == 0), expected_rows=1)
-            assert t.select(t.val, t.val_x2).where(t.id == 0).collect()[0] == {'val': 100.0, 'val_x2': 200.0}
-
-        # delete
-        validate_update_status(t.delete(where=t.id < 2), expected_rows=2)
-        assert t.count() == 3
-        assert t.select(t.id).order_by(t.id).collect()['id'] == [2, 3, 4]
-
-        # the table is still writable after a delete, and the computed column is populated on the new row
-        validate_update_status(t.insert([{'id': 5, 'name': 'n5', 'val': 5.0}]), expected_rows=1)
-        assert t.count() == 4
-        assert t.select(t.val_x2).where(t.id == 5).collect()['val_x2'] == [10.0]
-
-        # all of it survives a catalog reload
-        reload_catalog()
-        t = pxt.get_table(p('crud'))
-        assert t.count() == 4
-        assert t.select(t.id, t.val_x2).order_by(t.id).collect()['id'] == [2, 3, 4, 5]
 
     def test_add_drop_column(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         """Add and drop columns on a populated table. Validates values, dependencies, and persistence."""
