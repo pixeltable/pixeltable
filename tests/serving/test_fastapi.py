@@ -2953,7 +2953,7 @@ class TestFastAPI:
         assert client.post('/del', json={'id': 1}).json() == {'num_rows': 1}
 
         with open(get_image_files()[0], 'rb') as f:
-            resp = client.post('/upload', data={'id': 7}, files={'img': ('x.jpg', f, 'image/jpeg')})
+            resp = client.post('/upload', data={'id': '7'}, files={'img': ('x.jpg', f, 'image/jpeg')})
         assert resp.status_code == 200, resp.text
         assert resp.json() == {'id': 7}
 

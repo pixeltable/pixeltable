@@ -11,6 +11,7 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.utils.filecache import FileCache
+
 from .utils import pxt_raises, skip_test_if_not_local
 
 pytestmark = pytest.mark.local('exercises process-global Env/Config and runtime reset')
