@@ -228,7 +228,6 @@ class TableProxy(Table):
         bound_args = self._dispatch_args(locals())
         self._check_single_column_kwarg('add_computed_column', '`col_name=col_type` or `col_name=expression`', kwargs)
         self._check_mutable('add columns to')
-        # add_computed_column shares no chokepoint with add_columns, which normalizes; fold its kwarg here
         bound_args['columns'] = fold_mapping_keys(bound_args.pop('kwargs'))
         return self._dispatch('add_computed_column', bound_args)
 
