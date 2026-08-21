@@ -4463,7 +4463,7 @@ class TestTable:
                 {'c': {'type': pxt.Int | None, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
             )
 
-    @pytest.mark.local("Operational table feature, does'n need to run with proxy")
+    @pytest.mark.local("Operational table feature, doesn't need to run with proxy")
     def test_unsupported_operational_tbl_ops(self, uses_db: None) -> None:
         operational_tbl = pxt.create_table('t0', {'n': pxt.Int | None}, _is_data_versioned=False)
         data_versioned_tbl = pxt.create_table('t1', {'n': pxt.Int | None}, _is_data_versioned=True)
