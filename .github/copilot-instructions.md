@@ -62,10 +62,11 @@ Flag any `is None` or `not` in expression contexts.
 
 ## Documentation
 
-- Docstrings deploy as Mintlify MDX.
+- Docstrings deploy as Mintlify MDX. Follow `docs/_guidelines/GUIDELINES_FOR_DOCSTRINGS.md`.
 - Always use >>> prompts for code blocks in docstrings. Never use python fences. (Other fences such as bash or json are fine.)
 - Check: fenced blocks on own lines, paired backticks, self-closing HTML. Notebooks need Raw cell with YAML frontmatter, no H1 headers.
 - Never use double backticks in docstrings. Use single backticks with inline code or triple backticks for fenced blocks.
+- Notebooks under `docs/release/`: follow `docs/_guidelines/GUIDELINES_FOR_NOTEBOOKS.md` for how-to; `docs/release/AGENTS.md` for writing craft.
 
 ## Co-Changes (Flag if Missing)
 

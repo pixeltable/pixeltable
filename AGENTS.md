@@ -44,8 +44,8 @@ pixeltable/
 │   ├── io/               # Tests for import/export
 │   └── data/             # Test fixtures (images, videos, documents)
 ├── docs/
-│   ├── release/          # Mintlify documentation source (notebooks, MDX)
-│   ├── _guidelines/      # Documentation style guides
+│   ├── release/          # Mintlify documentation source (notebooks, MDX); writing craft in docs/release/AGENTS.md
+│   ├── _guidelines/      # Notebook + docstring how-to guides
 │   └── sample-apps/      # Example applications
 └── tool/                 # Development utilities
 ```
@@ -117,6 +117,18 @@ pytest -m "remote_api" tests/functions/test_openai.py
 **Test markers:**
 - `@pytest.mark.expensive` - Long-running tests
 - `@pytest.mark.remote_api` - Tests calling external APIs
+
+### Required After Every Code Change
+
+After every code change, before reporting it done:
+
+1. `make format`: auto-formats code.
+2. `make check`: mypy + ruff static checks; both must pass.
+3. Review the diff (`git diff`) and read every comment, docstring, and string you added. A comment must
+   describe only the code at hand (never a caller's intent or a called function's internals) and must not
+   state behavior you have not verified. Fix violations before proceeding.
+
+Skip only if explicitly directed or if the environment makes it impossible.
 
 ### Creating a Pull Request
 
@@ -231,7 +243,7 @@ results = t.order_by(sim, asc=False).limit(10).select(t.text, sim).collect()
 
 ### Notebooks
 
-Documentation notebooks are in `docs/release/`. Follow `docs/_guidelines/GUIDELINES_FOR_NOTEBOOKS.md`:
+Documentation notebooks are in `docs/release/`. Follow `docs/_guidelines/GUIDELINES_FOR_NOTEBOOKS.md` for how-to, and `docs/release/AGENTS.md` for writing craft:
 
 - Start with YAML frontmatter in a **Raw cell** (not Markdown)
 - No H1 headers in markdown (title comes from frontmatter)
@@ -256,9 +268,11 @@ make docs
 # Serve locally for development
 make docs-serve
 
-# Deploy to staging
-make docs-deploy TARGET=stage
+# Deploy to the dev environment for preview
+make docs-deploy TARGET=dev
 ```
+
+`TARGET=dev` is the only deploy target agents may use or suggest. `TARGET=stage` and `TARGET=prod` are reserved for humans outside agent workflows.
 
 ### Local Dashboard UI
 
