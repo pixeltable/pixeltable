@@ -9,7 +9,7 @@ name: tests
 #
 # On PR updates, additionally:
 #   - The 'slim' subset of the unit tests (SLIM_TESTS in tool/ci_tool.py) with Python 3.11 on ubuntu-24.04,
-#     macos-15, and windows-2025 runners.
+#     macos-15, and windows-2025 runners, plus with Python 3.14 on ubuntu-24.04.
 #
 # In merge queue, instead of the slim tests:
 #   - The full unit test suite with Python 3.11 on macos-15 and windows-2025 runners.
