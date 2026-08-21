@@ -1,4 +1,5 @@
 import asyncio
+import os
 from typing import Iterator
 
 import numpy as np
@@ -10,26 +11,34 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.utils.filecache import FileCache
-
 from .utils import pxt_raises, skip_test_if_not_local
 
 pytestmark = pytest.mark.local('exercises process-global Env/Config and runtime reset')
 
 
 def _reset_env(reinit: bool, db_name: str | None) -> None:
-    """Reset the environment for testing. db_name=None restores the default test database."""
+    """Reset the environment for testing. db_name=None keeps whichever database is configured."""
     reset_runtime()
-    # Reload configs
-    config_overrides = {} if db_name is None else {'pixeltable.db': db_name}
-    Config.init(config_overrides=config_overrides, reinit=True)
+    if db_name is not None:
+        os.environ['PIXELTABLE_DB'] = db_name
+    Config.init(reinit=True)
     Env._init_env(reinit_db=reinit)
     FileCache.init()
 
 
 @pytest.fixture(autouse=True)
 def restore_env() -> Iterator[None]:
-    """Put the process back on its configured database once the test is done."""
+    """Put the process back on its configured database once the test is done.
+
+    PIXELTABLE_DB is how the suite gives each worker its own database, so the value it had on entry is
+    what has to come back; dropping it would move every later test to the default database.
+    """
+    configured_db = os.environ.get('PIXELTABLE_DB')
     yield
+    if configured_db is None:
+        os.environ.pop('PIXELTABLE_DB', None)
+    else:
+        os.environ['PIXELTABLE_DB'] = configured_db
     _reset_env(reinit=False, db_name=None)
 
 

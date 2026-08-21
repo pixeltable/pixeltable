@@ -148,8 +148,7 @@ class LocalStore(ObjectStoreBase):
         self, tbl_id: UUID, col_id: int, tbl_version: int, ext: str | None = None
     ) -> FileDestination:
         dest_path = self._prepare_path_raw(tbl_id, col_id, tbl_version, ext)
-        url = urllib.parse.urljoin('file:', urllib.request.pathname2url(str(dest_path)))
-        return FileDestination(url=url, local_path=dest_path)
+        return FileDestination(url=dest_path.as_uri(), local_path=dest_path)
 
     def move_local_file(self, src_path: Path, dest: FileDestination) -> str | None:
         assert dest.local_path is not None
@@ -178,8 +177,7 @@ class LocalStore(ObjectStoreBase):
             dest_path = self._save_pil_image_file(data, dest_path, format)
         else:
             raise ValueError(f'Unsupported object type: {type(data)}')
-        new_file_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(str(dest_path)))
-        return dest_path, new_file_url
+        return dest_path, dest_path.as_uri()
 
     def create_presigned_url(self, soa: StorageObjectAddress, expiration_seconds: int) -> str:
         """Create a presigned URL for local storage (not supported)."""

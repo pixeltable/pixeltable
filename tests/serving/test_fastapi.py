@@ -2925,6 +2925,58 @@ class TestFastAPI:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='table has no primary key'):
             router.add_delete_route(t_no_pk, path='/e')
 
+    def test_column_ref_args(self, make_catalog_path: Callable[[str], str]) -> None:
+        """Routes accept ColumnRefs wherever they accept column names."""
+        p = make_catalog_path
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter
+
+        pxt.create_dir(p('test_serve'))
+        t = pxt.create_table(
+            p('test_serve.items'), {'id': pxt.Int, 'val': pxt.Int | None, 'img': pxt.Image | None}, primary_key='id'
+        )
+        t.add_computed_column(incr=add_one(t.val))
+
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/ins', inputs=[t.id, t.val], outputs=[t.id, t.incr])
+        router.add_compute_route(t, path='/comp', inputs=[t.id, t.val], outputs=[t.incr])
+        router.add_update_route(t, path='/upd', inputs=[t.val], outputs=[t.id, t.incr])
+        router.add_delete_route(t, path='/del', match_columns=[t.id])
+        router.add_insert_route(
+            t, path='/upload', inputs=[t.id], uploadfile_inputs=[t.img], outputs=[t.id], background=False
+        )
+        client = make_test_client(router)
+
+        assert client.post('/ins', json={'id': 1, 'val': 10}).json() == {'id': 1, 'incr': 11}
+        assert client.post('/comp', json={'id': 2, 'val': 20}).json() == {'incr': 21}
+        assert client.post('/upd', json={'id': 1, 'val': 40}).json() == {'id': 1, 'incr': 41}
+        assert client.post('/del', json={'id': 1}).json() == {'num_rows': 1}
+
+        with open(get_image_files()[0], 'rb') as f:
+            resp = client.post('/upload', data={'id': 7}, files={'img': ('x.jpg', f, 'image/jpeg')})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {'id': 7}
+
+    def test_bind_table_targets(self, make_catalog_path: Callable[[str], str]) -> None:
+        """A route declared against a Table needs no binding: it already names the table it serves."""
+        p = make_catalog_path
+        skip_test_if_not_installed('fastapi')
+        import fastapi
+        from fastapi.testclient import TestClient
+
+        from pixeltable.serving import FastAPIRouter
+
+        t = pxt.create_table(p('items'), {'id': pxt.Int, 'val': pxt.Int | None}, primary_key='id')
+
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/ins', inputs=['id', 'val'], outputs=['id'])
+
+        # no bind() call: the route already names the table it serves
+        app = fastapi.FastAPI()
+        app.include_router(router)
+        with TestClient(app) as client:
+            assert client.post('/ins', json={'id': 1, 'val': 10}).json() == {'id': 1}
+
     @pytest.mark.parametrize(
         ('op_name', 'first_body', 'retry_body'),
         [('insert', {'id': 2, 'val': 20}, {'id': 3, 'val': 30}), ('delete', {'id': 1}, {'id': 2})],

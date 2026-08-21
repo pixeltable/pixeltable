@@ -129,11 +129,11 @@ install-deps:
 	@python -m ipykernel install --user --name=pixeltable
 	@touch .make-install/others
 
-pixeltable/catalog/model.pyi: pixeltable/catalog/model.py pixeltable/catalog/table.py tool/generate_type_stubs.py
+pixeltable/catalog/model/declaration.pyi: pixeltable/catalog/model/declaration.py pixeltable/catalog/table.py tool/generate_type_stubs.py
 	@python tool/generate_type_stubs.py
 
 .PHONY: install
-install: setup-install .make-install/env .make-install/dashboard install-deps .make-install/others pixeltable/catalog/model.pyi
+install: setup-install .make-install/env .make-install/dashboard install-deps .make-install/others pixeltable/catalog/model/declaration.pyi
 
 .PHONY: test
 test: pytest check
@@ -185,8 +185,8 @@ stresstest: install
 typecheck: install
 	@echo 'Running `mypy` ...'
 	@mypy pixeltable pixeltable_cli tests tool
-	# Separate direct check of model.py (which is shadowed by the generated model.pyi in the main run)
-	@mypy pixeltable/catalog/model.py
+	# Separate direct check of declaration.py (which is shadowed by the generated declaration.pyi in the main run)
+	@mypy pixeltable/catalog/model/declaration.py
 	@echo 'Running `mypy` on $(OTEL_PKG) ...'
 	@MYPYPATH=$(OTEL_PKG)/src mypy --explicit-package-bases --namespace-packages \
 		$(OTEL_PKG)/src/opentelemetry/instrumentation/pixeltable $(OTEL_PKG)/tests
