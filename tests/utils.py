@@ -1,4 +1,6 @@
+import asyncio
 import datetime
+import gc
 import glob
 import hashlib
 import itertools
@@ -10,6 +12,7 @@ import random
 import re
 import shutil
 import subprocess
+import sys
 import sysconfig
 import time
 import uuid
@@ -20,6 +23,8 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, TypedDict
 from unittest import TestCase
 from uuid import uuid4
 
+import aiohttp
+import httpx
 import more_itertools
 import numpy as np
 import pandas as pd
@@ -1072,6 +1077,46 @@ class DummyIterator2(pxt.PxtIterator[DummyIterator2Out]):
         result = DummyIterator2Out(out1=f'str{self.count}', out3=self.count)
         self.count += 1
         return result
+
+
+def _process_lifetime_loop_ids() -> set[int]:
+    """The ids of the event loops that a third-party library keeps open for as long as the process runs.
+
+    lancedb.background_loop starts a loop when the module is imported and offers no way to close it, so a
+    worker that imported lancedb has one open loop that no teardown can account for.
+    """
+    module = sys.modules.get('lancedb.background_loop')
+    if module is None:
+        return set()
+    loop = getattr(module.LOOP, 'loop', None)
+    return set() if loop is None else {id(loop)}
+
+
+def open_async_resources() -> list[str]:
+    """Describes every event loop and HTTP client session that is still open, one string each.
+
+    An async client or an event loop that is dropped rather than closed holds on to its sockets until GC
+    gets to it, at which point closing them raises 'Event loop is closed' from a destructor. Anything
+    reported here after a teardown is such a leak.
+    """
+    gc.collect()
+    ignored_loop_ids = _process_lifetime_loop_ids()
+    resources: list[str] = []
+    for obj in gc.get_objects():
+        if isinstance(obj, asyncio.AbstractEventLoop) and not obj.is_closed() and id(obj) not in ignored_loop_ids:
+            resources.append(f'event loop {type(obj).__name__} at {id(obj):#x}')
+        elif isinstance(obj, aiohttp.ClientSession) and not obj.closed:
+            resources.append(f'aiohttp session at {id(obj):#x}')
+        elif isinstance(obj, httpx.AsyncClient) and not obj.is_closed:
+            resources.append(f'httpx client at {id(obj):#x}')
+    return resources
+
+
+def validate_async_teardown() -> None:
+    """Retires this thread's runtime and asserts that it left no event loop or HTTP client session open."""
+    reset_runtime()
+    resources = open_async_resources()
+    assert len(resources) == 0, 'async resources left open:\n  ' + '\n  '.join(resources)
 
 
 def list_store_indexes(t: pxt.Table) -> list[str]:

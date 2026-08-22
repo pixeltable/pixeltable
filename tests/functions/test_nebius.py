@@ -28,7 +28,7 @@ class TestNebius:
         msgs = [{'role': 'system', 'content': 'You are a helpful assistant.'}, {'role': 'user', 'content': t.input}]
         t.add_computed_column(input_msgs=msgs)
         t.add_computed_column(
-            chat_output=chat_completions(model='meta-llama/Llama-3.3-70B-Instruct', messages=t.input_msgs)
+            chat_output=chat_completions(model='Qwen/Qwen3-30B-A3B-Instruct-2507', messages=t.input_msgs)
         )
 
         validate_update_status(t.insert(input='What is the capital of France?'), 1)
@@ -50,7 +50,7 @@ class TestNebius:
                 ],
             }
         ]
-        t.add_computed_column(response=chat_completions(msgs, model='Qwen/Qwen2.5-VL-72B-Instruct'))
+        t.add_computed_column(response=chat_completions(msgs, model='openbmb/MiniCPM-V-4_5'))
 
         validate_update_status(t.insert(image=sample_file_server.url(SAMPLE_IMAGE_FILE_PATH)), 1)
         result = t.collect()
