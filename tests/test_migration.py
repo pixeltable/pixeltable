@@ -93,6 +93,41 @@ class TestMigration:
         _normalize(md)
         assert md['fn'] == already
 
+    def test_convert_55_fold(self) -> None:
+        """Unit test for the version 55->56 name folding (no DB needed)."""
+        from pixeltable.metadata.converters.convert_55 import (
+            _fold_column_ref_by_name,
+            _fold_schema_column,
+            _fold_table_md,
+        )
+
+        # table name, index names, and the keys of a component view's iterator outputs all fold; each output's
+        # 'orig_name' is a runtime data key and stays as declared
+        tbl_md: dict[str, Any] = {
+            'name': 'MyTable',
+            'index_md': {'0': {'name': 'MyIdx'}},
+            'view_md': {'iterator_call': {'outputs': {'MyOutput': {'orig_name': 'MyOutput'}}}},
+        }
+        _fold_table_md(tbl_md, uuid.uuid4())
+        assert tbl_md['name'] == 'mytable'
+        assert tbl_md['index_md']['0']['name'] == 'myidx'
+        assert tbl_md['view_md']['iterator_call']['outputs'] == {'myoutput': {'orig_name': 'MyOutput'}}
+
+        # column names fold; system columns (name=None) are left alone
+        schema_col = {'name': 'MyCol'}
+        _fold_schema_column(schema_col)
+        assert schema_col['name'] == 'mycol'
+        system_col: dict[str, Any] = {'name': None}
+        _fold_schema_column(system_col)
+        assert system_col['name'] is None
+
+        # a persisted ColumnRefByName folds its name; anything else is left untouched
+        assert _fold_column_ref_by_name('v', {'_classname': 'ColumnRefByName', 'name': 'MyCol', 'col_type': {}}) == (
+            'v',
+            {'_classname': 'ColumnRefByName', 'name': 'mycol', 'col_type': {}},
+        )
+        assert _fold_column_ref_by_name('v', {'_classname': 'ColumnRef', 'name': 'MyCol'}) is None
+
     @rerun(reruns=3, reruns_delay=8)  # Deal with occasional concurrency issues
     @pytest.mark.skipif(platform.system() == 'Windows', reason='Does not run on Windows')
     def test_db_migration(self, init_env: None) -> None:

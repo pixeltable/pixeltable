@@ -21,7 +21,7 @@ from pixeltable.query_clauses import FromClause, JoinType, SampleClause
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 
-from ..globals import MediaValidation, col_type_from_spec, is_valid_identifier
+from ..globals import MediaValidation, col_type_from_spec, fold_identifier, is_valid_identifier
 from ..table import Table
 from ..table_version_handle import TableVersionHandle
 from ..types import TableVersionMd
@@ -115,6 +115,11 @@ class EmbeddingIndex:
     metric: Literal['cosine', 'ip', 'l2'] = 'cosine'
     precision: Literal['fp16', 'fp32'] = 'fp16'
     name: str | None = None
+
+    def __post_init__(self) -> None:
+        # index names are identifiers; fold to the stored form (frozen dataclass, hence object.__setattr__)
+        if isinstance(self.name, str):
+            object.__setattr__(self, 'name', fold_identifier(self.name))
 
     def as_fn_call(self) -> exprs.FunctionCall:
         # Static resolution of the embedding function as a FunctionCall.
@@ -381,9 +386,19 @@ class _ModelNamespace(dict):
     """
 
     table_spec: TableSpec
+    # keyed by folded column name
     known_cols: dict[str, ColumnSpec]
 
+    # as-written Python spelling -> folded column name, for every column declared in the class body. The two differ
+    # because a class body is also a Python namespace, and Python name resolution is case-sensitive.
+    declared_names: dict[str, str]
+
+    # folded names of the columns that arrived as bare annotations; set_col_type() treats an existing known_cols
+    # entry as an annotation confirming an already-assigned value, so it needs this to detect a genuine duplicate
+    annotated_cols: set[str]
+
     # Names that are produced by the base query or iterator; these cannot be redefined in the model.
+    # Keyed by folded name.
     reserved_cols: dict[str, Literal['base query', 'iterator']]
 
     # The scope in which the class body is defined; used to evaluate stringized type annotations (see
@@ -396,6 +411,8 @@ class _ModelNamespace(dict):
 
         self.table_spec = table_spec
         self.known_cols = {}
+        self.declared_names = {}
+        self.annotated_cols = set()
         self.reserved_cols = {}
         self.eval_globals = eval_globals
         self.eval_locals = eval_locals
@@ -419,10 +436,13 @@ class _ModelNamespace(dict):
         """Add `name` as a reserved column (it is resolvable in the class body, and its symbol cannot be reused,
         but it does not have a ColumnSpec and will not be included in the list of columns for the view to create).
         """
-        self.reserved_cols[name] = kind
-        super().__setitem__(name, ColumnRefByName(name, col_type))
+        folded = fold_identifier(name)
+        self.reserved_cols[folded] = kind
+        # the dict key stays as written -- it is a Python name in the class body -- but the column it denotes is folded
+        super().__setitem__(name, ColumnRefByName(folded, col_type))
 
     def _check_reserved(self, name: str) -> None:
+        """`name` must already be folded."""
         if name in self.reserved_cols:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA,
@@ -430,16 +450,17 @@ class _ModelNamespace(dict):
             )
 
     def set_col_value(self, name: str, value: Any) -> None:
-        self._check_reserved(name)
-        if name in self.known_cols:
-            raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'Column {name!r}: duplicate definition.')
+        col_name = fold_identifier(name)
+        self._check_reserved(col_name)
+        if col_name in self.known_cols:
+            raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'Column {col_name!r}: duplicate definition.')
         spec: ColumnSpec
         if isinstance(value, Column):
             spec = value.to_column_spec()
             if ('type' in spec) == ('value' in spec):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
-                    f'Column specification for {name!r} must define `type` or `value`, but not both',
+                    f'Column specification for {col_name!r} must define `type` or `value`, but not both',
                 )
         else:
             # Computed column expression.
@@ -447,21 +468,24 @@ class _ModelNamespace(dict):
             if expr is None:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
-                    f'Column {name!r}: invalid value (not a literal or expression recognized by Pixeltable).',
+                    f'Column {col_name!r}: invalid value (not a literal or expression recognized by Pixeltable).',
                 )
             if _contains_aggregate(expr):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
-                    f'Column {name!r} aggregates over the table: {expr}\nA computed column is evaluated one '
+                    f'Column {col_name!r} aggregates over the table: {expr}\nA computed column is evaluated one '
                     'row at a time, so it cannot aggregate.',
                 )
             spec = {'value': expr}
-        self.known_cols[name] = spec
+        self.known_cols[col_name] = spec
+        self.declared_names[name] = col_name
         # Add the column to the namespace so that it can be referenced in subsequent expressions in the class body.
-        super().__setitem__(name, exprs.ColumnRefByName(name, col_type_from_spec(spec)))
+        # The key is the as-written spelling; only the column it refers to is folded.
+        super().__setitem__(name, exprs.ColumnRefByName(col_name, col_type_from_spec(spec)))
 
     def set_col_type(self, name: str, type_: Any) -> None:
-        self._check_reserved(name)
+        col_name = fold_identifier(name)
+        self._check_reserved(col_name)
         if isinstance(type_, str):
             # Under from __future__ import annotations (PEP 563) -- and mandatory on Python 3.14+, where
             # PEP 649 otherwise defers annotation evaluation entirely -- annotations arrive as strings. Evaluate
@@ -471,19 +495,25 @@ class _ModelNamespace(dict):
             except Exception as exc:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
-                    f'Could not resolve the type annotation {type_!r} for column {name!r}: {exc}',
+                    f'Could not resolve the type annotation {type_!r} for column {col_name!r}: {exc}',
                 ) from exc
         type_ = ts.ColumnType.normalize_type(type_, allow_builtin_types=False)
-        if name in self.known_cols:
+        if col_name in self.known_cols:
+            if col_name in self.annotated_cols:
+                # a second bare annotation for the same column; matching types would otherwise merge silently
+                raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'Column {col_name!r}: duplicate definition.')
             # We previously processed this column via set_col_value(). Sanity check the type.
-            if col_type_from_spec(self.known_cols[name]) != type_:
+            if col_type_from_spec(self.known_cols[col_name]) != type_:
                 raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA, f'Conflicting type annotation for column {name!r}.'
+                    excs.ErrorCode.INVALID_SCHEMA, f'Conflicting type annotation for column {col_name!r}.'
                 )
+            self.declared_names[name] = col_name
             return
         # Bare annotation (col: SomeType): record the spec and make the name referenceable in the body.
-        self.known_cols[name] = {'type': type_}  # type: ignore[typeddict-item]
-        super().__setitem__(name, exprs.ColumnRefByName(name, type_))
+        self.known_cols[col_name] = {'type': type_}  # type: ignore[typeddict-item]
+        self.annotated_cols.add(col_name)
+        self.declared_names[name] = col_name
+        super().__setitem__(name, exprs.ColumnRefByName(col_name, type_))
 
 
 class TableModelMeta(type):
@@ -493,6 +523,8 @@ class TableModelMeta(type):
 
     __table_spec__: TableSpec
     __columns__: dict[str, ColumnSpec]
+    # as-written Python spelling -> folded column name, for the columns declared in the class body
+    __declared_names__: dict[str, str]
     __indexes__: list[IndexDeclaration]
     __bound_table__: Table | None
 
@@ -525,8 +557,9 @@ class TableModelMeta(type):
         else:
             display_name = f'model `{cls_name}`'
 
-            # Validate table name
-            tbl_name = name
+            # Validate table name. Fold first: `name` reaches Path.parse in _create, which folds, so two models
+            # declared 'Foo' and 'foo' denote the same table and must collide in the registry probe below.
+            tbl_name = fold_identifier(name) if isinstance(name, str) else name
             if not isinstance(tbl_name, str) or not is_valid_identifier(tbl_name, allow_hyphens=True):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT, f'{display_name}: `name` must be a valid Pixeltable identifier.'
@@ -686,6 +719,7 @@ class TableModelMeta(type):
         namespace_dict = dict(namespace)
         namespace_dict['__table_spec__'] = namespace.table_spec
         namespace_dict['__columns__'] = namespace.known_cols
+        namespace_dict['__declared_names__'] = namespace.declared_names
         namespace_dict['__bound_table__'] = None
         namespace_dict['_catalog_dir'] = None
         namespace_dict['_table_path'] = None
@@ -734,6 +768,11 @@ class TableModelMeta(type):
             # Table ops succeeded; now update the class.
             for col_name, col_ref in col_refs.items():
                 setattr(cls, col_name, col_ref)
+            # tbl.columns() returns folded names, but the class body bound the as-written spellings to
+            # ColumnRefByName placeholders; rebind those to the same refs so the two cannot diverge.
+            for declared, col_name in cls.__declared_names__.items():
+                if declared != col_name and col_name in col_refs:
+                    setattr(cls, declared, col_refs[col_name])
             cls._catalog_dir = catalog_dir
             return tbl
 
@@ -799,6 +838,15 @@ class TableModelMeta(type):
                     return getattr(cls.table, item)
                 except excs.RequestError as exc:
                     raise AttributeError(f'{item}(): {exc}') from exc
+        if not item.startswith('_') and cls.is_bound:
+            # a casing that was never declared: resolve it against the bound table, so that the model class behaves
+            # like Table.__getattr__ does
+            folded = fold_identifier(item)
+            if folded != item:
+                try:
+                    return getattr(cls.table, folded)
+                except AttributeError:
+                    pass
         return super().__getattribute__(item)
 
     def table_path(cls) -> catalog.TableMdPath:

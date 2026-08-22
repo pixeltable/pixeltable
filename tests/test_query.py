@@ -13,6 +13,7 @@ import pydantic
 import pytest
 
 import pixeltable as pxt
+import pixeltable.type_system as ts
 from pixeltable.functions.string import isalpha, isascii
 from pixeltable.functions.video import frame_iterator
 
@@ -1148,10 +1149,19 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Required model fields .* are missing') as exc_info:
             _ = list(t.select(t.i).collect().to_pydantic(TestModel))
         assert extract_fields(exc_info) == {'s', 'f', 'b', 'ts', 'd'}
-        # case-sensitive field names
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Required model fields .* are missing') as exc_info:
-            _ = list(t.select(t.i, t.s, t.f, t.b, t.ts, D=t.d).collect().to_pydantic(TestModel))
-        assert extract_fields(exc_info) == {'d'}
+        # result column names are folded, and are matched against model fields case-insensitively; each row's keys
+        # are remapped to the model's own spelling before the splat
+        folded = list(t.select(t.i, t.s, t.f, t.b, t.ts, D=t.d).collect().to_pydantic(TestModel))
+        assert len(folded) == 3
+
+        # a model whose field names are mixed-case still matches the (always-folded) result columns
+        class MixedCaseModel(pydantic.BaseModel):
+            MyInt: int
+            MyStr: str
+
+        mixed = list(t.select(MyInt=t.i, MYSTR=t.s).collect().to_pydantic(MixedCaseModel))
+        assert [m.MyInt for m in mixed] == [1, 2, 3]
+        assert [m.MyStr for m in mixed] == ['one', 'two', 'three']
 
         # (s?): dotall mode, needed to match the embedded \n's
         with pxt_raises(
@@ -1313,3 +1323,42 @@ class TestQuery:
         t.drop_column(t.c2)
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='dropped'):
             _ = q.collect()
+
+    def test_case_insensitive_result_access(self, make_catalog_path: Callable[[str], str]) -> None:
+        """Result column names are folded, and every lookup form folds the key it is given."""
+        p = make_catalog_path
+        t = pxt.create_table(p('t'), {'MyCol': pxt.Int | None})
+        t.insert([{'mycol': 1}])
+
+        # select() kwargs fold, and colliding kwarg names are caught by the existing repeated-name check
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Repeated column name'):
+            _ = t.select(A=t.MyCol, a=t.MyCol)
+
+        rs = t.select(t.MyCol).collect()
+        assert list(rs.schema.keys()) == ['mycol']
+        assert rs['MyCol'] == [1]
+        assert rs[0, 'MyCol'] == 1
+
+        row = rs._rows[0]
+        assert row['MyCol'] == 1
+        assert 'MYCOL' in row
+        assert row.get('MyCol') == 1
+        assert list(row.keys()) == ['mycol']  # iteration still yields the stored spelling
+
+    def test_case_insensitive_errors_and_index_values(
+        self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function
+    ) -> None:
+        """Row.errors and Row.index_values are public mappings keyed by name, so they fold too."""
+        p = make_catalog_path
+        t = pxt.create_table(p('t'), {'id': pxt.Int | None, 's': pxt.String | None})
+        t.add_computed_column(Inv=1 // t.id)
+        t.add_embedding_index('s', idx_name='MyIdx', string_embed=local_embed)
+
+        out = t.compute([{'id': 0, 's': 'a'}], on_error='ignore')
+        assert out[0].errors['Inv']['errortype'] == 'ZeroDivisionError'
+        assert list(out[0].errors.keys()) == ['inv']  # iteration still yields the stored spelling
+
+        # index_values is the other public name-keyed mapping; it folds through the same wrapper
+        batch = pxt.RowBatch([(1,)], {'c': ts.IntType()}, index_values=[{'myidx': [0.5]}])
+        assert batch[0].index_values['MYIDX'] == [0.5]
+        assert list(batch[0].index_values.keys()) == ['myidx']

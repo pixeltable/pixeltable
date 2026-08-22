@@ -1310,18 +1310,22 @@ class Catalog(CatalogBase):
         self._move(path, new_path, if_exists, if_not_exists)
 
     def _move(self, path: Path, new_path: Path, if_exists: IfExistsParam, if_not_exists: IfNotExistsParam) -> None:
+        # Moving onto the same path is a special case. It does nothing in its happy path, but still needs to go through
+        # _prepare_dir_op() so that an error is raied if the path does not exist.
+        is_self_move = path == new_path
         dest_obj, dest_dir, src_obj = self._prepare_dir_op(
             add_dir_path=new_path.parent,
             add_name=new_path.name,
             drop_dir_path=path.parent,
             drop_name=path.name,
-            raise_if_exists=(if_exists == IfExistsParam.ERROR),
+            raise_if_exists=(if_exists == IfExistsParam.ERROR and not is_self_move),
             raise_if_not_exists=(if_not_exists == IfNotExistsParam.ERROR),
         )
-        assert dest_obj is None or if_exists == IfExistsParam.IGNORE
+        assert dest_obj is None or is_self_move or if_exists == IfExistsParam.IGNORE
         assert src_obj is not None or if_not_exists == IfNotExistsParam.IGNORE
         if dest_obj is None and src_obj is not None:
-            # If dest_obj is not None, it means `if_exists='ignore'` and the destination already exists.
+            # If dest_obj is not None, it means this is a self-move, or `if_exists='ignore'` and the destination
+            # already exists.
             # If src_obj is None, it means `if_not_exists='ignore'` and the source doesn't exist.
             # If dest_obj is None and src_obj is not None, then we can proceed with the move.
             if isinstance(src_obj, LocalTable):

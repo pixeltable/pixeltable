@@ -10,7 +10,7 @@ from types import MethodType
 from typing import TYPE_CHECKING, Any, Callable, Generic, Iterator, Self, TypeVar, overload
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
-from pixeltable.catalog.globals import _POS_COLUMN_NAME
+from pixeltable.catalog.globals import _POS_COLUMN_NAME, fold_identifier
 from pixeltable.func.globals import resolve_symbol
 
 from .signature import Signature
@@ -88,7 +88,8 @@ class GeneratingFunction:
 
     def __init__(self, decorated_callable: Callable, unstored_cols: list[str], fqn: str | None = None) -> None:
         self.decorated_callable = decorated_callable
-        self.unstored_cols = unstored_cols
+        # these name iterator outputs, which become view column names
+        self.unstored_cols = [fold_identifier(name) for name in unstored_cols]
         if fqn is None:
             self.fqn = f'{decorated_callable.__module__}.{decorated_callable.__qualname__}'
         else:
@@ -276,9 +277,13 @@ class GeneratingFunction:
         # we create that column here, so it gets assigned a column id;
         # stored=False: it is not stored separately (it's already stored as part of the rowid)
         outputs = {_POS_COLUMN_NAME: IteratorOutput(orig_name=_POS_COLUMN_NAME, is_stored=False, col_type=ts.IntType())}
+        # the dict key becomes a view column name and folds; orig_name is the field the iterator yields at runtime
+        # and must not
         outputs.update(
             {
-                name: IteratorOutput(orig_name=name, is_stored=(name not in self.unstored_cols), col_type=col_type)
+                fold_identifier(name): IteratorOutput(
+                    orig_name=name, is_stored=(fold_identifier(name) not in self.unstored_cols), col_type=col_type
+                )
                 for name, col_type in output_schema.items()
             }
         )
@@ -474,7 +479,8 @@ class GeneratingFunctionCall:
                 for param_name, param in it.py_sig.parameters.items():
                     if param_name not in bound_args and param.default is not inspect.Parameter.empty:
                         literal_args[param_name] = param.default
-                _, unstored_cols = it.decorated_callable.output_schema(literal_args)  # type: ignore[attr-defined]
+                _, raw_unstored_cols = it.decorated_callable.output_schema(literal_args)  # type: ignore[attr-defined]
+                unstored_cols = [fold_identifier(name) for name in raw_unstored_cols]
             else:
                 unstored_cols = it.unstored_cols
             outputs = {
@@ -482,7 +488,9 @@ class GeneratingFunctionCall:
             }
             outputs.update(
                 {
-                    name: IteratorOutput(orig_name=name, is_stored=(name not in unstored_cols), col_type=col_type)
+                    fold_identifier(name): IteratorOutput(
+                        orig_name=name, is_stored=(fold_identifier(name) not in unstored_cols), col_type=col_type
+                    )
                     for name, col_type in output_schema.items()
                 }
             )

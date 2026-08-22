@@ -1629,3 +1629,22 @@ class TestView:
                 t,
                 additional_columns={'v1': {'type': pxt.Int | None, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
             )
+
+    def test_case_insensitive_shadowing(self, make_catalog_path: Callable[[str], str]) -> None:
+        """A view column whose folded name matches an inherited one shadows it -- as it already does for exact names."""
+        p = make_catalog_path
+        t = pxt.create_table(p('base'), {'foo': pxt.Int | None, 'other': pxt.Int | None})
+        t.insert([{'foo': 1, 'other': 2}])
+        v = pxt.create_view(p('v'), t, additional_columns={'Foo': pxt.String | None})
+
+        # the view's own column wins, and the base's is no longer listed on the view's path
+        assert v.foo.col_md.qcolid.tbl_id == v._id
+        assert v.Foo.col_md.qcolid.tbl_id == v._id
+        assert 'foo' in v.columns()
+        # ... while the base column stays reachable through the base table itself
+        assert t.foo.col_md.qcolid.tbl_id == t._id
+        assert t.select(t.Foo).collect()['foo'] == [1]
+
+        # a join predicate over the two resolves each name against its own table
+        res = t.join(v, on=t.other == v.other).select(t.FOO, v.Other).collect()
+        assert len(res) == 1

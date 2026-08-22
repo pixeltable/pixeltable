@@ -2051,6 +2051,19 @@ class TestExprs:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'len\(\) of a Pixeltable expression'):
             len(t.c1)
 
+    def test_json_paths_stay_case_sensitive(self, make_catalog_path: Callable[[str], str]) -> None:
+        """JSON path components are data, not identifiers, so folding must not reach one level past the column."""
+        p = make_catalog_path
+        t = pxt.create_table(p('t'), {'JsonCol': pxt.Json | None})
+        t.insert([{'jsoncol': {'someField': 1, 'somefield': 2}}])
+
+        # the column name folds ...
+        assert t.JsonCol.col_md.name == 'jsoncol'
+        # ... but the JSON field names do not
+        res = t.select(a=t.JsonCol.someField, b=t.jsoncol.somefield).collect()
+        assert res['a'] == [1]
+        assert res['b'] == [2]
+
 
 @pxt.udf
 def udf1(x: int, y: str) -> str:

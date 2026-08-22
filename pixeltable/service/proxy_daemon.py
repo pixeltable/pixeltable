@@ -31,7 +31,7 @@ import sqlalchemy as sql
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
-from pixeltable.env import Env
+from pixeltable.env import Env, validate_db_name
 from pixeltable.runtime import get_runtime, reset_runtime
 
 from . import proxy_dispatch
@@ -153,6 +153,7 @@ def _tail_log(path: Path, n_lines: int = _LOG_TAIL_LINES) -> str:
 
 def create(db: str) -> None:
     """Create the daemon's home directory. The database itself is created on first start()."""
+    validate_db_name(db)
     proxy_home(db).mkdir(parents=True, exist_ok=True)
 
 

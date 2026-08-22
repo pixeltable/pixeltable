@@ -11,7 +11,7 @@ from pixeltable.runtime import get_runtime
 from pixeltable.utils.filecache import FileCache
 
 from .column import Column
-from .globals import IndexSpec, MediaValidation, OnErrorParam
+from .globals import IndexSpec, MediaValidation, OnErrorParam, fold_identifier
 from .local_table import LocalTable
 from .table_path import TableVersionPath
 from .table_version_handle import TableVersionHandle
@@ -56,7 +56,7 @@ class InsertableTable(LocalTable):
     ) -> tuple[TableVersionMd, list[TableOp]]:
         cls._verify_schema(columns)
         column_names = [col.name for col in columns]
-        for pk_col in primary_key:
+        for pk_col in (fold_identifier(name) for name in primary_key):
             if pk_col not in column_names:
                 raise excs.NotFoundError(
                     excs.ErrorCode.COLUMN_NOT_FOUND, f'Primary key column {pk_col!r} not found in table schema.'

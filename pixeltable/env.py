@@ -81,6 +81,23 @@ def store_app_name() -> str:
     return f'pixeltable-{os.getpid()}'
 
 
+# Pixeltable DB name is used verbatim as Postgres DB name. Anything longer than 63 bytes gets truncated to its prefix.
+MAX_DB_NAME_LEN = 63
+
+
+def validate_db_name(db_name: str) -> None:
+    """Raise if `db_name` cannot be used verbatim as a Postgres database name."""
+    from pixeltable.catalog.globals import is_valid_identifier
+
+    if not is_valid_identifier(db_name, allow_hyphens=True):
+        raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid database name: {db_name!r}')
+    if len(db_name) > MAX_DB_NAME_LEN:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'Database name is too long ({len(db_name)} characters; the limit is {MAX_DB_NAME_LEN})',
+        )
+
+
 class Env:
     """
     Store runtime globals for both local and non-local environments.
@@ -490,7 +507,12 @@ class Env:
                 raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Unsupported DBMS {dialect}')
             _logger.info(f'Using database at: {self.db_url}')
         else:
-            self._db_name = config.get_string_value('db') or 'pixeltable'
+            # the database name is an identifier, and is folded everywhere else it enters (Path, pxt localproxy)
+            from pixeltable.catalog.globals import fold_identifier  # local: env<->catalog is circular
+
+            db_name = config.get_string_value('db')
+            self._db_name = fold_identifier(db_name) if db_name else 'pixeltable'
+            validate_db_name(self._db_name)
             self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
             self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=None)
             self._db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')

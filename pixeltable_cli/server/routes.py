@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
-from pixeltable.catalog import Path
+from pixeltable.catalog import Path, fold_identifier
 from pixeltable.config import SECRET_SECTION, Config
 from pixeltable.env import Env
 from pixeltable.service import management_client
@@ -194,7 +194,7 @@ def _reroot(nodes: list[TreeNode], catalog_root: str) -> None:
 def table_rows(req: Request) -> models.RowsResponse:
     path = req.resolve_path(req.query_str('path') or '')
     n = req.query_int('n', default=10, ge=1, le=1000)
-    cols_list = _split_csv(req.query_str('cols'))
+    cols_list = _fold_names(_split_csv(req.query_str('cols')))
     if cols_list is not None and len(cols_list) > 1000:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'too many columns requested (max 1000)')
 
@@ -236,7 +236,7 @@ def table_row(req: Request) -> models.GetResponse:
     # like numbers (eg the string '42') are a documented limitation - there's no way to
     # force a string interpretation from the URL.
     pk_values: list[Any] = [_coerce_pk(v) for v in pk]
-    cols_list = _split_csv(req.query_str('cols'))
+    cols_list = _fold_names(_split_csv(req.query_str('cols')))
 
     t = pxt.get_table(path)
     md = t.get_metadata()
@@ -527,7 +527,7 @@ def dashboard_table_data(req: Request) -> dict[str, Any]:
         path,
         offset=req.query_int('offset', default=0, ge=0),
         limit=req.query_int('limit', default=50, ge=1, le=500),
-        order_by=req.query_str('order_by'),
+        order_by=_fold_name(req.query_str('order_by')),
         order_desc=req.query_bool('order_desc'),
         errors_only=req.query_bool('errors_only'),
     )
@@ -569,6 +569,15 @@ def _coerce_pk(s: str) -> Any:
         return float(s)
     except ValueError:
         return s
+
+
+def _fold_name(s: str | None) -> str | None:
+    """Fold a column name arriving as a query parameter; stored column names are always folded."""
+    return None if s is None else fold_identifier(s)
+
+
+def _fold_names(names: list[str] | None) -> list[str] | None:
+    return None if names is None else [fold_identifier(n) for n in names]
 
 
 def _split_csv(s: str | None) -> list[str] | None:
