@@ -60,11 +60,17 @@ class TestPrimaryKeyIndex:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=msg):
             pxt.create_table(p('t0'), {'id': pxt.Int | None}, primary_key='id', _is_data_versioned=is_data_versioned)
 
-        # via a column spec's 'primary_key' key, which reaches the column without going through that argument
+        # via a column spec's 'primary_key' key
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=msg):
             pxt.create_table(
                 p('t1'), {'id': {'type': pxt.Int | None, 'primary_key': True}}, _is_data_versioned=is_data_versioned
             )
+
+    def test_unknown_pk_column(self, make_catalog_path: Callable[[str], str]) -> None:
+        """The primary_key argument must name columns of the schema."""
+        p = make_catalog_path
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match=r"Primary key column 'nonexistent' not found"):
+            pxt.create_table(p('t0'), {'id': pxt.Int}, primary_key=['id', 'nonexistent'])
 
     def test_pk_via_column_spec(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         """A primary key can be declared by a column spec."""

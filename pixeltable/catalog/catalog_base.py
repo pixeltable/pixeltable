@@ -32,7 +32,6 @@ class CatalogBase(abc.ABC):
         path: Path,
         schema: dict[str, ColumnSpec],
         if_exists: IfExistsParam,
-        primary_key: list[str] | None,
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,

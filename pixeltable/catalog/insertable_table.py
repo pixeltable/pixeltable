@@ -46,7 +46,6 @@ class InsertableTable(LocalTable):
         tbl_id: UUID,
         name: str,
         columns: list[Column],
-        primary_key: list[str],
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
@@ -55,14 +54,6 @@ class InsertableTable(LocalTable):
         additional_idxs: list[IndexSpec],
     ) -> tuple[TableVersionMd, list[TableOp]]:
         cls._verify_schema(columns)
-        column_names = [col.name for col in columns]
-        for pk_col in primary_key:
-            if pk_col not in column_names:
-                raise excs.NotFoundError(
-                    excs.ErrorCode.COLUMN_NOT_FOUND, f'Primary key column {pk_col!r} not found in table schema.'
-                )
-            columns[column_names.index(pk_col)].is_pk = True
-
         for col in columns:
             if col.is_pk and col.col_type.nullable:
                 raise excs.RequestError(
