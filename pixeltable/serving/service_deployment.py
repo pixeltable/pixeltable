@@ -23,6 +23,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -33,12 +34,16 @@ from pixeltable import catalog, exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.serving._app import load_service_routers
-from pixeltable.utils.process import pid_alive, process_timestamp
+from pixeltable.utils.process import is_pid, pid_alive, process_timestamp
 
 if TYPE_CHECKING:
     from pixeltable.serving import ServiceSpec
 
 _logger = logging.getLogger(__name__)
+
+# the locks that serialize start(), keyed by record file, and the lock guarding that dict
+_service_locks: dict[Path, threading.Lock] = {}
+_service_locks_guard = threading.Lock()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -102,13 +107,25 @@ class ServiceDeployment:
 
     @classmethod
     def start(cls, app_file: str, service_name: str, base_path: str = '') -> ServiceDeployment:
-        """Start the named service from app_file with its models bound at base_path, and record it.
-
-        Returns the deployment already running at that target, if there is one; nothing is restarted and
-        app_file is not consulted in that case.
+        """
+        Atomically start and record the named service from app_file with its models bound at base_path, or return the
+        running one.
 
         Raises RequestError if the service cannot be served, and Error if its process never becomes healthy.
         """
+        with cls._service_lock(service_name, base_path):
+            return cls._start(app_file, service_name, base_path)
+
+    @classmethod
+    def _service_lock(cls, service_name: str, base_path: str) -> threading.Lock:
+        """The lock that serializes start() for one service at one target."""
+        path = cls._record_file(service_name, base_path)
+        with _service_locks_guard:
+            return _service_locks.setdefault(path, threading.Lock())
+
+    @classmethod
+    def _start(cls, app_file: str, service_name: str, base_path: str) -> ServiceDeployment:
+        """Start the service and wait for it to report healthy, with cls._start_lock() held."""
         deployment = cls.read(service_name, base_path)
         if deployment is not None and deployment.health_ok():
             return deployment
@@ -160,7 +177,7 @@ class ServiceDeployment:
             msg += '; its process is still running but never reported healthy'
             # take the process down and drop the record it wrote, so that nothing is left claiming this target
             cls._terminate(proc)
-            unhealthy = cls.read(service_name, base_path)
+            unhealthy = cls._parse_record(cls._record_file(service_name, base_path))
             if unhealthy is not None and unhealthy.pid == proc.pid:
                 unhealthy.remove()
         else:
@@ -257,8 +274,12 @@ class ServiceDeployment:
         self.remove()
 
     def remove(self) -> None:
-        """Remove the record of this deployment."""
-        self._record_file(self.service_name, self.base_path).unlink(missing_ok=True)
+        """Remove this deployment's record."""
+        path = self._record_file(self.service_name, self.base_path)
+        recorded = self._parse_record(path)
+        # make sure this is our deployment
+        if recorded is None or (recorded.pid, recorded.process_started_at) == (self.pid, self.process_started_at):
+            path.unlink(missing_ok=True)
 
     def health_ok(self) -> bool:
         try:
@@ -277,6 +298,12 @@ class ServiceDeployment:
     @classmethod
     def _read(cls, record_file_path: Path) -> ServiceDeployment | None:
         """The deployment recorded in record_file_path, or None if that record cannot be read or has no live process."""
+        recorded = cls._parse_record(record_file_path)
+        return recorded if recorded is not None and recorded.is_live() else None
+
+    @classmethod
+    def _parse_record(cls, record_file_path: Path) -> ServiceDeployment | None:
+        """The deployment recorded in record_file_path."""
         try:
             record = json.loads(record_file_path.read_text(encoding='utf-8'))
         except (OSError, ValueError):
@@ -288,8 +315,9 @@ class ServiceDeployment:
         names = {f.name for f in dataclasses.fields(cls)}
         if not names <= record.keys():
             return None
-        deployment = cls(**{name: value for name, value in record.items() if name in names})
-        return deployment if deployment.is_live() else None
+        if not is_pid(record['pid']):
+            return None
+        return cls(**{name: value for name, value in record.items() if name in names})
 
     def is_live(self) -> bool:
         """Whether the process this record was written for is still running.

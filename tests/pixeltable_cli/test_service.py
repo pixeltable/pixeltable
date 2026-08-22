@@ -308,6 +308,7 @@ class TestService:
         running = assert_serving(cli, app, target, 'clips', 'frames', 'recordings')
 
         video = get_video_files()[0]
+        video_url = pathlib.Path(video).as_uri()
         with open(video, 'rb') as f:
             resp = httpx.post(
                 f'{running["clips"]["endpoint"]}/clips',
@@ -320,11 +321,11 @@ class TestService:
         assert pxt.get_table(f'{target}/frames').count() > 0
 
         # a single media value comes back as the image itself
-        resp = _post(running['clips']['endpoint'], '/poster', clip_id=2, video=f'file://{video}')
+        resp = _post(running['clips']['endpoint'], '/poster', clip_id=2, video=video_url)
         assert resp.headers['content-type'].startswith('image/'), resp.headers
 
         # a route over the iterator view answers with a row per frame, media rendered as urls
-        rows = _post(running['frames']['endpoint'], '/frames', clip_id=3, video=f'file://{video}').json()
+        rows = _post(running['frames']['endpoint'], '/frames', clip_id=3, video=video_url).json()
         assert len(rows) > 1, rows
         assert all(row['thumb'].startswith('http') for row in rows), rows[0]
 
@@ -348,12 +349,13 @@ class TestService:
         # stopping one service of a file leaves the others serving
         cli('service', 'stop', f'{target}/frames')
         assert_not_serving(cli, 'frames')
-        assert _post(running['clips']['endpoint'], '/poster', clip_id=4, video=f'file://{video}').status_code == 200
+        assert _post(running['clips']['endpoint'], '/poster', clip_id=4, video=video_url).status_code == 200
 
     def test_search(self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]) -> None:
         """An iterator view and an embedding index over the column the iterator produces."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
+        skip_test_if_not_installed('spacy')  # the view's iterator splits on sentences
         app, target = apps('search.py'), make_catalog_path('app')
         deploy(cli, app, target)
         endpoint = assert_serving(cli, app, target, 'search')['search']['endpoint']

@@ -33,7 +33,7 @@ from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
-from pixeltable.utils.process import pid_alive
+from pixeltable.utils.process import is_pid, pid_alive
 
 from . import proxy_dispatch
 from .proxy_protocol import decode_body, encode_body
@@ -64,7 +64,8 @@ def read_port_lock(db: str) -> dict[str, Any] | None:
         info = json.loads(lock.read_text())
     except (ValueError, OSError):
         return None
-    return info if pid_alive(info.get('pid', -1)) else None
+    # the pid is whatever the file holds, so it is validated before it reaches a platform call
+    return info if is_pid(info.get('pid')) and pid_alive(info['pid']) else None
 
 
 def endpoint(db: str) -> str | None:

@@ -12,6 +12,16 @@ from pixeltable.utils import process
 
 
 class TestProcess:
+    def test_is_pid(self) -> None:
+        """A pid arriving as data is an int above 0 and nothing else."""
+        assert process.is_pid(1)
+        assert not process.is_pid(0)
+        assert not process.is_pid(-1)
+        assert not process.is_pid(True)  # bool is an int, but names no process
+        assert not process.is_pid('1')
+        assert not process.is_pid(1.0)
+        assert not process.is_pid(None)
+
     def test_pid_alive_probe(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # the calling process is running, whatever the platform reports for anything else
         assert process.pid_alive(os.getpid()) is True

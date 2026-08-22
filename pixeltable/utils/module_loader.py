@@ -92,10 +92,19 @@ def get_loaded_file_path(fn: Callable) -> str | None:
 def _evict(dir: Path) -> None:
     """Discard every module loaded from dir or from a directory under it, such as a package next to a file."""
     for path in [p for p in _loaded_modules if p.is_relative_to(dir)]:
-        sys.modules.pop(_module_name(path), None)
+        # a submodule reached by a dotted import was registered under its package's name by the standard
+        # machinery, so it is absent from _loaded_modules and would serve its old code after the reload
+        _pop_module_tree(_module_name(path))
         del _loaded_modules[path]
     for module_dir in [d for d in _dir_modules if d.is_relative_to(dir)]:
+        _pop_module_tree(_dir_modules[module_dir].__name__)
         del _dir_modules[module_dir]
+
+
+def _pop_module_tree(name: str) -> None:
+    """Remove the module called name from sys.modules, along with every module below it."""
+    for loaded_name in [n for n in sys.modules if n == name or n.startswith(f'{name}.')]:
+        del sys.modules[loaded_name]
 
 
 def _load(path: Path, *, is_package: bool = False) -> ModuleType:

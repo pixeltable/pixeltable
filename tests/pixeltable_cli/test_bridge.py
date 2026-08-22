@@ -31,6 +31,26 @@ def fail_on_neg(x: int) -> int:
 
 
 class TestBridge:
+    def test_app_module_reload(self, tmp_path: pathlib.Path) -> None:
+        """A reload rereads the application file and every module that was loaded from its directory."""
+        (tmp_path / 'pkg').mkdir()
+        (tmp_path / 'pkg' / '__init__.py').write_text('', encoding='utf-8')
+        (tmp_path / 'pkg' / 'inner.py').write_text("VALUE = 'first'\n", encoding='utf-8')
+        (tmp_path / 'helpers.py').write_text("TAG = 'first'\n", encoding='utf-8')
+        app_file = tmp_path / 'app.py'
+        # a dotted import of a module in a neighboring package, which the standard machinery resolves
+        app_file.write_text('import helpers\nfrom pkg.inner import VALUE\n', encoding='utf-8')
+
+        module = load_app_module(str(app_file), subject='application file')
+        assert (module.helpers.TAG, module.VALUE) == ('first', 'first')
+
+        (tmp_path / 'helpers.py').write_text("TAG = 'second'\n", encoding='utf-8')
+        (tmp_path / 'pkg' / 'inner.py').write_text("VALUE = 'second'\n", encoding='utf-8')
+        assert load_app_module(str(app_file), subject='application file') is module
+        reloaded = load_app_module(str(app_file), subject='application file', reload=True)
+        # the neighbor module and the submodule of the neighboring package are both reread
+        assert (reloaded.helpers.TAG, reloaded.VALUE) == ('second', 'second')
+
     def test_app_module_loading(self, tmp_path: pathlib.Path) -> None:
         """Loading an application file twice yields one module, and leaves this process's imports alone."""
         app_file = tmp_path / 'app.py'

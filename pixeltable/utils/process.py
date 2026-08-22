@@ -40,15 +40,16 @@ def _win_pid_alive(pid: int) -> bool:
 def is_pid(value: object) -> bool:
     """True if value can name a process: an int above 0.
 
-    bool is an int, and 0 and negative values address the caller's process group rather than one process, so
-    passing them to os.kill() signals more than the intended target.
+    For validating a pid that arrives as data, such as one decoded from a json file. bool is an int, and 0 and
+    negative values address the caller's process group rather than one process, so passing them to os.kill()
+    signals more than the intended target.
     """
     return type(value) is int and value > 0
 
 
 def process_timestamp(pid: int) -> float | None:
     """The creation time of pid, or None if it cannot be read."""
-    if not is_pid(pid):
+    if pid <= 0:
         return None
     try:
         return psutil.Process(pid).create_time()
@@ -58,10 +59,11 @@ def process_timestamp(pid: int) -> float | None:
 
 def pid_alive(pid: int) -> bool:
     """True if pid is a live process. An already-exited but unreaped child (zombie) counts as dead."""
+    # 0 and negatives name a process group rather than a process, and psutil rejects a negative outright
+    if pid <= 0:
+        return False
     if sys.platform == 'win32':
         return _win_pid_alive(pid)
-    if not is_pid(pid):
-        return False
     try:
         # a zombie has terminated, so it must not read as running; psutil reports that state wherever
         # zombies exist, whereas /proc/<pid>/stat is Linux-only
