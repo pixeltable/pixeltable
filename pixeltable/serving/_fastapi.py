@@ -44,6 +44,7 @@ from pixeltable.catalog.model.query import ModelQuery
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.exec.globals import INLINED_OBJECT_MD_KEY
+from pixeltable.runtime import close_threadpool_runtimes
 from pixeltable.serving import SqlExport
 from pixeltable.serving._spec import RouteSpec, ServiceSpec
 from pixeltable.serving.globals import SqlExporter
@@ -118,6 +119,9 @@ _MEDIA_ROUTE_NAME = 'pxt_serve_media'
 _JOB_STATUS_ROUTE_NAME = 'pxt_serve_job_status'
 
 _EMBEDDED_OBJECT_TYPES: tuple[type, ...] = (np.ndarray, np.generic, PIL.Image.Image, bytes)
+
+# how many background requests a router runs at a time
+_N_BACKGROUND_WORKERS = 16
 
 
 @dataclasses.dataclass(frozen=True)
@@ -402,6 +406,7 @@ class FastAPIRouter(fastapi.APIRouter):
     _executor: ThreadPoolExecutor
     _jobs: dict[str, Future]  # holds background requests; key: job id (uuid4().hex)
     _jobs_lock: threading.Lock
+    _is_shut_down: bool
     _home_dir: Path
     _allowed_media_dirs: list[Path]
     _engine_cache: dict[str, sql.Engine]  # keyed by SqlExport.db_connect; shared across routes
@@ -429,9 +434,12 @@ class FastAPIRouter(fastapi.APIRouter):
             )
         self._name = name
         super().__init__(*args, **kwargs)
-        self._executor = ThreadPoolExecutor(max_workers=16, thread_name_prefix='pxt-serve-background')
+        self._executor = ThreadPoolExecutor(
+            max_workers=_N_BACKGROUND_WORKERS, thread_name_prefix='pxt-serve-background'
+        )
         self._jobs = {}
         self._jobs_lock = threading.Lock()
+        self._is_shut_down = False
         self._home_dir = Config.get().home.resolve()
         self._allowed_media_dirs = [
             Env.get().media_dir.resolve(),
@@ -672,6 +680,17 @@ class FastAPIRouter(fastapi.APIRouter):
         super().add_api_route(path, *args, **kwargs)
 
     def __shutdown(self) -> None:
+        # FastAPI calls this more than once per app shutdown
+        if self._is_shut_down:
+            return
+        self._is_shut_down = True
+        if len(self._jobs) > 0:
+            # cancel what we can, to speed up close_threadpool_runtimes()
+            for job in list(self._jobs.values()):
+                job.cancel()
+            # a background job ran, so a worker thread has a runtime to close; the calls queue behind the
+            # in-flight requests, so that the loops and clients are closed only after workers stop using them
+            close_threadpool_runtimes(self._executor, _N_BACKGROUND_WORKERS)
         # wait until in-flight requests are done and won't access _engine_cache
         self._executor.shutdown(wait=True, cancel_futures=True)
         for eng in self._engine_cache.values():
