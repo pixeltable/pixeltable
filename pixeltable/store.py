@@ -630,7 +630,8 @@ class StoreBase:
             raise
         except sql.exc.OperationalError as e:
             if isinstance(e.orig, psycopg.errors.ProgramLimitExceeded):
-                if self.pk_constraint_name(self.tbl_version.get()) in str(e.orig):
+                pk_name = self.pk_constraint_name(self.tbl_version.get())
+                if re.search(rf'\b{re.escape(pk_name)}\b', str(e.orig)):
                     pk_col_names = [col.name for col in self.tbl_version.get().primary_key_columns()]
                     raise excs.RequestError(
                         excs.ErrorCode.CONSTRAINT_VIOLATION,
