@@ -18,7 +18,7 @@ import urllib.request
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs
+from pixeltable import exceptions as excs, exprs
 from pixeltable.catalog import Path as CatalogPath, model
 from pixeltable.config import Config
 from pixeltable.env import Env
@@ -558,7 +558,7 @@ def _service_diff(
     # imported here rather than at module scope: pixeltable.serving pulls in fastapi, an optional dependency
     from pixeltable.serving import FastAPIRouter
     from pixeltable.serving._diff import blocked_schema_op, compare_specs
-    from pixeltable.serving.service_registry import ServiceDeployment
+    from pixeltable.serving.service_deployment import ServiceDeployment
 
     deployment = ServiceDeployment.read(name, target)
     ops: list[service_types.ServiceChangeOp] = []
@@ -619,7 +619,7 @@ def _plan_from_service_diffs(
     diffs: list[service_types.ServiceDiff], app_file: str, target: PxtPath
 ) -> service_types.ServicePlan:
     """The plan that the given per-service diffs describe."""
-    from pixeltable.serving.service_registry import ServiceDeployment
+    from pixeltable.serving.service_deployment import ServiceDeployment
 
     declared = {diff['name'] for diff in diffs}
     extras = sorted(d.service_name for d in ServiceDeployment.list(target) if d.service_name not in declared)
@@ -684,7 +684,9 @@ def schema_diff(schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaPl
 
     Read-only: never creates the catalog directory, and never touches an existing table.
     """
-    return _schema_plan(load_model_bases(schema_file), schema_file, catalog_dir)
+    bases = load_model_bases(schema_file)
+    _reject_local_file_udfs(bases, catalog_dir)
+    return _schema_plan(bases, schema_file, catalog_dir)
 
 
 def _schema_plan(bases: list[model.TableModelMeta], schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaPlan:
@@ -785,6 +787,30 @@ def schema_prune(schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaP
     return plan
 
 
+def _reject_local_file_udfs(bases: list[model.TableModelMeta], catalog_dir: PxtPath) -> None:
+    """
+    Check for calls of udfs defined in local files when the target is a hosted database, which is presently not
+    supported.
+    """
+    catalog_path = CatalogPath.parse(catalog_dir, allow_empty_path=True)
+    if catalog_path.is_local or catalog_path.org == 'local':
+        return
+    for base in bases:
+        for declared_model in base.__registered_models__.values():
+            for col_name, col_spec in declared_model.__columns__.items():
+                value = col_spec.get('value')
+                if value is None:
+                    continue
+                for fn_call in value.subexprs(exprs.FunctionCall):
+                    if fn_call.fn.self_file is not None:
+                        raise excs.RequestError(
+                            excs.ErrorCode.UNSUPPORTED_OPERATION,
+                            f'{declared_model.__name__}.{col_name} calls {fn_call.fn.display_name}(), which is '
+                            f'defined in {fn_call.fn.self_file}. {catalog_dir!r} cannot read a local file; move '
+                            'the UDF into an installed package.',
+                        )
+
+
 def schema_update(
     schema_file: str, catalog_dir: PxtPath, *, allow_destructive: bool = False
 ) -> schema_types.SchemaPlan:
@@ -793,6 +819,7 @@ def schema_update(
     Returns the plan that was applied, each operation annotated with its status.
     """
     bases = load_model_bases(schema_file)
+    _reject_local_file_udfs(bases, catalog_dir)
 
     # only create catalog_dir when it names an in-catalog path; a bare catalog root (eg '' or 'pxt://org:db')
     # has no directory to create
@@ -835,8 +862,7 @@ def service_update(app_file: str, target: PxtPath, *, allow_destructive: bool = 
         target: the catalog directory the services' models bind against.
         allow_destructive: whether to apply changes that stop serving a route contract a caller may be using.
     """
-    from pixeltable.serving import service_runner
-    from pixeltable.serving.service_registry import ServiceDeployment
+    from pixeltable.serving.service_deployment import ServiceDeployment
 
     plan = service_diff(app_file, target)
     destructive = [d['name'] for d in plan['services'] if d['resolution'] == 'update_destructive']
@@ -860,8 +886,8 @@ def service_update(app_file: str, target: PxtPath, *, allow_destructive: bool = 
             # the deployment serves the old declaration; binding happens once per process, so it is replaced
             deployment = ServiceDeployment.read(diff['name'], target)
             if deployment is not None:
-                service_runner.stop(deployment)
-        started = service_runner.start(app_file, diff['name'], target)
+                deployment.stop()
+        started = ServiceDeployment.start(app_file, diff['name'], target)
         diff['status'] = 'applied'
         diff['state'] = 'AVAILABLE'
         diff['endpoint'] = started.endpoint
@@ -878,8 +904,7 @@ def service_prune(app_file: str, target: PxtPath) -> service_types.ServicePlan:
 
     Returns the plan, with one drop operation per deployment stopped.
     """
-    from pixeltable.serving import service_runner
-    from pixeltable.serving.service_registry import ServiceDeployment
+    from pixeltable.serving.service_deployment import ServiceDeployment
 
     plan = service_diff(app_file, target)
     ops: list[service_types.ServiceChangeOp] = []
@@ -889,7 +914,7 @@ def service_prune(app_file: str, target: PxtPath) -> service_types.ServicePlan:
             # it stopped between the diff and here; nothing to stop, and it is already forgotten
             ops.append(service_types.delete_service_op(name, None, 'skipped'))
             continue
-        service_runner.stop(deployment)
+        deployment.stop()
         ops.append(service_types.delete_service_op(name, deployment.endpoint, 'applied'))
     plan['ops'] = ops
     return plan
@@ -901,8 +926,7 @@ def service_stop(names: list[str], target: PxtPath) -> list[service_types.Servic
     A name that is not deployed there yields a 'skipped' operation rather than an error, so that stopping a
     set of services is idempotent.
     """
-    from pixeltable.serving import service_runner
-    from pixeltable.serving.service_registry import ServiceDeployment
+    from pixeltable.serving.service_deployment import ServiceDeployment
 
     ops: list[service_types.ServiceChangeOp] = []
     for name in names:
@@ -910,14 +934,14 @@ def service_stop(names: list[str], target: PxtPath) -> list[service_types.Servic
         if deployment is None:
             ops.append(service_types.delete_service_op(name, None, 'skipped'))
             continue
-        service_runner.stop(deployment)
+        deployment.stop()
         ops.append(service_types.delete_service_op(name, deployment.endpoint, 'applied'))
     return ops
 
 
 def service_list(target: PxtPath | None = None) -> list[service_types.ServiceDeployment]:
     """The services running locally: those bound at target and below it, or all of them if target is None."""
-    from pixeltable.serving.service_registry import ServiceDeployment
+    from pixeltable.serving.service_deployment import ServiceDeployment
 
     deployments = ServiceDeployment.list('' if target is None else target, recursive=True)
     return [
@@ -926,7 +950,7 @@ def service_list(target: PxtPath | None = None) -> list[service_types.ServiceDep
             base_path=PxtPath(d.base_path),
             endpoint=d.endpoint,
             pid=d.pid,
-            created_at=d.created_at,
+            process_started_at=d.process_started_at,
             app_file=d.app_file,
             spec=cast(service_types.ServiceSpec, d.spec),
         )

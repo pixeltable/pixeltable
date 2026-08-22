@@ -143,7 +143,7 @@ class ServiceDeployment(TypedDict):
     base_path: PxtPath  # the catalog directory the service's models are bound to
     endpoint: str
     pid: int
-    created_at: float
+    process_started_at: float | None  # creation time of pid, None where the platform does not report one
     app_file: str  # the file the service was served from
     spec: ServiceSpec  # what it serves
 

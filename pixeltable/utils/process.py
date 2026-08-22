@@ -1,6 +1,5 @@
 """Liveness of a process we started, as far as its pid can tell us."""
 
-import os
 import sys
 
 import psutil
@@ -59,24 +58,15 @@ def process_timestamp(pid: int) -> float | None:
 
 def pid_alive(pid: int) -> bool:
     """True if pid is a live process. An already-exited but unreaped child (zombie) counts as dead."""
-    if not is_pid(pid):
-        return False
     if sys.platform == 'win32':
         return _win_pid_alive(pid)
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
+    if not is_pid(pid):
         return False
-    except PermissionError:
-        return True  # exists, owned by another user
-    except (OSError, SystemError):
-        return False
-    # os.kill(pid, 0) also succeeds for a zombie (exited but not yet reaped). A zombie has terminated, so
-    # treat it as dead; otherwise a process that we launched and that has already exited reads as running.
     try:
-        with open(f'/proc/{pid}/stat', encoding='ascii') as f:
-            # the state is the field after the parenthesized comm, which may itself contain spaces/parens
-            state = f.read().rsplit(') ', 1)[1].split()[0]
-    except (OSError, IndexError):
-        return True  # no /proc (non-Linux) or a transient read race: trust the os.kill result
-    return state != 'Z'
+        # a zombie has terminated, so it must not read as running; psutil reports that state wherever
+        # zombies exist, whereas /proc/<pid>/stat is Linux-only
+        return psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
+    except psutil.NoSuchProcess:
+        return False
+    except (psutil.Error, OSError):
+        return True  # the process exists, but this one cannot read its state

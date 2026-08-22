@@ -4,9 +4,19 @@ import pathlib
 from collections.abc import Callable
 from textwrap import dedent
 
+import pytest
+
 import pixeltable as pxt
 
-from ..utils import get_audio_files, get_documents, get_video_files, skip_test_if_not_installed
+from ..utils import (
+    CatalogMode,
+    get_audio_files,
+    get_documents,
+    get_video_files,
+    pxt_raises,
+    reload_catalog,
+    skip_test_if_not_installed,
+)
 from .conftest import PxtRunner
 
 # A minimal schema, for the cases that assert on an error message rather than on what Pixeltable can express.
@@ -68,11 +78,14 @@ class TestSchema:
             [
                 {'doc_id': 1, 'title': 'hello', 'body': 'world', 'published': True},
                 {'doc_id': 2, 'title': '', 'body': 'no title', 'published': False},
+                {'doc_id': 3, 'title': 'a title longer than the limit', 'body': 'long', 'published': False},
             ]
         )
         # computed columns compute, including the unstored one
         row = docs.where(docs.doc_id == 1).select(docs.title_upper, docs.summary, docs.unstored).collect()[0]
         assert row == {'title_upper': 'HELLO', 'summary': 'hello', 'unstored': 'hello'}
+        # summary calls a udf the application file defines, which this process resolves from the file alone
+        assert docs.where(docs.doc_id == 3).select(docs.summary).collect()['summary'] == ['a title long...']
         # a filtered view holds the rows its predicate admits, a projecting view the columns it selects
         published = pxt.get_table(f'{target}/published')
         assert published.select(published.headline).collect()['headline'] == ['HELLO!']
@@ -537,8 +550,103 @@ class TestSchema:
         ]
         assert r.json['summary']['unsupported'] == 1
 
+    def test_udfs_in_application_files(
+        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, tmp_path: pathlib.Path
+    ) -> None:
+        """Computed columns over udfs the application file and its neighbors define."""
+        if catalog_mode == 'cloud':
+            pytest.skip('a hosted database cannot read the local file a udf is defined in')
+        p = make_catalog_path
+
+        def write_project(name: str) -> pathlib.Path:
+            """An application file whose computed column calls a udf from a sibling module."""
+            directory = tmp_path / name
+            (directory / 'pkg').mkdir(parents=True)
+            (directory / 'pkg' / '__init__.py').write_text(f"SUFFIX = '{name}-pkg'\n")
+            (directory / 'helpers.py').write_text(f"TAG = '{name}'\n")
+            (directory / 'functions.py').write_text(
+                dedent(
+                    """
+                    import helpers
+                    import pixeltable as pxt
+                    from pkg import SUFFIX
+
+                    @pxt.udf
+                    def tag(s: str) -> str:
+                        return f'{s}-{helpers.TAG}-{SUFFIX}'
+                    """
+                )
+            )
+            app_file = directory / 'app.py'
+            app_file.write_text(
+                dedent(
+                    """
+                    from __future__ import annotations
+
+                    import pixeltable as pxt
+                    from functions import tag
+
+                    TableModel = pxt.model_base()
+
+
+                    class Docs(TableModel, name='docs'):
+                        doc_id = pxt.Column(type=pxt.Int, primary_key=True)
+                        title: pxt.String
+                        tagged = tag(title)  # noqa: F821
+                    """
+                )
+            )
+            return app_file
+
+        # two projects declare a udf of the same name, in files of the same name, in different directories
+        for name in ('proj1', 'proj2'):
+            app_file = write_project(name)
+            cli('schema', 'update', str(app_file), p(name))
+            assert_in_agreement(cli, str(app_file), p(name))
+
+        # this process never loaded either application file, so both columns resolve from what was stored;
+        # each project's udf reaches its own neighbors
+        for name, expected in (('proj1', 'a-proj1-proj1-pkg'), ('proj2', 'a-proj2-proj2-pkg')):
+            docs = pxt.get_table(f'{p(name)}/docs')
+            docs.insert([{'doc_id': 1, 'title': 'a'}])
+            assert docs.select(docs.tagged).collect()['tagged'] == [expected]
+
+        # a column stores which file and udf it calls, not the udf's body, so editing the body changes no schema
+        (tmp_path / 'proj1' / 'helpers.py').write_text("TAG = 'edited'\n")
+        assert_in_agreement(cli, str(tmp_path / 'proj1' / 'app.py'), p('proj1'))
+
+    @pytest.mark.local('the column is resolved in this process, so the report of a missing file lands here')
+    def test_moved_application_file(
+        self,
+        cli: PxtRunner,
+        apps: Callable[[str], str],
+        make_catalog_path: Callable[[str], str],
+        tmp_path: pathlib.Path,
+    ) -> None:
+        """A table whose computed column calls a udf from a file that is gone can be read, but not written."""
+        target = make_catalog_path('app')
+        schema_file = tmp_path / 'app.py'
+        schema_file.write_text(pathlib.Path(apps('basic.py')).read_text(encoding='utf-8'), encoding='utf-8')
+        cli('schema', 'update', str(schema_file), target)
+
+        docs = pxt.get_table(f'{target}/docs')
+        docs.insert([{'doc_id': 1, 'title': 'hello', 'body': 'world', 'published': True}])
+
+        schema_file.rename(tmp_path / 'moved.py')
+        reload_catalog()
+        with pytest.warns(pxt.PixeltableWarning, match='which no longer exists'):
+            docs = pxt.get_table(f'{target}/docs')
+        # the rows already computed are still readable
+        assert docs.where(docs.doc_id == 1).select(docs.summary).collect()['summary'] == ['hello']
+        with pxt_raises(pxt.ErrorCode.INVALID_STATE, match='which no longer exists'):
+            docs.insert([{'doc_id': 2, 'title': 'second', 'body': None, 'published': False}])
+
     def test_update_errors(
-        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+        self,
+        cli: PxtRunner,
+        apps: Callable[[str], str],
+        make_catalog_path: Callable[[str], str],
+        tmp_path: pathlib.Path,
     ) -> None:
         p = make_catalog_path
         schema_file = tmp_path / 'app_schema.py'
@@ -572,6 +680,21 @@ class TestSchema:
         r = cli('schema', 'update', str(broken), p('app'), check=False)
         assert r.returncode == 1
         assert 'error loading' in r.stderr
+
+        # a schema file's imports resolve against installed modules and its own directory, and nothing above it
+        above = tmp_path / 'above.py'
+        above.write_text('from .. import something\n')
+        r = cli('schema', 'update', str(above), p('app'), check=False)
+        assert r.returncode == 1
+        assert 'an import above the directory of a loaded file' in r.stderr
+
+        # a udf defined in a schema file cannot back a column of a hosted database, which cannot read that file
+        with_udf = tmp_path / 'with_udf.py'
+        with_udf.write_text(pathlib.Path(apps('basic.py')).read_text(encoding='utf-8'), encoding='utf-8')
+        r = cli('schema', 'update', str(with_udf), 'pxt://someorg:somedb/app', check=False)
+        assert r.returncode == 1
+        assert 'Docs.summary calls excerpt(), which is defined in' in r.stderr
+        assert 'cannot read a local file' in r.stderr
 
     def test_update_relative_path(
         self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path

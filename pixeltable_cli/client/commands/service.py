@@ -264,9 +264,9 @@ def _run_foreground(app_file: str, target: PxtPath, *, host: str, port: int, as_
     # this command runs the server itself, so unlike the rest of the client it needs pixeltable in-process
     import uvicorn
 
-    from pixeltable.serving._app import build_app
+    from pixeltable.serving._app import create_app
 
-    app = build_app(app_file, base_path=target)
+    app = create_app(app_file, base_path=target)
     n_routes = len(app.routes)
     display_host = 'localhost' if host in ('0.0.0.0', '::') else host
     url = f'http://{display_host}:{port}'

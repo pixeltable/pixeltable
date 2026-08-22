@@ -1,6 +1,7 @@
 """Tests for pixeltable_cli.server.bridge - the translation layer between Pixeltable APIs and the dashboard REST API."""
 
 import pathlib
+import sys
 from textwrap import dedent
 
 import pytest
@@ -8,6 +9,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.functions.video import frame_iterator
+from pixeltable.utils.app_module import load_app_module
 from pixeltable_cli.server import bridge
 from pixeltable_cli.utils import PxtPath
 
@@ -29,6 +31,18 @@ def fail_on_neg(x: int) -> int:
 
 
 class TestBridge:
+    def test_app_module_loading(self, tmp_path: pathlib.Path) -> None:
+        """Loading an application file twice yields one module, and leaves this process's imports alone."""
+        app_file = tmp_path / 'app.py'
+        app_file.write_text("import pixeltable as pxt\n\nVALUE = 'loaded'\n", encoding='utf-8')
+
+        module = load_app_module(str(app_file), subject='application file')
+        assert module.VALUE == 'loaded'
+        assert load_app_module(str(app_file), subject='application file') is module
+        # the file is reachable under the name it was loaded with, and under no name a user chose
+        assert 'app' not in sys.modules
+        assert not any(str(tmp_path) in entry for entry in sys.path)
+
     def test_table_metadata_basic(self, uses_db: None) -> None:
         pxt.create_dir('md')
         t = pxt.create_table('md/t', {'c1': pxt.String | None, 'c2': pxt.Int}, primary_key='c2')

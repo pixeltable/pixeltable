@@ -168,7 +168,7 @@ slimpytest: install
 	    tests/test_{alter_column,array_type,catalog,component_view,concurrent,concurrent_model,config,dirs,env}.py \
 	    tests/test_{exceptions,exprs,fault_injection,file_cache,function,history,index,iterator,mcp,path}.py \
 	    tests/test_{primary_key_index,query,sample,snapshot,table,table_model,table_model_2,types,view}.py \
-	    tests/serving/test_fastapi.py \
+	    tests/serving/test_fastapi.py tests/serving/test_fastapi_models.py \
 	    tests/pixeltable_cli/test_{bridge,internals,schema,service,smoke}.py
 
 .PHONY: nbtest

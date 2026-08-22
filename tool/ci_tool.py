@@ -54,10 +54,11 @@ SLIM_TESTS = (
     'tests/test_types.py',
     'tests/test_view.py',
     'tests/serving/test_fastapi.py',
+    'tests/serving/test_fastapi_models.py',
     'tests/pixeltable_cli/test_bridge.py',
     'tests/pixeltable_cli/test_internals.py',
     'tests/pixeltable_cli/test_schema.py',
-    'tests/pixeltable_cli/test_serve_deploy.py',
+    'tests/pixeltable_cli/test_service.py',
     'tests/pixeltable_cli/test_smoke.py',
 )
 

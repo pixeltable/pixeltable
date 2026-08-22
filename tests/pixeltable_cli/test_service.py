@@ -131,7 +131,7 @@ class TestService:
 
         endpoint = running['ingest']['endpoint']
         resp = _post(endpoint, '/docs', doc_id=1, title='a long enough title', body=None, published=True)
-        assert resp.json() == {'title_upper': 'A LONG ENOUGH TITLE', 'summary': 'a long enoug'}
+        assert resp.json() == {'title_upper': 'A LONG ENOUGH TITLE', 'summary': 'a long enoug...'}
         docs = pxt.get_table(f'{target}/docs')
         assert docs.where(docs.doc_id == 1).count() == 1
 
@@ -366,8 +366,14 @@ class TestService:
         assert chunks.count() == 3
         sim = chunks.text.similarity(string='volcano')
         assert len(chunks.order_by(sim, asc=False).limit(2).collect()) == 2
-        # TODO(udf-in-app-file): assert this over the query routes, once a query declared in an application
-        # file keeps its identity across loads
+        # the query routes run the query the application file declares, against the same index
+        sentences = {text.strip() for text in chunks.select(chunks.text).collect()['text']}
+        rows = _post(endpoint, '/similar', needle='volcano', limit=2).json()['rows']
+        assert len(rows) == 2 and {row['text'].strip() for row in rows} <= sentences, rows
+        # one_row=True refuses a query that returns more, so the limit is part of the request
+        resp = httpx.get(f'{endpoint}/similar-one', params={'needle': 'volcano', 'limit': 1}, timeout=_REQUEST_TIMEOUT)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()['text'].strip() in sentences, resp.json()
 
     def test_custom_app(
         self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
@@ -450,6 +456,15 @@ class TestService:
         # stopping something that is not running is reported, not an error
         r = cli('service', 'stop', 'nosuch', '--json')
         assert [(op['name'], op['status']) for op in r.json] == [('nosuch', 'skipped')]
+
+        # a local service serves the local catalog, so a target naming another one is refused
+        for verb in ('diff', 'update'):
+            r = cli('service', verb, apps('basic.py'), 'pxt://acme:main/app', check=False)
+            assert r.returncode != 0
+            assert 'binds its models to the local catalog' in r.stderr, r.stderr
+        r = cli('service', 'list', 'pxt://acme:main/app', check=False)
+        assert r.returncode != 0
+        assert 'binds its models to the local catalog' in r.stderr, r.stderr
 
     def test_example(self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """The file `example` writes declares both the tables and the services, and serves."""

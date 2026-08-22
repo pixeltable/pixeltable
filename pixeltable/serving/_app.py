@@ -1,5 +1,3 @@
-"""Assembling the FastAPI application that serves the services an application file declares."""
-
 from __future__ import annotations
 
 import logging
@@ -18,7 +16,7 @@ _logger = logging.getLogger(__name__)
 
 
 def load_service_routers(app_file: str) -> dict[str, 'FastAPIRouter']:
-    """The routers app_file declares, keyed by service name.
+    """The FastAPIRouter instances in app_file, keyed by service name.
 
     An application object the file supplies itself is a service that Pixeltable declared no routes for, so
     there is nothing to bind and nothing to serve; that is a RequestError here, whereas load_services()
@@ -38,23 +36,24 @@ def load_service_routers(app_file: str) -> dict[str, 'FastAPIRouter']:
     return routers
 
 
-def build_app(app_file: str, *, base_path: str = '', name: str | None = None) -> 'fastapi.FastAPI':
+def create_app(app_file: str, *, base_path: str = '', service_name: str | None = None) -> 'fastapi.FastAPI':
     """Build the application that serves app_file's services, with their models bound against base_path.
 
     Args:
         app_file: the application file declaring the services.
         base_path: the catalog directory the services' models bind against.
-        name: serve only the service of that name, rather than every service the file declares.
+        service_name: serve only the FastAPIRouter instance with that name, rather than every FastAPIRouter instance.
 
-    Raises NotFoundError if name is not a service the file declares, and RequestError if the file supplies
-    an application object of its own, or if a service cannot bind against base_path (a table it names is
-    missing, or lacks a column one of its routes needs).
+    Raises NotFoundError if app_file does not contain a FastAPIRouter instance with that name, and RequestError if the
+    file supplies an application object of its own, or if a FastAPIRouter instance cannot bind against base_path.
     """
-    return build_app_for_services(load_service_routers(app_file), app_file=app_file, base_path=base_path, name=name)
+    return create_app_for_services(
+        load_service_routers(app_file), app_file=app_file, base_path=base_path, service_name=service_name
+    )
 
 
-def build_app_for_services(
-    services: dict[str, 'FastAPIRouter'], *, app_file: str, base_path: str = '', name: str | None = None
+def create_app_for_services(
+    services: dict[str, 'FastAPIRouter'], *, app_file: str, base_path: str = '', service_name: str | None = None
 ) -> 'fastapi.FastAPI':
     """Build the application that serves already-loaded routers, with their models bound against base_path.
 
@@ -62,23 +61,23 @@ def build_app_for_services(
         services: the routers, keyed by service name.
         app_file: the application file they were loaded from, named in errors and log messages.
         base_path: the catalog directory the services' models bind against.
-        name: serve only the service of that name, rather than every service in services.
+        service_name: serve only the service of that name, rather than every service in services.
     """
     Env.get().require_package('fastapi')
     import fastapi
 
-    if name is not None:
-        if name not in services:
+    if service_name is not None:
+        if service_name not in services:
             declared = ', '.join(sorted(services))
             raise excs.NotFoundError(
                 excs.ErrorCode.SERVICE_NOT_FOUND,
-                f'{app_file} declares no service named {name!r}; it declares: {declared}',
+                f'{app_file} declares no FastAPIRouter named {service_name!r}; it declares: {declared}',
             )
-        services = {name: services[name]}  # a single service, without disturbing the caller's mapping
+        services = {service_name: services[service_name]}  # a single service, without disturbing the caller's mapping
 
-    app = fastapi.FastAPI(title=name if name is not None else 'pixeltable')
-    for service_name, service in services.items():
+    app = fastapi.FastAPI(title=service_name if service_name is not None else 'pixeltable')
+    for name, service in services.items():
         service.bind(base_path)
         app.include_router(service)
-        _logger.info(f'serving {service_name!r} from {app_file}')
+        _logger.info(f'serving {name!r} from {app_file}')
     return app

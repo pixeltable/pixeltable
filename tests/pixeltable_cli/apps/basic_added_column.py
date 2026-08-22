@@ -15,15 +15,10 @@ from pixeltable.serving import FastAPIRouter
 TableModel = pxt.model_base()
 
 
-# TODO(udf-in-app-file): restore this udf, and the `summary` column below, once a udf defined in an
-# application file can be resolved after the file is loaded again. The symbol a computed column stores is
-# '<loaded module>.excerpt', and the loader gives the file a throwaway module name, so the reference dangles
-# on the next load. The fix is to import the file as a real module and ship it in the runtime image.
-#
-# @pxt.udf
-# def excerpt(text: str, n: int = 12) -> str:
-#     """A udf, so that a computed column is not only an expression over other columns."""
-#     return text if len(text) <= n else f'{text[:n]}...'
+@pxt.udf
+def excerpt(text: str, n: int = 12) -> str:
+    """A udf, so that a computed column is not only an expression over other columns."""
+    return text if len(text) <= n else f'{text[:n]}...'
 
 
 class Docs(TableModel, name='docs'):
@@ -36,7 +31,7 @@ class Docs(TableModel, name='docs'):
     posted_at: pxt.Timestamp | None
     tags: pxt.Json | None
     title_upper = pxtf.string.upper(title)
-    summary = pxtf.string.slice(title, 0, 12)  # TODO(udf-in-app-file): back to excerpt(title)
+    summary = excerpt(title)
     unstored = pxt.Column(value=pxtf.string.lower(title), stored=False)
 
 
