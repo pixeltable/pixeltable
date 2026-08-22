@@ -34,7 +34,6 @@ import typing_extensions
 
 from pixeltable import exceptions as excs
 from pixeltable.catalog import model
-from pixeltable.config import ServiceConfig
 from pixeltable.service import management_client
 from pixeltable.service.management_protocol import (
     CreateDbRequest,
@@ -56,14 +55,12 @@ from pixeltable.service.management_protocol import (
     UpdateRuntimeRequest,
     UpdateServiceRequest,
 )
-from pixeltable.serving import _config as serving_config
 from pixeltable_cli import schema_types as wire, utils
 from pixeltable_cli.client import confirm, hosted, main as client_main, parser as client_parser, utils as client_utils
 from pixeltable_cli.client.commands import (
     daemon as daemon_cmd,
     db as db_cmd,
     org as org_cmd,
-    service as service_cmd,
     shell as shell_cmd,
     status as status_cmd,
 )
@@ -1545,21 +1542,21 @@ class TestHardeningHeaders:
             assert r.headers.get('Referrer-Policy') == 'no-referrer'
 
 
-class TestConfigRouteWithGenericTypes:
-    """KNOWN_CONFIG_OPTIONS includes parametric-generic types (eg list[ServiceConfig]).
-    /api/config must not crash on those (a previous regression called expected_type(value)
-    on a types.GenericAlias and raised TypeError)."""
+class TestConfigRoute:
+    def test_config_route_renders_every_known_option(self, init_env: None) -> None:
+        """/api/config reports each option in KNOWN_CONFIG_OPTIONS, whatever its declared type.
 
-    def test_config_route_handles_list_generic(self, init_env: None) -> None:
-        # In-process call into the route handler; doesn't require the daemon subprocess.
-        # The key signal: route returns a ConfigResponse rather than raising.
+        A declared type is coerced onto the configured value, which a parametric generic (eg list[X]) does
+        not survive: calling it raises TypeError. The route collapses such a type to its origin first.
+        """
+        # in-process call into the route handler; doesn't require the daemon subprocess
+        from pixeltable.config import KNOWN_CONFIG_OPTIONS
         from pixeltable_cli.server.router import Request
 
-        req = Request(query={}, body_bytes=b'')
-        resp = server_routes.config(req)
-        # Spot-check: pixeltable.service entry is present (the generic-typed one).
-        services = [e for e in resp.entries if e.section == 'pixeltable' and e.key == 'service']
-        assert len(services) == 1
+        resp = server_routes.config(Request(query={}, body_bytes=b''))
+        reported = {(e.section, e.key) for e in resp.entries}
+        expected = {(section, key) for section, options in KNOWN_CONFIG_OPTIONS.items() for key in options}
+        assert reported == expected
 
     def test_config_route_redacts_otel_headers(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
         from pixeltable_cli.server.router import Request
@@ -1594,8 +1591,6 @@ class TestHostedCommandHelp:
         [
             (db_cmd, ['--help'], ['create', 'list', 'update', 'update-runtime', 'status']),
             (db_cmd, ['update', '--help'], ['--workers', '--cpu']),
-            (service_cmd, ['--help'], ['create', 'update', 'stop', 'start', 'status']),
-            (service_cmd, ['update', '--help'], ['--workers']),
             (org_cmd, ['--help'], ['list', 'status']),
         ],
     )
@@ -1662,7 +1657,7 @@ _POST_ROUTE_REQUESTS = [
             'cpu': 1.5,
             'memory_mb': 1024,
             'disk_gb': 20,
-            'service_config': ServiceConfig(name='svc').model_dump_json(),
+            'service_spec': json.dumps({'name': 'svc', 'prefix': '', 'routes': []}),
         },
         CreateServiceRequest(
             org='acme',
@@ -1673,12 +1668,12 @@ _POST_ROUTE_REQUESTS = [
             cpu=1.5,
             memory_mb=1024,
             disk_gb=20,
-            service_config=ServiceConfig(name='svc'),
+            service_spec={'name': 'svc', 'prefix': '', 'routes': []},
         ),
     ),
     (
         server_routes.update_service,
-        {'org': 'acme', 'db': 'main', 'service_name': 'svc', 'workers_min': 4, 'service_config': None},
+        {'org': 'acme', 'db': 'main', 'service_name': 'svc', 'workers_min': 4, 'service_spec': None},
         UpdateServiceRequest(org='acme', db='main', service_name='svc', workers_min=4),
     ),
     (
@@ -1788,24 +1783,6 @@ class TestHostedCommandRequests:
             (db_cmd, ['start', 'pxt://acme:main'], server_routes.start_db, StartDbRequest(org='acme', db='main')),
             (db_cmd, ['stop', 'pxt://acme:main'], server_routes.stop_db, StopDbRequest(org='acme', db='main')),
             (db_cmd, ['delete', 'pxt://acme:main'], server_routes.delete_db, DeleteDbRequest(org='acme', db='main')),
-            (
-                service_cmd,
-                ['start', 'pxt://acme:main/services/svc'],
-                server_routes.start_service,
-                StartServiceRequest(org='acme', db='main', service_name='svc'),
-            ),
-            (
-                service_cmd,
-                ['stop', 'pxt://acme:main/services/svc'],
-                server_routes.stop_service,
-                StopServiceRequest(org='acme', db='main', service_name='svc'),
-            ),
-            (
-                service_cmd,
-                ['delete', 'pxt://acme:main/services/svc'],
-                server_routes.delete_service,
-                DeleteServiceRequest(org='acme', db='main', service_name='svc'),
-            ),
         ],
     )
     def test_command_body(
@@ -1818,22 +1795,6 @@ class TestHostedCommandRequests:
     ) -> None:
         body = self._posted_body(monkeypatch, module, argv)
         assert _forwarded_request(monkeypatch, handler, body=body) == expected
-
-    def test_service_create_and_update_bodies(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
-        svc_config = ServiceConfig(name='svc')
-        monkeypatch.setattr(serving_config, 'lookup_service_config', lambda name: svc_config)
-
-        argv = ['create', 'svc', '--base-uri', 'pxt://acme:main/dir', '--workers', '3']
-        body = self._posted_body(monkeypatch, service_cmd, argv)
-        assert _forwarded_request(monkeypatch, server_routes.create_service, body=body) == CreateServiceRequest(
-            org='acme', db='main', service_name='svc', base_path='dir', workers_min=3, service_config=svc_config
-        )
-
-        argv = ['update', 'pxt://acme:main/services/svc', '--workers', '4']
-        body = self._posted_body(monkeypatch, service_cmd, argv)
-        assert _forwarded_request(monkeypatch, server_routes.update_service, body=body) == UpdateServiceRequest(
-            org='acme', db='main', service_name='svc', workers_min=4, service_config=svc_config
-        )
 
     @pytest.mark.parametrize('db', ['main', 'my-db', 'db1', 'video-search', 'a' * 29])
     def test_create_db_accepts_valid_name(self, db: str) -> None:

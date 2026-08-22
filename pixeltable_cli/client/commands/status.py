@@ -1,4 +1,4 @@
-import json
+from pixeltable_cli import models
 
 from ..parser import Parser
 from ..utils import get_request
@@ -27,10 +27,10 @@ def run(argv: list[str]) -> None:
     ap.add_argument('--json', action='store_true', dest='as_json')
     args = ap.parse_args(argv)
 
-    s = get_request('/api/status', params={'sizes': args.sizes or None})
+    s = models.StatusResponse.model_validate(get_request('/api/status', params={'sizes': args.sizes or None}))
 
     if args.as_json:
-        print(json.dumps(s, indent=2))
+        print(s.model_dump_json(indent=2))
         return
 
     def or_dash(v: str | None) -> str:
@@ -39,12 +39,12 @@ def run(argv: list[str]) -> None:
     def with_size(path: str | None, size: int | None) -> str:
         return f'{or_dash(path)}  ({_fmt_size(size)})' if size is not None else or_dash(path)
 
-    print(f'pxt_version     {s["pxt_version"]}')
-    print(f'daemon_pid      {s["pid"]}')
-    print(f'daemon_started  {s["started_at"]}')
-    print(f'home            {or_dash(s["home"])}')
-    print(f'db_url          {or_dash(s["db_url"])}')
-    print(f'media_dir       {with_size(s["media_dir"], s["media_size_bytes"])}')
-    print(f'file_cache_dir  {with_size(s["file_cache_dir"], s["file_cache_size_bytes"])}')
-    print(f'total_tables    {s["total_tables"]}')
-    print(f'total_errors    {s["total_errors"]}')
+    print(f'pxt_version     {s.pxt_version}')
+    print(f'daemon_pid      {s.pid}')
+    print(f'daemon_started  {s.started_at}')
+    print(f'home            {or_dash(s.home)}')
+    print(f'db_url          {or_dash(s.db_url)}')
+    print(f'media_dir       {with_size(s.media_dir, s.media_size_bytes)}')
+    print(f'file_cache_dir  {with_size(s.file_cache_dir, s.file_cache_size_bytes)}')
+    print(f'total_tables    {s.total_tables}')
+    print(f'total_errors    {s.total_errors}')

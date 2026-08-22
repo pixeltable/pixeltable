@@ -93,9 +93,9 @@ def prepare_model(
                 if select_name is not None:
                     # The select list has an explicit name for this expression as a kwarg; use it.
                     col_name = select_name
-                elif isinstance(expr, exprs.ColumnRef):
+                elif expr.is_column_ref:
                     # It's an unnamed column reference; use the name of the referenced column as a fallback.
-                    col_name = expr.column_md.name
+                    col_name = expr.default_column_name()
                 else:
                     # It's a compound expression with no explicit name. A name will be assigned when the table
                     # is created, but it's anonymous to the TableModel.

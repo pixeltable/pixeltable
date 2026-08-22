@@ -856,15 +856,26 @@ class TestTableModel:
                 EmbeddingIndex(text, embedding=dummy_embedding.using(n=32), name='ix')  # type: ignore[name-defined]
             ]
 
+        # the index is declared by the model, so a similarity query over it can be written before the table
+        # that carries it exists
+        model_sim = ExampleViewModel.text.similarity(string='one')
+        model_search = ExampleViewModel.order_by(model_sim, asc=False).select(ExampleViewModel.text)
+
         TableModel.create_all(p(''))
-        ExampleTableModel.insert([{'id': 1, 'doc_text': 'One sentence. Two sentence.'}])
+        # 'one'/'zero' make dummy_embedding deterministic, so the order these rank in is fixed
+        ExampleTableModel.insert([{'id': 1, 'doc_text': 'one sentence. zero sentence.'}])
 
         idx_md = ExampleViewModel.get_metadata()['indexes']['ix']
         assert idx_md['columns'] == ['text']
         assert idx_md['index_type'] == 'embedding'
         view = ExampleViewModel.table
-        sim = view.text.similarity(string='One sentence.')
-        assert len(view.order_by(sim, asc=False).limit(1).collect()) == 1
+        sim = view.text.similarity(string='one')
+        assert [r['text'] for r in view.order_by(sim, asc=False).collect()] == ['one sentence.', 'zero sentence.']
+        # the query written against the model ranks them the same way, once it is bound to that table
+        assert [r['text'] for r in model_search.bind(p('')).collect()] == [  # type: ignore[attr-defined]
+            'one sentence.',
+            'zero sentence.',
+        ]
 
     def test_view_model_iterator_column_shadows_base(self, make_catalog_path: Callable[[str], str]) -> None:
         """An iterator output shadows a base column of the same name, so the model's text is the chunk text
@@ -2042,28 +2053,35 @@ class TestTableModel:
             ):
                 tile = 5
 
-        # Forwarded `Table` methods that aren't available on a placeholder query raise `AttributeError` when the
-        # model isn't yet bound to an actual table.
+        # a Table method that a query cannot provide raises AttributeError while the model is unbound
         with pytest.raises(AttributeError, match=r'is not yet bound to an actual table'):
+            ValidTableModel.get_metadata()
+
+        # a query over an unbound model refuses to execute, naming the model
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r'`ValidTableModel`, which is not bound'):
             ValidTableModel.collect()
 
-        # `ModelQuery` clause methods reject being specified more than once in a `ViewModel` base query.
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`select\(\)` list already specified'):
+        # similarity() on a column the model declares no embedding index on has nothing to resolve against
+        with pxt_raises(excs.ErrorCode.INDEX_NOT_FOUND, match=r"No embedding index found for column 'id'"):
+            _ = ValidTableModel.id.similarity(string='hello')  # type: ignore[attr-defined]
+
+        # clause methods reject being specified more than once
+        with pxt_raises(excs.ErrorCode.INVALID_STATE, match=r'Select list already specified'):
             ValidTableModel.select(ValidTableModel.id).select(ValidTableModel.id)
 
         with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r'Invalid name: bad name'):
             ValidTableModel.select(**{'bad name': ValidTableModel.id})
 
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`where\(\)` clause already specified'):
+        with pxt_raises(excs.ErrorCode.INVALID_STATE, match=r'[Ww]here.*already specified'):
             ValidTableModel.where(ValidTableModel.id > 0).where(ValidTableModel.id > 0)  # type: ignore[arg-type]
 
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`sample\(\)` clause already specified'):
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r'Multiple sample\(\) clauses not allowed'):
             ValidTableModel.sample(n=10).sample(n=5)
 
         # a base query cannot contain the clauses a view cannot be defined by
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r'model `GroupedBase`: The following clauses cannot be used in a view definition: group_by\(\)',
+            match=r'model `GroupedBase`: `group_by` cannot be used in a view definition\.',
         ):
 
             class GroupedBase(TableModel, name='grouped_base', base=ValidTableModel.group_by(ValidTableModel.id)):
@@ -2071,7 +2089,7 @@ class TestTableModel:
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r'model `OrderedBase`: The following clauses cannot be used in a view definition: order_by\(\)',
+            match=r'model `OrderedBase`: `order_by` cannot be used in a view definition\.',
         ):
 
             class OrderedBase(TableModel, name='ordered_base', base=ValidTableModel.order_by(ValidTableModel.id)):
@@ -2079,44 +2097,30 @@ class TestTableModel:
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r'model `LimitedBase`: The following clauses cannot be used in a view definition: limit\(\)',
+            match=r'model `LimitedBase`: `limit` cannot be used in a view definition\.',
         ):
 
             class LimitedBase(TableModel, name='limited_base', base=ValidTableModel.limit(10)):
                 pass
 
-        with pxt_raises(
-            excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r'model `JoinedBase`: The following clauses cannot be used in a view definition: join\(\)',
-        ):
-
-            class JoinedBase(
-                TableModel,
-                name='joined_base',
-                base=ValidTableModel.join(OtherModel, on=ValidTableModel.id == OtherModel.x),
-            ):
-                pass
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r'`ValidTableModel` cannot be joined'):
+            ValidTableModel.join(OtherModel, on=ValidTableModel.id == OtherModel.x)  # type: ignore[arg-type]
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r'model `DistinctBase`: The following clauses cannot be used in a view definition: distinct\(\)',
+            match=r'model `DistinctBase`: `group_by` cannot be used in a view definition\.',
         ):
 
             class DistinctBase(TableModel, name='distinct_base', base=ValidTableModel.distinct()):
                 pass
 
-        # every prohibited clause is reported, in the order it was specified
+        # a base query with several prohibited clauses reports the first of them
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r'model `MultiBase`: The following clauses cannot be used in a view definition: '
-            r'order_by\(\), join\(\), limit\(\)',
+            match=r'model `MultiBase`: `order_by` cannot be used in a view definition\.',
         ):
 
-            class MultiBase(
-                TableModel,
-                name='multi_base',
-                base=ValidTableModel.order_by(ValidTableModel.id).join(OtherModel).limit(10),
-            ):
+            class MultiBase(TableModel, name='multi_base', base=ValidTableModel.order_by(ValidTableModel.id).limit(10)):
                 pass
 
     def test_aggregation_rejected(self) -> None:

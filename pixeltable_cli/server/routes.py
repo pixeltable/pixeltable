@@ -38,7 +38,7 @@ from pixeltable.service.management_protocol import (
     UpdateServiceRequest,
 )
 from pixeltable.types import TreeNode
-from pixeltable_cli import models, schema_types
+from pixeltable_cli import models, schema_types, service_types
 from pixeltable_cli.utils import identity
 
 from . import bridge
@@ -54,6 +54,9 @@ _IDENTITY: dict[str, Any] = identity()
 
 # schema plans cross as plain dicts; this checks their shape in place of a response model
 _SCHEMA_PLAN = pydantic.TypeAdapter(schema_types.SchemaPlan)
+_SERVICE_PLAN = pydantic.TypeAdapter(service_types.ServicePlan)
+_SERVICE_OPS = pydantic.TypeAdapter(list[service_types.ServiceChangeOp])
+_SERVICE_DEPLOYMENTS = pydantic.TypeAdapter(list[service_types.ServiceDeployment])
 
 
 @router.get('/api/health', checks_env=False)
@@ -491,6 +494,41 @@ def schema_update(req: Request) -> schema_types.SchemaPlan:
         body.schema_file, req.resolve_path(body.catalog_dir), allow_destructive=body.allow_destructive
     )
     return _SCHEMA_PLAN.validate_python(applied)
+
+
+@router.post('/api/localservice/diff')
+def service_diff(req: Request) -> service_types.ServicePlan:
+    body = req.body(models.ServiceDiffBody)
+    return _SERVICE_PLAN.validate_python(bridge.service_diff(body.app_file, req.resolve_path(body.target)))
+
+
+@router.post('/api/localservice/update')
+def service_update(req: Request) -> service_types.ServicePlan:
+    body = req.body(models.ServiceUpdateBody)
+    applied = bridge.service_update(
+        body.app_file, req.resolve_path(body.target), allow_destructive=body.allow_destructive
+    )
+    return _SERVICE_PLAN.validate_python(applied)
+
+
+@router.post('/api/localservice/prune')
+def service_prune(req: Request) -> service_types.ServicePlan:
+    body = req.body(models.ServicePruneBody)
+    return _SERVICE_PLAN.validate_python(bridge.service_prune(body.app_file, req.resolve_path(body.target)))
+
+
+@router.post('/api/localservice/stop')
+def service_stop(req: Request) -> list[service_types.ServiceChangeOp]:
+    body = req.body(models.ServiceStopBody)
+    return _SERVICE_OPS.validate_python(bridge.service_stop(body.names, req.resolve_path(body.target)))
+
+
+@router.get('/api/localservice/list')
+def service_list(req: Request) -> list[service_types.ServiceDeployment]:
+    target = req.query_str('target')
+    return _SERVICE_DEPLOYMENTS.validate_python(
+        bridge.service_list(None if target is None else req.resolve_path(target))
+    )
 
 
 @router.get('/api/dashboard/search', checks_env=False)

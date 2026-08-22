@@ -141,6 +141,11 @@ class Expr(abc.ABC):
         return None
 
     @property
+    def is_column_ref(self) -> bool:
+        """Whether this expression refers to a single column, whether by identity or by name."""
+        return False
+
+    @property
     def validation_error(self) -> str | None:
         """
         Subclasses can override this to indicate that validation has failed after a catalog load.

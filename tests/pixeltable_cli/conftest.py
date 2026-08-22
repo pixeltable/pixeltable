@@ -8,6 +8,7 @@ real daemon on 22089.
 
 import json
 import os
+import pathlib
 import socket
 import subprocess
 import sys
@@ -107,6 +108,76 @@ def _as_text(stream: bytes | str | None) -> str:
     if stream is None:
         return ''
     return stream if isinstance(stream, str) else stream.decode(errors='replace')
+
+
+@pytest.fixture
+def apps() -> Callable[[str], str]:
+    """Resolves the name of a file in the shared app corpus to its path."""
+    directory = pathlib.Path(__file__).parent / 'apps'
+
+    def _path(name: str) -> str:
+        path = directory / name
+        assert path.is_file(), f'no such app file: {path}'
+        return str(path)
+
+    return _path
+
+
+@dataclass
+class BackgroundPxt:
+    """A `pxt` command still running, for a verb that serves until it is interrupted."""
+
+    proc: subprocess.Popen
+    port: int
+
+    @property
+    def endpoint(self) -> str:
+        return f'http://127.0.0.1:{self.port}'
+
+    def wait_until_serving(self, timeout: float = 60.0) -> None:
+        """Block until the command answers on its port, or fail with whatever it printed instead."""
+        import httpx
+
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self.proc.poll() is not None:
+                raise AssertionError(f'pxt exited with {self.proc.returncode} before serving')
+            try:
+                if httpx.get(f'{self.endpoint}/openapi.json', timeout=1.0).status_code == 200:
+                    return
+            except httpx.HTTPError:
+                time.sleep(0.2)
+        raise AssertionError(f'nothing was serving on {self.endpoint} within {timeout:.0f}s')
+
+
+@pytest.fixture
+def cli_bg(pxt_daemon: int, make_catalog_path: Callable[[str], str]) -> Iterator[Callable[..., BackgroundPxt]]:
+    """Runs a `pxt` command in the background, for one that serves rather than returning."""
+    running: list[BackgroundPxt] = []
+
+    def _run(*args: str, port: int | None = None) -> BackgroundPxt:
+        bound = _pick_port() if port is None else port
+        env = {**os.environ, 'PXT_PORT': str(pxt_daemon), 'BROWSER': 'true'}
+        proc = subprocess.Popen(
+            ['pxt', *args, '--port', str(bound)],
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        handle = BackgroundPxt(proc, bound)
+        running.append(handle)
+        return handle
+
+    yield _run
+
+    for handle in running:
+        handle.proc.terminate()
+        try:
+            handle.proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            handle.proc.kill()
 
 
 @pytest.fixture

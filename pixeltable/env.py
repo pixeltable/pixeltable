@@ -97,6 +97,7 @@ class Env:
     _dataset_cache_dir: Path | None  # cached datasets (eg, pytorch or COCO)
     _log_dir: Path | None  # log files
     _tmp_dir: Path | None  # any tmp files
+    _services_dir: Path | None  # registry of local services
     _sa_engine: sql.engine.base.Engine | None
     _pgdata_dir: Path | None
     _db_name: str | None
@@ -163,6 +164,7 @@ class Env:
         self._dataset_cache_dir = None  # cached datasets (eg, pytorch or COCO)
         self._log_dir = None  # log files
         self._tmp_dir = None  # any tmp files
+        self._services_dir = None
         self._sa_engine = None
         self._pgdata_dir = None
         self._db_name = None
@@ -316,12 +318,14 @@ class Env:
         self._dataset_cache_dir = Config.get().home / 'dataset_cache'
         self._log_dir = Config.get().home / 'logs'
         self._tmp_dir = Config.get().home / 'tmp'
+        self._services_dir = Config.get().home / 'services'
 
         self._media_dir.mkdir(exist_ok=True)
         self._file_cache_dir.mkdir(exist_ok=True)
         self._dataset_cache_dir.mkdir(exist_ok=True)
         self._log_dir.mkdir(exist_ok=True)
         self._tmp_dir.mkdir(exist_ok=True)
+        self._services_dir.mkdir(exist_ok=True)
 
         self._file_cache_size_g = config.get_float_value('file_cache_size_g')
         if self._file_cache_size_g is None:
@@ -936,6 +940,11 @@ class Env:
     def tmp_dir(self) -> Path:
         assert self._tmp_dir is not None
         return self._tmp_dir
+
+    @property
+    def services_dir(self) -> Path:
+        assert self._services_dir is not None
+        return self._services_dir
 
     @property
     def engine(self) -> sql.engine.base.Engine:

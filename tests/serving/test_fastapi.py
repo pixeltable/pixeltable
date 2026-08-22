@@ -369,6 +369,46 @@ class TestFastAPI:
         # engine cache reuse: three export_sql routes against the same db_connect share one engine
         assert len(router._engine_cache) == 1
 
+        # the service definition the router amounts to, which survives being serialized
+        service = router.service_spec(name='scalars')
+        assert service['name'] == 'scalars'
+        assert service['prefix'] == ''
+        assert json.loads(json.dumps(service)) == service
+        specs = {spec['path']: spec for spec in service['routes']}
+        assert specs.keys() == {'/all', '/partial-in', '/partial-out', '/minimal', '/update'}
+        # everything the '/update' route was declared with, and nothing else
+        assert specs['/update'] == {
+            'method': 'POST',
+            'path': '/update',
+            'route_type': 'insert' if route_type == 'insert' else 'compute',
+            # a route declared against a table names the table it serves, not a model
+            'model': None,
+            'table': str(target._path()),
+            'inputs': ['id', 'str_col', 'int_col'],
+            'uploadfile_inputs': [],
+            'outputs': ['id', 'str_upper', 'int_plus1'],
+            'match_columns': [],
+            'background': False,
+            'return_fileresponse': False,
+            'one_row': False,
+            'export_sql': {'db_connect': db_connect, 'table': 'out_update', 'db_schema': None, 'method': 'update'},
+            'query': None,
+        }
+        assert specs['/all']['export_sql']['table'] == 'out_all'
+        assert specs['/partial-in']['inputs'] == ['id', 'str_col', 'int_col']
+        assert specs['/partial-in']['export_sql'] is None
+        assert specs['/partial-out']['outputs'] == ['id', 'str_upper', 'int_plus1']
+        # the recorded path is one the catalog resolves
+        assert pxt.get_table(specs['/all']['table'])._id == target._id
+        # a router with no name of its own needs one supplied
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='this router has no name'):
+            router.service_spec()
+
+        # the route resolved the target it names
+        routes = {route.spec['path']: route for route in router._routes}
+        assert routes['/all'].has_table_target
+        assert routes['/all'].tbl is not None and routes['/all'].tbl._id == target._id
+
         with make_test_client(router) as client:
             all_input = {
                 'id': 1,
@@ -1243,6 +1283,25 @@ class TestFastAPI:
         router = FastAPIRouter()
         router.add_query_route(path='/by-id', query=by_id, one_row=True)
         router.add_query_route(path='/text-by-id', query=text_by_id, one_row=True)
+
+        # a query route declares a function rather than a table, so it has nothing to bind; entering the
+        # client's context runs the startup handlers, which must not refuse a router of query routes alone
+        route = next(route for route in router._routes if route.spec['path'] == '/by-id')
+        assert not route.has_table_target
+        assert (route.tbl, route.model_cls, route.table_path) == (None, None, None)
+
+        # a query route names neither a model nor a table: the tables it runs against are internal to by_id
+        spec = next(spec for spec in router.service_spec(name='docs')['routes'] if spec['path'] == '/by-id')
+        assert (spec['route_type'], spec['method']) == ('query', 'POST')
+        assert (spec['model'], spec['table']) == (None, None)
+        assert spec['query'] is not None and spec['query'].endswith('by_id')
+        assert spec['one_row']
+        # the parameters it accepts and the response fields, as frozen at declaration
+        assert spec['inputs'] == ['id']
+        assert spec['outputs'] == ['id', 'text']
+        with make_test_client(router):
+            pass
+
         client = make_test_client(router)
 
         # non-scalar one_row: flat JSON object, NOT wrapped in {'rows': [...]}
@@ -2340,6 +2399,11 @@ class TestFastAPI:
         def make_resp(*, thumb: str | None) -> UplResp:
             assert thumb is not None
             return UplResp(thumb_url=thumb)
+
+        # uploads are recorded apart from the plain inputs, and the inputs hold both
+        route = next(route for route in router._routes if route.spec['path'] == '/upl')
+        assert route.spec['uploadfile_inputs'] == (['image'] if use_uploadfile else [])
+        assert route.spec['inputs'] == ['id', 'image']
 
         client = make_test_client(router)
 

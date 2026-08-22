@@ -1,5 +1,7 @@
 import json
 
+from pixeltable_cli import models
+
 from ..parser import Parser, parse_cols
 from ..utils import get_request, validate_path_arg
 
@@ -39,17 +41,17 @@ def run(argv: list[str]) -> None:
     cols_csv = ','.join(cols) if cols is not None else None
     # PK coercion (numeric strings -> int/float) happens on the server side; the URL only
     # carries strings.
-    resp = get_request(
-        '/api/tables/row', params={'path': validate_path_arg(args.path), 'pk': args.pk, 'cols': cols_csv}
+    resp = models.GetResponse.model_validate(
+        get_request('/api/tables/row', params={'path': validate_path_arg(args.path), 'pk': args.pk, 'cols': cols_csv})
     )
 
     if args.as_json:
-        print(json.dumps(resp, indent=2, default=str))
+        print(json.dumps(resp.model_dump(), indent=2, default=str))
         return
 
-    if resp['row'] is None:
-        pk_pairs = ', '.join(f'{n}={v!r}' for n, v in zip(resp['pk_columns'], args.pk))
+    if resp.row is None:
+        pk_pairs = ', '.join(f'{n}={v!r}' for n, v in zip(resp.pk_columns, args.pk))
         print(f'no row found for {{{pk_pairs}}}')
         return
-    for k, v in resp['row'].items():
+    for k, v in resp.row.items():
         print(f'{k}\t{v}')

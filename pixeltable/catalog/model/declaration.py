@@ -9,15 +9,15 @@ import dataclasses
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, MutableMapping, Sequence, TypedDict, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from typing_extensions import TypeForm
 
+import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
 from pixeltable.config import URI, ConfigVar
 from pixeltable.env import Env
 from pixeltable.exprs import ColumnRefByName
-from pixeltable.query_clauses import FromClause, JoinType, SampleClause
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 
@@ -26,11 +26,14 @@ from ..table import Table
 from ..table_version_handle import TableVersionHandle
 from ..types import TableVersionMd
 from ..utils import create_table_version_md
+from .resolution import prepare_model
 
 if TYPE_CHECKING:
-    import pixeltable as pxt
+    from .query import ModelQuery
 
-from .resolution import prepare_model
+# the model each declared path was synthesized for, keyed by its synthesized table id; a query over a model
+# consults this to name the model it is declared over and to bind itself to that model's table
+MODEL_BY_DECLARED_TBL_ID: dict[UUID, 'TableModelMeta'] = {}
 
 # Table methods exposed as class-level operations on the model.
 FORWARDED_TABLE_METHODS: frozenset[str] = frozenset(
@@ -191,167 +194,6 @@ class TableSpec(TypedDict):
 def _contains_aggregate(expr: exprs.Expr) -> bool:
     """Whether the expression computes a value over a set of rows rather than from one row."""
     return expr.contains_(cls=exprs.FunctionCall, filter=lambda e: cast(exprs.FunctionCall, e).is_agg_fn_call)
-
-
-@dataclasses.dataclass
-class ModelQuery:
-    """
-    A placeholder query used in ViewModel definitions,
-    which gets substituted with an actual Query during Table creation or binding.
-
-    Records every clause it is given; validate() decides which of them a view can be defined by.
-    """
-
-    from_clause: TableModelMeta
-
-    # (unnamed items, named items)
-    select_list: tuple[list[exprs.Expr], dict[str, exprs.Expr]] | None = None
-
-    where_clause: exprs.Expr | None = None
-    sample_clause: SampleClause | None = None
-
-    # clauses a view cannot be defined by; recorded so that validate() can report them
-    prohibited_clauses: list[str] = dataclasses.field(default_factory=list)
-
-    def select(self, *items: Any, **named_items: Any) -> ModelQuery:
-        if self.select_list is not None:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_SCHEMA, '`select()` list already specified in `ViewModel` base query.'
-            )
-        for name in named_items:
-            if not is_valid_identifier(name):
-                raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'Invalid name: {name}')
-        if len(items) + len(named_items) == 0:
-            return self
-        return dataclasses.replace(self, select_list=(list(items), named_items))
-
-    def where(self, pred: exprs.Expr) -> ModelQuery:
-        if self.where_clause is not None:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_SCHEMA, '`where()` clause already specified in `ViewModel` base query.'
-            )
-        return dataclasses.replace(self, where_clause=pred)
-
-    def group_by(self, *grouping_items: exprs.Expr) -> ModelQuery:
-        return dataclasses.replace(self, prohibited_clauses=[*self.prohibited_clauses, 'group_by'])
-
-    def order_by(self, *expr_list: exprs.Expr, asc: bool = True) -> ModelQuery:
-        return dataclasses.replace(self, prohibited_clauses=[*self.prohibited_clauses, 'order_by'])
-
-    def limit(self, n: int, offset: int | None = None) -> ModelQuery:
-        return dataclasses.replace(self, prohibited_clauses=[*self.prohibited_clauses, 'limit'])
-
-    def join(
-        self, other: TableModelMeta | Table, *, on: exprs.Expr | None = None, how: JoinType.LiteralType = 'inner'
-    ) -> ModelQuery:
-        return dataclasses.replace(self, prohibited_clauses=[*self.prohibited_clauses, 'join'])
-
-    def distinct(self) -> ModelQuery:
-        return dataclasses.replace(self, prohibited_clauses=[*self.prohibited_clauses, 'distinct'])
-
-    def sample(
-        self,
-        n: int | None = None,
-        n_per_stratum: int | None = None,
-        fraction: float | None = None,
-        seed: int | None = None,
-        stratify_by: Any = None,
-    ) -> ModelQuery:
-        if self.sample_clause is not None:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_SCHEMA, '`sample()` clause already specified in `ViewModel` base query.'
-            )
-        stratify_exprs: list[exprs.Expr] = []
-        if stratify_by is not None:
-            if isinstance(stratify_by, exprs.Expr):
-                stratify_by = [stratify_by]
-            stratify_exprs = list(stratify_by)
-        sample_clause = SampleClause(None, n, n_per_stratum, fraction, seed, stratify_exprs)
-        return dataclasses.replace(self, sample_clause=sample_clause)
-
-    def validate(self, model_name: str) -> None:
-        """Validate that this query can be used to define a view."""
-        prefix = f'{model_name}: '
-        if len(self.prohibited_clauses) > 0:
-            clauses_str = [f'{clause}()' for clause in self.prohibited_clauses]
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'{prefix}The following clauses cannot be used in a view definition: {", ".join(clauses_str)}',
-            )
-
-        if self.sample_clause is not None and not self.sample_clause.is_repeatable:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'{prefix}A view that is not a snapshot can only be defined by fractional, unstratified sampling.',
-            )
-
-        if self.select_list is None:
-            return
-        unnamed_items, named_items = self.select_list
-
-        # a view model turns each select() item into a class attribute, so every item needs a name
-        for item in unnamed_items:
-            if not isinstance(item, exprs.ColumnRefByName):
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_ARGUMENT,
-                    f'{model_name}: `base` select() list may contain only direct column references '
-                    f'or named expressions, but contains an anonymous compound expression: {item}\n'
-                    f'Use kwargs syntax to give it an explicit name: select(my_name=...)',
-                )
-
-        for name, expr in named_items.items():
-            if _contains_aggregate(expr):
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'{prefix}`select()` item {name!r} aggregates over the base table: {expr}\n'
-                    'Aggregates are not allowed in a view definition.',
-                )
-
-    def _bind_to_table(self, catalog_dir: str) -> pxt.Query:
-        """Resolve against the tables under catalog_dir."""
-        tbl: Table = self.from_clause._bind(catalog_dir)
-        subst_dict: exprs.ExprDict[exprs.Expr] = exprs.ExprDict()
-        for col_name in tbl.columns():
-            subst_dict[ColumnRefByName(col_name)] = getattr(tbl, col_name)
-        return self._create_query(tbl._tbl_path, subst_dict)
-
-    def _bind_to_model(self) -> pxt.Query:
-        """Resolve against the model itself.
-
-        The result is a query over synthesized metadata: its column references identify columns of a declared
-        path, which stands in for a table that may not have been created.
-        """
-        base_path = self.from_clause.table_path()
-        subst_dict: exprs.ExprDict[exprs.Expr] = exprs.ExprDict()
-        for col_md in base_path.column_md():
-            subst_dict[ColumnRefByName(col_md.name)] = exprs.ColumnRef(col_md)
-        return self._create_query(base_path, subst_dict)
-
-    def _create_query(self, from_path: catalog.TablePath, subst_dict: exprs.ExprDict[exprs.Expr]) -> pxt.Query:
-        """Apply the clauses to a query over from_path, substituting the placeholder column references."""
-        import pixeltable as pxt
-
-        q = pxt.Query(from_clause=FromClause(tbls=[from_path]))
-
-        if self.select_list is not None:
-            items, named_items = self.select_list
-            items = [expr.copy().substitute(subst_dict) for expr in items]
-            named_items = {name: expr.copy().substitute(subst_dict) for name, expr in named_items.items()}
-            q = q.select(*items, **named_items)
-
-        if self.where_clause is not None:
-            q = q.where(self.where_clause.copy().substitute(subst_dict))
-
-        if self.sample_clause is not None:
-            q = q.sample(
-                n=self.sample_clause.n,
-                n_per_stratum=self.sample_clause.n_per_stratum,
-                fraction=self.sample_clause.fraction,
-                seed=self.sample_clause.seed,
-                stratify_by=[expr.copy().substitute(subst_dict) for expr in self.sample_clause.stratify_exprs],
-            )
-
-        return q
 
 
 class _AnnotationRecorder(dict):
@@ -542,6 +384,10 @@ class TableModelMeta(type):
 
             # Validate base
             if base is not None:
+                # imported here because ModelQuery subclasses pxt.Query, which is not available while
+                # pixeltable is still initializing this module
+                from .query import ModelQuery
+
                 if isinstance(base, ModelQuery):
                     pass
                 elif isinstance(base, TableModelMeta):
@@ -554,7 +400,7 @@ class TableModelMeta(type):
                     )
                 assert isinstance(base, ModelQuery)
                 base.validate(display_name)
-                base_model = base.from_clause
+                base_model = base.model_cls
                 if len(base_model.__bases__) == 0 or base_model.__bases__[0] is not bases[0]:
                     raise excs.RequestError(
                         excs.ErrorCode.INVALID_ARGUMENT,
@@ -611,7 +457,9 @@ class TableModelMeta(type):
 
             if base is not None and base.select_list is not None:
                 # Make the select list's named columns referenceable in the body.
-                for col_name, expr in base.select_list[1].items():
+                for expr, col_name in base.select_list:
+                    if col_name is None:
+                        continue
                     assert is_valid_identifier(col_name)  # since it must be a Python symbol
                     namespace.add_reserved_column_ref(col_name, expr.col_type, 'base query')
 
@@ -700,6 +548,10 @@ class TableModelMeta(type):
         namespace_dict['__indexes__'] = list(known_idxs)  # normalize
 
         cls = super().__new__(mcs, cls_name, bases, namespace_dict)
+        # the placeholders were built while the class body ran, before there was a class to point at
+        for value in namespace_dict.values():
+            if isinstance(value, ColumnRefByName):
+                value.model_cls = cls
         assert hasattr(bases[0], '__registered_models__')  # This was checked in __prepare__()
         bases[0].__registered_models__[namespace.table_spec['name']] = cls
         return cls
@@ -753,7 +605,7 @@ class TableModelMeta(type):
         # catalog owns the table being created.
         base: pxt.Query | None = None
         if table_spec['base'] is not None:
-            base = table_spec['base']._bind_to_table(catalog_dir)
+            base = table_spec['base'].bind(catalog_dir)
 
         # The model's own column specs, with type annotations resolved to ColumnTypes (so they're serializable
         # for a proxied catalog). Computed value expressions still carry ColumnRefByNames referencing
@@ -791,9 +643,11 @@ class TableModelMeta(type):
 
     def __getattr__(cls, item: str) -> Any:
         if item in FORWARDED_TABLE_METHODS:
+            from .query import ModelQuery
+
             if not cls.is_bound and hasattr(ModelQuery, item):
                 # This model is not bound to a table, but the desired operation is accessible via a placeholder query.
-                return getattr(ModelQuery(cls), item)
+                return getattr(ModelQuery.for_model(cls), item)
             else:
                 try:
                     return getattr(cls.table, item)
@@ -811,7 +665,7 @@ class TableModelMeta(type):
         spec = cls.__table_spec__
         tbl_id = uuid4()  # we need a table id
         handle = TableVersionHandle(catalog.TableVersionKey(tbl_id, None))
-        base = None if spec['base'] is None else spec['base']._bind_to_model()
+        base = None if spec['base'] is None else spec['base'].to_declared_query()
         # prepare_model() substitutes column references in place, so hand it copies: inspecting a model must
         # leave what it declares untouched
         columns: dict[str, ColumnSpec] = {}
@@ -824,19 +678,18 @@ class TableModelMeta(type):
             handle, columns, spec['display_name'], spec['iterator'], base, cls.__indexes__
         )
 
-        # substitute column names with Column instances in idxs: create_table_version_md() requires
-        # IndexSpec.indexed_column to be a Column, not str
-        cols_by_name = {col.name: col for col in cols if col.name is not None}
-        idxs = [
-            idx._replace(indexed_column=cols_by_name[idx.indexed_column])
-            if isinstance(idx.indexed_column, str) and idx.indexed_column in cols_by_name
-            else idx
-            for idx in idxs
-        ]
-
         md: TableVersionMd
         base_md: list[TableVersionMd] = []
         if base is None:
+            # create_table_version_md() requires IndexSpec.indexed_column to be a Column, not str;
+            # View._create_md() takes the name and resolves it against the view's visible columns
+            cols_by_name = {col.name: col for col in cols if col.name is not None}
+            idxs = [
+                idx._replace(indexed_column=cols_by_name[idx.indexed_column])
+                if isinstance(idx.indexed_column, str) and idx.indexed_column in cols_by_name
+                else idx
+                for idx in idxs
+            ]
             md = create_table_version_md(
                 tbl_id=tbl_id,
                 name=spec['name'],
@@ -875,6 +728,7 @@ class TableModelMeta(type):
                     break
                 base_path = base_path.base
 
+        MODEL_BY_DECLARED_TBL_ID[tbl_id] = cls
         cls._table_path = catalog.TableMdPath.from_md(
             [md, *base_md], is_anon_snapshot=False, catalog_uri=catalog.path.ROOT_PATH
         )

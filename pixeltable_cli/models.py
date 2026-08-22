@@ -216,6 +216,27 @@ class SchemaUpdateBody(BaseModel):
     allow_destructive: bool = False
 
 
+class ServiceDiffBody(BaseModel):
+    app_file: str  # absolute filesystem path to the application file on the daemon host
+    target: PxtPath  # the catalog directory the services' models bind against
+
+
+class ServicePruneBody(BaseModel):
+    app_file: str  # absolute filesystem path to the application file on the daemon host
+    target: PxtPath
+
+
+class ServiceUpdateBody(BaseModel):
+    app_file: str  # absolute filesystem path to the application file on the daemon host
+    target: PxtPath
+    allow_destructive: bool = False
+
+
+class ServiceStopBody(BaseModel):
+    names: list[str]
+    target: PxtPath
+
+
 class CwdBody(BaseModel):
     uri: str
 
