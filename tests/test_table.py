@@ -2983,9 +2983,12 @@ class TestTable:
         assert_resultset_eq(r1, r2)
 
     def test_delete(
-        self, test_tbl: pxt.Table, small_img_tbl: pxt.Table, make_catalog_path: Callable[[str], str], is_data_versioned: bool
+        self,
+        test_tbl: pxt.Table,
+        small_img_tbl: pxt.Table,
+        make_catalog_path: Callable[[str], str],
+        is_data_versioned: bool,
     ) -> None:
-        p = make_catalog_path
         t = test_tbl
 
         cnt = t.where(t.c3 < 10.0).count()
