@@ -105,6 +105,14 @@ def create_table_version_md(
     # this one
     from .table_version_handle import TableVersionHandle
 
+    for col in cols:
+        if col.is_pk and col.col_type.nullable:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Primary key column {col.name!r} cannot be nullable. '
+                f'Declare it as non-nullable instead: `pxt.{col.col_type._to_base_str()}`',
+            )
+
     user = Env.get().user
     timestamp = time.time()
 
