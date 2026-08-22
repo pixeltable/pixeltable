@@ -199,10 +199,7 @@ class LocalTable(Table):
         )
 
     def _get_version(self) -> int:
-        """Return the current version of this table.
-
-        Used by tests to ascertain version changes.
-        """
+        """Return the current version of this table."""
         return self._tbl_version_path.version()
 
     def __hash__(self) -> int:
