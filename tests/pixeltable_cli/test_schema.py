@@ -481,7 +481,7 @@ class TestSchema:
         full = out_file.read_text()
         assert all(
             construct in full
-            for construct in ('pxt.Column(', 'pxt.EmbeddingIndex(', 'iterator=', 'base=', 'pxt.Document')
+            for construct in ('pxt.Column(', 'pxt.EmbeddingIndex(', 'iterator=', 'base=', 'pxt.Document', '@pxt.udf')
         )
         # it has to be a file the daemon can import and plan, media types and embedding index included
         full_target = p('full_example')

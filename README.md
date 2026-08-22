@@ -375,7 +375,7 @@ api.add_insert_route(Videos, path='/videos', inputs=[Videos.video, Videos.title]
 ```bash
 pxt schema update app.py ''   # create the tables, views and computed columns
 pxt service update app.py ''  # start the REST API in the background (POST /videos insert route)
-pxt service list              # videos  http://127.0.0.1:49213  pid 8123  app.py
+pxt service list              # video-api  http://127.0.0.1:49213  pid 8123  app.py
 curl -X POST http://127.0.0.1:49213/videos -H 'Content-Type: application/json' \
   -d '{"video": "https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/bangkok.mp4", "title": "Bangkok"}'   # insert video; triggers frame extraction + thumb
 pxt rows frames -n 1 --cols pos,thumb   # one frame row + computed thumbnail

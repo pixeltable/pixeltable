@@ -565,7 +565,7 @@ directory and a production one.
 |---|---|
 | `pxt service diff APP TARGET` | Report what `update` would change; exit `2` if anything is pending |
 | `pxt service update APP TARGET` | Start the services `APP` declares, and restart the ones whose declaration changed |
-| `pxt service run APP TARGET` | Serve them from this process instead, until interrupted |
+| `pxt service run APP TARGET [SERVICE]` | Serve one of them from this process instead, until interrupted |
 | `pxt service prune APP TARGET` | Stop and forget the services at `TARGET` that `APP` does not declare |
 | `pxt service stop NAME...` | Stop the named services |
 | `pxt service list [TARGET]` | What is running locally, and where |
@@ -597,9 +597,11 @@ pxt service list
 pxt service stop ingest
 ```
 
-`run` serves every service the file declares from the calling process instead, on one port, until
-interrupted. That is the mode for a container entrypoint or a development loop. It has no idle outcome and
-records nothing, which is why it is a verb of its own rather than a mode of `update`:
+`run` serves one service from the calling process instead, until interrupted, which is the mode for a
+container entrypoint or a development loop. One service per process, as `update` deploys them, so the routes
+it serves are the ones deployment serves; name the service as a third argument when the file declares more
+than one. It has no idle outcome and records nothing, which is why it is a verb of its own rather than a mode
+of `update`:
 
 ```bash
 pxt service run app.py my_dir --port 9000

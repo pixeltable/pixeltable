@@ -478,4 +478,8 @@ class TestService:
 
         deploy(cli, str(app_file), target)
         endpoint = assert_serving(cli, str(app_file), target, 'ingest')['ingest']['endpoint']
-        assert _post(endpoint, '/docs', doc_id=1, title='a title', body=None).json() == {'title_upper': 'A TITLE'}
+        # summary comes from the udf the file defines, computed in the service's own process
+        assert _post(endpoint, '/docs', doc_id=1, title='a long enough title', body=None).json() == {
+            'title_upper': 'A LONG ENOUGH TITLE',
+            'summary': 'a long enoug...',
+        }

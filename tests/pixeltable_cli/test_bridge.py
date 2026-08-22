@@ -39,10 +39,12 @@ class TestBridge:
         (tmp_path / 'helpers.py').write_text("TAG = 'first'\n", encoding='utf-8')
         app_file = tmp_path / 'app.py'
         # a dotted import of a module in a neighboring package, which the standard machinery resolves
-        app_file.write_text('import helpers\nfrom pkg.inner import VALUE\n', encoding='utf-8')
+        app_file.write_text('import helpers\nfrom pkg.inner import VALUE\nfrom pkg import inner\n', encoding='utf-8')
 
         module = load_app_module(str(app_file), subject='application file')
         assert (module.helpers.TAG, module.VALUE) == ('first', 'first')
+        # 'from pkg import inner' names a module of the package, which the import statement gets as an attribute
+        assert module.inner.VALUE == 'first'
 
         (tmp_path / 'helpers.py').write_text("TAG = 'second'\n", encoding='utf-8')
         (tmp_path / 'pkg' / 'inner.py').write_text("VALUE = 'second'\n", encoding='utf-8')

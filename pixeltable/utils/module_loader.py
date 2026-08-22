@@ -191,6 +191,14 @@ def _submodule(module: ModuleType, submodule_path: str, fromlist: tuple[str, ...
     __import__() returns for each form. An empty submodule_path denotes module itself.
     """
     if submodule_path == '':
+        for member in fromlist or ():
+            if not hasattr(module, member):
+                # a fromlist member of a package can be one of its modules, which __import__() imports on
+                # demand; one that names anything else is left to the import statement to fetch
+                try:
+                    importlib.import_module(f'{module.__name__}.{member}')
+                except ImportError:
+                    pass
         return module
     submodule = importlib.import_module(f'{module.__name__}.{submodule_path}')
     return submodule if fromlist else module

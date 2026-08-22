@@ -399,7 +399,7 @@ api.add_insert_route(Documents, path='/ingest', inputs=[Documents.title, Documen
 ```bash
 pxt schema update app.py pipeline
 pxt service update app.py pipeline
-pxt service list  # my-service  http://127.0.0.1:49213  pid 8123  app.py
+pxt service list  # pipeline/my-service  http://127.0.0.1:49213  pid 8123  app.py
 # curl -X POST http://127.0.0.1:49213/api/search -d '{"query_text": "machine learning"}'
 ```
 

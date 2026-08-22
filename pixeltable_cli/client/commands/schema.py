@@ -38,6 +38,9 @@ Every construct the schema DSL supports appears below; delete what you do not ne
 'pxt schema example --brief' prints a minimal starting point instead.
 
 'pxt schema diff FILE TARGET' reports what applying this would change; 'pxt schema update' applies it.
+
+A udf defined here is referenced by this file's path, so moving or renaming the file leaves the columns that
+call it unable to compute.
 Building an application with Pixeltable? The agent skill carries the full API:
     npx skills add pixeltable/pixeltable-skill
 """
@@ -48,6 +51,12 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 
 TableModel = pxt.model_base()
+
+
+# a udf: a Python function the computed columns below can call
+@pxt.udf
+def excerpt(text: str, n: int = 80) -> str:
+    return text if len(text) <= n else f'{text[:n]}...'
 
 
 class Docs(TableModel, name='docs'):
@@ -67,6 +76,7 @@ class Docs(TableModel, name='docs'):
     # an assignment declares a computed column, evaluated on insert and on update
     title_upper = pxtf.string.upper(title)
     summary = pxtf.string.slice(body, 0, 80)
+    title_excerpt = excerpt(title)  # a call to the udf this file defines
 
     # an embedding index makes a column searchable by similarity
     __indexes__ = [

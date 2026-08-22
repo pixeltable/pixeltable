@@ -21,6 +21,9 @@ can be applied to a development directory and a production one.
 
     pxt schema update app.py TARGET        # create the tables the models declare
     pxt service update app.py TARGET       # serve this file's services against them
+
+A udf defined here is referenced by this file's path, so moving or renaming the file leaves the columns that
+call it unable to compute.
 """
 
 from __future__ import annotations  # required to declare a model on Python 3.14+
@@ -32,18 +35,27 @@ from pixeltable.serving import FastAPIRouter
 TableModel = pxt.model_base()
 
 
+# a udf: a Python function the computed columns below can call
+@pxt.udf
+def excerpt(text: str, n: int = 12) -> str:
+    return text if len(text) <= n else f'{text[:n]}...'
+
+
 class Docs(TableModel, name='docs'):
     doc_id: pxt.Int
     title: pxt.String
     body: pxt.String | None
     title_upper = pxtf.string.upper(title)  # a computed column: an assignment, not an annotation
+    summary = excerpt(title)  # a computed column over a udf this file defines
 
 
 # the router names the service; without name= it takes the name of the variable holding it
 ingest = FastAPIRouter(name='ingest')
 
 # POST /docs inserts a row and returns the computed column
-ingest.add_insert_route(Docs, path='/docs', inputs=[Docs.doc_id, Docs.title, Docs.body], outputs=[Docs.title_upper])
+ingest.add_insert_route(
+    Docs, path='/docs', inputs=[Docs.doc_id, Docs.title, Docs.body], outputs=[Docs.title_upper, Docs.summary]
+)
 
 # POST /titles computes without storing a row
 ingest.add_compute_route(Docs, path='/titles', inputs=[Docs.title], outputs=[Docs.title_upper])
@@ -63,11 +75,12 @@ Examples:
 
 RUN_EPILOG = """\
 Examples:
-  pxt service run app.py my_dir              # serve every service the file declares, until interrupted
+  pxt service run app.py my_dir              # the only service the file declares, until interrupted
+  pxt service run app.py my_dir ingest       # the named one, when the file declares several
   pxt service run app.py my_dir --port 9000
 
-Nothing is recorded: the services run for as long as this process does. Use 'update' to run them in the
-background, where 'list' and 'stop' can find them again.
+One service per process, as 'update' deploys them. Nothing is recorded: it runs for as long as this process
+does. Use 'update' to run it in the background, where 'list' and 'stop' can find it again.
 """
 
 PRUNE_EPILOG = """\
@@ -121,7 +134,7 @@ def run(argv: list[str]) -> None:
             'usage: pxt service <verb> APP TARGET [options]\n\nverbs:\n'
             '  diff     show the changes that update would make; exit 2 if any are pending\n'
             '  update   start the services APP declares against TARGET, and restart the ones that changed\n'
-            '  run      serve them from this process instead, until interrupted\n'
+            '  run      serve one of them from this process instead, until interrupted\n'
             '  prune    stop and forget the services at TARGET that APP does not declare\n'
             '  stop     stop the named services\n'
             '  list     what is running locally, and where\n'
@@ -176,6 +189,9 @@ def run(argv: list[str]) -> None:
             help='permit changes that stop serving a route callers may be using',
         )
     if verb == 'run':
+        ap.add_argument(
+            'service', nargs='?', help='the service to serve; required when the file declares more than one'
+        )
         ap.add_argument('--host', default='127.0.0.1', help='bind address (default: 127.0.0.1)')
         ap.add_argument('--port', type=int, default=8000, help='bind port (default: 8000)')
     args = ap.parse_args(argv[1:])
@@ -195,7 +211,9 @@ def run(argv: list[str]) -> None:
     elif verb == 'prune':
         _prune(app_file, args.target, as_json=args.as_json, force=args.force, dry_run=args.dry_run)
     elif verb == 'run':
-        _run_foreground(app_file, args.target, host=args.host, port=args.port, as_json=args.as_json)
+        _run_foreground(
+            app_file, args.target, service_name=args.service, host=args.host, port=args.port, as_json=args.as_json
+        )
     else:
         _update(
             app_file,
@@ -255,18 +273,31 @@ def _update(
     _print_plan(applied, as_json=as_json, applied=True)
 
 
-def _run_foreground(app_file: str, target: PxtPath, *, host: str, port: int, as_json: bool) -> None:
-    """Serve every service the file declares from this process, on one port, until interrupted.
+def _run_foreground(
+    app_file: str, target: PxtPath, *, service_name: str | None, host: str, port: int, as_json: bool
+) -> None:
+    """Serve one of the file's services from this process, on one port, until interrupted.
 
-    Nothing is recorded and nothing is reconciled: the services here are not deployments, they run for as
-    long as this process does. That is what makes it the mode for a container entrypoint or a dev loop.
+    One service per process, as `update` deploys them, so what runs here serves the same routes at the same
+    paths. Nothing is recorded and nothing is reconciled: the service here is not a deployment, and it runs
+    for as long as this process does. That is what makes it the mode for a container entrypoint or a dev loop.
     """
     # this command runs the server itself, so unlike the rest of the client it needs pixeltable in-process
     import uvicorn
 
-    from pixeltable.serving._app import create_app
+    from pixeltable.serving._app import create_app_for_services, load_service_routers
 
-    app = create_app(app_file, base_path=target)
+    services = load_service_routers(app_file)
+    if service_name is None:
+        if len(services) > 1:
+            declared = ', '.join(sorted(services))
+            print(
+                f'pxt service run: {app_file} declares more than one service: {declared}\nname the one to serve',
+                file=sys.stderr,
+            )
+            sys.exit(EXIT_ERROR)
+        service_name = next(iter(services))
+    app = create_app_for_services(services, app_file=app_file, base_path=target, service_name=service_name)
     n_routes = len(app.routes)
     display_host = 'localhost' if host in ('0.0.0.0', '::') else host
     url = f'http://{display_host}:{port}'
