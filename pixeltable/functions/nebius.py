@@ -74,7 +74,7 @@ async def chat_completions(
         A dictionary containing the response and other metadata.
 
     Examples:
-        Add a computed column that applies the model `meta-llama/Llama-3.3-70B-Instruct`
+        Add a computed column that applies the model `Qwen/Qwen3-30B-A3B-Instruct-2507`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> messages = [
@@ -83,12 +83,12 @@ async def chat_completions(
         ... ]
         >>> tbl.add_computed_column(
         ...     response=chat_completions(
-        ...         messages, model='meta-llama/Llama-3.3-70B-Instruct'
+        ...         messages, model='Qwen/Qwen3-30B-A3B-Instruct-2507'
         ...     )
         ... )
 
         You can also include images in the messages list, for vision-capable models such as
-        `Qwen/Qwen2.5-VL-72B-Instruct`, by passing image data directly in the input dictionary, in
+        `openbmb/MiniCPM-V-4_5`, by passing image data directly in the input dictionary, in
         the `'image_url'` field of the message content, as in this example:
 
         >>> messages = [
@@ -101,9 +101,7 @@ async def chat_completions(
         ...     }
         ... ]
         >>> tbl.add_computed_column(
-        ...     response=chat_completions(
-        ...         messages, model='Qwen/Qwen2.5-VL-72B-Instruct'
-        ...     )
+        ...     response=chat_completions(messages, model='openbmb/MiniCPM-V-4_5')
         ... )
     """
     env.Env.get().require_package('openai')
