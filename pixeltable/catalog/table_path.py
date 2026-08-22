@@ -92,7 +92,7 @@ class TablePath(abc.ABC):
     def schema_version(self) -> int: ...
 
     @abc.abstractmethod
-    def version(self) -> int | None: ...
+    def version(self) -> int: ...
 
     @abc.abstractmethod
     def effective_version(self) -> int | None: ...
@@ -586,7 +586,7 @@ class TableMdPath(TablePath):
     def media_validation(self) -> MediaValidation:
         return MediaValidation[self.md.schema_version_md.media_validation.upper()]
 
-    def version(self) -> int | None:
+    def version(self) -> int:
         return self.md.version_md.version
 
     def effective_version(self) -> int | None:
