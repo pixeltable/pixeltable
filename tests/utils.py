@@ -120,13 +120,13 @@ def make_default_type(t: ts.ColumnType.Type) -> ts.ColumnType:
     raise AssertionError()
 
 
-def make_tbl(name: str = 'test', col_names: list[str] | None = None) -> pxt.Table:
+def make_tbl(name: str = 'test', col_names: list[str] | None = None, is_data_versioned: bool = True) -> pxt.Table:
     if col_names is None:
         col_names = ['c1']
     schema: dict[str, ts.ColumnType] = {}
     for i, col_name in enumerate(col_names):
         schema[f'{col_name}'] = make_default_type(ts.ColumnType.Type(i % 5))
-    return pxt.create_table(name, schema)  # type: ignore[arg-type]
+    return pxt.create_table(name, schema, _is_data_versioned=is_data_versioned)  # type: ignore[arg-type]
 
 
 def create_table_data(
@@ -244,7 +244,7 @@ def create_table_data(
     return rows
 
 
-def create_test_tbl(name: str = 'test_tbl') -> pxt.Table:
+def create_test_tbl(name: str = 'test_tbl', is_data_versioned: bool = True) -> pxt.Table:
     schema: dict[str, type | ColumnSpec] = {
         'c1': {'type': pxt.String, 'comment': 'String column with no nulls'},
         'c1n': {'type': pxt.String | None, 'custom_metadata': {'nullable': True}},
@@ -255,7 +255,7 @@ def create_test_tbl(name: str = 'test_tbl') -> pxt.Table:
         'c6': pxt.Json,
         'c7': pxt.Json,
     }
-    t = pxt.create_table(name, schema, primary_key='c2')
+    t = pxt.create_table(name, schema, primary_key='c2', _is_data_versioned=is_data_versioned)
     t.add_computed_column(c8=pxt.array([[1, 2, 3], [4, 5, 6]]))
 
     num_rows = 100

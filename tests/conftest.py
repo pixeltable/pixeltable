@@ -327,15 +327,22 @@ def cloud_db_base_uri(init_env: None) -> Iterator[str]:
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
-    """Drive the catalog-backend axis: any test that (transitively) reaches catalog_mode runs against both
-    'local' and 'proxy', unless marked @pytest.mark.local, in which case it runs 'local' only.
+    """Drive the catalog-backend and data-versioning axes.
 
-    With --cloud, tests run against the cloud catalog instead of local/proxy.
+    catalog_mode: any test that (transitively) reaches catalog_mode runs against both 'local' and 'proxy',
+    unless marked @pytest.mark.local, in which case it runs 'local' only. With --cloud, tests run against the
+    cloud catalog instead of local/proxy.
+
+    is_data_versioned: any test that (transitively) reaches is_data_versioned runs against both a
+    data-versioned and an operational table.
 
     metafunc.fixturenames is the transitive fixture closure, so a test reaching make_catalog_path (directly
-    or via an adapted fixture like test_tbl) auto-forks with no per-test boilerplate. Tests that touch neither
-    catalog_mode nor make_catalog_path run once.
+    or via an adapted fixture like test_tbl) or is_data_versioned auto-forks with no per-test boilerplate.
+    Tests that touch neither axis run once.
     """
+    if 'is_data_versioned' in metafunc.fixturenames:
+        metafunc.parametrize('is_data_versioned', [True, False], ids=['data_versioned', 'operational'])
+
     if 'catalog_mode' not in metafunc.fixturenames:
         return
     if metafunc.definition.get_closest_marker('local') is not None:
@@ -507,8 +514,17 @@ def clean_db(drop_md_tables: bool = False) -> None:
 
 
 @pytest.fixture(scope='function')
-def test_tbl(make_catalog_path: Callable[[str], str]) -> pxt.Table:
-    return create_test_tbl(make_catalog_path('test_tbl'))
+def test_tbl(make_catalog_path: Callable[[str], str], request: pytest.FixtureRequest) -> pxt.Table:
+    """The standard test table.
+
+    A test that also declares `is_data_versioned` gets the table that variant calls for; every other test gets a
+    data-versioned table. The fixture deliberately does not request `is_data_versioned` itself: that
+    would put it in every dependent test's fixture closure and fork the entire suite.
+    """
+    is_data_versioned = (
+        request.getfixturevalue('is_data_versioned') if 'is_data_versioned' in request.fixturenames else True
+    )
+    return create_test_tbl(make_catalog_path('test_tbl'), is_data_versioned=is_data_versioned)
 
 
 @pytest.fixture(scope='function')

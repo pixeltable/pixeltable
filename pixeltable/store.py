@@ -169,6 +169,10 @@ class StoreBase:
             self._pk_cols = rowid_cols
             return rowid_cols
 
+    def pk_constraint_name(self, tbl_version: catalog.TableVersion) -> str:
+        """Name of the Postgres object enforcing the Pixeltable primary key."""
+        return f'pk_idx_{tbl_version.id.hex}' if tbl_version.is_data_versioned else f'pk_{tbl_version.id.hex}'
+
     def create_sa_tbl(self, tbl_version: catalog.TableVersion | None = None) -> None:
         """Create self.sa_tbl from self.tbl_version."""
         if tbl_version is None:
@@ -214,28 +218,34 @@ class StoreBase:
             idx_name = f'vmax_idx_{tbl_version.id.hex}'
             idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using=Env.get().dbms.version_index_type))
 
-        # primary key index: partial unique btree on PK columns where v_max = MAX_VERSION (live rows only)
+        extra_constraints: list[sql.Constraint] = []
         primary_index = [col for col in tbl_version.cols_by_id.values() if col.is_pk]
         if len(primary_index) > 0:
-            assert tbl_version.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
-            pk_idx_exprs: list[sql.ColumnElement] = []
-            for col in primary_index:
-                if col.col_type.is_string_type():
-                    pk_idx_exprs.append(sql.func.left(col.sa_col, BtreeIndex.MAX_STRING_LEN))
-                else:
-                    pk_idx_exprs.append(col.sa_col)
-            idx_name = f'pk_idx_{tbl_version.id.hex}'
-            idxs.append(
-                sql.Index(
-                    idx_name,
-                    *pk_idx_exprs,
-                    unique=True,
-                    postgresql_using='btree',
-                    postgresql_where=(self.v_max_col == schema.Table.MAX_VERSION),
+            pk_name = self.pk_constraint_name(tbl_version)
+            if tbl_version.is_data_versioned:
+                # partial unique btree on PK columns where v_max = MAX_VERSION (live rows only), with long strings
+                # truncated
+                pk_idx_exprs: list[sql.ColumnElement] = []
+                for col in primary_index:
+                    if col.col_type.is_string_type():
+                        pk_idx_exprs.append(sql.func.left(col.sa_col, BtreeIndex.MAX_STRING_LEN))
+                    else:
+                        pk_idx_exprs.append(col.sa_col)
+                idxs.append(
+                    sql.Index(
+                        pk_name,
+                        *pk_idx_exprs,
+                        unique=True,
+                        postgresql_using='btree',
+                        postgresql_where=(self.v_max_col == schema.Table.MAX_VERSION),
+                    )
                 )
-            )
+            else:
+                # On an operational table, PK is represented by a Unique Constraint directly on PK columns.
+                extra_constraints.append(
+                    sql.UniqueConstraint(*[col.sa_col.name for col in primary_index], name=pk_name)
+                )
 
-        extra_constraints: list[sql.Constraint] = []
         if not tbl_version.is_data_versioned:
             # Add a PK constraint for an operational table
             extra_constraints.append(sql.PrimaryKeyConstraint(*[col.name for col in self._pk_cols]))
@@ -382,30 +392,6 @@ class StoreBase:
         # Rebuild the sqlalchemy schema to discard any stray sql.Indexes still linked to it.
         # TODO(PXT-1271): stop sa_create_stmt() from mutating the store table. That will make this rebuild unnecessary.
         self.create_sa_tbl()
-
-    def validate(self) -> None:
-        """Validate store table against self.table_version"""
-        with get_runtime().begin_xact() as conn:
-            # check that all columns are present
-            q = f'SELECT column_name FROM information_schema.columns WHERE table_name = {self._storage_name()!r}'
-            store_col_info = {row[0] for row in conn.execute(sql.text(q)).fetchall()}
-            # check all stored columns, including dropped ones: they remain part of the physical table
-            tbl_col_info: set[str] = set()
-            for col_md in self.tbl_version.get().tbl_md.column_md.values():
-                if not col_md.stored:
-                    continue
-                tbl_col_info.add(catalog.Column.store_name_from_id(col_md.id))
-                if col_md.stores_cellmd:
-                    tbl_col_info.add(catalog.Column.cellmd_store_name_from_id(col_md.id))
-            assert tbl_col_info.issubset(store_col_info)
-
-            # check that all visible indices are present
-            q = f'SELECT indexname FROM pg_indexes WHERE tablename = {self._storage_name()!r}'
-            store_idx_names = {row[0] for row in conn.execute(sql.text(q)).fetchall()}
-            tbl_index_names = {
-                self.tbl_version.get()._store_idx_name(info.id) for info in self.tbl_version.get().idxs.values()
-            }
-            assert tbl_index_names.issubset(store_idx_names)
 
     def drop(self) -> None:
         """Drop store table"""
@@ -633,7 +619,7 @@ class StoreBase:
             if (
                 isinstance(e.orig, psycopg.errors.UniqueViolation)
                 and e.orig.diag.constraint_name is not None
-                and e.orig.diag.constraint_name.startswith('pk_idx_')
+                and e.orig.diag.constraint_name == self.pk_constraint_name(self.tbl_version.get())
             ):
                 detail = e.orig.diag.message_detail or ''
                 for col in self.tbl_version.get().primary_key_columns():
@@ -644,7 +630,8 @@ class StoreBase:
             raise
         except sql.exc.OperationalError as e:
             if isinstance(e.orig, psycopg.errors.ProgramLimitExceeded):
-                if 'pk_idx_' in str(e.orig):
+                pk_name = self.pk_constraint_name(self.tbl_version.get())
+                if re.search(rf'\b{re.escape(pk_name)}\b', str(e.orig)):
                     pk_col_names = [col.name for col in self.tbl_version.get().primary_key_columns()]
                     raise excs.RequestError(
                         excs.ErrorCode.CONSTRAINT_VIOLATION,

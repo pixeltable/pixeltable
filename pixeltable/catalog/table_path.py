@@ -92,7 +92,7 @@ class TablePath(abc.ABC):
     def schema_version(self) -> int: ...
 
     @abc.abstractmethod
-    def version(self) -> int | None: ...
+    def version(self) -> int: ...
 
     @abc.abstractmethod
     def effective_version(self) -> int | None: ...
@@ -334,10 +334,7 @@ class TableVersionPath(TablePath):
     def catalog_uri(self) -> Path:
         return ROOT_PATH
 
-    def version(self) -> int | None:
-        # TODO(PXT-1101): t.version() for operational tables should just mirror t.schema_version()
-        if not self.is_data_versioned():
-            return None
+    def version(self) -> int:
         return self._cached_tv().version
 
     def effective_version(self) -> int | None:
@@ -589,8 +586,8 @@ class TableMdPath(TablePath):
     def media_validation(self) -> MediaValidation:
         return MediaValidation[self.md.schema_version_md.media_validation.upper()]
 
-    def version(self) -> int | None:
-        return self.md.version_md.version if self.md.tbl_md.is_data_versioned else None
+    def version(self) -> int:
+        return self.md.version_md.version
 
     def effective_version(self) -> int | None:
         return self._effective_version
