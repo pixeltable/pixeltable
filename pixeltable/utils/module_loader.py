@@ -196,12 +196,33 @@ def _submodule(module: ModuleType, submodule_path: str, fromlist: tuple[str, ...
                 # a fromlist member of a package can be one of its modules, which __import__() imports on
                 # demand; one that names anything else is left to the import statement to fetch
                 try:
-                    importlib.import_module(f'{module.__name__}.{member}')
+                    _load_submodule(module, member)
                 except ImportError:
                     pass
         return module
-    submodule = importlib.import_module(f'{module.__name__}.{submodule_path}')
+    submodule = _load_submodule(module, submodule_path)
     return submodule if fromlist else module
+
+
+def _load_submodule(package: ModuleType, submodule_path: str) -> ModuleType:
+    """Load the module that submodule_path names under package, and attach each step to its parent.
+
+    Loaded here rather than by the standard machinery, so that a decorator running in the module sees its own
+    file in _loaded_modules: a udf whose file is unknown is taken to be importable by name, and the name of a
+    module loaded from a path is importable in no other process.
+    """
+    parent = package
+    for name in submodule_path.split('.'):
+        search_locations = getattr(parent, '__path__', None)
+        if search_locations is None:
+            raise ImportError(f'{parent.__name__} is not a package', name=name)
+        submodule = _load_from_dir(Path(search_locations[0]), name)
+        if submodule is None:
+            raise ImportError(f'{search_locations[0]} holds no module named {name!r}', name=name)
+        sys.modules[f'{parent.__name__}.{name}'] = submodule
+        setattr(parent, name, submodule)
+        parent = submodule
+    return parent
 
 
 def _dir_module(dir: Path, fromlist: tuple[str, ...]) -> ModuleType:

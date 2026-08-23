@@ -255,7 +255,7 @@ class ServiceDeployment:
 
         if pid is not None:
             deadline = time.monotonic() + self._STOP_TIMEOUT
-            while time.monotonic() < deadline and pid_alive(pid):
+            while time.monotonic() < deadline and self.is_live():
                 # reap promptly if the service is our own child, so its zombie isn't mistaken for a live process;
                 # a no-op when another process launched it, in which case init reaps it
                 if hasattr(os, 'WNOHANG'):
@@ -264,7 +264,7 @@ class ServiceDeployment:
                     except (ChildProcessError, OSError):
                         pass
                 time.sleep(0.05)
-            if pid_alive(pid):
+            if self.is_live():
                 # graceful shutdown overran the timeout; SIGKILL is absent on Windows, where os.kill() already
                 # terminates unconditionally
                 try:

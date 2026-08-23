@@ -559,10 +559,21 @@ class TestSchema:
         p = make_catalog_path
 
         def write_project(name: str) -> pathlib.Path:
-            """An application file whose computed column calls a udf from a sibling module."""
+            """An application file with computed columns over udfs from a sibling module and a package."""
             directory = tmp_path / name
             (directory / 'pkg').mkdir(parents=True)
             (directory / 'pkg' / '__init__.py').write_text(f"SUFFIX = '{name}-pkg'\n")
+            (directory / 'pkg' / 'inner.py').write_text(
+                dedent(
+                    """
+                    import pixeltable as pxt
+
+                    @pxt.udf
+                    def shout(s: str) -> str:
+                        return s.upper()
+                    """
+                )
+            )
             (directory / 'helpers.py').write_text(f"TAG = '{name}'\n")
             (directory / 'functions.py').write_text(
                 dedent(
@@ -585,6 +596,7 @@ class TestSchema:
 
                     import pixeltable as pxt
                     from functions import tag
+                    from pkg.inner import shout
 
                     TableModel = pxt.model_base()
 
@@ -593,6 +605,7 @@ class TestSchema:
                         doc_id = pxt.Column(type=pxt.Int, primary_key=True)
                         title: pxt.String
                         tagged = tag(title)  # noqa: F821
+                        shouted = shout(title)  # noqa: F821
                     """
                 )
             )
@@ -609,7 +622,8 @@ class TestSchema:
         for name, expected in (('proj1', 'a-proj1-proj1-pkg'), ('proj2', 'a-proj2-proj2-pkg')):
             docs = pxt.get_table(f'{p(name)}/docs')
             docs.insert([{'doc_id': 1, 'title': 'a'}])
-            assert docs.select(docs.tagged).collect()['tagged'] == [expected]
+            # tagged calls a udf from a sibling module, shouted one from a module of a neighboring package
+            assert docs.select(docs.tagged, docs.shouted).collect()[0] == {'tagged': expected, 'shouted': 'A'}
 
         # a column stores which file and udf it calls, not the udf's body, so editing the body changes no schema
         (tmp_path / 'proj1' / 'helpers.py').write_text("TAG = 'edited'\n")
