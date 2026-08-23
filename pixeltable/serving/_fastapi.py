@@ -118,6 +118,9 @@ class JobStatusResponse(pydantic.BaseModel):
 _MEDIA_ROUTE_NAME = 'pxt_serve_media'
 _JOB_STATUS_ROUTE_NAME = 'pxt_serve_job_status'
 
+# Pixeltable serves its own routes under this reserved segment
+_PXT_SEGMENT = '/_pxt'
+
 _EMBEDDED_OBJECT_TYPES: tuple[type, ...] = (np.ndarray, np.generic, PIL.Image.Image, bytes)
 
 # how many background requests a router runs at a time
@@ -567,6 +570,18 @@ class FastAPIRouter(fastapi.APIRouter):
         one_row: bool = False,
         query_cols: Sequence[str] = (),
     ) -> _RegisteredRoute:
+        if '{' in path or '}' in path:
+            # a path parameter matches the paths of the routes registered after this one
+            raise pxt.RequestError(
+                pxt.ErrorCode.INVALID_ARGUMENT,
+                f'{path!r}: a route path takes no parameter. A route reads its inputs from the request body '
+                'or query string, named by inputs=.',
+            )
+        if path == _PXT_SEGMENT or path.startswith(f'{_PXT_SEGMENT}/'):
+            raise pxt.RequestError(
+                pxt.ErrorCode.INVALID_ARGUMENT,
+                f'{path!r}: {_PXT_SEGMENT!r} is reserved for the routes Pixeltable serves itself.',
+            )
         is_model = isinstance(target, model.TableModelMeta)
         model_cls = cast(model.TableModelMeta, target) if is_model else None
         tbl = None if is_model else cast(pxt.Table | None, target)
@@ -2580,7 +2595,11 @@ class FastAPIRouter(fastapi.APIRouter):
 
         # name=...: we need to be able to refer to this route in Request.url_for()
         self.add_api_route(
-            '/media/{path:path}', serve_media, methods=['GET'], response_class=FileResponse, name=_MEDIA_ROUTE_NAME
+            f'{_PXT_SEGMENT}/media/{{path:path}}',
+            serve_media,
+            methods=['GET'],
+            response_class=FileResponse,
+            name=_MEDIA_ROUTE_NAME,
         )
 
     def _register_jobs_route(self) -> None:
@@ -2599,7 +2618,7 @@ class FastAPIRouter(fastapi.APIRouter):
             return JobStatusResponse(status='done', result=fut.result())
 
         self.add_api_route(
-            '/jobs/{job_id}',
+            f'{_PXT_SEGMENT}/jobs/{{job_id}}',
             get_job_status,
             methods=['GET'],
             response_model=JobStatusResponse,

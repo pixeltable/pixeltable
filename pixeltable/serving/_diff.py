@@ -76,6 +76,8 @@ def compare_specs(deployed: ServiceSpec, declared: ServiceSpec) -> list[ServiceC
             }
         )
 
+    # keyed by method and path, which ignores declaration order: valid paths don't contain parameters, which avoids
+    # ambiguity
     deployed_routes = {(r['method'], r['path']): r for r in deployed['routes']}
     declared_routes = {(r['method'], r['path']): r for r in declared['routes']}
 

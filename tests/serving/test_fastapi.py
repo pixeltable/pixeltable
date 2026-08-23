@@ -157,7 +157,7 @@ def await_background_job(
 ) -> dict[str, Any]:
     """Poll `job['job_url']` until terminal; validate structure and return the status body."""
     assert isinstance(job.get('id'), str) and len(job['id']) > 0
-    assert isinstance(job.get('job_url'), str) and '/jobs/' in job['job_url'] and job['id'] in job['job_url']
+    assert isinstance(job.get('job_url'), str) and '/_pxt/jobs/' in job['job_url'] and job['id'] in job['job_url']
     saw_pending = False
     deadline = time.time() + timeout
     while True:
@@ -894,7 +894,7 @@ class TestFastAPI:
         route_type: Literal['insert', 'compute'],
     ) -> None:
         """Background variant of test_add_insert_route_video: POST returns a job id/url, the
-        work runs in FastAPIRouter._executor, and the result is fetched via /jobs/{id}."""
+        work runs in FastAPIRouter._executor, and the result is fetched via /_pxt/jobs/{id}."""
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter, SqlExport
 
@@ -1057,8 +1057,8 @@ class TestFastAPI:
 
         # routes present
         # note: Starlette's `:path` converter is normalized away in OpenAPI: the route registered
-        # as /media/{path:path} appears as /media/{path}.
-        for route_path in ('/json', '/upload', '/file', '/bg', '/jobs/{job_id}', '/media/{path}'):
+        # as /_pxt/media/{path:path} appears as /_pxt/media/{path}.
+        for route_path in ('/json', '/upload', '/file', '/bg', '/_pxt/jobs/{job_id}', '/_pxt/media/{path}'):
             assert route_path in paths, f'missing {route_path} from openapi paths: {list(paths)}'
 
         def deref(schema_or_ref: dict[str, Any]) -> dict[str, Any]:
@@ -1122,8 +1122,8 @@ class TestFastAPI:
         bg_model = schemas['BackgroundJobResponse']
         assert set(bg_model['properties'].keys()) == {'id', 'job_url'}
 
-        # /jobs/{job_id}: GET returns JobStatusResponse
-        jobs_op = paths['/jobs/{job_id}']['get']
+        # /_pxt/jobs/{job_id}: GET returns JobStatusResponse
+        jobs_op = paths['/_pxt/jobs/{job_id}']['get']
         jobs_resp = jobs_op['responses']['200']['content']['application/json']['schema']
         assert jobs_resp.get('$ref', '').endswith('/JobStatusResponse'), jobs_resp
         assert 'JobStatusResponse' in schemas
@@ -1133,8 +1133,8 @@ class TestFastAPI:
         p0 = jobs_op['parameters'][0]
         assert p0['name'] == 'job_id' and p0['in'] == 'path'
 
-        # /media/{path}: path parameter declared
-        media_op = paths['/media/{path}']['get']
+        # /_pxt/media/{path}: path parameter declared
+        media_op = paths['/_pxt/media/{path}']['get']
         p0 = media_op['parameters'][0]
         assert p0['name'] == 'path' and p0['in'] == 'path'
 
@@ -1410,7 +1410,7 @@ class TestFastAPI:
         assert resp.status_code == 409, resp.text
         assert 'expected exactly 1' in resp.json()['detail']
 
-        # Background variant: poll /jobs/{id} until done
+        # Background variant: poll /_pxt/jobs/{id} until done
         resp = client.post('/one-bg', json={'img_id': 1})
         assert resp.status_code == 200, resp.text
         job = resp.json()
@@ -1511,6 +1511,13 @@ class TestFastAPI:
         def lookup() -> pxt.Query:
             return t.select(t.id)
 
+        # a path parameter has nothing to fill it, and would shadow every route declared after it
+        router = FastAPIRouter()
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='takes no parameter'):
+            router.add_insert_route(t, path='/{item}')
+        with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='takes no parameter'):
+            router.add_query_route(path='/lookup/{id}', query=lookup)
+
         # POST/POST collision across the insert/compute/update entry points (both orderings)
         router = FastAPIRouter()
         router.add_insert_route(t, path='/a')
@@ -1537,12 +1544,11 @@ class TestFastAPI:
         router.add_insert_route(t, path='/mixed')
         router.add_query_route(path='/mixed', query=lookup, method='get')
 
-        # Collision with the built-in /media and /jobs routes (registered by FastAPIRouter.__init__)
+        # Pixeltable serves media files and job status under /_pxt, so nothing declared can shadow them
         router = FastAPIRouter()
-        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match=r"already registered: GET '/media/\{path:path\}'"):
-            router.add_query_route(path='/media/{path:path}', query=lookup, method='get')
-        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match=r"already registered: GET '/jobs/\{job_id\}'"):
-            router.add_query_route(path='/jobs/{job_id}', query=lookup, method='get')
+        for reserved in ('/_pxt', '/_pxt/media/thumb', '/_pxt/jobs/mine'):
+            with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='reserved for the routes Pixeltable serves'):
+                router.add_query_route(path=reserved, query=lookup, method='get')
 
         # Duplicate detection respects the router's prefix (FastAPI stores routes under prefix + path)
         router = FastAPIRouter(prefix='/v1')

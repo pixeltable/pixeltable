@@ -332,13 +332,13 @@ Any route can set `background = true`. The endpoint returns immediately with a
 job handle:
 
 ```json
-{"id": "abc123", "job_url": "http://localhost:8000/jobs/abc123"}
+{"id": "abc123", "job_url": "http://localhost:8000/_pxt/jobs/abc123"}
 ```
 
 Poll the job URL:
 
 ```bash
-curl http://localhost:8000/jobs/abc123
+curl http://localhost:8000/_pxt/jobs/abc123
 # {"status": "pending"}
 # ... later ...
 # {"status": "done", "result": {...}}

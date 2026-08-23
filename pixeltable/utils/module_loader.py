@@ -165,7 +165,7 @@ def _make_import(dir: Path) -> Callable[..., ModuleType]:
             raise ImportError(f'{dir}: an import above the directory of a loaded file is not supported', name=name)
 
         if name == '':
-            # 'from . import x' names its modules in fromlist, and needs something to import them from
+            # a relative 'from . import' names its modules in fromlist and reads them off a package
             return _dir_module(dir, fromlist or ())
         neighbor = _load_from_dir(dir, name.split('.', maxsplit=1)[0])
         if neighbor is None:
@@ -198,8 +198,8 @@ def _submodule(module: ModuleType, submodule_path: str, fromlist: tuple[str, ...
     if submodule_path == '':
         for member in fromlist or ():
             if not hasattr(module, member):
-                # a fromlist member of a package can be one of its modules, which __import__() imports on
-                # demand; one that names anything else is left to the import statement to fetch
+                # a fromlist member can name a module of the package, which __import__() imports on demand;
+                # the import statement fetches anything else as an attribute
                 try:
                     _load_submodule(module, member)
                 except ImportError:
