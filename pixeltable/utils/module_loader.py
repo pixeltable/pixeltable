@@ -25,8 +25,13 @@ _NON_IDENTIFIER_CHARS = re.compile(r'\W')
 
 
 def _file_stem(path: Path) -> str:
-    """The stem of path, with anything that cannot appear in a Python identifier replaced by an underscore."""
-    return _NON_IDENTIFIER_CHARS.sub('_', path.stem)
+    """The stem of path as an identifier, with anything that cannot appear in one replaced by an underscore.
+
+    A file name is under no obligation to be a module name: it can start with a digit, which an identifier
+    cannot, and validate_symbol_path() rejects a symbol path built from one.
+    """
+    stem = _NON_IDENTIFIER_CHARS.sub('_', path.stem)
+    return stem if stem.isidentifier() else f'_{stem}'
 
 
 def resolve_file_symbol(file: str, symbol_path: str) -> object | None:

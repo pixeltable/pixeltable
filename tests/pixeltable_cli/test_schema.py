@@ -702,13 +702,43 @@ class TestSchema:
         assert r.returncode == 1
         assert 'an import above the directory of a loaded file' in r.stderr
 
-        # a udf defined in a schema file cannot back a column of a hosted database, which cannot read that file
-        with_udf = tmp_path / 'with_udf.py'
-        with_udf.write_text(pathlib.Path(apps('basic.py')).read_text(encoding='utf-8'), encoding='utf-8')
-        r = cli('schema', 'update', str(with_udf), 'pxt://someorg:somedb/app', check=False)
-        assert r.returncode == 1
-        assert 'Docs.summary calls excerpt(), which is defined in' in r.stderr
-        assert 'cannot read a local file' in r.stderr
+        # a udf defined in a schema file cannot back a hosted database, which cannot read that file: the
+        # refusal covers every declaration that persists a function, not only a computed column
+        for declaration in (
+            'summary = excerpt(title)',
+            "__indexes__ = [pxt.EmbeddingIndex(title, embedding=embed, name='title_idx')]",
+        ):
+            with_udf = tmp_path / 'with_udf.py'
+            with_udf.write_text(
+                dedent(
+                    f"""
+                    from __future__ import annotations
+
+                    import pixeltable as pxt
+
+                    TableModel = pxt.model_base()
+
+                    @pxt.udf
+                    def excerpt(text: str, n: int = 12) -> str:
+                        return text if len(text) <= n else f'{{text[:n]}}...'
+
+                    @pxt.udf
+                    def embed(text: str) -> pxt.Array[(4,), pxt.Float]:
+                        import numpy as np
+
+                        return np.zeros(4, dtype=np.float32)
+
+                    class Docs(TableModel, name='docs'):
+                        doc_id = pxt.Column(type=pxt.Int, primary_key=True)
+                        title: pxt.String
+                        {declaration}
+                    """
+                ),
+                encoding='utf-8',
+            )
+            r = cli('schema', 'update', str(with_udf), 'pxt://someorg:somedb/app', check=False)
+            assert r.returncode == 1, declaration
+            assert 'cannot read a local file' in r.stderr, declaration
 
     def test_update_relative_path(
         self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path

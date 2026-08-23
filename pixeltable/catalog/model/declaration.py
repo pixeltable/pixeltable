@@ -572,6 +572,41 @@ class TableModelMeta(type):
     def is_bound(cls) -> bool:
         return cls._catalog_dir is not None
 
+    def declared_models(cls) -> list[TableModelMeta]:
+        """The models declared on this base, in declaration order."""
+        return list(cls.__registered_models__.values())
+
+    def referenced_functions(cls) -> list[func.Function]:
+        """Every function this model references, without duplicates."""
+        declared_exprs: list[exprs.Expr] = [
+            col_spec['value'] for col_spec in cls.__columns__.values() if col_spec.get('value') is not None
+        ]
+        base = cls.__table_spec__['base']
+        if base is not None:
+            declared_exprs.extend(e for e, _ in base._effective_select_list)
+            declared_exprs.extend(base._component_exprs())
+        iterator = cls.__table_spec__['iterator']
+        if iterator is not None:
+            declared_exprs.extend(iterator.args)
+            declared_exprs.extend(iterator.kwargs.values())
+
+        fns = [fn_call.fn for e in declared_exprs for fn_call in e.subexprs(exprs.FunctionCall)]
+        fns.extend(
+            embedding
+            for idx in cls.__indexes__
+            if isinstance(idx, EmbeddingIndex)
+            for embedding in (
+                idx.embedding,
+                idx.string_embed,
+                idx.image_embed,
+                idx.audio_embed,
+                idx.video_embed,
+                idx.document_embed,
+            )
+            if embedding is not None
+        )
+        return list(dict.fromkeys(fns))
+
     def _bind(cls, catalog_dir: str = '') -> pxt.Table:
         catalog_dir = catalog.Path.dir_prefix(catalog_dir)
 

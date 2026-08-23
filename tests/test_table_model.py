@@ -39,7 +39,48 @@ def tag(s: str, label: str) -> str:
     return f'{label}: {s}'
 
 
+@pxt.udf
+def excerpt(text: str) -> str:
+    return text[:4]
+
+
+@pxt.udf
+def is_long(text: str) -> bool:
+    return len(text) > 4
+
+
+@pxt.udf
+def embed(text: str) -> pxt.Array[(4,), pxt.Float]:
+    return np.zeros(4, dtype=np.float32)
+
+
 class TestTableModel:
+    def test_referenced_functions(self) -> None:
+        """Every function a declaration persists is reported, whichever declaration holds it."""
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            title: pxt.String
+            summary = excerpt(title)
+            __indexes__ = [EmbeddingIndex(title, embedding=embed, name='title_idx')]
+
+        class Long(TableModel, name='long', base=Docs.where(is_long(Docs.title))):
+            headline = Docs.summary + '!'
+
+        class Chunks(
+            TableModel,
+            name='chunks',
+            base=Docs,
+            iterator=pxtf.string.string_splitter(excerpt(Docs.title), separators='sentence'),
+        ):
+            pass
+
+        assert {fn.name for fn in Docs.referenced_functions()} == {'excerpt', 'embed'}
+        # the view names the base's column rather than its expression, so only its own predicate is here
+        assert {fn.name for fn in Long.referenced_functions()} == {'is_long'}
+        assert {fn.name for fn in Chunks.referenced_functions()} == {'excerpt'}
+        assert Docs.declared_models() == [Docs, Long, Chunks]
+
     def test_table_path(self, make_catalog_path: Callable[[str], str]) -> None:
         """A model describes its shape before the table exists, and the description matches what gets created."""
         p = make_catalog_path

@@ -796,19 +796,15 @@ def _reject_local_file_udfs(bases: list[model.TableModelMeta], catalog_dir: PxtP
     if catalog_path.is_local or catalog_path.org == 'local':
         return
     for base in bases:
-        for declared_model in base.__registered_models__.values():
-            for col_name, col_spec in declared_model.__columns__.items():
-                value = col_spec.get('value')
-                if value is None:
-                    continue
-                for fn_call in value.subexprs(exprs.FunctionCall):
-                    if fn_call.fn.self_file is not None:
-                        raise excs.RequestError(
-                            excs.ErrorCode.UNSUPPORTED_OPERATION,
-                            f'{declared_model.__name__}.{col_name} calls {fn_call.fn.display_name}(), which is '
-                            f'defined in {fn_call.fn.self_file}. {catalog_dir!r} cannot read a local file; move '
-                            'the UDF into an installed package.',
-                        )
+        for declared_model in base.declared_models():
+            for fn in declared_model.referenced_functions():
+                if fn.is_file_fn:
+                    raise excs.RequestError(
+                        excs.ErrorCode.UNSUPPORTED_OPERATION,
+                        f'{declared_model.__name__} calls {fn.display_name}(), which is defined in '
+                        f'{fn.self_file}. {catalog_dir!r} cannot read a local file; move the UDF into an '
+                        'installed package.',
+                    )
 
 
 def schema_update(

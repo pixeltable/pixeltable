@@ -8,6 +8,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
+from pixeltable.func import Function
 from pixeltable.functions.video import frame_iterator
 from pixeltable.utils.app_module import load_app_module
 from pixeltable_cli.server import bridge
@@ -31,6 +32,14 @@ def fail_on_neg(x: int) -> int:
 
 
 class TestBridge:
+    def test_app_module_with_a_non_identifier_name(self, tmp_path: pathlib.Path) -> None:
+        """A file name that is not a module name still yields a udf that a stored reference can resolve."""
+        app_file = tmp_path / '2024 pipeline.py'
+        app_file.write_text('import pixeltable as pxt\n\n@pxt.udf\ndef shout(s: str) -> str:\n    return s.upper()\n')
+
+        module = load_app_module(str(app_file), subject='application file')
+        assert Function.from_dict(module.shout.as_dict()) is module.shout
+
     def test_app_module_reload(self, tmp_path: pathlib.Path) -> None:
         """A reload rereads the application file and every module that was loaded from its directory."""
         (tmp_path / 'pkg').mkdir()

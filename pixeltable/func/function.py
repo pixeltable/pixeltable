@@ -114,8 +114,18 @@ class Function(ABC):
         return len(self.signatures) > 1
 
     @property
+    def is_module_fn(self) -> bool:
+        """True if a module path names self, so any process that can import the module resolves it."""
+        return self.self_path is not None and self.self_file is None
+
+    @property
+    def is_file_fn(self) -> bool:
+        """True if self is resolved through the file it is defined in, which only that file's machine holds."""
+        return self.self_file is not None
+
+    @property
     def is_builtin(self) -> bool:
-        return self.self_file is None and self.self_path is not None and self.self_path.startswith('pixeltable.')
+        return self.is_module_fn and self.self_path is not None and self.self_path.startswith('pixeltable.')
 
     @property
     def is_storable(self) -> bool:
