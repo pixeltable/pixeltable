@@ -28,39 +28,6 @@ ConfVarT = TypeVar('ConfVarT', bound=str)
 # Pydantic models for deployment configuration.
 
 
-class SqlExport(pydantic.BaseModel):
-    """
-    Specification of an external RDBMS target for SQL export.
-
-    Attributes:
-        db_connect: SQLAlchemy connection string for the target database (e.g.
-            `'postgresql+psycopg://user:pw@host/db'`, `'sqlite:///path/to.db'`).
-        table: Name of the target table. It must already exist; resolution fails
-            if the table is missing.
-        db_schema: Optional database schema qualifier (e.g. `'analytics'`); leave `None` to
-            use the connection's default schema.
-        method: How to write each row into the target table.
-
-            - `'insert'`: append the row via `INSERT ... VALUES`.
-            - `'update'`: update the row by primary-key match
-              (`UPDATE ... SET ... WHERE pk=...`). Requires that the target table has a
-              primary key whose metadata is exposed by the dialect. The exported columns
-              must include all primary-key columns of the target plus at least one non-PK
-              column to set. This is a strict update, **not** an upsert: if the WHERE
-              clause matches zero rows, the export fails. Useful when the source is
-              append-only but the target is a deduplicated current-state view.
-            - `'merge'`: upsert via the target table's primary key.
-              **Currently not supported.**
-    """
-
-    model_config = pydantic.ConfigDict(extra='forbid')
-
-    db_connect: str
-    table: str
-    db_schema: str | None = None
-    method: Literal['insert', 'update', 'merge'] = 'insert'
-
-
 class PixeltableSource(pydantic.BaseModel):
     """Git source for pixeltable to install in the container runtime image.
 

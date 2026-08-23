@@ -4,7 +4,7 @@ Adapters for web serving frameworks.
 
 from typing import Any
 
-from pixeltable.config import SqlExport
+from pixeltable.serving.globals import SqlExport
 
 from ._diff import ServiceChangeOp, Severity
 from ._spec import RouteSpec, ServiceSpec

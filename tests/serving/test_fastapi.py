@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import io
 import json
 import os
@@ -391,9 +392,16 @@ class TestFastAPI:
             'background': False,
             'return_fileresponse': False,
             'one_row': False,
-            'export_sql': {'db_connect': db_connect, 'table': 'out_update', 'db_schema': None, 'method': 'update'},
+            'export_sql': {
+                # the connection string holds credentials, so a spec carries a digest of it
+                'db_connect_digest': hashlib.sha256(db_connect.encode()).hexdigest()[:16],
+                'table': 'out_update',
+                'db_schema': None,
+                'method': 'update',
+            },
             'query': None,
         }
+        assert 'db_connect' not in specs['/update']['export_sql']
         assert specs['/all']['export_sql']['table'] == 'out_all'
         assert specs['/partial-in']['inputs'] == ['id', 'str_col', 'int_col']
         assert specs['/partial-in']['export_sql'] is None

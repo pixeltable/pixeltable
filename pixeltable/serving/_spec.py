@@ -10,6 +10,8 @@ class RouteSpec(TypedDict):
 
     Location-independent: a route declared against a model names the model, never the catalog path the model
     is bound to. Two routes with equal specifications serve the same contract.
+
+    This is also used for display purposes and must never contain any cleartext secrets.
     """
 
     method: Literal['GET', 'POST']
@@ -29,7 +31,7 @@ class RouteSpec(TypedDict):
     background: bool
     return_fileresponse: bool
     one_row: bool
-    export_sql: dict[str, Any] | None
+    export_sql: dict[str, Any] | None  # the optional export target of a route, as produced by SqlExport.display_dict()
     query: str | None  # the symbol path of the query udf
 
 

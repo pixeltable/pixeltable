@@ -13,9 +13,11 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable
 
-# the modules loaded by load_file(), keyed by resolved path; _lock guards both this dict and the exec that
-# populates it, and is reentrant because executing a file loads the siblings it imports
+# the modules loaded by load_file(), keyed by resolved path
 _loaded_modules: dict[Path, ModuleType] = {}
+
+# guards _loaded_modules and the exec that populates it; reentrant because executing a file loads the
+# siblings it imports
 _lock = threading.RLock()
 
 # the synthetic packages standing for the directories of loaded files, keyed by directory
@@ -125,11 +127,12 @@ def _load(path: Path, *, is_package: bool = False) -> ModuleType:
     if spec is None or spec.loader is None:
         raise ImportError(f'cannot load {path}', path=str(path))
     module = importlib.util.module_from_spec(spec)
-    # exec_module() supplies __builtins__ only when the module has none, so presetting it is what routes the
-    # imports of the file, and of the functions it defines, through _make_import()
+    # exec_module() supplies __builtins__ only when the module has none, so presetting it routes the imports
+    # of the file, and of the functions it defines, through _make_import()
     module.__dict__['__builtins__'] = {**vars(builtins), '__import__': _make_import(path.parent)}
     sys.modules[name] = module
-    # registered before exec_module(), because file_of() has to answer for this path while the file runs
+    # registered before exec_module(), because get_loaded_file_path() has to answer for this path while the
+    # file runs
     _loaded_modules[path] = module
     try:
         spec.loader.exec_module(module)

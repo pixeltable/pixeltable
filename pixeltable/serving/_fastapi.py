@@ -428,7 +428,6 @@ class FastAPIRouter(fastapi.APIRouter):
     _unbound_queries: dict[int, ModelQuery]
 
     def __init__(self, *args: Any, name: str | None = None, **kwargs: Any) -> None:
-        # TODO: allow _?
         if name is not None and not catalog.is_valid_identifier(name, allow_hyphens=True):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT,
@@ -599,7 +598,7 @@ class FastAPIRouter(fastapi.APIRouter):
             'background': background,
             'return_fileresponse': return_fileresponse,
             'one_row': one_row,
-            'export_sql': None if export_sql is None else export_sql.model_dump(),
+            'export_sql': None if export_sql is None else export_sql.display_dict(),
             'query': query_fn,
         }
         route = _RegisteredRoute(

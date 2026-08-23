@@ -38,7 +38,7 @@ class Function(ABC):
     # qualname when self_file is set. None for a non-module function.
     self_path: str | None
 
-    # the file self is defined in, set only when self_path does not name an importable module, and never set
+    # the file defining self, set only when self_path does not name an importable module, and never set
     # without self_path
     self_file: str | None
 
