@@ -1464,11 +1464,11 @@ class TestExprs:
         result = t.select(t.img, t.img.height, t.img.rotate(90)).show(n=100)
         _ = result._repr_html_()
 
-    def test_ext_imgs(self, make_catalog_path: Callable[[str], str], sample_file_server: SampleFileServer) -> None:
+    def test_ext_imgs(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, sample_file_server: SampleFileServer) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('img_test'), {'img': pxt.Image | None})
-        img_urls = [
-            sample_file_server.url(f'docs/resources/images/{name}')
+        t = pxt.create_table(p('img_test'), {'name': pxt.String, 'img': pxt.Image})
+        images = [
+            (name, sample_file_server.url(f'docs/resources/images/{name}', catalog_mode))
             for name in (
                 '000000000030.jpg',
                 '000000000034.jpg',
@@ -1482,10 +1482,9 @@ class TestExprs:
                 '000000000071.jpg',
             )
         ]
-        t.insert({'img': url} for url in img_urls)
-        # this fails with an assertion
-        # TODO: fix it
-        # res = t.where(t.img.width < 600).collect()
+        t.insert({'name': name, 'img': url} for name, url in images)
+        res = t.where(t.img.width < 600).order_by(t.name).collect()
+        assert res['name'] == ['000000000049.jpg', '000000000064.jpg']
 
     def test_img_exprs(self, img_tbl: pxt.Table) -> None:
         t = img_tbl
