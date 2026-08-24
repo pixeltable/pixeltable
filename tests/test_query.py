@@ -1240,7 +1240,9 @@ class TestQuery:
         assert all('a' in row and 'b' in row for row in rows)
 
     @pytest.mark.benchmark(group='select_inexpensive')
-    def test_select_inexpensive(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, benchmark: Any) -> None:
+    def test_select_inexpensive(
+        self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, benchmark: Any
+    ) -> None:
         if catalog_mode == 'cloud':
             pytest.skip('Cloud service times out without a response [PXT-1312]')
 

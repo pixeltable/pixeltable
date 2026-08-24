@@ -1,12 +1,13 @@
 import sys
 import threading
 import time
-from typing import Callable
+import traceback
+from typing import Callable, Sequence
 
 import pytest
-import traceback
 
 import pixeltable as pxt
+
 from .utils import CatalogMode, DummyIterator, validate_update_status
 
 
@@ -41,11 +42,19 @@ def _run_workers(target: Callable[[int], None], n_threads: int) -> list[tuple[in
 
 
 class TestConcurrentOps:
-    def _assert_no_errors(self, errors: list[tuple[int, BaseException]]) -> None:
-        for thread, error in errors:
-            print(f'======= Exception from thread {thread} ======')
-            traceback.print_exception(error, file=sys.stdout)
-        assert len(errors) == 0, f'There were {len(errors)} exception(s) on concurrent threads; stack traces printed above.'
+    def _assert_no_errors(self, errors: Sequence[tuple[int, BaseException] | BaseException]) -> None:
+        for error in errors:
+            if isinstance(error, tuple):
+                thread, exc = error
+                threadmsg = f' from thread {thread}'
+            else:
+                exc = error
+                threadmsg = ''
+            print(f'======= Exception {threadmsg} ======')
+            traceback.print_exception(exc, file=sys.stdout)
+        assert len(errors) == 0, (
+            f'There were {len(errors)} exception(s) on concurrent threads; stack traces printed above.'
+        )
 
     @pytest.mark.parametrize('num_threads,rows_per_thread', [(4, 100)])
     def test_concurrent_insert_and_select(
@@ -343,9 +352,6 @@ class TestConcurrentOps:
         for th in threads:
             th.join()
 
-        print('======== ERRORS:')
-        if len(errors) > 0:
-            traceback.print_exception(errors[0][1])
         self._assert_no_errors(errors)
         assert t.count() == n0 + n_writers * writes_per_writer
 
