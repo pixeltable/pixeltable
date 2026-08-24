@@ -6,6 +6,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 
+from ..conftest import SampleFileServer
 from ..utils import pxt_raises, rerun_on_network_error, skip_test_if_no_config, skip_test_if_not_installed
 
 pytestmark = pytest.mark.local('UDF/integration test')
@@ -456,7 +457,7 @@ class TestJson:
 
     @pytest.mark.very_expensive  # Downloads a Hugging Face model
     @rerun_on_network_error()
-    def test_list_iterator_appl(self, uses_db: None) -> None:
+    def test_list_iterator_appl(self, uses_db: None, sample_file_server: SampleFileServer) -> None:
         """
         Fully worked example of flattening object detection output.
         """
@@ -465,10 +466,7 @@ class TestJson:
 
         t = pxt.create_table('img_table', {'id': pxt.Int | None, 'img': pxt.Image | None})
         t.insert(
-            {
-                'id': id,
-                'img': f'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/{name}',
-            }
+            {'id': id, 'img': sample_file_server.url(f'docs/resources/images/{name}')}
             for id, name in enumerate(('000000000009.jpg', '000000000016.jpg'))
         )
         t.add_computed_column(

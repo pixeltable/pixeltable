@@ -21,7 +21,7 @@ __pycache__
 /tests/target/
 
 # Generated type stubs
-pixeltable/catalog/model.pyi
+pixeltable/catalog/model/declaration.pyi
 
 # Node.js
 node_modules/

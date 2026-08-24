@@ -19,7 +19,6 @@ from sqlalchemy.dialects.postgresql import array as pg_array
 
 import pixeltable.index as index
 from pixeltable import exceptions as excs, exprs, func, telemetry
-from pixeltable.catalog import model
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
@@ -31,15 +30,17 @@ from pixeltable.utils.fault_injection import FaultLocation
 from .catalog_base import CatalogBase
 from .column import Column
 from .dir import Dir
-from .globals import DirEntry, IfExistsParam, IfNotExistsParam, IndexSpec, MediaValidation, QColumnId
+from .globals import DirEntry, IfExistsParam, IfNotExistsParam, IndexSpec, MediaValidation
 from .insertable_table import InsertableTable
 from .local_table import LocalTable
+from .model import IndexDeclaration, TableSchemaChangeSet, prepare_model, prepare_model_updates
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
 from .table_path import TablePath, TableVersionPath
-from .table_version import TableVersion, TableVersionKey, TableVersionMd
+from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
 from .tbl_ops import DeleteTableMdOp, OpStatus, TableOp
+from .types import QColumnId, TableVersionKey, TableVersionMd
 from .update_status import UpdateStatus
 from .view import View
 
@@ -1750,7 +1751,7 @@ class Catalog(CatalogBase):
         custom_metadata: Any,
         iterator: func.GeneratingFunctionCall | None,
         base: 'pxt.Query | None',
-        idxs: list[model.IndexDeclaration],
+        idxs: list[IndexDeclaration],
     ) -> tuple[LocalTable, bool]:
         """Create a table or view from a declarative model.
 
@@ -1767,7 +1768,7 @@ class Catalog(CatalogBase):
         tbl_id = uuid4()
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
 
-        iterator, additional_cols, resolved_idxs = model.prepare_model(
+        iterator, additional_cols, resolved_idxs = prepare_model(
             tbl_handle, columns, display_name, iterator, base, idxs
         )
 
@@ -1810,7 +1811,7 @@ class Catalog(CatalogBase):
                 explicit_tbl_id=tbl_id,
             )
 
-    def update_from_model(self, change_sets: list[model.TableSchemaChangeSet]) -> None:
+    def update_from_model(self, change_sets: list[TableSchemaChangeSet]) -> None:
         """Update tables/views from declarative models.
 
         If the table does not exist, raises NotFoundError. If the model is incompatible with the existing table,
@@ -1864,7 +1865,7 @@ class Catalog(CatalogBase):
                     dropped_col_set.add(col)
                     dropped_idxs.extend(tv.idxs_by_col.get(col.qid, []))
                 for idx_info in dropped_idxs:
-                    dropped_col_set.update([idx_info.val_col, idx_info.undo_col])
+                    dropped_col_set.update(idx_info.columns)
 
             def dependent_str(c: Column) -> str:
                 """How a column that blocks a drop is named in the error, which is by index if it belongs to one."""
@@ -1872,13 +1873,17 @@ class Catalog(CatalogBase):
                 if c.name is not None:
                     return c.name
                 tv = c.get_tbl()
-                idx_info = next((i for i in tv.idxs.values() if c.id == i.val_col.id), None)
+                idx_info = next((i for i in tv.idxs.values() if i.val_col is not None and c.id == i.val_col.id), None)
                 assert idx_info is not None
                 return f'index {idx_info.name!r} on {tv.name!r}'
 
             def check_column_dependents(
                 dropped: Column | TableVersion.IndexInfo, drop_target: Literal['index', 'column']
             ) -> None:
+                if isinstance(dropped, TableVersion.IndexInfo) and dropped.val_col is None:
+                    assert dropped.undo_col is None, dropped
+                    # Index without value or undo columns -- nothing to do
+                    return
                 col = dropped.val_col if isinstance(dropped, TableVersion.IndexInfo) else dropped
                 # we exclude dependents that themselves are being dropped
                 remaining_dependents = [
@@ -1938,7 +1943,7 @@ class Catalog(CatalogBase):
                 pending_ancestor_ids = (set(tvp.tbl_ids[1:]) & updated_tbl_ids) - applied_tbl_ids
                 assert len(pending_ancestor_ids) == 0, f'{tv.name}: bases not yet applied: {pending_ancestor_ids}'
 
-                added_cols, added_idxs = model.prepare_model_updates(
+                added_cols, added_idxs = prepare_model_updates(
                     tvp, tv.display_str(), change_set['new_columns'], change_set['new_idxs']
                 )
                 dropped_cols = [tv.cols_by_name[name] for name in change_set['dropped_columns']]
@@ -2295,10 +2300,9 @@ class Catalog(CatalogBase):
             reload = False
 
             # live table; compare our cached TableMd.current_version/view_sn to what's stored
-            is_data_versioned = row.md.get('is_data_versioned', True)
             current_version = row.md['current_version']
             view_sn = row.md['view_sn']
-            if (is_data_versioned and current_version != tv.version) or view_sn != tv.tbl_md.view_sn:
+            if current_version != tv.version or view_sn != tv.tbl_md.view_sn:
                 _logger.debug(
                     f'reloading metadata for live table {key.tbl_id} '
                     f'(cached/current version: {tv.version}/{current_version}, '
@@ -3178,10 +3182,10 @@ class Catalog(CatalogBase):
         select_list: list[sql.ColumnElement | Literal['*']] = ['*']
         conditions: list[sql.ColumnElement] = []
         for idx_info in tv.idxs.values():
-            if isinstance(idx_info.idx, index.BtreeIndex):
+            if isinstance(idx_info.idx, index.BtreeIndex) and idx_info.val_col is not None:
                 # condition is the invariant violation that we are checking for
                 # add it to where clause, and also to select clause for easier debugging
-                if idx_info.val_col.col_type.is_string_type():
+                if idx_info.col.col_type.is_string_type():
                     condition = (
                         sql.func.left(idx_info.col.sa_col, index.BtreeIndex.MAX_STRING_LEN) != idx_info.val_col.sa_col
                     )
@@ -3236,6 +3240,8 @@ class Catalog(CatalogBase):
             select_list.append('*')
             conditions.clear()
             for idx_info in tv.idxs.values():
+                if idx_info.val_col is None:
+                    continue
                 # condition is the invariant violation that we are checking for
                 # add it to where clause, and also to select clause for easier debugging
                 condition = idx_info.val_col.sa_col != None

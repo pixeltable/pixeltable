@@ -37,12 +37,12 @@ from .globals import (
     IfNotExistsParam,
     MediaValidation,
     OnErrorParam,
-    QColumnId,
     is_valid_identifier,
 )
 from .table import Table
 from .table_path import TableVersionPath
 from .table_version_handle import TableVersionHandle
+from .types import QColumnId
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
@@ -139,7 +139,7 @@ class LocalTable(Table):
                 comment=col.comment,
                 custom_metadata=col.custom_metadata,
                 is_iterator_col=False,
-                destination=col._explicit_destination,
+                destination=col.display_destination,
             )
 
         indices = tv.idxs_by_name.values()
@@ -242,7 +242,8 @@ class LocalTable(Table):
         if mutable_only:
             views = [t for t in views if t._tbl_version_path.is_mutable()]
         if recursive:
-            views.extend(t for view in views for t in view._get_views(recursive=True, mutable_only=mutable_only))
+            descendants = [t for view in views for t in view._get_views(recursive=True, mutable_only=mutable_only)]
+            views.extend(descendants)
         return views
 
     def columns(self) -> list[str]:
@@ -681,7 +682,7 @@ class LocalTable(Table):
 
             if len(dependent_views) > 0:
                 dependent_views_str = '\n'.join(
-                    f'view: {view._path()}, predicate: {predicate}' for view, predicate in dependent_views
+                    sorted(f'view: {view._path()}, predicate: {predicate}' for view, predicate in dependent_views)
                 )
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -757,10 +758,6 @@ class LocalTable(Table):
         self, column: str | ColumnRef, *, idx_name: str | None = None, if_exists: Literal['error', 'ignore'] = 'error'
     ) -> None:
         self._check_mutable('add an index to')
-        assert self._tbl_version is None or self._tbl_version.get().is_data_versioned, (
-            'TODO: implement for operational tables [PXT-1101]'
-        )
-
         # A B-tree index is parameterless, so replacing one with another achieves nothing; only 'error' and
         # 'ignore' are meaningful.
         if if_exists not in ('error', 'ignore'):
@@ -796,7 +793,7 @@ class LocalTable(Table):
             ):
                 return
 
-            _ = tv.add_index(col, idx_name=idx_name, idx=index.BtreeIndex())
+            _ = tv.add_index(col, idx_name=idx_name, idx=index.BtreeIndex(uses_value_col=tv.is_data_versioned))
 
         FileCache.get().emit_eviction_warnings()
 
@@ -816,9 +813,6 @@ class LocalTable(Table):
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> None:
         self._validate_embedding_args(embedding, string_embed, image_embed)
-        assert self._tbl_version is None or self._tbl_version.get().is_data_versioned, (
-            'TODO: implement for operational tables [PXT-1101]'
-        )
 
         with get_runtime().catalog.begin_xact(
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
@@ -863,7 +857,7 @@ class LocalTable(Table):
                 document_embed=document_embed,
                 column=col,  # Pass column for shape validation
             )
-            _ = idx.create_value_expr(col)  # validation only; result discarded
+            _ = idx.create_value_expr(col.column_version_md())  # validation only; result discarded
 
             if idx_name is None:
                 # Unnamed index: duplicate detection is by index definition on this column.
@@ -1003,14 +997,16 @@ class LocalTable(Table):
                 )
             idx_info = idx_info_list[0]
 
-        # Find out if anything depends on this index
-        dependent_user_cols = self._get_dependent_user_cols(idx_info.val_col)
-        if len(dependent_user_cols) > 0:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Cannot drop index {idx_info.name!r} because the following columns depend on it:\n'
-                f'{", ".join(c.name for c in dependent_user_cols)}',
-            )
+        # Find out if anything depends on this index. An index that is created directly on the indexed column has no
+        # value column, and therefore nothing that can reference it.
+        if idx_info.val_col is not None:
+            dependent_user_cols = self._get_dependent_user_cols(idx_info.val_col)
+            if len(dependent_user_cols) > 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot drop index {idx_info.name!r} because the following columns depend on it:\n'
+                    f'{", ".join(c.name for c in dependent_user_cols)}',
+                )
         self._tbl_version.get().drop_index(idx_info.id)
 
     @overload

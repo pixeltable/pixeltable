@@ -38,7 +38,6 @@ def run(argv: list[str]) -> None:
     p.add_argument('--cpu', type=float, default=0.5, help='CPU cores per worker (default: 0.5)')
     p.add_argument('--memory', type=int, default=512, dest='memory_mb', help='Memory per worker in MB (default: 512)')
     p.add_argument('--disk', type=int, default=10, dest='disk_gb', help='Disk per worker in GB (default: 10)')
-    p.add_argument('--config', default=None, metavar='FILE', help='Path to an additional config file (TOML)')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
     p = sub.add_parser('update', help='update service routes or worker count')
@@ -47,7 +46,6 @@ def run(argv: list[str]) -> None:
     p.add_argument('--cpu', type=float, default=None, help='CPU cores per worker')
     p.add_argument('--memory', type=int, default=None, dest='memory_mb', help='Memory per worker in MB')
     p.add_argument('--disk', type=int, default=None, dest='disk_gb', help='Disk per worker in GB')
-    p.add_argument('--config', default=None, metavar='FILE', help='Path to an additional config file (TOML)')
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
     p = sub.add_parser('list', help='list services in a hosted database')
@@ -90,13 +88,10 @@ def run(argv: list[str]) -> None:
 
 def _create(args: argparse.Namespace) -> None:
     # imported lazily to keep the other service subcommands free of the pixeltable import
-    from pixeltable import config as pxt_config
     from pixeltable.serving._config import lookup_service_config
 
     org, db, base_path = parse_base_uri(args.base_uri, prog='pxt service create')
 
-    if args.config is not None:
-        pxt_config.Config.init({}, additional_config_files=[args.config])
     service_config = lookup_service_config(args.name).model_dump_json()
 
     resp = post_request(
@@ -125,13 +120,11 @@ def _create(args: argparse.Namespace) -> None:
 
 def _update(args: argparse.Namespace) -> None:
     # imported lazily to keep the other service subcommands free of the pixeltable import
-    from pixeltable import config as pxt_config, exceptions as excs
+    from pixeltable import exceptions as excs
     from pixeltable.serving._config import lookup_service_config
 
     org, db, svc_name = parse_service_uri(args.service_uri, prog='pxt service update')
 
-    additional_files = [args.config] if args.config is not None else []
-    pxt_config.Config.init({}, additional_config_files=additional_files)
     try:
         service_config = lookup_service_config(svc_name).model_dump_json()
     except excs.NotFoundError:

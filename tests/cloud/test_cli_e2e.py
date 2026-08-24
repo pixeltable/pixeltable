@@ -52,17 +52,29 @@ _CLOUD_HOST = os.environ.get('PIXELTABLE_CLOUD_HOST', 'dev.pxt.run')
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 
-def _cloud_env() -> dict[str, str]:
+def _cloud_env(config_file: Path | None = None) -> dict[str, str]:
     e = os.environ.copy()
     e['PIXELTABLE_API_KEY'] = _API_KEY
     e['PIXELTABLE_API_URL'] = _API_URL
     e['PIXELTABLE_CLOUD_HOST'] = _CLOUD_HOST
+    if config_file is not None:
+        # pxt service create and pxt service update send the service that the configured file declares, so
+        # the file holding the service under test has to be the one they read
+        e['PIXELTABLE_CONFIG'] = str(config_file)
     return e
 
 
-def _pxt(*args: str, cwd: Path | None = None, check: bool = True, timeout: int = 900) -> str:
+def _pxt(
+    *args: str, cwd: Path | None = None, check: bool = True, timeout: int = 900, config_file: Path | None = None
+) -> str:
     r = subprocess.run(
-        ['pxt', *args], capture_output=True, text=True, env=_cloud_env(), cwd=cwd, timeout=timeout, check=False
+        ['pxt', *args],
+        capture_output=True,
+        text=True,
+        env=_cloud_env(config_file),
+        cwd=cwd,
+        timeout=timeout,
+        check=False,
     )
     out = r.stdout + r.stderr
     if check and r.returncode != 0:
@@ -70,8 +82,8 @@ def _pxt(*args: str, cwd: Path | None = None, check: bool = True, timeout: int =
     return out
 
 
-def _pxt_json(*args: str, cwd: Path | None = None) -> str:
-    return _pxt(*args, '--json', cwd=cwd)
+def _pxt_json(*args: str, cwd: Path | None = None, config_file: Path | None = None) -> str:
+    return _pxt(*args, '--json', cwd=cwd, config_file=config_file)
 
 
 def _sdk(code: str) -> str:
@@ -365,7 +377,15 @@ class TestCloudE2E:
 
     def test_service_create(self, resources: Resources) -> None:
         out = _pxt_json(
-            'service', 'create', resources.svc_name, '--base-uri', resources.db_uri, '--workers', '1', cwd=_SAMPLE_APP
+            'service',
+            'create',
+            resources.svc_name,
+            '--base-uri',
+            resources.db_uri,
+            '--workers',
+            '1',
+            cwd=_SAMPLE_APP,
+            config_file=_SAMPLE_APP / 'pixeltable.toml',
         )
         assert resources.svc_name in out
 
@@ -453,9 +473,7 @@ class TestCloudE2E:
                     'one_row = true\n'
                     'method  = "get"\n'
                 )
-            _pxt_json(
-                'service', 'update', resources.svc_uri, '--workers', '2', '--config', str(tmp_toml), cwd=_SAMPLE_APP
-            )
+            _pxt_json('service', 'update', resources.svc_uri, '--workers', '2', cwd=_SAMPLE_APP, config_file=tmp_toml)
         out = _wait_for_state('service', resources.svc_uri, 'AVAILABLE', timeout=180)
         assert 'AVAILABLE' in out
 

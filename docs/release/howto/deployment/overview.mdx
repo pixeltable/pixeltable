@@ -327,12 +327,12 @@ app.include_router(router)
 
 ### Approach 3: Declarative Serving (`pxt serve`)
 
-Generate a complete REST API from a TOML config. No FastAPI code, no frontend, no hand-written endpoints. Define your schema in Python, declare routes in `pyproject.toml`, and run `pxt serve`.
+Generate a complete REST API from a TOML config. No FastAPI code, no frontend, no hand-written endpoints. Define your schema in Python, declare routes in the Pixeltable config file, and run `pxt serve`.
 
 ```mermaid
 flowchart LR
     Client["REST Client / cURL"]
-    TOML["pyproject.toml"]
+    TOML["config.toml"]
 
     subgraph PXT["pxt serve"]
         API["Auto-generated FastAPI"]
@@ -353,7 +353,7 @@ flowchart LR
 
   <Accordion title="Architecture" icon="sitemap">
     - Define tables, views, computed columns, embedding indexes in `schema.py`
-    - Declare routes in `pyproject.toml` using `[[tool.pixeltable.service.routes]]`
+    - Declare routes in the Pixeltable config file using `[[pixeltable.service.routes]]`
     - Run `pxt serve my-service` to generate and start a FastAPI app
     - Supports insert, query, delete, and `export_sql` route types
     - Auto-generates OpenAPI/Swagger docs
@@ -370,35 +370,33 @@ flowchart LR
 </AccordionGroup>
 
 ```toml
-# pyproject.toml
-[project]
-name = "my-api"
-requires-python = ">=3.11"
-
-[[tool.pixeltable.service]]
+# ~/.pixeltable/config.toml
+[[pixeltable.service]]
 name = "my-service"
 prefix = "/api"
-modules = ["schema"]
 
-[[tool.pixeltable.service.routes]]
+[[pixeltable.service.routes]]
 type = "query"
 path = "/search"
 query = "schema:search_documents"
 
-[[tool.pixeltable.service.routes]]
+[[pixeltable.service.routes]]
 type = "insert"
 table = "pipeline.documents"
 path = "/ingest"
 inputs = ["title", "body"]
 outputs = ["title", "body"]
 
-[[tool.pixeltable.service.routes]]
-type = "export_sql"
-path = "/export"
-query = "schema:export_query"
-db_url = "postgresql+psycopg://user:pass@host/db"
-table_name = "exported_docs"
-if_exists = "replace"
+[[pixeltable.service.routes]]
+type = "insert"
+table = "pipeline.documents"
+path = "/ingest-and-export"
+inputs = ["title", "body"]
+outputs = ["title", "body"]
+
+[pixeltable.service.routes.export_sql]
+db_connect = "postgresql+psycopg://user:pass@host/db"
+table = "exported_docs"
 ```
 
 ```bash

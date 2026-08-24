@@ -11,7 +11,7 @@ import errno
 import json
 import pathlib
 import textwrap
-from typing import Any
+from collections.abc import Iterator
 from unittest.mock import patch
 
 import pytest
@@ -20,14 +20,6 @@ import pixeltable as pxt
 from pixeltable import config
 from pixeltable_cli.client.main import main as cli_main
 from tests.utils import skip_test_if_not_installed
-
-# Mock Config.init to allow re-initialization for in-process cli_main() calls.
-
-_ORIG_CONFIG_INIT = config.Config.init.__func__  # type: ignore[attr-defined]
-
-
-def _init_with_reinit(config_overrides: dict[str, Any], additional_config_files: list[str] | None = None) -> None:
-    _ORIG_CONFIG_INIT(config.Config, config_overrides, additional_config_files, reinit=True)
 
 
 def _run_cli(
@@ -41,7 +33,7 @@ def _run_cli(
     """Invoke cli_main, assert exit code, and optionally assert stdout/stderr substrings."""
     actual_exit_code: int | str | None = 0
 
-    with patch('sys.argv', argv), patch('pixeltable_cli.client.commands.serve.config.Config.init', _init_with_reinit):
+    with patch('sys.argv', argv):
         try:
             cli_main()
         except SystemExit as e:
@@ -69,6 +61,12 @@ def _run_cli(
 
 
 class TestCLI:
+    @pytest.fixture(autouse=True)
+    def restore_config(self) -> Iterator[None]:
+        """Rebuild the Config singleton after a test that repointed PIXELTABLE_CONFIG at its own file."""
+        yield
+        config.Config.init(reinit=True)
+
     def test_arg_parsing(self, capsys: pytest.CaptureFixture) -> None:
         _run_cli(['pxt'], capsys, stdout='usage:')
         _run_cli(['pxt', '--version'], capsys, stdout=pxt.__version__)
@@ -77,7 +75,9 @@ class TestCLI:
         _run_cli(['pxt', 'serve', 'delete'], capsys, exit_code=2, stderr='Examples:')
         _run_cli(['pxt', 'serve', 'query'], capsys, exit_code=2, stderr='Examples:')
 
-    def test_dry_run(self, capsys: pytest.CaptureFixture, tmp_path: pathlib.Path) -> None:
+    def test_dry_run(
+        self, capsys: pytest.CaptureFixture, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         skip_test_if_not_installed('fastapi')
 
         # insert plain
@@ -146,20 +146,18 @@ class TestCLI:
 
         config_path = tmp_path / 'service.toml'
         config_path.write_text(config_file_contents)
+        monkeypatch.setenv('PIXELTABLE_CONFIG', str(config_path))
+        config.Config.init(reinit=True)
 
-        _run_cli(
-            ['pxt', 'serve', 'dry-run-service', '--config', str(config_path), '--dry-run'],
-            capsys,
-            stdout=['dry-run-service', '[insert]'],
-        )
+        _run_cli(['pxt', 'serve', 'dry-run-service', '--dry-run'], capsys, stdout=['dry-run-service', '[insert]'])
 
-        _run_cli(['pxt', 'serve', 'dry-run-service', '--config', str(config_path), '--dry-run', '--json'], capsys)
+        _run_cli(['pxt', 'serve', 'dry-run-service', '--dry-run', '--json'], capsys)
         data = json.loads(capsys.readouterr().out)
         assert data['name'] == 'dry-run-service'
         assert data['port'] == 9999
         assert data['routes'][0]['type'] == 'insert'
 
-    def test_serve_routes(self, init_env: None, tmp_path: pathlib.Path) -> None:
+    def test_serve_routes(self, init_env: None, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """CLI args are correctly wired into AppConfig and RouteConfig objects."""
         skip_test_if_not_installed('fastapi', 'uvicorn')
 
@@ -183,11 +181,10 @@ class TestCLI:
             # config: TOML load + --port override
             config_path = tmp_path / 'service.toml'
             config_path.write_text(config_file_contents)
+            monkeypatch.setenv('PIXELTABLE_CONFIG', str(config_path))
+            config.Config.init(reinit=True)
             mock_load.return_value = config.ServiceConfig(name='test-service', host='127.0.0.1', port=7777, routes=[])
-            with (
-                patch('sys.argv', ['pxt', 'serve', 'test-service', '--config', str(config_path), '--port', '9999']),
-                patch('pixeltable_cli.client.commands.serve.config.Config.init', _init_with_reinit),
-            ):
+            with patch('sys.argv', ['pxt', 'serve', 'test-service', '--port', '9999']):
                 cli_main()
             mock_load.assert_called_once_with('test-service')
             cfg = mock_create.call_args.args[0]

@@ -35,7 +35,7 @@ class TestDbRuntimeBundle:
     def test_bundle_layout(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Bundle always contains metadata.json and project/; nothing else at root."""
         monkeypatch.chdir(tmp_path)
-        Config.init({}, reinit=True)
+        Config.init(reinit=True)
 
         # newline='\n' so the write isn't translated to CRLF on Windows (the content assertion below is exact)
         (tmp_path / 'udfs.py').write_text('import pixeltable as pxt\n', newline='\n')
@@ -66,26 +66,27 @@ class TestDbRuntimeBundle:
             with tar.extractfile(tar.getmember('project/udfs.py')) as f:
                 assert f.read().decode() == 'import pixeltable as pxt\n'
 
-    def test_bundle_include_exclude(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """include= limits which project files are bundled; exclude= removes matched files."""
-        (tmp_path / 'a_include.py').write_text('# included')
+    def test_bundle_include_exclude(self, tmp_path: Path) -> None:
+        (tmp_path / 'a_include.txt').write_text('# included by default')
+        (tmp_path / 'b_exclude.txt').write_text('# excluded explicitly')
+        (tmp_path / 'a_include.py').write_text('# exclude-then-include')
         (tmp_path / 'a_exclude.py').write_text('# excluded')
-        (tmp_path / 'b_exclude.txt').write_text('# excluded (not in include)')
 
         (tmp_path / 'pixeltable.toml').write_text(
             textwrap.dedent("""\
-                [pixeltable.database]
-                include = ["*.py", "*.toml"]
-                exclude = ["a_exclude.py"]
+                [pixeltable.clouddb]
+                exclude = ["*.py", "b_exclude.txt"]
+                include = ["a_include.py"]
             """)
         )
-        monkeypatch.chdir(tmp_path)
-        Config.init({}, reinit=True)
+
+        Config.init(reinit=True)
 
         bundle_path = build_db_runtime_bundle(tmp_path)
 
         with tarfile.open(bundle_path, 'r:bz2') as tar:
             members = tar.getnames()
+            assert 'project/a_include.txt' in members
             assert 'project/a_include.py' in members
             assert 'project/pixeltable.toml' in members
             assert 'project/a_exclude.py' not in members
@@ -99,6 +100,8 @@ class TestDbRuntimeBundle:
         (tmp_path / '__pycache__' / 'app.cpython-311.pyc').write_bytes(b'\x00')
         (tmp_path / '.env').write_text('SECRET=abc')
 
+        Config.init(reinit=True)
+
         bundle_path = build_db_runtime_bundle(tmp_path)
 
         with tarfile.open(bundle_path, 'r:bz2') as tar:
@@ -110,7 +113,7 @@ class TestDbRuntimeBundle:
     def test_bundle_uv_lock_included(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """uv.lock in the project dir is included under project/ for server-side uv sync."""
         monkeypatch.chdir(tmp_path)
-        Config.init({}, reinit=True)
+        Config.init(reinit=True)
 
         (tmp_path / 'uv.lock').write_text('version = 1\n')
         (tmp_path / 'pyproject.toml').write_text('[project]\nname = "app"\n')
@@ -128,12 +131,12 @@ class TestDbRuntimeBundle:
         """system_dependencies from pixeltable.toml are validated and written to metadata.json."""
         (tmp_path / 'pixeltable.toml').write_text(
             textwrap.dedent("""\
-                [pixeltable.database]
+                [pixeltable.clouddb]
                 system_dependencies = ["ffmpeg", "libpq"]
             """)
         )
         monkeypatch.chdir(tmp_path)
-        Config.init({}, reinit=True)
+        Config.init(reinit=True)
 
         bundle_path = build_db_runtime_bundle(tmp_path)
 
@@ -144,7 +147,7 @@ class TestDbRuntimeBundle:
     def test_bundle_no_system_dependencies(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """No system_dependencies → metadata.json has no system_dependencies key."""
         monkeypatch.chdir(tmp_path)
-        Config.init({}, reinit=True)
+        Config.init(reinit=True)
 
         bundle_path = build_db_runtime_bundle(tmp_path)
 
@@ -161,7 +164,7 @@ class TestDbRuntimeBundle:
     def test_bundle_conda_env(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """An active conda environment is exported to project/conda-environment.yaml, minus pixeltable itself."""
         monkeypatch.chdir(tmp_path)
-        Config.init({}, reinit=True)
+        Config.init(reinit=True)
 
         exported = textwrap.dedent("""\
             name: pxt
@@ -191,7 +194,7 @@ class TestDbRuntimeBundle:
     def test_bundle_conda_env_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """An active conda environment that can't be exported fails the build rather than dropping its deps."""
         monkeypatch.chdir(tmp_path)
-        Config.init({}, reinit=True)
+        Config.init(reinit=True)
         monkeypatch.setenv('CONDA_PREFIX', str(tmp_path / 'envs' / 'pxt'))
 
         monkeypatch.delenv('CONDA_EXE', raising=False)
@@ -216,11 +219,11 @@ class TestDbRuntimeBundle:
 
         (tmp_path / 'pixeltable.toml').write_text(
             textwrap.dedent("""\
-                [pixeltable.database]
+                [pixeltable.clouddb]
                 include = "not-a-list"
             """)
         )
         monkeypatch.chdir(tmp_path)
-        Config.init({}, reinit=True)
-        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'Invalid \[pixeltable\.database\]'):
+        Config.init(reinit=True)
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'Invalid \[pixeltable\.clouddb\]'):
             build_db_runtime_bundle(tmp_path)

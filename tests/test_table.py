@@ -29,10 +29,10 @@ from .utils import (
     CatalogMode,
     DummyIterator,
     DummyIterator2,
-    MediaStore,
     ReloadTester,
     assert_resultset_eq,
     assert_table_metadata_eq,
+    check_media_store_count,
     create_table_data,
     create_test_tbl,
     get_audio_files,
@@ -125,9 +125,9 @@ class TestTable:
         tbl = pxt.create_table(p('test'), schema)
         _ = pxt.create_table(p('dir1/test'), schema)
 
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Invalid path: 1test'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*1test'):
             pxt.create_table(p('1test'), schema)
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Invalid path: bad name'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*bad name'):
             pxt.create_table(p('bad name'), {'c1': pxt.String | None})
         with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Versioned path not allowed here: .*test:120'):
             pxt.create_table(p('test:120'), schema)
@@ -139,7 +139,7 @@ class TestTable:
         _ = pxt.list_tables(p(''))
         _ = pxt.list_tables(p('dir1'))
 
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match='Invalid path: 1dir'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*1dir'):
             pxt.list_tables(p('1dir'))
         with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
             pxt.list_tables(p('dir2'))
@@ -163,11 +163,11 @@ class TestTable:
         pxt.create_dir(p('hyphenated-dir'))
         _ = pxt.create_table(p('hyphenated-dir/hyphenated-table'), schema)
 
-        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match="Path 'test' does not exist"):
+        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match=r"Path '.*test' does not exist"):
             pxt.drop_table(p('test'))
-        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match=r"Path 'dir1/test2' does not exist"):
+        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match=r"Path '.*dir1/test2' does not exist"):
             pxt.drop_table(p('dir1/test2'))
-        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .test2'):
+        with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*\.test2'):
             pxt.drop_table(p('.test2'))
         with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Versioned path not allowed here: .*test2:120'):
             pxt.drop_table(p('test2:120'))
@@ -280,14 +280,14 @@ class TestTable:
         pxt.create_table(p('tbl3'), {'c1': pxt.Int | None})
         assert sorted(pxt.list_tables(p(''))) == sorted([p('tbl2'), p('tbl3')])
 
-        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match=r"Path 'tbl3' already exists."):
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match=r"Path '.*tbl3' already exists."):
             pxt.move(p('tbl2'), p('tbl3'))
         assert sorted(pxt.list_tables(p(''))) == sorted([p('tbl2'), p('tbl3')])
 
         pxt.move(p('tbl2'), p('tbl3'), if_exists='ignore')
         assert sorted(pxt.list_tables(p(''))) == sorted([p('tbl2'), p('tbl3')])
 
-        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match=r"Path 'tbl1' does not exist."):
+        with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match=r"Path '.*tbl1' does not exist."):
             pxt.move(p('tbl1'), p('tbl4'))
         assert sorted(pxt.list_tables(p(''))) == sorted([p('tbl2'), p('tbl3')])
 
@@ -1021,7 +1021,7 @@ class TestTable:
         # the media column is compared by content; columns that quote the stored file path (the localpath, and the
         # bad video's error message) are compared only over a collocated store, where the two tables share the
         # source file rather than each holding a distinct shipped copy
-        on_read_path_cols = [] if catalog_mode == 'proxy' else [on_read_tbl.media.localpath, on_read_tbl.media.errormsg]
+        on_read_path_cols = [on_read_tbl.media.localpath, on_read_tbl.media.errormsg] if catalog_mode == 'local' else []
         on_read_res = reload_tester.run_query(
             on_read_tbl.select(
                 on_read_tbl.media, *on_read_path_cols, on_read_tbl.media.errortype, on_read_tbl.is_bad_media
@@ -1032,7 +1032,7 @@ class TestTable:
         status = on_write_tbl.insert(rows, on_error='ignore')
         assert status.num_excs == 1
         on_write_path_cols = (
-            [] if catalog_mode == 'proxy' else [on_write_tbl.media.localpath, on_write_tbl.media.errormsg]
+            [on_write_tbl.media.localpath, on_write_tbl.media.errormsg] if catalog_mode == 'local' else []
         )
         on_write_res = reload_tester.run_query(
             on_write_tbl.select(
@@ -1058,7 +1058,7 @@ class TestTable:
         # the media column is compared by content, so it stays consistent across the two inserts; columns that
         # quote the stored file path (the localpath, and the bad video's error message) are compared only over a
         # collocated store, where the path is the shared source file rather than a distinct per-insert copy
-        path_cols = [] if catalog_mode == 'proxy' else [on_read_tbl.media.localpath, on_read_tbl.media.errormsg]
+        path_cols = [on_read_tbl.media.localpath, on_read_tbl.media.errormsg] if catalog_mode == 'local' else []
         status = on_read_tbl.insert(({**r, 'stage': 0} for r in rows), on_error='ignore')
         assert status.num_excs == 1
         on_read_res_1 = (
@@ -1995,7 +1995,7 @@ class TestTable:
             'img_literal': pxt.Image | None,
         }
         tbl = pxt.create_table(p('test'), schema)
-        assert MediaStore.count(tbl, default_input_dest=True) == 0
+        check_media_store_count(tbl, 0, catalog_mode, default_input_dest=True)
 
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         sample_rows = random.sample(rows, n_sample_rows)
@@ -2011,7 +2011,7 @@ class TestTable:
         shipped_img = n_sample_rows if catalog_mode == 'proxy' else 0
 
         tbl.insert(sample_rows)
-        assert MediaStore.count(tbl, default_input_dest=True) == n_sample_rows + shipped_img
+        check_media_store_count(tbl, n_sample_rows + shipped_img, catalog_mode, default_input_dest=True)
 
         # compare img and img_literal
         # TODO: make tbl.select(tbl.img == tbl.img_literal) work
@@ -2023,15 +2023,15 @@ class TestTable:
         # Test adding stored image transformation
         tbl.add_computed_column(rotated=tbl.img.rotate(30), stored=True)
         if Env.get().default_input_media_dest == Env.get().default_output_media_dest:
-            assert MediaStore.count(tbl, default_input_dest=True) == 2 * n_sample_rows + shipped_img
+            check_media_store_count(tbl, 2 * n_sample_rows + shipped_img, catalog_mode, default_input_dest=True)
 
         # Test that version-specific images are cleared when table is reverted
         tbl.revert()
-        assert MediaStore.count(tbl, default_input_dest=True) == n_sample_rows + shipped_img
+        check_media_store_count(tbl, n_sample_rows + shipped_img, catalog_mode, default_input_dest=True)
 
         # Test that all stored images are cleared when table is dropped
         pxt.drop_table(p('test'))
-        assert MediaStore.count(tbl, default_input_dest=True) == 0
+        check_media_store_count(tbl, 0, catalog_mode, default_input_dest=True)
 
     def test_schema_spec(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
@@ -2393,8 +2393,11 @@ class TestTable:
             assert container.streams.video[0].codec_context.name == 'h264'
 
     @rerun_on_network_error()
-    def test_create_video_table(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_create_video_table(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         p = make_catalog_path
+        if catalog_mode == 'cloud':
+            # TODO: Fix this [PXT-1312]
+            pytest.skip('Cloud service hangs on first insert [PXT-1312]')
         if Env.get().is_using_cockroachdb:
             # TODO(PXT-921): fix this on CockroachDB
             pytest.skip(
@@ -2422,10 +2425,10 @@ class TestTable:
         status = tbl.insert(payload=1, video=url)
         assert status.num_excs == 0
         # * 2: we have 2 stored img cols
-        assert MediaStore.count(view, default_output_dest=True) == view.count() * 2
+        check_media_store_count(view, view.count() * 2, catalog_mode, default_output_dest=True)
         # also insert a local file
         tbl.insert(payload=1, video=get_video_files()[0])
-        assert MediaStore.count(view, default_output_dest=True) == view.count() * 2
+        check_media_store_count(view, view.count() * 2, catalog_mode, default_output_dest=True)
 
         # TODO: test inserting Nulls
         # status = tbl.insert(payload=1, video=None)
@@ -2434,7 +2437,7 @@ class TestTable:
         # revert() clears stored images
         tbl.revert()
         tbl.revert()
-        assert MediaStore.count(view, default_output_dest=True) == 0
+        check_media_store_count(view, 0, catalog_mode, default_output_dest=True)
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'because the following columns depend on it:\nc1'):
             view.drop_column('frame')
@@ -2447,7 +2450,7 @@ class TestTable:
             pxt.drop_table(p('test_tbl'))
         pxt.drop_table(p('test_view'))
         pxt.drop_table(p('test_tbl'))
-        assert MediaStore.count(view, default_output_dest=True) == 0
+        check_media_store_count(view, 0, catalog_mode, default_output_dest=True)
 
     @rerun_on_network_error()
     def test_video_urls(self, make_catalog_path: Callable[[str], str]) -> None:
@@ -3190,6 +3193,10 @@ class TestTable:
         assert results.schema.get('cc1') is None
 
     def _test_computed_img_cols(self, t: pxt.Table, stores_img_col: bool, catalog_mode: CatalogMode) -> None:
+        if catalog_mode == 'cloud':
+            # TODO: Fix this [PXT-1312]
+            pytest.skip('Cloud service hangs on first insert [PXT-1312]')
+
         # over the proxy, img (inserted from local file paths) is shipped and persisted in the daemon media store,
         # which the default config shares with the output dest, so each row also contributes one stored input image
         def expected(tbl: pxt.Table) -> int:
@@ -3201,7 +3208,7 @@ class TestTable:
         assert status.num_rows == 20
         _ = t.count()
         _ = t.show()
-        assert MediaStore.count(t, default_output_dest=True) == expected(t)
+        check_media_store_count(t, expected(t), catalog_mode, default_output_dest=True)
 
         # test loading from store
         reload_catalog()
@@ -3214,13 +3221,13 @@ class TestTable:
 
         # make sure we can still insert data and that computed cols are still set correctly
         t2.insert(rows)
-        assert MediaStore.count(t2, default_output_dest=True) == expected(t2)
+        check_media_store_count(t2, expected(t2), catalog_mode, default_output_dest=True)
         _ = t2.collect()
         _ = t2.collect().to_pandas()
 
         # revert also removes computed images
         t2.revert()
-        assert MediaStore.count(t2, default_output_dest=True) == expected(t2)
+        check_media_store_count(t2, expected(t2), catalog_mode, default_output_dest=True)
 
     @staticmethod
     @pxt.udf
@@ -3908,6 +3915,11 @@ class TestTable:
         catalog_mode: CatalogMode,
     ) -> None:
         p = make_catalog_path
+
+        def loc(path: str) -> str:
+            """Localized version of p(path), without the pxt://org:db/ prefix"""
+            return pxt.catalog.Path.localize(p(path))
+
         validate_repr(
             test_tbl,
             f"""
@@ -3930,7 +3942,7 @@ class TestTable:
         validate_repr(
             v,
             f"""
-            view '{p('test_view')}' (of 'test_tbl')
+            view '{p('test_view')}' (of '{loc('test_tbl')}')
 
              Column Name                  Type    Source           Computed With                      Comment
             -------------------------------------------------------------------------------------------------
@@ -3952,7 +3964,7 @@ class TestTable:
         validate_repr(
             v2,
             f"""
-            view '{p('test_subview')}' (of 'test_view', 'test_tbl')
+            view '{p('test_subview')}' (of '{loc('test_view')}', '{loc('test_tbl')}')
             Where: ~(c1 == None)
 
              Column Name                  Type        Source           Computed With                      Comment
@@ -3981,7 +3993,7 @@ class TestTable:
         validate_repr(
             s1,
             f"""
-            snapshot '{p('test_snap1')}' (of 'test_subview:2', 'test_view:0', 'test_tbl:2')
+            snapshot '{p('test_snap1')}' (of '{loc('test_subview:2')}', '{loc('test_view:0')}', '{loc('test_tbl:2')}')
             Where: ~(c1 == None)
 
              Column Name                  Type        Source           Computed With                      Comment
@@ -4006,7 +4018,7 @@ class TestTable:
         validate_repr(
             s2,
             f"""
-            snapshot '{p('test_snap2')}' (of 'test_tbl:2')
+            snapshot '{p('test_snap2')}' (of '{loc('test_tbl:2')}')
 
              Column Name                  Type    Source           Computed With                      Comment
             -------------------------------------------------------------------------------------------------
@@ -4026,7 +4038,7 @@ class TestTable:
         validate_repr(
             s3,
             f"""
-            snapshot '{p('test_snap3')}' (of 'test_tbl:2')
+            snapshot '{p('test_snap3')}' (of '{loc('test_tbl:2')}')
 
              Column Name                  Type      Source           Computed With                      Comment
             ---------------------------------------------------------------------------------------------------
@@ -4065,8 +4077,8 @@ class TestTable:
         iterator_view_1 = pxt.create_view(p('iterator_view_1'), s1, iterator=DummyIterator(s1.c2))
         validate_repr(
             iterator_view_1,
-            """
-            view 'iterator_view_1' (of 'test_subview:2', 'test_view:0', 'test_tbl:2')
+            f"""
+            view 'iterator_view_1' (of '{loc('test_subview:2')}', '{loc('test_view:0')}', '{loc('test_tbl:2')}')
 
              Column Name                  Type           Source           Computed With                      Comment
             --------------------------------------------------------------------------------------------------------
@@ -4096,8 +4108,8 @@ class TestTable:
         iterator_view_2.add_computed_column(iterator_view_2_col_2=stock_price(iterator_view_2.iterator_view_2_col_1))
         validate_repr(
             iterator_view_2,
-            """
-            view 'iterator_view_2' (of 'iterator_view_1', 'test_subview:2', 'test_view:0', 'test_tbl:2')
+            f"""
+            view 'iterator_view_2' (of '{loc('iterator_view_1')}', '{loc('test_subview:2')}', '{loc('test_view:0')}', '{loc('test_tbl:2')}')
 
                         Column Name                  Type           Source                       Computed With                      Comment
             -------------------------------------------------------------------------------------------------------------------------------
@@ -4237,31 +4249,28 @@ class TestTable:
 
         with pxt_raises(
             pxt.ErrorCode.UNSUPPORTED_OPERATION,
-            match="Cannot drop column 'c1' because the following views depend on it",
-        ) as e:
+            match=r"Cannot drop column 'c1' because the following views depend on it:\n"
+            r'view: .*view1, predicate: c1 % 2 == 0\n'
+            r'view: .*view2, predicate: \(c1 \+ vc1\) % 2 == 0\n'
+            r'view: .*view3, predicate: \(\(vc1 \+ vc2\) - \(c1 \+ c2\)\) % 5 == 0',
+        ):
             t.drop_column('c1')
 
-        assert 'view: view1, predicate: c1 % 2 == 0' in str(e.value).lower()
-        assert 'view: view2, predicate: (c1 + vc1) % 2 == 0' in str(e.value).lower()
-        assert 'view: view3, predicate: ((vc1 + vc2) - (c1 + c2)) % 5 == 0' in str(e.value).lower()
-
         with pxt_raises(
             pxt.ErrorCode.UNSUPPORTED_OPERATION,
-            match="Cannot drop column 'c2' because the following views depend on it",
-        ) as e:
+            match=r"Cannot drop column 'c2' because the following views depend on it:\n"
+            r'view: .*view3, predicate: \(\(vc1 \+ vc2\) - \(c1 \+ c2\)\) % 5 == 0\n'
+            r'view: .*view4, predicate: c2 / vc3 < 19',
+        ):
             t.drop_column('c2')
 
-        assert 'view: view3, predicate: ((vc1 + vc2) - (c1 + c2)) % 5 == 0' in str(e.value).lower()
-        assert 'view: view4, predicate: c2 / vc3 < 19' in str(e.value).lower()
-
         with pxt_raises(
             pxt.ErrorCode.UNSUPPORTED_OPERATION,
-            match="Cannot drop column 'vc1' because the following views depend on it",
-        ) as e:
+            match=r"Cannot drop column 'vc1' because the following views depend on it:\n"
+            r'view: .*view2, predicate: \(c1 \+ vc1\) % 2 == 0\n'
+            r'view: .*view3, predicate: \(\(vc1 \+ vc2\) - \(c1 \+ c2\)\) % 5 == 0',
+        ):
             v1.drop_column('vc1')
-
-        assert 'view: view2, predicate: (c1 + vc1) % 2 == 0' in str(e.value).lower()
-        assert 'view: view3, predicate: ((vc1 + vc2) - (c1 + c2)) % 5 == 0' in str(e.value).lower()
 
     def test_drop_last_column(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
         p = make_catalog_path
