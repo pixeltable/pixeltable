@@ -639,6 +639,7 @@ class TestIndex:
         make_catalog_path: Callable[[str], str],
         local_embed: pxt.Function,
         reload_tester: ReloadTester,
+        is_data_versioned: bool,
     ) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('imagehash')
@@ -648,7 +649,7 @@ class TestIndex:
         # create table with fewer rows to speed up testing
         schema: dict[str, Any] = {'img': pxt.Image | None, 'category': pxt.String | None, 'split': pxt.String | None}
         tbl_name = p('index_test')
-        img_t = pxt.create_table(tbl_name, schema)
+        img_t = pxt.create_table(tbl_name, schema, _is_data_versioned=is_data_versioned)
         img_t.insert(rows[:30])
         img_t.add_btree_index(img_t.img, idx_name='img_btree')
         dummy_img_t = pxt.create_table(p('dummy'), schema)
@@ -682,47 +683,54 @@ class TestIndex:
             img_t.add_embedding_index(img_t.img, idx_name='img_emb_idx', image_embed=local_embed)
         assert 'duplicate index name' in str(exc_info.value).lower()
 
-        img_t.add_embedding_index(img_t.category, idx_name='cat_idx', string_embed=local_embed)
+        if is_data_versioned:
+            img_t.add_embedding_index(img_t.category, idx_name='cat_idx', string_embed=local_embed)
 
-        # revert() removes the index
-        img_t.revert()
-        with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND) as exc_info:
-            img_t.drop_embedding_index(column='category')
-        assert 'does not have an index' in str(exc_info.value).lower()
-        with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND) as exc_info:
-            img_t.drop_embedding_index(column=img_t.category)
-        assert 'does not have an index' in str(exc_info.value).lower()
+            # revert() removes the index
+            img_t.revert()
+            with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND) as exc_info:
+                img_t.drop_embedding_index(column='category')
+            assert 'does not have an index' in str(exc_info.value).lower()
+            with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND) as exc_info:
+                img_t.drop_embedding_index(column=img_t.category)
+            assert 'does not have an index' in str(exc_info.value).lower()
 
-        rows = list(img_t.collect())
-        status = img_t.update({'split': 'other'}, where=img_t.split == 'test')
-        assert status.num_excs == 0
+        # update() is not implemented for operational tables yet [PXT-1101]
+        if is_data_versioned:
+            rows = list(img_t.collect())
+            status = img_t.update({'split': 'other'}, where=img_t.split == 'test')
+            assert status.num_excs == 0
 
-        status = img_t.delete()
-        assert status.num_excs == 0
+            status = img_t.delete()
+            assert status.num_excs == 0
 
-        # revert delete()
-        img_t.revert()
-        # revert update()
-        img_t.revert()
+            # revert delete()
+            img_t.revert()
+            # revert update()
+            img_t.revert()
 
         # make sure we can still do DML after reloading the metadata
         query = img_t.select().order_by(img_t.img)
         _ = reload_tester.run_query(query)
         reload_tester.run_reload_test(clear=True)
         img_t = pxt.get_table(tbl_name)
-        status = img_t.insert(rows)
-        assert status.num_excs == 0
 
-        status = img_t.update({'split': 'other'}, where=img_t.split == 'test')
-        assert status.num_excs == 0
+        # update() is not implemented for operational tables yet [PXT-1101]
+        if is_data_versioned:
+            status = img_t.insert(rows)
+            assert status.num_excs == 0
 
-        status = img_t.delete()
-        assert status.num_excs == 0
+            status = img_t.update({'split': 'other'}, where=img_t.split == 'test')
+            assert status.num_excs == 0
 
-        # revert delete()
-        img_t.revert()
-        # revert update()
-        img_t.revert()
+            status = img_t.delete()
+            assert status.num_excs == 0
+
+            # revert delete()
+            img_t.revert()
+            # revert update()
+            img_t.revert()
+            img_t = pxt.get_table(tbl_name)
 
         # multiple indices
         img_t.add_embedding_index(img_t.img, idx_name='other_idx', embedding=local_embed)
