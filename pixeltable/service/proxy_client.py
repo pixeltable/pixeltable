@@ -327,18 +327,23 @@ class ProxyClient:
         head, response_parts = decode_body(self._transport.post(body))
         return head.decode(), response_parts
 
+    def _prepare(self, args: dict[str, Any]) -> tuple[dict[str, Any], list[bytes]]:
+        """Serialize args for the wire, exactly once per logical request (media files are read, and for a
+        hosted catalog uploaded, here; CAS retries must reuse the result rather than repeating that work)."""
+        sink = self._transport.new_part_sink()
+        return proxy_protocol.serialize_args(args, sink), sink.binary_parts
+
     def _post(
         self,
         class_name: str,
         method: str,
-        args: dict[str, Any],
+        wire_args: dict[str, Any],
+        parts: list[bytes],
         *,
         path_key: TablePathKey | None = None,
         snapshot_key: TablePathKey | None = None,
     ) -> ProxyResponse:
         """POST one attempt of a prepared request and return the raw response."""
-        sink = self._transport.new_part_sink()
-        wire_args = proxy_protocol.serialize_args(args, sink)
         request = ProxyRequest(
             class_name=class_name,
             method=method,
@@ -346,7 +351,7 @@ class ProxyClient:
             path_key=None if path_key is None else path_key.as_dict(),
             snapshot_path_key=None if snapshot_key is None else snapshot_key.as_dict(),
         )
-        response_json, response_parts = self._send(request.model_dump_json(), sink.binary_parts)
+        response_json, response_parts = self._send(request.model_dump_json(), parts)
         response = ProxyResponse.model_validate_json(response_json)
         response._binary_parts = response_parts
         return response
@@ -361,7 +366,8 @@ class ProxyClient:
         snapshot_key: TablePathKey | None = None,
     ) -> ProxyResponse:
         """Run class_name.method(**args) on the server and return the raw response."""
-        return self._post(class_name, method, args, path_key=path_key, snapshot_key=snapshot_key)
+        wire_args, parts = self._prepare(args)
+        return self._post(class_name, method, wire_args, parts, path_key=path_key, snapshot_key=snapshot_key)
 
     def send_request(self, class_name: str, method: str, args: dict[str, Any]) -> Any:
         """Run a (path-less) catalog method and return its (deserialized) result."""
@@ -380,9 +386,10 @@ class ProxyClient:
         refresh: Callable[[list], None],
     ) -> Any:
         """Run a Table method, refreshing the caller's local md from any current_md the server returns."""
+        wire_args, parts = self._prepare(args)
         while True:
             snapshot_key = get_snapshot_key()
-            response = self._post('Table', method, args, path_key=path_key, snapshot_key=snapshot_key)
+            response = self._post('Table', method, wire_args, parts, path_key=path_key, snapshot_key=snapshot_key)
             if response.current_md is not None:
                 refresh(proxy_protocol.deserialize_response(response, response.current_md))
             if response.error is not None:
