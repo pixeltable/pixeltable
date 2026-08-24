@@ -17,6 +17,7 @@ from pixeltable.functions.string import isalpha, isascii
 from pixeltable.functions.video import frame_iterator
 
 from .utils import (
+    CatalogMode,
     ReloadTester,
     create_all_datatypes_tbl,
     get_audio_files,
@@ -158,7 +159,10 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=r'where\(\) clause already specified'):
             _ = t.select(t.c2).where(t.c2 <= 10).where(t.c2 <= 20).count()
 
-    def test_join(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_join(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
+        if catalog_mode == 'cloud':
+            pytest.skip('Cloud service times out without a response [PXT-1312]')
+
         p = make_catalog_path
         num_rows = 1000
         t1, t2, t3 = self.create_join_tbls(num_rows, p)
@@ -1236,7 +1240,10 @@ class TestQuery:
         assert all('a' in row and 'b' in row for row in rows)
 
     @pytest.mark.benchmark(group='select_inexpensive')
-    def test_select_inexpensive(self, make_catalog_path: Callable[[str], str], benchmark: Any) -> None:
+    def test_select_inexpensive(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, benchmark: Any) -> None:
+        if catalog_mode == 'cloud':
+            pytest.skip('Cloud service times out without a response [PXT-1312]')
+
         p = make_catalog_path
         t = pxt.create_table(p('test_inexpensive'), {'c1': pxt.Int | None, 'c2': pxt.String | None})
 

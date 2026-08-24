@@ -262,8 +262,7 @@ class TestConcurrentOps:
         TODO: programmatic validation of plan reuse (cache-hit count)
         """
         if catalog_mode == 'cloud':
-            # TODO: Fix this [PXT-1312]
-            pytest.skip('Broken on cloud target [PXT-1312]')
+            pytest.skip('Fails for unclear reasons [PXT-1312]')
 
         p = make_catalog_path
         n0 = 20
