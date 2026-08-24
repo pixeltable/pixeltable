@@ -14,10 +14,11 @@ from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
 
 from .column import Column
-from .globals import ColumnVersionMd, MediaValidation, QColumnId, TableVersionMd
+from .globals import MediaValidation
 from .path import ROOT_PATH, Path
-from .table_version import TableVersion, TableVersionKey
+from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
+from .types import ColumnVersionMd, QColumnId, TableVersionKey, TableVersionMd
 
 if TYPE_CHECKING:
     from .catalog import Catalog

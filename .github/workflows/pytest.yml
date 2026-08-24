@@ -191,7 +191,7 @@ jobs:
       - name: Install ollama
         if: ${{ matrix.uv-options == '' && startsWith(matrix.os, 'ubuntu') && matrix.python-version == '3.11' }}
         run: |
-          curl -fsSL https://ollama.com/install.sh | sh
+          ./scripts/retry.sh 3 30 ./scripts/install-ollama.sh
           sleep 10  # Wait for the ollama server to start
           # Pull the models used for testing now, with retries, to safeguard against connection issues
           ./scripts/retry.sh 3 30 ollama pull 'qwen3:0.6b'
@@ -227,7 +227,7 @@ jobs:
         # The pxt daemon serves the SPA bundle when the dashboard feature flag is enabled;
         # tests/pixeltable_cli/test_smoke.py exercises that path. The build output is gitignored,
         # so CI has to produce it before the test job runs.
-        if: ${{ matrix.test-category == 'py' && matrix.build-dashboard == 'true' }}
+        if: ${{ matrix.test-category == 'py' }}
         run: |
           conda install -y -c conda-forge nodejs
           cd dashboard && npm install --silent && npm run build
@@ -278,7 +278,8 @@ jobs:
         run: |
           python tool/generate_type_stubs.py
           mypy pixeltable pixeltable_cli tests tool
-          mypy pixeltable/catalog/model.py
+          # Separate direct check of declaration.py, which the generated declaration.pyi shadows in the run above.
+          mypy pixeltable/catalog/model/declaration.py
           # The instrumentation package is a src-layout PEP 420 namespace package and needs explicit base/namespace flags.
           MYPYPATH=packages/opentelemetry-instrumentation-pixeltable/src mypy --explicit-package-bases --namespace-packages \
             packages/opentelemetry-instrumentation-pixeltable/src/opentelemetry/instrumentation/pixeltable \

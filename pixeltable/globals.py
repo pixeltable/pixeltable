@@ -41,16 +41,23 @@ if TYPE_CHECKING:
 _logger = logging.getLogger(__name__)
 
 
-def init(config_overrides: dict[str, Any] | None = None, additional_config_files: list[str] | None = None) -> None:
+def init(config_overrides: dict[str, Any] | None = None) -> None:
     """Initializes the Pixeltable environment.
 
+    Settings come from the config file of the Pixeltable instance ($PIXELTABLE_HOME/config.toml), from
+    environment variables, and from `config_overrides`.
+
     Args:
-        config_overrides: Optional dictionary of configuration overrides.
-        additional_config_files: Optional list of additional TOML config file paths to load.
+        config_overrides: Configuration settings for this process, keyed by `'<section>.<key>'`. A setting given
+            here takes precedence over the environment and the config file. Settings that apply to the instance
+            as a whole, such as `pixeltable.file_cache_size_g`, cannot be given here.
+
+    Examples:
+        Supply an API key and a database name for this process:
+
+        >>> pxt.init({'openai.api_key': 'sk-...', 'pixeltable.db': 'my_db'})
     """
-    if config_overrides is None:
-        config_overrides = {}
-    Config.init(config_overrides, additional_config_files=additional_config_files)
+    Config.init(config_overrides if config_overrides is not None else {})
     _ = get_runtime().catalog
 
 
@@ -372,16 +379,11 @@ def create_view(
         tbl_path = base._tbl_path
         sample_clause = None
     elif isinstance(base, Query):
-        base._validate_mutable_op_sequence('create_view', allow_select=True)
+        catalog.View.validate_view_query(base, is_snapshot=is_snapshot)
         tbl_path = base._from_clause.tbls[0]
         where = base.where_clause
         sample_clause = base.sample_clause
         select_list = base.select_list
-        if sample_clause is not None and not is_snapshot and not sample_clause.is_repeatable:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                'Non-snapshot views cannot be created with non-fractional or stratified sampling',
-            )
     else:
         raise excs.RequestError(excs.ErrorCode.TYPE_MISMATCH, '`base` must be an instance of `Table` or `Query`')
     assert isinstance(base, (catalog.Table, Query))

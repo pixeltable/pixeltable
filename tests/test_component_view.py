@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Any, Callable, Iterator, TypedDict
 
 import numpy as np
@@ -236,9 +237,7 @@ class TestComponentView:
         rows = [{'video': p} for p in video_filepaths]
         status = video_t.insert(rows)
         assert status.num_excs == 0
-        import urllib
-
-        video_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(video_filepaths[0]))
+        video_url = Path(video_filepaths[0]).as_uri()
         validate_update_status(
             view_t.update({'annotation': {'a': 1}}, where=view_t.video == video_url),
             expected_rows=view_t.where(view_t.video == video_url).count(),
@@ -445,9 +444,7 @@ class TestComponentView:
         # row when the value isn't reshipped server-side; over the proxy the daemon stores its own copy, so the
         # update-propagation scenario runs in local mode only
         if catalog_mode == 'local':
-            import urllib
-
-            video_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(video_filepaths[0]))
+            video_url = Path(video_filepaths[0]).as_uri()
             status = video_t.update({'int1': video_t.int1 + 1}, where=video_t.video == video_url)
             assert (
                 status.num_rows == 1 + v1.where(v1.video == video_url).count() + v2.where(v2.video == video_url).count()

@@ -23,28 +23,20 @@ pytestmark = pytest.mark.local('UDF/integration test')
 
 
 @pytest.fixture()
-def bedrock_us_east_1(uses_db: None) -> Iterator[None]:
+def bedrock_us_east_1(uses_db: None, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Configure the Bedrock client and temp_location for us-east-1."""
-    Config.init(
-        config_overrides={
-            'bedrock.region_name': 'us-east-1',
-            'bedrock.temp_location': 's3://pxt-bedrock-test-us-east-1/bedrock_outputs/',
-        },
-        reinit=True,
-    )
+    monkeypatch.setenv('BEDROCK_REGION_NAME', 'us-east-1')
+    monkeypatch.setenv('BEDROCK_TEMP_LOCATION', 's3://pxt-bedrock-test-us-east-1/bedrock_outputs/')
+    Config.init(reinit=True)
     yield
 
 
 @pytest.fixture()
-def bedrock_us_west_2(uses_db: None) -> Iterator[None]:
+def bedrock_us_west_2(uses_db: None, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Configure the Bedrock client and temp_location for us-west-2."""
-    Config.init(
-        config_overrides={
-            'bedrock.region_name': 'us-west-2',
-            'bedrock.temp_location': 's3://pxt-bedrock-test-us-west-2/bedrock_outputs/',
-        },
-        reinit=True,
-    )
+    monkeypatch.setenv('BEDROCK_REGION_NAME', 'us-west-2')
+    monkeypatch.setenv('BEDROCK_TEMP_LOCATION', 's3://pxt-bedrock-test-us-west-2/bedrock_outputs/')
+    Config.init(reinit=True)
     yield
 
 

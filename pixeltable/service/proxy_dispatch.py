@@ -19,8 +19,7 @@ import sqlalchemy as sql
 
 from pixeltable import exceptions as excs
 from pixeltable._query import Query
-from pixeltable.catalog import InsertableTable, Path, TablePathKey, retry_loop
-from pixeltable.catalog.table_version import TableVersionKey
+from pixeltable.catalog import InsertableTable, Path, TablePathKey, TableVersionKey, retry_loop
 from pixeltable.env import Env
 from pixeltable.io.data_sources import SqlDataSource
 from pixeltable.row import RowBatch
@@ -35,7 +34,7 @@ _logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from pixeltable.catalog import LocalTable
-    from pixeltable.catalog.globals import TableVersionMd
+    from pixeltable.catalog.types import TableVersionMd
     from pixeltable.catalog.update_status import UpdateStatus
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from typing import Any
 
 from pixeltable_cli.client.utils import ensure_running, fetch_health, kill_and_wait, read_pidfile
@@ -30,9 +31,11 @@ def run(argv: list[str]) -> None:
         '-f',
         '--force',
         action='store_true',
-        help='kill whichever PID is responding on the port even if it does not match the pidfile',
+        help='kill the daemon even if it is serving requests, or if the PID responding on the port does not '
+        'match the pidfile',
     )
-    sub.add_parser('restart', help='stop then start')
+    restart = sub.add_parser('restart', help='stop then start')
+    restart.add_argument('-f', '--force', action='store_true', help='restart even while the daemon is serving requests')
     status = sub.add_parser('status', help='print daemon info; exit 1 if no daemon is running')
     status.add_argument('--json', action='store_true', dest='as_json', help='emit the identity fingerprint as JSON')
 
@@ -43,7 +46,7 @@ def run(argv: list[str]) -> None:
     elif args.action == 'stop':
         _stop(force=args.force)
     elif args.action == 'restart':
-        _stop(force=False, ok_if_absent=True)
+        _stop(force=args.force, ok_if_absent=True)
         _start()
     elif args.action == 'status':
         _status(as_json=args.as_json)
@@ -64,6 +67,19 @@ def _start() -> None:
 def _stop(force: bool, ok_if_absent: bool = False) -> None:
     tracked_pid = read_pidfile()
     health = fetch_health()
+
+    in_flight = health.get('in_flight', []) if health is not None else []
+    if len(in_flight) > 0 and not force:
+        now = time.time()
+        running = ', '.join(
+            f'{r["method"]} {r["path"]} ({now - r["started_at"]:.0f}s)' for r in in_flight if isinstance(r, dict)
+        )
+        print(
+            f'pxt: the daemon is serving {len(in_flight)} request(s): {running}.\n'
+            'Wait for it to finish, or use --force.',
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     if tracked_pid is None and health is None:
         if ok_if_absent:

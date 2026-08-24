@@ -3,11 +3,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Mapping
 from uuid import UUID
 
-from pixeltable.catalog import model
 from pixeltable.env import Env
 
 from .catalog_base import CatalogBase
 from .insertable_table_proxy import InsertableTableProxy
+from .model import TableSchemaChangeSet
 from .table_path import TableMdPath
 from .view_proxy import ViewProxy
 
@@ -19,11 +19,12 @@ if TYPE_CHECKING:
     from pixeltable.types import ColumnSpec
 
     from .dir import Dir
-    from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation, TableVersionMd
+    from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation
     from .model import IndexDeclaration
     from .path import Path
     from .table import Table
     from .table_path import TablePath
+    from .types import TableVersionMd
 
 
 class CatalogProxy(CatalogBase):
@@ -138,7 +139,7 @@ class CatalogProxy(CatalogBase):
         md, was_created = self.client.send_request('CatalogBase', 'create_from_model', args)
         return self._make_table(md, is_anon_snapshot=False), was_created
 
-    def update_from_model(self, updates: list[model.TableSchemaChangeSet]) -> None:
+    def update_from_model(self, updates: list[TableSchemaChangeSet]) -> None:
         self.client.send_request('CatalogBase', 'update_from_model', {'updates': updates})
 
     def get_table(self, path: Path, if_not_exists: IfNotExistsParam) -> Table | None:
