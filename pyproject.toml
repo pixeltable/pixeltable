@@ -114,6 +114,9 @@ override-dependencies = [
     "protobuf>=5.29.6",  # Required because 'fireworks-ai' hard-codes 'protobuf==5.29.4'
     # "huggingface-hub>=1",  # Required due to 'whisperx'
 ]
+constraint-dependencies = [
+    "preshed>=3.0.13",
+]
 
 [tool.uv.workspace]
 members = ["packages/*"]
