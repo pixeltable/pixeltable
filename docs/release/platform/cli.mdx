@@ -629,7 +629,7 @@ Cloud operations that affect a database's runtime image read configuration from 
 
 #### `[pixeltable.database]` — runtime image config
 
-Read by `pxt db update-runtime`, from `pixeltable.toml` in the current directory if that file declares the section, and from the Pixeltable config file otherwise. Defines which local files to package into the runtime image and, optionally, a custom Pixeltable source branch.
+Read by `pxt db update-runtime`, from `pixeltable.toml` in the current directory if that file declares the section. Defines which local files to package into the runtime image.
 
 ```toml
 [pixeltable.database]
@@ -637,13 +637,6 @@ Read by `pxt db update-runtime`, from `pixeltable.toml` in the current directory
 # Glob patterns relative to the project root.
 include = ["app/**", "models/**"]
 exclude = ["__pycache__", "*.pyc", ".git", ".env", "*.egg-info", ".venv"]
-
-# Optional: build Pixeltable itself from source instead of the published PyPI release.
-# Use this to deploy changes from a feature branch before they are released.
-[pixeltable.database.pixeltable_source]
-git    = "https://github.com/pixeltable/pixeltable.git"
-branch = "my-feature-branch"
-# rev  = "abc1234"  # pin to a specific commit or tag instead of branch HEAD
 ```
 
 ### `pxt db`

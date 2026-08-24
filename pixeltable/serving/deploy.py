@@ -14,9 +14,10 @@ import toml
 from pathspec import PathSpec
 from tqdm import tqdm
 
-from pixeltable import config, exceptions as excs, metadata
+from pixeltable import exceptions as excs, metadata
+from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.serving._config import lookup_database_config
+from pixeltable.serving._config import DatabaseConfig
 
 _logger = logging.getLogger(__name__)
 
@@ -163,25 +164,45 @@ def _export_conda_env() -> bytes | None:
     return ''.join(filtered).encode('utf-8')
 
 
-def _load_database_config(project_dir: Path) -> config.DatabaseConfig | None:
-    """Read [pixeltable.database] config from project_dir/pixeltable.toml; fall back to Config singleton."""
-    toml_path = project_dir / 'pixeltable.toml'
-    if toml_path.is_file():
-        try:
-            parsed = toml.load(toml_path)
-        except Exception as e:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid TOML in {toml_path.name}: {e}'
-            ) from e
-        db_raw = parsed.get('pixeltable', {}).get('database')
-        if db_raw is not None:
-            try:
-                return config.DatabaseConfig.model_validate(db_raw)
-            except Exception as e:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid [pixeltable.database] configuration: {e}'
-                ) from e
-    return lookup_database_config()
+def _load_database_config(project_dir: Path) -> DatabaseConfig | None:
+    pxt_toml = _load_database_config_from_toml(project_dir / 'pixeltable.toml', ['pixeltable', 'database'])
+    if pxt_toml is not None:
+        return pxt_toml
+
+    py_toml = _load_database_config_from_toml(project_dir / 'pyproject.toml', ['tool', 'pixeltable', 'database'])
+    if py_toml is not None:
+        return py_toml
+
+    # Fall back on system config.
+    # TODO: This should be removed, but doing it now will break a bunch of tests
+    cfg = Config.get().get_value('database', dict)
+    return _validate_database_config(cfg) if cfg is not None else None
+
+
+def _load_database_config_from_toml(toml_path: Path, resolution: list[str]) -> DatabaseConfig | None:
+    if not toml_path.is_file():
+        return None
+
+    try:
+        cfg = toml.load(toml_path)
+    except Exception as e:
+        raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid TOML in {toml_path.name}: {e}') from e
+
+    for key in resolution:
+        if not isinstance(cfg, dict) or key not in cfg:
+            return None
+        cfg = cfg[key]
+
+    return _validate_database_config(cfg)
+
+
+def _validate_database_config(cfg: dict) -> DatabaseConfig:
+    try:
+        return DatabaseConfig.model_validate(cfg)
+    except Exception as e:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid [pixeltable.database] configuration: {e}'
+        ) from e
 
 
 def _abbrev_path(path: str, max_len: int = 40) -> str:
@@ -264,8 +285,6 @@ def build_db_runtime_bundle(project_dir: Path | None = None, show_progress: bool
     meta: dict = {'pxt_md_version': metadata.VERSION, 'python_version': python_version}
     if system_dependencies:
         meta['system_dependencies'] = system_dependencies
-    if runtime_cfg and runtime_cfg.pixeltable_source:
-        meta['pixeltable_source'] = runtime_cfg.pixeltable_source.model_dump(exclude_none=True)
 
     with (
         tarfile.open(bundle_path, 'w:bz2') as tf,

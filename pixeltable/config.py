@@ -28,69 +28,6 @@ ConfVarT = TypeVar('ConfVarT', bound=str)
 # Pydantic models for deployment configuration.
 
 
-class PixeltableSource(pydantic.BaseModel):
-    """Git source for pixeltable to install in the container runtime image.
-
-    Provide git alongside at most one of branch, rev (commit SHA), or tag.
-    If multiple are set, the server resolves them in priority order: rev > tag > branch.
-    Used by pip/poetry/none bundle types; uv bundles use pyproject.toml [tool.uv.sources] instead.
-
-    Example in pixeltable.toml:
-        [pixeltable.database.pixeltable_source]
-        git = "https://github.com/myorg/pixeltable.git"
-        branch = "my-feature-branch"
-    """
-
-    model_config = pydantic.ConfigDict(extra='forbid')
-
-    git: str
-    branch: str | None = None
-    rev: str | None = None
-    tag: str | None = None
-
-
-class DatabaseConfig(pydantic.BaseModel):
-    """Complete specification of the 'database' resource container."""
-
-    model_config = pydantic.ConfigDict(extra='forbid')
-
-    exclude: list[str] | None = None  # glob patterns to exclude from the bundle
-    include: list[str] | None = None  # glob patterns to explicitly include (overrides exclude or .gitignore)
-    include_only: list[str] | None = None  # glob patterns to include as the *only* files in the bundle
-    # (must be used independently of exclude/include)
-    system_dependencies: list[str] | None = None
-    # Override the runtime Python version.
-    python_version: str | None = None
-    pixeltable_source: PixeltableSource | None = None
-
-    # variable/secret bindings, from the VAR_/SECRET_SECTIONs
-    vars: dict[str, str] | None = None
-    secrets: dict[str, str] | None = None
-
-    @pydantic.field_validator('system_dependencies')
-    @classmethod
-    def _check_system_dependencies(cls, v: list[str] | None) -> list[str] | None:
-        # Each entry is a conda/micromamba MatchSpec installed from conda-forge. Resolvability can only be
-        # checked by conda at build time, so validate just the obvious mistakes here — before the bundle is
-        # built and shipped — leaving version-constraint operators (<,>,,) alone as they're valid MatchSpec.
-        for spec in v or []:
-            if not spec.strip():
-                raise ValueError('system_dependencies entries must be non-empty conda package specs')
-            if any(c in spec for c in ';&$`\n\\'):
-                raise ValueError(f'invalid character in system dependency spec {spec!r}')
-        return v
-
-    @pydantic.field_validator('python_version')
-    @classmethod
-    def _check_python_version(cls, v: str | None) -> str | None:
-        if v is None:
-            return v
-        v = v.strip()
-        if not re.fullmatch(r'\d+\.\d+(\.\d+)?', v):
-            raise ValueError(f'python_version must be a version like "3.12" or "3.12.8", got {v!r}')
-        return v
-
-
 # config section names for database variables and secrets
 VAR_SECTION = 'pixeltable.database.vars'
 SECRET_SECTION = 'pixeltable.database.secrets'

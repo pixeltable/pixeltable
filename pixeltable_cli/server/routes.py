@@ -108,7 +108,7 @@ def config(_req: Request) -> models.ConfigResponse:
         elif is_sensitive:
             value = '<redacted>'
         else:
-            # ck.expected_type can be a parameterized generic (eg list[ServiceConfig]).
+            # ck.expected_type can be a parameterized generic (eg list[str]).
             # Config.get_value() coerces via `expected_type(value)`, which raises TypeError
             # for types.GenericAlias; collapse to the origin (eg list) for the lookup.
             coerce_type = typing.get_origin(ck.expected_type) or ck.expected_type

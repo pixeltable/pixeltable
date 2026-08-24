@@ -29,10 +29,10 @@ from .utils import (
     CatalogMode,
     DummyIterator,
     DummyIterator2,
-    MediaStore,
     ReloadTester,
     assert_resultset_eq,
     assert_table_metadata_eq,
+    check_media_store_count,
     create_table_data,
     create_test_tbl,
     get_audio_files,
@@ -1021,7 +1021,7 @@ class TestTable:
         # the media column is compared by content; columns that quote the stored file path (the localpath, and the
         # bad video's error message) are compared only over a collocated store, where the two tables share the
         # source file rather than each holding a distinct shipped copy
-        on_read_path_cols = [] if catalog_mode == 'proxy' else [on_read_tbl.media.localpath, on_read_tbl.media.errormsg]
+        on_read_path_cols = [on_read_tbl.media.localpath, on_read_tbl.media.errormsg] if catalog_mode == 'local' else []
         on_read_res = reload_tester.run_query(
             on_read_tbl.select(
                 on_read_tbl.media, *on_read_path_cols, on_read_tbl.media.errortype, on_read_tbl.is_bad_media
@@ -1032,7 +1032,7 @@ class TestTable:
         status = on_write_tbl.insert(rows, on_error='ignore')
         assert status.num_excs == 1
         on_write_path_cols = (
-            [] if catalog_mode == 'proxy' else [on_write_tbl.media.localpath, on_write_tbl.media.errormsg]
+            [on_write_tbl.media.localpath, on_write_tbl.media.errormsg] if catalog_mode == 'local' else []
         )
         on_write_res = reload_tester.run_query(
             on_write_tbl.select(
@@ -1058,7 +1058,7 @@ class TestTable:
         # the media column is compared by content, so it stays consistent across the two inserts; columns that
         # quote the stored file path (the localpath, and the bad video's error message) are compared only over a
         # collocated store, where the path is the shared source file rather than a distinct per-insert copy
-        path_cols = [] if catalog_mode == 'proxy' else [on_read_tbl.media.localpath, on_read_tbl.media.errormsg]
+        path_cols = [on_read_tbl.media.localpath, on_read_tbl.media.errormsg] if catalog_mode == 'local' else []
         status = on_read_tbl.insert(({**r, 'stage': 0} for r in rows), on_error='ignore')
         assert status.num_excs == 1
         on_read_res_1 = (
@@ -1995,7 +1995,7 @@ class TestTable:
             'img_literal': pxt.Image | None,
         }
         tbl = pxt.create_table(p('test'), schema)
-        assert MediaStore.count(tbl, default_input_dest=True) == 0
+        check_media_store_count(tbl, 0, catalog_mode, default_input_dest=True)
 
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         sample_rows = random.sample(rows, n_sample_rows)
@@ -2011,7 +2011,7 @@ class TestTable:
         shipped_img = n_sample_rows if catalog_mode == 'proxy' else 0
 
         tbl.insert(sample_rows)
-        assert MediaStore.count(tbl, default_input_dest=True) == n_sample_rows + shipped_img
+        check_media_store_count(tbl, n_sample_rows + shipped_img, catalog_mode, default_input_dest=True)
 
         # compare img and img_literal
         # TODO: make tbl.select(tbl.img == tbl.img_literal) work
@@ -2023,15 +2023,15 @@ class TestTable:
         # Test adding stored image transformation
         tbl.add_computed_column(rotated=tbl.img.rotate(30), stored=True)
         if Env.get().default_input_media_dest == Env.get().default_output_media_dest:
-            assert MediaStore.count(tbl, default_input_dest=True) == 2 * n_sample_rows + shipped_img
+            check_media_store_count(tbl, 2 * n_sample_rows + shipped_img, catalog_mode, default_input_dest=True)
 
         # Test that version-specific images are cleared when table is reverted
         tbl.revert()
-        assert MediaStore.count(tbl, default_input_dest=True) == n_sample_rows + shipped_img
+        check_media_store_count(tbl, n_sample_rows + shipped_img, catalog_mode, default_input_dest=True)
 
         # Test that all stored images are cleared when table is dropped
         pxt.drop_table(p('test'))
-        assert MediaStore.count(tbl, default_input_dest=True) == 0
+        check_media_store_count(tbl, 0, catalog_mode, default_input_dest=True)
 
     def test_schema_spec(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
@@ -2393,8 +2393,11 @@ class TestTable:
             assert container.streams.video[0].codec_context.name == 'h264'
 
     @rerun_on_network_error()
-    def test_create_video_table(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_create_video_table(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         p = make_catalog_path
+        if catalog_mode == 'cloud':
+            # TODO: Fix this [PXT-1312]
+            pytest.skip('Cloud service hangs on first insert [PXT-1312]')
         if Env.get().is_using_cockroachdb:
             # TODO(PXT-921): fix this on CockroachDB
             pytest.skip(
@@ -2422,10 +2425,10 @@ class TestTable:
         status = tbl.insert(payload=1, video=url)
         assert status.num_excs == 0
         # * 2: we have 2 stored img cols
-        assert MediaStore.count(view, default_output_dest=True) == view.count() * 2
+        check_media_store_count(view, view.count() * 2, catalog_mode, default_output_dest=True)
         # also insert a local file
         tbl.insert(payload=1, video=get_video_files()[0])
-        assert MediaStore.count(view, default_output_dest=True) == view.count() * 2
+        check_media_store_count(view, view.count() * 2, catalog_mode, default_output_dest=True)
 
         # TODO: test inserting Nulls
         # status = tbl.insert(payload=1, video=None)
@@ -2434,7 +2437,7 @@ class TestTable:
         # revert() clears stored images
         tbl.revert()
         tbl.revert()
-        assert MediaStore.count(view, default_output_dest=True) == 0
+        check_media_store_count(view, 0, catalog_mode, default_output_dest=True)
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'because the following columns depend on it:\nc1'):
             view.drop_column('frame')
@@ -2447,7 +2450,7 @@ class TestTable:
             pxt.drop_table(p('test_tbl'))
         pxt.drop_table(p('test_view'))
         pxt.drop_table(p('test_tbl'))
-        assert MediaStore.count(view, default_output_dest=True) == 0
+        check_media_store_count(view, 0, catalog_mode, default_output_dest=True)
 
     @rerun_on_network_error()
     def test_video_urls(self, make_catalog_path: Callable[[str], str]) -> None:
@@ -3190,6 +3193,10 @@ class TestTable:
         assert results.schema.get('cc1') is None
 
     def _test_computed_img_cols(self, t: pxt.Table, stores_img_col: bool, catalog_mode: CatalogMode) -> None:
+        if catalog_mode == 'cloud':
+            # TODO: Fix this [PXT-1312]
+            pytest.skip('Cloud service hangs on first insert [PXT-1312]')
+
         # over the proxy, img (inserted from local file paths) is shipped and persisted in the daemon media store,
         # which the default config shares with the output dest, so each row also contributes one stored input image
         def expected(tbl: pxt.Table) -> int:
@@ -3201,7 +3208,7 @@ class TestTable:
         assert status.num_rows == 20
         _ = t.count()
         _ = t.show()
-        assert MediaStore.count(t, default_output_dest=True) == expected(t)
+        check_media_store_count(t, expected(t), catalog_mode, default_output_dest=True)
 
         # test loading from store
         reload_catalog()
@@ -3214,13 +3221,13 @@ class TestTable:
 
         # make sure we can still insert data and that computed cols are still set correctly
         t2.insert(rows)
-        assert MediaStore.count(t2, default_output_dest=True) == expected(t2)
+        check_media_store_count(t2, expected(t2), catalog_mode, default_output_dest=True)
         _ = t2.collect()
         _ = t2.collect().to_pandas()
 
         # revert also removes computed images
         t2.revert()
-        assert MediaStore.count(t2, default_output_dest=True) == expected(t2)
+        check_media_store_count(t2, expected(t2), catalog_mode, default_output_dest=True)
 
     @staticmethod
     @pxt.udf
