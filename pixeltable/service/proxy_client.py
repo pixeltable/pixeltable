@@ -38,7 +38,16 @@ from pixeltable.utils.http import fetch_url
 from pixeltable.utils.local_store import TempStore
 
 from . import proxy_protocol
-from .proxy_protocol import InlinePartSink, MediaPath, PartSink, ProxyRequest, ProxyResponse, PxtStorePartSink, decode_body, encode_body
+from .proxy_protocol import (
+    InlinePartSink,
+    MediaPath,
+    PartSink,
+    ProxyRequest,
+    ProxyResponse,
+    PxtStorePartSink,
+    decode_body,
+    encode_body,
+)
 
 if TYPE_CHECKING:
     from pixeltable.catalog.table_path import TablePathKey
@@ -317,10 +326,6 @@ class ProxyClient:
         body = encode_body(request_json.encode(), parts)
         head, response_parts = decode_body(self._transport.post(body))
         return head.decode(), response_parts
-
-    def _prepare(self, args: dict[str, Any]) -> tuple[dict[str, Any], list[bytes]]:
-        """Serialize args for the wire, exactly once per logical request (media files are read, and for a
-        hosted catalog uploaded, here; CAS retries must reuse the result rather than repeating that work)."""
 
     def _post(
         self,

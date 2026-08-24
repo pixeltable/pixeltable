@@ -9,8 +9,6 @@ new method is "register a handler + make sure its arg/return types serialize" --
 from __future__ import annotations
 
 import abc
-from typing import TypeVar
-from concurrent.futures import ThreadPoolExecutor
 import dataclasses
 import datetime
 import io
@@ -18,7 +16,8 @@ import math
 import pathlib
 import shutil
 import struct
-from typing import Any, Generic
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Generic, TypeVar
 from uuid import UUID, uuid4
 
 import numpy as np
@@ -47,6 +46,7 @@ _TAG = '$pxt'
 
 T = TypeVar('T')
 
+
 class PartSink(abc.ABC, Generic[T]):
     """Destination for a request's binary values during serialization.
 
@@ -71,14 +71,12 @@ class PartSink(abc.ABC, Generic[T]):
     def add_media_file(self, path: str) -> T:
         """Add a file-backed media value; returns a part index (inline) or an object key (out of band)."""
 
-    @abc.abstractmethod
     def flush(self) -> None:
-        """Complete any work the sink deferred while serializing; a no-op for inline parts."""
+        """Complete any work the sink deferred while serializing."""
 
 
 class InlinePartSink(PartSink[int]):
-    """A PartSink that inlines everything into binary_parts (referenced by index from the JSON head).
-    """
+    """A PartSink that inlines everything into binary_parts (referenced by index from the JSON head)."""
 
     binary_parts: list[bytes]
 
@@ -88,9 +86,6 @@ class InlinePartSink(PartSink[int]):
     def add_media_file(self, path: str) -> int:
         with open(path, 'rb') as f:
             return self.add_inline(f.read())
-
-    def flush(self) -> None:
-        """Complete any work the sink deferred while serializing; a no-op for inline parts."""
 
 
 class PxtStorePartSink(PartSink[int | str]):
@@ -268,13 +263,13 @@ def _serialize(obj: Any, sink: PartSink) -> Any:
         # scalars); serialize field-by-field so the nested Exprs/Functions round-trip via their own handlers.
         return {
             _TAG: 'EmbeddingIndex',
-            'v': {f.name: _serialize(getattr(obj, f.name), PartSink()) for f in dataclasses.fields(obj)},
+            'v': {f.name: _serialize(getattr(obj, f.name), InlinePartSink()) for f in dataclasses.fields(obj)},
         }
     if isinstance(obj, BtreeIndex):
         # A declarative model's B-tree-index spec (a dataclass wrapping an Expr column ref).
         return {
             _TAG: 'BtreeIndex',
-            'v': {f.name: _serialize(getattr(obj, f.name), PartSink()) for f in dataclasses.fields(obj)},
+            'v': {f.name: _serialize(getattr(obj, f.name), InlinePartSink()) for f in dataclasses.fields(obj)},
         }
     if isinstance(obj, DirEntry):
         # only the fields any get_dir_contents() consumer reads: dir presence, table id/md, error count
@@ -528,7 +523,7 @@ def deserialize_request(request: ProxyRequest) -> dict[str, Any]:
 
 def serialize_response(response: ProxyResponse) -> None:
     """Encode response.result and response.current_md in place, appending binary values to response._binary_parts."""
-    sink = PartSink()
+    sink = InlinePartSink()
     response.result = _serialize(response.result, sink)
     response.current_md = _serialize(response.current_md, sink)
     response._binary_parts = sink.binary_parts

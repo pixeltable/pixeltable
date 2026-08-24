@@ -10,13 +10,16 @@ import pytest
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.service import proxy_daemon, proxy_dispatch, proxy_protocol
+from pixeltable.service.proxy_client import HttpTransport, ProxyClient, PxtStorePartSink, TunnelTransport
 from pixeltable.utils.local_store import TempStore
+from pixeltable.utils.object_stores import FileDestination, ObjectOps
 
 from .utils import pxt_raises
 
 
-class _RemoteMediaSink(proxy_protocol.PartSink):
-    """PartSink that stores media parts in a dict of R2-style object keys, mirroring R2PartSink's contract."""
+class _RemoteMediaSink(proxy_protocol.PartSink[str]):
+    """PartSink that stores media parts in a dict of object store-style object keys,
+    mirroring PxtStorePartSink's contract."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -117,9 +120,9 @@ class TestProxyDaemon:
             proxy_protocol._deserialize(wire, sink.binary_parts, None, None)
 
     def test_inline_sink_wire_format(self, tmp_path: pathlib.Path) -> None:
-        # the default PartSink inlines every binary value as an int-indexed part (the local daemon's wire shape)
+        # InlinePartSink inlines every binary value as an int-indexed part (the local daemon's wire shape)
         args = self._media_args(tmp_path)
-        sink = proxy_protocol.PartSink()
+        sink = proxy_protocol.InlinePartSink()
         wire = proxy_protocol.serialize_args(args, sink)
         row = wire['rows'][0]
         assert row['img_file'] == {'$pxt': 'file', 'name': 'cat.png', 'v': 0}
@@ -151,8 +154,6 @@ class TestProxyDaemon:
         assert proxy_protocol.collect_remote_keys(args) == expected
 
     def test_prepare_once_on_stale_retry(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from pixeltable.service.proxy_client import ProxyClient
-
         client = ProxyClient.local('http://127.0.0.1:1')
         prepare_calls = 0
         orig_prepare = ProxyClient._prepare
@@ -175,26 +176,21 @@ class TestProxyDaemon:
 
     def test_transport_part_sinks(self) -> None:
         # media parts travel inline to a local daemon, but out of band (via R2) to a hosted db
-        from pixeltable.service.proxy_client import HttpTransport, R2PartSink, TunnelTransport
-
         local_sink = HttpTransport('http://127.0.0.1:1').new_part_sink()
-        assert type(local_sink) is proxy_protocol.PartSink
+        assert type(local_sink) is proxy_protocol.InlinePartSink
 
         tunnel = TunnelTransport('org1', 'db1', 'key', host='h', port=443)
         remote_sink = tunnel.new_part_sink()
         next_sink = tunnel.new_part_sink()
-        assert isinstance(remote_sink, R2PartSink)
-        assert isinstance(next_sink, R2PartSink)
+        assert isinstance(remote_sink, PxtStorePartSink)
+        assert isinstance(next_sink, PxtStorePartSink)
         # each request gets its own uploads/ prefix
         assert next_sink._key_prefix != remote_sink._key_prefix
 
-    def test_r2_sink_defers_uploads(
+    def test_pxt_store_sink_defers_uploads(
         self, init_env: None, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """R2PartSink mints keys while serializing and performs every upload in flush()."""
-        from pixeltable.service.proxy_client import R2PartSink
-        from pixeltable.utils.object_stores import FileDestination, ObjectOps
-
+        """PxtStorePartSink mints keys while serializing and performs every upload in flush()."""
         uploaded: dict[str, tuple[pathlib.Path, bytes]] = {}
         store_uris: list[str] = []
 
@@ -212,7 +208,7 @@ class TestProxyDaemon:
 
         src = tmp_path / 'cat.png'
         PIL.Image.new('RGB', (8, 6), color=(1, 2, 3)).save(src, format='PNG')
-        sink = R2PartSink('org1', 'db1')
+        sink = PxtStorePartSink('org1', 'db1')
         # the same path twice, plus an in-memory value (which stages a temp file)
         keys = [sink.add_media_file(str(src)), sink.add_media_file(str(src)), sink.add_media_bytes(b'raw', '.jpg')]
 
