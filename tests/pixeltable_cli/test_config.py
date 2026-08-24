@@ -177,9 +177,9 @@ class TestConfig:
         resp = cli('config', '--json', env_overrides=supplied).json
         entries = {(e['section'], e['key']): e for e in resp['entries']}
 
-        secret = entries['pixeltable.database.secrets', 'pxt_test_key']
+        secret = entries['pixeltable.clouddb.secrets', 'pxt_test_key']
         assert (secret['value'], secret['source']) == ('<redacted>', 'env')
-        var = entries['pixeltable.database.vars', 'pxt_test_dest']
+        var = entries['pixeltable.clouddb.vars', 'pxt_test_dest']
         assert (var['value'], var['source']) == ('s3://bucket/prefix', 'env')
         assert 'PIXELTABLE_SECRET_PXT_TEST_KEY' in resp['env_var_names']
 
@@ -221,7 +221,7 @@ class TestConfig:
         assert md['columns']['thumb']['destination'] == '$pxt_test_dest'
         entries = cli('config', '--json', env_overrides=bound).json['entries']
         dest = next(e for e in entries if e['key'] == 'pxt_test_dest')
-        assert (dest['section'], dest['source']) == ('pixeltable.database.vars', 'env')
+        assert (dest['section'], dest['source']) == ('pixeltable.clouddb.vars', 'env')
 
     def test_changing_a_value_in_the_config_file(
         self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
@@ -239,7 +239,7 @@ class TestConfig:
 
         time.sleep(0.01)  # the file stamp is (mtime, size), so a rewrite needs a distinct mtime
         config_file.write_text(
-            f'[pixeltable]\nfile_cache_size_g = 1.0\n\n[pixeltable.database.secrets]\npxt_test_key = "{_A_KEY}"\n',
+            f'[pixeltable]\nfile_cache_size_g = 1.0\n\n[pixeltable.clouddb.secrets]\npxt_test_key = "{_A_KEY}"\n',
             encoding='utf-8',
         )
 
@@ -254,7 +254,7 @@ class TestConfig:
         assert 'hello' in cli('rows', f'{target}/docs', '-n', '1', env_overrides=own_config).stdout
         entries = cli('config', '--json', env_overrides=own_config).json['entries']
         test_key = next(
-            e for e in entries if (e['section'], e['key']) == ('pixeltable.database.secrets', 'pxt_test_key')
+            e for e in entries if (e['section'], e['key']) == ('pixeltable.clouddb.secrets', 'pxt_test_key')
         )
         assert test_key['source'] == str(config_file)
 
