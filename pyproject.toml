@@ -114,9 +114,6 @@ override-dependencies = [
     "protobuf>=5.29.6",  # Required because 'fireworks-ai' hard-codes 'protobuf==5.29.4'
     # "huggingface-hub>=1",  # Required due to 'whisperx'
 ]
-constraint-dependencies = [
-    "preshed>=3.0.13",
-]
 
 [tool.uv.workspace]
 members = ["packages/*"]
@@ -154,6 +151,7 @@ dev = [
     "notebook>=7.5.6",
     "black>=26.3.1",
     "pixeltable-doctools @ git+https://github.com/pixeltable/pixeltable-doctools",
+    "preshed>=3.0.13 ; python_version < '3.14'",
     "pycocotools>=2.0.10",
     "ipykernel>=6.27.1,<7",
     "tabulate>=0.9",

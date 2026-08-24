@@ -29,7 +29,6 @@ members = [
     "opentelemetry-instrumentation-pixeltable",
     "pixeltable",
 ]
-constraints = [{ name = "preshed", specifier = ">=3.0.13" }]
 overrides = [
     { name = "protobuf", specifier = ">=5.29.6" },
     { name = "ruff", specifier = ">=0.14" },
@@ -6024,6 +6023,7 @@ dev = [
     { name = "pandas-stubs" },
     { name = "pixeltable-doctools" },
     { name = "pixeltable-yolox", marker = "python_full_version < '3.13' or sys_platform != 'win32'" },
+    { name = "preshed", marker = "python_full_version < '3.14'" },
     { name = "psycopg2-binary" },
     { name = "pyarrow-stubs" },
     { name = "pycocotools" },
@@ -6171,6 +6171,7 @@ dev = [
     { name = "pandas-stubs", specifier = ">=2.0" },
     { name = "pixeltable-doctools", git = "https://github.com/pixeltable/pixeltable-doctools" },
     { name = "pixeltable-yolox", marker = "python_full_version < '3.13' or sys_platform != 'win32'", specifier = "==0.4.2" },
+    { name = "preshed", marker = "python_full_version < '3.14'", specifier = ">=3.0.13" },
     { name = "psycopg2-binary", specifier = ">=2.9.11" },
     { name = "pyarrow-stubs", specifier = ">=19" },
     { name = "pycocotools", specifier = ">=2.0.10" },
