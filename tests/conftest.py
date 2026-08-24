@@ -513,18 +513,21 @@ def clean_db(drop_md_tables: bool = False) -> None:
         conn.commit()
 
 
+def _requested_is_data_versioned(request: pytest.FixtureRequest) -> bool:
+    """The `is_data_versioned` value requested by a dependent test, or True if it doesn't declare the axis.
+
+    Shared by the table-building fixtures below (`test_tbl` and friends): none of them request
+    `is_data_versioned` directly, since that would put it in every dependent test's fixture closure and fork
+    the entire suite. A test that also declares `is_data_versioned` gets the variant that parameter calls for;
+    every other test gets a data-versioned table.
+    """
+    return request.getfixturevalue('is_data_versioned') if 'is_data_versioned' in request.fixturenames else True
+
+
 @pytest.fixture(scope='function')
 def test_tbl(make_catalog_path: Callable[[str], str], request: pytest.FixtureRequest) -> pxt.Table:
-    """The standard test table.
-
-    A test that also declares `is_data_versioned` gets the table that variant calls for; every other test gets a
-    data-versioned table. The fixture deliberately does not request `is_data_versioned` itself: that
-    would put it in every dependent test's fixture closure and fork the entire suite.
-    """
-    is_data_versioned = (
-        request.getfixturevalue('is_data_versioned') if 'is_data_versioned' in request.fixturenames else True
-    )
-    return create_test_tbl(make_catalog_path('test_tbl'), is_data_versioned=is_data_versioned)
+    """The standard test table."""
+    return create_test_tbl(make_catalog_path('test_tbl'), is_data_versioned=_requested_is_data_versioned(request))
 
 
 @pytest.fixture(scope='function')
@@ -612,13 +615,15 @@ def test_tbl_exprs(test_tbl: pxt.Table) -> list[exprs.Expr]:
 
 
 @pytest.fixture(scope='function')
-def all_datatypes_tbl(make_catalog_path: Callable[[str], str]) -> pxt.Table:
-    return create_all_datatypes_tbl(name=make_catalog_path('all_datatype_tbl'))
+def all_datatypes_tbl(make_catalog_path: Callable[[str], str], request: pytest.FixtureRequest) -> pxt.Table:
+    return create_all_datatypes_tbl(
+        name=make_catalog_path('all_datatype_tbl'), is_data_versioned=_requested_is_data_versioned(request)
+    )
 
 
 @pytest.fixture(scope='function')
-def img_tbl(make_catalog_path: Callable[[str], str]) -> pxt.Table:
-    return create_img_tbl(make_catalog_path('test_img_tbl'))
+def img_tbl(make_catalog_path: Callable[[str], str], request: pytest.FixtureRequest) -> pxt.Table:
+    return create_img_tbl(make_catalog_path('test_img_tbl'), is_data_versioned=_requested_is_data_versioned(request))
 
 
 @pytest.fixture(scope='function')
@@ -642,13 +647,19 @@ def multi_img_tbl_exprs(multi_idx_img_tbl: pxt.Table) -> list[exprs.Expr]:
 
 
 @pytest.fixture(scope='function')
-def small_img_tbl(make_catalog_path: Callable[[str], str]) -> pxt.Table:
-    return create_img_tbl(make_catalog_path('small_img_tbl'), num_rows=40)
+def small_img_tbl(make_catalog_path: Callable[[str], str], request: pytest.FixtureRequest) -> pxt.Table:
+    return create_img_tbl(
+        make_catalog_path('small_img_tbl'), num_rows=40, is_data_versioned=_requested_is_data_versioned(request)
+    )
 
 
 @pytest.fixture(scope='function')
-def indexed_img_tbl(make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> pxt.Table:
-    t = create_img_tbl(make_catalog_path('indexed_img_tbl'), num_rows=40)
+def indexed_img_tbl(
+    make_catalog_path: Callable[[str], str], local_embed: pxt.Function, request: pytest.FixtureRequest
+) -> pxt.Table:
+    t = create_img_tbl(
+        make_catalog_path('indexed_img_tbl'), num_rows=40, is_data_versioned=_requested_is_data_versioned(request)
+    )
     t.add_embedding_index(
         'img', idx_name='img_idx0', metric='cosine', image_embed=local_embed, string_embed=local_embed
     )
@@ -656,8 +667,12 @@ def indexed_img_tbl(make_catalog_path: Callable[[str], str], local_embed: pxt.Fu
 
 
 @pytest.fixture(scope='function')
-def multi_idx_img_tbl(make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> pxt.Table:
-    t = create_img_tbl(make_catalog_path('multi_idx_img_tbl'), num_rows=4)
+def multi_idx_img_tbl(
+    make_catalog_path: Callable[[str], str], local_embed: pxt.Function, request: pytest.FixtureRequest
+) -> pxt.Table:
+    t = create_img_tbl(
+        make_catalog_path('multi_idx_img_tbl'), num_rows=4, is_data_versioned=_requested_is_data_versioned(request)
+    )
     t.add_embedding_index(
         'img', idx_name='img_idx1', metric='cosine', image_embed=local_embed, string_embed=local_embed
     )
