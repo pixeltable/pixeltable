@@ -351,7 +351,11 @@ class TestIndex:
         assert 'does not have an image embedding' in str(exc_info.value).lower()
 
     def test_add_index_after_drop(
-        self, small_img_tbl: pxt.Table, make_catalog_path: Callable[[str], str], local_embed: pxt.Function
+        self,
+        small_img_tbl: pxt.Table,
+        make_catalog_path: Callable[[str], str],
+        local_embed: pxt.Function,
+        is_data_versioned: bool,
     ) -> None:
         """Test that an index with the same name can be added after the previous one is dropped"""
         p = make_catalog_path
@@ -364,28 +368,30 @@ class TestIndex:
             .limit(3)
             .collect()
         )
-        t.revert()
-        # creating an index with the same name again after a revert should be successful
-        t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed)
-        res = (
-            t.select(t.img.localpath)
-            .order_by(t.img.similarity(image=sample_img, idx='clip_idx'), asc=False)
-            .limit(3)
-            .collect()
-        )
-        assert_resultset_eq(orig_res, res, True)
-        t.revert()
-        # should be true even after reloading from persistence
-        reload_catalog()
-        t = pxt.get_table(p('small_img_tbl'))
-        t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed)
-        res = (
-            t.select(t.img.localpath)
-            .order_by(t.img.similarity(image=sample_img, idx='clip_idx'), asc=False)
-            .limit(3)
-            .collect()
-        )
-        assert_resultset_eq(orig_res, res, True)
+
+        if is_data_versioned:
+            t.revert()
+            # creating an index with the same name again after a revert should be successful
+            t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed)
+            res = (
+                t.select(t.img.localpath)
+                .order_by(t.img.similarity(image=sample_img, idx='clip_idx'), asc=False)
+                .limit(3)
+                .collect()
+            )
+            assert_resultset_eq(orig_res, res, True)
+            t.revert()
+            # should be true even after reloading from persistence
+            reload_catalog()
+            t = pxt.get_table(p('small_img_tbl'))
+            t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed)
+            res = (
+                t.select(t.img.localpath)
+                .order_by(t.img.similarity(image=sample_img, idx='clip_idx'), asc=False)
+                .limit(3)
+                .collect()
+            )
+            assert_resultset_eq(orig_res, res, True)
 
         # same should hold after a drop.
         t.drop_embedding_index(column='img')
