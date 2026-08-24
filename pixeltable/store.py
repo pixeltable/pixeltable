@@ -170,7 +170,10 @@ class StoreBase:
             return rowid_cols
 
     def pk_constraint_name(self, tbl_version: catalog.TableVersion) -> str:
-        """Name of the Postgres object enforcing the Pixeltable primary key."""
+        """Name of the Postgres object enforcing the Pixeltable primary key.
+
+        On operational tables, it is a constraint rather than an index, so we avoid calling it 'idx'.
+        """
         return f'pk_idx_{tbl_version.id.hex}' if tbl_version.is_data_versioned else f'pk_{tbl_version.id.hex}'
 
     def create_sa_tbl(self, tbl_version: catalog.TableVersion | None = None) -> None:
