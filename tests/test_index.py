@@ -198,17 +198,23 @@ class TestIndex:
 
         t.drop_embedding_index(column='img')
 
-    def test_query(self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> None:
+    def test_query(
+        self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function, is_data_versioned: bool
+    ) -> None:
         # def test_query(self, uses_db: None, local_embed: pxt.Function) -> None:
         p = make_catalog_path
-        queries = pxt.create_table(p('queries'), {'query_text': pxt.String | None})
+        queries = pxt.create_table(
+            p('queries'), {'query_text': pxt.String | None}, _is_data_versioned=is_data_versioned
+        )
         query_rows = [
             {'query_text': 'how much is the stock of AI companies up?'},
             {'query_text': 'what happened to the term machine learning?'},
         ]
         validate_update_status(queries.insert(query_rows))
 
-        chunks = pxt.create_table(p('test_doc_chunks'), {'text': pxt.String | None})
+        chunks = pxt.create_table(
+            p('test_doc_chunks'), {'text': pxt.String | None}, _is_data_versioned=is_data_versioned
+        )
         chunks.insert(
             [
                 {'text': 'the stock of artificial intelligence companies is up 1000%'},
@@ -586,7 +592,11 @@ class TestIndex:
         print(img_t.select(img_t.pkey, img_t.img).collect())
 
     def test_embedding_access(
-        self, img_tbl: pxt.Table, make_catalog_path: Callable[[str], str], local_embed: pxt.Function
+        self,
+        img_tbl: pxt.Table,
+        make_catalog_path: Callable[[str], str],
+        local_embed: pxt.Function,
+        is_data_versioned: bool,
     ) -> None:
         p = make_catalog_path
         img_t = img_tbl
@@ -594,7 +604,7 @@ class TestIndex:
         # create table with fewer rows to speed up testing
         schema: dict[str, Any] = {'img': pxt.Image | None, 'category': pxt.String | None, 'split': pxt.String | None}
         tbl_name = p('access_test')
-        img_t = pxt.create_table(tbl_name, schema)
+        img_t = pxt.create_table(tbl_name, schema, _is_data_versioned=is_data_versioned)
         img_t.insert(rows[:5])
 
         # Add computed column based on the other_idx embedding index
