@@ -63,6 +63,7 @@ SLIM_TESTS = (
 
 MAIN_PLATFORM = 'ubuntu-24.04'
 BASIC_PLATFORMS = ('macos-15', 'windows-2025')
+ALL_PLATFORMS = (MAIN_PLATFORM, *BASIC_PLATFORMS)
 EXPENSIVE_PLATFORMS = ('ubuntu-small-t4',)
 ALTERNATIVE_PLATFORMS = ('ubuntu-24.04-arm', 'macos-15-intel')
 
@@ -118,8 +119,7 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
         # On every push to a PR we run only the slim tests. It is strictly a subset of what the merge queue runs.
         slim_pytest = DEFAULT_PYTEST + ' ' + ' '.join(SLIM_TESTS)
         configs.extend(
-            MatrixConfig('slim', 'py', platform, '3.11', pytest_options=slim_pytest)
-            for platform in (MAIN_PLATFORM, *BASIC_PLATFORMS)
+            MatrixConfig('slim', 'py', platform, '3.11', pytest_options=slim_pytest) for platform in ALL_PLATFORMS
         )
         # Also exercise the newest supported Python on the main platform
         configs.append(MatrixConfig('slim', 'py', MAIN_PLATFORM, '3.14', pytest_options=slim_pytest))
@@ -148,9 +148,7 @@ def build_configs(trigger: str, force_all: bool, has_aws_credentials: bool) -> l
             configs.append(MatrixConfig('notebooks+', 'ipynb', 'ubuntu-large', '3.11'))
 
         # Standard test suite on main & basic platforms on Python 3.14
-        configs.extend(
-            MatrixConfig('standard', 'py', platform, '3.14') for platform in (MAIN_PLATFORM, *BASIC_PLATFORMS)
-        )
+        configs.extend(MatrixConfig('standard', 'py', platform, '3.14') for platform in ALL_PLATFORMS)
 
         # Standard test suite on Ubuntu on intermediate Python versions
         configs.extend(MatrixConfig('standard', 'py', MAIN_PLATFORM, py) for py in ('3.11', '3.12', '3.13'))
