@@ -138,10 +138,10 @@ def handle(
 
 
 def _prefetch_remote_parts(request: ProxyRequest) -> None:
-    """Localize the request's out-of-band media parts (R2 object keys) into TempStore before dispatch.
+    """Localize the request's out-of-band media parts (object store keys) into TempStore before dispatch.
+    Updates request._remote_parts with the temp paths of the localized files.
 
-    Runs outside any transaction so object-store I/O never holds a db connection, and after the staleness
-    gate so a withheld mutation downloads nothing. handle() unlinks the downloaded files.
+    Should be called outside of a db transaction so that object-store I/O never holds a db connection.
     """
     keys = proxy_protocol.collect_remote_keys(request.args)
     if len(keys) == 0:

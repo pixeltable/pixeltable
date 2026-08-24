@@ -8,6 +8,7 @@ new method is "register a handler + make sure its arg/return types serialize" --
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import dataclasses
 import datetime
 import io
@@ -16,7 +17,7 @@ import pathlib
 import shutil
 import struct
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import numpy as np
 import PIL.Image
@@ -34,6 +35,7 @@ from pixeltable.metadata import VERSION as MD_SCHEMA_VERSION, schema
 from pixeltable.query_clauses import SampleClause
 from pixeltable.row import RowBatch
 from pixeltable.utils.local_store import TempStore
+from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectStoreBase
 
 PROTOCOL_VERSION = 2
 
@@ -70,6 +72,85 @@ class PartSink:
 
     def flush(self) -> None:
         """Complete any work the sink deferred while serializing; a no-op for inline parts."""
+
+
+class PxtStorePartSink(PartSink):
+    """PartSink that uploads media parts to the hosted db's home bucket. The parts will be deposited in the
+    uploads/ folder of the db's home bucket, in a per-request subfolder uploads/<request-uuid>.
+
+    The RPC then carries only the object keys; the daemon localizes the objects before dispatch; see
+    proxy_dispatch._prefetch_remote_parts(). Objects under uploads/ expire via a bucket lifecycle rule, so
+    they must never become stored cell values.
+
+    Each part's key is minted during serialization, but the transfer itself is deferred to flush() so that a
+    request's uploads run concurrently rather than one per media value.
+    """
+
+    _MAX_UPLOAD_THREADS = 16
+
+    _org: str
+    _db: str
+    _key_prefix: str  # 'uploads/<request-uuid>/'
+    _num_media_parts: int
+    _store: ObjectStoreBase | None  # built on the first flush, so scalar requests skip the overhead of construction
+    _pending: list[tuple[Path, str, bool]]  # (local path, object key, remove the path after uploading it)
+
+    def __init__(self, org: str, db: str) -> None:
+        super().__init__()
+        self._org = org
+        self._db = db
+        self._key_prefix = f'uploads/{uuid4().hex}/'
+        self._num_media_parts = 0
+        self._store = None
+        self._pending = []
+
+    def _get_store(self) -> ObjectStoreBase:
+        if self._store is None:
+            # the prefix in the URI scopes the store's temp credentials to this request's uploads
+            self._store = ObjectOps.get_store(f'pxtfs://{self._org}:{self._db}/home/{self._key_prefix}', False)
+        return self._store
+
+    def add_media_bytes(self, data: bytes, extension: str) -> str:
+        # stage to a temp file so all uploads go through the file path (boto3's transfer manager); flush()
+        # removes the staged file once it has been uploaded
+        tmp_path = TempStore.create_path(extension=extension)
+        tmp_path.write_bytes(data)
+        return self._add_pending(tmp_path, remove_after_upload=True)
+
+    def add_media_file(self, path: str) -> str:
+        return self._add_pending(Path(path), remove_after_upload=False)
+
+    def _add_pending(self, path: Path, *, remove_after_upload: bool) -> str:
+        """Mint this part's object key and queue its upload for flush()."""
+        key = f'{self._key_prefix}{self._num_media_parts}{path.suffix}'
+        self._num_media_parts += 1
+        self._pending.append((path, key, remove_after_upload))
+        return key
+
+    def flush(self) -> None:
+        """Upload the queued media parts concurrently.
+
+        Repeated references to one path are not coalesced into a single object: the daemon moves each
+        localized file into the media store (ObjectOps.put_file_resolved), which would consume a shared one.
+        """
+        if len(self._pending) == 0:
+            return
+        pending, self._pending = self._pending, []
+        # fetch credentials and build the store once, here: the boto3 client it holds is bound to it at
+        # construction (see S3Store.client()), so the upload threads share that one client, as boto3 permits
+        store = self._get_store()
+
+        def upload(item: tuple[Path, str, bool]) -> None:
+            path, key, remove_after_upload = item
+            try:
+                url = f'pxtfs://{self._org}:{self._db}/home/{key}'
+                store.copy_local_file(path, FileDestination(url=url, remote_key=key))
+            finally:
+                if remove_after_upload:
+                    path.unlink(missing_ok=True)
+
+        with ThreadPoolExecutor(max_workers=min(self._MAX_UPLOAD_THREADS, len(pending))) as executor:
+            list(executor.map(upload, pending))
 
 
 @dataclasses.dataclass
