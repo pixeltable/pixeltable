@@ -151,7 +151,7 @@ dev = [
     "notebook>=7.5.6",
     "black>=26.3.1",
     "pixeltable-doctools @ git+https://github.com/pixeltable/pixeltable-doctools",
-    "preshed>=3.0.13 ; python_version < '3.14'",
+    "preshed>=3.0.13 ; python_version < '3.14'",  # Pre-3.0.10 has no 3.13+ wheels; sdist builds break spaCy
     "pycocotools>=2.0.10",
     "ipykernel>=6.27.1,<7",
     "tabulate>=0.9",
