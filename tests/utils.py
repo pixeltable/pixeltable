@@ -1120,6 +1120,18 @@ def check_media_store_count(
     assert actual == expected_count, f'expected {expected_count} media objects, found {actual}'
 
 
+def get_temp_store_count(tbl: pxt.Table, catalog_mode: CatalogMode) -> int:
+    """Count the objects in the temp store of the catalog tbl lives in."""
+    if catalog_mode == 'cloud':
+        return 0  # temp store not reachable
+
+    catalog_uri = tbl._tbl_path.catalog_uri
+    if catalog_uri.db is None:
+        return TempStore.count()
+    else:
+        return LocalStore(proxy_daemon.proxy_home(catalog_uri.db) / 'tmp').count(None)
+
+
 def check_temp_store_count(tbl: pxt.Table, expected_count: int, catalog_mode: CatalogMode) -> None:
     """Count the objects in the temp store of the catalog tbl lives in."""
     if catalog_mode == 'cloud':

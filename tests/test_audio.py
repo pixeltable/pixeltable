@@ -20,6 +20,7 @@ from .utils import (
     check_temp_store_count,
     get_audio_file,
     get_audio_files,
+    get_temp_store_count,
     get_video_files,
     pxt_raises,
     rerun_on_network_error,
@@ -78,7 +79,7 @@ class TestAudio:
         shipped_videos = len(video_filepaths) if catalog_mode == 'proxy' else 0
         check_media_store_count(video_t, videos_with_audio + shipped_videos, catalog_mode, default_output_dest=True)
         assert video_t.where(video_t.audio != None).count() == videos_with_audio
-        check_temp_store_count(video_t, 0, catalog_mode)
+        init_temp_store_count = get_temp_store_count(video_t, catalog_mode)
 
         video_t = pxt.get_table(p('videos'))
         assert video_t.where(video_t.audio != None).count() == videos_with_audio
@@ -86,7 +87,9 @@ class TestAudio:
         # test generating different formats and codecs
         paths = video_t.select(output=video_t.video.extract_audio(format='wav', codec='pcm_s16le')).collect()['output']
         # media files that are created as a part of a query end up in the tmp dir
-        check_temp_store_count(video_t, video_t.where(video_t.audio != None).count(), catalog_mode)
+        check_temp_store_count(
+            video_t, init_temp_store_count + video_t.where(video_t.audio != None).count(), catalog_mode
+        )
         for path in [pth for pth in paths if pth is not None]:
             self.check_audio_params(path, format='wav', codec='pcm_s16le')
         # higher resolution
