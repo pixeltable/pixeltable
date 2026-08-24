@@ -8,6 +8,7 @@ new method is "register a handler + make sure its arg/return types serialize" --
 
 from __future__ import annotations
 
+import abc
 import dataclasses
 import datetime
 import io
@@ -15,14 +16,15 @@ import math
 import pathlib
 import shutil
 import struct
-from typing import Any
-from uuid import UUID
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Generic, TypeVar
+from uuid import UUID, uuid4
 
 import numpy as np
 import PIL.Image
 from pydantic import BaseModel, PrivateAttr
 
-from pixeltable import exprs, func, type_system as ts
+from pixeltable import exceptions as excs, exprs, func, type_system as ts
 from pixeltable.catalog.dir import Dir
 from pixeltable.catalog.globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation
 from pixeltable.catalog.model import BtreeIndex, EmbeddingIndex
@@ -34,11 +36,137 @@ from pixeltable.metadata import VERSION as MD_SCHEMA_VERSION, schema
 from pixeltable.query_clauses import SampleClause
 from pixeltable.row import RowBatch
 from pixeltable.utils.local_store import TempStore
+from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectStoreBase
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 
 # Reserved key marking a type-tagged value: {_TAG: <type-name>, 'v': <payload>}.
 _TAG = '$pxt'
+
+
+T = TypeVar('T')
+
+
+class PartSink(abc.ABC, Generic[T]):
+    """Destination for a request's binary values during serialization.
+
+    Subclasses may handle the data in a variety of ways, and return a value of type `T` that refers to the stored
+    data (in a subclass-specific way).
+    """
+
+    binary_parts: list[bytes]
+
+    def __init__(self) -> None:
+        self.binary_parts = []
+
+    def add_inline(self, data: bytes) -> int:
+        self.binary_parts.append(data)
+        return len(self.binary_parts) - 1
+
+    @abc.abstractmethod
+    def add_media_bytes(self, data: bytes, extension: str) -> T:
+        """Add an in-memory media value; returns a reference to the value."""
+
+    @abc.abstractmethod
+    def add_media_file(self, path: str) -> T:
+        """Add a file-backed media value; returns a part index (inline) or an object key (out of band)."""
+
+    def flush(self) -> None:
+        """Complete any work the sink deferred while serializing."""
+
+
+class InlinePartSink(PartSink[int]):
+    """A PartSink that inlines everything into binary_parts (referenced by index from the JSON head)."""
+
+    binary_parts: list[bytes]
+
+    def add_media_bytes(self, data: bytes, extension: str) -> int:
+        return self.add_inline(data)
+
+    def add_media_file(self, path: str) -> int:
+        with open(path, 'rb') as f:
+            return self.add_inline(f.read())
+
+
+class PxtStorePartSink(PartSink[int | str]):
+    """PartSink that uploads media parts to the hosted db's home bucket. The parts will be deposited in the
+    uploads/ folder of the db's home bucket, in a per-request subfolder uploads/<request-uuid>.
+
+    The RPC then carries only the object keys; the daemon localizes the objects before dispatch; see
+    proxy_dispatch._prefetch_remote_parts(). Objects under uploads/ expire via a bucket lifecycle rule, so
+    they must never become stored cell values.
+
+    Each part's key is minted during serialization, but the transfer itself is deferred to flush() so that a
+    request's uploads run concurrently rather than one per media value.
+
+    Scalars (tags 'bytes'/'ndarray') always stay inline.
+    """
+
+    _MAX_UPLOAD_THREADS = 16
+
+    _org: str
+    _db: str
+    _key_prefix: str  # 'uploads/<request-uuid>/'
+    _num_media_parts: int
+    _store: ObjectStoreBase | None  # built on the first flush, so scalar requests skip the overhead of construction
+    _pending: list[tuple[pathlib.Path, str, bool]]  # (local path, object key, remove the path after uploading it)
+
+    def __init__(self, org: str, db: str) -> None:
+        super().__init__()
+        self._org = org
+        self._db = db
+        self._key_prefix = f'uploads/{uuid4().hex}/'
+        self._num_media_parts = 0
+        self._store = None
+        self._pending = []
+
+    def _get_store(self) -> ObjectStoreBase:
+        if self._store is None:
+            # the prefix in the URI scopes the store's temp credentials to this request's uploads
+            self._store = ObjectOps.get_store(f'pxtfs://{self._org}:{self._db}/home/{self._key_prefix}', False)
+        return self._store
+
+    def add_media_bytes(self, data: bytes, extension: str) -> str:
+        # stage to a temp file so all uploads go through the file path (boto3's transfer manager); flush()
+        # removes the staged file once it has been uploaded
+        tmp_path = TempStore.create_path(extension=extension)
+        tmp_path.write_bytes(data)
+        return self._add_pending(tmp_path, remove_after_upload=True)
+
+    def add_media_file(self, path: str) -> str:
+        return self._add_pending(pathlib.Path(path), remove_after_upload=False)
+
+    def _add_pending(self, path: pathlib.Path, *, remove_after_upload: bool) -> str:
+        """Mint this part's object key and queue its upload for flush()."""
+        key = f'{self._key_prefix}{self._num_media_parts}{path.suffix}'
+        self._num_media_parts += 1
+        self._pending.append((path, key, remove_after_upload))
+        return key
+
+    def flush(self) -> None:
+        """Upload the queued media parts concurrently.
+
+        Repeated references to one path are not coalesced into a single object: the daemon moves each
+        localized file into the media store (ObjectOps.put_file_resolved), which would consume a shared one.
+        """
+        if len(self._pending) == 0:
+            return
+        pending, self._pending = self._pending, []
+        # fetch credentials and build the store once, here: the boto3 client it holds is bound to it at
+        # construction (see S3Store.client()), so the upload threads share that one client, as boto3 permits
+        store = self._get_store()
+
+        def upload(item: tuple[pathlib.Path, str, bool]) -> None:
+            path, key, remove_after_upload = item
+            try:
+                url = f'pxtfs://{self._org}:{self._db}/home/{key}'
+                store.copy_local_file(path, FileDestination(url=url, remote_key=key))
+            finally:
+                if remove_after_upload:
+                    path.unlink(missing_ok=True)
+
+        with ThreadPoolExecutor(max_workers=min(self._MAX_UPLOAD_THREADS, len(pending))) as executor:
+            list(executor.map(upload, pending))
 
 
 @dataclasses.dataclass
@@ -76,6 +204,10 @@ class ProxyRequest(BaseModel):
     # temp path -> the client's original filename; needed for informative error messages
     _uploaded_names: dict[str, str] = PrivateAttr(default_factory=dict)
 
+    # object key -> local temp path, for media parts the client uploaded out of band; populated by the
+    # server before dispatch (see proxy_dispatch._prefetch_remote_parts)
+    _remote_parts: dict[str, str] = PrivateAttr(default_factory=dict)
+
 
 class ProxyResponse(BaseModel):
     result: Any = None  # return value
@@ -91,16 +223,11 @@ class ProxyResponse(BaseModel):
     _binary_parts: list[bytes] = PrivateAttr(default_factory=list)
 
 
-def _add_part(binary_parts: list[bytes], data: bytes) -> int:
-    """Append a binary part and return its index, referenced by a 'blob' tag in the JSON."""
-    binary_parts.append(data)
-    return len(binary_parts) - 1
-
-
-def _serialize(obj: Any, binary_parts: list[bytes]) -> Any:
+def _serialize(obj: Any, sink: PartSink) -> Any:
     """Encode a Python value to a json-serializable dict that can be deserialized by _deserialize().
 
-    Binary values are appended to binary_parts as raw bytes and referenced inside the dict by index.
+    Binary values go to sink: inlined into its binary_parts (referenced by index), or routed out of band by
+    a media-capable sink (referenced by object key).
     """
     if isinstance(obj, float) and not math.isfinite(obj):
         # nan/inf are valid Float cell values but are lost (rendered as null) by JSON serialization
@@ -136,13 +263,13 @@ def _serialize(obj: Any, binary_parts: list[bytes]) -> Any:
         # scalars); serialize field-by-field so the nested Exprs/Functions round-trip via their own handlers.
         return {
             _TAG: 'EmbeddingIndex',
-            'v': {f.name: _serialize(getattr(obj, f.name), []) for f in dataclasses.fields(obj)},
+            'v': {f.name: _serialize(getattr(obj, f.name), InlinePartSink()) for f in dataclasses.fields(obj)},
         }
     if isinstance(obj, BtreeIndex):
         # A declarative model's B-tree-index spec (a dataclass wrapping an Expr column ref).
         return {
             _TAG: 'BtreeIndex',
-            'v': {f.name: _serialize(getattr(obj, f.name), []) for f in dataclasses.fields(obj)},
+            'v': {f.name: _serialize(getattr(obj, f.name), InlinePartSink()) for f in dataclasses.fields(obj)},
         }
     if isinstance(obj, DirEntry):
         # only the fields any get_dir_contents() consumer reads: dir presence, table id/md, error count
@@ -150,26 +277,24 @@ def _serialize(obj: Any, binary_parts: list[bytes]) -> Any:
             _TAG: 'DirEntry',
             'v': {
                 'is_dir': obj.dir is not None,
-                'table': None
-                if obj.table is None
-                else {'id': _serialize(obj.table.id, binary_parts), 'md': obj.table.md},
-                'dir_entries': {name: _serialize(child, binary_parts) for name, child in obj.dir_entries.items()},
+                'table': None if obj.table is None else {'id': _serialize(obj.table.id, sink), 'md': obj.table.md},
+                'dir_entries': {name: _serialize(child, sink) for name, child in obj.dir_entries.items()},
                 'table_error_count': obj.table_error_count,
             },
         }
     if isinstance(obj, UpdateStatus):
         d = dataclasses.asdict(obj)
-        d['rows'] = _serialize(obj.rows, binary_parts)  # returned rows may hold non-JSON scalars (timestamps, etc.)
+        d['rows'] = _serialize(obj.rows, sink)  # returned rows may hold non-JSON scalars (timestamps, etc.)
         return {_TAG: 'UpdateStatus', 'v': d}
     if isinstance(obj, RowBatch):
         return {
             _TAG: 'RowBatch',
             'v': {
                 'schema': {name: t.as_dict() for name, t in obj._col_types.items()},
-                'rows': [[_serialize(val, binary_parts) for val in row._data] for row in obj],
+                'rows': [[_serialize(val, sink) for val in row._data] for row in obj],
                 'errors': [row.errors for row in obj],
                 'index_values': [
-                    {name: _serialize(val, binary_parts) for name, val in row.index_values.items()} for row in obj
+                    {name: _serialize(val, sink) for name, val in row.index_values.items()} for row in obj
                 ],
             },
         }
@@ -187,79 +312,95 @@ def _serialize(obj: Any, binary_parts: list[bytes]) -> Any:
         return str(obj)  # filesystem paths travel as strings
     if isinstance(obj, bytes):
         # a Binary cell, or an array column's stored byte form as returned by compute()
-        return {_TAG: 'bytes', 'v': _add_part(binary_parts, obj)}
+        # TODO: We should be coalescing these into out-of-band uploads via add_media_bytes(), not inlining them
+        #     in HTTP requests [PXT-1314]
+        return {_TAG: 'bytes', 'v': sink.add_inline(obj)}
     if isinstance(obj, np.ndarray):
+        # TODO: We should be coalescing these into out-of-band uploads via add_media_bytes(), not inlining them
+        #     in HTTP requests [PXT-1314]
         buf = io.BytesIO()
         np.save(buf, obj, allow_pickle=False)  # .npy carries dtype and shape
-        return {_TAG: 'ndarray', 'v': _add_part(binary_parts, buf.getvalue())}
+        return {_TAG: 'ndarray', 'v': sink.add_inline(buf.getvalue())}
     if isinstance(obj, PIL.Image.Image):
         # an in-memory image; file-backed media travels as a path
         buf = io.BytesIO()
         fmt = obj.format or 'PNG'
         obj.save(buf, format=fmt)
-        return {_TAG: 'image', 'format': fmt, 'v': _add_part(binary_parts, buf.getvalue())}
+        return {_TAG: 'image', 'format': fmt, 'v': sink.add_media_bytes(buf.getvalue(), f'.{fmt.lower()}')}
     if isinstance(obj, LocalFile):
-        with open(obj.path, 'rb') as f:
-            data = f.read()
         # carry the original file name so the receiver can restore it in error messages (its temp copy uses an
         # opaque name) and preserve the extension for media-type detection
-        return {_TAG: 'file', 'name': pathlib.Path(obj.path).name, 'v': _add_part(binary_parts, data)}
+        return {_TAG: 'file', 'name': pathlib.Path(obj.path).name, 'v': sink.add_media_file(obj.path)}
     if isinstance(obj, MediaPath):
         return {_TAG: 'mediapath', 'v': obj.path}
     if isinstance(obj, list):
-        return [_serialize(x, binary_parts) for x in obj]
+        return [_serialize(x, sink) for x in obj]
     if isinstance(obj, tuple):
-        return {_TAG: 'tuple', 'v': [_serialize(x, binary_parts) for x in obj]}
+        return {_TAG: 'tuple', 'v': [_serialize(x, sink) for x in obj]}
     if isinstance(obj, dict):
         if _TAG in obj or any(not isinstance(k, str) for k in obj):
             # store as ordered key/value pairs, which keeps a key colliding with the reserved tag out of the top
             # level and preserves keys that json cannot represent (json object keys are always strings)
-            return {
-                _TAG: 'rawdict',
-                'v': [[_serialize(k, binary_parts), _serialize(val, binary_parts)] for k, val in obj.items()],
-            }
-        return {k: _serialize(v, binary_parts) for k, v in obj.items()}
+            return {_TAG: 'rawdict', 'v': [[_serialize(k, sink), _serialize(val, sink)] for k, val in obj.items()]}
+        return {k: _serialize(v, sink) for k, v in obj.items()}
     raise AssertionError(f'cannot serialize {type(obj).__name__} for the proxy protocol')
 
 
-def _deserialize(obj: Any, binary_parts: list[bytes], uploaded_names: dict[str, str] | None = None) -> Any:
+def _deserialize(
+    obj: Any,
+    binary_parts: list[bytes],
+    uploaded_names: dict[str, str] | None = None,
+    remote_parts: dict[str, str] | None = None,
+) -> Any:
     """Inverse of _serialize(). When uploaded_names is provided, each 'file' arg maps its temp path to the
-    original filename in it."""
+    original filename in it. remote_parts maps each out-of-band media part's object key to a pre-downloaded
+    local temp path."""
     if isinstance(obj, list):
-        return [_deserialize(x, binary_parts, uploaded_names) for x in obj]
+        return [_deserialize(x, binary_parts, uploaded_names, remote_parts) for x in obj]
     if isinstance(obj, dict):
         tag = obj.get(_TAG)
         if tag is None:
-            return {k: _deserialize(v, binary_parts, uploaded_names) for k, v in obj.items()}
+            return {k: _deserialize(v, binary_parts, uploaded_names, remote_parts) for k, v in obj.items()}
         v = obj['v']
         if tag == 'float':
             return float(v)  # nan/inf
         if tag == 'rawdict':
             return {
-                _deserialize(k, binary_parts, uploaded_names): _deserialize(val, binary_parts, uploaded_names)
+                _deserialize(k, binary_parts, uploaded_names, remote_parts): _deserialize(
+                    val, binary_parts, uploaded_names, remote_parts
+                )
                 for k, val in v
             }
         if tag == 'tuple':
-            return tuple(_deserialize(x, binary_parts, uploaded_names) for x in v)
+            return tuple(_deserialize(x, binary_parts, uploaded_names, remote_parts) for x in v)
         if tag == 'bytes':
             return binary_parts[v]
         if tag == 'ndarray':
             return np.load(io.BytesIO(binary_parts[v]), allow_pickle=False)
         if tag == 'image':
-            img = PIL.Image.open(io.BytesIO(binary_parts[v]))
-            img.load()  # read pixels now so the result doesn't depend on the transient buffer
+            # a str v is an object key of an out-of-band media part, resolved to a pre-downloaded local path
+            img = PIL.Image.open(
+                _remote_part_path(v, remote_parts) if isinstance(v, str) else io.BytesIO(binary_parts[v])
+            )
+            img.load()  # read pixels now so the result doesn't depend on the transient buffer/file
             return img
         if tag == 'file':
-            # write the sent bytes to an opaque temp path (extension preserved for media-type detection); record
-            # the original file name so an error can reference it rather than the temp path
-            parts_idx = v
-            dest = TempStore.create_path(extension=pathlib.Path(obj['name']).suffix)
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            with open(dest, 'wb') as f:
-                f.write(binary_parts[parts_idx])
+            if isinstance(v, str):
+                # an object key of an out-of-band media part; return its pre-downloaded local path
+                dest_str = _remote_part_path(v, remote_parts)
+            else:
+                # write the sent bytes to an opaque temp path (extension preserved for media-type detection)
+                # TODO: We still need this because bytes/ndarrays are still inlined into HTTP requests; once that's
+                #     fixed, this code branch can be removed (v will always be a str) [PXT-1314]
+                dest = TempStore.create_path(extension=pathlib.Path(obj['name']).suffix)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                with open(dest, 'wb') as f:
+                    f.write(binary_parts[v])
+                dest_str = str(dest)
+            # record the original file name so an error can reference it rather than the temp path
             if uploaded_names is not None:
-                uploaded_names[str(dest)] = obj['name']
-            return str(dest)
+                uploaded_names[dest_str] = obj['name']
+            return dest_str
         if tag == 'mediapath':
             # persisted daemon media; the client localizes it from the daemon's /media endpoint (see ProxyClient)
             return MediaPath(v)
@@ -294,11 +435,14 @@ def _deserialize(obj: Any, binary_parts: list[bytes], uploaded_names: dict[str, 
             return DirEntry(
                 dir=schema.Dir(md={}) if v['is_dir'] else None,
                 dir_entries={
-                    name: _deserialize(child, binary_parts, uploaded_names) for name, child in v['dir_entries'].items()
+                    name: _deserialize(child, binary_parts, uploaded_names, remote_parts)
+                    for name, child in v['dir_entries'].items()
                 },
                 table=None
                 if table is None
-                else schema.Table(id=_deserialize(table['id'], binary_parts, uploaded_names), md=table['md']),
+                else schema.Table(
+                    id=_deserialize(table['id'], binary_parts, uploaded_names, remote_parts), md=table['md']
+                ),
                 table_error_count=v['table_error_count'],
             )
         if tag == 'UpdateStatus':
@@ -329,20 +473,60 @@ def _deserialize(obj: Any, binary_parts: list[bytes], uploaded_names: dict[str, 
     return obj
 
 
-def serialize_request(request: ProxyRequest) -> None:
-    """Encode request.args in place, appending any binary values to request._binary_parts for transport."""
-    request.args = _serialize(request.args, request._binary_parts)
+def _remote_part_path(key: str, remote_parts: dict[str, str] | None) -> str:
+    """Resolve an out-of-band media part's object key to its pre-downloaded local path."""
+    if remote_parts is None:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'Cannot localize uploaded media object {key!r}: this receiver has no access to uploaded objects',
+        )
+    if key not in remote_parts:
+        raise excs.RequestError(
+            excs.ErrorCode.STORAGE_NOT_FOUND,
+            f'Cannot localize uploaded media object {key!r}: object was not prefetched on this receiver',
+        )
+    return remote_parts[key]
+
+
+def collect_remote_keys(args: Any) -> list[str]:
+    """Return the object keys of all out-of-band media parts ('file'/'image' tags whose 'v' is a str) in
+    serialized args, deduplicated in encounter order."""
+    keys: dict[str, None] = {}
+
+    def walk(obj: Any) -> None:
+        if isinstance(obj, list):
+            for item in obj:
+                walk(item)
+        elif isinstance(obj, dict):
+            if obj.get(_TAG) in ('file', 'image') and isinstance(obj.get('v'), str):
+                keys[obj['v']] = None
+            else:
+                for value in obj.values():
+                    walk(value)
+
+    walk(args)
+    return list(keys)
+
+
+def serialize_args(args: dict[str, Any], sink: PartSink) -> dict[str, Any]:
+    """Encode a request's args for the wire; binary values go to sink (see _serialize())."""
+    wire_args = _serialize(args, sink)
+    assert isinstance(wire_args, dict)
+    sink.flush()  # an out-of-band sink defers its transfers to here, where they can run concurrently
+    return wire_args
 
 
 def deserialize_request(request: ProxyRequest) -> dict[str, Any]:
     """Decode request.args, recording each uploaded file's temp-path-to-original-name mapping on the request."""
-    return _deserialize(request.args, request._binary_parts, request._uploaded_names)
+    return _deserialize(request.args, request._binary_parts, request._uploaded_names, request._remote_parts or None)
 
 
 def serialize_response(response: ProxyResponse) -> None:
     """Encode response.result and response.current_md in place, appending binary values to response._binary_parts."""
-    response.result = _serialize(response.result, response._binary_parts)
-    response.current_md = _serialize(response.current_md, response._binary_parts)
+    sink = InlinePartSink()
+    response.result = _serialize(response.result, sink)
+    response.current_md = _serialize(response.current_md, sink)
+    response._binary_parts = sink.binary_parts
 
 
 def deserialize_response(response: ProxyResponse, value: Any) -> Any:

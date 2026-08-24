@@ -21,7 +21,8 @@ from pixeltable.functions.video import (
 from pixeltable.utils import av as av_utils
 
 from .utils import (
-    MediaStore,
+    CatalogMode,
+    check_media_store_count,
     generate_test_video,
     get_audio_files,
     get_image_files,
@@ -87,22 +88,22 @@ class TestVideo:
         reason='PXT-1295: TestVideo.test_basic[proxy] consistently fails on Windows in CI',
         strict=False,
     )
-    def test_basic(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_basic(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         p = make_catalog_path
         video_filepaths = get_video_files()
 
         # computed images are not stored
         _, view = self.create_and_insert(False, video_filepaths, p=p)
-        assert MediaStore.count(view, default_output_dest=True) == 0
+        check_media_store_count(view, 0, catalog_mode, default_output_dest=True)
 
         # computed images are stored
         tbl, view = self.create_and_insert(True, video_filepaths, p=p)
-        assert MediaStore.count(view, default_output_dest=True) == view.count()
+        check_media_store_count(view, view.count(), catalog_mode, default_output_dest=True)
 
         # revert() also removes computed images
         tbl.insert({'video': path} for path in video_filepaths)
         tbl.revert()
-        assert MediaStore.count(view, default_output_dest=True) == view.count()
+        check_media_store_count(view, view.count(), catalog_mode, default_output_dest=True)
 
     @pytest.mark.local('TODO: convert; frame-iterator view')
     @rerun_on_network_error()
