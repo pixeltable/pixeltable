@@ -532,13 +532,20 @@ class SampleFileServer:
     def __init__(self, base_url: str) -> None:
         self.base_url = base_url
 
-    def url(self, path: str | pathlib.Path) -> str:
+    def url(self, path: str | pathlib.Path, catalog_mode: CatalogMode = 'local') -> str:
         """Return the http:// URL of `path`, given either as an absolute path in the repo or relative to its root."""
         rel_path = pathlib.Path(path)
         if rel_path.is_absolute():
             assert rel_path.is_relative_to(_SERVED_DIR)
             rel_path = rel_path.relative_to(_SERVED_DIR)
-        return self.base_url + urllib.parse.quote(rel_path.as_posix())
+
+        if catalog_mode == 'cloud':
+            # For cloud tests, we need to send an actual URL; Pixeltable cloud obviously can't see 127.0.0.1
+            base_url = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/'
+        else:
+            base_url = self.base_url
+
+        return base_url + urllib.parse.quote(rel_path.as_posix())
 
 
 @pytest.fixture
