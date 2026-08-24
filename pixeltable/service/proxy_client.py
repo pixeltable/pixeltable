@@ -38,7 +38,7 @@ from pixeltable.utils.http import fetch_url
 from pixeltable.utils.local_store import TempStore
 
 from . import proxy_protocol
-from .proxy_protocol import MediaPath, PartSink, ProxyRequest, ProxyResponse, PxtStorePartSink, decode_body, encode_body
+from .proxy_protocol import InlinePartSink, MediaPath, PartSink, ProxyRequest, ProxyResponse, PxtStorePartSink, decode_body, encode_body
 
 if TYPE_CHECKING:
     from pixeltable.catalog.table_path import TablePathKey
@@ -87,7 +87,7 @@ class Transport(abc.ABC):
 
     def new_part_sink(self) -> PartSink:
         """Return a fresh sink for one logical request's media parts; the default inlines them in the body."""
-        return PartSink()
+        return InlinePartSink()
 
     def close(self) -> None:
         """Release any transport resources."""

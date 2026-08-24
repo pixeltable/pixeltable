@@ -8,6 +8,8 @@ new method is "register a handler + make sure its arg/return types serialize" --
 
 from __future__ import annotations
 
+import abc
+from typing import TypeVar
 from concurrent.futures import ThreadPoolExecutor
 import dataclasses
 import datetime
@@ -16,7 +18,7 @@ import math
 import pathlib
 import shutil
 import struct
-from typing import Any
+from typing import Any, Generic
 from uuid import UUID, uuid4
 
 import numpy as np
@@ -43,12 +45,13 @@ PROTOCOL_VERSION = 2
 _TAG = '$pxt'
 
 
-class PartSink:
+T = TypeVar('T')
+
+class PartSink(abc.ABC, Generic[T]):
     """Destination for a request's binary values during serialization.
 
-    The base sink inlines everything into binary_parts (referenced by index from the JSON head). A subclass
-    can route media values (tags 'file'/'image') out of band by returning an object key (a str) instead of a
-    part index; scalars (tags 'bytes'/'ndarray') always stay inline.
+    Subclasses may handle the data in a variety of ways, and return a value of type `T` that refers to the stored
+    data (in a subclass-specific way).
     """
 
     binary_parts: list[bytes]
@@ -57,16 +60,32 @@ class PartSink:
         self.binary_parts = []
 
     def add_inline(self, data: bytes) -> int:
-        """Append an inline binary part and return its index."""
         self.binary_parts.append(data)
         return len(self.binary_parts) - 1
 
-    def add_media_bytes(self, data: bytes, extension: str) -> int | str:
-        """Add an in-memory media value; returns a part index (inline) or an object key (out of band)."""
+    @abc.abstractmethod
+    def add_media_bytes(self, data: bytes, extension: str) -> T:
+        """Add an in-memory media value; returns a reference to the value."""
+
+    @abc.abstractmethod
+    def add_media_file(self, path: str) -> T:
+        """Add a file-backed media value; returns a part index (inline) or an object key (out of band)."""
+
+    @abc.abstractmethod
+    def flush(self) -> None:
+        """Complete any work the sink deferred while serializing; a no-op for inline parts."""
+
+
+class InlinePartSink(PartSink[int]):
+    """A PartSink that inlines everything into binary_parts (referenced by index from the JSON head).
+    """
+
+    binary_parts: list[bytes]
+
+    def add_media_bytes(self, data: bytes, extension: str) -> int:
         return self.add_inline(data)
 
-    def add_media_file(self, path: str) -> int | str:
-        """Add a file-backed media value; returns a part index (inline) or an object key (out of band)."""
+    def add_media_file(self, path: str) -> int:
         with open(path, 'rb') as f:
             return self.add_inline(f.read())
 
@@ -74,7 +93,7 @@ class PartSink:
         """Complete any work the sink deferred while serializing; a no-op for inline parts."""
 
 
-class PxtStorePartSink(PartSink):
+class PxtStorePartSink(PartSink[int | str]):
     """PartSink that uploads media parts to the hosted db's home bucket. The parts will be deposited in the
     uploads/ folder of the db's home bucket, in a per-request subfolder uploads/<request-uuid>.
 
@@ -84,6 +103,8 @@ class PxtStorePartSink(PartSink):
 
     Each part's key is minted during serialization, but the transfer itself is deferred to flush() so that a
     request's uploads run concurrently rather than one per media value.
+
+    Scalars (tags 'bytes'/'ndarray') always stay inline.
     """
 
     _MAX_UPLOAD_THREADS = 16
@@ -93,7 +114,7 @@ class PxtStorePartSink(PartSink):
     _key_prefix: str  # 'uploads/<request-uuid>/'
     _num_media_parts: int
     _store: ObjectStoreBase | None  # built on the first flush, so scalar requests skip the overhead of construction
-    _pending: list[tuple[Path, str, bool]]  # (local path, object key, remove the path after uploading it)
+    _pending: list[tuple[pathlib.Path, str, bool]]  # (local path, object key, remove the path after uploading it)
 
     def __init__(self, org: str, db: str) -> None:
         super().__init__()
@@ -118,9 +139,9 @@ class PxtStorePartSink(PartSink):
         return self._add_pending(tmp_path, remove_after_upload=True)
 
     def add_media_file(self, path: str) -> str:
-        return self._add_pending(Path(path), remove_after_upload=False)
+        return self._add_pending(pathlib.Path(path), remove_after_upload=False)
 
-    def _add_pending(self, path: Path, *, remove_after_upload: bool) -> str:
+    def _add_pending(self, path: pathlib.Path, *, remove_after_upload: bool) -> str:
         """Mint this part's object key and queue its upload for flush()."""
         key = f'{self._key_prefix}{self._num_media_parts}{path.suffix}'
         self._num_media_parts += 1
@@ -140,7 +161,7 @@ class PxtStorePartSink(PartSink):
         # construction (see S3Store.client()), so the upload threads share that one client, as boto3 permits
         store = self._get_store()
 
-        def upload(item: tuple[Path, str, bool]) -> None:
+        def upload(item: tuple[pathlib.Path, str, bool]) -> None:
             path, key, remove_after_upload = item
             try:
                 url = f'pxtfs://{self._org}:{self._db}/home/{key}'
