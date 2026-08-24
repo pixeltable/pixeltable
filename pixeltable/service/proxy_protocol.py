@@ -317,8 +317,12 @@ def _serialize(obj: Any, sink: PartSink) -> Any:
         return str(obj)  # filesystem paths travel as strings
     if isinstance(obj, bytes):
         # a Binary cell, or an array column's stored byte form as returned by compute()
+        # TODO: We should be coalescing these into out-of-band uploads via add_media_bytes(), not inlining them
+        #     in HTTP requests [PXT-1314]
         return {_TAG: 'bytes', 'v': sink.add_inline(obj)}
     if isinstance(obj, np.ndarray):
+        # TODO: We should be coalescing these into out-of-band uploads via add_media_bytes(), not inlining them
+        #     in HTTP requests [PXT-1314]
         buf = io.BytesIO()
         np.save(buf, obj, allow_pickle=False)  # .npy carries dtype and shape
         return {_TAG: 'ndarray', 'v': sink.add_inline(buf.getvalue())}
@@ -391,6 +395,8 @@ def _deserialize(
                 dest_str = _remote_part_path(v, remote_parts)
             else:
                 # write the sent bytes to an opaque temp path (extension preserved for media-type detection)
+                # TODO: We still need this because bytes/ndarrays are still inlined into HTTP requests; once that's
+                #     fixed, this code branch can be removed (v will always be a str) [PXT-1314]
                 dest = TempStore.create_path(extension=pathlib.Path(obj['name']).suffix)
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 with open(dest, 'wb') as f:

@@ -85,9 +85,9 @@ class Transport(abc.ABC):
     def media_url(self, media_path: str) -> str:
         """Build a fetchable URL for a media-dir-relative path served by the daemon."""
 
+    @abc.abstractmethod
     def new_part_sink(self) -> PartSink:
-        """Return a fresh sink for one logical request's media parts; the default inlines them in the body."""
-        return InlinePartSink()
+        """Return a fresh sink for one logical request's media parts."""
 
     def close(self) -> None:
         """Release any transport resources."""
@@ -113,6 +113,9 @@ class HttpTransport(Transport):
 
     def media_url(self, media_path: str) -> str:
         return f'{self._endpoint}/media/{media_path}'
+
+    def new_part_sink(self) -> PartSink:
+        return InlinePartSink()
 
     def close(self) -> None:
         self._http.close()

@@ -2396,7 +2396,8 @@ class TestTable:
     def test_create_video_table(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         p = make_catalog_path
         if catalog_mode == 'cloud':
-            pytest.skip('Cloud service hangs on first insert')
+            # TODO: Fix this [PXT-1312]
+            pytest.skip('Cloud service hangs on first insert [PXT-1312]')
         if Env.get().is_using_cockroachdb:
             # TODO(PXT-921): fix this on CockroachDB
             pytest.skip(
@@ -3193,7 +3194,8 @@ class TestTable:
 
     def _test_computed_img_cols(self, t: pxt.Table, stores_img_col: bool, catalog_mode: CatalogMode) -> None:
         if catalog_mode == 'cloud':
-            pytest.skip('Cloud service hangs on insert')
+            # TODO: Fix this [PXT-1312]
+            pytest.skip('Cloud service hangs on first insert [PXT-1312]')
 
         # over the proxy, img (inserted from local file paths) is shipped and persisted in the daemon media store,
         # which the default config shares with the output dest, so each row also contributes one stored input image

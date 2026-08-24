@@ -1100,6 +1100,7 @@ def check_media_store_count(
     is skipped in that mode.
     """
     if catalog_mode == 'cloud':
+        # TODO: We should find a way to assert this [PXT-1313].
         return  # media store not reachable; don't assert anything
 
     actual: int
@@ -1122,6 +1123,7 @@ def check_media_store_count(
 def check_temp_store_count(tbl: pxt.Table, expected_count: int, catalog_mode: CatalogMode) -> None:
     """Count the objects in the temp store of the catalog tbl lives in."""
     if catalog_mode == 'cloud':
+        # TODO: We should find a way to assert this [PXT-1313].
         return  # temp store not reachable; don't assert anything
 
     actual: int
