@@ -7,7 +7,8 @@ from types import ModuleType
 from typing import TYPE_CHECKING
 
 from pixeltable import exceptions as excs
-from pixeltable.catalog import is_valid_identifier, model
+from pixeltable.catalog import ProhibitedWriteError, is_valid_identifier, model
+from pixeltable.runtime import get_runtime
 from pixeltable.utils import module_loader
 
 if TYPE_CHECKING:
@@ -21,8 +22,17 @@ def load_app_module(file: str, *, subject: str, reload: bool = False) -> ModuleT
     path = Path(file)
     if not path.is_file():
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{subject} not found: {file}')
+    # resolve the catalog first: initializing it writes, which freeze() would refuse
+    catalog = get_runtime().catalog
     try:
-        return module_loader.load_file(path, reload=reload)
+        with catalog.freeze():
+            return module_loader.load_file(path, reload=reload)
+    except ProhibitedWriteError as e:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f'{file}: this {subject} modifies the catalog while it is imported; it declares tables, and '
+            'creating or populating them happens when the declaration is applied',
+        ) from e
     except Exception as e:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'error loading {file}: {e}') from e
 

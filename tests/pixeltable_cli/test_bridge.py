@@ -74,6 +74,62 @@ class TestBridge:
         assert 'app' not in sys.modules
         assert not any(str(tmp_path) in entry for entry in sys.path)
 
+    def test_app_module_cannot_modify_the_catalog(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        """An application file declares tables, so a mutation while it loads is refused and a read is not."""
+        t = pxt.create_table('frozen', {'c': pxt.Int})
+        t.insert([{'c': 1}])
+        refused = r'this application file modifies the catalog while it is imported'
+
+        # DDL
+        ddl_file = tmp_path / 'ddl.py'
+        ddl_file.write_text(
+            dedent(
+                """
+                import pixeltable as pxt
+
+                pxt.create_table('made_by_import', {'c': pxt.Int})
+                """
+            ),
+            encoding='utf-8',
+        )
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=refused):
+            load_app_module(str(ddl_file), subject='application file')
+        assert 'made_by_import' not in pxt.list_tables()
+
+        # DML
+        dml_file = tmp_path / 'dml.py'
+        dml_file.write_text(
+            dedent(
+                """
+                import pixeltable as pxt
+
+                pxt.get_table('frozen').insert([{'c': 2}])
+                """
+            ),
+            encoding='utf-8',
+        )
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=refused):
+            load_app_module(str(dml_file), subject='application file')
+        assert t.count() == 1
+
+        # reading the catalog while loading is allowed
+        read_file = tmp_path / 'read.py'
+        read_file.write_text(
+            dedent(
+                """
+                import pixeltable as pxt
+
+                NUM_ROWS = pxt.get_table('frozen').count()
+                """
+            ),
+            encoding='utf-8',
+        )
+        assert load_app_module(str(read_file), subject='application file').NUM_ROWS == 1
+
+        # the refusal is scoped to the load: the next mutation goes through
+        t.insert([{'c': 3}])
+        assert t.count() == 2
+
     def test_table_metadata_basic(self, uses_db: None) -> None:
         pxt.create_dir('md')
         t = pxt.create_table('md/t', {'c1': pxt.String | None, 'c2': pxt.Int}, primary_key='c2')

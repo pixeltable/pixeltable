@@ -13,6 +13,7 @@ import math
 import os
 import shutil
 import subprocess
+import sys
 import threading
 import types
 import typing
@@ -36,6 +37,7 @@ from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter,
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import _logger as _http_server_logger, make_server
 from pixeltable.utils.object_stores import ObjectPath
+from pixeltable.utils.project import find_project_root
 from pixeltable.utils.sql import add_option_to_db_url
 
 if TYPE_CHECKING:
@@ -127,6 +129,7 @@ class Env:
     _resource_pool_info: dict[str, Any]
     _resource_pool_lock: threading.Lock
     _dbms: Dbms | None
+    _project_root: Path | None
 
     @classmethod
     def get(cls) -> Env:
@@ -185,6 +188,7 @@ class Env:
         self._resource_pool_info = {}
         self._resource_pool_lock = threading.Lock()
         self._dbms = None
+        self._project_root = None
 
         # Maps a table's id to the catalog uri it belongs to ('' for the in-process catalog). Populated whenever
         # a table is materialized, so a ColumnRef can resolve its table against the right catalog. Lives here
@@ -218,6 +222,27 @@ class Env:
                 del os.environ['PIXELTABLE_USER']
         else:
             os.environ['PIXELTABLE_USER'] = user
+
+    @property
+    def project_root(self) -> Path | None:
+        """The directory a module reference in an application file is resolved against, if there is one."""
+        return self._project_root
+
+    def _resolve_project_root(self, config: Config) -> Path | None:
+        """The project root this instance runs against: the configured one, or the nearest marker above cwd.
+
+        A long-running process is told its root through the configuration, since its working directory says
+        nothing about the project it serves.
+        """
+        configured = config.get_string_value('project_root')
+        if configured is not None:
+            root = Path(configured).expanduser()
+            if not root.is_dir():
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION, f'project_root is not a directory: {configured}'
+                )
+            return root.resolve()
+        return find_project_root(Path.cwd())
 
     @property
     def default_time_zone(self) -> ZoneInfo | None:
@@ -326,6 +351,13 @@ class Env:
         self._log_dir.mkdir(exist_ok=True)
         self._tmp_dir.mkdir(exist_ok=True)
         self._services_dir.mkdir(exist_ok=True)
+
+        self._project_root = self._resolve_project_root(config)
+        if self._project_root is not None:
+            # appended, so a module the project holds does not take precedence over an installed one
+            root_str = str(self._project_root)
+            if root_str not in sys.path:
+                sys.path.append(root_str)
 
         self._file_cache_size_g = config.get_float_value('file_cache_size_g')
         if self._file_cache_size_g is None:
