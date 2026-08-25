@@ -557,14 +557,8 @@ class TableModelMeta(type):
         return cls
 
     def _resolve_tbl(cls, catalog_dir: str, if_not_exists: Literal['error', 'ignore']) -> Table | None:
-        import logging
-
         import pixeltable as pxt
 
-        logging.getLogger('pixeltable').warning(
-            f'XXX _resolve_tbl {cls.__name__} id={id(cls)} mod={cls.__module__} '
-            f'_catalog_dir={cls._catalog_dir!r} asked={catalog_dir!r}'
-        )
         if cls._catalog_dir is not None and catalog_dir != cls._catalog_dir:
             raise excs.RequestError(
                 excs.ErrorCode.ALREADY_BOUND,

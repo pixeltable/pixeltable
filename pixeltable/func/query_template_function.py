@@ -5,7 +5,6 @@ from functools import reduce
 from typing import TYPE_CHECKING, Any, Callable, Iterable, overload
 
 from pixeltable import catalog, exceptions as excs, exprs, func, type_system as ts
-from pixeltable.utils import module_loader
 
 from .function import Function
 from .signature import Signature
@@ -28,7 +27,6 @@ class QueryTemplateFunction(Function):
         template_callable: Callable,
         param_types: list[ts.ColumnType] | None,
         path: str,
-        file: str | None,
         name: str,
         return_scalar: bool,
     ) -> QueryTemplateFunction:
@@ -47,7 +45,6 @@ class QueryTemplateFunction(Function):
             params,
             return_scalar=return_scalar,
             path=path,
-            file=file,
             name=name,
             comment=inspect.getdoc(template_callable),
         )
@@ -58,7 +55,6 @@ class QueryTemplateFunction(Function):
         params: list[func.Parameter],
         return_scalar: bool = False,
         path: str | None = None,
-        file: str | None = None,
         name: str | None = None,
         comment: str | None = None,
     ):
@@ -77,7 +73,7 @@ class QueryTemplateFunction(Function):
             row_schema = ts.JsonType(ts.JsonType.TypeSchema(type_spec=dict(schema)))
         return_type = ts.JsonType(ts.JsonType.TypeSchema(type_spec=[], variadic_type=row_schema))
         sig = Signature(return_type=return_type, parameters=params)
-        super().__init__([sig], self_path=path, self_file=file)
+        super().__init__([sig], self_path=path)
         self.self_name = name
         self.template_query = template_query
         self.return_scalar = return_scalar
@@ -167,23 +163,14 @@ def query(*args: Any, **kwargs: Any) -> Any:
     def make_query_template(
         py_fn: Callable, param_types: list[ts.ColumnType] | None, return_scalar: bool
     ) -> QueryTemplateFunction:
-        # a query defined in a file that is not importable by name is referred to by that file
-        function_file, function_path = module_loader.file_symbol_path(py_fn)
-        if function_file is None:
-            if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():
-                # this is a named function in a module
-                function_path = f'{py_fn.__module__}.{py_fn.__qualname__}'
-            else:
-                function_path = None
-
+        if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():
+            # this is a named function in a module
+            function_path = f'{py_fn.__module__}.{py_fn.__qualname__}'
+        else:
+            function_path = None
         query_name = py_fn.__name__
         query_fn = QueryTemplateFunction.create(
-            py_fn,
-            return_scalar=return_scalar,
-            param_types=param_types,
-            path=function_path,
-            file=function_file,
-            name=query_name,
+            py_fn, return_scalar=return_scalar, param_types=param_types, path=function_path, name=query_name
         )
         return query_fn
 

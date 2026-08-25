@@ -34,7 +34,6 @@ class CallableFunction(Function):
         signatures: list[Signature],
         py_fns: list[Callable],
         self_path: str | None = None,
-        self_file: str | None = None,
         self_name: str | None = None,
         display_name: str | None = None,
         batch_size: int | None = None,
@@ -57,7 +56,6 @@ class CallableFunction(Function):
         super().__init__(
             signatures,
             self_path=self_path,
-            self_file=self_file,
             is_method=is_method,
             is_property=is_property,
             is_deterministic=is_deterministic,

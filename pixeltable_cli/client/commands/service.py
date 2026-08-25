@@ -10,7 +10,7 @@ from ...service_types import ServiceChangeOp, ServiceDeployment, ServicePlan, Se
 from ...utils import PxtPath
 from ..confirm import confirm_or_exit
 from ..parser import Parser
-from ..utils import get_request, post_request
+from ..utils import check_file, get_request, post_request
 
 _EXAMPLE_APP = '''\
 """Pixeltable application, written by 'pxt service example'.
@@ -103,7 +103,23 @@ Examples:
   pxt service list my_dir             # those bound at my_dir and below it
 """
 
-VERBS = ('diff', 'update', 'run', 'prune', 'stop', 'list', 'example')
+CHECK_EPILOG = """\
+Examples:
+  pxt service check app.py                 # before deploying it anywhere
+  pxt service check app.py --json
+
+Exit codes:
+  0  the file is valid; warnings may still be printed
+  1  error: bad arguments, the file failed to import, or a udf it records cannot be read back
+
+Notes:
+  Checks what the file says on its own: it imports without modifying the catalog, it declares a
+  service and a model base, and every udf its columns call is named by a module path another
+  process resolves. Takes no TARGET, so it says nothing about what a target can serve;
+  'pxt service diff' answers that.
+"""
+
+VERBS = ('diff', 'update', 'run', 'prune', 'stop', 'list', 'check', 'example')
 
 EXIT_IN_AGREEMENT = 0
 EXIT_ERROR = 1
@@ -138,6 +154,7 @@ def run(argv: list[str]) -> None:
             '  prune    stop and forget the services at TARGET that APP does not declare\n'
             '  stop     stop the named services\n'
             '  list     what is running locally, and where\n'
+            '  check    validate the application file on its own (takes no TARGET)\n'
             '  example  write a working application file to start from\n\n'
             'APP is a Python file declaring FastAPIRouter services; TARGET is the catalog directory their\n'
             "models bind against. Run 'pxt service example' for a file to start from."
@@ -154,6 +171,14 @@ def run(argv: list[str]) -> None:
         ap.add_argument('--out', help='write to this file instead of standard output')
         args = ap.parse_args(argv[1:])
         _example(args.out)
+        return
+
+    if verb == 'check':
+        ap = Parser(prog='pxt service check', epilog=CHECK_EPILOG, usage_exit_code=EXIT_ERROR)
+        ap.add_argument('app', help='path to a Python file declaring FastAPIRouter services')
+        ap.add_argument('--json', action='store_true', dest='as_json')
+        args = ap.parse_args(argv[1:])
+        check_file('/api/localservice/check', 'app_file', args.app, verb='service check', as_json=args.as_json)
         return
 
     if verb == 'stop':

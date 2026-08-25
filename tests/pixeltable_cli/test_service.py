@@ -429,6 +429,28 @@ class TestService:
         assert services(cli, first) == {}
         assert_serving(cli, app, second, 'ingest')
 
+    @pytest.mark.local('check reads no catalog, so the target axis adds nothing')
+    def test_check(self, cli: PxtRunner, apps: Callable[[str], str], project_dir: pathlib.Path) -> None:
+        """check validates an application file on its own: it imports and declares a service."""
+        skip_test_if_not_installed('fastapi')
+        r = cli('service', 'check', apps('basic.py'))
+        assert r.returncode == 0
+        assert 'valid' in r.stdout
+
+        report = cli('service', 'check', apps('basic.py'), '--json').json
+        assert (report['valid'], report['errors']) == (True, [])
+
+        # a file that declares models but no service
+        no_service = project_dir / 'no_service.py'
+        no_service.write_text(
+            'import pixeltable as pxt\n\nTableModel = pxt.model_base()\n\n\n'
+            "class Docs(TableModel, name='docs'):\n    title: pxt.String\n",
+            encoding='utf-8',
+        )
+        r = cli('service', 'check', str(no_service), check=False)
+        assert r.returncode == 1
+        assert 'no service found' in r.stderr
+
     def test_errors(
         self,
         cli: PxtRunner,

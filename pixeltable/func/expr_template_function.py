@@ -50,7 +50,6 @@ class ExprTemplateFunction(Function):
         self,
         templates: list[ExprTemplate],
         self_path: str | None = None,
-        self_file: str | None = None,
         name: str | None = None,
         is_method: bool = False,
         is_property: bool = False,
@@ -59,11 +58,7 @@ class ExprTemplateFunction(Function):
         self.self_name = name
 
         super().__init__(
-            [t.signature for t in templates],
-            self_path=self_path,
-            self_file=self_file,
-            is_method=is_method,
-            is_property=is_property,
+            [t.signature for t in templates], self_path=self_path, is_method=is_method, is_property=is_property
         )
 
     def _update_as_overload_resolution(self, signature_idx: int) -> None:

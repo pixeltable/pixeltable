@@ -628,6 +628,50 @@ class TestSchema:
         (project_dir / 'proj1' / 'helpers.py').write_text("TAG = 'edited'\n")
         assert_in_agreement(cli, str(project_dir / 'proj1' / 'app.py'), p('proj1'))
 
+    @pytest.mark.local('check reads no catalog, so the target axis adds nothing')
+    def test_check(
+        self, cli: PxtRunner, apps: Callable[[str], str], project_dir: pathlib.Path, session_project: pathlib.Path
+    ) -> None:
+        """check validates a file on its own: it imports, declares models, and its udf paths resolve."""
+        r = cli('schema', 'check', apps('basic.py'))
+        assert r.returncode == 0
+        assert 'valid' in r.stdout
+
+        report = cli('schema', 'check', apps('basic.py'), '--json').json
+        assert (report['valid'], report['errors'], report['warnings']) == (True, [], [])
+        assert report['file'] == apps('basic.py')
+
+        # a file that modifies the catalog while importing
+        ddl = project_dir / 'ddl.py'
+        ddl.write_text("import pixeltable as pxt\npxt.create_table('t', {'c': pxt.Int})\n", encoding='utf-8')
+        r = cli('schema', 'check', str(ddl), check=False)
+        assert r.returncode == 1
+        assert 'modifies the catalog while it is imported' in r.stderr
+
+        # a file that imports but declares nothing
+        empty = project_dir / 'empty.py'
+        empty.write_text('import pixeltable as pxt\n', encoding='utf-8')
+        r = cli('schema', 'check', str(empty), check=False)
+        assert r.returncode == 1
+        assert 'no model_base() found' in r.stderr
+
+        # a file the project does not hold
+        r = cli('schema', 'check', '/tmp/not_in_the_project.py', check=False)
+        assert r.returncode == 1
+        assert 'file not found' in r.stderr
+
+        # a project module an installed distribution answers to: the file is valid, and the warning names
+        # what an import of that name reads instead
+        shadowed = session_project / 'psutil.py'
+        shadowed.write_text('TAG = 1\n', encoding='utf-8')
+        try:
+            report = cli('schema', 'check', apps('basic.py'), '--json').json
+        finally:
+            shadowed.unlink()  # the project is shared with every other test in the session
+        assert report['valid'], report
+        assert len(report['warnings']) == 1, report
+        assert "an import of 'psutil' reads" in report['warnings'][0]
+
     @pytest.mark.local('the column is resolved in this process, so the report of a missing file lands here')
     def test_update_errors(
         self,

@@ -18,9 +18,11 @@ from pixeltable.env import Env
 from pixeltable.func import FunctionRegistry
 from pixeltable.runtime import get_runtime
 
-# the project's own modules, which every load discards and reads again; thread-safe via _lock
-_project_modules: set[str] = set()
 _lock = threading.RLock()
+
+# the packages this process is running, which stay loaded even when the project holds a checkout of them:
+# re-importing them would leave two of every class
+_RUNNING_PACKAGES = ('pixeltable', 'pixeltable_cli')
 
 # TODO: Catalog needs to discard cached TableVersion that references reloaded modules
 
@@ -47,14 +49,10 @@ def load_app_module(file: str, *, subject: str) -> ModuleType:
     catalog = get_runtime().catalog
     try:
         with _lock, catalog.freeze():
-            _evict_project_modules()
+            _evict_project_modules(root)
             # a file written after this process started is invisible to a finder that cached its directory
             importlib.invalidate_caches()
-            already_loaded = set(sys.modules)
-            try:
-                return importlib.import_module(module_name)
-            finally:
-                _record_project_modules(root, set(sys.modules) - already_loaded)
+            return importlib.import_module(module_name)
     except ProhibitedWriteError as e:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION, _prohibited_write_msg(str(path), subject, e)
@@ -83,30 +81,22 @@ def _no_root_msg(path: Path, subject: str, root: Path | None) -> str:
     )
 
 
-def _evict_project_modules() -> None:
-    """Discard the modules an earlier load imported from the project, and the udfs they registered.
+def _evict_project_modules(root: Path) -> None:
+    """Discard every loaded module read from root, and the udfs they registered, so this load reads them again.
 
-    Only the project's own: installed packages stay loaded, including Pixeltable when the project holds a
-    checkout of it.
+    Scanning sys.modules rather than tracking what an earlier load imported: resolving a stored udf reference
+    imports a project module too, and a module missing from the eviction set is never read again.
     """
     registry = FunctionRegistry.get()
-    for name in _project_modules:
-        registry.deregister_module(name)
-        sys.modules.pop(name, None)
-    _project_modules.clear()
-
-
-def _record_project_modules(root: Path, names: set[str]) -> None:
-    """Record which of names an import read from root, so that the next load discards them."""
-    for name in names:
-        module_file = getattr(sys.modules.get(name), '__file__', None)
-        if module_file is None:
+    for name, module in list(sys.modules.items()):
+        module_file = getattr(module, '__file__', None)
+        if module_file is None or name == '__main__':
             continue
-        try:
-            Path(module_file).resolve().relative_to(root)
-        except ValueError:
-            continue  # read from somewhere else, eg an installed package the application file uses
-        _project_modules.add(name)
+        if name.split('.', maxsplit=1)[0] in _RUNNING_PACKAGES:
+            continue
+        if Path(module_file).resolve().is_relative_to(root):
+            registry.deregister_module(name)
+            sys.modules.pop(name, None)
 
 
 def _module_name(path: Path, root: Path, subject: str) -> str:
@@ -142,8 +132,14 @@ def load_model_bases(schema_file: str) -> list[model.TableModelMeta]:
 
     Raises RequestError if the file is missing, fails to import, or declares no model base.
     """
-    module = load_app_module(schema_file, subject='schema file')
+    return model_bases(load_app_module(schema_file, subject='schema file'), schema_file)
 
+
+def model_bases(module: ModuleType, file: str) -> list[model.TableModelMeta]:
+    """The model bases module declares; file names the source in error messages.
+
+    Raises RequestError if module declares none.
+    """
     # a model base carries __registered_models__ as its own class attribute, whereas the models defined
     # on it merely inherit it
     bases = [
@@ -154,9 +150,80 @@ def load_model_bases(schema_file: str) -> list[model.TableModelMeta]:
     if len(bases) == 0:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT,
-            f"no model_base() found in {schema_file}; run 'pxt schema example' for a file to start from",
+            f"no model_base() found in {file}; run 'pxt schema example' for a file to start from",
         )
     return bases
+
+
+def check_udf_references(bases: list[model.TableModelMeta]) -> list[str]:
+    """Report the udfs the models on bases reference by a path another process cannot resolve.
+
+    A recorded reference is the defining module's dotted name followed by the udf's qualname, so reading it
+    back imports that module by name.
+    """
+    root = Env.project_root
+    assert root is not None  # a model came from a file under the project, so this process serves one
+    errors: list[str] = []
+    self_paths = {fn.self_path for base in bases for cls in base.declared_models() for fn in cls.referenced_functions()}
+    for self_path in sorted(p for p in self_paths if p is not None):
+        defining = _defining_module(self_path)
+        if defining is None:
+            errors.append(f'{self_path}: names no module this process has loaded')
+            continue
+        file = getattr(defining, '__file__', None)
+        if file is None or not Path(file).resolve().is_relative_to(root):
+            continue  # an installed module, which every process resolves the same way
+        top_level = self_path.split('.', maxsplit=1)[0]
+        if _first_on_path(top_level) is None:
+            errors.append(f'{self_path}: an import of {top_level!r} finds nothing on sys.path')
+    return errors
+
+
+def shadowed_project_modules() -> list[str]:
+    """Report the project's top-level modules that an import of the same name reads from somewhere else.
+
+    Env appends the project root to sys.path, so an installed distribution of the same name wins. The
+    generic names a single-file recipe hands out collide most often.
+    """
+    root = Env.project_root
+    assert root is not None  # only a process serving a project has modules to report
+    warnings: list[str] = []
+    for entry in sorted(root.iterdir()):
+        name = entry.stem if entry.suffix == '.py' else entry.name
+        if not name.isidentifier() or keyword.iskeyword(name):
+            continue
+        if entry.is_file() and entry.suffix != '.py':
+            continue
+        if entry.is_dir() and not any(entry.glob('*.py')):
+            continue
+        origin = _first_on_path(name)
+        if origin is not None and not origin.is_relative_to(root):
+            warnings.append(
+                f'{entry.name}: an import of {name!r} reads {origin}, so this project cannot record a udf '
+                f'under {name!r}; rename it'
+            )
+    return warnings
+
+
+def _defining_module(self_path: str) -> ModuleType | None:
+    """Return the module self_path names: the longest prefix of it that sys.modules holds."""
+    parts = self_path.split('.')
+    for i in range(len(parts) - 1, 0, -1):
+        module = sys.modules.get('.'.join(parts[:i]))
+        if module is not None:
+            return module
+    return None
+
+
+def _first_on_path(top_level: str) -> Path | None:
+    """Return the file an import of top_level reads, searching sys.path the way a fresh process does."""
+    spec = importlib.machinery.PathFinder.find_spec(top_level, sys.path)
+    if spec is None:
+        return None
+    if spec.origin is not None and spec.origin != 'namespace':
+        return Path(spec.origin).resolve()
+    locations = list(spec.submodule_search_locations or [])
+    return Path(locations[0]).resolve() if len(locations) > 0 else None
 
 
 def load_services(app_file: str) -> dict[str, FastAPIRouter | fastapi.FastAPI]:
@@ -169,6 +236,15 @@ def load_services(app_file: str) -> dict[str, FastAPIRouter | fastapi.FastAPI]:
     Raises RequestError if the file is missing, fails to import, declares no service, declares two services
     under one name, or holds a router in a variable whose name a service cannot have.
     """
+    return services_of(load_app_module(app_file, subject='application file'), app_file)
+
+
+def services_of(module: ModuleType, file: str) -> dict[str, FastAPIRouter | fastapi.FastAPI]:
+    """The services module declares, keyed by service name; file names the source in error messages.
+
+    Raises RequestError if module declares no service, declares two under one name, or holds a router in a
+    variable whose name a service cannot have.
+    """
     # imported here rather than at module scope: pixeltable.serving pulls in fastapi, an optional dependency
     from pixeltable.serving import FastAPIRouter
 
@@ -178,8 +254,6 @@ def load_services(app_file: str) -> dict[str, FastAPIRouter | fastapi.FastAPI]:
         app_type: type | None = fastapi.FastAPI
     except ImportError:
         app_type = None  # without fastapi, nothing in the file can be an application object
-
-    module = load_app_module(app_file, subject='application file')
 
     services: dict[str, FastAPIRouter | fastapi.FastAPI] = {}
     # the objects already collected, so that two variables naming one router declare a single service
@@ -197,18 +271,17 @@ def load_services(app_file: str) -> dict[str, FastAPIRouter | fastapi.FastAPI]:
         if not is_valid_identifier(name, allow_hyphens=True):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT,
-                f'{app_file}: {name!r} is not a name a service can have; name the service with FastAPIRouter(name=...)',
+                f'{file}: {name!r} is not a name a service can have; name the service with FastAPIRouter(name=...)',
             )
         if name in services:
             raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT, f'{app_file}: declares more than one service named {name!r}'
+                excs.ErrorCode.INVALID_ARGUMENT, f'{file}: declares more than one service named {name!r}'
             )
         services[name] = value
 
     if len(services) == 0:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT,
-            f'no service found in {app_file}; a service is declared by creating a FastAPIRouter and adding '
-            'routes to it',
+            f'no service found in {file}; a service is declared by creating a FastAPIRouter and adding routes to it',
         )
     return services

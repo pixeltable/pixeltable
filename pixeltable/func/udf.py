@@ -5,7 +5,6 @@ import sys
 from typing import TYPE_CHECKING, Any, Callable, Sequence, overload
 
 from pixeltable import catalog, exceptions as excs, type_system as ts
-from pixeltable.utils import module_loader
 from pixeltable.utils.system import is_interactive_env
 
 from .callable_function import CallableFunction
@@ -129,30 +128,27 @@ def make_function(
     `substitute_fn`.
     """
     defined_in_script = False
-    function_file: str | None
     function_path: str | None
     # Obtain function_path from decorated_fn when appropriate
     if force_stored:
         # force storing the function in the db
-        function_file, function_path = None, None
+        function_path = None
+    elif decorated_fn.__module__ != '__main__' and decorated_fn.__name__.isidentifier():
+        function_path = f'{decorated_fn.__module__}.{decorated_fn.__qualname__}'
+
+    elif from_decorator and is_interactive_env() and decorated_fn.__name__.isidentifier():
+        # Give a udf inlined in a notebook cell a __main__.<name> path to enable computed columns with inlined udfs;
+        # resolves only within the session and degrades to InvalidFunction elsewhere
+        # TODO: remove and rework the offending notebooks
+        function_path = f'{decorated_fn.__module__}.{decorated_fn.__qualname__}'
+
     else:
-        # a udf defined in a file that is not importable by name is referred to by that file
-        function_file, function_path = module_loader.file_symbol_path(decorated_fn)
-        if function_file is None:
-            if decorated_fn.__module__ != '__main__' and decorated_fn.__name__.isidentifier():
-                function_path = f'{decorated_fn.__module__}.{decorated_fn.__qualname__}'
-            elif from_decorator and is_interactive_env() and decorated_fn.__name__.isidentifier():
-                # Give a udf inlined in a notebook cell a __main__.<name> path to enable computed columns with
-                # inlined udfs; resolves only within the session and degrades to InvalidFunction elsewhere
-                # TODO: remove and rework the offending notebooks
-                function_path = f'{decorated_fn.__module__}.{decorated_fn.__qualname__}'
-            else:
-                # Check that we came here through a decorator, and that we're not in an interactive environment
-                # or notebook. The `from_decorator` check is necessary because of the apply() function.
-                # TODO: When apply() goes away, remove the `from_decorator` check.
-                if from_decorator and not hasattr(sys, 'ps1'):
-                    defined_in_script = True
-                function_path = None
+        # Check that we came here through a decorator, and that we're not in an interactive environment
+        # or notebook. The `from_decorator` check is necessary because of the apply() function.
+        # TODO: When apply() goes away, remove the `from_decorator` check.
+        if from_decorator and not hasattr(sys, 'ps1'):
+            defined_in_script = True
+        function_path = None
 
     # Derive function_name, if not specified explicitly
     if function_name is None:
@@ -207,12 +203,6 @@ def make_function(
                 excs.ErrorCode.INVALID_CONFIGURATION,
                 'Stored functions cannot be declared using `is_method` or `is_property`',
             )
-        if (is_method or is_property) and function_file is not None:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_CONFIGURATION,
-                f'{errmsg_name}(): `is_method` and `is_property` require a UDF in an installed module, not one '
-                f'in {function_file}',
-            )
 
         signatures = [sig]
     else:
@@ -251,7 +241,6 @@ def make_function(
         signatures=signatures,
         py_fns=[py_fn] * len(signatures),  # All signatures share the same Python function
         self_path=function_path,
-        self_file=function_file,
         self_name=function_name,
         display_name=display_name,
         batch_size=batch_size,
@@ -266,11 +255,10 @@ def make_function(
     if function_path is not None:
         # do the validation at the very end, so it's easier to write tests for other failure scenarios
         validate_symbol_path(function_path)
-        # a path no import can reach carries the reference but is not registered: a __main__ path (a udf
-        # inlined in a notebook cell) would collide when the cell is re-run, and a file's path when the file
-        # is loaded again
-        # TODO: remove the __main__ case when removing support for inlined udfs in notebooks
-        if function_file is None and decorated_fn.__module__ != '__main__':
+        # a __main__ path (a udf inlined in a notebook cell) is not importable across sessions and would collide
+        # in the registry if the cell is re-run, so it carries a path for serialization but is not registered
+        # TODO: remove this when removing support for inlined udfs in notebooks
+        if decorated_fn.__module__ != '__main__':
             FunctionRegistry.get().register_function(function_path, result)
 
     return result
@@ -292,14 +280,11 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
     ) -> ExprTemplateFunction:
         from pixeltable import exprs
 
-        # an expr udf defined in a file that is not importable by name is referred to by that file
-        function_file, function_path = module_loader.file_symbol_path(py_fn)
-        if function_file is None:
-            if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():
-                # this is a named function in a module
-                function_path = f'{py_fn.__module__}.{py_fn.__qualname__}'
-            else:
-                function_path = None
+        if py_fn.__module__ != '__main__' and py_fn.__name__.isidentifier():
+            # this is a named function in a module
+            function_path = f'{py_fn.__module__}.{py_fn.__qualname__}'
+        else:
+            function_path = None
 
         function_name = py_fn.__name__
         if is_method and is_property:
@@ -307,7 +292,7 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
                 excs.ErrorCode.INVALID_CONFIGURATION,
                 f'Cannot specify both `is_method` and `is_property` (in function `{function_name}`)',
             )
-        if (is_method or is_property) and (function_path is None or function_file is not None):
+        if (is_method or is_property) and function_path is None:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
                 f'`{function_name}`: expr_udfs declared with `is_method` or `is_property` must live in a module',
@@ -329,7 +314,6 @@ def expr_udf(*args: Any, **kwargs: Any) -> Any:
         result = ExprTemplateFunction(
             [ExprTemplate(expr, sig)],
             self_path=function_path,
-            self_file=function_file,
             name=function_name,
             is_method=is_method,
             is_property=is_property,

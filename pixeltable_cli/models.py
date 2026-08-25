@@ -202,6 +202,14 @@ class RevertResponse(BaseModel):
     to_version: int
 
 
+class SchemaCheckBody(BaseModel):
+    schema_file: str  # absolute filesystem path to the schema file on the daemon host
+
+
+class ServiceCheckBody(BaseModel):
+    app_file: str  # absolute filesystem path to the application file on the daemon host
+
+
 class SchemaDiffBody(BaseModel):
     schema_file: str  # absolute filesystem path to the schema file on the daemon host
     catalog_dir: PxtPath

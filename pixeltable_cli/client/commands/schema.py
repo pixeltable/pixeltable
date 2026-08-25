@@ -8,7 +8,7 @@ from ...schema_types import DiffResolution, OpStatus, SchemaChangeOp, SchemaPlan
 from ...utils import PxtPath
 from ..confirm import confirm_or_exit
 from ..parser import Parser
-from ..utils import post_request
+from ..utils import check_file, post_request
 
 # a working schema file: written verbatim by 'pxt schema example', and shown indented in every verb's epilog,
 # because otherwise the shape of a model file has to be guessed
@@ -202,6 +202,25 @@ Notes:
 
 {_SCHEMA_FILE}"""
 
+CHECK_EPILOG = f"""\
+Examples:
+  pxt schema check schema.py               # before applying it anywhere
+  pxt schema check schema.py --json
+
+Exit codes:
+  0  the file is valid; warnings may still be printed
+  1  error: bad arguments, the file failed to import, or a udf it records cannot be read back
+
+Notes:
+  Checks what the file says on its own: it imports without modifying the catalog, it declares a
+  model base, and every udf its columns call is named by a module path another process resolves.
+  Takes no TARGET and reads no catalog, so it says nothing about what a target already holds;
+  'pxt schema diff' answers that.
+  A warning names a project module whose name an installed distribution also answers to: the
+  project root goes on sys.path after the installed packages, so an import reads the installed one.
+
+{_SCHEMA_FILE}"""
+
 EXAMPLE_EPILOG = f"""\
 Examples:
   pxt schema example                       # print it
@@ -216,7 +235,7 @@ Notes:
 
 {_SCHEMA_FILE}"""
 
-VERBS = ['diff', 'update', 'prune', 'example']
+VERBS = ['diff', 'update', 'prune', 'check', 'example']
 
 # exit status: whether the target already matches the schema is reported here, not only in the output
 EXIT_IN_AGREEMENT = 0
@@ -253,6 +272,7 @@ def run(argv: list[str]) -> None:
             '  diff     show the changes that update would make; exit 2 if any are pending\n'
             '  update   create and migrate the tables the schema declares under TARGET\n'
             '  prune    drop the tables under TARGET that the schema does not declare\n'
+            '  check    validate the schema file on its own (takes no TARGET)\n'
             '  example  write a working schema file to start from (takes no SCHEMA/TARGET)\n\n'
             'SCHEMA is a Python file defining models on a pxt.model_base(); TARGET is a catalog\n'
             "directory or a pxt:// URI. Run 'pxt schema example' for a file to start from."
@@ -269,6 +289,14 @@ def run(argv: list[str]) -> None:
         ap.add_argument('--brief', action='store_true', help='a minimal schema instead of the full one')
         args = ap.parse_args(argv[1:])
         _example(args.out, brief=args.brief)
+        return
+
+    if verb == 'check':
+        ap = Parser(prog='pxt schema check', epilog=CHECK_EPILOG, usage_exit_code=EXIT_ERROR)
+        ap.add_argument('schema', help='path to a Python file defining a class-based schema')
+        ap.add_argument('--json', action='store_true', dest='as_json')
+        args = ap.parse_args(argv[1:])
+        check_file('/api/schema/check', 'schema_file', args.schema, verb='schema check', as_json=args.as_json)
         return
 
     epilogs = {'diff': DIFF_EPILOG, 'update': UPDATE_EPILOG, 'prune': PRUNE_EPILOG}

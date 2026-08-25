@@ -15,10 +15,12 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 import psutil
 
+from pixeltable_cli import schema_types
 from pixeltable_cli.utils import (
     _IDENTITY_KEYS,
     _resolve_pixeltable_home,
@@ -376,6 +378,29 @@ def get_request(path: str, params: dict[str, Any] | None = None) -> Any:
 
 def post_request(path: str, body: dict[str, Any]) -> Any:
     return _request('POST', path, body=body)
+
+
+def check_file(route: str, field: str, file: str, *, verb: str, as_json: bool) -> None:
+    """Print what the daemon at route reports about file, and exit 0 when it reports the file valid.
+
+    Sends the absolute path under field, since the daemon reads the file itself. Exit 1 is the error status
+    of every verb that takes a file.
+    """
+    path = Path(file)
+    if not path.is_file():
+        print(f'pxt {verb}: file not found: {file}', file=sys.stderr)
+        sys.exit(1)
+    report: schema_types.CheckReport = post_request(route, {field: str(path.resolve())})
+    if as_json:
+        print(json.dumps(report, indent=2))
+    else:
+        for warning in report['warnings']:
+            print(f'warning: {warning}')
+        for error in report['errors']:
+            print(f'error: {error}', file=sys.stderr)
+        if report['valid']:
+            print(f'{report["file"]}: valid')
+    sys.exit(0 if report['valid'] else 1)
 
 
 def validate_path_arg(path: str) -> str:

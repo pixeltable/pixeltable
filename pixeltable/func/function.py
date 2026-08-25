@@ -6,14 +6,12 @@ import itertools
 import typing
 from abc import ABC, abstractmethod
 from copy import copy
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Self, Sequence, cast
 
 import sqlalchemy as sql
 
 from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.env import Env
-from pixeltable.utils import module_loader
 
 from .globals import resolve_symbol
 from .signature import Signature
@@ -27,22 +25,13 @@ if TYPE_CHECKING:
 class Function(ABC):
     """Base class for Pixeltable's function interface.
 
-    A function in Pixeltable has a signature and implements __call__(). This base class serializes an instance
-    as a reference to where it is defined: self_path names it in an importable module, and self_file adds the
-    file it is defined in when no module path reaches it (eg, a udf in an application file). A subclass
-    whose instances have neither serializes them by value.
+    A function in Pixeltable is an object that has a signature and implements __call__().
+    This base class provides a default serialization mechanism for Function instances provided by Python modules,
+    via the member self_path.
     """
 
     signatures: list[Signature]
-
-    # the dotted path naming self: an importable module path, or the stem of self_file followed by the
-    # qualname when self_file is set. None for a non-module function.
     self_path: str | None
-
-    # the file defining self, set only when self_path does not name an importable module, and never set
-    # without self_path
-    self_file: str | None
-
     is_method: bool
     is_property: bool
     is_deterministic: bool
@@ -72,7 +61,6 @@ class Function(ABC):
         self,
         signatures: list[Signature],
         self_path: str | None = None,
-        self_file: str | None = None,
         is_method: bool = False,
         is_property: bool = False,
         is_deterministic: bool = True,
@@ -81,8 +69,7 @@ class Function(ABC):
         assert not ((is_method or is_property) and self_path is None)
         assert isinstance(signatures, list)
         self.signatures = signatures
-        self.self_path = self_path
-        self.self_file = self_file
+        self.self_path = self_path  # fully-qualified path to self
         self.is_method = is_method
         self.is_property = is_property
         self.is_deterministic = is_deterministic
@@ -115,18 +102,8 @@ class Function(ABC):
         return len(self.signatures) > 1
 
     @property
-    def is_module_fn(self) -> bool:
-        """True if a module path names self, so any process that can import the module resolves it."""
-        return self.self_path is not None and self.self_file is None
-
-    @property
-    def is_file_fn(self) -> bool:
-        """True if self is resolved through the file it is defined in, which only that file's machine holds."""
-        return self.self_file is not None
-
-    @property
     def is_builtin(self) -> bool:
-        return self.is_module_fn and self.self_path is not None and self.self_path.startswith('pixeltable.')
+        return self.self_path is not None and self.self_path.startswith('pixeltable.')
 
     @property
     def is_storable(self) -> bool:
@@ -526,10 +503,10 @@ class Function(ABC):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, self.__class__):
             return False
-        return self.self_path == other.self_path and self.self_file == other.self_file
+        return self.self_path == other.self_path
 
     def __hash__(self) -> int:
-        return hash((self.self_path, self.self_file))
+        return hash(self.self_path)
 
     def as_dict(self) -> dict[str, Any]:
         """
@@ -541,16 +518,9 @@ class Function(ABC):
         return {'_classpath': classpath, **self._as_dict()}
 
     def _as_dict(self) -> dict:
-        """Serialize self as a reference to where it is defined, together with its signatures.
-
-        The reference is self_path, plus self_file when that path does not name an importable module.
-        """
+        """Default serialization: store the path to self (which includes the module path) and its signatures."""
         assert self.self_path is not None
-        d = {'path': self.self_path, 'signatures': [sig.as_dict() for sig in self.signatures]}
-        if self.self_file is not None:
-            # the path does not name an importable module, so the defining file has to be stored too
-            d['file'] = self.self_file
-        return d
+        return {'path': self.self_path, 'signatures': [sig.as_dict() for sig in self.signatures]}
 
     @classmethod
     def from_dict(cls, d: dict) -> Function:
@@ -569,9 +539,6 @@ class Function(ABC):
         """Default deserialization: load the symbol indicated by the stored symbol_path"""
         path = d.get('path')
         assert path is not None
-        file = d.get('file')
-        if file is not None:
-            return cls.__from_file(file, path, d)
         try:
             instance = resolve_symbol(path)
             if isinstance(instance, Function):
@@ -591,26 +558,6 @@ class Function(ABC):
                 )
         except (AttributeError, ImportError):
             return InvalidFunction(path, d, f'the symbol {path!r} no longer exists. (Was the UDF moved or renamed?)')
-
-    @classmethod
-    def __from_file(cls, file: str, path: str, d: dict) -> Function:
-        """Deserialization of a function defined in a file that is not importable by name."""
-        name = path.rsplit('.', maxsplit=1)[-1]
-        if not Path(file).is_file():
-            return InvalidFunction(
-                path, d, f'The UDF {name!r} is defined in {file}, which no longer exists. (Was the file moved?)'
-            )
-        try:
-            instance = module_loader.resolve_file_symbol(file, path)
-        except Exception as e:
-            return InvalidFunction(path, d, f'The UDF {name!r} could not be loaded from {file}: {e}')
-        if isinstance(instance, Function):
-            return instance
-        if instance is None:
-            return InvalidFunction(path, d, f'{file} no longer defines {name!r}.')
-        return InvalidFunction(
-            path, d, f'{name!r} in {file} is no longer a UDF. (Was the `@pxt.udf` decorator removed?)'
-        )
 
     def to_store(self) -> tuple[dict, bytes]:
         """

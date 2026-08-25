@@ -390,6 +390,6 @@ if __name__ == '__main__':
     parser.add_argument('--test', action='store_true')
     parser.add_argument('--project-root', type=Path, default=None)
     parsed = parser.parse_args()
-    if parsed.project_root is not None:
-        Env.set_project_root(parsed.project_root)
+    # includes the None that means no project: a daemon's working directory says nothing about a project
+    Env.set_project_root(parsed.project_root)
     _serve(test_mode=parsed.test)

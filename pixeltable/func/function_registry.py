@@ -27,7 +27,6 @@ class FunctionRegistry:
         self.type_methods: dict[ts.ColumnType.Type, dict[str, Function]] = {}
 
     def register_function(self, fqn: str, fn: Function) -> None:
-        assert fn.self_file is None  # a function in a file has no fqn that identifies it process-wide
         if fqn in self.module_fns:
             raise excs.AlreadyExistsError(
                 excs.ErrorCode.FUNCTION_ALREADY_EXISTS, f'A UDF with that name already exists: {fqn}'

@@ -22,7 +22,15 @@ from pixeltable import exceptions as excs, exprs
 from pixeltable.catalog import Path as CatalogPath, model
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.utils.app_module import load_model_bases, load_services
+from pixeltable.utils.app_module import (
+    check_udf_references,
+    load_app_module,
+    load_model_bases,
+    load_services,
+    model_bases,
+    services_of,
+    shadowed_project_modules,
+)
 from pixeltable_cli import schema_types, service_types
 from pixeltable_cli.utils import PxtPath
 
@@ -681,6 +689,27 @@ def _list_tables(pxt_path: PxtPath) -> list[PxtPath]:
         return []
 
 
+def schema_check(schema_file: str) -> schema_types.CheckReport:
+    """Report whether the schema file stands on its own: it imports, declares models, and its udfs resolve.
+
+    Takes no target and touches no catalog, so it says nothing about what a target holds.
+    """
+    module = load_app_module(schema_file, subject='schema file')
+    return _check_report(schema_file, model_bases(module, schema_file))
+
+
+def service_check(app_file: str) -> schema_types.CheckReport:
+    """Report whether the application file stands on its own: it imports, declares services, and its udfs resolve."""
+    module = load_app_module(app_file, subject='application file')
+    services_of(module, app_file)
+    return _check_report(app_file, model_bases(module, app_file))
+
+
+def _check_report(file: str, bases: list[model.TableModelMeta]) -> schema_types.CheckReport:
+    errors = check_udf_references(bases)
+    return {'file': file, 'valid': len(errors) == 0, 'errors': errors, 'warnings': shadowed_project_modules()}
+
+
 def schema_diff(schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaPlan:
     """The changes that schema_update() would make to reconcile the catalog directory with the schema file.
 
@@ -795,6 +824,12 @@ def schema_update(
     Returns the plan that was applied, each operation annotated with its status.
     """
     bases = load_model_bases(schema_file)
+    errors = check_udf_references(bases)
+    if len(errors) > 0:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            '\n'.join([f'{schema_file}: a column would record a udf that cannot be read back:', *errors]),
+        )
 
     # TODO: refuse a hosted target whose runtime does not hold the modules these udfs live in. A udf is now
     # referred to by a module path, which a hosted runtime resolves from the project it was built from, so

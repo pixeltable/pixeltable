@@ -167,6 +167,7 @@ class Env:
     # project root: the directory holding the project config (pixeltable.toml or pyproject.toml with a
     # tool.pixeltable section); it needs to be recorded independently of the Env instance
     project_root: ClassVar[Path | None] = None
+    _project_root_initialized: ClassVar[bool] = False
 
     @classmethod
     def get(cls) -> Env:
@@ -260,7 +261,12 @@ class Env:
             os.environ['PIXELTABLE_USER'] = user
 
     @classmethod
-    def set_project_root(cls, root: Path) -> None:
+    def set_project_root(cls, root: Path | None) -> None:
+        """Record project root and put it on sys.path, if non-None."""
+        cls._project_root_initialized = True
+        if root is None:
+            cls.project_root = None
+            return
         resolved = Path(root).expanduser().resolve()
         assert resolved.is_dir(), f'not a directory: {root}'
         cls.project_root = resolved
@@ -376,10 +382,8 @@ class Env:
         self._tmp_dir.mkdir(exist_ok=True)
         self._services_dir.mkdir(exist_ok=True)
 
-        if Env.project_root is None:
-            project_root = _find_project_root(Path.cwd())
-            if project_root is not None:
-                self.set_project_root(project_root)
+        if not Env._project_root_initialized:
+            self.set_project_root(_find_project_root(Path.cwd()))
 
         self._file_cache_size_g = config.get_float_value('file_cache_size_g')
         if self._file_cache_size_g is None:

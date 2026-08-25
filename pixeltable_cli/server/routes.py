@@ -54,6 +54,7 @@ _IDENTITY: dict[str, Any] = identity()
 
 # schema plans cross as plain dicts; this checks their shape in place of a response model
 _SCHEMA_PLAN = pydantic.TypeAdapter(schema_types.SchemaPlan)
+_CHECK_REPORT = pydantic.TypeAdapter(schema_types.CheckReport)
 _SERVICE_PLAN = pydantic.TypeAdapter(service_types.ServicePlan)
 _SERVICE_OPS = pydantic.TypeAdapter(list[service_types.ServiceChangeOp])
 _SERVICE_DEPLOYMENTS = pydantic.TypeAdapter(list[service_types.ServiceDeployment])
@@ -487,6 +488,18 @@ def move(req: Request) -> models.MoveResponse:
     if not body.dry_run:
         pxt.move(src, dst)
     return models.MoveResponse(path=src, new_path=dst)
+
+
+@router.post('/api/schema/check')
+def schema_check(req: Request) -> schema_types.CheckReport:
+    body = req.body(models.SchemaCheckBody)
+    return _CHECK_REPORT.validate_python(bridge.schema_check(body.schema_file))
+
+
+@router.post('/api/localservice/check')
+def service_check(req: Request) -> schema_types.CheckReport:
+    body = req.body(models.ServiceCheckBody)
+    return _CHECK_REPORT.validate_python(bridge.service_check(body.app_file))
 
 
 @router.post('/api/schema/diff')
