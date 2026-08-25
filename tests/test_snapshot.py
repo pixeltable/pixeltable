@@ -80,7 +80,7 @@ class TestSnapshot:
         assert 'version is needed' in str(excinfo.value)
 
         # can't drop a table with snapshots
-        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match="the following depend on it: 'snap/snap1'"):
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match=r"the following depend on it: '.*snap/snap1'"):
             pxt.drop_table(tbl_path)
 
         pxt.drop_table(snap_path)
@@ -90,8 +90,8 @@ class TestSnapshot:
         p = make_catalog_path
         pxt.create_dir(p('main'))
         pxt.create_dir(p('snap'))
-        tbl_path = p('main.tbl1')
-        snap_path = p('snap.snap1')
+        tbl_path = p('main/tbl1')
+        snap_path = p('snap/snap1')
 
         for reload_md in [False, True]:
             for has_filter in [False, True]:
@@ -476,7 +476,7 @@ class TestSnapshot:
             match="Cannot drop column 'c1' because the following views depend on it",
         ) as e:
             t.drop_column('c1')
-        assert 'view: view1, predicate: c1 % 2 == 0' in str(e.value).lower()
+        assert 'view1, predicate: c1 % 2 == 0' in str(e.value).lower()
         assert 'v2_snap' not in str(e.value).lower()  # v2_snap uses c1
         assert 'view_snap1' not in str(e.value).lower()
 
@@ -486,7 +486,7 @@ class TestSnapshot:
             match="Cannot drop column 'c2' because the following views depend on it",
         ) as e:
             t.drop_column('c2')
-        assert 'view: view2, predicate: (c2 + vc1) % 2 == 0' in str(e.value).lower()
+        assert 'view2, predicate: (c2 + vc1) % 2 == 0' in str(e.value).lower()
         assert 'v1_snap' not in str(e.value).lower()  # v1_snap uses c2
         assert 'view_snap2' not in str(e.value).lower()
 
@@ -496,7 +496,7 @@ class TestSnapshot:
             match="Cannot drop column 'vc1' because the following views depend on it",
         ) as e:
             v1.drop_column('vc1')
-        assert 'view: view2, predicate: (c2 + vc1) % 2 == 0' in str(e.value).lower()
+        assert 'view2, predicate: (c2 + vc1) % 2 == 0' in str(e.value).lower()
         assert 'v2_snap' not in str(e.value).lower()
         assert 'view_snap1' not in str(e.value).lower()
         assert 'view_snap2' not in str(e.value).lower()

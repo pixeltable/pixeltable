@@ -2406,7 +2406,6 @@ class TestTable:
 
     @rerun_on_network_error()
     def test_create_video_table(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
-        p = make_catalog_path
         if catalog_mode == 'cloud':
             # TODO: Fix this [PXT-1312]
             pytest.skip('Cloud service hangs on first insert [PXT-1312]')
@@ -2417,6 +2416,8 @@ class TestTable:
                 ' encountered recently written committed value...'
             )
         skip_test_if_not_installed('boto3')
+
+        p = make_catalog_path
         tbl = pxt.create_table(p('test_tbl'), {'payload': pxt.Int | None, 'video': pxt.Video | None})
         view = pxt.create_view(p('test_view'), tbl, iterator=legacy_frame_iterator(tbl.video))
         view.add_computed_column(c1=view.frame.rotate(30), stored=True)
@@ -3259,7 +3260,6 @@ class TestTable:
 
     def _test_computed_img_cols(self, t: pxt.Table, stores_img_col: bool, catalog_mode: CatalogMode) -> None:
         if catalog_mode == 'cloud':
-            # TODO: Fix this [PXT-1312]
             pytest.skip('Cloud service hangs on first insert [PXT-1312]')
 
         # over the proxy, img (inserted from local file paths) is shipped and persisted in the daemon media store,
