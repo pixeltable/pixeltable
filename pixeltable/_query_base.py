@@ -10,8 +10,10 @@ import builtins
 import copy
 import itertools
 from abc import ABC
-from typing import TYPE_CHECKING, Any, Self, Sequence, cast, overload
+from typing import Any, Self, Sequence, cast, overload
 from uuid import UUID
+
+import pandas as pd
 
 from pixeltable import catalog, exceptions as excs, exprs, type_system as ts
 from pixeltable.catalog import is_valid_identifier
@@ -19,9 +21,6 @@ from pixeltable.query_clauses import FromClause, JoinClause, JoinType, SampleCla
 from pixeltable.runtime import get_runtime
 from pixeltable.type_system import ColumnType
 from pixeltable.utils.description_helper import DescriptionHelper
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 __all__ = ['QueryBase']
 

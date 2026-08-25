@@ -230,7 +230,7 @@ jobs:
         if: ${{ matrix.test-category == 'py' }}
         run: |
           conda install -y -c conda-forge nodejs
-          cd dashboard && npm install --silent && npm run build
+          cd dashboard && npm ci --silent && npm run build
       - name: Run the unit tests
         if: ${{ matrix.test-category == 'py' }}
         # A timeout so that a hung test doesn't keep merge queue for hours
