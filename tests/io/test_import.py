@@ -118,7 +118,9 @@ class TestImport:
         assert tab.count() == 4
         assert tab._get_schema() == EXPECTED_SCHEMA
 
-    def test_insert_json(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, sample_file_server: SampleFileServer) -> None:
+    def test_insert_json(
+        self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, sample_file_server: SampleFileServer
+    ) -> None:
         p = make_catalog_path
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
         jeopardy = sample_file_server.url('tests/data/json/jeopardy.json', catalog_mode)

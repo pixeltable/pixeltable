@@ -8,7 +8,7 @@ import pytest
 
 import pixeltable as pxt
 
-from .utils import CatalogMode, DummyIterator, validate_update_status
+from .utils import DummyIterator, validate_update_status
 
 
 @pxt.udf

@@ -1,8 +1,8 @@
 """Tests for 'pxt schema diff', 'pxt schema update' and 'pxt schema prune'."""
 
 import pathlib
-from collections.abc import Callable
 import re
+from collections.abc import Callable
 from textwrap import dedent
 
 import pytest

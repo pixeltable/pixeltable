@@ -17,7 +17,6 @@ from pixeltable.functions.string import isalpha, isascii
 from pixeltable.functions.video import frame_iterator
 
 from .utils import (
-    CatalogMode,
     ReloadTester,
     create_all_datatypes_tbl,
     get_audio_files,
@@ -1239,9 +1238,7 @@ class TestQuery:
 
     @pytest.mark.benchmark(group='select_inexpensive')
     @pytest.mark.skip_cloud(reason='Fails due to server timeout [PXT-1319]')
-    def test_select_inexpensive(
-        self, make_catalog_path: Callable[[str], str], benchmark: Any
-    ) -> None:
+    def test_select_inexpensive(self, make_catalog_path: Callable[[str], str], benchmark: Any) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('test_inexpensive'), {'c1': pxt.Int | None, 'c2': pxt.String | None})
 
