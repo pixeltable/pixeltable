@@ -60,7 +60,10 @@ _SERVICE_DEPLOYMENTS = pydantic.TypeAdapter(list[service_types.ServiceDeployment
 
 
 def _project_root() -> str | None:
-    root = Env.get().project_root
+    # classvar, not instance var: /api/health answers before anything has needed an initialized Env,
+    # and initializing one here would hold up health while the daemon starts a database
+    # TODO: is that really necessary?
+    root = Env.project_root
     return None if root is None else str(root)
 
 

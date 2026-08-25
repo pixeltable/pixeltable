@@ -153,6 +153,9 @@ class ServiceDeployment:
             '--base-path',
             base_path,
         ]
+        project_root = Env.project_root
+        assert project_root is not None
+        argv += ['--project-root', str(project_root)]
 
         # the service outlives this call, so it must not inherit our stdio: attached to a pipe it would block
         # the reader on EOF, and attached to a terminal it would write into that session. Its own session keeps

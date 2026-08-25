@@ -36,10 +36,10 @@ def _remove_pidfile_if_ours() -> None:
         pass
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog='pxt daemon', description=__doc__)
     ap.add_argument('--project-root', type=pathlib.Path, default=None)
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     port = get_port()
     try:
@@ -55,7 +55,7 @@ def main() -> None:
     _write_pidfile()
     atexit.register(_remove_pidfile_if_ours)
     if args.project_root is not None:
-        Env.get().set_project_root(args.project_root)
+        Env.set_project_root(args.project_root)
     run(server)
 
 

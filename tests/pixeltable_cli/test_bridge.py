@@ -75,7 +75,6 @@ class TestBridge:
         assert (module.helpers.TAG, module.VALUE) == ('first', 'first')
         # 'from pkg import inner' names a module of the package, which the import statement gets as an attribute
         assert module.inner.VALUE == 'first'
-        assert load_app_module(str(app_file), subject='application file') is module
 
     def test_app_module_loading(self, project_env: pathlib.Path) -> None:
         """Loading an application file twice yields one module, imported by the name its project gives it."""
@@ -85,7 +84,6 @@ class TestBridge:
 
         module = load_app_module(str(app_file), subject='application file')
         assert module.VALUE == 'loaded'
-        assert load_app_module(str(app_file), subject='application file') is module
         # the directory holding it is a package of the project, and the project root is what imports resolve from
         assert module.__name__ == 'ad_gen.app'
         assert sys.modules['ad_gen.app'] is module

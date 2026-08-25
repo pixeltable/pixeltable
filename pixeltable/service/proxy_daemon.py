@@ -12,6 +12,7 @@ a given database, and locating a running one via the port.lock file in its home 
 # be strings unresolvable from module scope, and FastAPI would mis-parse the request body. Keeping
 # annotations as real objects (evaluated at def time) lets FastAPI see the actual types.
 
+import argparse
 import atexit
 import json
 import logging
@@ -133,6 +134,9 @@ def start(db: str, test_mode: bool = False) -> str:
     argv = [sys.executable, '-m', 'pixeltable.service.proxy_daemon']
     if test_mode:
         argv.append('--test')
+    project_root = Env.project_root
+    if project_root is not None:
+        argv += ['--project-root', str(project_root)]
     with open(log_path, 'a', encoding='utf-8') as log_file:
         proc = subprocess.Popen(
             argv, env=env, stdin=subprocess.DEVNULL, stdout=log_file, stderr=subprocess.STDOUT, start_new_session=True
@@ -358,5 +362,10 @@ def _serve(test_mode: bool = False) -> None:
 
 
 if __name__ == '__main__':
-    test_mode = '--test' in sys.argv[1:]
-    _serve(test_mode=test_mode)
+    parser = argparse.ArgumentParser(prog='pixeltable.service.proxy_daemon')
+    parser.add_argument('--test', action='store_true')
+    parser.add_argument('--project-root', type=Path, default=None)
+    parsed = parser.parse_args()
+    if parsed.project_root is not None:
+        Env.set_project_root(parsed.project_root)
+    _serve(test_mode=parsed.test)

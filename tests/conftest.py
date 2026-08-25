@@ -150,7 +150,7 @@ def project_env(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> path
 
     (tmp_path / 'pixeltable.toml').write_text('', encoding='utf-8')
     monkeypatch.setattr(sys, 'path', [*sys.path, str(tmp_path)])
-    monkeypatch.setattr(Env.get(), '_project_root', tmp_path)
+    monkeypatch.setattr(Env, 'project_root', tmp_path)
     return tmp_path
 
 

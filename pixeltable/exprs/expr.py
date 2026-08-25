@@ -438,6 +438,11 @@ class Expr(abc.ABC):
         from .function_call import FunctionCall
 
         for fn_call in self.subexprs(FunctionCall):
+            if isinstance(fn_call.fn, func.InvalidFunction):
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{context} uses a UDF this process cannot resolve: {fn_call.fn.error_msg}',
+                )
             if not fn_call.fn.is_storable:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,

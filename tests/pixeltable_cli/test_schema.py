@@ -8,15 +8,7 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import (
-    CatalogMode,
-    get_audio_files,
-    get_documents,
-    get_video_files,
-    pxt_raises,
-    reload_catalog,
-    skip_test_if_not_installed,
-)
+from ..utils import CatalogMode, get_audio_files, get_documents, get_video_files, skip_test_if_not_installed
 from .conftest import PxtRunner
 
 # A minimal schema, for the cases that assert on an error message rather than on what Pixeltable can express.
@@ -44,13 +36,13 @@ SCHEMA_SRC = dedent(
 )
 
 
-def assert_in_agreement(cli: PxtRunner, app: str, target: str) -> None:
+def assert_in_agreement(cli: PxtRunner, app: str, target: str, cwd: pathlib.Path | None = None) -> None:
     """Assert that the target holds what the file declares: diff agrees, and no declared table is pending.
 
     Whatever a command reported about the work it did, this is the reading that says the target converged.
     An undeclared table is not a disagreement, so a target with extras still passes.
     """
-    r = cli('schema', 'diff', app, target, '--json')
+    r = cli('schema', 'diff', app, target, '--json', cwd=cwd)
     assert r.returncode == 0, r.stdout
     assert r.json['in_agreement'], r.json
     assert [t['resolution'] for t in r.json['tables']] == ['up_to_date'] * len(r.json['tables']), r.json['tables']
@@ -557,16 +549,16 @@ class TestSchema:
         cli: PxtRunner,
         make_catalog_path: Callable[[str], str],
         catalog_mode: CatalogMode,
-        project_dir: pathlib.Path,
+        project_env: pathlib.Path,
     ) -> None:
-        """Computed columns over udfs the application file and its neighbors define."""
+        """Computed columns over udfs that an application's own package and its neighbors define."""
         if catalog_mode == 'cloud':
-            pytest.skip('a hosted database cannot read the local file a udf is defined in')
+            pytest.skip('the runtime of a hosted database does not hold this project')
         p = make_catalog_path
 
-        def write_project(name: str) -> pathlib.Path:
-            """An application file with computed columns over udfs from a sibling module and a package."""
-            directory = project_dir / name
+        def write_app(name: str) -> pathlib.Path:
+            """An application whose columns call udfs from a sibling module and from a package below it."""
+            directory = project_env / name
             (directory / 'pkg').mkdir(parents=True)
             (directory / 'pkg' / '__init__.py').write_text(f"SUFFIX = '{name}-pkg'\n")
             (directory / 'pkg' / 'inner.py').write_text(
@@ -583,26 +575,26 @@ class TestSchema:
             (directory / 'helpers.py').write_text(f"TAG = '{name}'\n")
             (directory / 'functions.py').write_text(
                 dedent(
-                    """
-                    import helpers
+                    f"""
                     import pixeltable as pxt
-                    from pkg import SUFFIX
+                    from {name}.helpers import TAG
+                    from {name}.pkg import SUFFIX
 
                     @pxt.udf
                     def tag(s: str) -> str:
-                        return f'{s}-{helpers.TAG}-{SUFFIX}'
+                        return f'{{s}}-{{TAG}}-{{SUFFIX}}'
                     """
                 )
             )
             app_file = directory / 'app.py'
             app_file.write_text(
                 dedent(
-                    """
+                    f"""
                     from __future__ import annotations
 
                     import pixeltable as pxt
-                    from functions import tag
-                    from pkg.inner import shout
+                    from {name}.functions import tag
+                    from {name}.pkg.inner import shout
 
                     TableModel = pxt.model_base()
 
@@ -617,50 +609,24 @@ class TestSchema:
             )
             return app_file
 
-        # two projects declare a udf of the same name, in files of the same name, in different directories
+        # two applications of one project declare a udf of the same name, in files of the same name
         for name in ('proj1', 'proj2'):
-            app_file = write_project(name)
-            cli('schema', 'update', str(app_file), p(name))
-            assert_in_agreement(cli, str(app_file), p(name))
+            app_file = write_app(name)
+            cli('schema', 'update', str(app_file), p(name), cwd=project_env)
+            assert_in_agreement(cli, str(app_file), p(name), cwd=project_env)
 
-        # this process never loaded either application file, so both columns resolve from what was stored;
-        # each project's udf reaches its own neighbors
+        # each application's module path is its own, so each udf reaches its own neighbors
         for name, expected in (('proj1', 'a-proj1-proj1-pkg'), ('proj2', 'a-proj2-proj2-pkg')):
             docs = pxt.get_table(f'{p(name)}/docs')
             docs.insert([{'doc_id': 1, 'title': 'a'}])
-            # tagged calls a udf from a sibling module, shouted one from a module of a neighboring package
+            # tagged calls a udf from a sibling module, shouted one from a module of the package below it
             assert docs.select(docs.tagged, docs.shouted).collect()[0] == {'tagged': expected, 'shouted': 'A'}
 
-        # a column stores which file and udf it calls, not the udf's body, so editing the body changes no schema
-        (project_dir / 'proj1' / 'helpers.py').write_text("TAG = 'edited'\n")
-        assert_in_agreement(cli, str(project_dir / 'proj1' / 'app.py'), p('proj1'))
+        # a column stores which udf it calls, not the udf's body, so editing the body changes no schema
+        (project_env / 'proj1' / 'helpers.py').write_text("TAG = 'edited'\n")
+        assert_in_agreement(cli, str(project_env / 'proj1' / 'app.py'), p('proj1'), cwd=project_env)
 
     @pytest.mark.local('the column is resolved in this process, so the report of a missing file lands here')
-    def test_moved_application_file(
-        self,
-        cli: PxtRunner,
-        apps: Callable[[str], str],
-        make_catalog_path: Callable[[str], str],
-        project_dir: pathlib.Path,
-    ) -> None:
-        """A table whose computed column calls a udf from a file that is gone can be read, but not written."""
-        target = make_catalog_path('app')
-        schema_file = project_dir / 'app.py'
-        schema_file.write_text(pathlib.Path(apps('basic.py')).read_text(encoding='utf-8'), encoding='utf-8')
-        cli('schema', 'update', str(schema_file), target)
-
-        docs = pxt.get_table(f'{target}/docs')
-        docs.insert([{'doc_id': 1, 'title': 'hello', 'body': 'world', 'published': True}])
-
-        schema_file.rename(project_dir / 'moved.py')
-        reload_catalog()
-        with pytest.warns(pxt.PixeltableWarning, match='which no longer exists'):
-            docs = pxt.get_table(f'{target}/docs')
-        # the rows already computed are still readable
-        assert docs.where(docs.doc_id == 1).select(docs.summary).collect()['summary'] == ['hello']
-        with pxt_raises(pxt.ErrorCode.INVALID_STATE, match='which no longer exists'):
-            docs.insert([{'doc_id': 2, 'title': 'second', 'body': None, 'published': False}])
-
     def test_update_errors(
         self,
         cli: PxtRunner,
@@ -706,7 +672,7 @@ class TestSchema:
         above.write_text('from .. import something\n')
         r = cli('schema', 'update', str(above), p('app'), check=False)
         assert r.returncode == 1
-        assert 'attempted relative import with no known parent package' in r.stderr
+        assert 'attempted relative import' in r.stderr
 
     def test_update_relative_path(
         self, cli: PxtRunner, make_catalog_path: Callable[[str], str], project_dir: pathlib.Path

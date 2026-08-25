@@ -253,6 +253,4 @@ def identity() -> dict[str, Any]:
         'pixeltable_pgdata': _resolve_pixeltable_pgdata(home),
         'pixeltable_config_file': _resolve_pixeltable_config_file(home),
         'pixeltable_env': _snapshot_pixeltable_env(),
-        # reported rather than compared as an identity key: see _serves_another_project()
-        'project_root': project_root(),
     }

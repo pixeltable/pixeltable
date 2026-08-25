@@ -91,6 +91,8 @@ def _patch_identity(monkeypatch: pytest.MonkeyPatch, overrides: dict[str, object
     """Pin utils.identity() to a known dict so tests don't depend on the host environment."""
     ident = {**_DEFAULT_IDENTITY, **overrides}
     monkeypatch.setattr(client_utils, 'identity', lambda: dict(ident))
+    # pin project_root to None to avoid daemon restarts
+    monkeypatch.setattr(client_utils, 'project_root', lambda: None)
     return ident
 
 
@@ -495,7 +497,7 @@ class TestProbe:
         client_utils.spawn_detached()
 
         args, kwargs = calls[0]
-        assert args == [sys.executable, '-m', 'pixeltable_cli.server.daemon']
+        assert args[:3] == [sys.executable, '-m', 'pixeltable_cli.server.daemon']
         assert kwargs['cwd'] == client_utils._resolve_pixeltable_home()
         assert kwargs['env']['PYTHONSAFEPATH'] == '1'
 
@@ -1141,7 +1143,7 @@ class TestServerDaemon:
         monkeypatch.setattr(server_daemon, 'bind', fake_bind)
         monkeypatch.setattr(server_daemon, 'run', lambda s: ran.append(s))
         monkeypatch.setattr(server_daemon.atexit, 'register', lambda _fn: None)
-        server_daemon.main()
+        server_daemon.main([])
         assert bound == [12345]
         assert ran == [fake_server]
 
@@ -1155,7 +1157,7 @@ class TestServerDaemon:
         monkeypatch.setattr(server_daemon, 'bind', fail)
         monkeypatch.setattr(server_daemon, 'is_running', lambda: True)
         with pytest.raises(SystemExit) as info:
-            server_daemon.main()
+            server_daemon.main([])
         assert info.value.code == 0
 
     def test_main_reports_unrelated_port_holder(
@@ -1170,7 +1172,7 @@ class TestServerDaemon:
         monkeypatch.setattr(server_daemon, 'bind', fail)
         monkeypatch.setattr(server_daemon, 'is_running', lambda: False)
         with pytest.raises(SystemExit) as info:
-            server_daemon.main()
+            server_daemon.main([])
         assert info.value.code == 1
         captured = capsys.readouterr()
         assert 'bind to 127.0.0.1:12345 failed' in captured.err

@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from pixeltable.env import Env
 from pixeltable.serving._app import create_app_for_services, load_service_routers
 
 from .service_deployment import ServiceDeployment
@@ -49,5 +50,7 @@ if __name__ == '__main__':
     parser.add_argument('--app-file', required=True)
     parser.add_argument('--name', required=True)
     parser.add_argument('--base-path', default='')
+    parser.add_argument('--project-root', type=Path, required=True)
     args = parser.parse_args()
+    Env.set_project_root(args.project_root)
     _serve(args.app_file, args.name, args.base_path)

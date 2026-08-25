@@ -98,13 +98,13 @@ def _identity_diff(client: dict[str, Any], daemon: dict[str, Any]) -> list[str]:
     return [k for k in _IDENTITY_KEYS if client.get(k) != daemon.get(k)]
 
 
-def _serves_another_project(client: dict[str, Any], daemon: dict[str, Any]) -> bool:
+def _serves_another_project(daemon: dict[str, Any]) -> bool:
     """Report whether the daemon serves a project other than the one the working directory establishes.
 
     A working directory that establishes no project asks for nothing, and leaves the daemon as it is.
     """
-    client_root = client.get('project_root')
-    return client_root is not None and daemon.get('project_root') != client_root
+    root = project_root()
+    return root is not None and daemon.get('project_root') != root
 
 
 def spawn_detached() -> None:
@@ -134,14 +134,7 @@ def spawn_detached() -> None:
         if root is not None:
             args += ['--project-root', root]
         with open(log_path, 'a', encoding='utf-8') as log:
-            subprocess.Popen(
-                args,
-                stdout=log,
-                stderr=log,
-                cwd=root if root is not None else _resolve_pixeltable_home(),
-                env=env,
-                **popen_kwargs,
-            )
+            subprocess.Popen(args, stdout=log, stderr=log, cwd=_resolve_pixeltable_home(), env=env, **popen_kwargs)
     except OSError as e:
         reason = e.strerror or e.__class__.__name__
         raise RuntimeError(f'pxt daemon log unavailable ({log_path}): {reason}') from None
@@ -276,7 +269,7 @@ def ensure_running() -> str:
     if health is not None:
         client_identity = identity()
         diff = _identity_diff(client_identity, health)
-        if _serves_another_project(client_identity, health):
+        if _serves_another_project(health):
             diff = [*diff, 'project_root']
         if len(diff) > 0:
             # Identity mismatch: the daemon was launched against a different install or env snapshot than the

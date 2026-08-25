@@ -21,7 +21,7 @@ import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import TYPE_CHECKING, Any, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, TypeVar
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -163,7 +163,10 @@ class Env:
     _resource_pool_info: dict[str, Any]
     _resource_pool_lock: threading.Lock
     _dbms: Dbms | None
-    _project_root: Path | None
+
+    # project root: the directory holding the project config (pixeltable.toml or pyproject.toml with a
+    # tool.pixeltable section); it needs to be recorded independently of the Env instance
+    project_root: ClassVar[Path | None] = None
 
     @classmethod
     def get(cls) -> Env:
@@ -222,7 +225,6 @@ class Env:
         self._resource_pool_info = {}
         self._resource_pool_lock = threading.Lock()
         self._dbms = None
-        self._project_root = None
 
         # Maps a table's id to the catalog uri it belongs to ('' for the in-process catalog). Populated whenever
         # a table is materialized, so a ColumnRef can resolve its table against the right catalog. Lives here
@@ -257,21 +259,17 @@ class Env:
         else:
             os.environ['PIXELTABLE_USER'] = user
 
-    @property
-    def project_root(self) -> Path | None:
-        """The directory a module reference in an application file is resolved against, if there is one."""
-        return self._project_root
-
-    def set_project_root(self, root: Path) -> None:
+    @classmethod
+    def set_project_root(cls, root: Path) -> None:
         resolved = Path(root).expanduser().resolve()
         assert resolved.is_dir(), f'not a directory: {root}'
-        self._project_root = resolved
-        # appended: an installed module takes precedence over a project module of the same name
+        cls.project_root = resolved
+        # append(): we want an installed module to take precedence over a project module of the same name
         if str(resolved) not in sys.path:
             sys.path.append(str(resolved))
 
     def find_project_root(self, start: Path) -> Path | None:
-        """Find the project root of start, which a file below this instance's own root need not share."""
+        """Look for the project configs, starting at start."""
         return _find_project_root(start)
 
     @property
@@ -382,12 +380,10 @@ class Env:
         self._tmp_dir.mkdir(exist_ok=True)
         self._services_dir.mkdir(exist_ok=True)
 
-        self._project_root = _find_project_root(Path.cwd())
-        if self._project_root is not None:
-            # appended: an installed module takes precedence over a project module of the same name
-            root_str = str(self._project_root)
-            if root_str not in sys.path:
-                sys.path.append(root_str)
+        if Env.project_root is None:
+            project_root = _find_project_root(Path.cwd())
+            if project_root is not None:
+                self.set_project_root(project_root)
 
         self._file_cache_size_g = config.get_float_value('file_cache_size_g')
         if self._file_cache_size_g is None:

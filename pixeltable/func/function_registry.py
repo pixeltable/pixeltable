@@ -43,6 +43,14 @@ class FunctionRegistry:
                 )
             self.type_methods[base_type][fn.name] = fn
 
+    def deregister_module(self, module_name: str) -> None:
+        """Drop every function registered for module_name."""
+        dropped = [fqn for fqn in self.module_fns if fqn.startswith(f'{module_name}.')]
+        fns = {id(self.module_fns.pop(fqn)) for fqn in dropped}
+        for methods in self.type_methods.values():
+            for name in [name for name, fn in methods.items() if id(fn) in fns]:
+                del methods[name]
+
     def list_functions(self) -> list[Function]:
         return list(self.module_fns.values())
 

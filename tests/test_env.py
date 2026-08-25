@@ -332,23 +332,23 @@ class TestProjectRoot:
         assert _find_project_root(tmp_path / 'unparseable') is None
 
     def test_env_resolves_the_root(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Env resolves the root of the directory it starts in, and appends it to sys.path."""
+        """Env resolves the root of the directory it starts in, and holds it for the life of the process."""
         root = tmp_path / 'proj'
         (root / 'ad_gen').mkdir(parents=True)
         (root / 'pixeltable.toml').write_text('', encoding='utf-8')
-        # a copy, so that what Env appends is undone when the test ends
+        # copies, so that what Env records and appends is undone when the test ends
         monkeypatch.setattr(sys, 'path', list(sys.path))
+        monkeypatch.setattr(Env, 'project_root', None)
 
         monkeypatch.chdir(root / 'ad_gen')
         _reset_env(reinit=False, db_name=None)
-        assert Env.get().project_root == root.resolve()
+        assert Env.project_root == root.resolve()
         assert sys.path[-1] == str(root.resolve())
 
-        # a directory that belongs to no project leaves sys.path alone
-        unmarked = tmp_path / 'elsewhere'
-        unmarked.mkdir()
-        monkeypatch.chdir(unmarked)
-        entries = list(sys.path)
+        # a process serves one project: starting over elsewhere keeps the project it already has, and
+        # serving another one takes a new process
+        elsewhere = tmp_path / 'elsewhere'
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
         _reset_env(reinit=False, db_name=None)
-        assert Env.get().project_root is None
-        assert sys.path == entries
+        assert Env.project_root == root.resolve()

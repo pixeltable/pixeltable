@@ -10,6 +10,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -19,6 +20,8 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
+
+from pixeltable.env import Env
 
 
 def _pick_port() -> int:
@@ -47,6 +50,7 @@ def session_project(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Path:
     """
     root = tmp_path_factory.mktemp('pxt_project')
     (root / 'pixeltable.toml').write_text('', encoding='utf-8')
+    Env.set_project_root(root)
     return root
 
 
@@ -140,9 +144,14 @@ def _as_text(stream: bytes | str | None) -> str:
 
 
 @pytest.fixture
-def apps() -> Callable[[str], str]:
-    """Resolves the name of a file in the shared app corpus to its path."""
-    directory = pathlib.Path(__file__).parent / 'apps'
+def apps(session_project: pathlib.Path) -> Callable[[str], str]:
+    """Returns a Callable that resolves the name of an app file in the shared app corpus to its path.
+
+    The corpus needs to be copied into the session's project in order for cli commands to work.
+    """
+    directory = session_project / 'apps'
+    if not directory.exists():
+        shutil.copytree(pathlib.Path(__file__).parent / 'apps', directory, ignore=shutil.ignore_patterns('__pycache__'))
 
     def _path(name: str) -> str:
         path = directory / name

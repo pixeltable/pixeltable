@@ -5,6 +5,8 @@ from __future__ import annotations
 import importlib
 import keyword
 import linecache
+import sys
+import threading
 import traceback
 from pathlib import Path
 from types import ModuleType
@@ -13,7 +15,14 @@ from typing import TYPE_CHECKING
 from pixeltable import exceptions as excs
 from pixeltable.catalog import ProhibitedWriteError, is_valid_identifier, model
 from pixeltable.env import Env
+from pixeltable.func import FunctionRegistry
 from pixeltable.runtime import get_runtime
+
+# the project's own modules, which every load discards and reads again; thread-safe via _lock
+_project_modules: set[str] = set()
+_lock = threading.RLock()
+
+# TODO: Catalog needs to discard cached TableVersion that references reloaded modules
 
 if TYPE_CHECKING:
     import fastapi
@@ -22,17 +31,14 @@ if TYPE_CHECKING:
 
 
 def load_app_module(file: str, *, subject: str) -> ModuleType:
-    """Import file under the module path it has below this process's project root, and return the module.
-
-    The project root is the one Env resolved at startup, so that every module this process imports comes
-    from a single project. A file below a different root reaches this process by a restart.
-    """
+    """Import file under the module path relative to the project root."""
     path = Path(file).resolve()
     if not path.is_file():
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{subject} not found: {file}')
 
+    # Env.project_root holds nothing until an environment resolves one, so initialize before reading it
     env = Env.get()
-    root = env.project_root
+    root = Env.project_root
     if root is None or env.find_project_root(path.parent) != root:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, _no_root_msg(path, subject, root))
     module_name = _module_name(path, root, subject)
@@ -40,8 +46,15 @@ def load_app_module(file: str, *, subject: str) -> ModuleType:
     # resolve the catalog first: initializing it writes, which freeze() would refuse
     catalog = get_runtime().catalog
     try:
-        with catalog.freeze():
-            return importlib.import_module(module_name)
+        with _lock, catalog.freeze():
+            _evict_project_modules()
+            # a file written after this process started is invisible to a finder that cached its directory
+            importlib.invalidate_caches()
+            already_loaded = set(sys.modules)
+            try:
+                return importlib.import_module(module_name)
+            finally:
+                _record_project_modules(root, set(sys.modules) - already_loaded)
     except ProhibitedWriteError as e:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION, _prohibited_write_msg(str(path), subject, e)
@@ -80,6 +93,33 @@ def _no_root_msg(path: Path, subject: str, root: Path | None) -> str:
         f"Run this command from within {root}, or run 'pxt daemon restart' from {file_root} to serve that "
         f'project instead.'
     )
+
+
+def _evict_project_modules() -> None:
+    """Discard the modules an earlier load imported from the project, and the udfs they registered.
+
+    An application file is read again on every load, so that a command acts on what the file says now. Only
+    the project's own modules go: what it imports from an installed package stays, and so does Pixeltable
+    itself when the project holds a checkout of it.
+    """
+    registry = FunctionRegistry.get()
+    for name in _project_modules:
+        registry.deregister_module(name)
+        sys.modules.pop(name, None)
+    _project_modules.clear()
+
+
+def _record_project_modules(root: Path, names: set[str]) -> None:
+    """Record which of names an import read from root, so that the next load discards them."""
+    for name in names:
+        module_file = getattr(sys.modules.get(name), '__file__', None)
+        if module_file is None:
+            continue
+        try:
+            Path(module_file).resolve().relative_to(root)
+        except ValueError:
+            continue  # read from somewhere else, eg an installed package the application file uses
+        _project_modules.add(name)
 
 
 def _module_name(path: Path, root: Path, subject: str) -> str:
