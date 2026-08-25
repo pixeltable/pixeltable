@@ -121,13 +121,13 @@ def make_default_type(t: ts.ColumnType.Type) -> ts.ColumnType:
     raise AssertionError()
 
 
-def make_tbl(name: str = 'test', col_names: list[str] | None = None) -> pxt.Table:
+def make_tbl(name: str = 'test', col_names: list[str] | None = None, is_data_versioned: bool = True) -> pxt.Table:
     if col_names is None:
         col_names = ['c1']
     schema: dict[str, ts.ColumnType] = {}
     for i, col_name in enumerate(col_names):
         schema[f'{col_name}'] = make_default_type(ts.ColumnType.Type(i % 5))
-    return pxt.create_table(name, schema)  # type: ignore[arg-type]
+    return pxt.create_table(name, schema, _is_data_versioned=is_data_versioned)  # type: ignore[arg-type]
 
 
 def create_table_data(
@@ -245,7 +245,7 @@ def create_table_data(
     return rows
 
 
-def create_test_tbl(name: str = 'test_tbl') -> pxt.Table:
+def create_test_tbl(name: str = 'test_tbl', is_data_versioned: bool = True) -> pxt.Table:
     schema: dict[str, type | ColumnSpec] = {
         'c1': {'type': pxt.String, 'comment': 'String column with no nulls'},
         'c1n': {'type': pxt.String | None, 'custom_metadata': {'nullable': True}},
@@ -256,7 +256,7 @@ def create_test_tbl(name: str = 'test_tbl') -> pxt.Table:
         'c6': pxt.Json,
         'c7': pxt.Json,
     }
-    t = pxt.create_table(name, schema, primary_key='c2')
+    t = pxt.create_table(name, schema, primary_key='c2', _is_data_versioned=is_data_versioned)
     t.add_computed_column(c8=pxt.array([[1, 2, 3], [4, 5, 6]]))
 
     num_rows = 100
@@ -306,9 +306,9 @@ def create_test_tbl(name: str = 'test_tbl') -> pxt.Table:
     return t
 
 
-def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0) -> pxt.Table:
+def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0, is_data_versioned: bool = True) -> pxt.Table:
     schema = {'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
-    tbl = pxt.create_table(name, schema)
+    tbl = pxt.create_table(name, schema, _is_data_versioned=is_data_versioned)
     rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
     if num_rows > 0:
         # select output_rows randomly in the hope of getting a good sample of the available categories
@@ -351,10 +351,13 @@ ALL_DATATYPES_SCHEMA: dict[str, Any] = {
 
 
 def create_all_datatypes_tbl(
-    name: str = 'all_datatype_tbl', non_serializable_json: bool = False, arrow_compatible_json: bool = False
+    name: str = 'all_datatype_tbl',
+    non_serializable_json: bool = False,
+    arrow_compatible_json: bool = False,
+    is_data_versioned: bool = True,
 ) -> pxt.Table:
     """Creates a table with all supported datatypes."""
-    tbl = pxt.create_table(name, ALL_DATATYPES_SCHEMA)
+    tbl = pxt.create_table(name, ALL_DATATYPES_SCHEMA, _is_data_versioned=is_data_versioned)
     example_rows = create_table_data(
         tbl, num_rows=11, non_serializable_json=non_serializable_json, arrow_compatible_json=arrow_compatible_json
     )

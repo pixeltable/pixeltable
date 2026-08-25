@@ -18,11 +18,13 @@ from tests.utils import pxt_raises
 class TestCatalog:
     """Tests for miscellanous catalog functions."""
 
-    def test_json_reserved_key(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_json_reserved_key(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         # JSON cell values are user data and may contain a key that collides with the proxy protocol's reserved
         # tag; inserting and reading such values back must round-trip rather than be rejected.
         p = make_catalog_path
-        t = pxt.create_table(p('json_tbl'), {'id': pxt.Int | None, 'data': pxt.Json | None})
+        t = pxt.create_table(
+            p('json_tbl'), {'id': pxt.Int | None, 'data': pxt.Json | None}, _is_data_versioned=is_data_versioned
+        )
         rows = [
             {'id': 0, 'data': {'$pxt': 1}},  # collides at the top level
             {'id': 1, 'data': {'a': {'$pxt': [1, 2]}, 'b': 3}},  # collides while nested
@@ -59,8 +61,6 @@ class TestCatalog:
         _s2 = pxt.create_snapshot(p('test_dir/snapshot2'), v2, additional_columns={'c': pxt.String | None})
         t.insert(a=4171780)
         df = pxt.ls(p('test_dir'))
-        # a hosted (proxy) table's Base shows its full catalog uri, which widens the column vs local; compare row
-        # tokens so the assertion checks content (including the uris) independent of column padding.
         expected = f"""
             Name Kind Version Base
             snapshot1 snapshot {v1_name}:2
@@ -73,7 +73,10 @@ class TestCatalog:
         def tokens(s: str) -> list[list[str]]:
             return [line.split() for line in s.splitlines() if line.split()]
 
-        assert tokens(repr(df)) == tokens(expected)
+        # compare contents, not repr(): pandas truncates one this wide. Empty cells (a dir has no version
+        # or base) are dropped to match the expected tokens.
+        actual = [list(df.columns), *([v for v in row if v != ''] for row in df.itertuples(index=False))]
+        assert actual == tokens(expected)
 
     def test_cross_type_replacement(self, make_catalog_path: Callable[[str], str]) -> None:
         """Test that tables, views, and snapshots can replace each other with if_exists='replace'.
@@ -214,9 +217,9 @@ class TestCatalog:
         assert t.count() == 2
 
     @pytest.mark.local('fault-injection/concurrency test against the in-process catalog internals')
-    def test_concurrent_add_column_insert(self, uses_db: None, fault_injection: None) -> None:
+    def test_concurrent_add_column_insert(self, uses_db: None, fault_injection: None, is_data_versioned: bool) -> None:
         """Concurrent insert while add_column is blocked mid-finalize"""
-        t = pxt.create_table('test', {'a': pxt.Int | None})
+        t = pxt.create_table('test', {'a': pxt.Int | None}, _is_data_versioned=is_data_versioned)
         fault = BlockFault()
 
         (

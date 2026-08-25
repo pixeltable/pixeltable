@@ -1546,7 +1546,6 @@ class Catalog(CatalogBase):
         path: Path,
         schema: dict[str, ColumnSpec],
         if_exists: IfExistsParam,
-        primary_key: list[str] | None,
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
@@ -1564,15 +1563,7 @@ class Catalog(CatalogBase):
         columns = [Column.create(name, spec) for name, spec in schema.items()]
 
         return self._create_table(
-            path,
-            columns,
-            if_exists,
-            primary_key,
-            comment,
-            custom_metadata,
-            media_validation,
-            has_default_idxs,
-            is_data_versioned,
+            path, columns, if_exists, comment, custom_metadata, media_validation, has_default_idxs, is_data_versioned
         )
 
     def _create_table(
@@ -1580,7 +1571,6 @@ class Catalog(CatalogBase):
         path: Path,
         columns: list[Column],
         if_exists: IfExistsParam,
-        primary_key: list[str] | None,
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
@@ -1595,8 +1585,6 @@ class Catalog(CatalogBase):
         # Therefore IfExistsParam.IGNORE is incompatible with explicit_tbl_id.
         assert explicit_tbl_id is None or if_exists != IfExistsParam.IGNORE
 
-        if primary_key is None:
-            primary_key = []
         if additional_idxs is None:
             additional_idxs = []
 
@@ -1617,7 +1605,6 @@ class Catalog(CatalogBase):
                 tbl_id,
                 path.name,
                 columns,
-                primary_key=primary_key,
                 comment=comment,
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,
@@ -1774,6 +1761,7 @@ class Catalog(CatalogBase):
         iterator: func.GeneratingFunctionCall | None,
         base: 'pxt.Query | None',
         idxs: list[IndexDeclaration],
+        is_data_versioned: bool,
     ) -> tuple[LocalTable, bool]:
         """Create a table or view from a declarative model.
 
@@ -1791,7 +1779,7 @@ class Catalog(CatalogBase):
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
 
         iterator, additional_cols, resolved_idxs = prepare_model(
-            tbl_handle, columns, display_name, iterator, base, idxs
+            tbl_handle, columns, display_name, iterator, base, idxs, is_data_versioned
         )
 
         # If the table already exists, rebind to it and report that nothing was created.
@@ -1804,17 +1792,17 @@ class Catalog(CatalogBase):
                 path=path,
                 columns=additional_cols,
                 if_exists=IfExistsParam.ERROR,
-                primary_key=None,
                 comment=comment,
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,
                 has_default_idxs=has_default_idxs,
-                is_data_versioned=True,
+                is_data_versioned=is_data_versioned,
                 additional_idxs=resolved_idxs,
                 explicit_tbl_id=tbl_id,
             )
 
         else:
+            assert is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
             return self._create_view(
                 path=path,
                 base=base._first_tbl,

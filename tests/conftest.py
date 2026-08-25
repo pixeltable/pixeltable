@@ -353,15 +353,22 @@ def cloud_db_base_uri(init_env: None) -> Iterator[str]:
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
-    """Drive the catalog-backend axis: any test that (transitively) reaches catalog_mode runs against both
-    'local' and 'proxy', unless marked @pytest.mark.local, in which case it runs 'local' only.
+    """Drive the catalog-backend and data-versioning axes.
 
-    With --cloud, tests run against the cloud catalog instead of local/proxy.
+    catalog_mode: any test that (transitively) reaches catalog_mode runs against both 'local' and 'proxy',
+    unless marked @pytest.mark.local, in which case it runs 'local' only. With --cloud, tests run against the
+    cloud catalog instead of local/proxy.
+
+    is_data_versioned: any test that (transitively) reaches is_data_versioned runs against both a
+    data-versioned and an operational table.
 
     metafunc.fixturenames is the transitive fixture closure, so a test reaching make_catalog_path (directly
-    or via an adapted fixture like test_tbl) auto-forks with no per-test boilerplate. Tests that touch neither
-    catalog_mode nor make_catalog_path run once.
+    or via an adapted fixture like test_tbl) or is_data_versioned auto-forks with no per-test boilerplate.
+    Tests that touch neither axis run once.
     """
+    if 'is_data_versioned' in metafunc.fixturenames:
+        metafunc.parametrize('is_data_versioned', [True, False], ids=['data_versioned', 'operational'])
+
     if 'catalog_mode' not in metafunc.fixturenames:
         return
     if metafunc.definition.get_closest_marker('local') is not None:
@@ -532,9 +539,21 @@ def clean_db(drop_md_tables: bool = False) -> None:
         conn.commit()
 
 
+def _requested_is_data_versioned(request: pytest.FixtureRequest) -> bool:
+    """The `is_data_versioned` value requested by a dependent test, or True if it doesn't declare the axis.
+
+    Shared by the table-building fixtures below (`test_tbl` and friends): none of them request
+    `is_data_versioned` directly, since that would put it in every dependent test's fixture closure and fork
+    the entire suite. A test that also declares `is_data_versioned` gets the variant that parameter calls for;
+    every other test gets a data-versioned table.
+    """
+    return request.getfixturevalue('is_data_versioned') if 'is_data_versioned' in request.fixturenames else True
+
+
 @pytest.fixture(scope='function')
-def test_tbl(make_catalog_path: Callable[[str], str]) -> pxt.Table:
-    return create_test_tbl(make_catalog_path('test_tbl'))
+def test_tbl(make_catalog_path: Callable[[str], str], request: pytest.FixtureRequest) -> pxt.Table:
+    """The standard test table."""
+    return create_test_tbl(make_catalog_path('test_tbl'), is_data_versioned=_requested_is_data_versioned(request))
 
 
 @pytest.fixture(scope='function')
@@ -558,13 +577,20 @@ class SampleFileServer:
     def __init__(self, base_url: str) -> None:
         self.base_url = base_url
 
-    def url(self, path: str | pathlib.Path) -> str:
+    def url(self, path: str | pathlib.Path, catalog_mode: CatalogMode = 'local') -> str:
         """Return the http:// URL of `path`, given either as an absolute path in the repo or relative to its root."""
         rel_path = pathlib.Path(path)
         if rel_path.is_absolute():
             assert rel_path.is_relative_to(_SERVED_DIR)
             rel_path = rel_path.relative_to(_SERVED_DIR)
-        return self.base_url + urllib.parse.quote(rel_path.as_posix())
+
+        if catalog_mode == 'cloud':
+            # For cloud tests, we need to send an actual URL; Pixeltable cloud obviously can't see 127.0.0.1
+            base_url = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/'
+        else:
+            base_url = self.base_url
+
+        return base_url + urllib.parse.quote(rel_path.as_posix())
 
 
 @pytest.fixture
@@ -622,13 +648,15 @@ def test_tbl_exprs(test_tbl: pxt.Table) -> list[exprs.Expr]:
 
 
 @pytest.fixture(scope='function')
-def all_datatypes_tbl(make_catalog_path: Callable[[str], str]) -> pxt.Table:
-    return create_all_datatypes_tbl(name=make_catalog_path('all_datatype_tbl'))
+def all_datatypes_tbl(make_catalog_path: Callable[[str], str], request: pytest.FixtureRequest) -> pxt.Table:
+    return create_all_datatypes_tbl(
+        name=make_catalog_path('all_datatype_tbl'), is_data_versioned=_requested_is_data_versioned(request)
+    )
 
 
 @pytest.fixture(scope='function')
-def img_tbl(make_catalog_path: Callable[[str], str]) -> pxt.Table:
-    return create_img_tbl(make_catalog_path('test_img_tbl'))
+def img_tbl(make_catalog_path: Callable[[str], str], request: pytest.FixtureRequest) -> pxt.Table:
+    return create_img_tbl(make_catalog_path('test_img_tbl'), is_data_versioned=_requested_is_data_versioned(request))
 
 
 @pytest.fixture(scope='function')
@@ -652,13 +680,19 @@ def multi_img_tbl_exprs(multi_idx_img_tbl: pxt.Table) -> list[exprs.Expr]:
 
 
 @pytest.fixture(scope='function')
-def small_img_tbl(make_catalog_path: Callable[[str], str]) -> pxt.Table:
-    return create_img_tbl(make_catalog_path('small_img_tbl'), num_rows=40)
+def small_img_tbl(make_catalog_path: Callable[[str], str], request: pytest.FixtureRequest) -> pxt.Table:
+    return create_img_tbl(
+        make_catalog_path('small_img_tbl'), num_rows=40, is_data_versioned=_requested_is_data_versioned(request)
+    )
 
 
 @pytest.fixture(scope='function')
-def indexed_img_tbl(make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> pxt.Table:
-    t = create_img_tbl(make_catalog_path('indexed_img_tbl'), num_rows=40)
+def indexed_img_tbl(
+    make_catalog_path: Callable[[str], str], local_embed: pxt.Function, request: pytest.FixtureRequest
+) -> pxt.Table:
+    t = create_img_tbl(
+        make_catalog_path('indexed_img_tbl'), num_rows=40, is_data_versioned=_requested_is_data_versioned(request)
+    )
     t.add_embedding_index(
         'img', idx_name='img_idx0', metric='cosine', image_embed=local_embed, string_embed=local_embed
     )
@@ -666,8 +700,12 @@ def indexed_img_tbl(make_catalog_path: Callable[[str], str], local_embed: pxt.Fu
 
 
 @pytest.fixture(scope='function')
-def multi_idx_img_tbl(make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> pxt.Table:
-    t = create_img_tbl(make_catalog_path('multi_idx_img_tbl'), num_rows=4)
+def multi_idx_img_tbl(
+    make_catalog_path: Callable[[str], str], local_embed: pxt.Function, request: pytest.FixtureRequest
+) -> pxt.Table:
+    t = create_img_tbl(
+        make_catalog_path('multi_idx_img_tbl'), num_rows=4, is_data_versioned=_requested_is_data_versioned(request)
+    )
     t.add_embedding_index(
         'img', idx_name='img_idx1', metric='cosine', image_embed=local_embed, string_embed=local_embed
     )

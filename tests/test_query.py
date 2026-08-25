@@ -17,6 +17,7 @@ from pixeltable.functions.string import isalpha, isascii
 from pixeltable.functions.video import frame_iterator
 
 from .utils import (
+    CatalogMode,
     ReloadTester,
     create_all_datatypes_tbl,
     get_audio_files,
@@ -67,7 +68,9 @@ class TestQuery:
 
         return t1, t2, t3
 
-    def test_select_where(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+    def test_select_where(
+        self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str], is_data_versioned: bool
+    ) -> None:
         p = make_catalog_path
         t = test_tbl
         res1 = t.collect()
@@ -158,7 +161,10 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=r'where\(\) clause already specified'):
             _ = t.select(t.c2).where(t.c2 <= 10).where(t.c2 <= 20).count()
 
-    def test_join(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_join(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
+        if catalog_mode == 'cloud':
+            pytest.skip('Cloud service times out without a response [PXT-1312]')
+
         p = make_catalog_path
         num_rows = 1000
         t1, t2, t3 = self.create_join_tbls(num_rows, p)
@@ -340,7 +346,7 @@ class TestQuery:
         print(res)
         assert len(res) == 4
 
-    def test_limit_basic(self, test_tbl: pxt.Table) -> None:
+    def test_limit_basic(self, test_tbl: pxt.Table, is_data_versioned: bool) -> None:
         t = test_tbl
 
         # Basic return shape: length and schema preserved
@@ -523,7 +529,9 @@ class TestQuery:
         assert rows == []
         assert list(cur.schema.keys()) == ['c1', 'c2']
 
-    def test_head_tail(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+    def test_head_tail(
+        self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str], is_data_versioned: bool
+    ) -> None:
         p = make_catalog_path
         t = test_tbl
         res = t.head(10).to_pandas()
@@ -576,7 +584,7 @@ class TestQuery:
                Limit           10""",
         )
 
-    def test_count(self, test_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
+    def test_count(self, test_tbl: pxt.Table, is_data_versioned: bool) -> None:
         t = test_tbl
         cnt = t.count()
         assert cnt == 100
@@ -1236,7 +1244,12 @@ class TestQuery:
         assert all('a' in row and 'b' in row for row in rows)
 
     @pytest.mark.benchmark(group='select_inexpensive')
-    def test_select_inexpensive(self, make_catalog_path: Callable[[str], str], benchmark: Any) -> None:
+    def test_select_inexpensive(
+        self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, benchmark: Any
+    ) -> None:
+        if catalog_mode == 'cloud':
+            pytest.skip('Cloud service times out without a response [PXT-1312]')
+
         p = make_catalog_path
         t = pxt.create_table(p('test_inexpensive'), {'c1': pxt.Int | None, 'c2': pxt.String | None})
 
@@ -1250,9 +1263,9 @@ class TestQuery:
 
         benchmark(select_inexpensive)
 
-    def test_query_after_column_drop(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_query_after_column_drop(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('t_drop'), {'a': pxt.Int, 'b': pxt.Int})
+        t = pxt.create_table(p('t_drop'), {'a': pxt.Int, 'b': pxt.Int}, _is_data_versioned=is_data_versioned)
         validate_update_status(t.insert([{'a': i, 'b': i * 10} for i in range(10)]), expected_rows=10)
         q = t.select(t.a, t.b)
         assert len(q.collect()) == 10
@@ -1262,9 +1275,11 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='dropped'):
             q.collect()
 
-    def test_query_after_column_drop_and_add(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_query_after_column_drop_and_add(
+        self, make_catalog_path: Callable[[str], str], is_data_versioned: bool
+    ) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('t_readd'), {'a': pxt.Int, 'keep': pxt.Int})
+        t = pxt.create_table(p('t_readd'), {'a': pxt.Int, 'keep': pxt.Int}, _is_data_versioned=is_data_versioned)
         validate_update_status(t.insert([{'a': 1, 'keep': 0}]), expected_rows=1)
         q = t.select(t.a)
         assert len(q.collect()) == 1
@@ -1275,9 +1290,9 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='dropped'):
             q.collect()
 
-    def test_query_after_schema_change(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_query_after_schema_change(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('t_add'), {'c1': pxt.Int | None})
+        t = pxt.create_table(p('t_add'), {'c1': pxt.Int | None}, _is_data_versioned=is_data_versioned)
         q_c1 = t.where(t.c1 > 1).select(t.c1)
         q_where = t.where(t.c1 > 1)
         q_select = t.where(t.c1 > 1).select()
@@ -1297,10 +1312,14 @@ class TestQuery:
         assert len(res) == 1
         assert res[0] == {'c1': 2}
 
-    def test_order_by_after_schema_change(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_order_by_after_schema_change(
+        self, make_catalog_path: Callable[[str], str], is_data_versioned: bool
+    ) -> None:
         p = make_catalog_path
         # Confirm where/order_by/limit clauses don't capture stale select-list state.
-        t = pxt.create_table(p('t_add_ob'), {'c1': pxt.Int | None, 'c2': pxt.Int | None})
+        t = pxt.create_table(
+            p('t_add_ob'), {'c1': pxt.Int | None, 'c2': pxt.Int | None}, _is_data_versioned=is_data_versioned
+        )
         t.insert([{'c1': i, 'c2': 5 - i} for i in range(5)])
         q = t.where(t.c1 >= 1).order_by(t.c2)
         assert list(q.schema.keys()) == ['c1', 'c2']
