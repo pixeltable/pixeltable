@@ -2098,9 +2098,28 @@ class TestTableModel:
         with pytest.raises(AttributeError, match=r'is not yet bound to an actual table'):
             ValidTableModel.get_metadata()
 
-        # a query over an unbound model refuses to execute, naming the model
-        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r'`ValidTableModel`, which is not bound'):
-            ValidTableModel.collect()
+        # every method that reads or writes rows refuses on an unbound model, naming it and how to create it
+        for method, args in (
+            ('collect', ()),
+            ('count', ()),
+            ('cursor', ()),
+            ('delete', ()),
+            ('describe', ()),
+            ('head', ()),
+            ('recompute_columns', ()),
+            ('show', ()),
+            ('tail', ()),
+            ('update', ({'id': 1},)),
+        ):
+            with pxt_raises(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                match=rf'{method}\(\): `ValidTableModel`, which is not bound to a table, holds no rows',
+            ):
+                getattr(ValidTableModel, method)(*args)
+
+        # the same methods reached through a clause the model declares, which builds a query but cannot run it
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r'collect'):
+            ValidTableModel.where(ValidTableModel.id > 0).collect()
 
         # similarity() on a column the model declares no embedding index on has nothing to resolve against
         with pxt_raises(excs.ErrorCode.INDEX_NOT_FOUND, match=r"No embedding index found for column 'id'"):

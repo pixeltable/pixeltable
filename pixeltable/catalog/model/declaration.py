@@ -36,6 +36,16 @@ if TYPE_CHECKING:
 MODEL_BY_DECLARED_TBL_ID: dict[UUID, 'TableModelMeta'] = {}
 
 # Table methods exposed as class-level operations on the model.
+# how an unbound model answers each method it forwards: a query over what it declares carries a clause, and
+# reading or writing rows needs the table that does not exist yet. Every other forwarded method is the
+# table's alone, and reports the model as unbound.
+DECLARABLE_QUERY_METHODS: frozenset[str] = frozenset(
+    ('distinct', 'group_by', 'join', 'limit', 'order_by', 'sample', 'select', 'where')
+)
+ROW_METHODS: frozenset[str] = frozenset(
+    ('collect', 'count', 'cursor', 'delete', 'describe', 'head', 'recompute_columns', 'show', 'tail', 'update')
+)
+
 FORWARDED_TABLE_METHODS: frozenset[str] = frozenset(
     (
         'batch_update',
@@ -68,6 +78,9 @@ FORWARDED_TABLE_METHODS: frozenset[str] = frozenset(
 # Sanity check to guard against drift in the SDK surface.
 for method in FORWARDED_TABLE_METHODS:
     assert hasattr(Table, method), method
+assert DECLARABLE_QUERY_METHODS <= FORWARDED_TABLE_METHODS
+assert ROW_METHODS <= FORWARDED_TABLE_METHODS
+assert not (DECLARABLE_QUERY_METHODS & ROW_METHODS)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -678,16 +691,21 @@ class TableModelMeta(type):
 
     def __getattr__(cls, item: str) -> Any:
         if item in FORWARDED_TABLE_METHODS:
-            from .query import ModelQuery
+            if not cls.is_bound and item in DECLARABLE_QUERY_METHODS:
+                from .query import ModelQuery
 
-            if not cls.is_bound and hasattr(ModelQuery, item):
-                # This model is not bound to a table, but the desired operation is accessible via a placeholder query.
+                # a query over what this model declares, which carries the clause this call adds
                 return getattr(ModelQuery.for_model(cls), item)
-            else:
-                try:
-                    return getattr(cls.table, item)
-                except excs.RequestError as exc:
-                    raise AttributeError(f'{item}(): {exc}') from exc
+            if not cls.is_bound and item in ROW_METHODS:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{item}(): `{cls.__name__}`, which is not bound to a table, holds no rows; '
+                    f'create the table with `{cls.__name__}.create()` or `pxt.create_all()` first.',
+                )
+            try:
+                return getattr(cls.table, item)
+            except excs.RequestError as exc:
+                raise AttributeError(f'{item}(): {exc}') from exc
         return super().__getattribute__(item)
 
     def table_path(cls) -> catalog.TableMdPath:

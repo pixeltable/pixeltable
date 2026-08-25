@@ -24,7 +24,7 @@ from .update_status import UpdateStatus
 from .utils import create_table_version_md
 
 if TYPE_CHECKING:
-    from pixeltable._query import Query
+    from pixeltable._query import QueryBase
     from pixeltable.globals import TableDataSource
     from pixeltable.plan import SampleClause
 
@@ -58,7 +58,7 @@ class View(LocalTable):
         return 'table'
 
     @classmethod
-    def validate_view_query(cls, query: Query, *, is_snapshot: bool = False, prefix: str = '') -> None:
+    def validate_view_query(cls, query: QueryBase, *, is_snapshot: bool = False, prefix: str = '') -> None:
         """Verify that a view can be defined by query.
 
         Args:

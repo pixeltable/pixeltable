@@ -11,12 +11,13 @@ from .signature import Signature
 
 if TYPE_CHECKING:
     from pixeltable import Query
+    from pixeltable._query import QueryBase
 
 
 class QueryTemplateFunction(Function):
     """A parameterized query from which an executable Query is created with a function call."""
 
-    template_query: 'Query' | None
+    template_query: 'QueryBase' | None
     self_name: str | None
     return_scalar: bool
     _comment: str | None
@@ -37,9 +38,9 @@ class QueryTemplateFunction(Function):
         # invoke template_callable with parameter expressions to construct a Query with parameters
         var_exprs = [exprs.Variable(param.name, param.col_type) for param in params]
         template_query = template_callable(*var_exprs)
-        from pixeltable import Query
+        from pixeltable._query import QueryBase
 
-        assert isinstance(template_query, Query)
+        assert isinstance(template_query, QueryBase)
         return QueryTemplateFunction(
             template_query,
             params,
@@ -51,7 +52,7 @@ class QueryTemplateFunction(Function):
 
     def __init__(
         self,
-        template_query: 'Query' | None,
+        template_query: 'QueryBase' | None,
         params: list[func.Parameter],
         return_scalar: bool = False,
         path: str | None = None,
@@ -109,6 +110,8 @@ class QueryTemplateFunction(Function):
                 if param.has_default() and param.name not in bound_args
             }
         )
+        # a template declared over a model is bound to its table before any route serves it
+        assert isinstance(self.template_query, Query), type(self.template_query)
         result = await self.template_query._acollect(args=bound_args)
         if self.return_scalar:
             col_name = next(iter(self.template_query.schema))

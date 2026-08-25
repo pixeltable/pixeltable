@@ -3,21 +3,22 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import Any
+from typing import Any, Self
 
 import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, exprs
+from pixeltable._query import QueryBase
 from pixeltable.exprs import ColumnRefByName
 from pixeltable.query_clauses import FromClause
 
 from .declaration import MODEL_BY_DECLARED_TBL_ID, TableModelMeta
 
 
-class ModelQuery(pxt.Query):
+class ModelQuery(QueryBase):
     """A query declared over a model, before that model is bound to a table.
 
-    Its from-clause is the shape the model declares, so it is a Query in every respect except that it cannot
-    be executed: the columns it references belong to a table that does not exist yet. bind() produces the
+    Its from-clause is the shape the model declares, so it carries every clause a query can, but nothing
+    that runs one: the columns it references belong to a table that does not exist yet. bind() produces the
     equivalent query over a real table.
     """
 
@@ -142,59 +143,9 @@ class ModelQuery(pxt.Query):
             ),
         )
 
-    def join(self, *args: Any, **kwargs: Any) -> pxt.Query:
+    def join(self, *args: Any, **kwargs: Any) -> Self:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
             f'join(): a query over model `{self.model_cls.__name__}` cannot be joined; '
             'join the tables the models are bound to instead.',
         )
-
-    def _unbound(self, op: str) -> excs.RequestError:
-        return excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION,
-            f'{op}: this query is declared over model `{self.model_cls.__name__}`, which is not bound to a '
-            'table; create the tables first, or call the operation on a bound model.',
-        )
-
-    # Query's execution surface, which needs the table this query does not have
-    def collect(self) -> Any:
-        raise self._unbound('collect()')
-
-    def _collect(self, args: dict[str, Any] | None = None, *, media_as_urls: bool = False) -> Any:
-        raise self._unbound('collect()')
-
-    async def _acollect(self, args: dict[str, Any] | None = None) -> Any:
-        raise self._unbound('collect()')
-
-    def cursor(self) -> Any:
-        raise self._unbound('cursor()')
-
-    def show(self, n: int = 20) -> Any:
-        raise self._unbound('show()')
-
-    def head(self, n: int = 10) -> Any:
-        raise self._unbound('head()')
-
-    def tail(self, n: int = 10) -> Any:
-        raise self._unbound('tail()')
-
-    def count(self) -> int:
-        raise self._unbound('count()')
-
-    def describe(self) -> None:
-        raise self._unbound('describe()')
-
-    def update(self, value_spec: dict[str, Any], cascade: bool = True) -> Any:
-        raise self._unbound('update()')
-
-    def recompute_columns(self, *columns: Any, errors_only: bool = False, cascade: bool = True) -> Any:
-        raise self._unbound('recompute_columns()')
-
-    def delete(self) -> Any:
-        raise self._unbound('delete()')
-
-    def to_coco_dataset(self) -> Any:
-        raise self._unbound('to_coco_dataset()')
-
-    def to_pytorch_dataset(self, image_format: str = 'pt') -> Any:
-        raise self._unbound('to_pytorch_dataset()')

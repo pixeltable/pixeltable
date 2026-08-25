@@ -1972,13 +1972,15 @@ class FastAPIRouter(fastapi.APIRouter):
             one_row=one_row,
             query_cols=() if declared_query is None else sorted(declared_query.referenced_column_names()),
         )
-        if declared_query is None:
+        if isinstance(template_query, ModelQuery):
+            self._unbound_queries[route.route_id] = template_query
+        else:
+            # a template that names no model queries tables that exist
+            assert isinstance(template_query, pxt.Query), type(template_query)
             # the media rewrites run after validation, so that _validate_args sees the original media-typed schema
             self._query_bindings[route.route_id] = self._media_rewritten(
                 template_query, return_fileresponse=return_fileresponse
             )
-        else:
-            self._unbound_queries[route.route_id] = declared_query
 
         def run_query(call_kwargs: dict[str, Any], url_for_media: Callable[[str], str]) -> Any:
             result_set = self._query_binding(route.route_id)._collect(args=call_kwargs)
