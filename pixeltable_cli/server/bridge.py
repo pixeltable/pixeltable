@@ -520,6 +520,7 @@ def get_status() -> dict[str, Any]:
         cfg = Config.get()
         config_info = {
             'home': str(cfg.home),
+            'project_root': None if env.project_root is None else str(env.project_root),
             'db_url': env.db_url,
             'media_dir': str(env.media_dir),
             'file_cache_dir': str(env.file_cache_dir),

@@ -26,6 +26,7 @@ from pixeltable_cli.utils import (
     get_port,
     identity,
     pidfile_path,
+    project_root,
     validate_path_shape,
 )
 
@@ -97,6 +98,15 @@ def _identity_diff(client: dict[str, Any], daemon: dict[str, Any]) -> list[str]:
     return [k for k in _IDENTITY_KEYS if client.get(k) != daemon.get(k)]
 
 
+def _serves_another_project(client: dict[str, Any], daemon: dict[str, Any]) -> bool:
+    """Report whether the daemon serves a project other than the one the working directory establishes.
+
+    A working directory that establishes no project asks for nothing, and leaves the daemon as it is.
+    """
+    client_root = client.get('project_root')
+    return client_root is not None and daemon.get('project_root') != client_root
+
+
 def spawn_detached() -> None:
     log_path = _daemon_log_path()
     try:
@@ -117,12 +127,18 @@ def spawn_detached() -> None:
         # daemon's cwd to the pixeltable home (which holds no importable packages) and set
         # PYTHONSAFEPATH so the working directory is not prepended to sys.path at all (3.11+).
         env = {**os.environ, 'PYTHONSAFEPATH': '1'}
+        # a daemon starts in the Pixeltable home, which marks no project, so its command line carries the
+        # project it serves
+        root = project_root()
+        args = [sys.executable, '-m', 'pixeltable_cli.server.daemon']
+        if root is not None:
+            args += ['--project-root', root]
         with open(log_path, 'a', encoding='utf-8') as log:
             subprocess.Popen(
-                [sys.executable, '-m', 'pixeltable_cli.server.daemon'],
+                args,
                 stdout=log,
                 stderr=log,
-                cwd=_resolve_pixeltable_home(),
+                cwd=root if root is not None else _resolve_pixeltable_home(),
                 env=env,
                 **popen_kwargs,
             )
@@ -260,6 +276,8 @@ def ensure_running() -> str:
     if health is not None:
         client_identity = identity()
         diff = _identity_diff(client_identity, health)
+        if _serves_another_project(client_identity, health):
+            diff = [*diff, 'project_root']
         if len(diff) > 0:
             # Identity mismatch: the daemon was launched against a different install or env snapshot than the
             # client now sees (eg, after pip install -U pixeltable). Restart it ourselves rather than making

@@ -262,6 +262,14 @@ class Env:
         """The directory a module reference in an application file is resolved against, if there is one."""
         return self._project_root
 
+    def set_project_root(self, root: Path) -> None:
+        resolved = Path(root).expanduser().resolve()
+        assert resolved.is_dir(), f'not a directory: {root}'
+        self._project_root = resolved
+        # appended: an installed module takes precedence over a project module of the same name
+        if str(resolved) not in sys.path:
+            sys.path.append(str(resolved))
+
     def find_project_root(self, start: Path) -> Path | None:
         """Find the project root of start, which a file below this instance's own root need not share."""
         return _find_project_root(start)

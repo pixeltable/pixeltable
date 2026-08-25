@@ -139,7 +139,7 @@ def project_dir(tmp_path: pathlib.Path) -> pathlib.Path:
 
 
 @pytest.fixture
-def project_env(project_dir: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> pathlib.Path:
+def project_env(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> pathlib.Path:
     """A project root that this process serves, for a test that loads an application file in process.
 
     Env resolves one project root when it starts and holds it for the life of the process, so a test that
@@ -148,9 +148,10 @@ def project_env(project_dir: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> p
     """
     from pixeltable.env import Env
 
-    monkeypatch.setattr(sys, 'path', [*sys.path, str(project_dir)])
-    monkeypatch.setattr(Env.get(), '_project_root', project_dir)
-    return project_dir
+    (tmp_path / 'pixeltable.toml').write_text('', encoding='utf-8')
+    monkeypatch.setattr(sys, 'path', [*sys.path, str(tmp_path)])
+    monkeypatch.setattr(Env.get(), '_project_root', tmp_path)
+    return tmp_path
 
 
 @pytest.fixture(scope='session')

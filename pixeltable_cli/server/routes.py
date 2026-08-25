@@ -59,10 +59,20 @@ _SERVICE_OPS = pydantic.TypeAdapter(list[service_types.ServiceChangeOp])
 _SERVICE_DEPLOYMENTS = pydantic.TypeAdapter(list[service_types.ServiceDeployment])
 
 
+def _project_root() -> str | None:
+    root = Env.get().project_root
+    return None if root is None else str(root)
+
+
 @router.get('/api/health', checks_env=False)
 def health(_req: Request) -> models.HealthResponse:
     return models.HealthResponse(
-        ok=True, pid=os.getpid(), started_at=_STARTED_AT, in_flight=daemon_state.in_flight_requests(), **_IDENTITY
+        ok=True,
+        pid=os.getpid(),
+        started_at=_STARTED_AT,
+        in_flight=daemon_state.in_flight_requests(),
+        project_root=_project_root(),
+        **_IDENTITY,
     )
 
 
@@ -78,6 +88,7 @@ def status(req: Request) -> models.StatusResponse:
         pid=os.getpid(),
         started_at=_STARTED_AT,
         home=cfg.get('home'),
+        project_root=cfg.get('project_root'),
         db_url=_redact_db_password(cfg.get('db_url')),
         media_dir=media_dir,
         file_cache_dir=file_cache_dir,

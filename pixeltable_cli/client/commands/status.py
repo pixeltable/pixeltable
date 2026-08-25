@@ -43,6 +43,7 @@ def run(argv: list[str]) -> None:
     print(f'daemon_pid      {s.pid}')
     print(f'daemon_started  {s.started_at}')
     print(f'home            {or_dash(s.home)}')
+    print(f'project_root    {or_dash(s.project_root)}')
     print(f'db_url          {or_dash(s.db_url)}')
     print(f'media_dir       {with_size(s.media_dir, s.media_size_bytes)}')
     print(f'file_cache_dir  {with_size(s.file_cache_dir, s.file_cache_size_bytes)}')

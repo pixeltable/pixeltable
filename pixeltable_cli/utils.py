@@ -7,6 +7,7 @@ import importlib.metadata
 import os
 import re
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any, NamedTuple, NewType
 
@@ -135,6 +136,39 @@ def resolve_dot_segments(path: str) -> str:
     return prefix if resolved == '' else f'{prefix}/{resolved}'
 
 
+PROJECT_MARKER = 'pixeltable.toml'
+_PYPROJECT = 'pyproject.toml'
+
+
+def find_project_root(start: Path) -> Path | None:
+    """Find the nearest project root at or above start. Returns None if that chain holds none.
+
+    A directory is a project root when it holds a pixeltable.toml, or a pyproject.toml that declares a
+    [tool.pixeltable] section. A directory holding both is a project root by its pixeltable.toml.
+
+    Mirrors pixeltable.env, which cannot be imported here: the client runs without importing pixeltable.
+    """
+    start = start.resolve()
+    for dir in (start, *start.parents):
+        if (dir / PROJECT_MARKER).is_file():
+            return dir
+        pyproject = dir / _PYPROJECT
+        if pyproject.is_file() and _declares_pixeltable(pyproject):
+            return dir
+    return None
+
+
+def _declares_pixeltable(pyproject: Path) -> bool:
+    """Report whether pyproject holds a [tool.pixeltable] section."""
+    try:
+        with open(pyproject, 'rb') as fp:
+            parsed = tomllib.load(fp)
+    except (OSError, tomllib.TOMLDecodeError):
+        return False
+    tool = parsed.get('tool')
+    return isinstance(tool, dict) and 'pixeltable' in tool
+
+
 # Identity fingerprint keys
 _IDENTITY_KEYS: tuple[str, ...] = (
     'pxt_version',
@@ -185,6 +219,12 @@ def _snapshot_pixeltable_env(environ: dict[str, str] | None = None) -> dict[str,
     return {k: _redact_env_value(k, env[k]) for k in sorted(env) if k.startswith('PIXELTABLE_')}
 
 
+def project_root() -> str | None:
+    """The project root at or above the working directory, and None when that chain marks no project."""
+    found = find_project_root(Path.cwd())
+    return None if found is None else str(found)
+
+
 def env_fingerprint(environ: dict[str, str] | None = None) -> dict[str, str]:
     """Returns dict mapping every set environment variable to a hash of its value.
 
@@ -213,4 +253,6 @@ def identity() -> dict[str, Any]:
         'pixeltable_pgdata': _resolve_pixeltable_pgdata(home),
         'pixeltable_config_file': _resolve_pixeltable_config_file(home),
         'pixeltable_env': _snapshot_pixeltable_env(),
+        # reported rather than compared as an identity key: see _serves_another_project()
+        'project_root': project_root(),
     }

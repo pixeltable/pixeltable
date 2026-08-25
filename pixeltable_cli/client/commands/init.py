@@ -3,7 +3,8 @@
 import json
 import pathlib
 import sys
-import tomllib
+
+from pixeltable_cli.utils import PROJECT_MARKER, find_project_root
 
 from ..parser import Parser
 
@@ -42,7 +43,6 @@ EXIT_OK = 0
 EXIT_ERROR = 1
 EXIT_REFUSED = 3
 
-_MARKER = 'pixeltable.toml'
 _PYPROJECT = 'pyproject.toml'
 _MARKER_CONTENT = """\
 # Marks the root of a Pixeltable project. Application files under this directory are imported by the
@@ -80,26 +80,12 @@ def run(argv: list[str]) -> None:
 
 
 def _find_marker(start: pathlib.Path) -> pathlib.Path | None:
-    """Find the marker file of the nearest project root at or above start. Returns None if there is none."""
-    for dir in (start, *start.parents):
-        marker = dir / _MARKER
-        if marker.is_file():
-            return marker
-        pyproject = dir / _PYPROJECT
-        if pyproject.is_file() and _declares_pixeltable(pyproject):
-            return pyproject
-    return None
-
-
-def _declares_pixeltable(pyproject: pathlib.Path) -> bool:
-    """Report whether pyproject holds a [tool.pixeltable] section."""
-    try:
-        with open(pyproject, 'rb') as fp:
-            parsed = tomllib.load(fp)
-    except (OSError, tomllib.TOMLDecodeError):
-        return False
-    tool = parsed.get('tool')
-    return isinstance(tool, dict) and 'pixeltable' in tool
+    """Find the file marking the nearest project root at or above start. Returns None if there is none."""
+    root = find_project_root(start)
+    if root is None:
+        return None
+    marker = root / PROJECT_MARKER
+    return marker if marker.is_file() else root / _PYPROJECT
 
 
 def _write_marker(root: pathlib.Path) -> pathlib.Path:
@@ -110,7 +96,7 @@ def _write_marker(root: pathlib.Path) -> pathlib.Path:
             with open(pyproject, 'a', encoding='utf-8') as fp:
                 fp.write(_PYPROJECT_SECTION)
             return pyproject
-        marker = root / _MARKER
+        marker = root / PROJECT_MARKER
         marker.write_text(_MARKER_CONTENT, encoding='utf-8')
         return marker
     except OSError as e:

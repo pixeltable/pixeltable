@@ -70,3 +70,29 @@ class TestInit:
         assert 'plain' not in r.stderr
         assert 'raw data' not in r.stderr
         assert cli('init', '--json', cwd=tmp_path).json['unusable_dirs'] == ['ad gen']
+
+
+class TestProjectHandoff:
+    def test_daemon_serves_the_project_the_client_stands_in(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
+        """A command establishes which project the daemon serves; one that establishes none takes it as it is."""
+        project = tmp_path / 'proj'
+        project.mkdir()
+        cli('init', cwd=project)
+
+        served = cli('status', '--json', cwd=project).json
+        assert served['project_root'] == str(project)
+
+        # a directory that marks no project asks for nothing, so the daemon keeps serving the one it has
+        outside = tmp_path / 'outside'
+        outside.mkdir()
+        unchanged = cli('status', '--json', cwd=outside).json
+        assert unchanged['project_root'] == str(project)
+        assert unchanged['pid'] == served['pid']
+
+        # a second project takes the daemon over, which is a restart
+        second = tmp_path / 'second'
+        second.mkdir()
+        cli('init', cwd=second)
+        moved = cli('status', '--json', cwd=second).json
+        assert moved['project_root'] == str(second)
+        assert moved['pid'] != served['pid']

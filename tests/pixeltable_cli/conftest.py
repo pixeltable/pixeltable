@@ -9,6 +9,7 @@ real daemon on 22089.
 import json
 import os
 import pathlib
+import re
 import socket
 import subprocess
 import sys
@@ -38,14 +39,42 @@ class PxtResult:
 
 
 @pytest.fixture(scope='session')
-def pxt_daemon(init_env: None, tmp_path_factory: pytest.TempPathFactory) -> Iterator[int]:
+def session_project(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Path:
+    """The project the session's daemon serves.
+
+    The daemon serves one project, and a client standing in another restarts it, so every CLI test works
+    inside this one: its application files go in a directory of their own under this root.
+    """
+    root = tmp_path_factory.mktemp('pxt_project')
+    (root / 'pixeltable.toml').write_text('', encoding='utf-8')
+    return root
+
+
+@pytest.fixture
+def project_dir(session_project: pathlib.Path, request: pytest.FixtureRequest) -> pathlib.Path:
+    """A directory of the session's project, named after the test that writes its files there.
+
+    A module path is relative to the project root, so files in a directory named after the test are
+    imported under names no other test uses.
+    """
+    name = re.sub(r'\W', '_', request.node.name)
+    directory = session_project / name
+    directory.mkdir(exist_ok=True)
+    return directory
+
+
+@pytest.fixture(scope='session')
+def pxt_daemon(
+    init_env: None, tmp_path_factory: pytest.TempPathFactory, session_project: pathlib.Path
+) -> Iterator[int]:
     port = _pick_port()
     env = {**os.environ, 'PXT_PORT': str(port)}
     log_path = tmp_path_factory.mktemp('pxt-daemon') / 'daemon.log'
     prior_port = os.environ.get('PXT_PORT')
     with open(log_path, 'w', encoding='utf-8') as log:
         proc = subprocess.Popen(
-            [sys.executable, '-m', 'pixeltable_cli.server.daemon'],
+            # the project this daemon serves, named the way a client names it
+            [sys.executable, '-m', 'pixeltable_cli.server.daemon', '--project-root', str(session_project)],
             env=env,
             stdout=log,
             stderr=log,
@@ -181,7 +210,7 @@ def cli_bg(pxt_daemon: int, make_catalog_path: Callable[[str], str]) -> Iterator
 
 
 @pytest.fixture
-def cli(pxt_daemon: int, make_catalog_path: Callable[[str], str]) -> PxtRunner:
+def cli(pxt_daemon: int, make_catalog_path: Callable[[str], str], session_project: pathlib.Path) -> PxtRunner:
     # make_catalog_path resets the catalog (like uses_db) and pulls in the local/proxy axis, so a test
     # using cli() auto-forks over both backends unless it is marked @pytest.mark.local. The CLI daemon and
     # this test process share PIXELTABLE_HOME, so both resolve a pxt:// path to the same local proxy daemon.
@@ -191,6 +220,8 @@ def cli(pxt_daemon: int, make_catalog_path: Callable[[str], str]) -> PxtRunner:
         cwd: str | os.PathLike[str] | None = None,
         env_overrides: dict[str, str | None] | None = None,
     ) -> PxtResult:
+        # in the session's project, so that client and daemon agree on which project this is
+        cwd = session_project if cwd is None else cwd
         # BROWSER=true prevents an actual browser tab open on `pxt dashboard` when tests are run on a dev machine.
         env = {**os.environ, 'PXT_PORT': str(pxt_daemon), 'BROWSER': 'true'}
         for name, value in (env_overrides or {}).items():
