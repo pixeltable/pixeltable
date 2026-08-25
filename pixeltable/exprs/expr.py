@@ -443,6 +443,12 @@ class Expr(abc.ABC):
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'{context} uses a UDF this process cannot resolve: {fn_call.fn.error_msg}',
                 )
+            if isinstance(fn_call.fn, func.QueryTemplateFunction) and not fn_call.fn.queries_tables:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{context} calls `{fn_call.fn.display_name}()`, which queries a model rather than a table. '
+                    'A query over a model can only be stored once the model is bound to a table.',
+                )
             if not fn_call.fn.is_storable:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,

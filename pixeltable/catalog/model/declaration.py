@@ -342,6 +342,28 @@ class _ModelNamespace(dict):
         super().__setitem__(name, exprs.ColumnRefByName(name, type_))
 
 
+def _bind_query_templates(value: exprs.Expr, catalog_dir: str) -> exprs.Expr:
+    """Rebind every @pxt.query UDF in value that queries a model, so that it queries that model's table.
+
+    A stored column records the query its template holds, and a query over a model names columns of a table
+    that does not exist. The referenced model is created before this one (see _creation_order()), so its
+    table is there to bind against.
+    """
+    for fn_call in value.subexprs(exprs.FunctionCall):
+        fn = fn_call.fn
+        if not isinstance(fn, func.QueryTemplateFunction) or fn.queries_tables:
+            continue
+        fn_call.fn = func.QueryTemplateFunction(
+            fn.template_query.bind(catalog_dir),
+            list(fn.signature.parameters.values()),
+            return_scalar=fn.return_scalar,
+            path=fn.self_path,
+            name=fn.self_name,
+            comment=fn.comment(),
+        )
+    return value
+
+
 class TableModelMeta(type):
     """
     Metaclass that collects annotated column definitions and other table metadata from a class body.
@@ -399,8 +421,8 @@ class TableModelMeta(type):
 
             # Validate base
             if base is not None:
-                # imported here because ModelQuery subclasses pxt.Query, which is not available while
-                # pixeltable is still initializing this module
+                # imported here because query.py imports this module at module scope, so importing it back
+                # at module scope would leave one of the two half-initialized
                 from .query import ModelQuery
 
                 if isinstance(base, ModelQuery):
@@ -428,7 +450,7 @@ class TableModelMeta(type):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'{display_name}: operational views are not supported yet.'
                 )
-            if base is not None and not base.from_clause.__table_spec__['is_data_versioned']:
+            if base is not None and not base.model_cls.__table_spec__['is_data_versioned']:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'{display_name}: the base table and the view have mismatching is_data_versioned',
@@ -679,6 +701,10 @@ class TableModelMeta(type):
                 spec['type'] = ts.ColumnType.normalize_type(  # type: ignore[typeddict-item]
                     spec['type'], allow_builtin_types=False
                 )
+            if 'value' in spec:
+                # a copy, because binding rewrites the query templates in place and this model's declaration
+                # has to survive the call unchanged
+                spec['value'] = _bind_query_templates(spec['value'].copy(), catalog_dir)
             columns[name] = spec
 
         bound_path = f'{catalog_dir}{table_spec["name"]}'

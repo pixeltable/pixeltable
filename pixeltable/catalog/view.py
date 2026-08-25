@@ -24,7 +24,7 @@ from .update_status import UpdateStatus
 from .utils import create_table_version_md
 
 if TYPE_CHECKING:
-    from pixeltable._query import QueryBase
+    from pixeltable._query_base import QueryBase
     from pixeltable.globals import TableDataSource
     from pixeltable.plan import SampleClause
 

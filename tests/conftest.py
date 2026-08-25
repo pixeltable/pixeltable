@@ -402,6 +402,10 @@ def make_catalog_path(
 
     if catalog_mode == 'proxy':
         db = request.getfixturevalue('proxy_daemon_db')
+        # the daemon resolves udf module paths against the one project it was started with, and tests in
+        # different packages serve different projects; start() reuses a daemon serving this test's project and
+        # replaces one serving another, so a test never inherits the project of whichever test ran before it
+        proxy_daemon.start(db, test_mode=True)
         proxy_daemon.reinitialize(db)
         prefix = f'pxt://local:{db}'
 

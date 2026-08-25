@@ -2234,10 +2234,6 @@ class TestTableModel:
             ):
                 getattr(ValidTableModel, method)(*args)
 
-        # the same methods reached through a clause the model declares, which builds a query but cannot run it
-        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r'collect'):
-            ValidTableModel.where(ValidTableModel.id > 0).collect()
-
         # similarity() on a column the model declares no embedding index on has nothing to resolve against
         with pxt_raises(excs.ErrorCode.INDEX_NOT_FOUND, match=r"No embedding index found for column 'id'"):
             _ = ValidTableModel.id.similarity(string='hello')  # type: ignore[attr-defined]
@@ -2326,6 +2322,34 @@ class TestTableModel:
             plus = v + 1  # type: ignore[name-defined]
 
         assert [c.name for c in Projected.table_path().column_md()] == ['v', 'plus']
+
+    def test_query_udf_over_model(self, make_catalog_path: Callable[[str], str]) -> None:
+        """A computed column calling a @pxt.query UDF over another model queries that model's table."""
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            doc_id: pxt.Int
+            title: pxt.String
+
+        @pxt.query
+        def titles_after(cutoff: int) -> pxt.Query:
+            return Docs.where(Docs.doc_id > cutoff).select(Docs.title)  # type: ignore[arg-type]
+
+        class Probe(TableModel, name='probe'):
+            cutoff: pxt.Int
+            matches = titles_after(cutoff)
+
+        target = make_catalog_path('qudf')
+        pxt.create_dir(target, parents=True)
+        TableModel.create_all(target)
+        pxt.get_table(f'{target}/docs').insert([{'doc_id': 1, 'title': 'alpha'}, {'doc_id': 5, 'title': 'beta'}])
+
+        # the stored column holds a query over the table Docs was created as, so it reads that table's rows
+        reload_catalog()
+        probe = pxt.get_table(f'{target}/probe')
+        probe.insert([{'cutoff': 0}, {'cutoff': 1}])
+        rows = probe.order_by(probe.cutoff).select(probe.matches).collect()['matches']
+        assert rows == [[{'title': 'alpha'}, {'title': 'beta'}], [{'title': 'beta'}]]
 
     def test_table_model_validation_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """Errors that arise from a schema mismatch between a model and an existing table."""

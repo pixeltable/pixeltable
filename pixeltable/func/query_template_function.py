@@ -10,8 +10,7 @@ from .function import Function
 from .signature import Signature
 
 if TYPE_CHECKING:
-    from pixeltable import Query
-    from pixeltable._query import QueryBase
+    from pixeltable._query_base import QueryBase
 
 
 class QueryTemplateFunction(Function):
@@ -38,7 +37,7 @@ class QueryTemplateFunction(Function):
         # invoke template_callable with parameter expressions to construct a Query with parameters
         var_exprs = [exprs.Variable(param.name, param.col_type) for param in params]
         template_query = template_callable(*var_exprs)
-        from pixeltable._query import QueryBase
+        from pixeltable._query_base import QueryBase
 
         assert isinstance(template_query, QueryBase)
         return QueryTemplateFunction(
@@ -96,6 +95,13 @@ class QueryTemplateFunction(Function):
         )
 
     @property
+    def queries_tables(self) -> bool:
+        """Whether this template queries tables, rather than a model that is not bound to one yet."""
+        from pixeltable._query import Query
+
+        return isinstance(self.template_query, Query)
+
+    @property
     def is_async(self) -> bool:
         return True
 
@@ -110,8 +116,15 @@ class QueryTemplateFunction(Function):
                 if param.has_default() and param.name not in bound_args
             }
         )
-        # a template declared over a model is bound to its table before any route serves it
-        assert isinstance(self.template_query, Query), type(self.template_query)
+        from pixeltable._query import Query
+
+        # a route binds a template declared over a model to its table before serving it; nothing else does,
+        # so a template that is still declared over a model here has no table to read
+        if not isinstance(self.template_query, Query):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Query UDF {self.name!r} is declared over a model rather than a table, so it cannot be evaluated.',
+            )
         result = await self.template_query._acollect(args=bound_args)
         if self.return_scalar:
             col_name = next(iter(self.template_query.schema))
@@ -139,11 +152,11 @@ class QueryTemplateFunction(Function):
 
     @classmethod
     def _from_dict(cls, d: dict) -> Function:
-        from pixeltable._query import Query
+        from pixeltable._query_base import QueryBase
 
         sig = Signature.from_dict(d['signature'])
         try:
-            template_query = Query.from_dict(d['df'])
+            template_query = QueryBase.from_dict(d['df'])
         except excs.NotFoundError as e:
             # template_query references a table or column that no longer exists
             return func.InvalidFunction(d['name'], d, f'the @pxt.query UDF {d["name"]!r} cannot be loaded: {e}')

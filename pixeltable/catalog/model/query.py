@@ -7,7 +7,7 @@ from typing import Any, Self
 
 import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, exprs
-from pixeltable._query import QueryBase
+from pixeltable._query_base import QueryBase
 from pixeltable.exprs import ColumnRefByName
 from pixeltable.query_clauses import FromClause
 
@@ -33,6 +33,17 @@ class ModelQuery(QueryBase):
     def for_model(cls, model_cls: TableModelMeta) -> ModelQuery:
         """A query over everything model_cls declares."""
         return cls(from_clause=FromClause(tbls=[model_cls.table_path()]))
+
+    def as_dict(self) -> dict[str, Any]:
+        """Refuses: a query over a model has no serialized form.
+
+        The shape it queries is synthesized from the model and carries no durable table identity, so a
+        serialized one could not be read back. bind() produces the query that can be stored.
+        """
+        raise excs.Error(
+            excs.ErrorCode.INTERNAL_ERROR,
+            f'A query over model `{self.model_cls.__name__}` cannot be serialized; bind it to a table first.',
+        )
 
     @property
     def _effective_select_list(self) -> list[tuple[exprs.Expr, str]]:
