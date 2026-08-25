@@ -153,6 +153,7 @@ class TestJson:
 
         assert original == reimported
 
+    @pytest.mark.skip_cloud(reason='Fails due to inaccessible .fileurl [PXT-1323]')
     def test_round_trip_media(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         """Export JSONL with media columns, re-import, and verify file URLs survive the round-trip."""
         p = make_catalog_path

@@ -137,6 +137,7 @@ class TestParquet:
         assert r1['bigint_col'] == 10 and r1['double_col'] == 10.1
         assert abs(r1['float_col'] - 1.1) < 1e-5  # float32 precision
 
+    @pytest.mark.skip_cloud(reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]')
     def test_import_parquet(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('pyarrow')

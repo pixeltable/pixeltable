@@ -16,6 +16,7 @@ from .utils import reload_catalog, rerun_on_network_error, skip_test_if_no_clien
 _logger = logging.getLogger('pixeltable_test')
 
 
+@pytest.mark.skip_cloud(reason='MCP server is not available in cloud tests')
 @rerun_on_network_error()
 class TestMcp:
     def test_mcp_server(self, make_catalog_path: Callable[[str], str], init_mcp_server: str) -> None:

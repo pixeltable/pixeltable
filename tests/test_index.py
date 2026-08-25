@@ -526,6 +526,7 @@ class TestIndex:
         with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='identical embedding index'):
             t.add_embedding_index('category', string_embed=local_embed)
 
+    @pytest.mark.skip_cloud(reason='Fails due to inaccessible .fileurl [PXT-1323]')
     def test_update_img(
         self,
         img_tbl: pxt.Table,
@@ -585,6 +586,7 @@ class TestIndex:
             img_t.batch_update([repl_row], cascade=True)
         print(img_t.select(img_t.pkey, img_t.img).collect())
 
+    @pytest.mark.skip_cloud(reason='Fails due to inaccessible .fileurl [PXT-1323]')
     def test_embedding_access(
         self, img_tbl: pxt.Table, make_catalog_path: Callable[[str], str], local_embed: pxt.Function
     ) -> None:
@@ -617,6 +619,7 @@ class TestIndex:
         img_t.drop_column('ebd_copy')
         img_t.drop_embedding_index(column=img_t.category)
 
+    @pytest.mark.skip_cloud(reason='Fails due to inaccessible .fileurl [PXT-1323]')
     def test_embedding_basic(
         self,
         img_tbl: pxt.Table,
