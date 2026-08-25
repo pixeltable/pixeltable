@@ -27,6 +27,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pixeltable_pgserver
 import sqlalchemy as sql
+import toml
 import tzlocal
 from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
 from tenacity import retry, stop_after_attempt, wait_exponential_jitter
@@ -37,7 +38,6 @@ from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter,
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import _logger as _http_server_logger, make_server
 from pixeltable.utils.object_stores import ObjectPath
-from pixeltable.utils.project import find_project_root
 from pixeltable.utils.sql import add_option_to_db_url
 
 if TYPE_CHECKING:
@@ -45,6 +45,40 @@ if TYPE_CHECKING:
     from pixeltable.catalog.path import Path as CatalogPath
 
 _logger = logging.getLogger(__name__)
+
+# the file names that mark a project root
+PROJECT_MARKER = 'pixeltable.toml'
+_PYPROJECT = 'pyproject.toml'
+
+
+def _find_project_root(start: Path) -> Path | None:
+    """Find the nearest project root at or above start. Returns None if that chain holds none.
+
+    A directory is a project root when it holds a pixeltable.toml, or a pyproject.toml that declares a
+    [tool.pixeltable] section. A directory holding both is a project root by its pixeltable.toml.
+    """
+    start = start.resolve()
+    for dir in (start, *start.parents):
+        if (dir / PROJECT_MARKER).is_file():
+            return dir
+        pyproject = dir / _PYPROJECT
+        if pyproject.is_file() and _declares_pixeltable(pyproject):
+            return dir
+    return None
+
+
+def _declares_pixeltable(pyproject: Path) -> bool:
+    """Report whether pyproject holds a [tool.pixeltable] section.
+
+    A file Pixeltable cannot parse declares nothing, and the search continues above it.
+    """
+    try:
+        parsed = toml.load(pyproject)
+    except Exception:
+        return False
+    tool = parsed.get('tool')
+    return isinstance(tool, dict) and 'pixeltable' in tool
+
 
 LOG_FMT_STR = '%(asctime)s %(levelname)s %(threadName)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
@@ -228,21 +262,9 @@ class Env:
         """The directory a module reference in an application file is resolved against, if there is one."""
         return self._project_root
 
-    def _resolve_project_root(self, config: Config) -> Path | None:
-        """The project root this instance runs against: the configured one, or the nearest marker above cwd.
-
-        A long-running process is told its root through the configuration, since its working directory says
-        nothing about the project it serves.
-        """
-        configured = config.get_string_value('project_root')
-        if configured is not None:
-            root = Path(configured).expanduser()
-            if not root.is_dir():
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_CONFIGURATION, f'project_root is not a directory: {configured}'
-                )
-            return root.resolve()
-        return find_project_root(Path.cwd())
+    def find_project_root(self, start: Path) -> Path | None:
+        """Find the project root of start, which a file below this instance's own root need not share."""
+        return _find_project_root(start)
 
     @property
     def default_time_zone(self) -> ZoneInfo | None:
@@ -352,9 +374,9 @@ class Env:
         self._tmp_dir.mkdir(exist_ok=True)
         self._services_dir.mkdir(exist_ok=True)
 
-        self._project_root = self._resolve_project_root(config)
+        self._project_root = _find_project_root(Path.cwd())
         if self._project_root is not None:
-            # appended, so a module the project holds does not take precedence over an installed one
+            # appended: an installed module takes precedence over a project module of the same name
             root_str = str(self._project_root)
             if root_str not in sys.path:
                 sys.path.append(root_str)
@@ -410,6 +432,7 @@ class Env:
         stdout_handler.setLevel(map_level(self._verbosity))
         stdout_handler.addFilter(ConsoleMessageFilter())
         pxt_logger = logging.getLogger('pixeltable')
+
         init_log_level(pxt_logger, config, 'log_level', default=logging.INFO)
         pxt_logger.propagate = False
         pxt_logger.addHandler(stdout_handler)

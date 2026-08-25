@@ -684,9 +684,7 @@ def schema_diff(schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaPl
 
     Read-only: never creates the catalog directory, and never touches an existing table.
     """
-    bases = load_model_bases(schema_file)
-    _reject_local_file_udfs(bases, catalog_dir)
-    return _schema_plan(bases, schema_file, catalog_dir)
+    return _schema_plan(load_model_bases(schema_file), schema_file, catalog_dir)
 
 
 def _schema_plan(bases: list[model.TableModelMeta], schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaPlan:
@@ -787,26 +785,6 @@ def schema_prune(schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaP
     return plan
 
 
-def _reject_local_file_udfs(bases: list[model.TableModelMeta], catalog_dir: PxtPath) -> None:
-    """
-    Check for calls of udfs defined in local files when the target is a hosted database, which is presently not
-    supported.
-    """
-    catalog_path = CatalogPath.parse(catalog_dir, allow_empty_path=True)
-    if catalog_path.is_local or catalog_path.org == 'local':
-        return
-    for base in bases:
-        for declared_model in base.declared_models():
-            for fn in declared_model.referenced_functions():
-                if fn.is_file_fn:
-                    raise excs.RequestError(
-                        excs.ErrorCode.UNSUPPORTED_OPERATION,
-                        f'{declared_model.__name__} calls {fn.display_name}(), which is defined in '
-                        f'{fn.self_file}. {catalog_dir!r} cannot read a local file; move the UDF into an '
-                        'installed package.',
-                    )
-
-
 def schema_update(
     schema_file: str, catalog_dir: PxtPath, *, allow_destructive: bool = False
 ) -> schema_types.SchemaPlan:
@@ -815,7 +793,10 @@ def schema_update(
     Returns the plan that was applied, each operation annotated with its status.
     """
     bases = load_model_bases(schema_file)
-    _reject_local_file_udfs(bases, catalog_dir)
+
+    # TODO: refuse a hosted target whose runtime does not hold the modules these udfs live in. A udf is now
+    # referred to by a module path, which a hosted runtime resolves from the project it was built from, so
+    # what has to be checked is whether that project's build context holds the module.
 
     # only create catalog_dir when it names an in-catalog path; a bare catalog root (eg '' or 'pxt://org:db')
     # has no directory to create

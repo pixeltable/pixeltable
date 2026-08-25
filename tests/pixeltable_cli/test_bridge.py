@@ -32,56 +32,73 @@ def fail_on_neg(x: int) -> int:
 
 
 class TestBridge:
-    def test_app_module_with_a_non_identifier_name(self, tmp_path: pathlib.Path) -> None:
-        """A file name that is not a module name still yields a udf that a stored reference can resolve."""
-        app_file = tmp_path / '2024 pipeline.py'
+    def test_app_module_with_a_non_identifier_name(self, project_env: pathlib.Path) -> None:
+        """A file or directory whose name is not a module name is reported, and the message names it."""
+        app_file = project_env / '2024 pipeline.py'
         app_file.write_text('import pixeltable as pxt\n\n@pxt.udf\ndef shout(s: str) -> str:\n    return s.upper()\n')
+        with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r"'2024 pipeline' is not a module name"):
+            load_app_module(str(app_file), subject='application file')
 
-        module = load_app_module(str(app_file), subject='application file')
+        (project_env / 'ad gen').mkdir()
+        nested = project_env / 'ad gen' / 'app.py'
+        nested.write_text('import pixeltable as pxt\n')
+        with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r"'ad gen' is not a module name"):
+            load_app_module(str(nested), subject='application file')
+
+        # a udf in a file that is named after the module holding it resolves from its stored reference
+        named = project_env / 'pipeline.py'
+        named.write_text('import pixeltable as pxt\n\n@pxt.udf\ndef shout(s: str) -> str:\n    return s.upper()\n')
+        module = load_app_module(str(named), subject='application file')
         assert Function.from_dict(module.shout.as_dict()) is module.shout
 
-    def test_app_module_reload(self, tmp_path: pathlib.Path) -> None:
-        """A reload rereads the application file and every module that was loaded from its directory."""
-        (tmp_path / 'pkg').mkdir()
-        (tmp_path / 'pkg' / '__init__.py').write_text('', encoding='utf-8')
-        (tmp_path / 'pkg' / 'inner.py').write_text("VALUE = 'first'\n", encoding='utf-8')
-        (tmp_path / 'helpers.py').write_text("TAG = 'first'\n", encoding='utf-8')
-        app_file = tmp_path / 'app.py'
-        # a dotted import of a module in a neighboring package, which the standard machinery resolves
+    def test_app_module_without_a_project_root(self, tmp_path: pathlib.Path) -> None:
+        """A file with no project root above it cannot be imported; the message says what to create."""
+        app_file = tmp_path / 'rootless_app.py'
+        app_file.write_text('import pixeltable as pxt\n', encoding='utf-8')
+        with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r'the file belongs to none') as exc_info:
+            load_app_module(str(app_file), subject='application file')
+        message = exc_info.value.message
+        assert 'pixeltable.toml' in message
+        assert '[tool.pixeltable]' in message
+        assert 'pxt init' in message
+        assert 'daemon restart' in message
+
+    def test_app_module_imports_its_neighbors(self, project_env: pathlib.Path) -> None:
+        """An application file imports the modules of its project by name, in every spelling."""
+        (project_env / 'pkg').mkdir()
+        (project_env / 'pkg' / 'inner.py').write_text("VALUE = 'first'\n", encoding='utf-8')
+        (project_env / 'helpers.py').write_text("TAG = 'first'\n", encoding='utf-8')
+        app_file = project_env / 'neighbors_app.py'
         app_file.write_text('import helpers\nfrom pkg.inner import VALUE\nfrom pkg import inner\n', encoding='utf-8')
 
         module = load_app_module(str(app_file), subject='application file')
         assert (module.helpers.TAG, module.VALUE) == ('first', 'first')
         # 'from pkg import inner' names a module of the package, which the import statement gets as an attribute
         assert module.inner.VALUE == 'first'
-
-        (tmp_path / 'helpers.py').write_text("TAG = 'second'\n", encoding='utf-8')
-        (tmp_path / 'pkg' / 'inner.py').write_text("VALUE = 'second'\n", encoding='utf-8')
         assert load_app_module(str(app_file), subject='application file') is module
-        reloaded = load_app_module(str(app_file), subject='application file', reload=True)
-        # the neighbor module and the submodule of the neighboring package are both reread
-        assert (reloaded.helpers.TAG, reloaded.VALUE) == ('second', 'second')
 
-    def test_app_module_loading(self, tmp_path: pathlib.Path) -> None:
-        """Loading an application file twice yields one module, and leaves this process's imports alone."""
-        app_file = tmp_path / 'app.py'
+    def test_app_module_loading(self, project_env: pathlib.Path) -> None:
+        """Loading an application file twice yields one module, imported by the name its project gives it."""
+        (project_env / 'ad_gen').mkdir()
+        app_file = project_env / 'ad_gen' / 'app.py'
         app_file.write_text("import pixeltable as pxt\n\nVALUE = 'loaded'\n", encoding='utf-8')
 
         module = load_app_module(str(app_file), subject='application file')
         assert module.VALUE == 'loaded'
         assert load_app_module(str(app_file), subject='application file') is module
-        # the file is reachable under the name it was loaded with, and under no name a user chose
-        assert 'app' not in sys.modules
-        assert not any(str(tmp_path) in entry for entry in sys.path)
+        # the directory holding it is a package of the project, and the project root is what imports resolve from
+        assert module.__name__ == 'ad_gen.app'
+        assert sys.modules['ad_gen.app'] is module
+        assert str(project_env) in sys.path
 
-    def test_app_module_cannot_modify_the_catalog(self, uses_db: None, tmp_path: pathlib.Path) -> None:
-        """An application file declares tables, so a mutation while it loads is refused and a read is not."""
+    def test_app_module_cannot_modify_the_catalog(self, uses_db: None, project_env: pathlib.Path) -> None:
+        """A mutation while an application file loads is refused; a read goes through."""
         t = pxt.create_table('frozen', {'c': pxt.Int})
         t.insert([{'c': 1}])
         refused = r'this application file modifies the catalog while it is imported'
 
         # DDL
-        ddl_file = tmp_path / 'ddl.py'
+        ddl_file = project_env / 'ddl.py'
         ddl_file.write_text(
             dedent(
                 """
@@ -97,7 +114,7 @@ class TestBridge:
         assert 'made_by_import' not in pxt.list_tables()
 
         # DML
-        dml_file = tmp_path / 'dml.py'
+        dml_file = project_env / 'dml.py'
         dml_file.write_text(
             dedent(
                 """
@@ -113,7 +130,7 @@ class TestBridge:
         assert t.count() == 1
 
         # reading the catalog while loading is allowed
-        read_file = tmp_path / 'read.py'
+        read_file = project_env / 'read.py'
         read_file.write_text(
             dedent(
                 """
@@ -490,7 +507,7 @@ class TestBridge:
         assert 'error' not in view_node
         assert view_node['is_view'] is True
 
-    def test_schema_update_destructive_refusal(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_schema_update_destructive_refusal(self, uses_db: None, project_env: pathlib.Path) -> None:
         schema_src = dedent(
             """
             from __future__ import annotations
@@ -505,14 +522,18 @@ class TestBridge:
                 body: pxt.String
             """
         )
-        schema_file = tmp_path / 'app_schema.py'
+        schema_file = project_env / 'refusal_schema.py'
         schema_file.write_text(schema_src)
         target = PxtPath('refusal')
         bridge.schema_update(str(schema_file), target)
 
+        # the edited schema goes into a module of its own: a process reads a file once, and picks up an edit
+        # by starting again
+        dropped_file = project_env / 'refusal_schema_v2.py'
+        dropped_file.write_text(schema_src.replace('    body: pxt.String\n', ''))
+
         # dropping a column destroys its data; the refusal tells a CLI user about the flag, not about update_all()
-        schema_file.write_text(schema_src.replace('    body: pxt.String\n', ''))
         with pxt_raises(excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE, match='--allow-destructive') as info:
-            bridge.schema_update(str(schema_file), target)
+            bridge.schema_update(str(dropped_file), target)
         assert 'update_all()' not in info.value.message
         assert 'body' in pxt.get_table('refusal/docs').columns()

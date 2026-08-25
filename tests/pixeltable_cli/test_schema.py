@@ -62,11 +62,11 @@ class TestSchema:
         cli: PxtRunner,
         apps: Callable[[str], str],
         make_catalog_path: Callable[[str], str],
-        tmp_path: pathlib.Path,
+        project_dir: pathlib.Path,
     ) -> None:
         """The first application of a file: create, use what it created, rerun, and hit a conflict."""
         p = make_catalog_path
-        schema_file = tmp_path / 'app.py'
+        schema_file = project_dir / 'app.py'
         schema_file.write_text(pathlib.Path(apps('basic.py')).read_text(encoding='utf-8'), encoding='utf-8')
         target = p('app')
 
@@ -192,9 +192,9 @@ class TestSchema:
         assert r.returncode == 0
         assert 'catalog is up to date' in r.stdout
 
-    def test_diff(self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_diff(self, cli: PxtRunner, make_catalog_path: Callable[[str], str], project_dir: pathlib.Path) -> None:
         p = make_catalog_path
-        schema_file = tmp_path / 'app_schema.py'
+        schema_file = project_dir / 'app_schema.py'
         schema_file.write_text(SCHEMA_SRC)
         target = p('app')
 
@@ -233,9 +233,11 @@ class TestSchema:
         assert f'= {target}/docs' in r.stdout
         assert 'Plan: 0 create, 0 update, 2 unchanged, 0 extra  |  0 destructive' in r.stdout
 
-    def test_diff_drift(self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_diff_drift(
+        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], project_dir: pathlib.Path
+    ) -> None:
         p = make_catalog_path
-        schema_file = tmp_path / 'app_schema.py'
+        schema_file = project_dir / 'app_schema.py'
         schema_file.write_text(SCHEMA_SRC)
         target = p('drift')
         cli('schema', 'update', str(schema_file), target)
@@ -324,11 +326,11 @@ class TestSchema:
         assert_in_agreement(cli, apps('basic_added_route.py'), target)
 
     def test_extras_and_prune(
-        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], project_dir: pathlib.Path
     ) -> None:
         """A table the file does not declare: reported as an extra, left alone by update, dropped by prune."""
         p = make_catalog_path
-        schema_file = tmp_path / 'app_schema.py'
+        schema_file = project_dir / 'app_schema.py'
         schema_file.write_text(SCHEMA_SRC)
         target = p('prune')
         cli('schema', 'update', str(schema_file), target)
@@ -385,7 +387,7 @@ class TestSchema:
         assert_in_agreement(cli, str(schema_file), target)
 
     def test_prune_keeps_tables_with_declared_dependents(
-        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], project_dir: pathlib.Path
     ) -> None:
         p = make_catalog_path
         target = p('keep')
@@ -394,7 +396,7 @@ class TestSchema:
         pxt.create_dir(target)
         raw = pxt.create_table(f'{target}/raw', {'id': pxt.Int | None})
         pxt.create_view(f'{target}/derived', raw.where(raw.id > 0))
-        schema_file = tmp_path / 'app_schema.py'
+        schema_file = project_dir / 'app_schema.py'
         schema_file.write_text(
             dedent(
                 """
@@ -417,7 +419,7 @@ class TestSchema:
         assert pxt.get_table(f'{target}/raw') is not None
 
     def test_prune_reports_tables_dropped_before_the_failure(
-        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], project_dir: pathlib.Path
     ) -> None:
         p = make_catalog_path
         target = p('partial')
@@ -427,7 +429,7 @@ class TestSchema:
         pxt.create_table(f'{target}/gone', {'id': pxt.Int | None})
         raw = pxt.create_table(f'{target}/raw', {'id': pxt.Int | None})
         pxt.create_view(f'{target}/derived', raw.where(raw.id > 0))
-        schema_file = tmp_path / 'app_schema.py'
+        schema_file = project_dir / 'app_schema.py'
         schema_file.write_text(
             dedent(
                 """
@@ -452,13 +454,13 @@ class TestSchema:
         assert pxt.get_table(f'{target}/raw') is not None
         assert f'{target}/gone' not in pxt.list_tables(target)
 
-    def test_example(self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_example(self, cli: PxtRunner, make_catalog_path: Callable[[str], str], project_dir: pathlib.Path) -> None:
         skip_test_if_not_installed('sentence_transformers')
         p = make_catalog_path
         target = p('documented')
 
         # the file the command emits has to be one that actually works
-        schema_file = tmp_path / 'example.py'
+        schema_file = project_dir / 'example.py'
         schema_file.write_text(cli('schema', 'example', '--brief').stdout)
 
         r = cli('schema', 'update', str(schema_file), target)
@@ -470,7 +472,7 @@ class TestSchema:
         assert_in_agreement(cli, str(schema_file), target)
 
         # --out writes the same bytes to a file, for either form
-        out_file = tmp_path / 'out.py'
+        out_file = project_dir / 'out.py'
         r = cli('schema', 'example', '--brief', '--out', str(out_file))
         assert f'wrote {out_file}' in r.stdout
         assert out_file.read_text() == schema_file.read_text()
@@ -514,10 +516,10 @@ class TestSchema:
             assert "'pxt schema example'" in cli('schema', verb, '--help').stdout
 
     def test_diff_unsupported(
-        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], project_dir: pathlib.Path
     ) -> None:
         p = make_catalog_path
-        schema_file = tmp_path / 'app_schema.py'
+        schema_file = project_dir / 'app_schema.py'
         schema_file.write_text(SCHEMA_SRC)
         target = p('unsupported')
         cli('schema', 'update', str(schema_file), target)
@@ -551,7 +553,11 @@ class TestSchema:
         assert r.json['summary']['unsupported'] == 1
 
     def test_udfs_in_application_files(
-        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, tmp_path: pathlib.Path
+        self,
+        cli: PxtRunner,
+        make_catalog_path: Callable[[str], str],
+        catalog_mode: CatalogMode,
+        project_dir: pathlib.Path,
     ) -> None:
         """Computed columns over udfs the application file and its neighbors define."""
         if catalog_mode == 'cloud':
@@ -560,7 +566,7 @@ class TestSchema:
 
         def write_project(name: str) -> pathlib.Path:
             """An application file with computed columns over udfs from a sibling module and a package."""
-            directory = tmp_path / name
+            directory = project_dir / name
             (directory / 'pkg').mkdir(parents=True)
             (directory / 'pkg' / '__init__.py').write_text(f"SUFFIX = '{name}-pkg'\n")
             (directory / 'pkg' / 'inner.py').write_text(
@@ -626,8 +632,8 @@ class TestSchema:
             assert docs.select(docs.tagged, docs.shouted).collect()[0] == {'tagged': expected, 'shouted': 'A'}
 
         # a column stores which file and udf it calls, not the udf's body, so editing the body changes no schema
-        (tmp_path / 'proj1' / 'helpers.py').write_text("TAG = 'edited'\n")
-        assert_in_agreement(cli, str(tmp_path / 'proj1' / 'app.py'), p('proj1'))
+        (project_dir / 'proj1' / 'helpers.py').write_text("TAG = 'edited'\n")
+        assert_in_agreement(cli, str(project_dir / 'proj1' / 'app.py'), p('proj1'))
 
     @pytest.mark.local('the column is resolved in this process, so the report of a missing file lands here')
     def test_moved_application_file(
@@ -635,18 +641,18 @@ class TestSchema:
         cli: PxtRunner,
         apps: Callable[[str], str],
         make_catalog_path: Callable[[str], str],
-        tmp_path: pathlib.Path,
+        project_dir: pathlib.Path,
     ) -> None:
         """A table whose computed column calls a udf from a file that is gone can be read, but not written."""
         target = make_catalog_path('app')
-        schema_file = tmp_path / 'app.py'
+        schema_file = project_dir / 'app.py'
         schema_file.write_text(pathlib.Path(apps('basic.py')).read_text(encoding='utf-8'), encoding='utf-8')
         cli('schema', 'update', str(schema_file), target)
 
         docs = pxt.get_table(f'{target}/docs')
         docs.insert([{'doc_id': 1, 'title': 'hello', 'body': 'world', 'published': True}])
 
-        schema_file.rename(tmp_path / 'moved.py')
+        schema_file.rename(project_dir / 'moved.py')
         reload_catalog()
         with pytest.warns(pxt.PixeltableWarning, match='which no longer exists'):
             docs = pxt.get_table(f'{target}/docs')
@@ -660,10 +666,10 @@ class TestSchema:
         cli: PxtRunner,
         apps: Callable[[str], str],
         make_catalog_path: Callable[[str], str],
-        tmp_path: pathlib.Path,
+        project_dir: pathlib.Path,
     ) -> None:
         p = make_catalog_path
-        schema_file = tmp_path / 'app_schema.py'
+        schema_file = project_dir / 'app_schema.py'
         schema_file.write_text(SCHEMA_SRC)
 
         # unknown verb
@@ -677,87 +683,49 @@ class TestSchema:
         assert 'unrecognized arguments' in r.stderr
 
         # missing schema file
-        r = cli('schema', 'update', str(tmp_path / 'nonexistent.py'), p('app'), check=False)
+        r = cli('schema', 'update', str(project_dir / 'nonexistent.py'), p('app'), check=False)
         assert r.returncode == 1
         assert 'not found' in r.stderr
 
         # schema file without a model base
-        no_base = tmp_path / 'no_base.py'
+        no_base = project_dir / 'no_base.py'
         no_base.write_text('import pixeltable as pxt\n')
         r = cli('schema', 'update', str(no_base), p('app'), check=False)
         assert r.returncode == 1
         assert 'no model_base()' in r.stderr
 
         # schema file that fails to load
-        broken = tmp_path / 'broken.py'
+        broken = project_dir / 'broken.py'
         broken.write_text('raise RuntimeError("boom")\n')
         r = cli('schema', 'update', str(broken), p('app'), check=False)
         assert r.returncode == 1
         assert 'error loading' in r.stderr
 
-        # a schema file's imports resolve against installed modules and its own directory, and nothing above it
-        above = tmp_path / 'above.py'
+        # a schema file sits at the top of its project, so an import above it names no package
+        above = project_dir / 'above.py'
         above.write_text('from .. import something\n')
         r = cli('schema', 'update', str(above), p('app'), check=False)
         assert r.returncode == 1
-        assert 'an import above the directory of a loaded file' in r.stderr
-
-        # a udf defined in a schema file cannot back a hosted database, which cannot read that file: the
-        # refusal covers every declaration that persists a function, not only a computed column
-        for declaration in (
-            'summary = excerpt(title)',
-            "__indexes__ = [pxt.EmbeddingIndex(title, embedding=embed, name='title_idx')]",
-        ):
-            with_udf = tmp_path / 'with_udf.py'
-            with_udf.write_text(
-                dedent(
-                    f"""
-                    from __future__ import annotations
-
-                    import pixeltable as pxt
-
-                    TableModel = pxt.model_base()
-
-                    @pxt.udf
-                    def excerpt(text: str, n: int = 12) -> str:
-                        return text if len(text) <= n else f'{{text[:n]}}...'
-
-                    @pxt.udf
-                    def embed(text: str) -> pxt.Array[(4,), pxt.Float]:
-                        import numpy as np
-
-                        return np.zeros(4, dtype=np.float32)
-
-                    class Docs(TableModel, name='docs'):
-                        doc_id = pxt.Column(type=pxt.Int, primary_key=True)
-                        title: pxt.String
-                        {declaration}
-                    """
-                ),
-                encoding='utf-8',
-            )
-            r = cli('schema', 'update', str(with_udf), 'pxt://someorg:somedb/app', check=False)
-            assert r.returncode == 1, declaration
-            assert 'cannot read a local file' in r.stderr, declaration
+        assert 'attempted relative import with no known parent package' in r.stderr
 
     def test_update_relative_path(
-        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], project_dir: pathlib.Path
     ) -> None:
         p = make_catalog_path
-        (tmp_path / 'app_schema.py').write_text(SCHEMA_SRC)
+        (project_dir / 'app_schema.py').write_text(SCHEMA_SRC)
         target = p('rel_app')
 
         # a relative schema path is resolved against the client's cwd, so run the command from that directory
-        r = cli('schema', 'update', 'app_schema.py', target, cwd=tmp_path)
+        r = cli('schema', 'update', 'app_schema.py', target, cwd=project_dir)
         assert r.stdout.count('created') == 2
         assert pxt.get_table(f'{target}/docs') is not None
 
     def test_update_unbound_config_var(
-        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], project_dir: pathlib.Path
     ) -> None:
         """A schema referencing a value the target has not bound fails before any table is created."""
         p = make_catalog_path
-        schema_file = tmp_path / 'app_schema.py'
+        schema_file = project_dir / 'app_schema.py'
         schema_file.write_text(
             dedent(
                 """

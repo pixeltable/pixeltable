@@ -434,22 +434,22 @@ class TestService:
         cli: PxtRunner,
         apps: Callable[[str], str],
         make_catalog_path: Callable[[str], str],
-        tmp_path: pathlib.Path,
+        project_dir: pathlib.Path,
     ) -> None:
         """What the verbs do with a file that is missing, unimportable, or declares no service."""
         target = make_catalog_path('app')
 
-        r = cli('service', 'diff', str(tmp_path / 'nosuch.py'), target, check=False)
+        r = cli('service', 'diff', str(project_dir / 'nosuch.py'), target, check=False)
         assert r.returncode == 1
         assert 'not found' in r.stderr
 
-        broken = tmp_path / 'broken.py'
+        broken = project_dir / 'broken.py'
         broken.write_text('import pixeltable as pxt\n\nthis is not python\n', encoding='utf-8')
         r = cli('service', 'diff', str(broken), target, check=False)
         assert r.returncode == 1
         assert 'error loading' in r.stderr
 
-        empty = tmp_path / 'empty.py'
+        empty = project_dir / 'empty.py'
         empty.write_text('x = 1\n', encoding='utf-8')
         r = cli('service', 'diff', str(empty), target, check=False)
         assert r.returncode == 1
@@ -468,11 +468,11 @@ class TestService:
         assert r.returncode != 0
         assert 'binds its models to the local catalog' in r.stderr, r.stderr
 
-    def test_example(self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_example(self, cli: PxtRunner, make_catalog_path: Callable[[str], str], project_dir: pathlib.Path) -> None:
         """The file `example` writes declares both the tables and the services, and serves."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
-        app_file = tmp_path / 'app.py'
+        app_file = project_dir / 'app.py'
         cli('service', 'example', '--out', str(app_file))
         target = make_catalog_path('example')
 

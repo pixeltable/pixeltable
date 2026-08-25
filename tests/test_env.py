@@ -10,10 +10,9 @@ import pytest
 import pixeltable as pxt
 from pixeltable import env, exceptions as excs
 from pixeltable.config import Config
-from pixeltable.env import Env
+from pixeltable.env import Env, _find_project_root
 from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.project import find_project_root
 
 from .utils import pxt_raises, skip_test_if_not_local
 
@@ -306,52 +305,50 @@ class TestProjectRoot:
         nested.mkdir(parents=True)
 
         # nothing above the directory marks a project
-        assert find_project_root(nested) is None
+        assert _find_project_root(nested) is None
 
         # a pyproject.toml that says nothing about Pixeltable is not a marker
         (tmp_path / 'proj' / 'pyproject.toml').write_text('[project]\nname = "proj"\n', encoding='utf-8')
-        assert find_project_root(nested) is None
+        assert _find_project_root(nested) is None
 
         # one that declares [tool.pixeltable] is
         (tmp_path / 'proj' / 'pyproject.toml').write_text(
             '[project]\nname = "proj"\n\n[tool.pixeltable]\n', encoding='utf-8'
         )
-        assert find_project_root(nested) == tmp_path / 'proj'
-        assert find_project_root(tmp_path / 'proj') == tmp_path / 'proj'
+        assert _find_project_root(nested) == tmp_path / 'proj'
+        assert _find_project_root(tmp_path / 'proj') == tmp_path / 'proj'
 
         # a marker closer to the directory wins
         (tmp_path / 'proj' / 'ad_gen' / 'pixeltable.toml').write_text('', encoding='utf-8')
-        assert find_project_root(nested) == tmp_path / 'proj' / 'ad_gen'
+        assert _find_project_root(nested) == tmp_path / 'proj' / 'ad_gen'
 
         # a directory holding both is a project root by its pixeltable.toml, which needs no section
         (tmp_path / 'proj' / 'ad_gen' / 'pyproject.toml').write_text('[project]\nname = "x"\n', encoding='utf-8')
-        assert find_project_root(nested) == tmp_path / 'proj' / 'ad_gen'
+        assert _find_project_root(nested) == tmp_path / 'proj' / 'ad_gen'
 
         # an unparseable pyproject.toml marks nothing, rather than making the directory unusable
         (tmp_path / 'unparseable').mkdir()
         (tmp_path / 'unparseable' / 'pyproject.toml').write_text('[tool.pixeltable\n', encoding='utf-8')
-        assert find_project_root(tmp_path / 'unparseable') is None
+        assert _find_project_root(tmp_path / 'unparseable') is None
 
     def test_env_resolves_the_root(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Env resolves the root from the configuration and puts it on sys.path, behind what is installed."""
+        """Env resolves the root of the directory it starts in, and appends it to sys.path."""
         root = tmp_path / 'proj'
-        root.mkdir()
+        (root / 'ad_gen').mkdir(parents=True)
         (root / 'pixeltable.toml').write_text('', encoding='utf-8')
         # a copy, so that what Env appends is undone when the test ends
         monkeypatch.setattr(sys, 'path', list(sys.path))
-        monkeypatch.setenv('PIXELTABLE_PROJECT_ROOT', str(root))
 
-        _reset_env(reinit=False, db_name=None)
-        assert Env.get().project_root == root
-        assert sys.path[-1] == str(root)
-
-        # a root that is not a directory is reported, rather than silently ignored
-        monkeypatch.setenv('PIXELTABLE_PROJECT_ROOT', str(tmp_path / 'no_such_dir'))
-        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='project_root is not a directory'):
-            _reset_env(reinit=False, db_name=None)
-
-        # with none configured, the working directory decides
-        monkeypatch.delenv('PIXELTABLE_PROJECT_ROOT')
-        monkeypatch.chdir(root)
+        monkeypatch.chdir(root / 'ad_gen')
         _reset_env(reinit=False, db_name=None)
         assert Env.get().project_root == root.resolve()
+        assert sys.path[-1] == str(root.resolve())
+
+        # a directory that belongs to no project leaves sys.path alone
+        unmarked = tmp_path / 'elsewhere'
+        unmarked.mkdir()
+        monkeypatch.chdir(unmarked)
+        entries = list(sys.path)
+        _reset_env(reinit=False, db_name=None)
+        assert Env.get().project_root is None
+        assert sys.path == entries

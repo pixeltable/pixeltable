@@ -646,7 +646,6 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         'daemon_host': 'Listen address for the proxy daemon in fixed-address mode (e.g. 0.0.0.0)',
         'daemon_port': ('Listen port for the proxy daemon in fixed-address mode (e.g. 8000)', int),
         'db_uri': 'Base pxt:// URI for remote catalog access (e.g. pxt://myorg:mydb)',
-        'project_root': 'Directory that module references in application files resolve against',
     },
     'anthropic': {'api_key': 'Anthropic API key'},
     'azure': {'storage_account_name': 'Azure storage account name', 'storage_account_key': 'Azure storage account key'},

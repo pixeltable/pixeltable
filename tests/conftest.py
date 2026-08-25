@@ -128,6 +128,31 @@ def _worker_db_name(worker_id: int | str) -> str:
     return f'test_{worker_id}'
 
 
+@pytest.fixture
+def project_dir(tmp_path: pathlib.Path) -> pathlib.Path:
+    """A directory that is a project root, for a test that writes an application or schema file into it.
+
+    A file is imported under a module path relative to its project root, so it has to sit under one.
+    """
+    (tmp_path / 'pixeltable.toml').write_text('', encoding='utf-8')
+    return tmp_path
+
+
+@pytest.fixture
+def project_env(project_dir: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> pathlib.Path:
+    """A project root that this process serves, for a test that loads an application file in process.
+
+    Env resolves one project root when it starts and holds it for the life of the process, so a test that
+    needs a different one sets the resolved value rather than starting over: reinitializing Env would also
+    rebuild the file cache and the catalog that other tests in the session depend on.
+    """
+    from pixeltable.env import Env
+
+    monkeypatch.setattr(sys, 'path', [*sys.path, str(project_dir)])
+    monkeypatch.setattr(Env.get(), '_project_root', project_dir)
+    return project_dir
+
+
 @pytest.fixture(scope='session')
 def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:  # type: ignore[misc]
     os.chdir(os.path.dirname(os.path.dirname(__file__)))  # Project root directory
