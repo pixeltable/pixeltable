@@ -105,6 +105,14 @@ def create_table_version_md(
     # this one
     from .table_version_handle import TableVersionHandle
 
+    for col in cols:
+        if col.is_pk and col.col_type.nullable:
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'Primary key column {col.name!r} cannot be nullable. '
+                f'Declare it as non-nullable instead: `pxt.{col.col_type._to_base_str()}`',
+            )
+
     user = Env.get().user
     timestamp = time.time()
 
@@ -151,6 +159,9 @@ def create_table_version_md(
     index_md: dict[int, schema.IndexMd] = {}
     idxs_to_create: list[IndexSpec] = []
     if has_default_idxs and (view_md is None or not view_md.is_snapshot):
+        # TODO: on an operational table, the default B-tree on the leading primary key column adds a cost in exchange
+        # for no benefit at all. We should be able to skip the default index on that one column (but none of
+        # the others).
         idxs_to_create.extend(
             IndexSpec(col, None, index.BtreeIndex(uses_value_col=is_data_versioned))
             for col in cols

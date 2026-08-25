@@ -9,8 +9,10 @@ from .utils import pxt_raises, reload_catalog, validate_update_status
 
 class TestAlterColumn:
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_alter_column(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
-        t = pxt.create_table(make_catalog_path('test_tbl'), {'c1': pxt.String})
+    def test_alter_column(
+        self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool, is_data_versioned: bool
+    ) -> None:
+        t = pxt.create_table(make_catalog_path('test_tbl'), {'c1': pxt.String}, _is_data_versioned=is_data_versioned)
         validate_update_status(t.insert(c1='a'), 1)
 
         # before type widening, inserting a null into the non-nullable column is rejected
@@ -25,22 +27,24 @@ class TestAlterColumn:
         res = t.select(t.c1).order_by(t.c1).collect()
         assert res['c1'] == ['a', None]
 
-        # revert restores the non-nullable type
-        t.revert()
-        t.revert()
-        reload_catalog(do_reload_catalog)
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='expected non-None'):
-            t.insert(c1=None)
+        if is_data_versioned:
+            t.revert()
+            t.revert()
+            reload_catalog(do_reload_catalog)
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='expected non-None'):
+                t.insert(c1=None)
 
-    def test_alter_column_via_reference(self, make_catalog_path: Callable[[str], str]) -> None:
-        t = pxt.create_table(make_catalog_path('test_tbl'), {'c1': pxt.Float})
+    def test_alter_column_via_reference(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
+        t = pxt.create_table(make_catalog_path('test_tbl'), {'c1': pxt.Float}, _is_data_versioned=is_data_versioned)
         t.add_column(c2=pxt.Float)
         t.alter_column(t.c1, type_=pxt.Float | None)
         t.alter_column(t.c2, type_=pxt.Float | None)
         validate_update_status(t.insert(c1=None, c2=None), 1)
 
-    def test_alter_column_same_type(self, make_catalog_path: Callable[[str], str]) -> None:
-        t = pxt.create_table(make_catalog_path('test_tbl'), {'c1': pxt.Int | None})
+    def test_alter_column_same_type(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
+        t = pxt.create_table(
+            make_catalog_path('test_tbl'), {'c1': pxt.Int | None}, _is_data_versioned=is_data_versioned
+        )
         vers_before = len(t.get_versions())
         # alter c1, new type is the same as old type
         t.alter_column('c1', type_=pxt.Int | None)
@@ -48,8 +52,10 @@ class TestAlterColumn:
         assert vers_before == vers_after
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_alter_column_history(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
-        t = pxt.create_table(make_catalog_path('test_tbl'), {'c1': pxt.String})
+    def test_alter_column_history(
+        self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool, is_data_versioned: bool
+    ) -> None:
+        t = pxt.create_table(make_catalog_path('test_tbl'), {'c1': pxt.String}, _is_data_versioned=is_data_versioned)
         t.alter_column('c1', type_=pxt.String | None)
         reload_catalog(do_reload_catalog)
 

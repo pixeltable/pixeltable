@@ -18,11 +18,13 @@ from tests.utils import pxt_raises
 class TestCatalog:
     """Tests for miscellanous catalog functions."""
 
-    def test_json_reserved_key(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_json_reserved_key(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         # JSON cell values are user data and may contain a key that collides with the proxy protocol's reserved
         # tag; inserting and reading such values back must round-trip rather than be rejected.
         p = make_catalog_path
-        t = pxt.create_table(p('json_tbl'), {'id': pxt.Int | None, 'data': pxt.Json | None})
+        t = pxt.create_table(
+            p('json_tbl'), {'id': pxt.Int | None, 'data': pxt.Json | None}, _is_data_versioned=is_data_versioned
+        )
         rows = [
             {'id': 0, 'data': {'$pxt': 1}},  # collides at the top level
             {'id': 1, 'data': {'a': {'$pxt': [1, 2]}, 'b': 3}},  # collides while nested
@@ -215,9 +217,9 @@ class TestCatalog:
         assert t.count() == 2
 
     @pytest.mark.local('fault-injection/concurrency test against the in-process catalog internals')
-    def test_concurrent_add_column_insert(self, uses_db: None, fault_injection: None) -> None:
+    def test_concurrent_add_column_insert(self, uses_db: None, fault_injection: None, is_data_versioned: bool) -> None:
         """Concurrent insert while add_column is blocked mid-finalize"""
-        t = pxt.create_table('test', {'a': pxt.Int | None})
+        t = pxt.create_table('test', {'a': pxt.Int | None}, _is_data_versioned=is_data_versioned)
         fault = BlockFault()
 
         (
