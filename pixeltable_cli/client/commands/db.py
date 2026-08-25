@@ -233,7 +233,7 @@ def _update_runtime(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     show_progress = not args.json_output
-    bundle_path = build_db_runtime_bundle(project_dir, show_progress=show_progress)
+    bundle_path = build_db_runtime_bundle(project_dir, show_progress=show_progress, db_name=f'pxt://{org}:{db}')
 
     try:
         url_resp = get_request('/api/db/upload-url', {'org': org, 'db': db})

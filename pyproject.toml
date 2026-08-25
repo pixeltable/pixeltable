@@ -290,7 +290,7 @@ strict_optional = false
 warn_return_any = true
 warn_unused_ignores = true
 
-[tool.pixeltable.database]
+[[tool.pixeltable.database]]
 # we need the repo for the uv-dynamic-versioning install, and pixeltable/_version.py in order for the
 # package to function. Both are ignored by default
 include = ['.git/**', 'pixeltable/_version.py']

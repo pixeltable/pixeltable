@@ -6,7 +6,7 @@ from collections.abc import Callable
 # Single source of truth for both the top-level help message and shell-mode dispatch.
 # Each key names a module under pixeltable_cli.client.commands.* exposing run(argv: list[str]) -> None.
 COMMANDS: dict[str, str] = {
-    'init': 'mark the current directory as a project root',
+    'init': 'write the project configuration here, making this the project root',
     'health': 'show daemon info',
     'cd': 'set or clear the working directory prepended to relative paths',
     'pwd': 'print the working directory',

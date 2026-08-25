@@ -128,10 +128,11 @@ Schema file:
   Each model becomes one table under TARGET, named by name=.
 
 Project:
-  The file has to sit under a project root: a directory holding a pixeltable.toml, or a
-  pyproject.toml with a [tool.pixeltable] section. 'pxt init' establishes one. A udf is recorded
-  as a module path relative to that root, which is how a later process resolves it, so a file
-  outside a project is refused."""
+  SCHEMA has to sit under a project root: the directory holding the project configuration, which
+  is a pixeltable.toml or a pyproject.toml with a [tool.pixeltable] section. 'pxt init' writes one.
+  Every local module path is relative to that root, so a udf this file defines is recorded as
+  <path from the root>.<name> -- which is how a later process finds it again. A file under no
+  project root is refused."""
 
 DIFF_EPILOG = f"""\
 Examples:

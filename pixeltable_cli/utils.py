@@ -136,21 +136,22 @@ def resolve_dot_segments(path: str) -> str:
     return prefix if resolved == '' else f'{prefix}/{resolved}'
 
 
-PROJECT_MARKER = 'pixeltable.toml'
+PROJECT_CONFIG_FILE = 'pixeltable.toml'
 _PYPROJECT = 'pyproject.toml'
 
 
 def find_project_root(start: Path) -> Path | None:
     """Find the nearest project root at or above start. Returns None if that chain holds none.
 
-    A directory is a project root when it holds a pixeltable.toml, or a pyproject.toml that declares a
-    [tool.pixeltable] section. A directory holding both is a project root by its pixeltable.toml.
+    A directory is a project root when it holds the project configuration: a pixeltable.toml, or a
+    pyproject.toml with a [tool.pixeltable] section. A directory holding both is configured by its
+    pixeltable.toml.
 
     Mirrors pixeltable.env, which cannot be imported here: the client runs without importing pixeltable.
     """
     start = start.resolve()
     for dir in (start, *start.parents):
-        if (dir / PROJECT_MARKER).is_file():
+        if (dir / PROJECT_CONFIG_FILE).is_file():
             return dir
         pyproject = dir / _PYPROJECT
         if pyproject.is_file() and _declares_pixeltable(pyproject):

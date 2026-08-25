@@ -1,59 +1,71 @@
 """Tests for 'pxt init'."""
 
 import pathlib
+import tomllib
 
 import pytest
 
 from .conftest import PxtRunner
 
-pytestmark = pytest.mark.local('marks a directory on the filesystem, independent of any catalog')
+pytestmark = pytest.mark.local('writes a file on the filesystem, independent of any catalog')
 
 
 class TestInit:
-    def test_marks_a_directory(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
-        """A fresh directory gets a pixeltable.toml, and marking it again reports what is already there."""
+    def test_writes_the_project_configuration(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
+        """A fresh directory gets a pixeltable.toml, and running it again reports what is already there."""
         r = cli('init', cwd=tmp_path)
         assert f'project root: {tmp_path}' in r.stdout
         assert 'wrote pixeltable.toml' in r.stdout
-        assert (tmp_path / 'pixeltable.toml').is_file()
+
+        # what it wrote is the local database, and nothing else
+        written = tomllib.loads((tmp_path / 'pixeltable.toml').read_text())
+        assert written == {'pixeltable': {'database': [{}]}}, written
 
         r = cli('init', cwd=tmp_path)
         assert r.returncode == 0
-        assert 'already marked by pixeltable.toml' in r.stdout
+        assert 'already configured by pixeltable.toml' in r.stdout
 
         r = cli('init', '--json', cwd=tmp_path)
         assert r.json == {
             'project_root': str(tmp_path),
-            'marker': str(tmp_path / 'pixeltable.toml'),
+            'config_file': str(tmp_path / 'pixeltable.toml'),
             'created': False,
             'unusable_dirs': [],
         }
 
-    def test_pyproject_gets_a_section(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
-        """A directory that already has a pyproject.toml is marked in it, rather than beside it."""
+    def test_the_written_configuration_binds_a_var(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
+        """The commented binding in the file it writes is the form that actually binds a var."""
+        cli('init', cwd=tmp_path)
+        config_file = tmp_path / 'pixeltable.toml'
+        text = config_file.read_text()
+        assert "# vars.media_dest = 's3://bucket/prefix'" in text
+        config_file.write_text(text.replace('# vars.media_dest', 'vars.media_dest'))
+        entries = tomllib.loads(config_file.read_text())['pixeltable']['database']
+        assert entries == [{'vars': {'media_dest': 's3://bucket/prefix'}}], entries
+
+    def test_pyproject_gets_the_configuration(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
+        """A directory that already has a pyproject.toml is configured in it, rather than beside it."""
         pyproject = tmp_path / 'pyproject.toml'
         pyproject.write_text('[project]\nname = "proj"\n', encoding='utf-8')
 
         r = cli('init', cwd=tmp_path)
         assert 'wrote pyproject.toml' in r.stdout
-        assert '[tool.pixeltable]' in pyproject.read_text()
         assert not (tmp_path / 'pixeltable.toml').exists()
-        assert cli('init', cwd=tmp_path).stdout.count('already marked by pyproject.toml') == 1
+        written = tomllib.loads(pyproject.read_text())
+        assert written == {'project': {'name': 'proj'}, 'tool': {'pixeltable': {'database': [{}]}}}, written
+        assert cli('init', cwd=tmp_path).stdout.count('already configured by pyproject.toml') == 1
 
     def test_a_root_above_is_refused(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
-        """A directory under a project root is refused, and -f makes it a root of its own."""
+        """A directory under a project root is refused: a project has one root, and nesting is not offered."""
         (tmp_path / 'pixeltable.toml').write_text('', encoding='utf-8')
         nested = tmp_path / 'ad_gen'
         nested.mkdir()
 
         r = cli('init', cwd=nested, check=False)
         assert r.returncode == 3
-        assert 'is already a project root' in r.stderr
-        assert '-f' in r.stderr
+        assert 'already holds a project configuration' in r.stderr
+        assert str(tmp_path) in r.stderr
         assert not (nested / 'pixeltable.toml').exists()
-
-        r = cli('init', '-f', cwd=nested)
-        assert (nested / 'pixeltable.toml').is_file()
 
     def test_reports_a_directory_no_module_path_can_use(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
         """A directory whose name is not an identifier is reported when it holds Python files."""

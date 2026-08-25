@@ -94,7 +94,7 @@ def _collect_project_files(
         if include is not None or exclude is not None:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_CONFIGURATION,
-                'Cannot specify both include_only and include/exclude in [pixeltable.database] configuration',
+                'Cannot specify both include_only and include/exclude in a [[pixeltable.database]] entry',
             )
         files = _resolve_patterns(project_dir, include_only)
 
@@ -164,22 +164,22 @@ def _export_conda_env() -> bytes | None:
     return ''.join(filtered).encode('utf-8')
 
 
-def _load_database_config(project_dir: Path) -> DatabaseConfig | None:
-    pxt_toml = _load_database_config_from_toml(project_dir / 'pixeltable.toml', ['pixeltable', 'database'])
+def _load_database_config(project_dir: Path, name: str | None = None) -> DatabaseConfig | None:
+    """The project's configuration for the named database, or for its only one when name is absent."""
+    pxt_toml = _load_database_config_from_toml(project_dir / 'pixeltable.toml', ['pixeltable', 'database'], name)
     if pxt_toml is not None:
         return pxt_toml
 
-    py_toml = _load_database_config_from_toml(project_dir / 'pyproject.toml', ['tool', 'pixeltable', 'database'])
+    py_toml = _load_database_config_from_toml(project_dir / 'pyproject.toml', ['tool', 'pixeltable', 'database'], name)
     if py_toml is not None:
         return py_toml
 
     # Fall back on system config.
     # TODO: This should be removed, but doing it now will break a bunch of tests
-    cfg = Config.get().get_value('database', dict)
-    return _validate_database_config(cfg) if cfg is not None else None
+    return _select_database(Config.get().get_value('database', list), name)
 
 
-def _load_database_config_from_toml(toml_path: Path, resolution: list[str]) -> DatabaseConfig | None:
+def _load_database_config_from_toml(toml_path: Path, resolution: list[str], name: str | None) -> DatabaseConfig | None:
     if not toml_path.is_file():
         return None
 
@@ -193,16 +193,25 @@ def _load_database_config_from_toml(toml_path: Path, resolution: list[str]) -> D
             return None
         cfg = cfg[key]
 
-    return _validate_database_config(cfg)
-
-
-def _validate_database_config(cfg: dict) -> DatabaseConfig:
+    entries = cfg if isinstance(cfg, list) else [cfg]  # a single table is one entry, written [pixeltable.database]
     try:
-        return DatabaseConfig.model_validate(cfg)
+        validated = [DatabaseConfig.model_validate(entry) for entry in entries]
     except Exception as e:
         raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid [pixeltable.database] configuration: {e}'
+            excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid [[pixeltable.database]] in {toml_path.name}: {e}'
         ) from e
+    return _select_database(validated, name)
+
+
+def _select_database(databases: list[DatabaseConfig] | None, name: str | None) -> DatabaseConfig | None:
+    """The entry name addresses; the only entry when name addresses none, so a lone entry configures any target."""
+    if databases is None or len(databases) == 0:
+        return None
+    if name is not None:
+        named = next((db for db in databases if db.name == name), None)
+        if named is not None:
+            return named
+    return databases[0] if len(databases) == 1 else None
 
 
 def _abbrev_path(path: str, max_len: int = 40) -> str:
@@ -216,7 +225,9 @@ def __add_tarfile(tf: tarfile.TarFile, name: str, content: bytes) -> None:
     tf.addfile(info, fileobj=io.BytesIO(content))
 
 
-def build_db_runtime_bundle(project_dir: Path | None = None, show_progress: bool = False) -> Path:
+def build_db_runtime_bundle(
+    project_dir: Path | None = None, show_progress: bool = False, db_name: str | None = None
+) -> Path:
     """Package the current project into a tarball for updating a hosted database runtime.
 
     If show_progress is True, a progress bar tracking the number of project files added, and naming the
@@ -227,7 +238,7 @@ def build_db_runtime_bundle(project_dir: Path | None = None, show_progress: bool
         project/        (always) — all project source files including uv.lock, pyproject.toml, etc.
 
     The server reads project/uv.lock and runs `uv sync --frozen` to install Python packages.
-    System dependencies declared in pixeltable.toml [pixeltable.database] system_dependencies
+    System dependencies declared in the project's [[pixeltable.database]] entry as system_dependencies
     are included in metadata.json for the server-side Dockerfile builder to install via conda-forge.
 
     Lockfiles are never generated here — the developer is expected to have run `uv lock` (or provided
@@ -241,7 +252,7 @@ def build_db_runtime_bundle(project_dir: Path | None = None, show_progress: bool
     if not project_dir.is_dir():
         raise FileNotFoundError(f'Project directory does not exist: {project_dir}')
 
-    runtime_cfg = _load_database_config(project_dir)
+    runtime_cfg = _load_database_config(project_dir, db_name)
     exclude = runtime_cfg.exclude if runtime_cfg else None
     include = runtime_cfg.include if runtime_cfg else None
     include_only = runtime_cfg.include_only if runtime_cfg else None

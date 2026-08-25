@@ -28,6 +28,55 @@ ConfVarT = TypeVar('ConfVarT', bound=str)
 # Pydantic models for deployment configuration.
 
 
+class DatabaseConfig(pydantic.BaseModel):
+    """One [[pixeltable.database]] entry: what a project supplies for one of the databases it uses."""
+
+    model_config = pydantic.ConfigDict(extra='forbid')
+
+    # the database this entry configures: 'local', or the pxt://org:db uri of a hosted one
+    name: str = 'local'
+
+    # bindings for the config vars and secrets a schema declares
+    vars: dict[str, str] | None = None
+    secrets: dict[str, str] | None = None
+
+    # the rest applies to a hosted database, whose runtime image is built from the project
+    exclude: list[str] | None = None  # glob patterns to exclude from the bundle
+    include: list[str] | None = None  # glob patterns to explicitly include (overrides exclude or .gitignore)
+    include_only: list[str] | None = None  # glob patterns to include as the *only* files in the bundle
+    # (must be used independently of exclude/include)
+    system_dependencies: list[str] | None = None
+    # Override the runtime Python version.
+    python_version: str | None = None
+
+    @pydantic.field_validator('system_dependencies')
+    @classmethod
+    def _check_system_dependencies(cls, v: list[str] | None) -> list[str] | None:
+        # Each entry is a conda/micromamba MatchSpec installed from conda-forge. Resolvability can only be
+        # checked by conda at build time, so validate just the obvious mistakes here - before the bundle is
+        # built and shipped - leaving version-constraint operators (<,>,,) alone as they're valid MatchSpec.
+        for spec in v or []:
+            if not spec.strip():
+                raise ValueError('`system_dependencies` entries must be non-empty conda package specs')
+            if any(c in spec for c in ';&$`\n\\'):
+                raise ValueError(f'invalid character in system dependency spec {spec!r}')
+        return v
+
+    @pydantic.field_validator('python_version')
+    @classmethod
+    def _check_python_version(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        v = v.strip()
+        if not re.fullmatch(r'\d+\.\d+(\.\d+)?', v):
+            raise ValueError(f"`python_version` must be a version like '3.12' or '3.12.8', got {v!r}")
+        return v
+
+
+# the entry in [[pixeltable.database]] that configures the local database
+LOCAL_DATABASE = 'local'
+
+
 # config section names for database variables and secrets
 VAR_SECTION = 'pixeltable.database.vars'
 SECRET_SECTION = 'pixeltable.database.secrets'
@@ -386,6 +435,9 @@ class Config:
                 info = KNOWN_CONFIG_OPTIONS[section][key]
                 if isinstance(info, tuple):
                     _, expected_type = info
+                    if typing.get_origin(expected_type) is list and isinstance(section_dict[key], dict):
+                        # a single table where an array of them is expected: one entry, written [section.key]
+                        section_dict[key] = [section_dict[key]]
                     section_dict[key] = cls.__validate_config_value(
                         section, key, section_dict[key], expected_type, source
                     )
@@ -450,8 +502,27 @@ class Config:
             return default
         return os.environ[env_var]
 
+    def __database_bindings(self, section: str) -> dict[str, str]:
+        """The vars or secrets the local database is configured with, keyed by name.
+
+        [[pixeltable.database]] is an array, which the section path of a var or a secret does not address;
+        both name the entry for the local database, which is the one a process reads them from.
+        """
+        entry = self.__lookup_config_entry('pixeltable', 'database')
+        databases = entry[0] if entry is not None else None
+        if not isinstance(databases, list):
+            return {}
+        local = next((db for db in databases if db.name == LOCAL_DATABASE), None)
+        if local is None:
+            return {}
+        bindings = local.secrets if section == SECRET_SECTION else local.vars
+        return bindings or {}
+
     def __lookup_config_entry(self, section: str, key: str) -> tuple[Any, Path | None] | None:
         """Find key under section in __config_dict. Returns (value, source_path) or None."""
+        if section in (VAR_SECTION, SECRET_SECTION):
+            bindings = self.__database_bindings(section)
+            return None if key not in bindings else (bindings[key], self.__config_file)
         parts = section.split('.')
         # explicit type decl for readability
         top_section: dict[str, tuple[Any, Path | None]] | None = self.__config_dict.get(parts[0])
@@ -585,6 +656,8 @@ class Config:
 
     def __section_keys(self, section: str) -> list[str]:
         """The keys defined in section."""
+        if section in (VAR_SECTION, SECRET_SECTION):
+            return list(self.__database_bindings(section))
         parts = section.split('.')
         node: Any = self.__config_dict.get(parts[0])
         for p in parts[1:]:
@@ -642,7 +715,11 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         's3_profile': 'AWS config profile name used to access S3 storage',
         'b2_profile': 'AWS config profile name used to access Backblaze B2 storage',
         'tigris_profile': 'AWS config profile name used to access Tigris object storage',
-        'database': 'Database configuration: runtime image, and variable/secret bindings',
+        'database': (
+            'One entry per database the project uses: variable and secret bindings, and for a hosted '
+            'database the contents of its runtime image',
+            list[DatabaseConfig],
+        ),
         'daemon_host': 'Listen address for the proxy daemon in fixed-address mode (e.g. 0.0.0.0)',
         'daemon_port': ('Listen port for the proxy daemon in fixed-address mode (e.g. 8000)', int),
         'db_uri': 'Base pxt:// URI for remote catalog access (e.g. pxt://myorg:mydb)',

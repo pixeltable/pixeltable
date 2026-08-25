@@ -63,9 +63,10 @@ ingest.add_compute_route(Docs, path='/titles', inputs=[Docs.title], outputs=[Doc
 
 _APP_FILE = """
 Project:
-  APP has to sit under a project root: a directory holding a pixeltable.toml, or a pyproject.toml
-  with a [tool.pixeltable] section. 'pxt init' establishes one. A udf is recorded as a module path
-  relative to that root, which is how the serving process resolves it."""
+  APP has to sit under a project root: the directory holding the project configuration, which is a
+  pixeltable.toml or a pyproject.toml with a [tool.pixeltable] section. 'pxt init' writes one.
+  Every local module path is relative to that root, so a udf this file defines is recorded as
+  <path from the root>.<name> -- which is how the serving process finds it again."""
 
 DIFF_EPILOG = f"""\
 Examples:

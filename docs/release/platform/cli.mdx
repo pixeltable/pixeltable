@@ -345,24 +345,41 @@ Revert is irreversible. Run `pxt history my_dir/my_table` first to see what woul
 
 ## Project layout
 
-`pxt schema` and `pxt service` read a Python file, and the tables they create refer back to the udfs that file calls. A reference is a module path, so the file has to belong to a project: a directory holding a `pixeltable.toml`, or a `pyproject.toml` with a `[tool.pixeltable]` section. `pxt init` establishes one in the current directory.
+`pxt schema` and `pxt service` read a Python file, and the tables they create refer back to the udfs that file calls. A reference is a module path, so the file has to belong to a project. The **project root** is the directory holding the project configuration, and every local module path is relative to it.
+
+`pxt init` writes that configuration in the current directory:
 
 ```bash
 cd ~/proj
-pxt init                             # writes pixeltable.toml, marking ~/proj as the project root
+pxt init                             # writes pixeltable.toml, making ~/proj the project root
 ```
 
-Module paths are relative to the root, and every directory from the root down to a file becomes one component of that file's path, so each of those directory names has to be a Python identifier:
+The file it writes holds one entry per database the project uses:
+
+```toml
+[[pixeltable.database]]
+# the local database
+vars.media_dest = 's3://bucket/prefix'      # binds a ConfigVar a schema declares
+secrets.openai_api_key = '...'
+
+[[pixeltable.database]]
+name = 'pxt://myorg:prod'                   # a hosted database
+system_dependencies = ['ffmpeg']            # what goes into its runtime image
+```
+
+In a directory that already holds a `pyproject.toml`, the same entry is appended there as `[[tool.pixeltable.database]]` instead, and that section is what marks the root.
+
+Every directory from the root down to a file becomes one component of that file's module path, so each of those directory names has to be a Python identifier:
 
 ```
-~/proj/pixeltable.toml               # marks the root
+~/proj/pixeltable.toml               # the project configuration; its directory is the root
 ~/proj/ad_gen/app.py                 # a udf here is recorded as 'ad_gen.app.<name>'
 ~/proj/ad_gen/functions.py           # imported as 'from ad_gen.functions import ...'
 ```
 
 Imports resolve from the root down. This is where a single-file recipe and a larger application diverge: a file directly under the root imports its neighbors by their bare names, so `recipe.py` and `functions.py` side by side use `from functions import ...`. Once an application moves into a subdirectory, that subdirectory joins the path: `from ad_gen.functions import ...`.
 
-A command given a file outside any project is refused, and says so. `pxt schema check` and `pxt service check` validate a file on its own -- it imports without touching the catalog, it declares what the verb needs, and the udfs its columns call are named by paths another process can resolve:
+A recorded path is how a later process -- the daemon, a serving worker, a hosted runtime -- finds the udf again, so a command given a file outside any project root is refused. `pxt schema check` and `pxt service check` validate a file on its own -- it imports without touching the catalog, it declares what the verb needs, and the udfs its columns call are named by paths another process can resolve:
 
 ```bash
 pxt schema check schema.py           # exit 0 valid, 1 invalid
@@ -658,19 +675,22 @@ All cloud commands accept `--json` for machine-readable output.
 
 ### Cloud configuration reference
 
-Cloud operations that affect a database's runtime image read configuration from `pixeltable.toml` in the current directory.
+Cloud operations that affect a database's runtime image read the project configuration -- `pixeltable.toml`, or `pyproject.toml` under `[tool.pixeltable]` -- in the current directory.
 
-#### `[pixeltable.database]` — runtime image config
+#### `[[pixeltable.database]]` — runtime image config
 
-Read by `pxt db update-runtime`, from `pixeltable.toml` in the current directory if that file declares the section. Defines which local files to package into the runtime image.
+Read by `pxt db update-runtime`, from the entry naming the target database. Defines which local files to package into the runtime image.
 
 ```toml
-[pixeltable.database]
+[[pixeltable.database]]
+name = 'pxt://myorg:prod'
 # Include/exclude patterns for project files bundled into the runtime image.
 # Glob patterns relative to the project root.
 include = ["app/**", "models/**"]
 exclude = ["__pycache__", "*.pyc", ".git", ".env", "*.egg-info", ".venv"]
 ```
+
+An entry with no `name` configures the local database. A project with a single entry uses it for whichever database is targeted, which is what a project written before `[[pixeltable.database]]` became an array does.
 
 ### `pxt db`
 
@@ -748,7 +768,7 @@ Triggers a rolling restart; polls until `AVAILABLE`.
 pxt db update-runtime pxt://myorg:mydb
 ```
 
-Reads `[pixeltable.database]` (see the [cloud configuration reference](#cloud-configuration-reference)), packages the project files, uploads them, and triggers a CodeBuild image rebuild. Polls until the build completes or fails. Running services are restarted on the new image automatically.
+Reads `[[pixeltable.database]]` (see the [cloud configuration reference](#cloud-configuration-reference)), packages the project files, uploads them, and triggers a CodeBuild image rebuild. Polls until the build completes or fails. Running services are restarted on the new image automatically.
 
 #### `pxt db delete`
 
