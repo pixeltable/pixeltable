@@ -88,13 +88,18 @@ class TableOp:
 
 @dataclasses.dataclass
 class CreateStoreTableOp(TableOp):
+    """Legacy op, retained only so that pending ops written by earlier Pixeltable versions can be finalized.
+
+    Store table creation now happens in the metadata transaction; see CreateTableMdOp.
+    """
+
     needs_tv: ClassVar[bool] = True
     needs_xact: ClassVar[bool] = False
 
     def exec(self, tv: TableVersion | None) -> None:
         assert not get_runtime().in_xact
         with get_runtime().begin_xact():
-            tv.store_tbl.create()
+            tv.store_tbl.create_if_not_exists()
 
     def undo(self, tv: TableVersion | None) -> None:
         assert not get_runtime().in_xact
@@ -152,12 +157,26 @@ class LoadViewOp(TableOp):
         FileCache.get().clear(tbl_id=tv.id)
 
 
+def _drop_store_tbl(tbl_id: str, is_view: bool) -> None:
+    from pixeltable.store import StoreBase
+
+    drop_stmt = f'DROP TABLE IF EXISTS {StoreBase.storage_name(uuid.UUID(tbl_id), is_view)}'
+    get_runtime().conn.execute(sql.text(drop_stmt))
+
+
 @dataclasses.dataclass
 class CreateTableMdOp(TableOp):
-    """Undo-only log record"""
+    """Undo-only log record.
+
+    Undoing it removes both halves of what the metadata transaction created: the `tables` row and the store table.
+    """
 
     needs_tv: ClassVar[bool] = False
     needs_xact: ClassVar[bool] = True
+
+    # None for pending ops written before store table creation moved into the metadata transaction; in that case the
+    # store table is dropped by the accompanying CreateStoreTableOp.
+    is_view: bool | None = None
 
     def exec(self, tv: TableVersion | None) -> None:
         pass
@@ -165,11 +184,15 @@ class CreateTableMdOp(TableOp):
     def undo(self, tv: TableVersion | None) -> None:
         assert get_runtime().in_xact
         get_runtime().catalog.delete_tbl_md(uuid.UUID(self.tbl_id))
+        if self.is_view is not None:
+            _drop_store_tbl(self.tbl_id, self.is_view)
 
 
 @dataclasses.dataclass
 class DeleteTableMdOp(TableOp):
     """
+    Deletes the table's md row and its store table, so that neither can outlive the other.
+
     If it's a mutable view that's being dropped, this op will also advance the base table's view_sn. mutable_base_tbl_id
     must be provided in that case.
     """
@@ -179,6 +202,10 @@ class DeleteTableMdOp(TableOp):
 
     # Defaults to None so that already existing pending ops can be deserialized. TODO: clean this up later
     mutable_base_tbl_id: str | None = None
+
+    # None for pending ops written before store table removal moved into this op; in that case the store table is
+    # dropped by the preceding DropStoreTableOp.
+    is_view: bool | None = None
 
     def exec(self, tv: TableVersion | None) -> None:
         assert get_runtime().in_xact
@@ -191,6 +218,8 @@ class DeleteTableMdOp(TableOp):
                 if e.error_code != excs.ErrorCode.TABLE_NOT_FOUND:
                     raise
         cat.delete_tbl_md(uuid.UUID(self.tbl_id))
+        if self.is_view is not None:
+            _drop_store_tbl(self.tbl_id, self.is_view)
 
     def undo(self, tv: TableVersion | None) -> None:
         raise AssertionError()
@@ -272,18 +301,20 @@ class DeleteTableMediaFilesOp(TableOp):
 
 @dataclasses.dataclass
 class DropStoreTableOp(TableOp):
+    """Legacy op, retained only so that pending ops written by earlier Pixeltable versions can be finalized.
+
+    Store table removal now happens in DeleteTableMdOp's transaction.
+    """
+
     needs_tv: ClassVar[bool] = False
     needs_xact: ClassVar[bool] = False
 
     is_view: bool
 
     def exec(self, tv: TableVersion | None) -> None:
-        from pixeltable.store import StoreBase
-
         assert not get_runtime().in_xact
-        with get_runtime().begin_xact() as conn:
-            drop_stmt = f'DROP TABLE IF EXISTS {StoreBase.storage_name(uuid.UUID(self.tbl_id), self.is_view)}'
-            conn.execute(sql.text(drop_stmt))
+        with get_runtime().begin_xact():
+            _drop_store_tbl(self.tbl_id, self.is_view)
 
     def undo(self, tv: TableVersion | None) -> None:
         raise AssertionError()

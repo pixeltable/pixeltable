@@ -33,7 +33,6 @@ from .tbl_ops import (
     CreateTableVersionOp,
     DeleteTableMdOp,
     DeleteTableMediaFilesOp,
-    DropStoreTableOp,
     TableOp,
     TableOpsBuilder,
 )
@@ -260,8 +259,7 @@ class TableVersion:
         ops = (
             TableOpsBuilder(id_str, tbl_version=self._tbl_md.current_version)
             .add(DeleteTableMediaFilesOp)
-            .add(DropStoreTableOp, is_view=self.is_view)
-            .add(DeleteTableMdOp, mutable_base_tbl_id=mutable_base_tbl_id)
+            .add(DeleteTableMdOp, mutable_base_tbl_id=mutable_base_tbl_id, is_view=self.is_view)
             .build()
         )
         return ops, new_version

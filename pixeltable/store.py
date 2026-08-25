@@ -319,10 +319,31 @@ class StoreBase:
 
     def create(self) -> None:
         """
+        Create the store table, along with its system and user indices, in the current transaction.
+
+        This runs in the same transaction that writes the table's metadata, which is what establishes the invariant
+        that a visible `tables` row implies an existing store table. Postgres DDL is transactional, so a failed or
+        retried metadata transaction rolls the relation back together with the metadata; no idempotence machinery
+        is needed here, because the caller holds an X-lock on the parent directory record and the relation name is
+        derived from a freshly assigned table id.
+        """
+        conn = get_runtime().conn
+        postgres_dialect = sql.dialects.postgresql.dialect()
+        create_stmt = sql.schema.CreateTable(self.sa_tbl).compile(dialect=postgres_dialect)
+        conn.execute(sql.text(str(create_stmt)))
+        for idx in list(self.sa_tbl.indexes):
+            create_idx_stmt = sql.schema.CreateIndex(idx).compile(dialect=postgres_dialect)
+            conn.execute(sql.text(str(create_idx_stmt)))
+        for idx_id in self.tbl_version.get().idxs:
+            self._create_index(idx_id, in_xact=True)
+
+    def create_if_not_exists(self) -> None:
+        """
         Create or update store table to bring it in sync with self.sa_tbl. Idempotent.
 
         This runs a sequence of DDL statements (Create Table, Alter Table Add Column, Create Index), each of which
-        is run in its own transaction.
+        is run in its own transaction. Only needed to finalize a legacy CreateStoreTableOp, which several processes
+        may roll forward concurrently.
         """
         postgres_dialect = sql.dialects.postgresql.dialect()
 
@@ -336,17 +357,15 @@ class StoreBase:
             for col in self.sa_tbl.columns:
                 stmt = self._add_column_stmt(col)
                 self._exec_if_not_exists(stmt, wait_for_table=True)
-            # TODO: do we also need to ensure that these columns are now visible (ie, is there another potential race
-            # condition here?)
 
         # ensure that all system indices exist by running Create Index If Not Exists
-        for idx in self.sa_tbl.indexes:
+        for idx in list(self.sa_tbl.indexes):
             create_idx_stmt = sql.schema.CreateIndex(idx, if_not_exists=True).compile(dialect=postgres_dialect)
             self._exec_if_not_exists(str(create_idx_stmt), wait_for_table=True)
 
         # ensure that all visible non-system indices exist by running appropriate create statements
-        for id in self.tbl_version.get().idxs:
-            self.create_index(id)
+        for idx_id in self.tbl_version.get().idxs:
+            self.create_index(idx_id)
 
     @classmethod
     def _index_row_size_error(cls, idx_info: catalog.TableVersion.IndexInfo) -> excs.RequestError:
@@ -357,14 +376,20 @@ class StoreBase:
         )
 
     def create_index(self, idx_id: int) -> None:
-        """Create index if not exists"""
+        """Create index if not exists, in its own transaction"""
+        self._create_index(idx_id, in_xact=False)
+
+    def _create_index(self, idx_id: int, *, in_xact: bool) -> None:
         tv = self.tbl_version.get()
         idx_info = tv.idxs[idx_id]
         indexed_sa_col = idx_info.indexed_sa_col
         assert indexed_sa_col.table is self.sa_tbl, idx_info
         stmt = idx_info.idx.sa_create_stmt(tv._store_idx_name(idx_id), indexed_sa_col)
         try:
-            self._exec_if_not_exists(str(stmt), wait_for_table=True)
+            if in_xact:
+                get_runtime().conn.execute(sql.text(str(stmt)))
+            else:
+                self._exec_if_not_exists(str(stmt), wait_for_table=True)
         except sql.exc.OperationalError as e:
             if (
                 isinstance(idx_info.idx, BtreeIndex)

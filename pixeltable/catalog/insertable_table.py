@@ -15,7 +15,7 @@ from .globals import IndexSpec, MediaValidation, OnErrorParam
 from .local_table import LocalTable
 from .table_path import TableVersionPath
 from .table_version_handle import TableVersionHandle
-from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, TableOp, TableOpsBuilder
+from .tbl_ops import CreateTableMdOp, TableOp, TableOpsBuilder
 from .types import TableVersionMd
 from .update_status import UpdateStatus
 from .utils import create_table_version_md
@@ -76,8 +76,7 @@ class InsertableTable(LocalTable):
 
         ops = (
             TableOpsBuilder(md.tbl_md.tbl_id, tbl_version=md.tbl_md.current_version)
-            .add(CreateTableMdOp)
-            .add(CreateStoreTableOp)
+            .add(CreateTableMdOp, is_view=False)
             .build()
         )
         return md, ops

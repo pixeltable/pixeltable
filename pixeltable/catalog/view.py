@@ -18,7 +18,7 @@ from .globals import IndexSpec, MediaValidation
 from .local_table import LocalTable
 from .table_path import TablePath, TableVersionPath
 from .table_version_handle import TableVersionHandle
-from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, LoadViewOp, TableOp, TableOpsBuilder
+from .tbl_ops import CreateTableMdOp, LoadViewOp, TableOp, TableOpsBuilder
 from .types import ColumnVersionMd, TableVersionKey, TableVersionMd
 from .update_status import UpdateStatus
 from .utils import create_table_version_md
@@ -307,8 +307,7 @@ class View(LocalTable):
             view_path = TableVersionPath(TableVersionHandle(key), base=base_version_path)
             ops = (
                 TableOpsBuilder(str(tbl_id), tbl_version=md.tbl_md.current_version)
-                .add(CreateTableMdOp)
-                .add(CreateStoreTableOp)
+                .add(CreateTableMdOp, is_view=True)
                 .add(LoadViewOp, view_path=view_path.as_dict())
                 .build()
             )

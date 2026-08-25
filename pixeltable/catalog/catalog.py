@@ -1498,6 +1498,19 @@ class Catalog(CatalogBase):
             )
         return obj
 
+    def _create_store_tbl(self, tbl_id: UUID, tbl_md: schema.TableMd) -> None:
+        """Creates the store table for a table whose md was just written in the current transaction.
+
+        A pure snapshot has no store table of its own and is skipped.
+        """
+        assert self._in_write_xact
+        if tbl_md.is_pure_snapshot:
+            return
+        key = TableVersionKey(tbl_id, tbl_md.current_version if tbl_md.is_snapshot else None)
+        # the md we just wrote comes with pending ops, so the load has to ignore them
+        tv = self._get_tbl_version(key, check_pending_ops=False)
+        tv.store_tbl.create()
+
     def get_table_by_id(
         self, tbl_id: UUID, version: int | None = None, ignore_if_dropped: bool = False
     ) -> LocalTable | None:
@@ -1593,6 +1606,7 @@ class Catalog(CatalogBase):
             assert tbl_id == UUID(md.tbl_md.tbl_id)
             md.tbl_md.pending_stmt = pixeltable.metadata.schema.TableStatement.CREATE_TABLE
             self.write_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
+            self._create_store_tbl(tbl_id, md.tbl_md)
             return tbl_id, True
 
         self._roll_forward_ids.clear()
@@ -1711,6 +1725,7 @@ class Catalog(CatalogBase):
             assert tbl_id == UUID(md.tbl_md.tbl_id)
             md.tbl_md.pending_stmt = schema.TableStatement.CREATE_VIEW
             self.write_tbl_md(tbl_id, dir._id, md.tbl_md, md.version_md, md.schema_version_md, ops)
+            self._create_store_tbl(tbl_id, md.tbl_md)
             fault_injection.process_fault(FaultLocation.CATALOG_CREATE_VIEW_BEFORE_MD_COMMITTED)
             return tbl_id, True
 
