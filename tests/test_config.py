@@ -4,11 +4,14 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from textwrap import dedent
 
 import pytest
 
 import pixeltable as pxt
-from pixeltable.config import Config
+from pixeltable import exceptions as excs
+from pixeltable.config import SECRET_SECTION, VAR_SECTION, Config
+from pixeltable.serving._config import lookup_database_config
 
 from .utils import get_image_files, pxt_raises
 
@@ -191,6 +194,55 @@ class TestConfig:
         assert 'Ignoring PIXELTABLE_Home' in stderr, stderr
         assert 'did you mean PIXELTABLE_HOME' in stderr, stderr
         assert not (tmp_path / 'nope').exists(), 'the mis-cased variable was used as the home directory'
+
+    def test_database_entries(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The bindings a process reads come from the [[pixeltable.database]] entry for the local database."""
+
+        def load(text: str) -> Config:
+            config_file = tmp_path / 'config.toml'
+            config_file.write_text(text)
+            monkeypatch.setenv('PIXELTABLE_CONFIG', str(config_file))
+            Config.init(reinit=True)
+            return Config.get()
+
+        # one entry per database: the local one binds the vars and secrets, the hosted one carries its image
+        config = load(
+            dedent(
+                """
+                [[pixeltable.database]]
+                vars.media_dest = 's3://local/bucket'
+                secrets.openai_api_key = 'sk-local'
+
+                [[pixeltable.database]]
+                name = 'pxt://myorg:prod'
+                vars.media_dest = 's3://prod/bucket'
+                system_dependencies = ['ffmpeg']
+                """
+            )
+        )
+        assert config.get_string_value('media_dest', section=VAR_SECTION) == 's3://local/bucket'
+        assert config.get_string_value('openai_api_key', section=SECRET_SECTION) == 'sk-local'
+        assert lookup_database_config().vars == {'media_dest': 's3://local/bucket'}
+        assert lookup_database_config('pxt://myorg:prod').system_dependencies == ['ffmpeg']
+        assert lookup_database_config('pxt://myorg:staging') is None
+
+        # a single table where the array goes is one entry, which is how a file written earlier reads
+        config = load("[pixeltable.database]\nvars = { media_dest = 's3://single/bucket' }\n")
+        assert config.get_string_value('media_dest', section=VAR_SECTION) == 's3://single/bucket'
+
+        # the environment binds a var the entry does not
+        monkeypatch.setenv('PIXELTABLE_VAR_OTHER_DEST', 's3://from/env')
+        config = load("[[pixeltable.database]]\nvars.media_dest = 's3://local/bucket'\n")
+        assert config.get_string_value('other_dest', section=VAR_SECTION) == 's3://from/env'
+        assert config.get_value_source('media_dest', section=VAR_SECTION) == tmp_path / 'config.toml'
+
+        # two entries for one database, which would make the bindings ambiguous
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r"Duplicate `DatabaseConfig` name 'local'"):
+            load('[[pixeltable.database]]\n\n[[pixeltable.database]]\n')
+
+        # an entry holding something no database is configured with
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'Invalid `DatabaseConfig`'):
+            load("[[pixeltable.database]]\nnot_a_setting = 'x'\n")
 
     def test_reload_if_changed(self, tmp_path: Path) -> None:
         """The config file is re-read after it changes, which is how a running daemon picks up an edit."""
