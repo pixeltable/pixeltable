@@ -720,7 +720,7 @@ class LocalTable(Table):
             self._check_mutable('alter columns of')
 
             if isinstance(column, str):
-                col = self._tbl_version_path.get_column(column)
+                col = self._tbl_version_path.get_column(fold_identifier(column))
                 if col is None:
                     raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {column}')
             else:
