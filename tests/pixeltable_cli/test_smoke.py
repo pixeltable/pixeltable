@@ -152,12 +152,12 @@ class TestLs:
         # names the in-catalog path (the daemon reports paths relative to the catalog it navigated).
         r = cli('ls', p('cli_ls_err/t'), check=False)
         assert r.returncode != 0
-        assert "'cli_ls_err/t' is a table, not a directory" in r.stderr
+        assert "cli_ls_err/t' is a table, not a directory" in r.stderr
 
         # a table appearing mid-path: the error names the table-rooted prefix, not the full path
         r = cli('ls', p('cli_ls_err/t/sub'), check=False)
         assert r.returncode != 0
-        assert "'cli_ls_err/t' is a table, not a directory" in r.stderr
+        assert "cli_ls_err/t' is a table, not a directory" in r.stderr
 
 
 class TestCwd:
