@@ -126,6 +126,33 @@ class mixed_case_iterator(pxt.PxtIterator):
         self.i = pos
 
 
+class PosRowLowerCase(TypedDict):
+    pos: int
+
+
+class PosRowMixedCase(TypedDict):
+    Pos: int
+
+
+class CollidingRow(TypedDict):
+    Foo: int
+    foo: int
+
+
+@pxt.iterator
+class colliding_iterator(pxt.PxtIterator):
+    """Declares two outputs that differ only in case; they name one view column, so the call is rejected."""
+
+    def __init__(self, n: int):
+        self.n = n
+
+    def __next__(self) -> CollidingRow:
+        raise StopIteration
+
+    def close(self) -> None:
+        pass
+
+
 class TestComponentView:
     @pytest.mark.skip(reason='surfaces a bug (DuplicateAlias)')
     def test_same_base_join(self, make_catalog_path: Callable[[str], str]) -> None:
@@ -613,3 +640,26 @@ class TestComponentView:
             pxt.create_view(
                 p('v'), t, iterator=mixed_case_iterator(n=t.n), additional_columns={'MYOUTPUT': pxt.Int | None}
             )
+
+    def test_iterator_output_cols_collide(self, make_catalog_path: Callable[[str], str]) -> None:
+        """An iterator is rejected whose outputs collide with each other when folded."""
+        p = make_catalog_path
+        t = pxt.create_table(p('base'), {'n': pxt.Int})
+        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match=r"'Foo', 'foo' were specified"):
+            pxt.create_view(p('v'), t, iterator=colliding_iterator(n=t.n))
+
+    @pytest.mark.parametrize('row_cls', [PosRowLowerCase, PosRowMixedCase])
+    def test_iterator_output_pos_rejected(self, row_cls: type) -> None:
+        """An iterator is rejected whose outputs include the `pos` column in any casing variant."""
+        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='is reserved'):
+
+            @pxt.iterator
+            class pos_iterator(pxt.PxtIterator):
+                def __init__(self, n: int):
+                    self.n = n
+
+                def __next__(self) -> row_cls:  # type: ignore[valid-type]
+                    raise StopIteration
+
+                def close(self) -> None:
+                    pass
