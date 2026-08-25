@@ -2521,6 +2521,28 @@ class TestTableModel:
             class Second(TableModel, name='foo'):
                 id: pxt.Int
 
+    def test_model_case_insensitive_catalog_dir(self, make_catalog_path: Callable[[str], str]) -> None:
+        """A model binds to a directory, not to the spelling of the path it was bound through."""
+        p = make_catalog_path
+        pxt.create_dir(p('MyDir'))
+        TableModel = pxt.model_base()
+
+        class M(TableModel, name='m'):
+            id: pxt.Int
+
+        TableModel.create_all(p('MyDir'))
+        # the table landed in that directory, under the folded path
+        assert M.table.get_metadata()['path'] == pxt.get_table(p('mydir.m')).get_metadata()['path']
+
+        # every spelling of that directory denotes the same binding, so none of these is a rebind
+        for same_dir in (p('MyDir'), p('mydir'), p('MYDIR'), p('MyDir/')):
+            assert len(TableModel.update_all(same_dir)['m']['ops']) == 0
+
+        # a genuinely different directory is still refused
+        pxt.create_dir(p('other'))
+        with pxt_raises(excs.ErrorCode.ALREADY_BOUND, match='already bound'):
+            TableModel.update_all(p('other'))
+
     def test_model_case_insensitive_index_names(self) -> None:
         """Index names fold, so two that differ only in case collide."""
         TableModel = pxt.model_base()

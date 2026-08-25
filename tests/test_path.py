@@ -258,3 +258,22 @@ class TestPath:
         # an invalid path reports exactly what was typed, not a folded form the user never wrote
         with pxt_raises(excs.ErrorCode.INVALID_PATH, match='Café'):
             Path.parse('Café/x')
+
+    def test_dir_prefix(self) -> None:
+        # the prefix is folded, so callers can compare directory locations by string equality
+        assert Path.dir_prefix('MyDir') == 'mydir/'
+        assert Path.dir_prefix('MyDir/Sub') == 'mydir/sub/'
+        assert Path.dir_prefix('a.b') == Path.dir_prefix('a/b') == 'a/b/'
+        assert Path.dir_prefix('a/b/') == 'a/b/'
+        assert Path.dir_prefix('pxt://Org:DB/Dir') == 'pxt://org:db/dir/'
+        assert Path.dir_prefix('https://pixeltable.com/t/Org/Dir') == 'pxt://org/dir/'
+
+        # only the local root has an empty prefix; a remote root keeps its URI, so the child stays in that catalog
+        assert Path.dir_prefix('') == ''
+        assert Path.dir_prefix('pxt://Org:DB') == 'pxt://org:db/'
+
+        # appending a (folded) table name to a prefix yields the path of that table
+        assert Path.parse(Path.dir_prefix('MyDir') + 'mytable') == Path.parse('MyDir.MyTable')
+
+        with pxt_raises(excs.ErrorCode.INVALID_PATH, match='Invalid path: Café'):
+            Path.dir_prefix('Café')
