@@ -184,13 +184,13 @@ class TestConfig:
         assert 'PIXELTABLE_SECRET_PXT_TEST_KEY' in resp['env_var_names']
 
     def test_config_var_supplied_by_the_environment(
-        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], project_dir: pathlib.Path
     ) -> None:
         """A config var a schema declares is bound from the environment, with no entry in any config file."""
         target = make_catalog_path('cfg')
-        media_dir = tmp_path / 'media'
+        media_dir = project_dir / 'media'
         media_dir.mkdir()
-        schema_file = tmp_path / 'app.py'
+        schema_file = project_dir / 'app.py'
         schema_file.write_text(
             dedent(
                 """
@@ -277,18 +277,20 @@ class TestConfig:
         assert 'RemoteDisconnected' not in r.stderr
 
     def test_restart_while_serving(
-        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], project_dir: pathlib.Path
     ) -> None:
         """A restart that would abandon work in progress is refused; once the work is done it goes through."""
         skip_test_if_not_installed('sentence_transformers')
         target = make_catalog_path('cfg')
-        schema_file = tmp_path / 'slow.py'
+        schema_file = project_dir / 'slow.py'
         schema_file.write_text(_SLOW_SCHEMA_SRC, encoding='utf-8')
 
         # PXT_PORT addresses the daemon under test; the cli fixture put it in this process's environment
         slow = subprocess.Popen(
             ['pxt', 'schema', 'update', str(schema_file), target],
             env={**os.environ, 'BROWSER': 'true'},
+            # a client outside the project the daemon serves restarts it, so run where the schema file is
+            cwd=project_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,

@@ -8,6 +8,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
+from pixeltable.env import Env
 from pixeltable.func import Function
 from pixeltable.functions.video import frame_iterator
 from pixeltable.utils.app_module import load_app_module
@@ -51,17 +52,26 @@ class TestBridge:
         module = load_app_module(str(named), subject='application file')
         assert Function.from_dict(module.shout.as_dict()) is module.shout
 
-    def test_app_module_without_a_project_root(self, tmp_path: pathlib.Path) -> None:
-        """A file with no project root above it cannot be imported; the message says what to create."""
-        app_file = tmp_path / 'rootless_app.py'
+    def test_app_module_outside_the_project(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Loading a file outside the served project is refused, as is loading one when no project is served."""
+        served = tmp_path / 'served'
+        served.mkdir()
+        (served / 'pixeltable.toml').write_text('', encoding='utf-8')
+        app_file = tmp_path / 'outside_app.py'
         app_file.write_text('import pixeltable as pxt\n', encoding='utf-8')
-        with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r'the file belongs to none') as exc_info:
+
+        monkeypatch.setattr(Env, 'project_root', served)
+        with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r'which the file does not sit under') as exc_info:
+            load_app_module(str(app_file), subject='application file')
+        assert str(served) in exc_info.value.message
+
+        monkeypatch.setattr(Env, 'project_root', None)
+        with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r'serves no project') as exc_info:
             load_app_module(str(app_file), subject='application file')
         message = exc_info.value.message
         assert 'pixeltable.toml' in message
         assert '[tool.pixeltable]' in message
         assert 'pxt init' in message
-        assert 'daemon restart' in message
 
     def test_app_module_imports_its_neighbors(self, project_env: pathlib.Path) -> None:
         """An application file imports the modules of its project by name, in every spelling."""

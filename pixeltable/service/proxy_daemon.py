@@ -74,11 +74,28 @@ def endpoint(db: str) -> str | None:
     return None if info is None else f'http://127.0.0.1:{info["port"]}'
 
 
-def _health_ok(ep: str) -> bool:
+def _health(ep: str) -> dict[str, Any] | None:
+    """Return what the daemon at ep reports about itself, or None if it does not answer."""
     try:
-        return httpx.get(f'{ep}/health', timeout=2.0).status_code == 200
+        response = httpx.get(f'{ep}/health', timeout=2.0)
     except httpx.HTTPError:
-        return False
+        return None
+    if response.status_code != 200:
+        return None
+    try:
+        return response.json()
+    except ValueError:
+        return None
+
+
+def _serves_another_project(health: dict[str, Any]) -> bool:
+    """Decide whether the daemon that reported health resolves udf module paths against a different project.
+
+    An Env.project_root of None reports no difference: a process with no project of its own records no
+    module paths to resolve.
+    """
+    root = Env.project_root
+    return root is not None and health.get('project_root') != str(root)
 
 
 _LOG_TAIL_BYTES = 64 * 1024  # bound memory on a large log while leaving headroom for _LOG_TAIL_LINES
@@ -113,8 +130,14 @@ def start(db: str, test_mode: bool = False) -> str:
     """
     create(db)
     ep = endpoint(db)
-    if ep is not None and _health_ok(ep):
-        return ep
+    if ep is not None:
+        health = _health(ep)
+        if health is not None:
+            if not _serves_another_project(health):
+                return ep
+            # this daemon resolves module paths against another project, so replace it with one that
+            # serves Env.project_root
+            stop(db)
 
     parent_home = Config.get().home
     pgdata = os.environ.get('PIXELTABLE_PGDATA') or str(parent_home / 'pgdata')
@@ -145,7 +168,7 @@ def start(db: str, test_mode: bool = False) -> str:
     deadline = time.monotonic() + _STARTUP_TIMEOUT
     while time.monotonic() < deadline:
         ep = endpoint(db)
-        if ep is not None and _health_ok(ep):
+        if ep is not None and _health(ep) is not None:
             return ep
         time.sleep(0.25)
 
@@ -283,8 +306,9 @@ def _build_app(test_mode: bool = False) -> 'FastAPI':
             return Response(content='{"status": "ok"}', media_type='application/json')
 
     @app.get('/health')
-    def health() -> dict[str, str]:
-        return {'status': 'ok'}
+    def health() -> dict[str, str | None]:
+        root = Env.project_root
+        return {'status': 'ok', 'project_root': None if root is None else str(root)}
 
     @app.get('/media/{ref:path}')
     def serve_media(ref: str) -> FileResponse:

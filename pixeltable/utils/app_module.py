@@ -36,10 +36,10 @@ def load_app_module(file: str, *, subject: str) -> ModuleType:
     if not path.is_file():
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{subject} not found: {file}')
 
-    # Env.project_root holds nothing until an environment resolves one, so initialize before reading it
-    env = Env.get()
+    # Env.get() establishes the project root
+    Env.get()
     root = Env.project_root
-    if root is None or env.find_project_root(path.parent) != root:
+    if root is None or not path.is_relative_to(root):
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, _no_root_msg(path, subject, root))
     module_name = _module_name(path, root, subject)
 
@@ -64,43 +64,30 @@ def load_app_module(file: str, *, subject: str) -> ModuleType:
 
 
 def _no_root_msg(path: Path, subject: str, root: Path | None) -> str:
-    """Report which project root this process serves, and what to do about a file outside it."""
-    file_root = Env.get().find_project_root(path.parent)
+    """Report the project this process serves, and what to do about a file outside it."""
     rule = (
         f'A UDF is recorded as a module path relative to the project root, so this {subject} has to sit '
-        f'under the root that this process serves, and the directories from that root down to the file '
-        f'become part of the path.'
+        f'under the project this process serves.'
     )
-    if file_root is None:
-        serving = 'no project' if root is None else f'the project at {root}'
-        return (
-            f'{path}: this process serves {serving}, and the file belongs to none. Searched {path.parent} '
-            f'and every directory above it for a pixeltable.toml, or a pyproject.toml with a '
-            f'[tool.pixeltable] section.\n'
-            f'{rule}\n'
-            f"Run 'pxt init' in the directory that holds the file, then 'pxt daemon restart' to serve it."
-        )
     if root is None:
         return (
-            f'{path}: this process serves no project, and the file belongs to the one at {file_root}.\n'
+            f'{path}: this process serves no project. Searched {Path.cwd()} and every directory above it for '
+            f'a pixeltable.toml, or a pyproject.toml with a [tool.pixeltable] section.\n'
             f'{rule}\n'
-            f"That project was marked after this process started: run 'pxt daemon restart' to serve it."
+            f"Run 'pxt init' in the directory that holds your project, then run this command again."
         )
     return (
-        f'{path}: this process serves the project at {root}, and the file belongs to the one at '
-        f'{file_root}.\n'
+        f'{path}: this process serves the project at {root}, which the file does not sit under.\n'
         f'{rule}\n'
-        f"Run this command from within {root}, or run 'pxt daemon restart' from {file_root} to serve that "
-        f'project instead.'
+        "Run this command from the file's own project."
     )
 
 
 def _evict_project_modules() -> None:
     """Discard the modules an earlier load imported from the project, and the udfs they registered.
 
-    An application file is read again on every load, so that a command acts on what the file says now. Only
-    the project's own modules go: what it imports from an installed package stays, and so does Pixeltable
-    itself when the project holds a checkout of it.
+    Only the project's own: installed packages stay loaded, including Pixeltable when the project holds a
+    checkout of it.
     """
     registry = FunctionRegistry.get()
     for name in _project_modules:

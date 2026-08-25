@@ -549,16 +549,18 @@ class TestSchema:
         cli: PxtRunner,
         make_catalog_path: Callable[[str], str],
         catalog_mode: CatalogMode,
-        project_env: pathlib.Path,
+        project_dir: pathlib.Path,
     ) -> None:
         """Computed columns over udfs that an application's own package and its neighbors define."""
         if catalog_mode == 'cloud':
             pytest.skip('the runtime of a hosted database does not hold this project')
         p = make_catalog_path
+        # project_dir sits directly under the project root, so it leads every module path below it
+        package = project_dir.name
 
         def write_app(name: str) -> pathlib.Path:
             """An application whose columns call udfs from a sibling module and from a package below it."""
-            directory = project_env / name
+            directory = project_dir / name
             (directory / 'pkg').mkdir(parents=True)
             (directory / 'pkg' / '__init__.py').write_text(f"SUFFIX = '{name}-pkg'\n")
             (directory / 'pkg' / 'inner.py').write_text(
@@ -577,8 +579,8 @@ class TestSchema:
                 dedent(
                     f"""
                     import pixeltable as pxt
-                    from {name}.helpers import TAG
-                    from {name}.pkg import SUFFIX
+                    from {package}.{name}.helpers import TAG
+                    from {package}.{name}.pkg import SUFFIX
 
                     @pxt.udf
                     def tag(s: str) -> str:
@@ -593,8 +595,8 @@ class TestSchema:
                     from __future__ import annotations
 
                     import pixeltable as pxt
-                    from {name}.functions import tag
-                    from {name}.pkg.inner import shout
+                    from {package}.{name}.functions import tag
+                    from {package}.{name}.pkg.inner import shout
 
                     TableModel = pxt.model_base()
 
@@ -612,8 +614,8 @@ class TestSchema:
         # two applications of one project declare a udf of the same name, in files of the same name
         for name in ('proj1', 'proj2'):
             app_file = write_app(name)
-            cli('schema', 'update', str(app_file), p(name), cwd=project_env)
-            assert_in_agreement(cli, str(app_file), p(name), cwd=project_env)
+            cli('schema', 'update', str(app_file), p(name))
+            assert_in_agreement(cli, str(app_file), p(name))
 
         # each application's module path is its own, so each udf reaches its own neighbors
         for name, expected in (('proj1', 'a-proj1-proj1-pkg'), ('proj2', 'a-proj2-proj2-pkg')):
@@ -623,8 +625,8 @@ class TestSchema:
             assert docs.select(docs.tagged, docs.shouted).collect()[0] == {'tagged': expected, 'shouted': 'A'}
 
         # a column stores which udf it calls, not the udf's body, so editing the body changes no schema
-        (project_env / 'proj1' / 'helpers.py').write_text("TAG = 'edited'\n")
-        assert_in_agreement(cli, str(project_env / 'proj1' / 'app.py'), p('proj1'), cwd=project_env)
+        (project_dir / 'proj1' / 'helpers.py').write_text("TAG = 'edited'\n")
+        assert_in_agreement(cli, str(project_dir / 'proj1' / 'app.py'), p('proj1'))
 
     @pytest.mark.local('the column is resolved in this process, so the report of a missing file lands here')
     def test_update_errors(

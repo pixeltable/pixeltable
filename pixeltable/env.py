@@ -268,10 +268,6 @@ class Env:
         if str(resolved) not in sys.path:
             sys.path.append(str(resolved))
 
-    def find_project_root(self, start: Path) -> Path | None:
-        """Look for the project configs, starting at start."""
-        return _find_project_root(start)
-
     @property
     def default_time_zone(self) -> ZoneInfo | None:
         return self._default_time_zone

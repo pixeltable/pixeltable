@@ -41,12 +41,15 @@ class PxtResult:
         return json.loads(self.stdout)
 
 
-@pytest.fixture(scope='session')
+@pytest.fixture(scope='session', autouse=True)
 def session_project(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Path:
     """The project the session's daemon serves.
 
     The daemon serves one project, and a client standing in another restarts it, so every CLI test works
     inside this one: its application files go in a directory of their own under this root.
+
+    autouse and session-scoped: the local proxy daemon is handed Env.project_root when it starts, and any
+    test in this package may be the one that starts it.
     """
     root = tmp_path_factory.mktemp('pxt_project')
     (root / 'pixeltable.toml').write_text('', encoding='utf-8')
@@ -189,7 +192,9 @@ class BackgroundPxt:
 
 
 @pytest.fixture
-def cli_bg(pxt_daemon: int, make_catalog_path: Callable[[str], str]) -> Iterator[Callable[..., BackgroundPxt]]:
+def cli_bg(
+    pxt_daemon: int, make_catalog_path: Callable[[str], str], session_project: pathlib.Path
+) -> Iterator[Callable[..., BackgroundPxt]]:
     """Runs a `pxt` command in the background, for one that serves rather than returning."""
     running: list[BackgroundPxt] = []
 
@@ -203,6 +208,8 @@ def cli_bg(pxt_daemon: int, make_catalog_path: Callable[[str], str]) -> Iterator
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            # in the session's project, so that client and daemon agree on which project this is
+            cwd=session_project,
         )
         handle = BackgroundPxt(proc, bound)
         running.append(handle)

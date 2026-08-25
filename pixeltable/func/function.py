@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Callable, Self, Sequence, cast
 import sqlalchemy as sql
 
 from pixeltable import exceptions as excs, type_system as ts
+from pixeltable.env import Env
 from pixeltable.utils import module_loader
 
 from .globals import resolve_symbol
@@ -575,6 +576,15 @@ class Function(ABC):
             instance = resolve_symbol(path)
             if isinstance(instance, Function):
                 return instance
+            elif instance is None:
+                # resolve_symbol() returns None when no prefix of path names a module it can import
+                root = Env.project_root
+                where = (
+                    'This process serves no project.'
+                    if root is None
+                    else f'A module outside the project at {root} is only importable if it is installed.'
+                )
+                return InvalidFunction(path, d, f'{path!r} names no importable module. {where}')
             else:
                 return InvalidFunction(
                     path, d, f'the symbol {path!r} is no longer a UDF. (Was the `@pxt.udf` decorator removed?)'
