@@ -139,11 +139,20 @@ class ResultSet:
         forbid_extra_fields = model_config.get('extra') == 'forbid'
 
         # schema validation; model field names are Python attributes and case-sensitive, whereas result column names
-        # are always folded, so match the two on their folded forms
-        folded_fields = {fold_identifier(name): name for name in model_fields}
+        # are always folded, so match the two on their folded forms.
+        folded_field_name_to_original: dict[str, str] = {}
+        for name in model_fields:
+            folded = fold_identifier(name)
+            if folded in folded_field_name_to_original:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Result column names are case-insensitive, but model {model.__name__} has fields '
+                    f'{folded_field_name_to_original[folded]!r} and {name!r} which both denote {folded!r}',
+                )
+            folded_field_name_to_original[folded] = name
         required_fields = {fold_identifier(name) for name, field in model_fields.items() if field.is_required()}
         col_names = set(self._col_names)
-        missing_fields = {folded_fields[name] for name in required_fields - col_names}
+        missing_fields = {folded_field_name_to_original[name] for name in required_fields - col_names}
         if len(missing_fields) == 1:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -157,7 +166,7 @@ class ResultSet:
                 f'result set columns {", ".join(self._col_names)}',
             )
         if forbid_extra_fields:
-            extra_fields = col_names - set(folded_fields.keys())
+            extra_fields = col_names - set(folded_field_name_to_original.keys())
             if len(extra_fields) > 0:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -166,7 +175,7 @@ class ResultSet:
 
         for row in self:
             # remap to the model's original spelling
-            remapped_row = {folded_fields.get(name, name): val for name, val in row.items()}
+            remapped_row = {folded_field_name_to_original.get(name, name): val for name, val in row.items()}
             try:
                 yield model(**remapped_row)
             except pydantic.ValidationError as e:

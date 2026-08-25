@@ -1185,6 +1185,27 @@ class TestQuery:
             _ = list(t.select(t.i, t.s, t.f, t.b, t.ts, t.d, extra=t.i + t.f).collect().to_pydantic(StrictTestModel))
         assert extract_fields(exc_info) == {'extra'}
 
+    def test_to_pydantic_case_collision(self, make_catalog_path: Callable[[str], str]) -> None:
+        """A model with two fields that fold together cannot be matched to result columns, and is rejected."""
+        p = make_catalog_path
+        t = pxt.create_table(p('pydantic_collision'), {'foo': pxt.Int | None, 'other': pxt.Int | None})
+        t.insert([{'foo': 1, 'other': 2}])
+        results = t.select(t.foo, t.other).collect()
+
+        class Required(pydantic.BaseModel):
+            Foo: int
+            foo: int
+            other: int
+
+        class Defaulted(pydantic.BaseModel):
+            Foo: int = -1
+            foo: int = -1
+            other: int
+
+        for model in (Defaulted, Required):
+            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"'Foo' and 'foo'"):
+                _ = list(results.to_pydantic(model))
+
     def test_cursor_lifecycle(self, test_tbl: pxt.Table) -> None:
         query = test_tbl.select(test_tbl.c1, test_tbl.c2, test_tbl.c3).order_by(test_tbl.c2)
 
