@@ -12,6 +12,7 @@ from .globals import (
     IndexSpec,
     MediaValidation,
     fold_identifier,
+    fold_mapping_keys,
     is_valid_identifier,
     normalize_schema,
 )

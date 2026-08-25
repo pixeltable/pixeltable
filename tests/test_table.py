@@ -4505,6 +4505,11 @@ class TestTable:
         t.drop_column('DOUBLED')
         assert 'doubled' not in t.columns()
 
+        # rows need not agree on which columns they set, nor on how they spell them
+        t.insert([{'MyCol': 10, 'OTHER': 'b'}, {'other': 'c'}])
+        rows = t.order_by(t.OTHER, asc=True).collect()
+        assert [(r['mycol'], r['other']) for r in rows] == [(3, 'a'), (10, 'b'), (None, 'c')]
+
         # the table itself resolves under any casing
         assert pxt.get_table(p('t'))._id == t._id
         assert pxt.get_table(p('T'))._id == t._id
@@ -4536,11 +4541,11 @@ class TestTable:
         t.add_computed_column(MYCOL=t.c + 1, if_exists='replace')
         assert t.get_metadata()['columns']['mycol']['is_stored']
 
-        # the same rule applies to an update spec, which update() and batch_update() both validate.
+        # the same rule applies to an insert row and to an update spec
+        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match='Column names are case-insensitive'):
+            t.insert([{'C': 1, 'c': 2}])
         with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match='Column names are case-insensitive'):
             t.update({'C': 1, 'c': 2})
-        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match='Column names are case-insensitive'):
-            t.batch_update([{'C': 1, 'c': 2, '_rowid': (1,)}])
 
     def test_case_only_rename_column(self, make_catalog_path: Callable[[str], str]) -> None:
         """Both spellings fold to the same name, so a case-only rename does nothing at all."""
