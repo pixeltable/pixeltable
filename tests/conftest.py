@@ -341,7 +341,11 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     if metafunc.definition.get_closest_marker('local') is not None:
         # local-only: don't fork the axis; catalog_mode defaults to 'local' and the nodeid stays unparametrized
         return
-    metafunc.parametrize('catalog_mode', ('local', 'proxy', 'cloud'), indirect=True)
+
+    params = ['local', 'proxy']
+    if metafunc.definition.get_closest_marker('skip_cloud') is None:
+        params.append('cloud')
+    metafunc.parametrize('catalog_mode', params, indirect=True)
 
 
 @pytest.fixture(scope='function')

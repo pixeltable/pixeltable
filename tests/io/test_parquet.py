@@ -388,7 +388,7 @@ class TestParquet:
         valid_images = get_image_files()
 
         # Parquet with valid image paths/URLs
-        img_url = sample_file_server.url(valid_images[3])
+        img_url = sample_file_server.url(valid_images[3], catalog_mode)
         img_data = pa.table({'image_path': [str(f) for f in valid_images[:3]] + [img_url]})
         img_pq = tmp_path / 'valid.parquet'
         pa_parquet.write_table(img_data, str(img_pq))

@@ -419,6 +419,7 @@ class TestSql:
         assert list(result) == expected
 
     @pytest.mark.parametrize('dbms', _IMPORT_DBMS)
+    @pytest.mark.skip_cloud('Relies on a locally instantiated DB server')
     def test_import_on_server(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path, dbms: str) -> None:
         p = make_catalog_path
         engine = _import_engine(dbms, tmp_path)
