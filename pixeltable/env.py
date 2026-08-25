@@ -81,6 +81,22 @@ def store_app_name() -> str:
     return f'pixeltable-{os.getpid()}'
 
 
+# Pixeltable DB name is used verbatim as Postgres DB name. Postgres will truncate anything longer than 63 bytes.
+MAX_DB_NAME_LEN = 63
+
+
+def validate_db_name(db_name: str) -> None:
+    from pixeltable.catalog.globals import is_valid_identifier
+
+    if not is_valid_identifier(db_name, allow_hyphens=True):
+        raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid database name: {db_name!r}')
+    if len(db_name) > MAX_DB_NAME_LEN:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'Database name is too long ({len(db_name)} characters; the limit is {MAX_DB_NAME_LEN})',
+        )
+
+
 class Env:
     """
     Store runtime globals for both local and non-local environments.
@@ -490,11 +506,26 @@ class Env:
                 raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Unsupported DBMS {dialect}')
             _logger.info(f'Using database at: {self.db_url}')
         else:
-            self._db_name = config.get_string_value('db') or 'pixeltable'
+            # the database name is an identifier, and is folded everywhere else it enters (Path, pxt localproxy)
+            from pixeltable.catalog.globals import fold_identifier
+
+            configured_name = config.get_string_value('db')
+            folded_name = fold_identifier(configured_name) if configured_name else 'pixeltable'
+            validate_db_name(folded_name)
             self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
             self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=None)
-            self._db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')
-            self._dbms = PostgresqlDbms(sql.make_url(self._db_url))
+            self._set_local_db(folded_name)
+            # Legacy database (with an unfolded name) fallback
+            if (
+                configured_name is not None
+                and configured_name != folded_name
+                and not self._store_db_exists(folded_name)
+                and self._store_db_exists(configured_name)
+            ):
+                self.console_logger.warning(
+                    f'Using database {configured_name!r}, which predates case-folded database names'
+                )
+                self._set_local_db(configured_name)
         assert self._dbms is not None
         assert self._db_url is not None
         assert self._db_name is not None
@@ -545,13 +576,22 @@ class Env:
                 assert isinstance(null_ordered_last, str)
                 _logger.info(f'Database null_ordered_last is now: {null_ordered_last}')
 
-    def _store_db_exists(self) -> bool:
-        assert self._db_name is not None
-        # don't try to connect to self.db_name, it may not exist
+    def _set_local_db(self, db_name: str) -> None:
+        """Point this Env at `db_name` on the embedded server."""
+        assert self._db_server is not None
+        self._db_name = db_name
+        self._db_url = self._db_server.get_uri(database=db_name, driver='psycopg')
+        self._dbms = PostgresqlDbms(sql.make_url(self._db_url))
+
+    def _store_db_exists(self, db_name: str | None = None) -> bool:
+        """Whether `db_name`, defaulting to this Env's database, exists in the store."""
+        name = self._db_name if db_name is None else db_name
+        assert name is not None
+        # don't try to connect to the database, it may not exist
         engine = sql.create_engine(self._dbms.default_system_db_url(), future=True)
         try:
             with engine.begin() as conn:
-                stmt = f"SELECT COUNT(*) FROM pg_database WHERE datname = '{self._db_name}'"
+                stmt = f"SELECT COUNT(*) FROM pg_database WHERE datname = '{name}'"
                 result = conn.scalar(sql.text(stmt))
                 assert result <= 1
                 return result == 1

@@ -232,3 +232,29 @@ class TestPath:
         assert str(dotted_appended) == 'a/b/c/d'
         assert str(unix_appended) == 'a/b/c/d'
         assert dotted_appended.components == unix_appended.components == ('a', 'b', 'c', 'd')
+
+    def test_non_ascii_identifiers(self) -> None:
+        # identifiers are restricted to ASCII, so that str.lower(), str.casefold() and SQL lower() all coincide
+        assert not is_valid_identifier('café')
+        assert not is_valid_identifier('Ω')
+        for bad in ('café', 'dir/café', 'pxt://café/tbl', 'pxt://variata:café/tbl'):
+            with pxt_raises(excs.ErrorCode.INVALID_PATH):
+                Path.parse(bad)
+
+    def test_case_folding(self) -> None:
+        # components fold, and the folded form is what str() renders
+        assert Path.parse('A/B').components == ('a', 'b')
+        assert str(Path.parse('MyDir/MyTable')) == 'mydir/mytable'
+        assert Path.parse('A/B') == Path.parse('a/b')
+        assert hash(Path.parse('A/B')) == hash(Path.parse('a/b'))
+        assert Path.from_components(('A', 'B')).components == ('a', 'b')
+
+        # org and db fold too
+        hosted = Path.parse('pxt://Org:DB/X')
+        assert (hosted.org, hosted.db, hosted.components) == ('org', 'db', ('x',))
+        assert hosted == Path.parse('pxt://org:db/x')
+        assert str(hosted) == 'pxt://org:db/x'
+
+        # an invalid path reports exactly what was typed, not a folded form the user never wrote
+        with pxt_raises(excs.ErrorCode.INVALID_PATH, match='Café'):
+            Path.parse('Café/x')

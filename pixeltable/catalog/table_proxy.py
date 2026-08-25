@@ -14,7 +14,7 @@ from pixeltable import type_system as ts
 from pixeltable.utils import parse_local_file_path
 
 from ..exprs import ColumnRef
-from .globals import normalize_schema
+from .globals import fold_identifier, normalize_schema
 from .path import Path as CatalogPath
 from .table import Table
 from .table_path import TableMdPath, TablePathKey
@@ -156,7 +156,7 @@ class TableProxy(Table):
         if name.startswith('_'):
             # an internal/dunder attribute miss is never a column; raise now to avoid recursing via _tbl_md_path
             raise AttributeError(name)
-        col_md = self._tbl_path.get_column_md_by_name(name)
+        col_md = self._tbl_path.get_column_md_by_name(fold_identifier(name))
         if col_md is None:
             raise AttributeError(f'Unknown column: {name}')
         return ColumnRef(col_md, self._tbl_path.is_validate_on_read(col_md))

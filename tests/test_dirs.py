@@ -275,6 +275,9 @@ class TestDirs:
         pxt.create_dir(p('dir2/sub1'))
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be identical'):
             pxt.move(p('dir2/sub1'), p('dir2/sub1'))
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be identical'):
+            pxt.move(p('dir2/sub1'), p('dir2/SUB1'))
+        assert p('dir2/sub1') in pxt.list_dirs(p('dir2'))
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='into its own subdirectory'):
             pxt.create_dir(p('dir2/sub1/subsub1'))
             pxt.move(p('dir2/sub1'), p('dir2/sub1/subsub1'))

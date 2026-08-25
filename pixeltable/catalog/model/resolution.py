@@ -9,7 +9,7 @@ from uuid import UUID
 from pixeltable import catalog, exceptions as excs, exprs, func, index
 from pixeltable.types import ColumnSpec
 
-from ..globals import MediaValidation
+from ..globals import MediaValidation, fold_mapping_keys
 from ..table_version_handle import TableVersionHandle
 
 if TYPE_CHECKING:
@@ -35,6 +35,9 @@ def prepare_model(
 
     Returns: a tuple of (rebound iterator, additional columns, additional idxs).
     """
+    # This is where a model's declarations cross from the Python domain into the catalog's: the class body keeps each
+    # column name as written, but from now on, identifiers are case-insensitive.
+    columns = fold_mapping_keys(columns)
 
     # View columns always go in a specific order:
     # - iterator columns first

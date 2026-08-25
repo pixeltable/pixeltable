@@ -11,7 +11,7 @@ from typing import IO, Any
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable.catalog.globals import is_system_column_name
+from pixeltable.catalog.globals import fold_identifier, is_system_column_name
 from pixeltable.exprs.column_property_ref import ColumnPropertyRef
 from pixeltable.exprs.column_ref import ColumnRef
 from pixeltable.exprs.expr import Expr
@@ -22,12 +22,14 @@ def normalize_pxt_col_name(name: str) -> str:
     Normalizes an arbitrary column name into a valid Pixeltable identifier by:
     - replacing any non-ascii or non-alphanumeric characters with an underscore _
     - prefixing the result with the letter 'c' if it starts with an underscore or a number
+    - folding it to lower case
     """
     id = ''.join(ch if ch.isascii() and ch.isalnum() else '_' for ch in name)
     if id[0].isnumeric():
         id = f'c_{id}'
     elif id[0] == '_':
         id = f'c{id}'
+    id = fold_identifier(id)
     assert pxt.catalog.is_valid_identifier(id), id
     return id
 
@@ -84,6 +86,8 @@ def normalize_schema_names(
 
     schema: dict[str, Any] = {}
     col_mapping: dict[str, str] = {}  # Maps column names to Pixeltable column names if needed
+    # A source name that only had to be case-folded is a valid identifier; anything that needed more than that is not.
+    invalid_names: list[str] = []
     for in_name, pxt_type in in_schema.items():
         pxt_name = normalize_pxt_col_name(in_name)
         # Ensure that column names are unique by appending a distinguishing suffix
@@ -95,16 +99,16 @@ def normalize_schema_names(
             n += 1
         schema[pxt_fname] = pxt_type
         col_mapping[in_name] = pxt_fname
+        if fold_identifier(in_name) != pxt_fname:
+            invalid_names.append(in_name)
 
+    if len(invalid_names) > 0 and require_valid_pxt_column_names:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f'Column names must be valid pixeltable identifiers. Invalid names: {", ".join(invalid_names)}',
+        )
     # Determine if the col_mapping is the identity mapping
-    non_identity_keys = [k for k, v in col_mapping.items() if k != v]
-    if len(non_identity_keys) > 0:
-        if require_valid_pxt_column_names:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_ARGUMENT,
-                f'Column names must be valid pixeltable identifiers. Invalid names: {", ".join(non_identity_keys)}',
-            )
-    else:
+    if all(k == v for k, v in col_mapping.items()):
         col_mapping = None
 
     # Report any primary key columns that are not in the source as an error

@@ -4,7 +4,7 @@ import dataclasses
 import enum
 import itertools
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, TypeVar, cast
 
 from typing_extensions import TypeForm
 
@@ -19,6 +19,8 @@ if TYPE_CHECKING:
 
     from .column import Column
     from .types import ColumnVersionMd
+
+_T = TypeVar('_T')
 
 # name of the position column in a component view
 _POS_COLUMN_NAME = 'pos'
@@ -121,18 +123,48 @@ class IfNotExistsParam(enum.Enum):
             ) from None
 
 
+def fold_identifier(name: str) -> str:
+    """Fold an identifier to its stored form.
+
+    Note: Pixeltable only allows ASCII characters in identifiers, so we don't need to worry about any exotic characters
+    here.
+    """
+    return name.lower()
+
+
+def fold_mapping_keys(m: Mapping[str, _T]) -> dict[str, _T]:
+    """Fold the keys of a user-supplied column mapping, raising INVALID_SCHEMA if keys collide once folded."""
+    by_folded: dict[str, list[str]] = {}
+    for name in m:
+        by_folded.setdefault(fold_identifier(name), []).append(name)
+    for names in by_folded.values():
+        if len(names) > 1:
+            spellings = ', '.join(repr(n) for n in names)
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA, f'Column names are case-insensitive, but {spellings} were specified'
+            )
+    return {fold_identifier(name): spec for name, spec in m.items()}
+
+
 def is_valid_identifier(name: str, *, allow_hyphens: bool = False) -> bool:
+    """Identifiers are restricted to ASCII: on ASCII, str.lower(), str.casefold() and SQL LOWER() all coincide, so
+    there is no ambiguity about which folding an identifier went through, and no Unicode normalization to reconcile.
+    """
+    if not name.isascii():
+        return False
     # If allow_hyphens=True, we allow hyphens to appear in the name, but we still do not permit a name to start with one
     adj_name = name.replace('-', '_') if allow_hyphens else name
     return adj_name.isidentifier() and not name.startswith('-') and not name.startswith('_')
 
 
 def is_system_column_name(name: str) -> bool:
+    """name must already be folded."""
     from pixeltable.catalog import InsertableTable, View
 
     global _PREDEF_SYMBOLS  # noqa: PLW0603
     if _PREDEF_SYMBOLS is None:
-        _PREDEF_SYMBOLS = set(itertools.chain(dir(InsertableTable), dir(View)))
+        # fold the symbols, so that the ban doesn't depend on every public attribute staying lowercase
+        _PREDEF_SYMBOLS = {fold_identifier(s) for s in itertools.chain(dir(InsertableTable), dir(View))}
     return name in _PREDEF_SYMBOLS
 
 
@@ -151,7 +183,7 @@ def normalize_schema(schema: Mapping[str, TypeForm | ColumnSpec | exprs.Expr]) -
     from .column import Column
 
     result: dict[str, ColumnSpec] = {}
-    for name, spec in schema.items():
+    for name, spec in fold_mapping_keys(schema).items():
         if isinstance(spec, exprs.Expr):
             result[name] = {'value': spec}
             continue

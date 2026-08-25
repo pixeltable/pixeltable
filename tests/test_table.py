@@ -298,6 +298,12 @@ class TestTable:
             pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'move\(\): source and destination cannot be identical'
         ):
             pxt.move(p('tbl1'), p('tbl1'))
+        # a destination that differs only in case denotes the same path, so it is rejected the same way
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'move\(\): source and destination cannot be identical'
+        ):
+            pxt.move(p('tbl2'), p('TBL2'))
+        assert sorted(pxt.list_tables(p(''))) == sorted([p('tbl2'), p('tbl3')])
 
     def test_columns(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
@@ -4425,3 +4431,100 @@ class TestTable:
                 p('tbl_invalid'),
                 {'c': {'type': pxt.Int | None, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
             )
+
+    def test_case_insensitive_columns(self, make_catalog_path: Callable[[str], str]) -> None:
+        """Column names are matched case-insensitively, and the folded spelling is what gets stored."""
+        p = make_catalog_path
+        t = pxt.create_table(p('T'), {'MyCol': pxt.Int | None, 'Other': pxt.String}, primary_key=['OTHER'])
+
+        # stored and displayed folded
+        assert t.columns() == ['mycol', 'other']
+        assert set(t.get_metadata()['columns'].keys()) == {'mycol', 'other'}
+
+        # every lookup form resolves, whatever the casing
+        assert t.mycol.col_md.name == 'mycol'
+        assert t.MyCol.col_md.name == 'mycol'
+        assert t['MYCOL'].col_md.name == 'mycol'
+
+        t.insert([{'MYCOL': 1, 'other': 'a'}])
+        assert t.select(t.MyCol).collect()['mycol'] == [1]
+        t.update({'MyCol': 2})
+        assert t.select(t.mycol).collect()['mycol'] == [2]
+        t.batch_update([{'MYCOL': 3, 'OTHER': 'a'}])
+        assert t.select(t.mycol).collect()['mycol'] == [3]
+
+        t.add_computed_column(Doubled=t.MyCol * 2)
+        assert 'doubled' in t.columns()
+        t.recompute_columns('DOUBLED')
+        t.drop_column('DOUBLED')
+        assert 'doubled' not in t.columns()
+
+        # the table itself resolves under any casing
+        assert pxt.get_table(p('t'))._id == t._id
+        assert pxt.get_table(p('T'))._id == t._id
+
+    def test_case_insensitive_duplicate_columns(self, make_catalog_path: Callable[[str], str]) -> None:
+        """A schema dict whose keys collide once folded is rejected, naming both spellings."""
+        p = make_catalog_path
+        # create_table and add_columns each build their own mapping, so assert on both
+        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match=r"'a'.*'A'|'A'.*'a'"):
+            pxt.create_table(p('bad'), {'a': pxt.Int | None, 'A': pxt.String | None})
+
+        t = pxt.create_table(p('t'), {'c': pxt.Int | None})
+        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match=r"'a'.*'A'|'A'.*'a'"):
+            t.add_columns({'a': pxt.Int | None, 'A': pxt.String | None})
+
+        # ... and a folded collision with an existing column is a duplicate, under every if_exists mode
+        t.add_column(mycol=pxt.Int | None)
+        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS):
+            t.add_column(MyCol=pxt.String | None)
+        t.add_column(MyCol=pxt.String | None, if_exists='ignore')
+        assert t.get_metadata()['columns']['mycol']['type_'] == 'Int | None'
+        t.add_column(MyCol=pxt.String | None, if_exists='replace')
+        assert t.get_metadata()['columns']['mycol']['type_'] == 'String | None'
+
+        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS):
+            t.add_computed_column(MYCOL=t.c + 1)
+        t.add_computed_column(MYCOL=t.c + 1, if_exists='ignore')
+        assert t.get_metadata()['columns']['mycol']['type_'] == 'String | None'
+        t.add_computed_column(MYCOL=t.c + 1, if_exists='replace')
+        assert t.get_metadata()['columns']['mycol']['is_stored']
+
+    def test_case_only_rename_column(self, make_catalog_path: Callable[[str], str]) -> None:
+        """Both spellings fold to the same name, so a case-only rename does nothing at all."""
+        p = make_catalog_path
+        t = pxt.create_table(p('t'), {'a': pxt.Int | None, 'b': pxt.Int | None})
+        version = t.get_metadata()['version']
+        t.rename_column('a', 'A')  # no-op: not COLUMN_ALREADY_EXISTS
+        assert t.columns() == ['a', 'b']
+        assert t.get_metadata()['version'] == version  # no new schema version
+
+        # a missing column is still an error, whatever the casing
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND):
+            t.rename_column('nope', 'NOPE')
+
+        # renaming to a different name still works, in any casing
+        t.rename_column('A', 'C')
+        assert sorted(t.columns()) == ['b', 'c']
+
+    def test_reserved_names_are_case_insensitive(self, make_catalog_path: Callable[[str], str]) -> None:
+        """Once names fold, `Count` is `count` -- so the reserved-name and keyword bans apply in every casing."""
+        p = make_catalog_path
+        t = pxt.create_table(p('t'), {'x': pxt.Int | None})
+
+        for name in ('Count', 'INSERT', 'Select'):
+            with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
+                pxt.create_table(p('bad'), {name: pxt.Int | None})
+            with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
+                t.add_columns({name: pxt.Int | None})
+
+        for name in ('Class', 'FOR'):
+            with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
+                pxt.create_table(p('bad'), {name: pxt.Int | None})
+
+        # rename_column goes through the same validation, so the bans can't be reached around it
+        with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
+            t.rename_column('x', 'Count')
+        with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
+            t.rename_column('x', 'select')
+        assert t.columns() == ['x']

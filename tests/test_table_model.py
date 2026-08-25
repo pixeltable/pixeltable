@@ -7,7 +7,7 @@ from __future__ import annotations
 import os
 import pathlib
 import textwrap
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 import pytest
@@ -2319,3 +2319,119 @@ class TestTableModel:
                 os.environ['PIXELTABLE_CONFIG'] = original_config
             reload_env()
             reload_catalog()
+
+    def test_model_case_insensitive_columns(self, make_catalog_path: Callable[[str], str]) -> None:
+        """A model's column names fold, while the Python spellings it declared keep resolving."""
+        p = make_catalog_path
+        TableModel = pxt.model_base()
+
+        class M(TableModel, name='M'):
+            MyCol: pxt.Int
+            doubled = MyCol * 2  # a class-body reference to the as-written spelling
+
+        # the class body's spelling resolves before binding ...
+        assert isinstance(M.MyCol, pxt.exprs.ColumnRefByName)
+        # ... and only that spelling: a class body follows Python's rules, so a re-cased reference is a NameError
+        with pytest.raises(NameError):
+            exec(
+                'class Bad(TableModel, name="bad"):\n    MyCol: pxt.Int\n    d = mycol * 2\n',
+                {'pxt': pxt, 'TableModel': TableModel},
+            )
+
+        TableModel.create_all(p(''))
+        tbl = M.table
+
+        # the stored column and the table itself are folded
+        assert tbl.columns() == ['mycol', 'doubled']
+        assert tbl.get_metadata()['name'] == 'm'
+
+        # ... and after binding, both spellings are the same real ColumnRef
+        assert isinstance(M.mycol, pxt.exprs.ColumnRef)
+        assert M.MyCol is M.mycol
+        # a class attribute is Python-domain, so a casing that was never declared does *not* resolve;
+        # the table handle is where case-insensitivity begins
+        with pytest.raises(AttributeError):
+            _ = M.MYCOL
+        assert M.table.MYCOL.col_md.name == 'mycol'
+
+        M.insert([{'MYCOL': 3}])
+        assert M.collect()['doubled'] == [6]
+
+        # re-casing an attribute is not a schema change
+        assert len(TableModel.update_all(p(''))['m']['ops']) == 0
+
+    @pytest.mark.parametrize(
+        'body',
+        [
+            'Foo: pxt.Int\n            foo: pxt.Int',  # two bare annotations of the same type
+            'Foo = 1\n            foo = 2',  # two assignments
+            'Foo: pxt.Int\n            foo = 1',  # one of each
+        ],
+        ids=['annotations', 'assignments', 'mixed'],
+    )
+    def test_model_case_insensitive_duplicate_columns(self, body: str, make_catalog_path: Callable[[str], str]) -> None:
+        """Two declarations that fold to one column are a Pixeltable-domain collision, not a Python one.
+
+        The class body is Python: `Foo` and `foo` are distinct names there and both are recorded. The collision is
+        reported where the declarations cross into the catalog -- on create_all(), and on the update_all() diff.
+        """
+        p = make_catalog_path
+        TableModel = pxt.model_base()
+        src = textwrap.dedent(f"""
+        class M(TableModel, name='m'):
+            id: pxt.Int
+            {body}
+        """)
+        ns: dict[str, Any] = {'pxt': pxt, 'TableModel': TableModel}
+        exec(src, ns)  # accepted: both spellings are distinct, legal Python names
+        assert {'Foo', 'foo'} <= set(ns['M'].__columns__)
+
+        for cross in (lambda: TableModel.create_all(p('')), lambda: TableModel.get_model_diff(p(''))):
+            with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"'Foo', 'foo' were specified"):
+                cross()
+
+    def test_model_case_insensitive_table_names(self) -> None:
+        """Two models whose names fold together denote one table, and the second is rejected at declaration."""
+        TableModel = pxt.model_base()
+
+        class First(TableModel, name='Foo'):
+            id: pxt.Int
+
+        assert First.__table_spec__['name'] == 'foo'
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='previously used by `First`'):
+
+            class Second(TableModel, name='foo'):
+                id: pxt.Int
+
+    def test_model_case_insensitive_index_names(self) -> None:
+        """Index names fold, so two that differ only in case collide."""
+        TableModel = pxt.model_base()
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='index names must be unique'):
+
+            class M(TableModel, name='m'):
+                a: pxt.String
+                b: pxt.String
+                __indexes__ = [
+                    EmbeddingIndex(a, embedding=dummy_embedding.using(n=512), name='Idx'),
+                    EmbeddingIndex(b, embedding=dummy_embedding.using(n=512), name='idx'),
+                ]
+
+    def test_view_model_case_insensitive_shadowing(self, make_catalog_path: Callable[[str], str]) -> None:
+        """Unlike create_view, a view model refuses a column that shadows an inherited one -- in any casing."""
+        p = make_catalog_path
+        TableModel = pxt.model_base()
+
+        class Base(TableModel, name='base'):
+            foo: pxt.Int
+            other: pxt.Int | None
+
+        # the check is only reachable when the base query is select(*), and it fires at creation time
+        class V(TableModel, name='v', base=Base):
+            Foo: pxt.String | None
+
+        with pxt_raises(excs.ErrorCode.COLUMN_ALREADY_EXISTS, match='already exists in the base table'):
+            TableModel.create_all(p(''))
+
+        assert V is not None

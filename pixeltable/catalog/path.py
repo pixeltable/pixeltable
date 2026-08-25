@@ -5,7 +5,7 @@ import re
 
 from pixeltable import exceptions as excs
 
-from .globals import is_valid_identifier
+from .globals import fold_identifier, is_valid_identifier
 
 # pxt://<org>[:<db>][/<rest>]: org is a required name, db an optional name, rest the in-db path part
 # (which may carry a trailing :version). The org:db colon lives in the netloc and never collides with
@@ -37,6 +37,12 @@ class Path:
     version: int | None = None
 
     def __post_init__(self) -> None:
+        if self.org is not None:
+            object.__setattr__(self, 'org', fold_identifier(self.org))
+        if self.db is not None:
+            object.__setattr__(self, 'db', fold_identifier(self.db))
+        object.__setattr__(self, 'components', tuple(fold_identifier(c) for c in self.components))
+
         if self.db is not None and self.org is None:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_PATH, f'Path specifies a database ({self.db!r}) but no organization'

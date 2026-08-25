@@ -20,6 +20,7 @@ from pyarrow.parquet import ParquetDataset
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+from pixeltable.catalog import fold_identifier
 from pixeltable.io.pandas import _df_check_primary_key_values, _df_row_to_pxt_row, df_infer_schema
 from pixeltable.utils.http import fetch_url
 from pixeltable.utils.pydantic import is_json_convertible
@@ -163,7 +164,7 @@ class TableDataConduit:
     def check_source_columns_are_insertable(self, columns: Iterable[str]) -> None:
         col_name_set: set[str] = set()
         for col_name in columns:  # FIXME
-            mapped_col_name = self.source_column_map.get(col_name, col_name)
+            mapped_col_name = fold_identifier(self.source_column_map.get(col_name, col_name))
             col_name_set.add(mapped_col_name)
             if mapped_col_name not in self.pxt_schema:
                 raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column name {mapped_col_name}')
@@ -258,7 +259,7 @@ class RowDataTableDataConduit(TableDataConduit):
         col_names: set[str] = set()
         output_row: dict[str, Any] = {}
         for col_name, val in row.items():
-            mapped_col_name = self.source_column_map.get(col_name, col_name)
+            mapped_col_name = fold_identifier(self.source_column_map.get(col_name, col_name))
             col_names.add(mapped_col_name)
             if mapped_col_name not in self.pxt_schema:
                 raise excs.NotFoundError(

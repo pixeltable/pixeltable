@@ -10,7 +10,7 @@ from types import MethodType
 from typing import TYPE_CHECKING, Any, Callable, Generic, Iterator, Self, TypeVar, overload
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
-from pixeltable.catalog.globals import _POS_COLUMN_NAME
+from pixeltable.catalog.globals import _POS_COLUMN_NAME, fold_identifier
 from pixeltable.func.globals import resolve_symbol
 
 from .signature import Signature
@@ -65,6 +65,22 @@ class PxtIterator(abc.ABC, Iterator[T], Generic[T]):
         return None
 
 
+def _make_outputs(output_schema: dict[str, ts.ColumnType], unstored_cols: list[str]) -> dict[str, 'IteratorOutput']:
+    """Build the iterator's output map.
+
+    A component view exposes the pos column of its rowid; we create that column here, so it gets assigned a column id.
+
+    stored=False: it is not stored separately (it's already stored as part of the rowid).
+    """
+    outputs = {_POS_COLUMN_NAME: IteratorOutput(orig_name=_POS_COLUMN_NAME, is_stored=False, col_type=ts.IntType())}
+    for name, col_type in output_schema.items():
+        folded_name = fold_identifier(name)
+        outputs[folded_name] = IteratorOutput(
+            orig_name=name, is_stored=(folded_name not in unstored_cols), col_type=col_type
+        )
+    return outputs
+
+
 class GeneratingFunction:
     """
     A function that evaluates to iterators over its inputs.
@@ -88,7 +104,8 @@ class GeneratingFunction:
 
     def __init__(self, decorated_callable: Callable, unstored_cols: list[str], fqn: str | None = None) -> None:
         self.decorated_callable = decorated_callable
-        self.unstored_cols = unstored_cols
+        # these name iterator outputs, which become view column names
+        self.unstored_cols = [fold_identifier(name) for name in unstored_cols]
         if fqn is None:
             self.fqn = f'{decorated_callable.__module__}.{decorated_callable.__qualname__}'
         else:
@@ -272,16 +289,7 @@ class GeneratingFunction:
 
         output_schema = self.call_output_schema(bound_args)
 
-        # a component view exposes the pos column of its rowid;
-        # we create that column here, so it gets assigned a column id;
-        # stored=False: it is not stored separately (it's already stored as part of the rowid)
-        outputs = {_POS_COLUMN_NAME: IteratorOutput(orig_name=_POS_COLUMN_NAME, is_stored=False, col_type=ts.IntType())}
-        outputs.update(
-            {
-                name: IteratorOutput(orig_name=name, is_stored=(name not in self.unstored_cols), col_type=col_type)
-                for name, col_type in output_schema.items()
-            }
-        )
+        outputs = _make_outputs(output_schema, self.unstored_cols)
 
         return GeneratingFunctionCall(self, args, kwargs, bound_args, outputs, validation_error=None)
 
@@ -474,18 +482,11 @@ class GeneratingFunctionCall:
                 for param_name, param in it.py_sig.parameters.items():
                     if param_name not in bound_args and param.default is not inspect.Parameter.empty:
                         literal_args[param_name] = param.default
-                _, unstored_cols = it.decorated_callable.output_schema(literal_args)  # type: ignore[attr-defined]
+                _, raw_unstored_cols = it.decorated_callable.output_schema(literal_args)  # type: ignore[attr-defined]
+                unstored_cols = [fold_identifier(name) for name in raw_unstored_cols]
             else:
                 unstored_cols = it.unstored_cols
-            outputs = {
-                _POS_COLUMN_NAME: IteratorOutput(orig_name=_POS_COLUMN_NAME, is_stored=False, col_type=ts.IntType())
-            }
-            outputs.update(
-                {
-                    name: IteratorOutput(orig_name=name, is_stored=(name not in unstored_cols), col_type=col_type)
-                    for name, col_type in output_schema.items()
-                }
-            )
+            outputs = _make_outputs(output_schema, unstored_cols)
         else:
             # Validate call_output_schema against stored outputs
             assert any(output.is_pos_column for output in outputs.values())

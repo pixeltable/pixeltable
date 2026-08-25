@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
-from pixeltable.catalog import Path
+from pixeltable.catalog import Path, fold_identifier
 from pixeltable.config import SECRET_SECTION, Config
 from pixeltable.env import Env
 from pixeltable.service import management_client
@@ -195,6 +195,7 @@ def table_rows(req: Request) -> models.RowsResponse:
     path = req.resolve_path(req.query_str('path') or '')
     n = req.query_int('n', default=10, ge=1, le=1000)
     cols_list = _split_csv(req.query_str('cols'))
+    cols_list = [fold_identifier(c) for c in cols_list] if cols_list is not None else None
     if cols_list is not None and len(cols_list) > 1000:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'too many columns requested (max 1000)')
 
@@ -237,6 +238,7 @@ def table_row(req: Request) -> models.GetResponse:
     # force a string interpretation from the URL.
     pk_values: list[Any] = [_coerce_pk(v) for v in pk]
     cols_list = _split_csv(req.query_str('cols'))
+    cols_list = [fold_identifier(c) for c in cols_list] if cols_list is not None else None
 
     t = pxt.get_table(path)
     md = t.get_metadata()
@@ -523,11 +525,12 @@ def dashboard_pipeline_root(_req: Request) -> dict[str, Any]:
 @router.get('/api/dashboard/tables/data')
 def dashboard_table_data(req: Request) -> dict[str, Any]:
     path = req.resolve_path(req.query_str('path') or '')
+    order_by = req.query_str('order_by')
     return bridge.get_table_data(
         path,
         offset=req.query_int('offset', default=0, ge=0),
         limit=req.query_int('limit', default=50, ge=1, le=500),
-        order_by=req.query_str('order_by'),
+        order_by=fold_identifier(order_by) if order_by is not None else None,
         order_desc=req.query_bool('order_desc'),
         errors_only=req.query_bool('errors_only'),
     )

@@ -292,7 +292,8 @@ def _serialize(obj: Any, sink: PartSink) -> Any:
             'v': {
                 'schema': {name: t.as_dict() for name, t in obj._col_types.items()},
                 'rows': [[_serialize(val, sink) for val in row._data] for row in obj],
-                'errors': [row.errors for row in obj],
+                # row.errors is a Mapping, but pydantic needs a dict
+                'errors': [dict(row.errors) for row in obj],
                 'index_values': [
                     {name: _serialize(val, sink) for name, val in row.index_values.items()} for row in obj
                 ],

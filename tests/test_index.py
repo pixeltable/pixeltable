@@ -1527,3 +1527,29 @@ class TestIndex:
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Snapshot does not support indices'):
             snap.select(snap.text).order_by(snap.sim_unstored, asc=False).collect()
+
+    def test_case_insensitive_index_names(
+        self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function
+    ) -> None:
+        """Index names are identifiers: they fold on creation and on every lookup."""
+        p = make_catalog_path
+        t = pxt.create_table(p('t'), {'text': pxt.String | None})
+        t.insert([{'text': 'hello'}])
+
+        t.add_embedding_index('TEXT', idx_name='Idx', string_embed=local_embed)
+        assert 'idx' in t.get_metadata()['indexes']
+
+        sim = t.text.similarity(string='hello', idx='IDX')
+        assert len(t.order_by(sim, asc=False).collect()) == 1
+
+        # a second index differing only in case is a duplicate
+        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS):
+            t.add_embedding_index('text', idx_name='IDX', string_embed=local_embed)
+
+        t.drop_index(idx_name='IDX')
+        assert 'idx' not in t.get_metadata()['indexes']
+
+        # a generated name never collides with a user's, whatever its casing
+        t.add_embedding_index('text', idx_name='IDX0', string_embed=local_embed)
+        t.add_embedding_index('text', metric='ip', string_embed=local_embed)
+        assert sorted(t.get_metadata()['indexes'].keys()) == ['idx0', 'idx1']

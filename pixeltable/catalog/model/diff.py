@@ -9,7 +9,7 @@ from uuid import UUID
 from pixeltable import catalog, exprs
 from pixeltable.types import ColumnSpec
 
-from ..globals import col_type_from_spec
+from ..globals import col_type_from_spec, fold_identifier, fold_mapping_keys
 from ..table_metadata import ColumnMetadata, TableMetadata
 
 if TYPE_CHECKING:
@@ -181,7 +181,8 @@ class _TableProperties:
 
 
 def user_columns(model: TableModelMeta) -> dict[str, ColumnSpec]:
-    """The model's declared columns, plus any its base query projects via a `select()` clause."""
+    """The model's declared columns, plus any its base query projects via a `select()` clause. Keyed by folded column
+    name."""
     specs: dict[str, ColumnSpec] = dict(model.__columns__)
     base = model.__table_spec__['base']
     if base is not None and base.select_list is not None:
@@ -191,18 +192,19 @@ def user_columns(model: TableModelMeta) -> dict[str, ColumnSpec]:
             specs[item.name] = {'value': item, 'stored': False}
         for col_name, expr in named_items.items():
             specs[col_name] = {'value': expr, 'stored': not isinstance(expr, exprs.ColumnRefByName)}
-    return specs
+    return fold_mapping_keys(specs)
 
 
 def base_query_columns(model: TableModelMeta) -> set[str]:
-    """Names of the columns a model's base query projects via its `select()` clause (empty if there is none)."""
+    """Folded names of the columns a model's base query projects via its `select()` clause (empty if there is none)."""
     base = model.__table_spec__['base']
     if base is None or base.select_list is None:
         return set()
     items, named_items = base.select_list
     # "anonymous" compound expressions are not allowed here, so every positional item names a column
     assert all(isinstance(item, exprs.ColumnRefByName) for item in items)
-    return {cast(exprs.ColumnRefByName, item).name for item in items} | set(named_items.keys())
+    names = {cast(exprs.ColumnRefByName, item).name for item in items} | set(named_items.keys())
+    return {fold_identifier(name) for name in names}
 
 
 def _format_column_spec(spec: ColumnSpec) -> str:

@@ -399,17 +399,21 @@ def create_view(
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
     media_validation_ = catalog.MediaValidation.validated(media_validation, 'media_validation')
 
-    if additional_columns is None:
-        additional_columns = {}
-    else:
-        # additional columns should not be in the base table
-        base_col_names = {cvmd.name for cvmd in tbl_path.column_md()}
-        for col_name in additional_columns:
-            if col_name in base_col_names:
-                raise excs.AlreadyExistsError(
-                    excs.ErrorCode.COLUMN_ALREADY_EXISTS,
-                    f'Column {col_name!r} already exists in the base table {tbl_path.tbl_name()!r}.',
-                )
+    additional_columns = catalog.normalize_schema(additional_columns or {})
+    # additional columns should not be in the base table
+    base_col_names = {col_md.name for col_md in tbl_path.column_md()}
+    shadowed = [name for name in additional_columns if name in base_col_names]
+    if len(shadowed) == 1:
+        raise excs.AlreadyExistsError(
+            excs.ErrorCode.COLUMN_ALREADY_EXISTS,
+            f'Column {shadowed[0]!r} already exists in the base table {tbl_path.tbl_name()!r}.',
+        )
+    elif len(shadowed) > 1:
+        raise excs.AlreadyExistsError(
+            excs.ErrorCode.COLUMN_ALREADY_EXISTS,
+            f'Columns {", ".join(repr(name) for name in shadowed)} already exist in the base table '
+            f'{tbl_path.tbl_name()!r}.',
+        )
 
     if iterator is not None and not isinstance(iterator, func.GeneratingFunctionCall):
         raise excs.RequestError(
@@ -425,10 +429,6 @@ def create_view(
         json.dumps(custom_metadata)
     except (TypeError, ValueError) as err:
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, '`custom_metadata` must be JSON-serializable') from err
-
-    # canonicalize/validate the additional columns once here, so both local and delegated catalogs receive the same
-    # mapping and report the same errors
-    additional_columns = catalog.normalize_schema(additional_columns)
 
     view, was_created = (
         get_runtime()
@@ -625,11 +625,12 @@ def move(
     if if_exists_ not in (catalog.IfExistsParam.ERROR, catalog.IfExistsParam.IGNORE):
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, "`if_exists` must be one of 'error' or 'ignore'")
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-    if path == new_path:
-        raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION, 'move(): source and destination cannot be identical'
-        )
     path_obj, new_path_obj = catalog.Path.parse(path), catalog.Path.parse(new_path)
+    if path_obj == new_path_obj:
+        raise excs.RequestError(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            f'move(): source and destination cannot be identical ({path!r} -> {new_path!r})',
+        )
     if path_obj.catalog_uri != new_path_obj.catalog_uri:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION,

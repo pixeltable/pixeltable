@@ -11,6 +11,7 @@ from .globals import (
     IfNotExistsParam,
     IndexSpec,
     MediaValidation,
+    fold_identifier,
     is_valid_identifier,
     normalize_schema,
 )

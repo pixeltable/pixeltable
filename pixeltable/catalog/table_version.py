@@ -25,7 +25,7 @@ from pixeltable.runtime import get_runtime
 from pixeltable.utils.object_stores import ObjectOps
 
 from .column import Column
-from .globals import _ROWID_COLUMN_NAME, IndexSpec, MediaValidation, is_valid_identifier
+from .globals import _ROWID_COLUMN_NAME, IndexSpec, MediaValidation, fold_identifier, is_valid_identifier
 from .tbl_ops import (
     CreateColumnMdOp,
     CreateStoreColumnsOp,
@@ -950,8 +950,10 @@ class TableVersion:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot rename base table column {col.name!r}'
             )
-        if not is_valid_identifier(new_name):
-            raise excs.RequestError(excs.ErrorCode.INVALID_COLUMN_NAME, f'Invalid column name: {new_name}')
+        if old_name == new_name:
+            # no-op: return early and do not create a new schema version
+            return
+        Column.validate_name(new_name)
         if new_name in self.cols_by_name:
             raise excs.AlreadyExistsError(excs.ErrorCode.COLUMN_ALREADY_EXISTS, f'Column {new_name!r} already exists')
         del self.cols_by_name[old_name]
@@ -1199,12 +1201,13 @@ class TableVersion:
         self, value_spec: dict[str, Any], allow_pk: bool, allow_exprs: bool, allow_media: bool
     ) -> dict[Column, exprs.Expr]:
         update_targets: dict[Column, exprs.Expr] = {}
-        for col_name, val in value_spec.items():
-            if not isinstance(col_name, str):
+        for raw_col_name, val in value_spec.items():
+            if not isinstance(raw_col_name, str):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT,
-                    f'Update specification: dict key must be column name; got {col_name!r}',
+                    f'Update specification: dict key must be column name; got {raw_col_name!r}',
                 )
+            col_name = fold_identifier(raw_col_name)
             if col_name == _ROWID_COLUMN_NAME:
                 # a valid rowid is a list of ints, one per rowid column
                 num_rowid_cols = len(self.store_tbl.rowid_columns())
