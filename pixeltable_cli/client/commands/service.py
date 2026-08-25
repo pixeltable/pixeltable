@@ -61,19 +61,25 @@ ingest.add_insert_route(
 ingest.add_compute_route(Docs, path='/titles', inputs=[Docs.title], outputs=[Docs.title_upper])
 '''
 
-DIFF_EPILOG = """\
+_APP_FILE = """
+Project:
+  APP has to sit under a project root: a directory holding a pixeltable.toml, or a pyproject.toml
+  with a [tool.pixeltable] section. 'pxt init' establishes one. A udf is recorded as a module path
+  relative to that root, which is how the serving process resolves it."""
+
+DIFF_EPILOG = f"""\
 Examples:
   pxt service diff app.py my_dir          # what update would change; exit 2 if anything is pending
   pxt service diff app.py my_dir --json
-"""
+{_APP_FILE}"""
 
-UPDATE_EPILOG = """\
+UPDATE_EPILOG = f"""\
 Examples:
   pxt service update app.py my_dir                       # start what is declared, restart what changed
   pxt service update app.py my_dir --allow-destructive   # also stop serving routes that changed or went away
-"""
+{_APP_FILE}"""
 
-RUN_EPILOG = """\
+RUN_EPILOG = f"""\
 Examples:
   pxt service run app.py my_dir              # the only service the file declares, until interrupted
   pxt service run app.py my_dir ingest       # the named one, when the file declares several
@@ -81,14 +87,14 @@ Examples:
 
 One service per process, as 'update' deploys them. Nothing is recorded: it runs for as long as this process
 does. Use 'update' to run it in the background, where 'list' and 'stop' can find it again.
-"""
+{_APP_FILE}"""
 
-PRUNE_EPILOG = """\
+PRUNE_EPILOG = f"""\
 Examples:
   pxt service prune app.py my_dir     # stop and forget the services the file does not declare
 
 A stopped service can be started again with 'pxt service update'.
-"""
+{_APP_FILE}"""
 
 STOP_EPILOG = """\
 Examples:
@@ -103,7 +109,7 @@ Examples:
   pxt service list my_dir             # those bound at my_dir and below it
 """
 
-CHECK_EPILOG = """\
+CHECK_EPILOG = f"""\
 Examples:
   pxt service check app.py                 # before deploying it anywhere
   pxt service check app.py --json
@@ -117,7 +123,7 @@ Notes:
   service and a model base, and every udf its columns call is named by a module path another
   process resolves. Takes no TARGET, so it says nothing about what a target can serve;
   'pxt service diff' answers that.
-"""
+{_APP_FILE}"""
 
 VERBS = ('diff', 'update', 'run', 'prune', 'stop', 'list', 'check', 'example')
 

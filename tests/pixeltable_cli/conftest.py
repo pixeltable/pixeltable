@@ -57,6 +57,11 @@ def session_project(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Path:
     return root
 
 
+@pytest.fixture(autouse=True)
+def set_project_root(session_project: pathlib.Path) -> None:
+    Env.set_project_root(session_project)
+
+
 @pytest.fixture
 def project_dir(session_project: pathlib.Path, request: pytest.FixtureRequest) -> pathlib.Path:
     """A directory of the session's project, named after the test that writes its files there.

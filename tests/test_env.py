@@ -339,6 +339,7 @@ class TestProjectRoot:
         # copies, so that what Env records and appends is undone when the test ends
         monkeypatch.setattr(sys, 'path', list(sys.path))
         monkeypatch.setattr(Env, 'project_root', None)
+        monkeypatch.setattr(Env, '_project_root_initialized', False)
 
         monkeypatch.chdir(root / 'ad_gen')
         _reset_env(reinit=False, db_name=None)
@@ -352,3 +353,20 @@ class TestProjectRoot:
         monkeypatch.chdir(elsewhere)
         _reset_env(reinit=False, db_name=None)
         assert Env.project_root == root.resolve()
+
+    def test_a_process_told_it_serves_no_project_keeps_none(
+        self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A daemon is handed its project on the command line, so nothing it starts in establishes one."""
+        root = tmp_path / 'proj'
+        root.mkdir()
+        (root / 'pixeltable.toml').write_text('', encoding='utf-8')
+        monkeypatch.setattr(sys, 'path', list(sys.path))
+        monkeypatch.setattr(Env, 'project_root', None)
+        monkeypatch.setattr(Env, '_project_root_initialized', False)
+
+        monkeypatch.chdir(root)
+        Env.set_project_root(None)
+        _reset_env(reinit=False, db_name=None)
+        assert Env.project_root is None
+        assert str(root.resolve()) not in sys.path

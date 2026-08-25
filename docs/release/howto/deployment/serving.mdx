@@ -30,7 +30,14 @@ pip install 'fastapi[standard]'
 ## Quickstart (application file)
 
 This is the declarative path: one file declares the models that name the tables and the services that serve
-routes over them, and `pxt service` runs it. Write a file to start from with `pxt service example --out app.py`:
+routes over them, and `pxt service` runs it. Start by marking the directory as a project root: a table
+records a udf by a module path relative to it.
+
+```bash
+cd ~/proj && pxt init
+```
+
+Then write a file to start from with `pxt service example --out app.py`:
 
 ```python
 # app.py

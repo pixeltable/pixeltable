@@ -94,7 +94,11 @@ pxt revert my_dir/my_table --steps 3 -f
 pxt cd my_dir                      # set the working directory (this terminal)
 pxt pwd                            # print it
 
+# projects
+pxt init                             # mark the current directory as a project root
+
 # declarative schemas
+pxt schema check  schema.py          # validate the file on its own, with no target
 pxt schema diff   schema.py my_app   # what 'update' would change (exit 2 = drift)
 pxt schema update schema.py my_app   # create and migrate the declared tables
 pxt schema prune  schema.py my_app -f # drop the undeclared ones
@@ -103,6 +107,7 @@ pxt schema prune  schema.py my_app -f # drop the undeclared ones
 pxt shell
 
 # services declared in an application file
+pxt service check  app.py            # validate the file on its own, with no target
 pxt service diff   app.py my_app     # what 'update' would change (exit 2 = drift)
 pxt service update app.py my_app     # start them, restarting what changed
 pxt service list                     # what is running, and where
@@ -338,6 +343,32 @@ pxt revert my_dir/my_table --steps 3 -f       # roll back 3 versions
 Revert is irreversible. Run `pxt history my_dir/my_table` first to see what would be undone.
 </Warning>
 
+## Project layout
+
+`pxt schema` and `pxt service` read a Python file, and the tables they create refer back to the udfs that file calls. A reference is a module path, so the file has to belong to a project: a directory holding a `pixeltable.toml`, or a `pyproject.toml` with a `[tool.pixeltable]` section. `pxt init` establishes one in the current directory.
+
+```bash
+cd ~/proj
+pxt init                             # writes pixeltable.toml, marking ~/proj as the project root
+```
+
+Module paths are relative to the root, and every directory from the root down to a file becomes one component of that file's path, so each of those directory names has to be a Python identifier:
+
+```
+~/proj/pixeltable.toml               # marks the root
+~/proj/ad_gen/app.py                 # a udf here is recorded as 'ad_gen.app.<name>'
+~/proj/ad_gen/functions.py           # imported as 'from ad_gen.functions import ...'
+```
+
+Imports resolve from the root down. This is where a single-file recipe and a larger application diverge: a file directly under the root imports its neighbors by their bare names, so `recipe.py` and `functions.py` side by side use `from functions import ...`. Once an application moves into a subdirectory, that subdirectory joins the path: `from ad_gen.functions import ...`.
+
+A command given a file outside any project is refused, and says so. `pxt schema check` and `pxt service check` validate a file on its own -- it imports without touching the catalog, it declares what the verb needs, and the udfs its columns call are named by paths another process can resolve:
+
+```bash
+pxt schema check schema.py           # exit 0 valid, 1 invalid
+pxt service check app.py --json
+```
+
 ## Schema management
 
 The commands above act on one object at a time. `pxt schema` works differently: you describe the tables you want in a Python file, and the CLI reconciles a catalog directory to that description. Provisioning an empty target and evolving an existing one are the same command, so there is no separate first-time step.
@@ -347,6 +378,7 @@ The commands above act on one object at a time. `pxt schema` works differently: 
 | `pxt schema diff SCHEMA TARGET` | Show what `update` would change. Read-only |
 | `pxt schema update SCHEMA TARGET` | Create the tables the schema declares under `TARGET`, and migrate existing ones |
 | `pxt schema prune SCHEMA TARGET` | Drop the tables under `TARGET` that the schema does not declare |
+| `pxt schema check SCHEMA` | Validate the schema file on its own. Takes no `TARGET` and reads no catalog |
 | `pxt schema example` | Write a working schema file to start from |
 
 `SCHEMA` is a path to a Python file. `TARGET` is a catalog directory or a `pxt://` URI; it is created by `update` if it doesn't exist.
@@ -569,6 +601,7 @@ directory and a production one.
 | `pxt service prune APP TARGET` | Stop and forget the services at `TARGET` that `APP` does not declare |
 | `pxt service stop NAME...` | Stop the named services |
 | `pxt service list [TARGET]` | What is running locally, and where |
+| `pxt service check APP` | Validate the application file on its own. Takes no `TARGET` and reads no catalog |
 | `pxt service example` | Write a working application file to start from |
 
 Like the `schema` verbs, `diff` reports drift in its exit status: `0` in agreement, `2` changes pending,

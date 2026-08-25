@@ -274,6 +274,17 @@ class Env:
         if str(resolved) not in sys.path:
             sys.path.append(str(resolved))
 
+    @classmethod
+    def resolved_project_root(cls) -> Path | None:
+        """The project this process serves, searched for from the working directory on the first call.
+
+        For a caller that reads the root without initializing an Env, which is what a command launching a
+        daemon does.
+        """
+        if not cls._project_root_initialized:
+            cls.set_project_root(_find_project_root(Path.cwd()))
+        return cls.project_root
+
     @property
     def default_time_zone(self) -> ZoneInfo | None:
         return self._default_time_zone
@@ -382,8 +393,7 @@ class Env:
         self._tmp_dir.mkdir(exist_ok=True)
         self._services_dir.mkdir(exist_ok=True)
 
-        if not Env._project_root_initialized:
-            self.set_project_root(_find_project_root(Path.cwd()))
+        self.resolved_project_root()
 
         self._file_cache_size_g = config.get_float_value('file_cache_size_g')
         if self._file_cache_size_g is None:

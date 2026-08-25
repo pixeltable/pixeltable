@@ -397,6 +397,7 @@ api.add_insert_route(Documents, path='/ingest', inputs=[Documents.title, Documen
 ```
 
 ```bash
+pxt init  # marks this directory as the project root
 pxt schema update app.py pipeline
 pxt service update app.py pipeline
 pxt service list  # pipeline/my-service  http://127.0.0.1:49213  pid 8123  app.py

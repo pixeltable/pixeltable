@@ -28,8 +28,8 @@ Layout:
 
 Notes:
   A UDF is recorded as a module path relative to the project root, which is how a later process
-  resolves it. 'pxt schema', 'pxt service' and 'pxt app' therefore require the file they are given to
-  sit under a root, and say so when it does not.
+  resolves it. 'pxt schema' and 'pxt service' therefore require the file they are given to sit under
+  a root, and say so when it does not.
   In a directory that already holds a pyproject.toml, this command adds a [tool.pixeltable] section
   to that file rather than writing a second one.
   Running this again in a directory that is already a project root reports it and changes nothing.

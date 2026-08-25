@@ -94,7 +94,7 @@ def _serves_another_project(health: dict[str, Any]) -> bool:
     An Env.project_root of None reports no difference: a process with no project of its own records no
     module paths to resolve.
     """
-    root = Env.project_root
+    root = Env.resolved_project_root()
     return root is not None and health.get('project_root') != str(root)
 
 
@@ -157,7 +157,7 @@ def start(db: str, test_mode: bool = False) -> str:
     argv = [sys.executable, '-m', 'pixeltable.service.proxy_daemon']
     if test_mode:
         argv.append('--test')
-    project_root = Env.project_root
+    project_root = Env.resolved_project_root()
     if project_root is not None:
         argv += ['--project-root', str(project_root)]
     with open(log_path, 'a', encoding='utf-8') as log_file:

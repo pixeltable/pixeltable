@@ -125,7 +125,13 @@ Schema file:
 
 {textwrap.indent(_BRIEF_EXAMPLE_SCHEMA.rstrip(), '    ')}
 
-  Each model becomes one table under TARGET, named by name=."""
+  Each model becomes one table under TARGET, named by name=.
+
+Project:
+  The file has to sit under a project root: a directory holding a pixeltable.toml, or a
+  pyproject.toml with a [tool.pixeltable] section. 'pxt init' establishes one. A udf is recorded
+  as a module path relative to that root, which is how a later process resolves it, so a file
+  outside a project is refused."""
 
 DIFF_EPILOG = f"""\
 Examples:

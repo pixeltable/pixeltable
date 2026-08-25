@@ -119,6 +119,48 @@ class TestSchema:
         assert 'update_all()' not in r.stderr
         assert 'pxt.move()' not in r.stderr
 
+    def test_in_place_edit(
+        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], project_dir: pathlib.Path
+    ) -> None:
+        """A second update of a path the daemon already served reads the file as it now stands."""
+        p = make_catalog_path
+        target = p('reload')
+        declaration = dedent(
+            """
+            from __future__ import annotations
+
+            import pixeltable as pxt
+
+
+            @pxt.udf
+            def excerpt(text: str) -> str:
+                return text[:4]
+
+
+            TableModel = pxt.model_base()
+
+
+            class Docs(TableModel, name='docs'):
+                title: pxt.String
+                summary = excerpt(title)  # noqa: F821
+            """
+        )
+        schema_file = project_dir / 'app.py'
+        schema_file.write_text(declaration, encoding='utf-8')
+        cli('schema', 'update', str(schema_file), target)
+        docs = pxt.get_table(f'{target}/docs')
+        docs.insert([{'title': 'hello world'}])
+        assert docs.select(docs.summary).collect()['summary'] == ['hell']
+
+        # the same path, now declaring one more column
+        schema_file.write_text(declaration + "    shouted = title + '!'  # noqa: F821\n", encoding='utf-8')
+        r = cli('schema', 'update', str(schema_file), target)
+        assert 'updated' in r.stdout, r.stdout
+        docs = pxt.get_table(f'{target}/docs')
+        assert 'shouted' in docs.columns()
+        assert docs.select(docs.shouted).collect()['shouted'] == ['hello world!']
+        assert_in_agreement(cli, str(schema_file), target)
+
     def test_evolution(
         self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
     ) -> None:
