@@ -25,7 +25,7 @@ from pixeltable.runtime import get_runtime
 from pixeltable.utils.object_stores import ObjectOps
 
 from .column import Column
-from .globals import _ROWID_COLUMN_NAME, IndexSpec, MediaValidation, fold_identifier, is_valid_identifier
+from .globals import _ROWID_COLUMN_NAME, IndexSpec, MediaValidation, fold_mapping_keys, is_valid_identifier
 from .tbl_ops import (
     CreateColumnMdOp,
     CreateStoreColumnsOp,
@@ -1197,13 +1197,15 @@ class TableVersion:
         self, value_spec: dict[str, Any], allow_pk: bool, allow_exprs: bool, allow_media: bool
     ) -> dict[Column, exprs.Expr]:
         update_targets: dict[Column, exprs.Expr] = {}
-        for raw_col_name, val in value_spec.items():
+        for raw_col_name in value_spec:
             if not isinstance(raw_col_name, str):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT,
                     f'Update specification: dict key must be column name; got {raw_col_name!r}',
                 )
-            col_name = fold_identifier(raw_col_name)
+        value_spec = fold_mapping_keys(value_spec)
+
+        for col_name, val in value_spec.items():
             if col_name == _ROWID_COLUMN_NAME:
                 # a valid rowid is a list of ints, one per rowid column
                 num_rowid_cols = len(self.store_tbl.rowid_columns())

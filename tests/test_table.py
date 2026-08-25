@@ -4510,7 +4510,7 @@ class TestTable:
         assert pxt.get_table(p('T'))._id == t._id
 
     def test_case_insensitive_duplicate_columns(self, make_catalog_path: Callable[[str], str]) -> None:
-        """A schema dict whose keys collide once folded is rejected, naming both spellings."""
+        """A user-supplied mapping whose keys collide once folded is rejected, naming both spellings."""
         p = make_catalog_path
         # create_table and add_columns each build their own mapping, so assert on both
         with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match=r"'a'.*'A'|'A'.*'a'"):
@@ -4535,6 +4535,12 @@ class TestTable:
         assert t.get_metadata()['columns']['mycol']['type_'] == 'String | None'
         t.add_computed_column(MYCOL=t.c + 1, if_exists='replace')
         assert t.get_metadata()['columns']['mycol']['is_stored']
+
+        # the same rule applies to an update spec, which update() and batch_update() both validate.
+        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match='Column names are case-insensitive'):
+            t.update({'C': 1, 'c': 2})
+        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match='Column names are case-insensitive'):
+            t.batch_update([{'C': 1, 'c': 2, '_rowid': (1,)}])
 
     def test_case_only_rename_column(self, make_catalog_path: Callable[[str], str]) -> None:
         """Both spellings fold to the same name, so a case-only rename does nothing at all."""
