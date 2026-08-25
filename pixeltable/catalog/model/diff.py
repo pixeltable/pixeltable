@@ -82,7 +82,13 @@ class TableDiff(TypedDict):
 
 # Table-level attribute names that are reported as a single grouped diff (as opposed to kind/iterator/filter/
 # sample, which each get their own diff line).
-_TABLE_PROP_NAMES: tuple[str, ...] = ('media_validation', 'comment', 'custom_metadata', 'has_default_idxs')
+_TABLE_PROP_NAMES: tuple[str, ...] = (
+    'media_validation',
+    'comment',
+    'custom_metadata',
+    'has_default_idxs',
+    'is_data_versioned',
+)
 
 
 def _resolution(exists: bool, ops: list[SchemaChangeOp]) -> DiffResolution:
@@ -161,6 +167,7 @@ class _TableProperties:
     media_validation: str
     comment: str | None
     custom_metadata: Any
+    is_data_versioned: bool
 
     @classmethod
     def from_model(cls, model: TableModelMeta) -> _TableProperties:
@@ -170,13 +177,17 @@ class _TableProperties:
             media_validation=spec['media_validation'].name.lower(),
             comment=spec['comment'],
             custom_metadata=spec['custom_metadata'],
+            is_data_versioned=spec['is_data_versioned'],
         )
 
     @classmethod
     def from_metadata(cls, md: TableMetadata) -> _TableProperties:
         """The comparable table-level properties of an existing table, drawn from its `TableMetadata`."""
         return cls(
-            media_validation=md['media_validation'], comment=md['comment'], custom_metadata=md['custom_metadata']
+            media_validation=md['media_validation'],
+            comment=md['comment'],
+            custom_metadata=md['custom_metadata'],
+            is_data_versioned=md['is_data_versioned'],
         )
 
 
@@ -380,6 +391,7 @@ def validate_models(registered_models: dict[str, TableModelMeta], catalog_dir: s
                     )
 
             # Table-level properties that differ (media_validation/comment/custom_metadata); unsupported for now.
+            # A is_data_versioned diff is permanently unsupported.
             model_table_props = _TableProperties.from_model(model)
             existing_table_props = _TableProperties.from_metadata(existing_md)
             for prop in model_table_props.__dataclass_fields__:

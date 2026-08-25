@@ -26,6 +26,7 @@ def prepare_model(
     iterator: func.GeneratingFunctionCall | None,
     base: 'pxt.Query | None',
     idxs: list[IndexDeclaration],
+    is_data_versioned: bool,
 ) -> tuple[func.GeneratingFunctionCall | None, list[catalog.Column], list[catalog.IndexSpec]]:
     """
     Given model declarations in the form of columns, base, iterator, and index specifications, along with
@@ -145,11 +146,14 @@ def prepare_model(
         user_cols[name] = catalog_col
         preceding_names.add(name)
 
-    return iterator, additional_cols, _resolve_model_idxs(idxs, user_cols, display_name)
+    return iterator, additional_cols, _resolve_model_idxs(idxs, user_cols, display_name, is_data_versioned)
 
 
 def _resolve_model_idxs(
-    idxs: list[IndexDeclaration], user_cols: Mapping[str, catalog.Column | catalog.ColumnVersionMd], display_name: str
+    idxs: list[IndexDeclaration],
+    user_cols: Mapping[str, catalog.Column | catalog.ColumnVersionMd],
+    display_name: str,
+    is_data_versioned: bool,
 ) -> list[catalog.IndexSpec]:
     """Resolve each declared index against the model's visible columns.
 
@@ -189,8 +193,7 @@ def _resolve_model_idxs(
             )
         else:
             assert isinstance(idx_spec, BtreeIndex)
-            # TODO(PXT-1294): a model always describes a data-versioned table, so the index gets a value column
-            idx = index.BtreeIndex(uses_value_col=True)
+            idx = index.BtreeIndex(uses_value_col=is_data_versioned)
         resolved_idxs.append(catalog.IndexSpec(col_name, idx_name, idx))
 
     return resolved_idxs
@@ -301,7 +304,7 @@ def prepare_model_updates(
 
     # Resolve each declared index against the model's visible columns.
     resolved_idxs: list[catalog.IndexSpec] = []
-    for idx_spec in _resolve_model_idxs(new_idxs, user_cols, display_name):
+    for idx_spec in _resolve_model_idxs(new_idxs, user_cols, display_name, tvp.is_data_versioned()):
         assert isinstance(idx_spec.indexed_column, str)
         resolved_idxs.append(idx_spec._replace(indexed_column=user_cols[idx_spec.indexed_column]))
 

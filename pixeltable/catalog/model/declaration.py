@@ -207,6 +207,7 @@ class TableSpec(TypedDict):
     media_validation: MediaValidation
     comment: str | None
     custom_metadata: Any
+    is_data_versioned: bool
 
 
 def _contains_aggregate(expr: exprs.Expr) -> bool:
@@ -537,6 +538,7 @@ class TableModelMeta(type):
         media_validation: Literal['on_read', 'on_write'] = 'on_write',
         comment: str | None = None,
         custom_metadata: Any = None,
+        _is_data_versioned: bool = True,
     ) -> MutableMapping[str, object]:
         if len(bases) == 0:
             # This is a model_base() class. No special processing.
@@ -587,6 +589,17 @@ class TableModelMeta(type):
                         f'`model_base()` as `{cls_name}`.',
                     )
 
+            # A view is always of the same kind as its base. Operational views aren't supported yet.
+            if base is not None and not _is_data_versioned:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'{display_name}: operational views are not supported yet.'
+                )
+            if base is not None and not base.from_clause.__table_spec__['is_data_versioned']:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{display_name}: the base table and the view have mismatching is_data_versioned',
+                )
+
             # Validate iterator
             if iterator is not None:
                 if base is None:
@@ -629,6 +642,7 @@ class TableModelMeta(type):
                     'media_validation': media_validation_,
                     'comment': comment,
                     'custom_metadata': custom_metadata,
+                    'is_data_versioned': _is_data_versioned,
                 },
                 eval_globals=caller.f_globals,
                 eval_locals=caller.f_locals,
@@ -812,6 +826,7 @@ class TableModelMeta(type):
             iterator=table_spec['iterator'],
             base=base,
             idxs=cls.__indexes__,
+            is_data_versioned=table_spec['is_data_versioned'],
         )
 
         if was_created:
@@ -851,7 +866,7 @@ class TableModelMeta(type):
                 copied['value'] = copied['value'].copy()
             columns[col_name] = copied
         iterator, cols, idxs = prepare_model(
-            handle, columns, spec['display_name'], spec['iterator'], base, cls.__indexes__
+            handle, columns, spec['display_name'], spec['iterator'], base, cls.__indexes__, spec['is_data_versioned']
         )
 
         # substitute column names with Column instances in idxs: create_table_version_md() requires
@@ -876,7 +891,7 @@ class TableModelMeta(type):
                 media_validation=spec['media_validation'],
                 has_default_idxs=spec['has_default_idxs'],
                 view_md=None,
-                is_data_versioned=True,
+                is_data_versioned=spec['is_data_versioned'],
                 additional_idxs=idxs,
             )
         else:

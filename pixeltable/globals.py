@@ -14,7 +14,7 @@ from typing_extensions import TypeForm
 
 from pixeltable import Query, catalog, exceptions as excs, exprs, func, type_system as ts
 from pixeltable.catalog import DirEntry, TablePath
-from pixeltable.catalog.globals import OnErrorParam
+from pixeltable.catalog.globals import OnErrorParam, fold_identifier
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.table_data_conduit import QueryTableDataConduit, RowDataTableDataConduit, TableDataConduit
@@ -238,6 +238,15 @@ def create_table(
     # mapping and report the same errors
     schema = catalog.normalize_schema(schema)
 
+    # apply the primary_key parameter to the schema
+    for pk_col in primary_key or []:
+        folded_pk_col = fold_identifier(pk_col)
+        if folded_pk_col not in schema:
+            raise excs.NotFoundError(
+                excs.ErrorCode.COLUMN_NOT_FOUND, f'Primary key column {pk_col!r} not found in table schema.'
+            )
+        schema[folded_pk_col] = {**schema[folded_pk_col], 'primary_key': True}
+
     tbl, was_created = (
         get_runtime()
         .get_catalog(path_obj)
@@ -245,7 +254,6 @@ def create_table(
             path_obj,
             schema,
             if_exists=if_exists_,
-            primary_key=primary_key,
             comment=comment,
             custom_metadata=custom_metadata,
             media_validation=media_validation_,

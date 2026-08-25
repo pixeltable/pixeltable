@@ -578,7 +578,6 @@ class TableVersion:
 
     def add_columns_ops(self, cols: Iterable[Column]) -> tuple[TableVersionMd, list[TableOp]]:
         """Applies the column-addition metadata changes and builds the TableOps to execute them in the store."""
-        assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
         assert self.is_mutable
         assert all(is_valid_identifier(col.name) for col in cols if col.name is not None)
         assert all(col.stored is not None for col in cols)
@@ -650,7 +649,6 @@ class TableVersion:
 
     def add_columns(self, cols: list[Column], print_stats: bool, on_error: Literal['abort', 'ignore']) -> UpdateStatus:
         """Adds columns to the table."""
-        assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
         assert self.is_mutable
 
         # we're creating a new schema version
@@ -757,7 +755,6 @@ class TableVersion:
         """Drop a column from the table."""
 
         assert self.is_mutable
-        assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
 
         # we're creating a new schema version
         self.bump_version(bump_schema_version=True)
@@ -768,8 +765,9 @@ class TableVersion:
 
     def _cascade_drop_column(self, col: Column) -> list[Column]:
         """
-        Marks any indices on the column as dropped and returns the column together with the value and undo columns of
-        those indices.
+        Drops any indices on the column and returns the column together with the value and undo columns of
+        those indices. On a data-versioned table the indices are marked as dropped; on an operational table their
+        metadata is removed outright.
         Also fixes up idxs/idxs_by_name/idxs_by_col.
         """
         if col.is_pk:
@@ -793,6 +791,8 @@ class TableVersion:
         for info in dropped_idx_info:
             del self.idxs[info.id]
             del self.idxs_by_name[info.name]
+            if not self.is_data_versioned:
+                del self._tbl_md.index_md[info.id]
         if col.qid in self.idxs_by_col:
             del self.idxs_by_col[col.qid]
         return to_drop
@@ -841,7 +841,6 @@ class TableVersion:
         - Drops precede adds, and index drops precede column drops, so an index that is both explicitly dropped and
           attached to a dropped column is processed only once.
         """
-        assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
         assert self.is_mutable
 
         if self.schema_version != expected_schema_version:
@@ -938,7 +937,6 @@ class TableVersion:
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column."""
-        assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
         if not self.is_mutable:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot rename column for immutable table {self.name!r}'
@@ -969,7 +967,6 @@ class TableVersion:
 
     def alter_column(self, col: Column, type_: ts.ColumnType) -> None:
         """Alter the type of a column. Currently only supports widening a value column to nullable."""
-        assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
         assert self.is_mutable
         assert not col.is_computed
         assert not col.is_pk
@@ -1001,7 +998,6 @@ class TableVersion:
         self._create_schema_version()
 
     def _create_schema_version(self) -> None:
-        assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
         # we're creating a new schema version
         self.bump_version(bump_schema_version=True)
         self._write_md(new_version=True, new_schema_version=True)
@@ -1703,7 +1699,6 @@ class TableVersion:
 
     def set_version_update_status(self, status: UpdateStatus) -> None:
         """Record status as the UpdateStatus of the change that created the current version."""
-        assert self.is_data_versioned
         assert self.effective_version is None
         # we need to strip out UpdateStatus.rows, if set
         if status.rows is not None:
