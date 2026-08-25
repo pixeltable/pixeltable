@@ -43,11 +43,9 @@ class TestInlinedObjects:
         assert all(row['data'] is not None for row in res)
         assert all(row['i'] % 2 == 0 for row in res)
 
+    @pytest.mark.skip_cloud(reason='Fails, possibly due to bytes/ndarray being inlined [PXT-1318]')
     def test_insert_arrays(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         """Test storing arrays of various sizes and dtypes."""
-        if catalog_mode == 'cloud':
-            pytest.skip('Fails, possibly due to bytes/ndarray being inlined [PXT-1312]')
-
         p = make_catalog_path
         reload_tester = ReloadTester()
 
@@ -125,11 +123,9 @@ class TestInlinedObjects:
         if catalog_mode == 'local':
             assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
+    @pytest.mark.skip_cloud(reason='Fails, possibly due to bytes/ndarray being inlined [PXT-1318]')
     def test_insert_inlined_objects(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         """Test storing lists and dicts with arrays of various sizes and dtypes."""
-        if catalog_mode == 'cloud':
-            pytest.skip('Fails, possibly due to bytes/ndarray being inlined [PXT-1312]')
-
         p = make_catalog_path
         skip_test_if_not_installed('imagehash')
         reload_tester = ReloadTester()
@@ -204,12 +200,10 @@ class TestInlinedObjects:
         if catalog_mode == 'local':
             assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
+    @pytest.mark.skip_cloud(reason='Fails, possibly due to bytes/ndarray being inlined [PXT-1318]')
     def test_nonstandard_json_construction(
         self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode
     ) -> None:
-        if catalog_mode == 'cloud':
-            pytest.skip('Fails, possibly due to bytes/ndarray being inlined [PXT-1312]')
-
         p = make_catalog_path
         skip_test_if_not_installed('imagehash')
         reload_tester = ReloadTester()
