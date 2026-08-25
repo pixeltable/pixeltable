@@ -328,18 +328,18 @@ class SqlNode(ExecNode):
             deleted_at_current_version = set()
         candidates = tbl.get_tbl_versions()
         assert len(candidates) > 0
-        versioned = candidates[0].get().is_versioned
-        if not versioned:
+        is_data_versioned = candidates[0].get().is_data_versioned
+        if not is_data_versioned:
             assert len(created_at_current_version) == 0
             assert len(deleted_at_current_version) == 0
             assert exclude_deleted_at_current_version is None
         joined_tbls: list[catalog.TableVersionHandle] = [candidates[0]]
         for t in candidates[1:]:
-            # the tables in the path must either all be versioned or not
-            assert t.get().is_versioned == versioned
-            # a versioned table has to be joined even if nothing references its columns, in order to apply the version
-            # predicate (= select only visible rows)
-            if versioned or t.id in refd_tbl_ids:
+            # the tables in the path must either all be data-versioned or not
+            assert t.get().is_data_versioned == is_data_versioned
+            # a data-versioned table has to be joined even if nothing references its columns, in order to apply the
+            # version predicate (= select only visible rows)
+            if is_data_versioned or t.id in refd_tbl_ids:
                 joined_tbls.append(t)
 
         first = True
@@ -362,7 +362,7 @@ class SqlNode(ExecNode):
                 stmt = stmt.where(tv.store_tbl.v_max_col == tv.version)
             elif t.id in created_at_current_version:
                 stmt = stmt.where(tv.store_tbl.v_min_col == tv.version)
-            elif versioned:
+            elif is_data_versioned:
                 stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_min <= tv.version)
 
                 if t.effective_version is None:

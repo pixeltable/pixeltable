@@ -46,7 +46,6 @@ def _add_service_args(p: argparse.ArgumentParser) -> None:
     p.add_argument('--host', type=str, default=None, help='Bind address (overrides config default)')
     p.add_argument('--port', type=int, default=None, help='Bind port (overrides config default)')
     p.add_argument('--prefix', type=str, default=None, help='URL prefix (overrides config default)')
-    p.add_argument('--config', type=str, default=None, help='Path to an additional TOML config file')
     p.add_argument(
         '--otel',
         action='store_true',
@@ -211,6 +210,13 @@ def run(argv: list[str]) -> None:
     # not a known subcommand and not a flag, treat it as a service name.
     if len(argv) >= 1 and argv[0] not in _SUBCOMMANDS and not argv[0].startswith('-'):
         parser.add_argument('service', help='Name of the configured service to start')
+        parser.add_argument(
+            '--base-uri',
+            default=None,
+            dest='base_uri',
+            metavar='PATH',
+            help='Base path prefix for resolving relative table paths in route config',
+        )
         _add_service_args(parser)
         _add_output_args(parser)
     else:
@@ -227,8 +233,6 @@ def run(argv: list[str]) -> None:
 
 
 def _serve(args: argparse.Namespace) -> None:
-    if args.config is not None:
-        config.Config.init({}, additional_config_files=[args.config])
     if hasattr(args, 'service'):
         cfg = lookup_service_config(args.service)
     else:
@@ -249,7 +253,8 @@ def _serve(args: argparse.Namespace) -> None:
         _print_dry_run(cfg, args.json)
         return
 
-    app = create_service_from_config(cfg)
+    base_path = getattr(args, 'base_uri', None) or ''
+    app = create_service_from_config(cfg, base_path=base_path)
     if args.otel or args.span_dump is not None:
         Env.get().require_package(
             'opentelemetry.instrumentation.pixeltable',

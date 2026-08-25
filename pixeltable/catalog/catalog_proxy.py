@@ -3,11 +3,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Mapping
 from uuid import UUID
 
-from pixeltable.catalog import model
 from pixeltable.env import Env
 
 from .catalog_base import CatalogBase
 from .insertable_table_proxy import InsertableTableProxy
+from .model import TableSchemaChangeSet
 from .table_path import TableMdPath
 from .view_proxy import ViewProxy
 
@@ -19,11 +19,12 @@ if TYPE_CHECKING:
     from pixeltable.types import ColumnSpec
 
     from .dir import Dir
-    from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation, TableVersionMd
-    from .model import EmbeddingIndex
+    from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation
+    from .model import IndexDeclaration
     from .path import Path
     from .table import Table
     from .table_path import TablePath
+    from .types import TableVersionMd
 
 
 class CatalogProxy(CatalogBase):
@@ -54,23 +55,21 @@ class CatalogProxy(CatalogBase):
         path: Path,
         schema: dict[str, ColumnSpec],
         if_exists: IfExistsParam,
-        primary_key: list[str] | None,
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
-        create_default_idxs: bool,
-        is_versioned: bool,
+        has_default_idxs: bool,
+        is_data_versioned: bool,
     ) -> tuple[Table, bool]:
         args = {
             'path': path,
             'schema': schema,
             'if_exists': if_exists,
-            'primary_key': primary_key,
             'comment': comment,
             'custom_metadata': custom_metadata,
             'media_validation': media_validation,
-            'create_default_idxs': create_default_idxs,
-            'is_versioned': is_versioned,
+            'has_default_idxs': has_default_idxs,
+            'is_data_versioned': is_data_versioned,
         }
         md, was_created = self.client.send_request('CatalogBase', 'create_table', args)
         # effective_version=None: this is a live table
@@ -85,7 +84,7 @@ class CatalogProxy(CatalogBase):
         sample_clause: SampleClause | None,
         additional_columns: Mapping[str, ColumnSpec] | None,
         is_snapshot: bool,
-        create_default_idxs: bool,
+        has_default_idxs: bool,
         iterator: func.GeneratingFunctionCall | None,
         comment: str | None,
         custom_metadata: Any,
@@ -100,7 +99,7 @@ class CatalogProxy(CatalogBase):
             'sample_clause': sample_clause,
             'additional_columns': additional_columns or {},
             'is_snapshot': is_snapshot,
-            'create_default_idxs': create_default_idxs,
+            'has_default_idxs': has_default_idxs,
             'iterator': iterator,
             'comment': comment,
             'custom_metadata': custom_metadata,
@@ -115,30 +114,32 @@ class CatalogProxy(CatalogBase):
         path: Path,
         columns: dict[str, ColumnSpec],
         display_name: str,
-        create_default_idxs: bool,
+        has_default_idxs: bool,
         media_validation: MediaValidation,
         comment: str | None,
         custom_metadata: Any,
         iterator: func.GeneratingFunctionCall | None,
         base: 'Query | None',
-        embedding_idxs: dict[str, 'EmbeddingIndex'],
+        idxs: list['IndexDeclaration'],
+        is_data_versioned: bool,
     ) -> tuple[Table, bool]:
         args = {
             'path': path,
             'columns': columns,
             'display_name': display_name,
-            'create_default_idxs': create_default_idxs,
+            'has_default_idxs': has_default_idxs,
             'media_validation': media_validation,
             'comment': comment,
             'custom_metadata': custom_metadata,
             'iterator': iterator,
             'base': base.as_dict() if base is not None else None,
-            'embedding_idxs': embedding_idxs,
+            'idxs': idxs,
+            'is_data_versioned': is_data_versioned,
         }
         md, was_created = self.client.send_request('CatalogBase', 'create_from_model', args)
         return self._make_table(md, is_anon_snapshot=False), was_created
 
-    def update_from_model(self, updates: list[model.TableSchemaChange]) -> None:
+    def update_from_model(self, updates: list[TableSchemaChangeSet]) -> None:
         self.client.send_request('CatalogBase', 'update_from_model', {'updates': updates})
 
     def get_table(self, path: Path, if_not_exists: IfNotExistsParam) -> Table | None:

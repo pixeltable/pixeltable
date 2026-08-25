@@ -7,9 +7,7 @@ import typing
 from dataclasses import dataclass
 from textwrap import dedent
 from types import MethodType
-from typing import TYPE_CHECKING, Any, Callable, Generic, Iterator, TypeVar, overload
-
-from typing_extensions import Self
+from typing import TYPE_CHECKING, Any, Callable, Generic, Iterator, Self, TypeVar, overload
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
 from pixeltable.catalog.globals import _POS_COLUMN_NAME
@@ -80,7 +78,6 @@ class GeneratingFunction:
     decorated_callable: Callable
     unstored_cols: list[str]
     fqn: str
-    name: str
     signature: Signature
     has_seek: bool
     is_legacy_retrofit: bool
@@ -96,7 +93,6 @@ class GeneratingFunction:
             self.fqn = f'{decorated_callable.__module__}.{decorated_callable.__qualname__}'
         else:
             self.fqn = fqn
-        self.name = decorated_callable.__name__
         self._conditional_output_schema = None
         self._validate = None
         self.signature = Signature.create(decorated_callable, return_type=ts.JsonType())
@@ -110,6 +106,11 @@ class GeneratingFunction:
             )
 
         self.is_legacy_retrofit = False
+
+    @property
+    def name(self) -> str:
+        """The unqualified name, which is the last component of fqn."""
+        return self.fqn.rsplit('.', 1)[-1]
 
     def _infer_properties(self) -> None:
         self.py_sig = inspect.signature(self.decorated_callable, eval_str=True)
@@ -301,6 +302,11 @@ class GeneratingFunction:
         it.call_output_schema = call_output_schema  # type: ignore[method-assign]
         it._validate = lambda _: None  # Validation in legacy iterators was done in output_schema()
         it.is_legacy_retrofit = True
+        # __new__() skips __init__(), so the fields it would have set are set here; a legacy iterator
+        # positions itself with set_pos() rather than seek()
+        it.has_seek = False
+        it._default_output_schema = None
+        it._conditional_output_schema = None
         return it
 
     # validate decorator

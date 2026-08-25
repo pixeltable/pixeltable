@@ -2,19 +2,29 @@ from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, BaseModel, Field
 
-from pixeltable_cli.utils import validate_path_shape
+from pixeltable_cli import utils
 
 
 def _validate_pxt_path(v: str | None) -> str | None:
     if v is None or v == '':
         return v
-    err = validate_path_shape(v)
+    err = utils.validate_path_shape(v)
     if err is not None:
         raise ValueError(err)
     return v
 
 
-PxtPath = Annotated[str, AfterValidator(_validate_pxt_path)]
+PxtPath = Annotated[utils.PxtPath, AfterValidator(_validate_pxt_path)]
+
+
+# the verbs the daemon dispatches
+Method = Literal['GET', 'POST']
+
+
+class InFlightRequest(BaseModel):
+    method: Method
+    path: str
+    started_at: float
 
 
 class HealthResponse(BaseModel):
@@ -33,6 +43,9 @@ class HealthResponse(BaseModel):
     pixeltable_home: str
     pixeltable_pgdata: str
     pixeltable_config_file: str
+
+    # requests being served right now, oldest first
+    in_flight: list[InFlightRequest] = Field(default_factory=list)
 
     # PIXELTABLE_*-prefixed env vars at daemon-startup time. Values for keys naming a
     # credential are replaced with a sha256 prefix so /health doesn't leak secrets; the
@@ -139,6 +152,11 @@ class ConfigResponse(BaseModel):
     config_file: str
     entries: list[ConfigEntry]
 
+    # {env var name: hash of the value}
+    env_fingerprint: dict[str, str] = Field(default_factory=dict)
+    # all recognized env vars
+    env_var_names: list[str] = Field(default_factory=list)
+
 
 class CountResponse(BaseModel):
     path: str
@@ -182,18 +200,20 @@ class RevertResponse(BaseModel):
     to_version: int
 
 
+class SchemaDiffBody(BaseModel):
+    schema_file: str  # absolute filesystem path to the schema file on the daemon host
+    catalog_dir: PxtPath
+
+
+class SchemaPruneBody(BaseModel):
+    schema_file: str  # absolute filesystem path to the schema file on the daemon host
+    catalog_dir: PxtPath
+
+
 class SchemaUpdateBody(BaseModel):
-    schema_path: str  # absolute filesystem path to the schema file on the daemon host
-    target: PxtPath
-
-
-class SchemaUpdateEntry(BaseModel):
-    path: str  # absolute path of the table
-    action: Literal['created', 'exists']
-
-
-class SchemaUpdateResponse(BaseModel):
-    tables: list[SchemaUpdateEntry]
+    schema_file: str  # absolute filesystem path to the schema file on the daemon host
+    catalog_dir: PxtPath
+    allow_destructive: bool = False
 
 
 class CwdBody(BaseModel):

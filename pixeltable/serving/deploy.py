@@ -2,247 +2,237 @@ import io
 import json
 import logging
 import os
+import re
+import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
-from importlib import import_module
 from pathlib import Path
-from typing import Any
 
 import toml
 from pathspec import PathSpec
+from tqdm import tqdm
 
-import pixeltable as pxt
-from pixeltable import config, exceptions as excs, metadata
+from pixeltable import exceptions as excs, metadata
+from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.runtime import get_runtime
-from pixeltable.serving._config import lookup_deployment_config, lookup_service_config
+from pixeltable.serving._config import DatabaseConfig
 
 _logger = logging.getLogger(__name__)
 
 
-def build_deploy_bundle(deployment_name: str) -> Path:
-    """
-    Packages the current Pixeltable project into a tarball, along with:
-    - conda environment, if present
-    - catalog metadata for any relevant tables
-    - deployment and service configuration
-    """
-    Env.get().require_package('fastapi')
-
-    cfg = lookup_deployment_config(deployment_name)
-    Env.get().console_logger.info(f'Deploying {deployment_name!r} ...')
-
-    # Process the service, validating it and collecting its config and table MD.
-    service_cfg, md_export = _process_service(cfg)
-
-    Env.get().console_logger.info(f'The following service will be deployed: {cfg.service}')
-
-    config_export = {'deployment': [cfg.model_dump(mode='json')]}
-    if service_cfg is not None:
-        config_export['service'] = [service_cfg.model_dump(mode='json')]
-    conda_export = _export_conda_env()
-    lockfile = _find_lockfile()
-
-    if conda_export is None and len(cfg.env_dependencies) == 0:
-        Env.get().console_logger.warning(
-            'No conda environment was detected and no dependencies are specified in config.\n'
-            'The deployment may not have the necessary dependencies to run correctly.'
-        )
-    if lockfile is None and len(cfg.python_dependencies) == 0:
-        Env.get().console_logger.warning(
-            'No dependency lockfile was found and no Python dependencies are specified in config.\n'
-            'The deployment may not have the necessary dependencies to run correctly.'
-        )
-
-    bundle_path = package(cfg, config_export=config_export, md_export=md_export, conda_export=conda_export)
-    Env.get().console_logger.info(f'Built project bundle: {bundle_path}')
-    return bundle_path
-
-
-def _process_service(cfg: config.DeploymentConfig) -> tuple[config.ServiceConfig | None, dict[str, Any]]:
-    """
-    Validate the service referenced by the deployment config.
-
-    Returns: (service config, table md export)
-    """
-    service_cfg: config.ServiceConfig | None = None
-    table_paths: set[str] = set()
-    service_name = cfg.service
-    if ':' in service_name:
-        # "module:attribute" references a service defined as a FastAPI app in user code.
-        paths = _tables_from_fastapi_app(cfg, service_name)
-        table_paths.update(paths)
-    else:
-        # Otherwise, it references a service defined in config.
-        service_cfg = lookup_service_config(service_name)
-        for route in service_cfg.routes:
-            if route.type != 'compute':
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_CONFIGURATION,
-                    f'Service {service_name!r} referenced in deployment {cfg.name!r} has a route {route.path!r} '
-                    f"of type {route.type!r}. Currently, only 'compute' routes are supported for deployment.",
-                )
-            assert isinstance(route, config.InsertRouteConfig)
-            table_paths.add(route.table)
-        _logger.info(f'Validated service {service_name!r} with {len(service_cfg.routes)} route(s).')
-
-    md_export = _export_tables_md(table_paths)
-    return service_cfg, md_export
-
-
-def _tables_from_fastapi_app(env_cfg: config.DeploymentConfig, module_attr: str) -> set[str]:
-    """
-    Given a "module:attribute" reference to a FastAPI app, import the module and inspect the app's routes to find
-    all tables mentioned by any compute routes.
-
-    Validate the config to ensure there are no non-compute routes and that all routes refer to valid FastAPI apps.
-    """
-    from fastapi import FastAPI
-    from starlette.routing import Route
-
-    from pixeltable.serving._fastapi import PxtEndpoint
-
-    module_path, attr_name = module_attr.split(':', 1)
-    try:
-        module = import_module(module_path)
-    except Exception as e:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION,
-            f'Could not import module `{module_path}` referenced in deployment {env_cfg.name!r}: {e}',
-        ) from e
-    if not hasattr(module, attr_name):
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION,
-            f'Module `{module_path}` referenced in deployment {env_cfg.name!r} has no attribute `{attr_name}`',
-        )
-    app = getattr(module, attr_name)
-    if not isinstance(app, FastAPI):
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION,
-            f'Service `{module_attr}` referenced in deployment {env_cfg.name!r} is not a FastAPI app',
-        )
-    table_paths: set[str] = set()
-    for route in app.routes:
-        if isinstance(route, Route) and isinstance(route.endpoint, PxtEndpoint):
-            if route.endpoint.route_type != 'compute':
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_CONFIGURATION,
-                    f'Service `{module_attr}` referenced in deployment {env_cfg.name!r} has a route {route.path!r} '
-                    f"of type {route.endpoint.route_type!r}. Currently, only 'compute' routes are supported for "
-                    'deployment.',
-                )
-            assert route.endpoint.tbl is not None  # It's always non-None for 'compute' routes
-            table_paths.add(str(route.endpoint.tbl._path()))
-
-    _logger.info(
-        f'Validated service {module_attr!r} with {len(table_paths)} table(s) referenced by {len(app.routes)} route(s).'
-    )
-    return table_paths
-
-
 def _resolve_patterns(project_dir: Path, patterns: list[str]) -> set[Path]:
-    """Resolve gitignore-style patterns against a project directory, returning matching file paths."""
+    """Files under project_dir matching patterns, which use git wildmatch syntax (`*`, `**`, `!`, `dir/`)."""
+    # 'gitignore' names the pattern dialect to parse `patterns` with; no .gitignore file is read here
     spec = PathSpec.from_lines('gitignore', patterns)
     return {p for p in project_dir.rglob('*') if p.is_file() and spec.match_file(p.relative_to(project_dir))}
 
 
-def _read_gitignore(project_dir: Path) -> list[str]:
-    gitignore = project_dir / '.gitignore'
+def _gitignore_spec(dir_path: Path) -> PathSpec | None:
+    """The PathSpec for dir_path's own .gitignore, or None if it has none."""
+    gitignore = dir_path / '.gitignore'
     if not gitignore.is_file():
-        return []
-    return gitignore.read_text().splitlines()
+        return None
+    return PathSpec.from_lines('gitignore', gitignore.read_text().splitlines())
 
 
-def _collect_project_files(project_dir: Path, include: list[str] | None, exclude: list[str] | None) -> list[Path]:
-    if include is not None:
-        files = _resolve_patterns(project_dir, include)
+def _is_gitignored(path: Path, is_dir: bool, specs: list[tuple[Path, PathSpec]]) -> bool:
+    """Whether path is ignored by specs, a list of (directory, its .gitignore) ordered outermost first.
+
+    The innermost .gitignore that has anything to say about path decides, since git lets a nested
+    .gitignore override the directories above it. Patterns are matched relative to the directory the
+    .gitignore lives in, and a trailing slash is what makes a directory-only pattern (`build/`) match.
+    """
+    for base, spec in reversed(specs):
+        rel = path.relative_to(base).as_posix() + ('/' if is_dir else '')
+        include = spec.check_file(rel).include
+        if include is not None:
+            return include
+    return False
+
+
+def _collect_unignored_files(project_dir: Path) -> set[Path]:
+    """All files under project_dir that git would not ignore.
+
+    Honors the .gitignore at every level of the tree, not just project_dir's: tools such as ruff, mypy and
+    pytest keep their caches out of git by writing a `.gitignore` containing `*` into the cache directory
+    itself, so a root-only scan bundles those caches even though `git status` reports a clean tree.
+
+    An ignored directory is not descended into, matching git's rule that a nested negation cannot
+    re-include a file whose parent directory is excluded. Directory symlinks are not followed (git stores
+    them as symlinks rather than recursing).
+
+    .git is skipped here, as git itself does, but only by default: an `include` pattern of `.git/**` still
+    reaches it, which a project that derives its version from VCS metadata needs.
+    """
+    files: set[Path] = set()
+
+    def visit(dir_path: Path, specs: list[tuple[Path, PathSpec]]) -> None:
+        spec = _gitignore_spec(dir_path)
+        if spec is not None:
+            specs = [*specs, (dir_path, spec)]
+        for entry in dir_path.iterdir():
+            if entry.name == '.git':
+                continue
+            is_dir = entry.is_dir() and not entry.is_symlink()
+            if _is_gitignored(entry, is_dir, specs):
+                continue
+            if is_dir:
+                visit(entry, specs)
+            elif entry.is_file():
+                files.add(entry)
+
+    visit(project_dir, [])
+    return files
+
+
+def _collect_project_files(
+    project_dir: Path, exclude: list[str] | None, include: list[str] | None, include_only: list[str] | None
+) -> list[Path]:
+    if include_only is not None:
+        if include is not None or exclude is not None:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                'Cannot specify both include_only and include/exclude in [pixeltable.clouddb] configuration',
+            )
+        files = _resolve_patterns(project_dir, include_only)
+
     else:
-        files = {p for p in project_dir.rglob('*') if p.is_file()}
+        # Apply .gitignore excludes, at every level of the tree
+        files = _collect_unignored_files(project_dir)
+        # Apply explicit excludes
+        if exclude is not None:
+            files -= _resolve_patterns(project_dir, exclude)
+        # Apply explicit includes (which override excludes)
+        if include is not None:
+            files |= _resolve_patterns(project_dir, include)
 
-    # Automatically exclude everything in the project's .gitignore
-    files -= _resolve_patterns(project_dir, _read_gitignore(project_dir))
-    if exclude is not None:
-        files -= _resolve_patterns(project_dir, exclude)
     return sorted(files)
 
 
-def _export_tables_md(table_paths: set[str]) -> dict[str, Any]:
-    # Get all tables mentioned by any route contained in this deployment. These must be local tables.
-    tables: list[pxt.catalog.LocalTable] = []
-    for path in sorted(table_paths):
-        if not pxt.catalog.Path.parse(path).is_local:
-            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot deploy a hosted table: {path!r}')
-        tbl = pxt.get_table(path)
-        if not isinstance(tbl, pxt.catalog.LocalTable):
-            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot deploy a hosted table: {path!r}')
-        tables.append(tbl)
+def _conda_exe() -> str | None:
+    """Path to the executable that manages the active environment, or None if there is none to find.
 
-    # Get the md for all ancestors of all such tables.
-    catalog = get_runtime().catalog
-    with catalog.begin_xact(for_write=False):
-        tables_md = [catalog.read_md_for_export(tbl) for tbl in tables]
-
-    # The ancestor md is returned as: primary table first, followed by ancestors in descending order.
-    # Reverse so that ancestors come first, then flatten and de-duplicate (since some tables might have common
-    # ancestors). Use a dict for deduplicating, so that we preserve ancestor order to get a topologically
-    # sorted list at the end.
-    flattened_md = {md.tbl_md.tbl_id: md for md_list in tables_md for md in reversed(md_list)}
-    bundle_md = {
-        'pxt_version': pxt.__version__,
-        'pxt_md_version': metadata.VERSION,
-        'tables_md': [md.as_dict() for md in flattened_md.values()],
-    }
-    return bundle_md
+    CONDA_EXE/MAMBA_EXE point at the manager that activated the environment; conda and micromamba are
+    only on PATH for some installations (micromamba in particular ships no `conda`).
+    """
+    for var in ('CONDA_EXE', 'MAMBA_EXE'):
+        exe = os.environ.get(var)
+        if exe is not None and exe != '':
+            return exe
+    return shutil.which('conda') or shutil.which('micromamba')
 
 
 def _export_conda_env() -> bytes | None:
-    """Export the active conda environment as YAML, without platform-specific build strings.
+    """Export the active conda environment as a cross-platform YAML (no build strings).
 
-    Returns the conda-env.yml content as bytes, or None if not running in a conda environment.
+    Returns None if no conda environment is active. Raises if one is active but cannot be exported:
+    building the bundle as though there were no environment would silently drop its dependencies.
+    Strips the pixeltable dependency line (both conda and pip); the server installs pixeltable separately.
     """
-    conda_exe = os.environ.get('CONDA_EXE')
-    if conda_exe is None or 'CONDA_DEFAULT_ENV' not in os.environ:
+    conda_prefix = os.environ.get('CONDA_PREFIX')
+    if conda_prefix is None or conda_prefix == '':
         return None
-
-    Env.get().console_logger.info(f'Found a conda environment: {os.environ["CONDA_DEFAULT_ENV"]}')
+    exe = _conda_exe()
+    if exe is None:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_STATE,
+            f'A conda environment is active ({conda_prefix}) but no conda or micromamba executable was found.\n'
+            'Set CONDA_EXE or MAMBA_EXE, or deactivate the environment to build without it.',
+        )
     try:
-        result = subprocess.run((conda_exe, 'env', 'export', '--no-builds'), capture_output=True, check=True)
-    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
-        Env.get().console_logger.warning(f'Failed to export conda environment: {exc}')
+        result = subprocess.run(
+            [exe, 'env', 'export', '--no-builds', '--prefix', conda_prefix], capture_output=True, check=True
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        stderr = (
+            e.stderr.decode('utf-8', errors='replace').strip() if isinstance(e, subprocess.CalledProcessError) else ''
+        )
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_STATE,
+            f'Failed to export the active conda environment ({conda_prefix}) with {exe}: {e}\n{stderr}\n'
+            'Fix the environment, or deactivate it to build without it.',
+        ) from e
+    # a dependency line names pixeltable itself only if what follows is a version spec or nothing;
+    # `pixeltable-yolox` and friends are ordinary dependencies and stay
+    filtered = [
+        line
+        for line in result.stdout.decode('utf-8').splitlines(keepends=True)
+        if not re.match(r'^\s+-\s+pixeltable\s*([=<>!~]|$)', line)
+    ]
+    return ''.join(filtered).encode('utf-8')
+
+
+def _load_database_config(project_dir: Path) -> DatabaseConfig | None:
+    pxt_toml = _load_database_config_from_toml(project_dir / 'pixeltable.toml', ['pixeltable', 'clouddb'])
+    if pxt_toml is not None:
+        return pxt_toml
+
+    py_toml = _load_database_config_from_toml(project_dir / 'pyproject.toml', ['tool', 'pixeltable', 'clouddb'])
+    if py_toml is not None:
+        return py_toml
+
+    # Fall back on system config.
+    # TODO: This should be removed, but doing it now will break a bunch of tests
+    cfg = Config.get().get_value('clouddb', dict)
+    return _validate_database_config(cfg) if cfg is not None else None
+
+
+def _load_database_config_from_toml(toml_path: Path, resolution: list[str]) -> DatabaseConfig | None:
+    if not toml_path.is_file():
         return None
-    return result.stdout
+
+    try:
+        cfg = toml.load(toml_path)
+    except Exception as e:
+        raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid TOML in {toml_path.name}: {e}') from e
+
+    for key in resolution:
+        if not isinstance(cfg, dict) or key not in cfg:
+            return None
+        cfg = cfg[key]
+
+    return _validate_database_config(cfg)
 
 
-def _find_lockfile() -> Path | None:
-    cwd = Path.cwd()
-    for name in ('uv.lock', 'poetry.lock', 'requirements.txt'):
-        path = cwd / name
-        if path.is_file():
-            Env.get().console_logger.info(f'Found a dependency lockfile: {path}')
-            return path
-    return None
+def _validate_database_config(cfg: dict) -> DatabaseConfig:
+    try:
+        return DatabaseConfig.model_validate(cfg)
+    except Exception as e:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid [pixeltable.clouddb] configuration: {e}'
+        ) from e
 
 
-def package(
-    deployment_config: config.DeploymentConfig,
-    config_export: dict[str, Any],
-    md_export: dict[str, Any],
-    conda_export: bytes | None = None,
-    project_dir: Path | None = None,
-) -> Path:
-    """Bundle the contents of a Pixeltable project directory into a tarball.
+def _abbrev_path(path: str, max_len: int = 40) -> str:
+    """Truncate path from the left, so that a long path doesn't wrap the progress bar line."""
+    return path if len(path) <= max_len else '…' + path[-(max_len - 1) :]
 
-    Args:
-        deployment_config: Deployment configuration.
-        config_export: The deployment and service configuration to include in the bundle, as a dict.
-        md_export: The table metadata to include in the bundle, as a dict.
-        conda_export: Output of `conda env export --no-builds`, included as `conda-env.yml`
-            in the bundle when provided.
-        project_dir: Path to the project directory. Defaults to the current working directory.
 
-    Returns:
-        Path to the generated tarball.
+def __add_tarfile(tf: tarfile.TarFile, name: str, content: bytes) -> None:
+    info = tarfile.TarInfo(name=name)
+    info.size = len(content)
+    tf.addfile(info, fileobj=io.BytesIO(content))
+
+
+def build_db_runtime_bundle(project_dir: Path | None = None, show_progress: bool = False) -> Path:
+    """Package the current project into a tarball for updating a hosted database runtime.
+
+    If show_progress is True, a progress bar tracking the number of project files added, and naming the
+    file most recently added, is displayed.
+
+    Bundle layout:
+        metadata.json   (always) — pxt_md_version, python_version
+        project/        (always) — all project source files including uv.lock, pyproject.toml, etc.
+
+    The server reads project/uv.lock and runs `uv sync --frozen` to install Python packages.
+    System dependencies declared in pixeltable.toml [pixeltable.clouddb] system_dependencies
+    are included in metadata.json for the server-side Dockerfile builder to install via conda-forge.
+
+    Lockfiles are never generated here — the developer is expected to have run `uv lock` (or provided
+    a requirements.txt) in their project. If no lockfile and no conda environment is found, a warning
+    is emitted but the bundle is still built.
     """
     if project_dir is None:
         project_dir = Path.cwd()
@@ -251,27 +241,65 @@ def package(
     if not project_dir.is_dir():
         raise FileNotFoundError(f'Project directory does not exist: {project_dir}')
 
-    _logger.info(f'Packaging project directory: {project_dir}')
-    fd, name = tempfile.mkstemp(suffix='.tar.bz2', prefix='pxt_deploy_')
+    runtime_cfg = _load_database_config(project_dir)
+    exclude = runtime_cfg.exclude if runtime_cfg else None
+    include = runtime_cfg.include if runtime_cfg else None
+    include_only = runtime_cfg.include_only if runtime_cfg else None
+    system_dependencies: list[str] = (runtime_cfg.system_dependencies or []) if runtime_cfg else []
+
+    # Config override wins; otherwise use the deploy environment's version.
+    python_version = (runtime_cfg.python_version if runtime_cfg else None) or (
+        f'{sys.version_info.major}.{sys.version_info.minor}'
+    )
+
+    files_set = set(_collect_project_files(project_dir, exclude, include, include_only))
+    # Lock files are always bundled regardless of .gitignore — they control reproducible installs.
+    has_lockfile = False
+    for lock_name in ('uv.lock', 'poetry.lock', 'requirements.txt'):
+        lock_path = project_dir / lock_name
+        if lock_path.is_file():
+            files_set.add(lock_path)
+            has_lockfile = True
+    files = sorted(files_set)
+
+    print(f'A runtime bundle will be built containing {len(files)} files from {project_dir}.')
+    print(
+        'By default, all files not ignored by .gitignore are included; '
+        'you can adjust this behavior with include/exclude in pixeltable.toml.'
+    )
+
+    conda_env_yaml = _export_conda_env()
+
+    # No lockfile and no conda export means the image has no source for Python dependencies.
+    if not has_lockfile and conda_env_yaml is None:
+        Env.get().console_logger.warning(
+            'No dependency lockfile (uv.lock, poetry.lock, requirements.txt) was found and no conda '
+            'environment was detected.\nThe deployed runtime may not have the necessary Python '
+            'dependencies to run correctly.'
+        )
+
+    fd, name = tempfile.mkstemp(suffix='.tar.bz2', prefix='pxt_runtime_')
     os.close(fd)
     bundle_path = Path(name)
 
-    files = _collect_project_files(project_dir, deployment_config.include, deployment_config.exclude)
-    with tarfile.open(bundle_path, 'w:bz2') as tf:
-        __add_tarfile(tf, 'config.toml', toml.dumps(config_export).encode('utf-8'))
-        __add_tarfile(tf, 'metadata.json', json.dumps(md_export).encode('utf-8'))
-        if conda_export is not None:
-            __add_tarfile(tf, 'conda-env.yml', conda_export)
+    meta: dict = {'pxt_md_version': metadata.VERSION, 'python_version': python_version}
+    if system_dependencies:
+        meta['system_dependencies'] = system_dependencies
+
+    with (
+        tarfile.open(bundle_path, 'w:bz2') as tf,
+        tqdm(desc='Building runtime bundle', total=len(files), unit=' files', disable=not show_progress) as bar,
+    ):
+        __add_tarfile(tf, 'metadata.json', json.dumps(meta).encode('utf-8'))
+        if conda_env_yaml is not None:
+            __add_tarfile(tf, 'project/conda-environment.yaml', conda_env_yaml)
         for f in files:
             relpath = f.relative_to(project_dir)
+            # refresh=False: the postfix is drawn by the following update(), which respects tqdm's redraw interval
+            bar.set_postfix_str(_abbrev_path(str(relpath)), refresh=False)
             tf.add(f, arcname=f'project/{relpath}')
+            bar.update(1)
+        bar.set_postfix_str('', refresh=False)
 
-    _logger.info(f'Packaging complete: {bundle_path}')
+    _logger.info(f'Runtime bundle created: {bundle_path}')
     return bundle_path
-
-
-def __add_tarfile(tf: tarfile.TarFile, name: str, content: bytes) -> None:
-    """Helper function to add a file with the given content to the tarfile being built in `package()`."""
-    info = tarfile.TarInfo(name=name)
-    info.size = len(content)
-    tf.addfile(info, fileobj=io.BytesIO(content))

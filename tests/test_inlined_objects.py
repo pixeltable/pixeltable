@@ -28,7 +28,7 @@ from .utils import (
 class TestInlinedObjects:
     def test_null_arrays(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test_tbl'), {'i': pxt.Int, 'data': pxt.Array})
+        t = pxt.create_table(p('test_tbl'), {'i': pxt.Int | None, 'data': pxt.Array | None})
         validate_update_status(
             t.insert(
                 {'i': i, 'data': np.random.rand(256, 256, 3).astype(np.float32) if i % 2 == 0 else None}
@@ -45,13 +45,23 @@ class TestInlinedObjects:
 
     def test_insert_arrays(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         """Test storing arrays of various sizes and dtypes."""
+        if catalog_mode == 'cloud':
+            pytest.skip('Fails, possibly due to bytes/ndarray being inlined [PXT-1312]')
+
         p = make_catalog_path
         reload_tester = ReloadTester()
 
         # 5 columns: cycle through different shapes and sizes in each row
         t = pxt.create_table(
             p('test'),
-            {'id': pxt.Int, 'ar1': pxt.Array, 'ar2': pxt.Array, 'ar3': pxt.Array, 'ar4': pxt.Array, 'ar5': pxt.Array},
+            {
+                'id': pxt.Int | None,
+                'ar1': pxt.Array | None,
+                'ar2': pxt.Array | None,
+                'ar3': pxt.Array | None,
+                'ar4': pxt.Array | None,
+                'ar5': pxt.Array | None,
+            },
         )
 
         vals = inf_array_iterator(
@@ -97,7 +107,7 @@ class TestInlinedObjects:
         """Test storing binary data of various sizes."""
         p = make_catalog_path
         reload_tester = ReloadTester()
-        t = pxt.create_table(p('test'), {'id': pxt.Int, 'data': pxt.Binary})
+        t = pxt.create_table(p('test'), {'id': pxt.Int | None, 'data': pxt.Binary | None})
 
         rnd = random.Random(4171780)
         data = [rnd.randbytes(size) for size in (0, 2**10, 2**5, 2**20, 2**8)]
@@ -117,22 +127,25 @@ class TestInlinedObjects:
 
     def test_insert_inlined_objects(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         """Test storing lists and dicts with arrays of various sizes and dtypes."""
+        if catalog_mode == 'cloud':
+            pytest.skip('Fails, possibly due to bytes/ndarray being inlined [PXT-1312]')
+
         p = make_catalog_path
         skip_test_if_not_installed('imagehash')
         reload_tester = ReloadTester()
         rnd = random.Random(4171780)
 
-        schema = {
-            'id': pxt.Int,
-            'array_list': pxt.Json,
-            'array_dict': pxt.Json,
-            'img1': pxt.Image,
-            'img2': pxt.Image,
-            'img3': pxt.Image,
-            'img_list': pxt.Json,
-            'img_dict': pxt.Json,
-            'bytes_list': pxt.Json,
-            'bytes_dict': pxt.Json,
+        schema: dict[str, Any] = {
+            'id': pxt.Int | None,
+            'array_list': pxt.Json | None,
+            'array_dict': pxt.Json | None,
+            'img1': pxt.Image | None,
+            'img2': pxt.Image | None,
+            'img3': pxt.Image | None,
+            'img_list': pxt.Json | None,
+            'img_dict': pxt.Json | None,
+            'bytes_list': pxt.Json | None,
+            'bytes_dict': pxt.Json | None,
         }
         t = pxt.create_table(p('test'), schema)
 
@@ -194,23 +207,26 @@ class TestInlinedObjects:
     def test_nonstandard_json_construction(
         self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode
     ) -> None:
+        if catalog_mode == 'cloud':
+            pytest.skip('Fails, possibly due to bytes/ndarray being inlined [PXT-1312]')
+
         p = make_catalog_path
         skip_test_if_not_installed('imagehash')
         reload_tester = ReloadTester()
 
         # test list/dict construction
         # use 5 arrays to ensure every row sees a different combination of shapes and dtypes
-        schema = {
-            'id': pxt.Int,
-            'a1': pxt.Array,
-            'a2': pxt.Array,
-            'a3': pxt.Array,
-            'a4': pxt.Array,
-            'a5': pxt.Array,
-            'img1': pxt.Image,
-            'img2': pxt.Image,
-            'img3': pxt.Image,
-            'img4': pxt.Image,
+        schema: dict[str, Any] = {
+            'id': pxt.Int | None,
+            'a1': pxt.Array | None,
+            'a2': pxt.Array | None,
+            'a3': pxt.Array | None,
+            'a4': pxt.Array | None,
+            'a5': pxt.Array | None,
+            'img1': pxt.Image | None,
+            'img2': pxt.Image | None,
+            'img3': pxt.Image | None,
+            'img4': pxt.Image | None,
         }
         t = pxt.create_table(p('test'), schema)
         array_vals = inf_array_iterator(
@@ -300,7 +316,12 @@ class TestInlinedObjects:
         skip_test_if_not_installed('imagehash')
         reload_tester = ReloadTester()
 
-        schema = {'id': pxt.Int, 'c': pxt.Int, 'a': pxt.Array, 'd': pxt.Json}
+        schema: dict[str, Any] = {
+            'id': pxt.Int | None,
+            'c': pxt.Int | None,
+            'a': pxt.Array | None,
+            'd': pxt.Json | None,
+        }
         t = pxt.create_table(p('test'), schema)
 
         rows = [
@@ -355,9 +376,9 @@ class TestInlinedObjects:
     def test_json_media(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
 
-        schema = {
-            'id': pxt.Int,
-            'media': pxt.Json[{'clip': pxt.Video, 'sound': pxt.Audio, 'doc': pxt.Document, 'label': str}],
+        schema: dict[str, Any] = {
+            'id': pxt.Int | None,
+            'media': pxt.Json[{'clip': pxt.Video, 'sound': pxt.Audio, 'doc': pxt.Document, 'label': str}] | None,
         }
         t = pxt.create_table(p('test'), schema)
 

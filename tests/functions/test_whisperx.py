@@ -30,7 +30,7 @@ class TestWhisperx:
         audio_file = next(
             file for file in get_audio_files() if file.endswith('jfk_1961_0109_cityuponahill-excerpt.flac')
         )
-        t = pxt.create_table('whisperx', {'audio': pxt.Audio})
+        t = pxt.create_table('whisperx', {'audio': pxt.Audio | None})
         t.add_computed_column(transcription=whisperx.transcribe(t.audio, model='tiny.en'))
         t.add_computed_column(
             transcription2=whisperx.transcribe(
@@ -55,7 +55,7 @@ class TestWhisperx:
         audio_file = next(
             file for file in get_audio_files() if file.endswith('jfk_1961_0109_cityuponahill-excerpt.flac')
         )
-        t = pxt.create_table('whisperx', {'audio': pxt.Audio})
+        t = pxt.create_table('whisperx', {'audio': pxt.Audio | None})
         t.add_computed_column(diarization=whisperx.transcribe(t.audio, model='tiny.en', diarize=True))
         t.add_computed_column(
             diarization2=whisperx.transcribe(
@@ -87,7 +87,7 @@ class TestWhisperx:
         audio_file = next(
             file for file in get_audio_files() if file.endswith('jfk_1961_0109_cityuponahill-excerpt.flac')
         )
-        t = pxt.create_table('whisperx', {'audio': pxt.Audio}, if_exists='replace')
+        t = pxt.create_table('whisperx', {'audio': pxt.Audio | None}, if_exists='replace')
         t.insert(audio=audio_file)
         for param_name, value in (
             ('alignment_model_name', 'egg'),

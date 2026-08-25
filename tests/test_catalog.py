@@ -18,11 +18,13 @@ from tests.utils import pxt_raises
 class TestCatalog:
     """Tests for miscellanous catalog functions."""
 
-    def test_json_reserved_key(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_json_reserved_key(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         # JSON cell values are user data and may contain a key that collides with the proxy protocol's reserved
         # tag; inserting and reading such values back must round-trip rather than be rejected.
         p = make_catalog_path
-        t = pxt.create_table(p('json_tbl'), {'id': pxt.Int, 'data': pxt.Json})
+        t = pxt.create_table(
+            p('json_tbl'), {'id': pxt.Int | None, 'data': pxt.Json | None}, _is_data_versioned=is_data_versioned
+        )
         rows = [
             {'id': 0, 'data': {'$pxt': 1}},  # collides at the top level
             {'id': 1, 'data': {'a': {'$pxt': [1, 2]}, 'b': 3}},  # collides while nested
@@ -46,21 +48,19 @@ class TestCatalog:
         pxt.create_dir(p('test_dir/subdir'))
 
         tbl_name = p('test_dir/tbl')
-        t = pxt.create_table(tbl_name, {'a': pxt.Int})
+        t = pxt.create_table(tbl_name, {'a': pxt.Int | None})
         t.insert(a=3)
         v1_name = p('view1')
         v1 = pxt.create_view(v1_name, t)
         t.insert(a=5)
-        v1.add_column(b=pxt.Int)
+        v1.add_column(b=pxt.Int | None)
         _s1 = pxt.create_snapshot(p('test_dir/snapshot1'), v1)
         t.insert(a=22)
         v2_name = p('test_dir/view2')
         v2 = pxt.create_view(v2_name, t)
-        _s2 = pxt.create_snapshot(p('test_dir/snapshot2'), v2, additional_columns={'c': pxt.String})
+        _s2 = pxt.create_snapshot(p('test_dir/snapshot2'), v2, additional_columns={'c': pxt.String | None})
         t.insert(a=4171780)
         df = pxt.ls(p('test_dir'))
-        # a hosted (proxy) table's Base shows its full catalog uri, which widens the column vs local; compare row
-        # tokens so the assertion checks content (including the uris) independent of column padding.
         expected = f"""
             Name Kind Version Base
             snapshot1 snapshot {v1_name}:2
@@ -73,7 +73,10 @@ class TestCatalog:
         def tokens(s: str) -> list[list[str]]:
             return [line.split() for line in s.splitlines() if line.split()]
 
-        assert tokens(repr(df)) == tokens(expected)
+        # compare contents, not repr(): pandas truncates one this wide. Empty cells (a dir has no version
+        # or base) are dropped to match the expected tokens.
+        actual = [list(df.columns), *([v for v in row if v != ''] for row in df.itertuples(index=False))]
+        assert actual == tokens(expected)
 
     def test_cross_type_replacement(self, make_catalog_path: Callable[[str], str]) -> None:
         """Test that tables, views, and snapshots can replace each other with if_exists='replace'.
@@ -82,14 +85,14 @@ class TestCatalog:
         but all table subtypes (table, view, snapshot) can collide with each other.
         """
         p = make_catalog_path
-        base_table = pxt.create_table(p('base'), {'c1': pxt.Int})
+        base_table = pxt.create_table(p('base'), {'c1': pxt.Int | None})
 
         # One lambda per create_x with expected columns
         creators = {
-            'table': (lambda: pxt.create_table(p('target'), {'c2': pxt.String}, if_exists='replace'), ['c2']),
+            'table': (lambda: pxt.create_table(p('target'), {'c2': pxt.String | None}, if_exists='replace'), ['c2']),
             'view': (
                 lambda: pxt.create_view(
-                    p('target'), base_table, additional_columns={'c3': pxt.String}, if_exists='replace'
+                    p('target'), base_table, additional_columns={'c3': pxt.String | None}, if_exists='replace'
                 ),
                 ['c3', 'c1'],
             ),
@@ -143,17 +146,17 @@ class TestCatalog:
 
     @pytest.mark.local('fault-injection/concurrency test against the in-process catalog internals')
     def test_finalize_pending_ops_retriable_error(self, uses_db: None, fault_injection: None) -> None:
-        t = pxt.create_table('test', {'a': pxt.Int})
+        t = pxt.create_table('test', {'a': pxt.Int | None})
         exc = sql_exc.DBAPIError('', {}, orig=psycopg.errors.SerializationFailure())
         fault = ExceptionFault(exc)
         get_runtime().fault_manager.inject_fault(FaultLocation.CATALOG_FINALIZE_PENDING_OPS_NON_XACT, fault)
-        t.add_column(b=pxt.Int)
+        t.add_column(b=pxt.Int | None)
         fault.assert_count(1)
         _ = t.select(t.b).collect()
 
     @pytest.mark.local('fault-injection/concurrency test against the in-process catalog internals')
     def test_finalize_pending_ops_non_retriable_error(self, uses_db: None, fault_injection: None) -> None:
-        t = pxt.create_table('test', {'a': pxt.Int})
+        t = pxt.create_table('test', {'a': pxt.Int | None})
         # Inject a non-retriable error into LoadViewOp. LoadViewOp is the last of 3 ops that constitute a view creation.
         # Upon catching the injected error, the catalog should abort view creation, and undo the first two ops that
         # were already executed.
@@ -176,7 +179,7 @@ class TestCatalog:
             # the way this test drops connections (pg_terminate_backend on the pixeltable db) is specific to pgserver
             pytest.skip('requires pgserver')
         pxt.create_dir('d')
-        t = pxt.create_table('d/t', {'a': pxt.Int})
+        t = pxt.create_table('d/t', {'a': pxt.Int | None})
         t.insert([{'a': 1}])
 
         def kill_connections() -> None:
@@ -214,9 +217,9 @@ class TestCatalog:
         assert t.count() == 2
 
     @pytest.mark.local('fault-injection/concurrency test against the in-process catalog internals')
-    def test_concurrent_add_column_insert(self, uses_db: None, fault_injection: None) -> None:
+    def test_concurrent_add_column_insert(self, uses_db: None, fault_injection: None, is_data_versioned: bool) -> None:
         """Concurrent insert while add_column is blocked mid-finalize"""
-        t = pxt.create_table('test', {'a': pxt.Int})
+        t = pxt.create_table('test', {'a': pxt.Int | None}, _is_data_versioned=is_data_versioned)
         fault = BlockFault()
 
         (
@@ -247,7 +250,7 @@ class TestCatalog:
         persisted TableVersion. Later that would result in Pixeltable acting on that stale TableVersion, which can cause
         various sorts of issues including a data corruption.
         """
-        base = pxt.create_table('base', {'a': pxt.Int})
+        base = pxt.create_table('base', {'a': pxt.Int | None})
 
         injected_exc = Exception('injected error')
 
@@ -290,7 +293,7 @@ class TestCatalog:
         COMMITTED isolation level, this scenario results in an AssertionError because the base table and
         the view are inconsistent with one another.
         """
-        base = pxt.create_table('base', {'a': pxt.Int})
+        base = pxt.create_table('base', {'a': pxt.Int | None})
         v = pxt.create_view('v', base)
         block_before_init = BlockFault()
 
@@ -319,7 +322,7 @@ class TestCatalog:
         finalizes view drop as a side effect. Before the fix, this would result in the insert failing with "table not
         found" error.
         """
-        base = pxt.create_table('base', {'a': pxt.Int})
+        base = pxt.create_table('base', {'a': pxt.Int | None})
         _ = pxt.create_view('v', base)
         block_in_finalize = BlockFault()
 

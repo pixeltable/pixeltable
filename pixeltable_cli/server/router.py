@@ -13,7 +13,10 @@ from typing import Any, TypeVar, overload
 import pydantic
 
 from pixeltable import exceptions as excs
-from pixeltable_cli.utils import resolve_dot_segments, validate_path_shape
+from pixeltable_cli.models import Method
+from pixeltable_cli.utils import PxtPath, resolve_dot_segments, validate_path_shape
+
+from .daemon_state import state as daemon_state
 
 T = TypeVar('T', bound=pydantic.BaseModel)
 
@@ -76,6 +79,13 @@ class Request:
             raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f"'{name}' must be <= {le}; got {value}")
         return value
 
+    def required_query_str(self, name: str) -> str:
+        """A query parameter the route cannot run without; raises rather than returning None."""
+        val = self.query_str(name)
+        if val is None or val == '':
+            raise excs.RequestError(excs.ErrorCode.MISSING_REQUIRED, f'{name!r} query parameter is required')
+        return val
+
     def query_bool(self, name: str, default: bool = False) -> bool:
         # Match what FastAPI/Pydantic v2 accepts: '1'/'0', 'true'/'false', 'yes'/'no', 'on'/'off'.
         raw = self.query_str(name)
@@ -101,7 +111,7 @@ class Request:
             detail = '; '.join(m for m in msgs if m != '') or 'invalid request body'
             raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, detail) from None
 
-    def resolve_path(self, path: str) -> str:
+    def resolve_path(self, path: str) -> PxtPath:
         """Resolve a catalog path against this request's session working directory, then shape-validate it.
 
         As a CLI convention:
@@ -113,13 +123,11 @@ class Request:
         - '.' and '..' are resolved afterwards, so they are relative to the working directory too; '..' at the
           catalog root keeps the root.
         """
-        from . import daemon  # module-level import would be circular: daemon -> http_server -> router
-
         if not path.startswith('pxt://'):
             if path.startswith('/'):
                 path = path[1:]  # drop the leading '/'
             else:
-                wd = daemon.get_wd(self.headers.get('x-pxt-session'))
+                wd = daemon_state.get_wd(self.headers.get('x-pxt-session'))
                 if wd is not None:
                     path = wd if path == '' else f'{wd}/{path}'
         # after the working directory is applied, so that '..' steps out of it rather than out of the argument
@@ -129,28 +137,44 @@ class Request:
             if err is not None:
                 raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, err)
         self.resolved_paths.append(path)
-        return path
+        return PxtPath(path)
 
 
 class Router:
     """Decorator-based route table keyed by (method, path) for exact-match lookup."""
 
+    _routes: dict[tuple[Method, str], Handler]  # key: route id = (method, path)
+
+    # routes registered with checks_env=False
+    _skips_env_check: set[tuple[Method, str]]  # set of route ids
+
     def __init__(self) -> None:
-        self._routes: dict[tuple[str, str], Handler] = {}
+        self._routes = {}
+        self._skips_env_check = set()
 
-    def get(self, path: str) -> Callable[[Handler], Handler]:
-        return self._register('GET', path)
+    def get(self, path: str, *, checks_env: bool = True) -> Callable[[Handler], Handler]:
+        return self._register('GET', path, checks_env)
 
-    def post(self, path: str) -> Callable[[Handler], Handler]:
-        return self._register('POST', path)
+    def post(self, path: str, *, checks_env: bool = True) -> Callable[[Handler], Handler]:
+        return self._register('POST', path, checks_env)
 
-    def _register(self, method: str, path: str) -> Callable[[Handler], Handler]:
+    def _register(self, method: Method, path: str, checks_env: bool) -> Callable[[Handler], Handler]:
         def decorator(fn: Handler) -> Handler:
             assert (method, path) not in self._routes, f'duplicate route {method} {path}'
             self._routes[method, path] = fn
+            if not checks_env:
+                self._skips_env_check.add((method, path))
             return fn
 
         return decorator
 
-    def match(self, method: str, url_path: str) -> Handler | None:
+    def match(self, method: Method, url_path: str) -> Handler | None:
         return self._routes.get((method, url_path))
+
+    def checks_env(self, method: Method, url_path: str) -> bool:
+        """Whether this route requires the caller's config values to be the ones the daemon serves with.
+
+        True unless the route was registered with checks_env=False, which is for the routes that report on
+        the daemon and the ones that read catalog metadata.
+        """
+        return (method, url_path) not in self._skips_env_check

@@ -14,10 +14,11 @@ from .column import Column
 from .globals import IndexSpec, MediaValidation, OnErrorParam
 from .local_table import LocalTable
 from .table_path import TableVersionPath
-from .table_version import TableVersion, TableVersionMd
 from .table_version_handle import TableVersionHandle
 from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, TableOp, TableOpsBuilder
+from .types import TableVersionMd
 from .update_status import UpdateStatus
+from .utils import create_table_version_md
 
 if TYPE_CHECKING:
     from pixeltable import exprs
@@ -45,30 +46,14 @@ class InsertableTable(LocalTable):
         tbl_id: UUID,
         name: str,
         columns: list[Column],
-        primary_key: list[str],
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
-        create_default_idxs: bool,
-        is_versioned: bool,
+        has_default_idxs: bool,
+        is_data_versioned: bool,
         additional_idxs: list[IndexSpec],
     ) -> tuple[TableVersionMd, list[TableOp]]:
         cls._verify_schema(columns)
-        column_names = [col.name for col in columns]
-        for pk_col in primary_key:
-            if pk_col not in column_names:
-                raise excs.NotFoundError(
-                    excs.ErrorCode.COLUMN_NOT_FOUND, f'Primary key column {pk_col!r} not found in table schema.'
-                )
-            col = columns[column_names.index(pk_col)]
-            if col.col_type.nullable:
-                raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'Primary key column {pk_col!r} cannot be nullable. '
-                    f'Declare it as `Required` instead: `pxt.Required[pxt.{col.col_type._to_base_str()}]`',
-                )
-            col.is_pk = True
-
         cols_by_name = {col.name: col for col in columns if col.name is not None}
         assert all(isinstance(spec.indexed_column, str) for spec in additional_idxs)
         resolved_idxs = [
@@ -76,16 +61,16 @@ class InsertableTable(LocalTable):
             for spec in additional_idxs
         ]
 
-        md = TableVersion.create_initial_md(
+        md = create_table_version_md(
             tbl_id,
             name,
             columns,
             comment,
             custom_metadata,
             media_validation,
-            create_default_idxs=create_default_idxs,
+            has_default_idxs=has_default_idxs,
             view_md=None,
-            is_versioned=is_versioned,
+            is_data_versioned=is_data_versioned,
             additional_idxs=resolved_idxs,
         )
 

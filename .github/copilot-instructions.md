@@ -1,4 +1,4 @@
-When reviewing Pixeltable PRs, apply these project-specific rules. Pixeltable is a Python library (3.10–3.13) for declarative multimodal AI data infrastructure. UDFs (`@pxt.udf`) and query functions (`@pxt.query`) extend the system.
+When reviewing Pixeltable PRs, apply these project-specific rules. Pixeltable is a Python library (3.11–3.14) for declarative multimodal AI data infrastructure. UDFs (`@pxt.udf`) and query functions (`@pxt.query`) extend the system.
 
 ## Expression DSL — Most Common Bug Source
 

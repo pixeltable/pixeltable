@@ -18,21 +18,23 @@ from pixeltable.functions.net import presigned_url
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
 
-from .utils import CatalogMode, MediaStore, pxt_raises, rerun_on_network_error, skip_test_if_not_installed
+from .utils import CatalogMode, check_media_store_count, pxt_raises, rerun_on_network_error, skip_test_if_not_installed
 
 
 @rerun_on_network_error()
 class TestDestination:
-    TESTED_DESTINATIONS = (
-        StorageTarget.AZURE_STORE,
-        StorageTarget.B2_STORE,
-        StorageTarget.GCS_STORE,
-        StorageTarget.LOCAL_STORE,
-        StorageTarget.PIXELTABLE_STORE,
-        StorageTarget.R2_STORE,
-        StorageTarget.S3_STORE,
-        StorageTarget.TIGRIS_STORE,
-    )
+    # The destinations exercised below, each mapped to its parametrization. Every target other than
+    # LOCAL_STORE talks to an external object store, so those params run only on the very_expensive tier.
+    TESTED_DESTINATIONS: ClassVar[dict[StorageTarget, object]] = {
+        StorageTarget.AZURE_STORE: pytest.param(StorageTarget.AZURE_STORE, marks=pytest.mark.very_expensive),
+        StorageTarget.B2_STORE: pytest.param(StorageTarget.B2_STORE, marks=pytest.mark.very_expensive),
+        StorageTarget.GCS_STORE: pytest.param(StorageTarget.GCS_STORE, marks=pytest.mark.very_expensive),
+        StorageTarget.LOCAL_STORE: pytest.param(StorageTarget.LOCAL_STORE),
+        StorageTarget.PIXELTABLE_STORE: pytest.param(StorageTarget.PIXELTABLE_STORE, marks=pytest.mark.very_expensive),
+        StorageTarget.R2_STORE: pytest.param(StorageTarget.R2_STORE, marks=pytest.mark.very_expensive),
+        StorageTarget.S3_STORE: pytest.param(StorageTarget.S3_STORE, marks=pytest.mark.very_expensive),
+        StorageTarget.TIGRIS_STORE: pytest.param(StorageTarget.TIGRIS_STORE, marks=pytest.mark.very_expensive),
+    }
 
     @classmethod
     def resolve_destination_uri(cls, dest_id: StorageTarget, skip_on_failure: bool = True) -> str | None:
@@ -73,10 +75,10 @@ class TestDestination:
 
     def test_dest_errors(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test_dest_errors'), schema={'img': pxt.Image})
+        t = pxt.create_table(p('test_dest_errors'), schema={'img': pxt.Image | None})
 
         # destination type and scheme are checked regardless of the catalog kind
-        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='must be a string or path'):
+        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='must be a string, a path, or a ConfigVar'):
             t.add_computed_column(img_rot=t.img.rotate(90), destination=27)
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be a valid reference to a supported'):
             t.add_computed_column(img_rot=t.img.rotate(90), destination='https://anything/')
@@ -95,7 +97,7 @@ class TestDestination:
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='only applies to stored computed columns'):
             _ = pxt.create_table(
-                p('test_dest_bad'), schema={'img': {'type': pxt.Image, 'destination': f'{valid_dest}'}}
+                p('test_dest_bad'), schema={'img': {'type': pxt.Image | None, 'destination': f'{valid_dest}'}}
             )
 
         # Test destination with a non-existent directory
@@ -108,10 +110,11 @@ class TestDestination:
                 img_rot=t.img.rotate(90), destination='tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'
             )
 
+    @pytest.mark.very_expensive
     def test_invalid_bucket(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('boto3')
-        t = pxt.create_table(p('test_invalid_dest'), schema={'img': pxt.Image})
+        t = pxt.create_table(p('test_invalid_dest'), schema={'img': pxt.Image | None})
 
         with pxt_raises(
             pxt.ErrorCode.STORAGE_NOT_FOUND,
@@ -213,7 +216,7 @@ class TestDestination:
         with pytest.raises(ValueError, match='Invalid pxtfs:// store URI'):
             ObjectPath.parse_object_storage_addr('pxtfs://org:db/homebucket', allow_obj_name=False)
 
-    @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS)
+    @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS.values())
     def test_destination(
         self, make_catalog_path: Callable[[str], str], dest_id: StorageTarget, catalog_mode: CatalogMode
     ) -> None:
@@ -233,7 +236,7 @@ class TestDestination:
         dest1_uri = f'{dest_uri}/bucket1'
         dest2_uri = f'{dest_uri}/bucket2'
 
-        t = pxt.create_table(p('test_dest'), schema={'img': pxt.Image})
+        t = pxt.create_table(p('test_dest'), schema={'img': pxt.Image | None})
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         t.add_computed_column(img_rot1=t.img.rotate(90), destination=None)
         t.add_computed_column(img_rot2=t.img.rotate(180), destination=dest1_uri)
@@ -250,15 +253,15 @@ class TestDestination:
         # img is inserted from local file paths: referenced in place locally, but over the proxy each insert ships
         # the file and persists it in the daemon's default store, so the default store also holds one img per row.
         shipped_per_insert = 1 if catalog_mode == 'proxy' else 0
-        assert MediaStore.count(t, default_output_dest=True) == 2 + 2 * shipped_per_insert
+        check_media_store_count(t, 2 + 2 * shipped_per_insert, catalog_mode, default_output_dest=True)
         assert ObjectOps.count(t._id, dest=dest1_uri) == 2
         assert ObjectOps.count(t._id, dest=dest2_uri) == 2
 
-        assert MediaStore.count(t, tbl_version=2, default_output_dest=True) == 1
+        check_media_store_count(t, 1, catalog_mode, tbl_version=2, default_output_dest=True)
         assert ObjectOps.count(t._id, 3, dest=dest1_uri) == 1
         assert ObjectOps.count(t._id, 4, dest=dest2_uri) == 1
 
-        assert MediaStore.count(t, tbl_version=5, default_output_dest=True) == 1 + shipped_per_insert
+        check_media_store_count(t, 1 + shipped_per_insert, catalog_mode, tbl_version=5, default_output_dest=True)
         assert ObjectOps.count(t._id, 5, dest=dest1_uri) == 1
         assert ObjectOps.count(t._id, 5, dest=dest2_uri) == 1
 
@@ -290,11 +293,11 @@ class TestDestination:
         save_id = t._id
         pxt.drop_table(t)
 
-        assert MediaStore.count(t, default_output_dest=True) == 0
+        check_media_store_count(t, 0, catalog_mode, default_output_dest=True)
         assert ObjectOps.count(save_id, dest=dest1_uri) == 0
         assert ObjectOps.count(save_id, dest=dest2_uri) == 0
 
-    @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS)
+    @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS.values())
     def test_dest_two_copies(
         self, make_catalog_path: Callable[[str], str], dest_id: StorageTarget, catalog_mode: CatalogMode
     ) -> None:
@@ -310,7 +313,7 @@ class TestDestination:
         dest1_uri = f'{dest_uri}/bucket1'
         dest2_uri = f'{dest_uri}/bucket2'
 
-        t = pxt.create_table(p('test_dest'), schema={'img': pxt.Image})
+        t = pxt.create_table(p('test_dest'), schema={'img': pxt.Image | None})
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         t.add_computed_column(img_rot1=t.img.rotate(90), destination=None)
         t.add_computed_column(img_rot2=t.img.rotate(90), destination=dest1_uri)
@@ -328,7 +331,7 @@ class TestDestination:
         # img_rot1 (destination=None) goes to the default store, one per row; over the proxy that store also holds
         # each input img, shipped and persisted there (local references the source files in place)
         shipped_imgs = len(r) if catalog_mode == 'proxy' else 0
-        assert MediaStore.count(t, default_output_dest=True) == len(r) + shipped_imgs
+        check_media_store_count(t, len(r) + shipped_imgs, catalog_mode, default_output_dest=True)
         assert len(r) == ObjectOps.count(t._id, dest=dest1_uri)
 
         # The outcome of this test is unusual:
@@ -347,7 +350,7 @@ class TestDestination:
         dest1_uri = f'{dest_uri}/bucket1'
 
         # The intent of this test is to copy the same image to two different destinations
-        t = pxt.create_table('test_dest', schema={'img': pxt.Image})
+        t = pxt.create_table('test_dest', schema={'img': pxt.Image | None})
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         t.add_computed_column(img_rot1=t.img, destination=None)
         t.add_computed_column(img_rot2=t.img, destination=dest1_uri)
@@ -370,12 +373,13 @@ class TestDestination:
         # Ensure that local file is copied to a specified destination
         assert ObjectOps.count(t._id, dest=dest1_uri) == len(r)
 
+    @pytest.mark.very_expensive
     def test_dest_all(self, make_catalog_path: Callable[[str], str]) -> None:
         """Test destination with all available storage targets"""
         p = make_catalog_path
         dest_uris = tuple(self.resolve_destination_uri(dest_id) + '/bucket1' for dest_id in self.TESTED_DESTINATIONS)
 
-        t = pxt.create_table(p('test_dest'), schema={'img': pxt.Image})
+        t = pxt.create_table(p('test_dest'), schema={'img': pxt.Image | None})
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         for i, (dest_id, dest_uri) in enumerate(zip(self.TESTED_DESTINATIONS, dest_uris, strict=True)):
             t.add_computed_column(**{f'img_rot_{dest_id}': t.img.rotate(30 * i)}, destination=dest_uri)
@@ -443,6 +447,7 @@ class TestDestination:
             assert ObjectOps.count(t._id, dest=uri) == 0
 
     @pytest.mark.local('media destination/object-store internals')
+    @pytest.mark.very_expensive
     def test_presigned_url_all_destinations(self, uses_db: None) -> None:
         """Test presigned_url UDF for all cloud storage destinations"""
         # Exclude LOCAL_STORE as it doesn't support presigned URLs
@@ -460,7 +465,7 @@ class TestDestination:
         if not available_destinations:
             pytest.skip('No cloud destinations are configured or reachable')
 
-        t = pxt.create_table('test_presigned_url', schema={'img': pxt.Image})
+        t = pxt.create_table('test_presigned_url', schema={'img': pxt.Image | None})
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         for i, (dest_id, dest_uri) in enumerate(zip(available_destinations, dest_uris, strict=True)):
             t.add_computed_column(**{f'img_rot_{dest_id}': t.img.rotate(30 * i)}, destination=dest_uri)
@@ -565,6 +570,7 @@ class TestDestination:
     }
 
     @pytest.mark.local('media destination/object-store internals')
+    @pytest.mark.very_expensive
     @pytest.mark.parametrize('dest_id', PUBLIC_TEST_OBJECTS.keys())
     def test_public_download(self, uses_db: None, dest_id: StorageTarget) -> None:
         """Test downloading a media object from a public Store"""

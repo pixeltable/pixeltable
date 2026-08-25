@@ -2,7 +2,7 @@
 Pixeltable UDFs
 that wrap various endpoints from the Groq API. In order to use them, you must
 first `pip install groq` and configure your Groq credentials, as described in
-the [Working with Groq](https://docs.pixeltable.com/notebooks/integrations/working-with-groq) tutorial.
+the [Working with Groq](https://docs.pixeltable.com/howto/providers/working-with-groq) tutorial.
 """
 
 from typing import TYPE_CHECKING, Any
@@ -63,12 +63,12 @@ async def chat_completions(
         A dictionary containing the response and other metadata.
 
     Examples:
-        Add a computed column that applies the model `llama-3.1-8b-instant`
+        Add a computed column that applies the model `openai/gpt-oss-20b`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
         ... tbl.add_computed_column(
-        ...     response=chat_completions(messages, model='llama-3.1-8b-instant')
+        ...     response=chat_completions(messages, model='openai/gpt-oss-20b')
         ... )
     """
     if model_kwargs is None:

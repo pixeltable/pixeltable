@@ -5,12 +5,12 @@ import builtins
 import datetime
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence, overload
 from uuid import UUID
 
 import pandas as pd
 import pydantic
-from typing_extensions import overload
+from typing_extensions import TypeForm
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, exprs, index, telemetry, telemetry_schemas, type_system as ts
@@ -37,16 +37,13 @@ from .globals import (
     IfNotExistsParam,
     MediaValidation,
     OnErrorParam,
-    QColumnId,
     is_valid_identifier,
 )
 from .table import Table
 from .table_path import TableVersionPath
 from .table_version_handle import TableVersionHandle
+from .types import QColumnId
 from .update_status import UpdateStatus
-
-from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
-
 
 if TYPE_CHECKING:
     import torch.utils.data
@@ -129,7 +126,7 @@ class LocalTable(Table):
                 )
             column_info[col.name] = ColumnMetadata(
                 name=col.name,
-                type_=col.col_type._to_str(as_schema=True),
+                type_=repr(col.col_type),
                 version_added=col.schema_version_add,
                 is_stored=col.is_stored,
                 is_primary_key=col.is_pk,
@@ -142,7 +139,7 @@ class LocalTable(Table):
                 comment=col.comment,
                 custom_metadata=col.custom_metadata,
                 is_iterator_col=False,
-                destination=col._explicit_destination,
+                destination=col.display_destination,
             )
 
         indices = tv.idxs_by_name.values()
@@ -161,6 +158,7 @@ class LocalTable(Table):
                     index_type='embedding',
                     parameters=EmbeddingIndexParams(
                         metric=info.idx.metric.name.lower(),  # type: ignore[typeddict-item]
+                        precision=info.idx.precision.name.lower(),  # type: ignore[typeddict-item]
                         embedding=str(embedding_fncall),
                         embedding_functions=[str(fn) for fn in info.idx.embeddings.values()],
                     ),
@@ -174,13 +172,16 @@ class LocalTable(Table):
         if any(col.is_pk for col in columns):
             primary_key = [col.name for col in columns if col.is_pk]
 
+        has_default_idxs = self._tbl_version is not None and self._tbl_version.get().has_default_idxs
+
         return TableMetadata(
             id=self._id,
             name=self._name(),
             path=str(self._path()),
             columns=column_info,
-            indices=index_info,
-            is_versioned=tv.is_versioned,
+            indexes=index_info,
+            is_data_versioned=tv.is_data_versioned,
+            has_default_idxs=has_default_idxs,
             is_view=False,
             is_snapshot=False,
             version=self._get_version(),
@@ -197,8 +198,8 @@ class LocalTable(Table):
             iterator_call=None,
         )
 
-    def _get_version(self) -> int | None:
-        """Return the version of this table or None if not versioned. Used by tests to ascertain version changes."""
+    def _get_version(self) -> int:
+        """Return the current version of this table."""
         return self._tbl_version_path.version()
 
     def __hash__(self) -> int:
@@ -238,7 +239,8 @@ class LocalTable(Table):
         if mutable_only:
             views = [t for t in views if t._tbl_version_path.is_mutable()]
         if recursive:
-            views.extend(t for view in views for t in view._get_views(recursive=True, mutable_only=mutable_only))
+            descendants = [t for view in views for t in view._get_views(recursive=True, mutable_only=mutable_only)]
+            views.extend(descendants)
         return views
 
     def columns(self) -> list[str]:
@@ -316,8 +318,8 @@ class LocalTable(Table):
     def _effective_base_versions(self) -> list[int | None]:
         """The effective versions of the ancestor bases, starting with its immediate base."""
 
-    def _is_versioned(self) -> bool:
-        return self._tbl_version_path.is_versioned()
+    def _is_data_versioned(self) -> bool:
+        return self._tbl_version_path.is_data_versioned()
 
     def _get_comment(self) -> str:
         return self._tbl_version_path.comment()
@@ -391,7 +393,7 @@ class LocalTable(Table):
             col_descriptors.append(
                 {
                     'Column Name': col.name,
-                    'Type': col.col_type._to_str(as_schema=True),
+                    'Type': repr(col.col_type),
                     'Source': source_tv.name,
                     'Computed With': computed_with,
                     'Comment': col.comment if col.comment is not None else '',
@@ -472,10 +474,12 @@ class LocalTable(Table):
                     col = self._tbl_version.get().cols_by_name[new_col_name]
                     # cannot drop a column with dependents; so reject
                     # replace directive if column has dependents.
-                    if len(self._get_dependent_user_cols(col)) > 0:
+                    dependent_user_cols = self._get_dependent_user_cols(col)
+                    if len(dependent_user_cols) > 0:
                         raise excs.AlreadyExistsError(
                             excs.ErrorCode.COLUMN_ALREADY_EXISTS,
-                            f'Column {new_col_name!r} already exists and has dependents. '
+                            f'Column {new_col_name!r} already exists and the following columns depend on it: '
+                            f'{", ".join(c.name for c in dependent_user_cols)}. '
                             f'Cannot {if_exists.name.lower()} it.',
                         )
                     self.drop_column(new_col_name)
@@ -485,7 +489,7 @@ class LocalTable(Table):
     @telemetry.spanned('pixeltable.add_columns', set_current=True)
     def add_columns(
         self,
-        schema: Mapping[str, type | ColumnSpec],
+        schema: Mapping[str, TypeForm | ColumnSpec],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
         from pixeltable.catalog import retry_loop
@@ -532,12 +536,12 @@ class LocalTable(Table):
         self,
         *,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-        **kwargs: type | ColumnSpec,
+        **kwargs: TypeForm | ColumnSpec,
     ) -> UpdateStatus:
         # verify kwargs and construct column schema dict
         self._check_single_column_kwarg('add_column', '`col_name=col_type`', kwargs)
         col_type = next(iter(kwargs.values()))
-        if not isinstance(col_type, (ts.ColumnType, type, _GenericAlias, dict)):
+        if not isinstance(col_type, (ts.ColumnType, dict)) and not ts.is_type_form(col_type):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT,
                 'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?',
@@ -686,7 +690,7 @@ class LocalTable(Table):
 
             if len(dependent_views) > 0:
                 dependent_views_str = '\n'.join(
-                    f'view: {view._path()}, predicate: {predicate}' for view, predicate in dependent_views
+                    sorted(f'view: {view._path()}, predicate: {predicate}' for view, predicate in dependent_views)
                 )
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -714,10 +718,10 @@ class LocalTable(Table):
             self._check_mutable('rename columns of')
             self._tbl_version.get().rename_column(old_name, new_name)
 
-    def alter_column(self, column: str | ColumnRef, *, type_: type) -> None:
+    def alter_column(self, column: str | ColumnRef, *, type_: TypeForm) -> None:
         from pixeltable.catalog import retry_loop
 
-        new_col_type = ts.ColumnType.normalize_type(type_, nullable_default=True, allow_builtin_types=False)
+        new_col_type = ts.ColumnType.normalize_type(type_, allow_builtin_types=False)
 
         @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)
         def do_alter_column() -> None:
@@ -760,6 +764,49 @@ class LocalTable(Table):
 
         do_alter_column()
 
+    def add_btree_index(
+        self, column: str | ColumnRef, *, idx_name: str | None = None, if_exists: Literal['error', 'ignore'] = 'error'
+    ) -> None:
+        self._check_mutable('add an index to')
+        # A B-tree index is parameterless, so replacing one with another achieves nothing; only 'error' and
+        # 'ignore' are meaningful.
+        if if_exists not in ('error', 'ignore'):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, f"if_exists must be one of: ['error', 'ignore']; got {if_exists!r}"
+            )
+        if_exists_ = IfExistsParam.validated(if_exists, 'if_exists')
+
+        if idx_name is not None:
+            # Index name must be a valid pixeltable column name
+            Column.validate_name(idx_name)
+
+        with get_runtime().catalog.begin_xact(
+            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+        ):
+            tv = self._tbl_version.get()
+            col = self._resolve_column_parameter(column)
+
+            existing_idx_by_name = tv.idxs_by_name.get(idx_name) if idx_name is not None else None
+            if existing_idx_by_name is not None and not isinstance(existing_idx_by_name.idx, index.BtreeIndex):
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Index {idx_name!r} already exists, but is not a B-tree index.',
+                )
+            # Do nothing if an index already exists, if_exists is 'ignore', and no other error that TableVersion will
+            # raise should take precedence.
+            if (
+                if_exists_ == IfExistsParam.IGNORE
+                and not tv.has_default_idxs
+                and (existing_idx_by_name is None or existing_idx_by_name.col.qid == col.qid)
+                and col.tbl_handle.id == tv.id
+                and tv.find_btree_index(col) is not None
+            ):
+                return
+
+            _ = tv.add_index(col, idx_name=idx_name, idx=index.BtreeIndex(uses_value_col=tv.is_data_versioned))
+
+        FileCache.get().emit_eviction_warnings()
+
     @telemetry.spanned('pixeltable.add_embedding_index', set_current=True)
     def add_embedding_index(
         self,
@@ -777,9 +824,6 @@ class LocalTable(Table):
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> None:
         self._validate_embedding_args(embedding, string_embed, image_embed)
-        assert self._tbl_version is None or self._tbl_version.get().is_versioned, (
-            'TODO: implement for unversioned tables [PXT-1101]'
-        )
 
         telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table_id=str(self._id)))
         with get_runtime().catalog.begin_xact(
@@ -825,7 +869,7 @@ class LocalTable(Table):
                 document_embed=document_embed,
                 column=col,  # Pass column for shape validation
             )
-            _ = idx.create_value_expr(col)  # validation only; result discarded
+            _ = idx.create_value_expr(col.column_version_md())  # validation only; result discarded
 
             if idx_name is None:
                 # Unnamed index: duplicate detection is by index definition on this column.
@@ -967,14 +1011,16 @@ class LocalTable(Table):
                 )
             idx_info = idx_info_list[0]
 
-        # Find out if anything depends on this index
-        dependent_user_cols = self._get_dependent_user_cols(idx_info.val_col)
-        if len(dependent_user_cols) > 0:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Cannot drop index {idx_info.name!r} because the following columns depend on it:\n'
-                f'{", ".join(c.name for c in dependent_user_cols)}',
-            )
+        # Find out if anything depends on this index. An index that is created directly on the indexed column has no
+        # value column, and therefore nothing that can reference it.
+        if idx_info.val_col is not None:
+            dependent_user_cols = self._get_dependent_user_cols(idx_info.val_col)
+            if len(dependent_user_cols) > 0:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'Cannot drop index {idx_info.name!r} because the following columns depend on it:\n'
+                    f'{", ".join(c.name for c in dependent_user_cols)}',
+                )
         self._tbl_version.get().drop_index(idx_info.id)
 
     @overload
@@ -1170,9 +1216,9 @@ class LocalTable(Table):
         ):
             self._check_mutable('revert')
             tv = self._tbl_version.get()
-            if not tv.is_versioned:
+            if not tv.is_data_versioned:
                 raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION, 'Revert is supported on versioned tables only'
+                    excs.ErrorCode.UNSUPPORTED_OPERATION, 'Revert is supported on data-versioned tables only'
                 )
             tv.revert()
             telemetry.add_attrs(telemetry.func_span(), **telemetry_schemas.OpAttrs(table=tv.name, version=tv.version))
@@ -1195,7 +1241,6 @@ class LocalTable(Table):
         tbl_id = self._id
         # Collect an extra version, if available, to allow for computation of the first version's schema change
         vers_list = get_runtime().catalog.collect_tbl_history(tbl_id, n + 1)
-        assert vers_list[0].tbl_md.is_versioned, 'TODO: implement for unversioned tables [PXT-1101]'
 
         # Construct the metadata change description dictionary
         md_list = [(vers_md.version_md.version, vers_md.schema_version_md.columns) for vers_md in vers_list]

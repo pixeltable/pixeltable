@@ -11,8 +11,8 @@ import pytest
 import pixeltable as pxt
 from pixeltable.utils.arrow import to_pydict
 
+from ..conftest import SampleFileServer
 from ..utils import (
-    SAMPLE_IMAGE_URL,
     CatalogMode,
     assert_schema_eq,
     ensure_s3_pytest_resources_access,
@@ -214,7 +214,7 @@ class TestParquet:
         p = make_catalog_path
         empty_dir = tmp_path / 'empty'
         empty_dir.mkdir()
-        tab = pxt.create_table(p('empty_src'), {'c_id': pxt.Int})
+        tab = pxt.create_table(p('empty_src'), {'c_id': pxt.Int | None})
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='empty directory'):
             tab.insert(str(empty_dir), source_format='parquet')
 
@@ -229,7 +229,10 @@ class TestParquet:
         import pyarrow as pa
         from pyarrow import parquet
 
-        t = pxt.create_table(p('test1'), {'c1': pxt.Int, 'c2': pxt.String, 'c3': pxt.Timestamp, 'c4': pxt.Json})
+        t = pxt.create_table(
+            p('test1'),
+            {'c1': pxt.Int | None, 'c2': pxt.String | None, 'c3': pxt.Timestamp | None, 'c4': pxt.Json | None},
+        )
 
         tz = ZoneInfo('America/Anchorage')
         ts1 = datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz)
@@ -361,7 +364,7 @@ class TestParquet:
 
     def test_export_parquet_image(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         p = make_catalog_path
-        tab = pxt.create_table(p('test_image'), {'c1': pxt.Image})
+        tab = pxt.create_table(p('test_image'), {'c1': pxt.Image | None})
         tab.insert([{'c1': get_image_files()[0]}])
 
         export_path = tmp_path / 'exported_image.parquet'
@@ -374,20 +377,27 @@ class TestParquet:
         # Test that we can reimport the image (it will come back as bytes)
         _ = pxt.io.import_parquet(p('imported_image'), parquet_path=str(export_path))
 
-    @rerun_on_network_error()
     def test_import_images(
-        self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, tmp_path: pathlib.Path
+        self,
+        make_catalog_path: Callable[[str], str],
+        catalog_mode: CatalogMode,
+        tmp_path: pathlib.Path,
+        sample_file_server: SampleFileServer,
     ) -> None:
         p = make_catalog_path
         valid_images = get_image_files()
 
         # Parquet with valid image paths/URLs
-        img_data = pa.table({'image_path': [str(f) for f in valid_images[:3]] + [SAMPLE_IMAGE_URL]})
+        img_url = sample_file_server.url(valid_images[3])
+        img_data = pa.table({'image_path': [str(f) for f in valid_images[:3]] + [img_url]})
         img_pq = tmp_path / 'valid.parquet'
         pa_parquet.write_table(img_data, str(img_pq))
 
         img_t = pxt.create_table(
-            p('valid_images'), source=str(img_pq), source_format='parquet', schema_overrides={'image_path': pxt.Image}
+            p('valid_images'),
+            source=str(img_pq),
+            source_format='parquet',
+            schema_overrides={'image_path': pxt.Image | None},
         )
         assert img_t.count() == 4
 
@@ -399,7 +409,14 @@ class TestParquet:
 
         # Parquet with invalid local path and invalid URL
         bad_data = pa.table(
-            {'image_path': [valid_images[0], 'not_a_real_image.jpg', 'https://httpbin.org/status/404', valid_images[1]]}
+            {
+                'image_path': [
+                    valid_images[0],
+                    'not_a_real_image.jpg',
+                    sample_file_server.url('not_a_real_image.jpg'),
+                    valid_images[1],
+                ]
+            }
         )
         bad_pq = tmp_path / 'bad.parquet'
         pa_parquet.write_table(bad_data, str(bad_pq))
@@ -410,7 +427,7 @@ class TestParquet:
                 p('bad_data_tbl'),
                 source=str(bad_pq),
                 source_format='parquet',
-                schema_overrides={'image_path': pxt.Image},
+                schema_overrides={'image_path': pxt.Image | None},
                 on_error='abort',
             )
 
@@ -419,7 +436,7 @@ class TestParquet:
             p('bad_ignore'),
             source=str(bad_pq),
             source_format='parquet',
-            schema_overrides={'image_path': pxt.Image},
+            schema_overrides={'image_path': pxt.Image | None},
             on_error='ignore',
         )
         assert error_t.count() == 4
@@ -428,7 +445,7 @@ class TestParquet:
 
     def test_export_array(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test_array1'), {'idx': pxt.Int, 'a1': pxt.Array[(10, 10), np.int64]})
+        t = pxt.create_table(p('test_array1'), {'idx': pxt.Int | None, 'a1': pxt.Array[(10, 10), np.int64] | None})
         rows = [{'idx': i, 'a1': np.ones((10, 10), dtype=np.int64) * i} for i in range(1000)]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
 
@@ -438,7 +455,7 @@ class TestParquet:
 
     def test_export_ragged_array(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test_array1'), {'idx': pxt.Int, 'a1': pxt.Array[(None, None), np.int64]})
+        t = pxt.create_table(p('test_array1'), {'idx': pxt.Int | None, 'a1': pxt.Array[(None, None), np.int64] | None})
         rng = np.random.default_rng(0)
         rows = [
             {'idx': i, 'a1': np.ones((rng.integers(1, 10) + 1, rng.integers(1, 10) + 1), dtype=np.int64) * i}
@@ -451,7 +468,7 @@ class TestParquet:
         validate_parquet_files(export_path, rows)
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot export array column'):
-            u = pxt.create_table(p('test_array2'), {'idx': pxt.Int, 'a1': pxt.Array[np.int64]})
+            u = pxt.create_table(p('test_array2'), {'idx': pxt.Int | None, 'a1': pxt.Array[np.int64] | None})
             validate_update_status(u.insert(rows), expected_rows=len(rows))
             export_path = tmp_path / 'error.pq'
             pxt.io.export_parquet(u.order_by(u.idx), export_path)

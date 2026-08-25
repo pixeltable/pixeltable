@@ -48,6 +48,29 @@ LOG_FMT_STR = '%(asctime)s %(levelname)s %(threadName)s %(name)s %(filename)s:%(
 
 T = TypeVar('T')
 
+_DEFAULT_PROXY_DOMAIN = 'pxt.run'
+_DEFAULT_PROXY_PORT = 9000
+
+
+def init_log_level(logger: logging.Logger, config: Config, config_key: str, *, default: int) -> None:
+    """Set logger's level from the config option 'pixeltable.<config_key>', falling back to default.
+
+    A logger whose level has already been set keeps it.
+    """
+    if logger.level != logging.NOTSET:
+        return
+    level_name = config.get_string_value(config_key)
+    if level_name is None:
+        logger.setLevel(default)
+        return
+    level = logging.getLevelNamesMapping().get(level_name.strip().upper())
+    if level is None:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f"Invalid value for configuration parameter 'pixeltable.{config_key}': {level_name}",
+        )
+    logger.setLevel(level)
+
 
 def store_app_name() -> str:
     """The application_name that this process's connections report to the store.
@@ -351,8 +374,7 @@ class Env:
         stdout_handler.setLevel(map_level(self._verbosity))
         stdout_handler.addFilter(ConsoleMessageFilter())
         pxt_logger = logging.getLogger('pixeltable')
-        if pxt_logger.level == logging.NOTSET:
-            pxt_logger.setLevel(logging.INFO)
+        init_log_level(pxt_logger, config, 'log_level', default=logging.INFO)
         pxt_logger.propagate = False
         pxt_logger.addHandler(stdout_handler)
         self._managed_logging_handlers.append((pxt_logger, stdout_handler))
@@ -367,8 +389,7 @@ class Env:
 
         # Configure sqlalchemy logging. Pixeltable users don't need to see the SQL queries by default
         sql_logger = logging.getLogger('sqlalchemy.engine')
-        if sql_logger.level == logging.NOTSET:
-            sql_logger.setLevel(logging.WARNING)
+        init_log_level(sql_logger, config, 'sql_log_level', default=logging.WARNING)
         sql_logger.addHandler(fh)
         sql_logger.propagate = False
         self._managed_logging_handlers.append((sql_logger, fh))
@@ -410,15 +431,20 @@ class Env:
                 'Reinitializing pixeltable database is not supported when running in non-local environment',
             )
 
-        if reinit_db and self._store_db_exists():
-            self._drop_store_db()
+        if self.is_local:
+            # Embedded postmaster: create or reset the database as needed.
+            if reinit_db and self._store_db_exists():
+                self._drop_store_db()
 
-        create_db = not self._store_db_exists()
-        if create_db:
-            _logger.info(f'creating database at: {self.db_url}')
-            self._create_store_db()
+            create_db = not self._store_db_exists()
+            if create_db:
+                _logger.info(f'creating database at: {self.db_url}')
+                self._create_store_db()
+            else:
+                _logger.info(f'found database at: {self.db_url}')
         else:
-            _logger.info(f'found database at: {self.db_url}')
+            # External DB: pre-provisioned; no local setup needed.
+            _logger.info(f'Using external database at: {self.db_url}')
 
         # Create the SQLAlchemy engine. This will also set the default time zone.
         self._create_engine(time_zone_name=tz_name, echo=echo)
@@ -448,13 +474,20 @@ class Env:
             dialect = db_url.get_dialect().name
             if dialect == 'cockroachdb':
                 self._dbms = CockroachDbms(db_url)
+                # Check if database exists (CockroachDB exposes pg_database via the system DB)
+                if not self._store_db_exists():
+                    error = f'Database {self._db_name!r} does not exist'
+                    _logger.error(error)
+                    raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, error)
+            elif dialect == 'postgresql':
+                # Ensure psycopg v3 driver is used; the default postgresql:// scheme may resolve to psycopg2.
+                if db_url.drivername == 'postgresql':
+                    db_url = db_url.set(drivername='postgresql+psycopg')
+                    self._db_url = db_url.render_as_string(hide_password=False)
+                self._dbms = PostgresqlDbms(db_url)
+                # External PostgreSQL: database is pre-provisioned. Connect directly — no existence check needed.
             else:
                 raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, f'Unsupported DBMS {dialect}')
-            # Check if database exists
-            if not self._store_db_exists():
-                error = f'Database {self._db_name!r} does not exist'
-                _logger.error(error)
-                raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, error)
             _logger.info(f'Using database at: {self.db_url}')
         else:
             self._db_name = config.get_string_value('db') or 'pixeltable'
@@ -566,6 +599,42 @@ class Env:
     def pxt_api_key(self) -> str | None:
         """Get the Pixeltable API key from config"""
         return Config.get().get_string_value('api_key')
+
+    def require_api_key(self, purpose: str | None = None) -> str:
+        """Return the Pixeltable API key, raising if none is configured. purpose names the attempted operation."""
+        api_key = self.pxt_api_key
+        if api_key is None:
+            attempt = '' if purpose is None else f' to {purpose}'
+            raise excs.AuthorizationError(
+                excs.ErrorCode.MISSING_CREDENTIALS,
+                f'A Pixeltable API key is required{attempt}. '
+                'Set it with `os.environ["PIXELTABLE_API_KEY"] = "your-key"`, '
+                'or add `api_key = "your-key"` to the `[pixeltable]` section in your Pixeltable config file.',
+            )
+        return api_key
+
+    def proxy_endpoint(self, org: str, db: str) -> tuple[str, int]:
+        """Host and port of the proxy daemon serving a hosted database."""
+        # cloud_host is deliberately not a registered config option: PIXELTABLE_CLOUD_HOST is the only override
+        setting = Config.get().get_string_value('cloud_host')
+        domain, port = _DEFAULT_PROXY_DOMAIN, _DEFAULT_PROXY_PORT
+        if setting is not None:
+            domain = setting
+            if ':' in setting:
+                domain, _, port_str = setting.rpartition(':')
+                if domain == '':
+                    raise excs.Error(
+                        excs.ErrorCode.GENERIC_USER_ERROR,
+                        f'Invalid PIXELTABLE_CLOUD_HOST value: missing host before ":{port_str}".',
+                    )
+                try:
+                    port = int(port_str)
+                except ValueError as err:
+                    raise excs.Error(
+                        excs.ErrorCode.GENERIC_USER_ERROR,
+                        f'Invalid PIXELTABLE_CLOUD_HOST value: port {port_str!r} is not a valid integer.',
+                    ) from err
+        return f'{org}-{db}.{domain}', port
 
     def create_client(self, name: str) -> Any:
         """
@@ -731,7 +800,6 @@ class Env:
         self.__register_package('pydantic')
         self.__register_package('pyiceberg')
         self.__register_package('replicate')
-        self.__register_package('reve')
         self.__register_package('runwayml')
         self.__register_package('scenedetect')
         self.__register_package('sentencepiece')

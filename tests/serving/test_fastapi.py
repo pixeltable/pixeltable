@@ -1,10 +1,11 @@
+import asyncio
 import io
 import json
 import os
 import pathlib
 import time
 import urllib.parse
-from typing import Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal
 
 import av
 import httpx
@@ -26,6 +27,10 @@ from tests.utils import (
     skip_test_if_not_installed,
     sleep,
 )
+
+if TYPE_CHECKING:
+    # fastapi is an optional dependency, so the tests that need it import it themselves and skip without it
+    from fastapi.testclient import TestClient
 
 
 @pxt.udf
@@ -80,19 +85,52 @@ def add_one(x: int) -> int:
     return x + 1
 
 
+# the event loop of every computation that ran through record_loop(), which for a background job is the
+# loop of the worker thread that ran it
+_computation_loops: list[asyncio.AbstractEventLoop] = []
+
+
+@pxt.udf
+def record_loop(x: int, secs: float = 0.0) -> int:
+    """Record the loop of this computation, then hold its thread for secs."""
+    _computation_loops.append(asyncio.get_running_loop())
+    time.sleep(secs)
+    return x + 1
+
+
 # ---------------------------------------------------------------------------
 # Test helpers
 # ---------------------------------------------------------------------------
 
 
-def make_test_client(router: Any) -> Any:
+# the clients handed out by make_test_client() that have yet to see an app shutdown
+_live_clients: list['TestClient'] = []
+
+
+@pytest.fixture(autouse=True)
+def shut_down_test_apps() -> Iterator[None]:
+    """Put every app built during a test through its lifespan shutdown, as a served app would go through it.
+
+    The shutdown is what closes the worker threads' event loops and API clients, so leaving it out leaks
+    one of each per app for the rest of the session. A client a test entered itself is entered again here,
+    which runs its app's lifespan a second time.
+    """
+    yield
+    while len(_live_clients) > 0:
+        with _live_clients.pop():
+            pass
+
+
+def make_test_client(router: Any) -> 'TestClient':
     """Create a FastAPI app, include `router`, and return a TestClient."""
     import fastapi
     from fastapi.testclient import TestClient
 
     app = fastapi.FastAPI()
     app.include_router(router)
-    return TestClient(app)
+    client = TestClient(app)
+    _live_clients.append(client)
+    return client
 
 
 def make_media_poster(
@@ -255,12 +293,12 @@ class TestFastAPI:
         t = pxt.create_table(
             p('test_serve.scalars'),
             {
-                'id': pxt.Int,
-                'str_col': pxt.String,
-                'int_col': pxt.Int,
-                'float_col': pxt.Float,
-                'bool_col': pxt.Bool,
-                'json_col': pxt.Json,
+                'id': pxt.Int | None,
+                'str_col': pxt.String | None,
+                'int_col': pxt.Int | None,
+                'float_col': pxt.Float | None,
+                'bool_col': pxt.Bool | None,
+                'json_col': pxt.Json | None,
             },
         )
         t.add_computed_column(str_upper=t.str_col.upper())
@@ -429,7 +467,8 @@ class TestFastAPI:
         video_path = get_video_files()[0]
         pxt.create_dir(p('test_serve'))
         t = pxt.create_table(
-            p('test_serve.videos'), {'id': pxt.Int, 'video': pxt.Video, 'width': pxt.Int, 'height': pxt.Int}
+            p('test_serve.videos'),
+            {'id': pxt.Int | None, 'video': pxt.Video | None, 'width': pxt.Int | None, 'height': pxt.Int | None},
         )
         t.add_computed_column(resized=t.video.resize(width=t.width, height=t.height))
         t.add_computed_column(thumbnail=t.video.extract_frame(timestamp=0.0))
@@ -551,7 +590,7 @@ class TestFastAPI:
         # insert (even the /rotate one, which doesn't care about them) has to supply them.
         t = pxt.create_table(
             p('test_serve.images'),
-            {'id': pxt.Int, 'image': pxt.Image, 'width': pxt.Required[pxt.Int], 'height': pxt.Required[pxt.Int]},
+            {'id': pxt.Int | None, 'image': pxt.Image | None, 'width': pxt.Int, 'height': pxt.Int},
         )
         # resized: uses both scalar inputs (mirrors video.resize(width=..., height=...))
         t.add_computed_column(resized=t.image.resize(size=(t.width, t.height)))
@@ -705,7 +744,7 @@ class TestFastAPI:
         # on every insert (the `scaled` computed column runs on every row).
         t = pxt.create_table(
             p('test_serve.audios'),
-            {'id': pxt.Int, 'audio': pxt.Audio, 'factor': pxt.Required[pxt.Float], 'end_time': pxt.Required[pxt.Float]},
+            {'id': pxt.Int | None, 'audio': pxt.Audio | None, 'factor': pxt.Float, 'end_time': pxt.Float},
         )
         # scaled: uses both scalar inputs (mirrors video.resize(width=..., height=...))
         t.add_computed_column(scaled=t.audio.multiply_volume(factor=t.factor, end_time=t.end_time))
@@ -823,7 +862,8 @@ class TestFastAPI:
         video_path = get_video_files()[0]
         pxt.create_dir(p('test_serve'))
         t = pxt.create_table(
-            p('test_serve.videos'), {'id': pxt.Int, 'video': pxt.Video, 'width': pxt.Int, 'height': pxt.Int}
+            p('test_serve.videos'),
+            {'id': pxt.Int | None, 'video': pxt.Video | None, 'width': pxt.Int | None, 'height': pxt.Int | None},
         )
         t.add_computed_column(resized=t.video.resize(width=t.width, height=t.height))
         t.add_computed_column(thumbnail=t.video.extract_frame(timestamp=0.0))
@@ -910,6 +950,39 @@ class TestFastAPI:
         # (export_sql writes the response body, so this assertion holds for both insert and compute)
         assert_sqlite_row(db_connect, 'bg_resize', {'resized': result['resized']}, {'resized': result['resized']})
 
+    @pytest.mark.local('a background job computes in the router process only for an in-process catalog')
+    @pytest.mark.parametrize('busy_at_shutdown', [False, True])
+    def test_background_job_teardown(self, uses_db: None, busy_at_shutdown: bool) -> None:
+        """A background job runs on a worker thread with an event loop of its own, which app shutdown closes."""
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter
+
+        t = pxt.create_table('bg_teardown', {'x': pxt.Int})
+        # in one scenario the job holds its worker until the shutdown, in the other it is done before it
+        t.add_computed_column(y=record_loop(t.x, 2.0 if busy_at_shutdown else 0.0))
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/bg', background=True)
+        client = make_test_client(router)
+        n_loops = len(_computation_loops)
+
+        with client:
+            resp = client.post('/bg', json={'x': 1})
+            assert resp.status_code == 200, resp.text
+            if busy_at_shutdown:
+                # leave the context as soon as the job is on a worker, without waiting for it to finish
+                deadline = time.time() + 30.0
+                while len(_computation_loops) == n_loops and time.time() < deadline:
+                    time.sleep(0.01)
+            else:
+                await_background_job(client, resp.json(), require_pending=False)
+            loops = _computation_loops[n_loops:]
+            assert len(loops) == 1, 'the job did not run on a worker thread of its own'
+            assert not loops[0].is_closed()
+
+        # exiting the TestClient context fired the lifespan shutdown handler
+        assert loops[0].is_closed(), 'app shutdown left the worker thread with an open event loop'
+        assert t.count() == 1, 'the job did not finish'
+
     def test_openapi(self, make_catalog_path: Callable[[str], str]) -> None:
         """Verify the generated OpenAPI schema reflects column comments, column types, and route shapes."""
         p = make_catalog_path
@@ -921,9 +994,9 @@ class TestFastAPI:
         t = pxt.create_table(
             p('test_serve.openapi'),
             schema={
-                'id': {'type': pxt.Int, 'comment': 'unique row identifier'},
-                'prompt': {'type': pxt.String, 'comment': 'input text prompt'},
-                'image': {'type': pxt.Image, 'comment': 'source image'},
+                'id': {'type': pxt.Int | None, 'comment': 'unique row identifier'},
+                'prompt': {'type': pxt.String | None, 'comment': 'input text prompt'},
+                'image': {'type': pxt.Image | None, 'comment': 'source image'},
             },
         )
         # add_computed_column() currently offers no way to set a column comment, so the
@@ -1032,7 +1105,7 @@ class TestFastAPI:
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.docs'), {'id': pxt.Int, 'text': pxt.String})
+        t = pxt.create_table(p('test_serve.docs'), {'id': pxt.Int | None, 'text': pxt.String | None})
         t.add_computed_column(length=t.text.len())
         rows = [{'id': i, 'text': 'x' * i} for i in range(1, 6)]
         t.insert(rows)
@@ -1121,7 +1194,7 @@ class TestFastAPI:
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.docs'), {'id': pxt.Int, 'text': pxt.String})
+        t = pxt.create_table(p('test_serve.docs'), {'id': pxt.Int | None, 'text': pxt.String | None})
         t.insert([{'id': i, 'text': f't{i}'} for i in range(3)])
 
         @pxt.query
@@ -1155,7 +1228,7 @@ class TestFastAPI:
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.docs'), {'id': pxt.Int, 'text': pxt.String})
+        t = pxt.create_table(p('test_serve.docs'), {'id': pxt.Int | None, 'text': pxt.String | None})
         # id=0 appears twice on purpose, to exercise the >1-row branch
         t.insert([{'id': 0, 'text': 'dup-a'}, {'id': 0, 'text': 'dup-b'}, {'id': 1, 'text': 't1'}])
 
@@ -1217,7 +1290,7 @@ class TestFastAPI:
         p = make_catalog_path
         image_path = get_image_files()[0]
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.images'), {'id': pxt.Int, 'image': pxt.Image})
+        t = pxt.create_table(p('test_serve.images'), {'id': pxt.Int | None, 'image': pxt.Image | None})
         # A computed resize produces derived media stored under media_dir, which the route will
         # rewrite to /media/ URLs. The raw `image` column stays at its pinned external path.
         t.add_computed_column(resized=t.image.resize(size=(32, 32)))
@@ -1302,7 +1375,7 @@ class TestFastAPI:
         p = make_catalog_path
         image_path = get_image_files()[0]
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.img_xform'), {'id': pxt.Int, 'image': pxt.Image})
+        t = pxt.create_table(p('test_serve.img_xform'), {'id': pxt.Int | None, 'image': pxt.Image | None})
         t.insert([{'id': 1, 'image': image_path}, {'id': 2, 'image': image_path}])
 
         @pxt.query
@@ -1340,7 +1413,7 @@ class TestFastAPI:
         p = make_catalog_path
         video_path = get_video_files()[0]
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.mirror'), {'id': pxt.Int, 'v': pxt.Video})
+        t = pxt.create_table(p('test_serve.mirror'), {'id': pxt.Int | None, 'v': pxt.Video | None})
         t.add_computed_column(mirrored=t.v.mirror_x())
 
         @pxt.query
@@ -1373,7 +1446,7 @@ class TestFastAPI:
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.dup'), {'id': pxt.Required[pxt.Int], 'val': pxt.Int}, primary_key='id')
+        t = pxt.create_table(p('test_serve.dup'), {'id': pxt.Int, 'val': pxt.Int | None}, primary_key='id')
 
         @pxt.query
         def lookup() -> pxt.Query:
@@ -1424,7 +1497,9 @@ class TestFastAPI:
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.docs'), {'id': pxt.Int, 'text': pxt.String, 'image': pxt.Image})
+        t = pxt.create_table(
+            p('test_serve.docs'), {'id': pxt.Int | None, 'text': pxt.String | None, 'image': pxt.Image | None}
+        )
         t.insert([{'id': 1, 'text': 'a'}])
 
         @pxt.query
@@ -1475,11 +1550,11 @@ class TestFastAPI:
         t = pxt.create_table(
             p('test_serve.unservable'),
             {
-                'id': pxt.Required[pxt.Int],
-                'val': pxt.Int,
-                'blob': pxt.Binary,
-                'arr': pxt.Array[(3,), pxt.Float],
-                'data': pxt.Json,
+                'id': pxt.Int,
+                'val': pxt.Int | None,
+                'blob': pxt.Binary | None,
+                'arr': pxt.Array[(3,), pxt.Float] | None,
+                'data': pxt.Json | None,
             },
             primary_key='id',
         )
@@ -1550,9 +1625,7 @@ class TestFastAPI:
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(
-            p('test_serve.unservable_deco'), {'id': pxt.Required[pxt.Int], 'val': pxt.Int}, primary_key='id'
-        )
+        t = pxt.create_table(p('test_serve.unservable_deco'), {'id': pxt.Int, 'val': pxt.Int | None}, primary_key='id')
         t.add_computed_column(j_arr=json_embed_ndarray(t.id))
         t.add_computed_column(j_img=json_embed_image(t.id))
         t.add_computed_column(j_bytes=json_embed_bytes(t.id))
@@ -1597,7 +1670,7 @@ class TestFastAPI:
         # a short clip (~3.5s), so fps=1 keeps the fan-out small but still produces multiple frames
         video_path = next(f for f in get_video_files() if f.endswith('v_shooting_01_01.mpg'))
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.clips'), {'id': pxt.Int, 'video': pxt.Video})
+        t = pxt.create_table(p('test_serve.clips'), {'id': pxt.Int | None, 'video': pxt.Video | None})
         v = pxt.create_view(p('test_serve.clips_v'), t.where(t.id > 0))
         vv = pxt.create_view(p('test_serve.clips_vv'), v, iterator=frame_iterator(v.video, fps=1.0))
         vv.add_computed_column(rotated=vv.frame.rotate(90))
@@ -1767,7 +1840,8 @@ class TestFastAPI:
 
         pxt.create_dir(p('test_serve'))
         t = pxt.create_table(
-            p('test_serve.errors'), {'id': pxt.Int, 'text': pxt.String, 'image': pxt.Image, 'video': pxt.Video}
+            p('test_serve.errors'),
+            {'id': pxt.Int | None, 'text': pxt.String | None, 'image': pxt.Image | None, 'video': pxt.Video | None},
         )
         # a scalar computed column and a media computed column, so we can test the
         # "computed column cannot be used as input" check on both code paths
@@ -1794,7 +1868,9 @@ class TestFastAPI:
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='defined with a sample clause'):
                 add_route_fn(sample_view, path='/v')
             # inputs conform to the base table's schema, so a view-local column is not a valid input
-            note_view = pxt.create_view(p('test_serve.errors_note_view'), t, additional_columns={'note': pxt.String})
+            note_view = pxt.create_view(
+                p('test_serve.errors_note_view'), t, additional_columns={'note': pxt.String | None}
+            )
             with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="unknown input column 'note'"):
                 add_route_fn(note_view, path='/v', inputs=['note'])
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="unknown input column 'doesnotexist'"):
@@ -1895,7 +1971,7 @@ class TestFastAPI:
         from pixeltable.serving import FastAPIRouter, SqlExport
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.decorated'), {'id': pxt.Int, 'prompt': pxt.String})
+        t = pxt.create_table(p('test_serve.decorated'), {'id': pxt.Int | None, 'prompt': pxt.String | None})
         t.add_computed_column(greeting='hello, ' + t.prompt)
         t.add_computed_column(length=t.prompt.len())
 
@@ -1945,7 +2021,7 @@ class TestFastAPI:
         from pixeltable.serving import FastAPIRouter, SqlExport
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.types'), {'id': pxt.Required[pxt.Int], 'prompt': pxt.String})
+        t = pxt.create_table(p('test_serve.types'), {'id': pxt.Int, 'prompt': pxt.String | None})
         t.add_computed_column(length=t.prompt.len())
         router = FastAPIRouter()
         route = dml_decorator(route_type, router)
@@ -2018,9 +2094,7 @@ class TestFastAPI:
         from pixeltable.serving import FastAPIRouter, SqlExport
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(
-            p('test_serve.types'), {'id': pxt.Required[pxt.Int], 'prompt': pxt.String}, primary_key='id'
-        )
+        t = pxt.create_table(p('test_serve.types'), {'id': pxt.Int, 'prompt': pxt.String | None}, primary_key='id')
         t.add_computed_column(length=t.prompt.len())
         router = FastAPIRouter()
 
@@ -2097,9 +2171,7 @@ class TestFastAPI:
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(
-            p('test_serve.future'), {'id': pxt.Required[pxt.Int], 'text': pxt.Required[pxt.String]}, primary_key='id'
-        )
+        t = pxt.create_table(p('test_serve.future'), {'id': pxt.Int, 'text': pxt.String}, primary_key='id')
         t.add_computed_column(text_upper=t.text.upper())
         t.insert([{'id': 1, 'text': 'hello'}])
 
@@ -2174,11 +2246,7 @@ class TestFastAPI:
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(
-            p('test_serve.unresolvable'),
-            {'id': pxt.Required[pxt.Int], 'text': pxt.Required[pxt.String]},
-            primary_key='id',
-        )
+        t = pxt.create_table(p('test_serve.unresolvable'), {'id': pxt.Int, 'text': pxt.String}, primary_key='id')
 
         user_mod = types.ModuleType('_test_unresolvable_ann_mod')
         exec(
@@ -2219,7 +2287,7 @@ class TestFastAPI:
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.img_dec'), {'id': pxt.Int, 'image': pxt.Image})
+        t = pxt.create_table(p('test_serve.img_dec'), {'id': pxt.Int | None, 'image': pxt.Image | None})
         t.add_computed_column(thumb=t.image.resize([32, 32]))
 
         router = FastAPIRouter()
@@ -2255,7 +2323,7 @@ class TestFastAPI:
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.upl_dec'), {'id': pxt.Int, 'image': pxt.Image})
+        t = pxt.create_table(p('test_serve.upl_dec'), {'id': pxt.Int | None, 'image': pxt.Image | None})
         t.add_computed_column(thumb=t.image.resize([16, 16]))
 
         router = FastAPIRouter()
@@ -2298,7 +2366,9 @@ class TestFastAPI:
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.bg_dec'), {'id': pxt.Int, 'delay': pxt.Float, 'value': pxt.Int})
+        t = pxt.create_table(
+            p('test_serve.bg_dec'), {'id': pxt.Int | None, 'delay': pxt.Float | None, 'value': pxt.Int | None}
+        )
         t.add_computed_column(slept=sleep(t.delay))
 
         router = FastAPIRouter()
@@ -2330,7 +2400,7 @@ class TestFastAPI:
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.dec_err'), {'id': pxt.Required[pxt.Int], 'text': pxt.Required[pxt.String]})
+        t = pxt.create_table(p('test_serve.dec_err'), {'id': pxt.Int, 'text': pxt.String})
         t.add_computed_column(text_upper=t.text.upper())
         router = FastAPIRouter()
         route = dml_decorator(route_type, router)
@@ -2381,7 +2451,9 @@ class TestFastAPI:
 
         video_path = next(f for f in get_video_files() if f.endswith('v_shooting_01_01.mpg'))
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.batch_dec'), {'id': pxt.Int, 'prompt': pxt.String, 'video': pxt.Video})
+        t = pxt.create_table(
+            p('test_serve.batch_dec'), {'id': pxt.Int | None, 'prompt': pxt.String | None, 'video': pxt.Video | None}
+        )
         vv = pxt.create_view(p('test_serve.batch_dec_frames'), t, iterator=frame_iterator(t.video, fps=1.0))
         vv.add_computed_column(greeting='hello, ' + vv.prompt)
         vv.add_computed_column(thumb=vv.frame.resize([16, 16]))
@@ -2515,7 +2587,7 @@ class TestFastAPI:
         pxt.create_dir(p('test_serve'))
         t = pxt.create_table(
             p('test_serve.items'),
-            {'id': pxt.Required[pxt.Int], 'text': pxt.String, 'value': pxt.Int, 'image': pxt.Image},
+            {'id': pxt.Int, 'text': pxt.String | None, 'value': pxt.Int | None, 'image': pxt.Image | None},
             primary_key='id',
         )
         t.add_computed_column(text_upper=t.text.upper())
@@ -2613,11 +2685,11 @@ class TestFastAPI:
         pxt.create_dir(p('test_serve'))
         t = pxt.create_table(
             p('test_serve.items'),
-            {'id': pxt.Required[pxt.Int], 'text': pxt.String, 'image': pxt.Image},
+            {'id': pxt.Int, 'text': pxt.String | None, 'image': pxt.Image | None},
             primary_key='id',
         )
         t.add_computed_column(text_upper=t.text.upper())
-        t_no_pk = pxt.create_table(p('test_serve.nopk'), {'text': pxt.String})
+        t_no_pk = pxt.create_table(p('test_serve.nopk'), {'text': pxt.String | None})
         router = FastAPIRouter()
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot update'):
@@ -2664,7 +2736,7 @@ class TestFastAPI:
 
         pxt.create_dir(p('test_serve'))
         t = pxt.create_table(
-            p('test_serve.items'), {'id': pxt.Required[pxt.Int], 'text': pxt.String, 'value': pxt.Int}, primary_key='id'
+            p('test_serve.items'), {'id': pxt.Int, 'text': pxt.String | None, 'value': pxt.Int | None}, primary_key='id'
         )
         t.add_computed_column(text_upper=t.text.upper())
         t.insert([{'id': 1, 'text': 'hello', 'value': 10}, {'id': 2, 'text': 'world', 'value': 20}])
@@ -2730,7 +2802,7 @@ class TestFastAPI:
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(p('test_serve.items'), {'id': pxt.Required[pxt.Int], 'text': pxt.String}, primary_key='id')
+        t = pxt.create_table(p('test_serve.items'), {'id': pxt.Int, 'text': pxt.String | None}, primary_key='id')
         t.add_computed_column(text_upper=t.text.upper())
         router = FastAPIRouter()
 
@@ -2778,7 +2850,7 @@ class TestFastAPI:
         pxt.create_dir(p('test_serve'))
         t = pxt.create_table(
             p('test_serve.items'),
-            {'id': pxt.Required[pxt.Int], 'group': pxt.String, 'value': pxt.Int},
+            {'id': pxt.Int, 'group': pxt.String | None, 'value': pxt.Int | None},
             primary_key='id',
         )
         t.insert(
@@ -2838,10 +2910,8 @@ class TestFastAPI:
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
-        t = pxt.create_table(
-            p('test_serve.items'), {'id': pxt.Required[pxt.Int], 'group': pxt.String}, primary_key='id'
-        )
-        t_no_pk = pxt.create_table(p('test_serve.nopk'), {'id': pxt.Int, 'group': pxt.String})
+        t = pxt.create_table(p('test_serve.items'), {'id': pxt.Int, 'group': pxt.String | None}, primary_key='id')
+        t_no_pk = pxt.create_table(p('test_serve.nopk'), {'id': pxt.Int | None, 'group': pxt.String | None})
 
         router = FastAPIRouter()
 
@@ -2854,6 +2924,58 @@ class TestFastAPI:
             router.add_delete_route(t, path='/e', match_columns=[])
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='table has no primary key'):
             router.add_delete_route(t_no_pk, path='/e')
+
+    def test_column_ref_args(self, make_catalog_path: Callable[[str], str]) -> None:
+        """Routes accept ColumnRefs wherever they accept column names."""
+        p = make_catalog_path
+        skip_test_if_not_installed('fastapi')
+        from pixeltable.serving import FastAPIRouter
+
+        pxt.create_dir(p('test_serve'))
+        t = pxt.create_table(
+            p('test_serve.items'), {'id': pxt.Int, 'val': pxt.Int | None, 'img': pxt.Image | None}, primary_key='id'
+        )
+        t.add_computed_column(incr=add_one(t.val))
+
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/ins', inputs=[t.id, t.val], outputs=[t.id, t.incr])
+        router.add_compute_route(t, path='/comp', inputs=[t.id, t.val], outputs=[t.incr])
+        router.add_update_route(t, path='/upd', inputs=[t.val], outputs=[t.id, t.incr])
+        router.add_delete_route(t, path='/del', match_columns=[t.id])
+        router.add_insert_route(
+            t, path='/upload', inputs=[t.id], uploadfile_inputs=[t.img], outputs=[t.id], background=False
+        )
+        client = make_test_client(router)
+
+        assert client.post('/ins', json={'id': 1, 'val': 10}).json() == {'id': 1, 'incr': 11}
+        assert client.post('/comp', json={'id': 2, 'val': 20}).json() == {'incr': 21}
+        assert client.post('/upd', json={'id': 1, 'val': 40}).json() == {'id': 1, 'incr': 41}
+        assert client.post('/del', json={'id': 1}).json() == {'num_rows': 1}
+
+        with open(get_image_files()[0], 'rb') as f:
+            resp = client.post('/upload', data={'id': '7'}, files={'img': ('x.jpg', f, 'image/jpeg')})
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {'id': 7}
+
+    def test_bind_table_targets(self, make_catalog_path: Callable[[str], str]) -> None:
+        """A route declared against a Table needs no binding: it already names the table it serves."""
+        p = make_catalog_path
+        skip_test_if_not_installed('fastapi')
+        import fastapi
+        from fastapi.testclient import TestClient
+
+        from pixeltable.serving import FastAPIRouter
+
+        t = pxt.create_table(p('items'), {'id': pxt.Int, 'val': pxt.Int | None}, primary_key='id')
+
+        router = FastAPIRouter()
+        router.add_insert_route(t, path='/ins', inputs=['id', 'val'], outputs=['id'])
+
+        # no bind() call: the route already names the table it serves
+        app = fastapi.FastAPI()
+        app.include_router(router)
+        with TestClient(app) as client:
+            assert client.post('/ins', json={'id': 1, 'val': 10}).json() == {'id': 1}
 
     @pytest.mark.parametrize(
         ('op_name', 'first_body', 'retry_body'),
@@ -2874,7 +2996,7 @@ class TestFastAPI:
         from pixeltable.serving import FastAPIRouter
 
         pxt.create_dir(p('test_serve'))
-        schema = {'id': pxt.Required[pxt.Int], 'val': pxt.Int}
+        schema: dict[str, Any] = {'id': pxt.Int, 'val': pxt.Int | None}
         t = pxt.create_table(p('test_serve.items'), schema, primary_key='id')
         t.insert([{'id': 1, 'val': 10}])
 

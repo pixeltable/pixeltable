@@ -1,4 +1,5 @@
 import re
+from typing import Any
 
 import PIL.Image
 import pytest
@@ -8,7 +9,7 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable.functions.image import alpha_composite, blend, composite, stitch_tiles, tile_iterator
 
-from ..utils import SAMPLE_IMAGE_URL, get_image_files, pxt_raises, rerun_on_network_error
+from ..utils import SAMPLE_IMAGE_FILE_PATH, get_image_files, pxt_raises
 
 pytestmark = pytest.mark.local('UDF/integration test')
 
@@ -73,9 +74,9 @@ class TestImage:
 
     def test_return_types(self, uses_db: None) -> None:
         for nullable in (True, False):
-            type_hint = pxt.Image[(200, 300), 'RGB']  # type: ignore
-            type_hint = type_hint if nullable else pxt.Required[type_hint]
-            t = pxt.create_table('test', {'img': type_hint, 'info': pxt.Required[pxt.Json]}, if_exists='replace')
+            base_hint = pxt.Image[(200, 300), 'RGB']  # type: ignore
+            type_hint: Any = base_hint | None if nullable else base_hint
+            t = pxt.create_table('test', {'img': type_hint, 'info': pxt.Json}, if_exists='replace')
 
             assert t.img.convert(mode='L').col_type == ts.ImageType(size=(200, 300), mode='L', nullable=nullable)
             assert t.img.crop(box=(50, 50, 100, 100)).col_type == ts.ImageType(
@@ -95,10 +96,9 @@ class TestImage:
                 size=(200, 300), mode='RGB', nullable=nullable
             )
 
-    @rerun_on_network_error()
     def test_tile_iterator(self, uses_db: None) -> None:
-        t = pxt.create_table('test_tbl', {'image': pxt.Image})
-        t.insert(image=SAMPLE_IMAGE_URL)
+        t = pxt.create_table('test_tbl', {'image': pxt.Image | None})
+        t.insert(image=SAMPLE_IMAGE_FILE_PATH)
         v = pxt.create_view('test_view', t, iterator=tile_iterator(t.image, (100, 100), overlap=(10, 10)))
         image: Image = t.collect()[0]['image']
         results = v.select(v.pos, v.tile, v.tile_coord, v.tile_box).order_by(v.pos).collect()
@@ -119,7 +119,7 @@ class TestImage:
     @pytest.mark.parametrize('mode', ['RGB', 'L', 'RGBA'])
     def test_stitch_tiles(self, mode: str, overlap: tuple[int, int], uses_db: None) -> None:
         image_files = get_image_files()
-        t = pxt.create_table('test_tbl', {'image': pxt.Image})
+        t = pxt.create_table('test_tbl', {'image': pxt.Image | None})
         t.insert({'image': f} for f in image_files)
         # tiling at (100, 100) exercises edge tiles and padding on the variously sized test images
         v = pxt.create_view('test_view', t, iterator=tile_iterator(t.image, (100, 100), overlap=overlap))
@@ -143,7 +143,10 @@ class TestImage:
             assert stitched.tobytes() == expected.tobytes()
 
     def test_stitch_tiles_edge_cases(self, uses_db: None) -> None:
-        tiles = pxt.create_table('tiles', {'pos': pxt.Int, 'tile': pxt.Image, 'tile_box': pxt.Json, 'width': pxt.Int})
+        tiles = pxt.create_table(
+            'tiles',
+            {'pos': pxt.Int | None, 'tile': pxt.Image | None, 'tile_box': pxt.Json | None, 'width': pxt.Int | None},
+        )
         tiles.insert(
             [
                 {
@@ -177,7 +180,9 @@ class TestImage:
         assert stitched.getpalette() == expected.getpalette()
 
         # a group consisting entirely of None tiles yields None (rows with a None tile are skipped)
-        nulls = pxt.create_table('null_tiles', {'pos': pxt.Int, 'tile': pxt.Image, 'tile_box': pxt.Json})
+        nulls = pxt.create_table(
+            'null_tiles', {'pos': pxt.Int | None, 'tile': pxt.Image | None, 'tile_box': pxt.Json | None}
+        )
         nulls.insert(
             [
                 {'pos': 0, 'tile': None, 'tile_box': [0, 0, 100, 100]},
@@ -188,10 +193,9 @@ class TestImage:
         assert len(result) == 1
         assert result[0]['stitched'] is None
 
-    @rerun_on_network_error()
     def test_tile_iterator_errors(self, uses_db: None) -> None:
-        t = pxt.create_table('test_tbl', {'image': pxt.Image})
-        t.insert(image=SAMPLE_IMAGE_URL)
+        t = pxt.create_table('test_tbl', {'image': pxt.Image | None})
+        t.insert(image=SAMPLE_IMAGE_FILE_PATH)
 
         # Test overlap >= tile_size
         for overlap in ((0, 100), (100, 0)):

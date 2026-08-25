@@ -32,7 +32,7 @@ class TestHistory:
         t = pxt.create_table(
             p('test'),
             source=[{'c1': 1, 'c2': 'a'}, {'c1': 2, 'c2': 'b'}],
-            schema_overrides={'c1': pxt.Required[pxt.Int], 'c2': pxt.String},
+            schema_overrides={'c1': pxt.Int, 'c2': pxt.String | None},
             comment='some random table comment',
             primary_key=['c1'],
         )
@@ -59,7 +59,7 @@ class TestHistory:
 
         s = t.add_computed_column(c5=t.c1 + 20)
         self.pr_us(s, 'acc3')
-        s = t.add_columns({'c6': pxt.String, 'c7': pxt.Int, 'c8': pxt.Float})
+        s = t.add_columns({'c6': pxt.String | None, 'c7': pxt.Int | None, 'c8': pxt.Float | None})
         self.pr_us(s, 'ac1')
         s = t.insert(
             [

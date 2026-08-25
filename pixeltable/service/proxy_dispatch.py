@@ -11,7 +11,9 @@ import logging
 import os
 import pathlib
 import shutil
+import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Callable, cast
 from uuid import UUID, uuid4
 
@@ -19,14 +21,14 @@ import sqlalchemy as sql
 
 from pixeltable import exceptions as excs
 from pixeltable._query import Query
-from pixeltable.catalog import InsertableTable, Path, TablePathKey, retry_loop
-from pixeltable.catalog.table_version import TableVersionKey
+from pixeltable.catalog import InsertableTable, Path, TablePathKey, TableVersionKey, retry_loop
 from pixeltable.env import Env
 from pixeltable.io.data_sources import SqlDataSource
 from pixeltable.row import RowBatch
 from pixeltable.runtime import get_runtime
 from pixeltable.utils import parse_local_file_path
 from pixeltable.utils.local_store import TempStore
+from pixeltable.utils.object_stores import ObjectOps
 
 from . import proxy_protocol
 from .proxy_protocol import PROTOCOL_VERSION, LocalFile, MediaPath, ProxyRequest, ProxyResponse
@@ -35,14 +37,19 @@ _logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from pixeltable.catalog import LocalTable
-    from pixeltable.catalog.globals import TableVersionMd
+    from pixeltable.catalog.types import TableVersionMd
     from pixeltable.catalog.update_status import UpdateStatus
 
 
-def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[bytes]]:
+def handle(
+    request_json: str, request_parts: list[bytes], *, include_error_detail: bool = False
+) -> tuple[str, list[bytes]]:
     """Entry point for an incoming proxy request; always returns a ProxyResponse as (JSON head, binary parts)."""
     request = ProxyRequest.model_validate_json(request_json)
     request._binary_parts = request_parts
+    path_label = request.path_key.get('tbl_key', request.path_key) if request.path_key else ''
+    _logger.debug('%s.%s %s', request.class_name, request.method, path_label)
+    t0 = time.monotonic()
     try:
         if request.protocol_version != PROTOCOL_VERSION:
             raise excs.RequestError(
@@ -66,6 +73,7 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
                     # return the current md and is_stale_md=True so the client refreshes and retries
                     return _encode_response(ProxyResponse(current_md=md, is_stale_md=True))
 
+            _prefetch_remote_parts(request)
             result = _convert_result(key, table_handler(request, tbl))
             if not is_mutation:
                 # a read leaves the schema unchanged, so the client's md stays valid; no need to send it back
@@ -74,6 +82,7 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
             # a mutation bumps the table version; return the new md so the client's path refreshes
             with cat.begin_xact(for_write=False):
                 md = cat.read_md_for_export(tbl)
+            _logger.debug('%s.%s %s (%.2fs)', request.class_name, request.method, path_label, time.monotonic() - t0)
             return _encode_response(ProxyResponse(result=result, current_md=md))
 
         handler = _HANDLERS.get(key)
@@ -81,14 +90,17 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, f'Unsupported proxy method: {request.class_name}.{request.method}'
             )
-        return _encode_response(ProxyResponse(result=_convert_result(key, handler(request))))
+        _prefetch_remote_parts(request)
+        result = _convert_result(key, handler(request))
+        _logger.debug('%s.%s (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
+        return _encode_response(ProxyResponse(result=result))
 
     except excs.Error as e:
         if e.detail is not None:
-            # the client only gets the message; keep the diagnostic detail (e.g. an evaluation stack trace)
-            # for whoever reads the server logs
+            # Log error details in the server log
             _logger.info('Error detail handling %s.%s:\n%s', request.class_name, request.method, e.detail)
-        error_dict = e.to_dict()
+        _logger.info('%s.%s error (%.2fs)', request.class_name, request.method, time.monotonic() - t0)
+        error_dict = e.to_dict(with_detail=include_error_detail)
         error_dict['message'] = _restore_upload_names(error_dict['message'], request._uploaded_names)
         if 'cause' in error_dict:
             error_dict['cause'] = _restore_upload_names(error_dict['cause'], request._uploaded_names)
@@ -96,24 +108,78 @@ def handle(request_json: str, request_parts: list[bytes]) -> tuple[str, list[byt
 
     except Exception:
         # An unexpected server-side failure. Log the full traceback for debugging, but return only a short
-        # reference id to the client: server internals (stack frames, filesystem paths) must not cross the wire.
+        # reference id to the client: server internals (stack frames, filesystem paths) must not cross the wire unless
+        # include_error_detail is True (enabled in test mode).
         ref = uuid4().hex
         tb = traceback.format_exc()
-        _logger.error('Internal error (ref %s) handling %s.%s:\n%s', ref, request.class_name, request.method, tb)
+        _logger.error(
+            'Internal error (ref %s) handling %s.%s (%.2fs):\n%s',
+            ref,
+            request.class_name,
+            request.method,
+            time.monotonic() - t0,
+            tb,
+        )
         err = excs.Error(excs.ErrorCode.INTERNAL_ERROR, f'Internal proxy error (ref: {ref})')
         error_dict = err.to_dict()
-        if os.environ.get('PXTTEST_IN_CI'):
+        if include_error_detail:
             error_dict['detail'] = tb
         return _encode_response(ProxyResponse(error=error_dict))
 
     finally:
         # best-effort removal of this request's uploaded temp files; missing_ok covers a file that a handler moved
-        # into a reassembled directory (those directories are removed by the handler that creates them)
-        for temp_path in request._uploaded_names:
+        # into a reassembled directory (those directories are removed by the handler that creates them) or that
+        # tbl.insert() moved into the media store
+        for temp_path in (*request._uploaded_names, *request._remote_parts.values()):
             try:
                 pathlib.Path(temp_path).unlink(missing_ok=True)
             except OSError:
                 pass
+
+
+def _prefetch_remote_parts(request: ProxyRequest) -> None:
+    """Localize the request's out-of-band media parts (object store keys) into TempStore before dispatch.
+    Updates request._remote_parts with the temp paths of the localized files.
+
+    Should be called outside of a db transaction so that object-store I/O never holds a db connection.
+    """
+    keys = proxy_protocol.collect_remote_keys(request.args)
+    if len(keys) == 0:
+        return
+    for remote_key in keys:
+        # only client uploads may be localized; anything else (e.g. 'pixeltable/data/...' store objects)
+        # must not be readable through this daemon
+        if not remote_key.startswith('uploads/'):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT, f'Invalid uploaded media object key: {remote_key!r}'
+            )
+    org = os.environ.get('PXTCLOUD_ORG')
+    db = os.environ.get('PXTCLOUD_DB')
+    if not (org and db):
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            'Internal error: PXTCLOUD_ORG and PXTCLOUD_DB are not present in the container.',
+        )
+    store = ObjectOps.get_store(f'pxtfs://{org}:{db}/home/uploads/', False)
+
+    def download(remote_key: str) -> None:
+        dest = TempStore.create_path(extension=pathlib.Path(remote_key).suffix)
+        # record before downloading so handle() also cleans up a partial download
+        request._remote_parts[remote_key] = str(dest)
+        try:
+            # the store re-prepends its 'uploads/' prefix to the given path
+            store.copy_object_to_local_file(remote_key[len('uploads/') :], dest)
+        except excs.NotFoundError as e:
+            # the stock 404 message blames the bucket, which is wrong here: the bucket exists, the object is
+            # gone (expired via the uploads/ lifecycle rule) or was never fully uploaded
+            raise excs.NotFoundError(
+                excs.ErrorCode.STORAGE_NOT_FOUND,
+                f'Uploaded media object {remote_key!r} not found (upload expired or incomplete); retry the operation',
+            ) from e
+
+    # concurrent downloads are safe: boto3 clients are thread-safe
+    with ThreadPoolExecutor(max_workers=min(16, len(keys))) as executor:
+        list(executor.map(download, keys))
 
 
 def _encode_local_path(value: Any) -> Any:
@@ -192,7 +258,6 @@ def _create_view(request: ProxyRequest) -> tuple[list, bool]:
 
 def _create_from_model(request: ProxyRequest) -> tuple[list, bool]:
     kwargs = _deserialize_args(request)
-    # `base` arrives as a Query dict; rebuild it here.
     base_dict = kwargs.pop('base')
 
     @retry_loop(for_write=False)
@@ -225,9 +290,13 @@ def _get_table(request: ProxyRequest) -> list | None:
 def _get_table_by_id(request: ProxyRequest) -> list | None:
     kwargs = _deserialize_args(request)
     cat = get_runtime().catalog
-    with cat.begin_xact(for_write=False):  # get_table_by_id must run inside a transaction
+
+    @retry_loop(for_write=False)
+    def load() -> list | None:
         tbl = cat.get_table_by_id(**kwargs)
         return None if tbl is None else cat.read_md_for_export(tbl)
+
+    return load()
 
 
 def _catalog_method(request: ProxyRequest) -> Any:
@@ -239,8 +308,12 @@ def _catalog_method(request: ProxyRequest) -> Any:
 def _resolve_tbl(path_key: TablePathKey) -> LocalTable:
     tbl_id, effective_version = path_key.keys[0].tbl_id, path_key.keys[0].effective_version
     cat = get_runtime().catalog
-    with cat.begin_xact(for_write=False):
-        tbl = cat.get_table_by_id(tbl_id, effective_version)
+
+    @retry_loop(for_write=False)
+    def resolve() -> LocalTable | None:
+        return cat.get_table_by_id(tbl_id, effective_version)
+
+    tbl = resolve()
     if tbl is None:
         raise excs.table_was_dropped(tbl_id)
     return tbl
@@ -430,6 +503,11 @@ def _alter_column(request: ProxyRequest, tbl: LocalTable) -> None:
     tbl.alter_column(kwargs['column'], type_=kwargs['type_'])
 
 
+def _add_btree_index(request: ProxyRequest, tbl: LocalTable) -> None:
+    kwargs = _deserialize_args(request)
+    tbl.add_btree_index(kwargs['column'], idx_name=kwargs['idx_name'], if_exists=kwargs['if_exists'])
+
+
 def _add_embedding_index(request: ProxyRequest, tbl: LocalTable) -> None:
     kwargs = _deserialize_args(request)
     tbl.add_embedding_index(
@@ -579,6 +657,7 @@ _MUTATION_METHODS: frozenset[str] = frozenset(
         'add_computed_column',
         'drop_column',
         'rename_column',
+        'add_btree_index',
         'add_embedding_index',
         'drop_embedding_index',
         'drop_index',
@@ -609,6 +688,7 @@ _TABLE_HANDLERS: dict[tuple[str, str], Callable[[ProxyRequest, 'LocalTable'], An
     ('Table', 'add_computed_column'): _add_computed_column,
     ('Table', 'drop_column'): _drop_column,
     ('Table', 'rename_column'): _rename_column,
+    ('Table', 'add_btree_index'): _add_btree_index,
     ('Table', 'add_embedding_index'): _add_embedding_index,
     ('Table', 'drop_embedding_index'): _drop_embedding_index,
     ('Table', 'drop_index'): _drop_index,

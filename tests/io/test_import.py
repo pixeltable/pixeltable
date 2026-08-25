@@ -8,6 +8,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 
+from ..conftest import SampleFileServer
 from ..utils import ensure_s3_pytest_resources_access, get_image_files, pxt_raises, rerun_on_network_error
 
 EXPECTED_SCHEMA = {
@@ -40,7 +41,7 @@ class TestImport:
         assert t1.count() == 4
         assert t1._get_schema() == EXPECTED_SCHEMA
 
-        t2 = pxt.io.import_rows(p('example2'), data, schema_overrides={'children': pxt.Float})
+        t2 = pxt.io.import_rows(p('example2'), data, schema_overrides={'children': pxt.Float | None})
         assert t2.count() == 4
         assert t2._get_schema() == EXPECTED_SCHEMA | {'children': ts.FloatType(nullable=True)}
 
@@ -49,7 +50,7 @@ class TestImport:
         assert 'The following columns have no non-null values: only_none' in str(exc_info.value)
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
-            pxt.io.import_rows(p('example4'), [{'col': 1}], schema_overrides={'not_col': pxt.String})
+            pxt.io.import_rows(p('example4'), [{'col': 1}], schema_overrides={'not_col': pxt.String | None})
         assert 'Some column(s) specified in `schema_overrides` are not present in the source: not_col' in str(
             exc_info.value
         )
@@ -82,16 +83,15 @@ class TestImport:
         t1.insert(data)
         assert t1.count() == 8
 
-        t2 = pxt.io.import_rows(p('example2'), data, schema_overrides={'children': pxt.Float})
+        t2 = pxt.io.import_rows(p('example2'), data, schema_overrides={'children': pxt.Float | None})
         assert t2.count() == 4
         t2.insert(data)
         assert t2.count() == 8
 
-    @rerun_on_network_error()
-    def test_import_json(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_import_json(self, make_catalog_path: Callable[[str], str], sample_file_server: SampleFileServer) -> None:
         p = make_catalog_path
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
-        jeopardy = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/json/jeopardy.json'
+        jeopardy = sample_file_server.url('tests/data/json/jeopardy.json')
 
         # `example.json` has a variety of datatypes and tests both nullable and non-nullable columns
         t1 = pxt.io.import_json(p('example'), str(example))
@@ -118,11 +118,10 @@ class TestImport:
         assert tab.count() == 4
         assert tab._get_schema() == EXPECTED_SCHEMA
 
-    @rerun_on_network_error()
-    def test_insert_json(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_insert_json(self, make_catalog_path: Callable[[str], str], sample_file_server: SampleFileServer) -> None:
         p = make_catalog_path
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
-        jeopardy = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/json/jeopardy.json'
+        jeopardy = sample_file_server.url('tests/data/json/jeopardy.json')
 
         # `example.json` has a variety of datatypes and tests both nullable and non-nullable columns
         t1 = pxt.io.import_json(p('example'), str(example))
@@ -145,14 +144,14 @@ class TestImport:
         csv_path = tmp_path / 'data.csv'
         csv_path.write_text('a;b\n1;x\n2;y\n')
 
-        t = pxt.create_table(p('rdopt'), {'a': pxt.Int, 'b': pxt.String})
+        t = pxt.create_table(p('rdopt'), {'a': pxt.Int | None, 'b': pxt.String | None})
         t.insert(str(csv_path), delimiter=';')
         rows = list(t.order_by(t.a).collect())
         assert [r['a'] for r in rows] == [1, 2]
         assert [r['b'] for r in rows] == ['x', 'y']
 
         # schema_overrides is honored on a file source (column 'a' kept as a string)
-        t2 = pxt.create_table(p('rdopt_ovr'), {'a': pxt.String, 'b': pxt.String})
+        t2 = pxt.create_table(p('rdopt_ovr'), {'a': pxt.String | None, 'b': pxt.String | None})
         t2.insert(str(csv_path), delimiter=';', schema_overrides={'a': ts.StringType(nullable=True)})
         assert [r['a'] for r in t2.order_by(t2.a).collect()] == ['1', '2']
 
@@ -160,7 +159,7 @@ class TestImport:
         img_paths = get_image_files()[:2]
         media_csv = tmp_path / 'media.csv'
         media_csv.write_text('k;img\n' + ''.join(f'{i};{path}\n' for i, path in enumerate(img_paths)))
-        tm = pxt.create_table(p('rdopt_media'), {'k': pxt.Int, 'img': pxt.Image})
+        tm = pxt.create_table(p('rdopt_media'), {'k': pxt.Int | None, 'img': pxt.Image | None})
         tm.insert(str(media_csv), delimiter=';')
         media_rows = list(tm.order_by(tm.k).collect())
         assert [r['k'] for r in media_rows] == [0, 1]

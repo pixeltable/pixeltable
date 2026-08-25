@@ -7,7 +7,8 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.env import Env
 
-from ..utils import SAMPLE_IMAGE_URL, get_audio_files, get_video_files, rerun_on_network_error
+from ..conftest import SampleFileServer
+from ..utils import SAMPLE_IMAGE_FILE_PATH, get_audio_files, get_video_files
 
 pytestmark = pytest.mark.local('expr-eval/insert performance benchmark')
 
@@ -30,7 +31,7 @@ class TestExprEvalPerformance:
     @pytest.mark.parametrize('row_count', [1000, 10000, 50000, 100000])
     def test_select_batch_scaling(self, uses_db: None, benchmark: BenchmarkFixture, row_count: int) -> None:
         """Test how performance scales with row count (vectorization benefit)."""
-        t = pxt.create_table(f'scale_tbl_{row_count}', {'c1': pxt.Int, 'c2': pxt.String})
+        t = pxt.create_table(f'scale_tbl_{row_count}', {'c1': pxt.Int | None, 'c2': pxt.String | None})
         t.insert({'c1': i, 'c2': f'str_{i}'} for i in range(row_count))
 
         def select_with_functions() -> None:
@@ -43,7 +44,7 @@ class TestExprEvalPerformance:
     @pytest.mark.parametrize('row_count', [1000, 10000, 50000, 100000])
     def test_insert_batch_scaling_pxt(self, uses_db: None, benchmark: BenchmarkFixture, row_count: int) -> None:
         """Benchmark pixeltable batch inserts with no computed columns."""
-        t = pxt.create_table(f'insert_pxt_{row_count}', {'c1': pxt.Int, 'c2': pxt.String})
+        t = pxt.create_table(f'insert_pxt_{row_count}', {'c1': pxt.Int | None, 'c2': pxt.String | None})
 
         def pxt_insert() -> None:
             t.insert({'c1': i, 'c2': f'str_{i}'} for i in range(row_count))
@@ -94,16 +95,18 @@ class TestExprEvalPerformance:
                 conn.execute(sa.text(f'DROP TABLE IF EXISTS {table_name}'))
 
     @pytest.mark.benchmark(group='image_transform')
-    @rerun_on_network_error()
-    def test_insert_image_resize(self, uses_db: None, benchmark: BenchmarkFixture) -> None:
+    def test_insert_image_resize(
+        self, uses_db: None, benchmark: BenchmarkFixture, sample_file_server: SampleFileServer
+    ) -> None:
         """Benchmark image resize operations."""
         row_count = 200
+        img_url = sample_file_server.url(SAMPLE_IMAGE_FILE_PATH)
 
-        t = pxt.create_table('img_resize_tbl', {'img': pxt.Image})
+        t = pxt.create_table('img_resize_tbl', {'img': pxt.Image | None})
         t.add_computed_column(resized=t.img.resize((128, 128)))
 
         def insert_resized() -> None:
-            t.insert({'img': SAMPLE_IMAGE_URL} for _ in range(row_count))
+            t.insert({'img': img_url} for _ in range(row_count))
 
         benchmark(insert_resized)
 
@@ -114,7 +117,7 @@ class TestExprEvalPerformance:
         assert len(video_files) > 0
         video_path = video_files[0]
 
-        t = pxt.create_table('video_frame_tbl', {'video': pxt.Video})
+        t = pxt.create_table('video_frame_tbl', {'video': pxt.Video | None})
         pxt.create_view('video_frames', t, iterator=pxtf.video.frame_iterator(t.video))
 
         def insert_frames() -> None:
@@ -129,7 +132,7 @@ class TestExprEvalPerformance:
         assert len(audio_files) > 0
         audio_path = audio_files[0]
 
-        t = pxt.create_table('audio_meta_tbl', {'audio': pxt.Audio})
+        t = pxt.create_table('audio_meta_tbl', {'audio': pxt.Audio | None})
         t.add_computed_column(metadata=pxtf.audio.get_metadata(t.audio))
 
         def insert_metadata() -> None:

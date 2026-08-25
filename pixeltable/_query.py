@@ -19,6 +19,7 @@ from typing import (
     Iterator,
     Literal,
     NoReturn,
+    Self,
     Sequence,
     TypeVar,
     cast,
@@ -30,7 +31,6 @@ import pandas as pd
 import PIL.Image
 import pydantic
 import sqlalchemy.exc as sql_exc
-from typing_extensions import Self
 
 from pixeltable import catalog, exceptions as excs, exec, exprs, telemetry, telemetry_schemas, type_system as ts
 from pixeltable.catalog import is_valid_identifier
@@ -88,7 +88,7 @@ class ResultSet:
     def schema(self) -> dict[str, str]:
         """The result columns as a mapping from name to its type string."""
         # matches Table.get_metadata()
-        return {name: col_type._to_str(as_schema=True) for name, col_type in self._schema.items()}
+        return {name: repr(col_type) for name, col_type in self._schema.items()}
 
     def __len__(self) -> int:
         return len(self._rows)
@@ -242,7 +242,7 @@ class ResultCursor(Iterable[Row]):
     def schema(self) -> dict[str, str]:
         """The result columns as a mapping from name to its type string."""
         # matches Table.get_metadata()
-        return {name: col_type._to_str(as_schema=True) for name, col_type in self._schema.items()}
+        return {name: repr(col_type) for name, col_type in self._schema.items()}
 
     def open(self) -> None:
         """Start the underlying query and prepare the cursor for iteration.
@@ -678,22 +678,20 @@ class Query:
         out: dict[UUID, int] = {}
         for tbl in self._from_clause.tvps:
             for tvh in tbl.get_tbl_versions():
-                tv = tvh.get()
-                if tv.is_versioned:
-                    out[tvh.id] = tv.version
+                out[tvh.id] = tvh.get().version
         return out
 
     def _create_query_plan(self) -> exec.ExecPlan:
         assert self._from_clause.is_local
         tvps = self._from_clause.tvps
-        has_unversioned_tbl = any(not tbl.tbl_version.get().is_versioned for tbl in tvps)
-        if has_unversioned_tbl:
-            # For now, we only support queries of the simplest form on unversioned tables
-            assert len(self._from_clause.tbls) == 1, 'TODO: implement for unversioned tables [PXT-1101]'
-            assert len(self._from_clause.join_clauses) == 0, 'TODO: implement for unversioned tables [PXT-1101]'
-            assert self.grouping_tbl_key is None, 'TODO: implement for unversioned tables [PXT-1101]'
-            assert self.group_by_clause is None, 'TODO: implement for unversioned tables [PXT-1101]'
-            assert self.sample_clause is None, 'TODO: implement for unversioned tables [PXT-1101]'
+        has_operational_tbl = any(not tbl.tbl_version.get().is_data_versioned for tbl in tvps)
+        if has_operational_tbl:
+            # For now, we only support queries of the simplest form on operational tables
+            assert len(self._from_clause.tbls) == 1, 'TODO: implement for operational tables [PXT-1101]'
+            assert len(self._from_clause.join_clauses) == 0, 'TODO: implement for operational tables [PXT-1101]'
+            assert self.grouping_tbl_key is None, 'TODO: implement for operational tables [PXT-1101]'
+            assert self.group_by_clause is None, 'TODO: implement for operational tables [PXT-1101]'
+            assert self.sample_clause is None, 'TODO: implement for operational tables [PXT-1101]'
 
         # construct a group-by clause if we're grouping by a table
         group_by_clause = self.group_by_clause
@@ -1036,11 +1034,7 @@ class Query:
         select_list = self._effective_select_list
         return pd.DataFrame(
             [
-                {
-                    'Name': name,
-                    'Type': expr.col_type._to_str(as_schema=True),
-                    'Expression': expr.display_str(inline=False),
-                }
+                {'Name': name, 'Type': repr(expr.col_type), 'Expression': expr.display_str(inline=False)}
                 for expr, name in select_list
             ]
         )
@@ -1370,9 +1364,10 @@ class Query:
         """
         assert len(self._from_clause.tbls) > 0
         # a join mixing catalogs (e.g. local + hosted) is rejected by FromClause's same-catalog check below
-        if self._from_clause.tbls[0].is_versioned() != other._is_versioned():
+        if self._from_clause.tbls[0].is_data_versioned() != other._is_data_versioned():
             raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION, 'join is not supported between versioned and unversioned tables'
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                'join is not supported between data-versioned and operational tables',
             )
         if self.sample_clause is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'join() cannot be used with sample()')
@@ -1785,7 +1780,7 @@ class Query:
 
             >>> person.where(t.year == 2014).update({'age': 30})
         """
-        self._validate_mutable('update', False)
+        self._validate_mutable('update')
         return self._mutation_target().update(value_spec, where=self.where_clause, cascade=cascade)
 
     def recompute_columns(
@@ -1808,7 +1803,7 @@ class Query:
 
             >>> query = person.where(t.age < 18).recompute_columns(person.height)
         """
-        self._validate_mutable('recompute_columns', False)
+        self._validate_mutable('recompute_columns')
         return self._mutation_target().recompute_columns(
             *columns, where=self.where_clause, errors_only=errors_only, cascade=cascade
         )
@@ -1826,19 +1821,27 @@ class Query:
 
             >>> person.where(t.age < 18).delete()
         """
-        self._validate_mutable('delete', False)
+        self._validate_mutable('delete')
         if self._from_clause.tbls[0].is_view():
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Cannot use `delete` on a view.')
         return self._mutation_target().delete(where=self.where_clause)
 
-    def _validate_mutable(self, op_name: str, allow_select: bool) -> None:
+    def _validate_mutable(self, op_name: str) -> None:
         """Tests whether this Query can be mutated (such as by an update operation).
 
         Args:
             op_name: The name of the operation for which the test is being performed.
-            allow_select: If True, allow a select() specification in the Query.
         """
-        self._validate_mutable_op_sequence(op_name, allow_select)
+        if self.group_by_clause is not None or self.grouping_tbl_key is not None:
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `group_by`.')
+        if self.order_by_clause is not None:
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `order_by`.')
+        if self.select_list is not None:
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `select`.')
+        if self.limit_val is not None:
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `limit`.')
+        if self._has_joins():
+            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `join`.')
 
         # TODO: Reconcile these with Table.__check_mutable()
         assert len(self._from_clause.tbls) == 1
@@ -1847,19 +1850,6 @@ class Query:
         from_tbl = self._from_clause.tbls[0]
         if from_tbl.is_snapshot() or from_tbl.effective_version() is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` on a snapshot.')
-
-    def _validate_mutable_op_sequence(self, op_name: str, allow_select: bool) -> None:
-        """Tests whether the sequence of operations on this Query is valid for a mutation operation."""
-        if self.group_by_clause is not None or self.grouping_tbl_key is not None:
-            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `group_by`.')
-        if self.order_by_clause is not None:
-            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `order_by`.')
-        if self.select_list is not None and not allow_select:
-            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `select`.')
-        if self.limit_val is not None:
-            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `limit`.')
-        if self._has_joins():
-            raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot use `{op_name}` after `join`.')
 
     def as_dict(self) -> dict[str, Any]:
         """

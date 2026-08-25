@@ -27,7 +27,7 @@ class TestLlamaCpp:
         skip_test_if_not_installed('llama_cpp')
         from pixeltable.functions import llama_cpp
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        t = pxt.create_table('test_tbl', {'input': pxt.String | None})
 
         t.add_computed_column(
             messages=[
@@ -100,7 +100,7 @@ class TestLlamaCpp:
             case _:
                 raise AssertionError(f'Not implemented: {model}')
 
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String | None})
         messages = [{'role': 'user', 'content': t.prompt}]
         t.add_computed_column(
             response=llama_cpp.create_chat_completion(

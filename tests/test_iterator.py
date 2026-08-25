@@ -157,7 +157,7 @@ class TestIterator:
         for n, it in enumerate((simple_iterator, class_based_iterator, iterator_with_seek)):
             assert callable(it)
             tbl_path = p(f'tbl_{n}')
-            t = pxt.create_table(tbl_path, schema={'input': pxt.Int})
+            t = pxt.create_table(tbl_path, schema={'input': pxt.Int | None})
             t.insert([{'input': 2}])
             v = pxt.create_view(p(f'view_{n}'), t, iterator=it(t.input))
             t.insert([{'input': 3}, {'input': 5}])
@@ -195,7 +195,9 @@ class TestIterator:
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_iterator_column_shadowing(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('tbl'), schema={'pos': pxt.String, 'input': pxt.Int, 'scol': pxt.Float})
+        t = pxt.create_table(
+            p('tbl'), schema={'pos': pxt.String | None, 'input': pxt.Int | None, 'scol': pxt.Float | None}
+        )
         t.insert([{'pos': 'a', 'input': 5, 'scol': 1.0}, {'pos': 'b', 'input': 3, 'scol': 2.0}])
         v = pxt.create_view(p('view'), t, iterator=simple_iterator(t.input))
         # Try adding a "second round" of iteration
@@ -209,19 +211,19 @@ class TestIterator:
         # the iterator's pos and scol shadow the base table's columns of those names; input has no counterpart
         # among the outputs and stays visible
         assert schema(v) == {
-            'pos': 'Required[Int]',
-            'icol': 'Required[Int]',
-            'scol': 'Required[String]',
-            'acol': 'Array[(None, 512), float32]',
-            'input': 'Int',
+            'pos': 'Int',
+            'icol': 'Int',
+            'scol': 'String',
+            'acol': 'Array[(None, 512), float32] | None',
+            'input': 'Int | None',
         }
         # a second round of the same iterator shadows the first round's outputs in turn
         assert schema(vv) == {
-            'pos': 'Required[Int]',
-            'icol': 'Required[Int]',
-            'scol': 'Required[String]',
-            'acol': 'Array[(None, 512), float32]',
-            'input': 'Int',
+            'pos': 'Int',
+            'icol': 'Int',
+            'scol': 'String',
+            'acol': 'Array[(None, 512), float32] | None',
+            'input': 'Int | None',
         }
         # the shadowing columns hold the innermost iterator's values, not the shadowed ones
         assert all(r['scol'] == f'string {r["icol"]}' for r in vv.collect())
@@ -425,7 +427,7 @@ class TestIterator:
     def test_create_view_schema_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """create_view() validates the iterator's output schema; these errors surface in both local and proxy mode."""
         p = make_catalog_path
-        t = pxt.create_table(p('tbl_plain_dict'), schema={'input': pxt.Int})
+        t = pxt.create_table(p('tbl_plain_dict'), schema={'input': pxt.Int | None})
 
         # iterator returns a plain dict without a conditional_output_schema
         with pxt_raises(
@@ -467,7 +469,7 @@ class TestIterator:
         """
         import tests.test_iterator  # noqa: PLW0406
 
-        t = pxt.create_table('test', {'c1': pxt.Int})
+        t = pxt.create_table('test', {'c1': pxt.Int | None})
         t.insert(c1=5)
 
         def mimic(it: func.GeneratingFunction) -> None:
@@ -670,7 +672,7 @@ class TestIterator:
         into the new GeneratingFunction-based iterator system.
         """
         p = make_catalog_path
-        t = pxt.create_table(p('test'), schema={'input': pxt.String})
+        t = pxt.create_table(p('test'), schema={'input': pxt.String | None})
         t.insert([{'input': 'balloon'}])
         with pytest.warns(DeprecationWarning, match=r'The `ComponentIterator` class is deprecated'):
             v = pxt.create_view(
@@ -683,20 +685,22 @@ class TestIterator:
             {'input': 'balloon', 'pos': 2, 'output_text': 'stored balloon 2', 'unstored_text': 'unstored balloon 2'},
             {'input': 'balloon', 'pos': 3, 'output_text': 'stored balloon 3', 'unstored_text': 'unstored balloon 3'},
         ]
+        assert v.get_metadata()['iterator_call'].startswith('CustomLegacyIterator(')
+        v.describe()
 
     def test_nested_iterator(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         n = 5
-        t = pxt.create_table(p('test_nested'), schema={'input': pxt.Int})
+        t = pxt.create_table(p('test_nested'), schema={'input': pxt.Int | None})
         t.insert([{'input': n}])
 
         v1 = pxt.create_view(
-            p('v1'), t, iterator=simple_iterator(t.input), additional_columns={'additional_col_1': pxt.Int}
+            p('v1'), t, iterator=simple_iterator(t.input), additional_columns={'additional_col_1': pxt.Int | None}
         )
         assert len(v1.collect()) == n
 
         v2 = pxt.create_view(
-            p('v2'), v1, iterator=simple_iterator(v1.icol), additional_columns={'additional_col_2': pxt.Int}
+            p('v2'), v1, iterator=simple_iterator(v1.icol), additional_columns={'additional_col_2': pxt.Int | None}
         )
         assert len(v2.collect()) == n * (n - 1) // 2
 

@@ -12,7 +12,7 @@ Examples:
   pxt drop my_dir/my_table --json -f
 
 Notes:
-  Refuses directories; use 'pxt rm' for those.
+  Refuses directories; use 'pxt drop-dir' for those.
   Without --cascade, will fail if dependent views exist (the error names them).
   Without -f, confirmation is read from the terminal; non-interactive callers must pass -f."""
 

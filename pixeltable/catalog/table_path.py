@@ -14,10 +14,11 @@ from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
 
 from .column import Column
-from .globals import ColumnVersionMd, MediaValidation, QColumnId, TableVersionMd
+from .globals import MediaValidation
 from .path import ROOT_PATH, Path
-from .table_version import TableVersion, TableVersionKey
+from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
+from .types import ColumnVersionMd, QColumnId, TableVersionKey, TableVersionMd
 
 if TYPE_CHECKING:
     from .catalog import Catalog
@@ -91,7 +92,7 @@ class TablePath(abc.ABC):
     def schema_version(self) -> int: ...
 
     @abc.abstractmethod
-    def version(self) -> int | None: ...
+    def version(self) -> int: ...
 
     @abc.abstractmethod
     def effective_version(self) -> int | None: ...
@@ -121,7 +122,7 @@ class TablePath(abc.ABC):
         """True if this table or one of its ancestors is defined with a sample clause."""
 
     @abc.abstractmethod
-    def is_versioned(self) -> bool: ...
+    def is_data_versioned(self) -> bool: ...
 
     @property
     @abc.abstractmethod
@@ -281,7 +282,7 @@ class TableVersionPath(TablePath):
         if origin_catalog is cat and cached is not None and (not get_runtime().in_xact or cached.is_validated):
             return cached
 
-        with get_runtime().catalog.begin_xact(for_write=False, read_tbl_ids=[self.tbl_version.id]):
+        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=[self]):
             new_tv = self.tbl_version.get()
         self._local.cached_tbl_version = new_tv
         self._local.origin_catalog = cat
@@ -333,9 +334,7 @@ class TableVersionPath(TablePath):
     def catalog_uri(self) -> Path:
         return ROOT_PATH
 
-    def version(self) -> int | None:
-        if not self.is_versioned():
-            return None
+    def version(self) -> int:
         return self._cached_tv().version
 
     def effective_version(self) -> int | None:
@@ -344,8 +343,8 @@ class TableVersionPath(TablePath):
     def schema_version(self) -> int:
         return self._cached_tv().schema_version
 
-    def is_versioned(self) -> bool:
-        return self._cached_tv().is_versioned
+    def is_data_versioned(self) -> bool:
+        return self._cached_tv().is_data_versioned
 
     def tbl_name(self) -> str:
         return self._cached_tv().name
@@ -587,8 +586,8 @@ class TableMdPath(TablePath):
     def media_validation(self) -> MediaValidation:
         return MediaValidation[self.md.schema_version_md.media_validation.upper()]
 
-    def version(self) -> int | None:
-        return self.md.version_md.version if self.md.tbl_md.is_versioned else None
+    def version(self) -> int:
+        return self.md.version_md.version
 
     def effective_version(self) -> int | None:
         return self._effective_version
@@ -617,8 +616,8 @@ class TableMdPath(TablePath):
             return True
         return self.base is not None and self.base.has_sample_clause()
 
-    def is_versioned(self) -> bool:
-        return self.md.tbl_md.is_versioned
+    def is_data_versioned(self) -> bool:
+        return self.md.tbl_md.is_data_versioned
 
     @property
     def catalog_uri(self) -> Path:

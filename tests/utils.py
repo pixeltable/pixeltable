@@ -1,4 +1,6 @@
+import asyncio
 import datetime
+import gc
 import glob
 import hashlib
 import itertools
@@ -10,6 +12,7 @@ import random
 import re
 import shutil
 import subprocess
+import sys
 import sysconfig
 import time
 import uuid
@@ -20,6 +23,8 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, TypedDict
 from unittest import TestCase
 from uuid import uuid4
 
+import aiohttp
+import httpx
 import more_itertools
 import numpy as np
 import pandas as pd
@@ -34,9 +39,11 @@ from pixeltable.catalog import retry_loop
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
+from pixeltable.service import proxy_daemon
 from pixeltable.types import ColumnSpec
 from pixeltable.utils import sha256sum
 from pixeltable.utils.console_output import ConsoleMessageFilter, ConsoleOutputHandler
+from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.object_stores import ObjectOps
 
@@ -45,8 +52,8 @@ if TYPE_CHECKING:
 
 TESTS_DIR = Path(os.path.dirname(__file__))
 
-# The catalog backend a test runs against: 'local' (in-process) or 'proxy' (delegated to a local daemon).
-CatalogMode = Literal['local', 'proxy']
+# The catalog backend a test runs against: 'local' (in-process), 'proxy' (local daemon), or 'cloud' (NLB proxy).
+CatalogMode = Literal['local', 'proxy', 'cloud']
 
 
 _ERROR_GROUP_TO_CLS: dict[int, type[pxt.Error]] = {
@@ -114,13 +121,13 @@ def make_default_type(t: ts.ColumnType.Type) -> ts.ColumnType:
     raise AssertionError()
 
 
-def make_tbl(name: str = 'test', col_names: list[str] | None = None) -> pxt.Table:
+def make_tbl(name: str = 'test', col_names: list[str] | None = None, is_data_versioned: bool = True) -> pxt.Table:
     if col_names is None:
         col_names = ['c1']
     schema: dict[str, ts.ColumnType] = {}
     for i, col_name in enumerate(col_names):
         schema[f'{col_name}'] = make_default_type(ts.ColumnType.Type(i % 5))
-    return pxt.create_table(name, schema)  # type: ignore[arg-type]
+    return pxt.create_table(name, schema, _is_data_versioned=is_data_versioned)  # type: ignore[arg-type]
 
 
 def create_table_data(
@@ -238,18 +245,18 @@ def create_table_data(
     return rows
 
 
-def create_test_tbl(name: str = 'test_tbl') -> pxt.Table:
+def create_test_tbl(name: str = 'test_tbl', is_data_versioned: bool = True) -> pxt.Table:
     schema: dict[str, type | ColumnSpec] = {
-        'c1': {'type': pxt.Required[pxt.String], 'comment': 'String column with no nulls'},
-        'c1n': {'type': pxt.String, 'custom_metadata': {'nullable': True}},
-        'c2': pxt.Required[pxt.Int],
-        'c3': pxt.Required[pxt.Float],
-        'c4': pxt.Required[pxt.Bool],
-        'c5': pxt.Required[pxt.Timestamp],
-        'c6': pxt.Required[pxt.Json],
-        'c7': pxt.Required[pxt.Json],
+        'c1': {'type': pxt.String, 'comment': 'String column with no nulls'},
+        'c1n': {'type': pxt.String | None, 'custom_metadata': {'nullable': True}},
+        'c2': pxt.Int,
+        'c3': pxt.Float,
+        'c4': pxt.Bool,
+        'c5': pxt.Timestamp,
+        'c6': pxt.Json,
+        'c7': pxt.Json,
     }
-    t = pxt.create_table(name, schema, primary_key='c2')
+    t = pxt.create_table(name, schema, primary_key='c2', _is_data_versioned=is_data_versioned)
     t.add_computed_column(c8=pxt.array([[1, 2, 3], [4, 5, 6]]))
 
     num_rows = 100
@@ -299,9 +306,9 @@ def create_test_tbl(name: str = 'test_tbl') -> pxt.Table:
     return t
 
 
-def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0) -> pxt.Table:
-    schema = {'img': pxt.Required[pxt.Image], 'category': pxt.Required[pxt.String], 'split': pxt.Required[pxt.String]}
-    tbl = pxt.create_table(name, schema)
+def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0, is_data_versioned: bool = True) -> pxt.Table:
+    schema = {'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
+    tbl = pxt.create_table(name, schema, _is_data_versioned=is_data_versioned)
     rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
     if num_rows > 0:
         # select output_rows randomly in the hope of getting a good sample of the available categories
@@ -325,29 +332,32 @@ def assert_schema_eq(actual: pxt.Table, expected: pxt.Table) -> None:
 # Schema (column name -> type) used by create_all_datatypes_tbl(); exposed so tests can build schema_overrides
 # from public Pixeltable types without reaching into a column's internal ColumnType.
 ALL_DATATYPES_SCHEMA: dict[str, Any] = {
-    'row_id': pxt.Required[pxt.Int],
-    'c_array': pxt.Array[(10,), pxt.Float],
-    'c_audio': pxt.Audio,
-    'c_bool': pxt.Bool,
-    'c_date': pxt.Date,
-    'c_float': pxt.Float,
-    'c_image': pxt.Image,
-    'c_int': pxt.Int,
-    'c_json': pxt.Json,
-    'c_string': pxt.String,
-    'c_timestamp': pxt.Timestamp,
-    'c_uuid': pxt.UUID,
-    'c_binary': pxt.Binary,
-    'c_video': pxt.Video,
-    'c_document': pxt.Document,
+    'row_id': pxt.Int,
+    'c_array': pxt.Array[(10,), pxt.Float] | None,
+    'c_audio': pxt.Audio | None,
+    'c_bool': pxt.Bool | None,
+    'c_date': pxt.Date | None,
+    'c_float': pxt.Float | None,
+    'c_image': pxt.Image | None,
+    'c_int': pxt.Int | None,
+    'c_json': pxt.Json | None,
+    'c_string': pxt.String | None,
+    'c_timestamp': pxt.Timestamp | None,
+    'c_uuid': pxt.UUID | None,
+    'c_binary': pxt.Binary | None,
+    'c_video': pxt.Video | None,
+    'c_document': pxt.Document | None,
 }
 
 
 def create_all_datatypes_tbl(
-    name: str = 'all_datatype_tbl', non_serializable_json: bool = False, arrow_compatible_json: bool = False
+    name: str = 'all_datatype_tbl',
+    non_serializable_json: bool = False,
+    arrow_compatible_json: bool = False,
+    is_data_versioned: bool = True,
 ) -> pxt.Table:
     """Creates a table with all supported datatypes."""
-    tbl = pxt.create_table(name, ALL_DATATYPES_SCHEMA)
+    tbl = pxt.create_table(name, ALL_DATATYPES_SCHEMA, _is_data_versioned=is_data_versioned)
     example_rows = create_table_data(
         tbl, num_rows=11, non_serializable_json=non_serializable_json, arrow_compatible_json=arrow_compatible_json
     )
@@ -597,7 +607,7 @@ def get_sentences(n: int = 100) -> list[str]:
     return [q['question'].replace("'", '') for q in questions_list[:n]]
 
 
-def assert_type_eq(col_type: ts.ColumnType, pxt_type: ts._PxtType) -> None:
+def assert_type_eq(col_type: ts.ColumnType, pxt_type: type[ts._PxtType]) -> None:
     assert col_type == ts.ColumnType.normalize_type(pxt_type)
 
 
@@ -885,6 +895,14 @@ def reload_catalog(reload: bool = True) -> None:
     pxt.init()
 
 
+def reload_env() -> None:
+    """Re-read the config file and rebuild the Env from it, keeping the configured database."""
+    reset_runtime()
+    Config.init(reinit=True)
+    Env._init_env()
+    FileCache.init()
+
+
 @contextmanager
 def capture_console_output(match: str | None = None) -> Iterator[StringIO]:
     pxt_logger = logging.getLogger('pixeltable')
@@ -924,6 +942,8 @@ def stock_price(ticker: str) -> float:
         return 0.0
 
 
+# Local path to a sample image to use in tests. Use it whenever possible instead of fetching files over the network.
+SAMPLE_IMAGE_FILE_PATH = str(TESTS_DIR.parent / 'docs' / 'resources' / 'images' / '000000000009.jpg')
 SAMPLE_IMAGE_URL = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000009.jpg'
 
 
@@ -1003,6 +1023,7 @@ NETWORK_ERROR_PATTERNS = [
     'Timeout',
     'ExternalServiceError',
     'URLError',
+    'Remote end closed connection',
 ]
 
 
@@ -1062,6 +1083,46 @@ class DummyIterator2(pxt.PxtIterator[DummyIterator2Out]):
         return result
 
 
+def _process_lifetime_loop_ids() -> set[int]:
+    """The ids of the event loops that a third-party library keeps open for as long as the process runs.
+
+    lancedb.background_loop starts a loop when the module is imported and offers no way to close it, so a
+    worker that imported lancedb has one open loop that no teardown can account for.
+    """
+    module = sys.modules.get('lancedb.background_loop')
+    if module is None:
+        return set()
+    loop = getattr(module.LOOP, 'loop', None)
+    return set() if loop is None else {id(loop)}
+
+
+def open_async_resources() -> list[str]:
+    """Describes every event loop and HTTP client session that is still open, one string each.
+
+    An async client or an event loop that is dropped rather than closed holds on to its sockets until GC
+    gets to it, at which point closing them raises 'Event loop is closed' from a destructor. Anything
+    reported here after a teardown is such a leak.
+    """
+    gc.collect()
+    ignored_loop_ids = _process_lifetime_loop_ids()
+    resources: list[str] = []
+    for obj in gc.get_objects():
+        if isinstance(obj, asyncio.AbstractEventLoop) and not obj.is_closed() and id(obj) not in ignored_loop_ids:
+            resources.append(f'event loop {type(obj).__name__} at {id(obj):#x}')
+        elif isinstance(obj, aiohttp.ClientSession) and not obj.closed:
+            resources.append(f'aiohttp session at {id(obj):#x}')
+        elif isinstance(obj, httpx.AsyncClient) and not obj.is_closed:
+            resources.append(f'httpx client at {id(obj):#x}')
+    return resources
+
+
+def validate_async_teardown() -> None:
+    """Retires this thread's runtime and asserts that it left no event loop or HTTP client session open."""
+    reset_runtime()
+    resources = open_async_resources()
+    assert len(resources) == 0, 'async resources left open:\n  ' + '\n  '.join(resources)
+
+
 def list_store_indexes(t: pxt.Table) -> list[str]:
     """Return all index names in the store for the given table."""
     sa_tbl_name = t._tbl_version.get().store_tbl._storage_name()
@@ -1072,55 +1133,67 @@ def list_store_indexes(t: pxt.Table) -> list[str]:
     return [row[0] for row in result]
 
 
-class MediaStore:
-    """Inspects the media store backing a table, for both in-process and hosted (proxy) catalogs.
+def check_media_store_count(
+    tbl: pxt.Table,
+    expected_count: int,
+    catalog_mode: CatalogMode,
+    *,
+    tbl_version: int | None = None,
+    default_input_dest: bool = False,
+    default_output_dest: bool = False,
+) -> None:
+    """Assert the number of media objects stored for tbl, where that store can be read.
 
-    A table created against a hosted catalog stores its media objects in the proxy daemon's own media store,
-    not in this process's. Since tests co-locate the daemon, that store is read directly off the filesystem
-    (the daemon's home is proxy_home(db)/media). This lets media-store assertions run unchanged in both
-    modes and actually validate the daemon's behavior.
+    A cloud database's media store lives in its own container, unreachable from the test process, so the check
+    is skipped in that mode.
     """
+    if catalog_mode == 'cloud':
+        # TODO: We should find a way to assert this [PXT-1313].
+        return  # media store not reachable; don't assert anything
 
-    @classmethod
-    def count(
-        cls,
-        tbl: pxt.Table,
-        *,
-        tbl_version: int | None = None,
-        default_input_dest: bool = False,
-        default_output_dest: bool = False,
-    ) -> int:
-        """Count the media objects stored for tbl (optionally a specific version) in its catalog's media store."""
-        catalog_uri = tbl._tbl_path.catalog_uri
-        if catalog_uri.db is None:
-            # in-process catalog: count in this process's media store
-            return ObjectOps.count(
-                tbl._id, tbl_version, default_input_dest=default_input_dest, default_output_dest=default_output_dest
-            )
+    actual: int
+    catalog_uri = tbl._tbl_path.catalog_uri
+    if catalog_uri.db is None:
+        # in-process catalog: count in this process's media store
+        actual = ObjectOps.count(
+            tbl._id, tbl_version, default_input_dest=default_input_dest, default_output_dest=default_output_dest
+        )
+    else:
         # hosted catalog: the objects live in the daemon's media store. The tests use the default media config,
         # where both the input and output dest are the daemon's home media dir, so count there directly.
-        from pixeltable.service import proxy_daemon
+        actual = ObjectOps.count(
+            tbl._id, tbl_version, dest=str(proxy_daemon.proxy_home(tbl._tbl_path.catalog_uri.db) / 'media')
+        )
 
-        return ObjectOps.count(tbl._id, tbl_version, dest=str(proxy_daemon.proxy_home(catalog_uri.db) / 'media'))
+    assert actual == expected_count, f'expected {expected_count} media objects, found {actual}'
 
 
-class TempStoreView:
-    """Counts the transient (temp) store backing a table's catalog, for both in-process and hosted catalogs.
+def get_temp_store_count(tbl: pxt.Table, catalog_mode: CatalogMode) -> int:
+    """Count the objects in the temp store of the catalog tbl lives in."""
+    if catalog_mode == 'cloud':
+        return 0  # temp store not reachable
 
-    Media files produced while running a query land in the temp store of whichever process runs the query: this
-    process for an in-process catalog, the proxy daemon (proxy_home(db)/tmp) for a hosted one. Tests co-locate the
-    daemon, so its temp store is read directly off the filesystem.
-    """
-
-    @classmethod
-    def count(cls, tbl: pxt.Table) -> int:
-        """Count the objects in the temp store of the catalog tbl lives in."""
-        catalog_uri = tbl._tbl_path.catalog_uri
-        if catalog_uri.db is None:
-            return TempStore.count()
-        from pixeltable.service import proxy_daemon
-
+    catalog_uri = tbl._tbl_path.catalog_uri
+    if catalog_uri.db is None:
+        return TempStore.count()
+    else:
         return LocalStore(proxy_daemon.proxy_home(catalog_uri.db) / 'tmp').count(None)
+
+
+def check_temp_store_count(tbl: pxt.Table, expected_count: int, catalog_mode: CatalogMode) -> None:
+    """Count the objects in the temp store of the catalog tbl lives in."""
+    if catalog_mode == 'cloud':
+        # TODO: We should find a way to assert this [PXT-1313].
+        return  # temp store not reachable; don't assert anything
+
+    actual: int
+    catalog_uri = tbl._tbl_path.catalog_uri
+    if catalog_uri.db is None:
+        actual = TempStore.count()
+    else:
+        actual = LocalStore(proxy_daemon.proxy_home(catalog_uri.db) / 'tmp').count(None)
+
+    assert actual == expected_count, f'expected {expected_count} temp objects, found {actual}'
 
 
 def validate_repr(t: Any, expected: str) -> None:
@@ -1200,6 +1273,13 @@ def _(dim: int) -> ts.ArrayType:
     return ts.ArrayType((dim,), dtype=np.dtype('float32'), nullable=False)
 
 
+def btree_idxs(t: pxt.Table) -> dict[str, str]:
+    """The names of `t`'s B-tree indexes, mapped to the column each one indexes."""
+    btree_md = [info for info in t.get_metadata()['indexes'].values() if info['index_type'] == 'btree']
+    assert all(len(info['columns']) == 1 for info in btree_md)
+    return {info['name']: info['columns'][0] for info in btree_md}
+
+
 def schema_from_tbl_md(metadata: pxt.TableMetadata) -> dict[str, str]:
     # Return a dict of schema information about that table that is invariant of table path and version history.
     return {
@@ -1225,5 +1305,5 @@ def schema_from_tbl_md(metadata: pxt.TableMetadata) -> dict[str, str]:
             }
             for name, info in metadata['columns'].items()
         },
-        'indices': metadata['indices'],
+        'indexes': metadata['indexes'],
     }

@@ -5,7 +5,7 @@ import pytest
 
 import pixeltable as pxt
 
-from .utils import SAMPLE_IMAGE_URL, ReloadTester, create_test_tbl, pxt_raises, rerun_on_network_error
+from .utils import SAMPLE_IMAGE_FILE_PATH, ReloadTester, create_test_tbl, pxt_raises
 
 
 def _local_path(name: str) -> str:
@@ -17,9 +17,9 @@ class TestSample:
     @classmethod
     def create_sample_data(cls, p: Callable[[str], str], row_mult: int, cat_count: int, with_null: bool) -> pxt.Table:
         schema = {
-            'id': pxt.Required[pxt.Int],
-            'cat1': pxt.Int if with_null else pxt.Required[pxt.Int],
-            'cat2': pxt.Int if with_null else pxt.Required[pxt.Int],
+            'id': pxt.Int,
+            'cat1': pxt.Int | None if with_null else pxt.Int,
+            'cat2': pxt.Int | None if with_null else pxt.Int,
         }
         rows = []
         rowid = 0
@@ -327,11 +327,11 @@ class TestSample:
         t = self.create_sample_data(p, 4, 6, False)
 
         query = t.select().sample(fraction=0.1, stratify_by=[t.cat1, t.cat2], seed=0)
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be created with'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='can only be defined by'):
             _ = pxt.create_view(p('v1'), query)
 
         query = t.select().sample(n=20, seed=0)
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be created with'):
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='can only be defined by'):
             _ = pxt.create_view(p('v1'), query)
 
         query = t.select().sample(fraction=0.01, seed=0)
@@ -343,14 +343,13 @@ class TestSample:
         n = len(t.select().sample(fraction=0.01, seed=0).collect())
         assert v.count() == n
 
-    @rerun_on_network_error()
     def test_sample_iterator(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         print('\n\nCREATE TABLE WITH ONE IMAGE COLUMN\n')
-        t = pxt.create_table(p('test_tile_tbl'), {'image': pxt.Image})
+        t = pxt.create_table(p('test_tile_tbl'), {'image': pxt.Image | None})
 
         print('\n\nINSERT ONE IMAGE\n')
-        t.insert(image=SAMPLE_IMAGE_URL)
+        t.insert(image=SAMPLE_IMAGE_FILE_PATH)
 
         print('\n\nSAMPLE IMAGE FROM TABLE\n')
         query = t.select().sample(fraction=0.001, seed=4171780)

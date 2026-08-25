@@ -122,10 +122,10 @@ class TestPath:
         # Bad identifier component in a hosted path.
         with pxt_raises(excs.ErrorCode.INVALID_PATH):
             Path.parse('pxt://variata:main/a..b')
-        # Org slug parses out of the netloc but isn't a valid identifier.
+        # Org name parses out of the netloc but isn't a valid identifier.
         with pxt_raises(excs.ErrorCode.INVALID_PATH):
             Path.parse('pxt://bad org/tbl')
-        # An extra colon lands in the db slug, which then fails identifier validation.
+        # An extra colon lands in the db name, which then fails identifier validation.
         with pxt_raises(excs.ErrorCode.INVALID_PATH):
             Path.parse('pxt://variata:main:extra/tbl')
 
@@ -135,7 +135,7 @@ class TestPath:
         # A db requires an org.
         with pxt_raises(excs.ErrorCode.INVALID_PATH):
             Path.from_components(('tbl',), db='main')
-        # Org and db must be valid slugs.
+        # Org and db must be valid identifiers.
         with pxt_raises(excs.ErrorCode.INVALID_PATH):
             Path.from_components(('tbl',), org='bad org')
         with pxt_raises(excs.ErrorCode.INVALID_PATH):
@@ -152,7 +152,7 @@ class TestPath:
             Path.from_components(('',))  # a single empty component is not the root
         assert Path.from_components(('a', 'b')).components == ('a', 'b')
         assert Path.from_components(()).is_root  # the empty tuple is the root
-        # Hyphenated org/db slugs are accepted.
+        # Hyphenated org/db names are accepted.
         hosted = Path.parse('pxt://my-org:my-db/tbl')
         assert (hosted.org, hosted.db) == ('my-org', 'my-db')
         assert Path.from_components(('tbl',), org='my-org', db='my-db').uri == 'pxt://my-org:my-db'

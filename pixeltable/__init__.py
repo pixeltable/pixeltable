@@ -7,7 +7,6 @@ Core Pixeltable API for table operations, data processing, and UDF management.
 from ._query import Query, ResultCursor, ResultSet
 from ._version import __version__
 from .catalog import (
-    Column,
     ColumnMetadata,
     IndexMetadata,
     InsertableTable,
@@ -16,8 +15,11 @@ from .catalog import (
     UpdateStatus,
     VersionMetadata,
     View,
-    model_base,
 )
+
+# the schema-model DSL: catalog.column.Column is the internal storage column and stays unexported
+from .catalog.model import BtreeIndex, Column, EmbeddingIndex, model_base
+from .config import URI, ConfigVar, Secret
 from .exceptions import (
     AlreadyExistsError,
     AuthorizationError,
