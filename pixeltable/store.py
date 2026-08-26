@@ -651,8 +651,7 @@ class StoreBase:
         # stmt_text = f'INSERT INTO {self.sa_tbl.name} ({col_names_str}) VALUES ({placeholders_str})'
         # conn.exec_driver_sql(stmt_text, table_rows)
 
-    # prefix for the bind parameter names of update_rows(); avoids collisions with the store column names that
-    # SQLAlchemy uses for the parameters it generates itself
+    # keeps update_rows()'s bind parameters from colliding with the ones SQLAlchemy generates itself
     __UPDATE_PARAM_PREFIX = 'pxt_upd_'
 
     @classmethod
@@ -664,10 +663,6 @@ class StoreBase:
         return sql.bindparam(f'{cls.__UPDATE_PARAM_PREFIX}{sa_col.name}', type_=col_type)
 
     def _create_update_stmt(self, set_col_names: list[str]) -> sql.Update:
-        """Return an Update stmt that assigns set_col_names in the row identified by the pk columns.
-
-        Every value, including the pk values, is a bind parameter named by `__update_bind_param()`.
-        """
         pk_clause = sql.and_(*[c == self.__update_bind_param(c) for c in self._pk_cols])
         set_clause = {name: self.__update_bind_param(self.sa_tbl.c[name]) for name in set_col_names}
         return sql.update(self.sa_tbl).where(pk_clause).values(set_clause)
@@ -677,8 +672,8 @@ class StoreBase:
     ) -> tuple[set[int], RowCountStats, list[dict[str, Any]] | None]:
         """Update rows of an operational table in place with the rows produced by exec_plan.
 
-        Only the store columns of set_cols are written; every other store column retains its current value.
-        exec_plan is expected to produce one row per row to update, identified by its pk.
+        exec_plan produces one row per row to update, identified by its pk. Only the store columns of set_cols
+        are written; every other store column retains its current value.
 
         Returns:
             set of column ids that have exceptions, row count stats, updated rows (if return_rows)
@@ -697,7 +692,6 @@ class StoreBase:
             set_col_names.add(col.store_name())
             if col.stores_cellmd:
                 set_col_names.add(col.cellmd_store_name())
-        # positions in the table rows produced by row_builder that the Update stmt assigns from
         set_col_idxs = [i for i, name in enumerate(store_col_names) if i >= num_pk_cols and name in set_col_names]
         assert len(set_col_idxs) == len(set_col_names), (store_col_names, set_col_names)
         param_idxs = [*range(num_pk_cols), *set_col_idxs]
@@ -731,8 +725,7 @@ class StoreBase:
                         table_row, num_row_exc = row_builder.create_store_table_row(row, cols_with_excs, row.pk)
                         num_excs += num_row_exc
                         table_rows.append(table_row)
-                        # a JSON null arrives as a SQL construct, which can't be a bind parameter value; the bind
-                        # parameters of JSON columns turn a Python None into a SQL NULL instead
+                        # a JSON null arrives as a SQL construct, which can't be a bind parameter value
                         params.append(
                             {
                                 name: None if isinstance(table_row[i], sql.sql.elements.Null) else table_row[i]
@@ -754,10 +747,6 @@ class StoreBase:
         return cols_with_excs, row_counts, (updated_rows if return_rows else None)
 
     def sql_update(self, stmt: sql.Update, params: list[dict[str, Any]]) -> None:
-        """Run stmt for every element of params.
-
-        No handling of primary key violations: an update never assigns a primary key column.
-        """
         assert len(params) > 0
         conn = get_runtime().conn
         try:

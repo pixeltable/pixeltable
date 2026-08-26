@@ -2761,12 +2761,12 @@ class TestTable:
         t = test_tbl
 
         def snapshot() -> list[dict[str, Any]]:
-            """The current contents of t's non-computed columns, in a form that can be re-inserted."""
+            """t's non-computed columns, in a form that can be re-inserted."""
             col_names = [name for name, md in t.get_metadata()['columns'].items() if not md['is_computed']]
             return list(t.select(*[t[name] for name in col_names]).collect())
 
         def restore(rows: list[dict[str, Any]]) -> None:
-            """Undo the preceding update. An operational table has no history to revert to."""
+            """Undo the preceding update; an operational table has no history to revert to."""
             if is_data_versioned:
                 t.revert()
             else:
@@ -2913,7 +2913,7 @@ class TestTable:
         t.insert(initial_rows)
 
         def restore() -> None:
-            """Undo the preceding update. An operational table has no history to revert to."""
+            """Undo the preceding update; an operational table has no history to revert to."""
             if is_data_versioned:
                 t.revert()
             else:
@@ -2981,7 +2981,7 @@ class TestTable:
         t.add_computed_column(val_plus_one=t.val + 1)
 
         def restore() -> None:
-            """Undo the preceding update. An operational table has no history to revert to."""
+            """Undo the preceding update; an operational table has no history to revert to."""
             if is_data_versioned:
                 t.revert()
             else:
@@ -3061,8 +3061,7 @@ class TestTable:
         t.add_computed_column(inv=reciprocal(t.val))
         t.insert({'id': i, 'val': i + 1, 'j': {'a': i}, 'img': img_files[i]} for i in range(4))
 
-        # updating one column leaves the media column of every row in place: an operational table updates rows
-        # in place and never rewrites the columns it isn't asked to change
+        # an in-place update never rewrites the columns it wasn't asked to change, media columns included
         validate_update_status(t.update({'val': 10}, where=t.id == 0), expected_rows=1)
         assert t.where(t.img != None).count() == 4
         assert all(r['img'].size is not None for r in t.select(t.img).collect())

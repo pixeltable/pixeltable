@@ -1203,7 +1203,6 @@ class TableVersion:
         return result
 
     def _update_rows(self, plan: 'exec.ExecNode', set_cols: list[Column], return_rows: bool) -> UpdateStatus:
-        """Update the rows of this operational table in place with the rows produced by plan."""
         assert not self.is_data_versioned
         assert len(self.mutable_views) == 0, 'TODO: implement view propagation for operational tables [PXT-1101]'
         get_runtime().catalog.mark_modified_tv(self.handle)
@@ -1233,7 +1232,7 @@ class TableVersion:
                         excs.ErrorCode.INTERNAL_ERROR,
                         f'Malformed _rowid: expected {num_rowid_cols} components, got {len(val)}',
                     )
-                # an operational table identifies a row by a UUID, followed by the int positions of the view levels
+                # an operational table's rowid is a UUID; the pos_i components are ints either way
                 rowid_type: type = int if self.is_data_versioned else UUID
                 if not isinstance(val[0], rowid_type) or not all(isinstance(el, int) for el in val[1:]):
                     raise excs.Error(

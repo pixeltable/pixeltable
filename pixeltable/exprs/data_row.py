@@ -137,8 +137,7 @@ class DataRow:
     # exception handling under normal operation.
     _may_have_exc: bool
 
-    # the primary key of a store row; the number of components is different for table vs view, and the leading
-    # rowid component is a UUID for an operational table and an int for a data-versioned one
+    # the primary key of a store row; the leading rowid component is a UUID on an operational table, an int otherwise
     pk: tuple[int | UUID, ...] | None
     # for nested rows (ie, those produced by JsonMapperDispatcher)
     parent_row: DataRow | None
