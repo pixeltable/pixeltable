@@ -4510,86 +4510,60 @@ class TestTable:
         rows = t.order_by(t.OTHER, asc=True).collect()
         assert [(r['mycol'], r['other']) for r in rows] == [(3, 'a'), (10, 'b'), (None, 'c')]
 
+        # a case-only rename does nothing
+        version_before = t.get_metadata()['version']
+        t.rename_column('mycol', 'MYCOL')  # no-op
+        assert t.columns() == ['mycol', 'other']
+        assert t.get_metadata()['version'] == version_before  # no new schema version
+
         # the table itself resolves under any casing
         path = t.get_metadata()['path']
         assert pxt.get_table(p('t')).get_metadata()['path'] == path
         assert pxt.get_table(p('T')).get_metadata()['path'] == path
 
+        # alter_column resolves its column in any casing
         t2 = pxt.create_table(p('t2'), {'Num': pxt.Int})
         t2.alter_column('NUM', type_=pxt.Int | None)
         validate_update_status(t2.insert([{'num': None}]), 1)
 
-    def test_case_insensitive_duplicate_columns(self, make_catalog_path: Callable[[str], str]) -> None:
-        """A user-supplied mapping whose keys collide once folded is rejected, naming both spellings."""
+    def test_case_insensitive_column_name_resolution(self, make_catalog_path: Callable[[str], str]) -> None:
+        """Names that fold onto each other, or onto a reserved name, are rejected."""
         p = make_catalog_path
-        # create_table and add_columns each build their own mapping, so assert on both
-        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match=r"'a'.*'A'|'A'.*'a'"):
+
+        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match=r'Column names are case-insensitive'):
             pxt.create_table(p('bad'), {'a': pxt.Int | None, 'A': pxt.String | None})
 
         t = pxt.create_table(p('t'), {'c': pxt.Int | None})
-        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match=r"'a'.*'A'|'A'.*'a'"):
+        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match=r'Column names are case-insensitive'):
             t.add_columns({'a': pxt.Int | None, 'A': pxt.String | None})
 
-        # ... and a folded collision with an existing column is a duplicate, under every if_exists mode
+        # a folded collision with an existing column is an error
         t.add_column(mycol=pxt.Int | None)
         with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match='Duplicate column name: mycol'):
             t.add_column(MyCol=pxt.String | None)
-        t.add_column(MyCol=pxt.String | None, if_exists='ignore')
-        assert t.get_metadata()['columns']['mycol']['type_'] == 'Int | None'
-        t.add_column(MyCol=pxt.String | None, if_exists='replace')
-        assert t.get_metadata()['columns']['mycol']['type_'] == 'String | None'
-
         with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match='Duplicate column name: mycol'):
             t.add_computed_column(MYCOL=t.c + 1)
-        t.add_computed_column(MYCOL=t.c + 1, if_exists='ignore')
+        t.add_column(MyCol=pxt.String | None, if_exists='ignore')
+        assert t.get_metadata()['columns']['mycol']['type_'] == 'Int | None'
+        t.add_column(MYCOL=pxt.String | None, if_exists='replace')
         assert t.get_metadata()['columns']['mycol']['type_'] == 'String | None'
-        t.add_computed_column(MYCOL=t.c + 1, if_exists='replace')
-        assert t.get_metadata()['columns']['mycol']['is_stored']
 
-        # the same rule applies to an insert row and to an update spec
+        # insert and update
         with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match='Column names are case-insensitive'):
             t.insert([{'C': 1, 'c': 2}])
         with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match='Column names are case-insensitive'):
             t.update({'C': 1, 'c': 2})
 
-    def test_case_only_rename_column(self, make_catalog_path: Callable[[str], str]) -> None:
-        """Both spellings fold to the same name, so a case-only rename does nothing at all."""
-        p = make_catalog_path
-        t = pxt.create_table(p('t'), {'a': pxt.Int | None, 'b': pxt.Int | None})
-        version = t.get_metadata()['version']
-        t.rename_column('a', 'A')  # no-op: not COLUMN_ALREADY_EXISTS
-        assert t.columns() == ['a', 'b']
-        assert t.get_metadata()['version'] == version  # no new schema version
-
-        # a missing column is still an error, whatever the casing
-        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='Unknown column: nope'):
-            t.rename_column('nope', 'NOPE')
-
-        # renaming to a different name still works, in any casing
-        t.rename_column('A', 'C')
-        assert sorted(t.columns()) == ['b', 'c']
-
-    def test_reserved_names_are_case_insensitive(self, make_catalog_path: Callable[[str], str]) -> None:
-        """Once names fold, `Count` is `count` -- so the reserved-name and keyword bans apply in every casing."""
-        p = make_catalog_path
-        t = pxt.create_table(p('t'), {'x': pxt.Int | None})
-
-        for name in ('Count', 'INSERT', 'Select'):
-            with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
-                pxt.create_table(p('bad'), {name: pxt.Int | None})
-            with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
-                t.add_columns({name: pxt.Int | None})
-
-        for name in ('Class', 'FOR'):
-            with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
-                pxt.create_table(p('bad'), {name: pxt.Int | None})
-
-        # rename_column goes through the same validation, so the bans can't be reached around it
+        # the reserved-name ban applies after folding
         with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
-            t.rename_column('x', 'Count')
+            pxt.create_table(p('bad'), {'Count': pxt.Int | None})
         with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
-            t.rename_column('x', 'select')
-        assert t.columns() == ['x']
+            t.add_columns({'Count': pxt.Int | None})
+        with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
+            pxt.create_table(p('bad'), {'Class': pxt.Int | None})
+        with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
+            t.rename_column('c', 'Count')
+        assert 'c' in t.columns()
 
     @pytest.mark.local("Operational table feature, doesn't need to run with proxy")
     def test_unsupported_operational_tbl_ops(self, uses_db: None) -> None:

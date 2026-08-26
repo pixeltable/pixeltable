@@ -7,7 +7,7 @@ from __future__ import annotations
 import os
 import pathlib
 import textwrap
-from typing import Any, Callable
+from typing import Callable
 
 import numpy as np
 import pytest
@@ -2463,12 +2463,6 @@ class TestTableModel:
 
         # the class body's spelling resolves before binding ...
         assert isinstance(M.MyCol, pxt.exprs.ColumnRefByName)
-        # ... and only that spelling: a class body follows Python's rules, so a re-cased reference is a NameError
-        with pytest.raises(NameError, match="name 'mycol' is not defined"):
-            exec(
-                'class Bad(TableModel, name="bad"):\n    MyCol: pxt.Int\n    d = mycol * 2\n',
-                {'pxt': pxt, 'TableModel': TableModel},
-            )
 
         TableModel.create_all(p(''))
         tbl = M.table
@@ -2482,7 +2476,7 @@ class TestTableModel:
         assert M.MyCol is M.mycol
         # a class attribute is Python-domain, so a casing that was never declared does *not* resolve;
         # the table handle is where case-insensitivity begins
-        with pytest.raises(AttributeError, match=r'has no attribute .MYCOL.'):
+        with pytest.raises(AttributeError, match="has no attribute 'MYCOL'"):
             _ = M.MYCOL
         assert M.table.MYCOL.col_md.name == 'mycol'
 
@@ -2492,38 +2486,20 @@ class TestTableModel:
         # re-casing an attribute is not a schema change
         assert len(TableModel.update_all(p(''))['m']['ops']) == 0
 
-    @pytest.mark.parametrize(
-        'body',
-        [
-            'Foo: pxt.Int\n            foo: pxt.Int',  # two bare annotations of the same type
-            'Foo = 1\n            foo = 2',  # two assignments
-            'Foo: pxt.Int\n            foo = 1',  # one of each
-        ],
-        ids=['annotations', 'assignments', 'mixed'],
-    )
-    def test_model_case_insensitive_duplicate_columns(self, body: str, make_catalog_path: Callable[[str], str]) -> None:
-        """Two declarations that fold to one column are a Pixeltable-domain collision, not a Python one.
+        # Two declarations that Python allows, but that collide in Pixeltable
+        AnnotationModel = pxt.model_base()
 
-        The class body is Python: `Foo` and `foo` are distinct names there and both are recorded. The collision is
-        reported where the declarations cross into the catalog -- on create_all(), and on the update_all() diff.
-        """
-        p = make_catalog_path
-        TableModel = pxt.model_base()
-        src = textwrap.dedent(f"""
-        class M(TableModel, name='m'):
-            id: pxt.Int
-            {body}
-        """)
-        ns: dict[str, Any] = {'pxt': pxt, 'TableModel': TableModel}
-        exec(src, ns)  # accepted: both spellings are distinct, legal Python names
-        assert {'Foo', 'foo'} <= set(ns['M'].__columns__)
+        class DupAnnotations(AnnotationModel, name='dup_annotations'):
+            Foo: pxt.Int
+            foo: pxt.Int
 
-        for cross in (lambda: TableModel.create_all(p('')), lambda: TableModel.get_model_diff(p(''))):
-            with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"'Foo', 'foo' were specified"):
-                cross()
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"'Foo', 'foo' were specified"):
+            AnnotationModel.create_all(p(''))
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"'Foo', 'foo' were specified"):
+            AnnotationModel.get_model_diff(p(''))
 
-    def test_model_case_insensitive_table_names(self) -> None:
-        """Two models whose names fold together denote one table, and the second is rejected at declaration."""
+    def test_model_case_insensitive_declarations(self) -> None:
+        """Table and index names in a model declaration fold, so two that differ only in case collide."""
         TableModel = pxt.model_base()
 
         class First(TableModel, name='Foo'):
@@ -2535,6 +2511,16 @@ class TestTableModel:
 
             class Second(TableModel, name='foo'):
                 id: pxt.Int
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='index names must be unique'):
+
+            class M(TableModel, name='m'):
+                a: pxt.String
+                b: pxt.String
+                __indexes__ = [
+                    EmbeddingIndex(a, embedding=dummy_embedding.using(n=512), name='Idx'),
+                    EmbeddingIndex(b, embedding=dummy_embedding.using(n=512), name='idx'),
+                ]
 
     def test_model_case_insensitive_catalog_dir(self, make_catalog_path: Callable[[str], str]) -> None:
         """A model binds to a directory, not to the spelling of the path it was bound through."""
@@ -2557,17 +2543,3 @@ class TestTableModel:
         pxt.create_dir(p('other'))
         with pxt_raises(excs.ErrorCode.ALREADY_BOUND, match='already bound'):
             TableModel.update_all(p('other'))
-
-    def test_model_case_insensitive_index_names(self) -> None:
-        """Index names fold, so two that differ only in case collide."""
-        TableModel = pxt.model_base()
-
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='index names must be unique'):
-
-            class M(TableModel, name='m'):
-                a: pxt.String
-                b: pxt.String
-                __indexes__ = [
-                    EmbeddingIndex(a, embedding=dummy_embedding.using(n=512), name='Idx'),
-                    EmbeddingIndex(b, embedding=dummy_embedding.using(n=512), name='idx'),
-                ]

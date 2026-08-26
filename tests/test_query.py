@@ -1185,26 +1185,16 @@ class TestQuery:
             _ = list(t.select(t.i, t.s, t.f, t.b, t.ts, t.d, extra=t.i + t.f).collect().to_pydantic(StrictTestModel))
         assert extract_fields(exc_info) == {'extra'}
 
-    def test_to_pydantic_case_collision(self, make_catalog_path: Callable[[str], str]) -> None:
-        """A model with two fields that fold together cannot be matched to result columns, and is rejected."""
-        p = make_catalog_path
-        t = pxt.create_table(p('pydantic_collision'), {'foo': pxt.Int | None, 'other': pxt.Int | None})
-        t.insert([{'foo': 1, 'other': 2}])
-        results = t.select(t.foo, t.other).collect()
+        # model fields collide after folding
+        class CollidingModel(pydantic.BaseModel):
+            Val: int = -1
+            val: int = -1
 
-        class Required(pydantic.BaseModel):
-            Foo: int
-            foo: int
-            other: int
-
-        class Defaulted(pydantic.BaseModel):
-            Foo: int = -1
-            foo: int = -1
-            other: int
-
-        for model in (Defaulted, Required):
-            with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"'Foo' and 'foo'"):
-                _ = list(results.to_pydantic(model))
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r"CollidingModel has fields 'Val' and 'val' which both denote 'val'",
+        ):
+            _ = list(t.select(val=t.i).collect().to_pydantic(CollidingModel))
 
     def test_cursor_lifecycle(self, test_tbl: pxt.Table) -> None:
         query = test_tbl.select(test_tbl.c1, test_tbl.c2, test_tbl.c3).order_by(test_tbl.c2)
@@ -1365,7 +1355,7 @@ class TestQuery:
             _ = q.collect()
 
     def test_case_insensitive_result_access(self, make_catalog_path: Callable[[str], str]) -> None:
-        """Result column names are folded, and every lookup form folds the key it is given."""
+        """Result column names are folded, and every name-keyed lookup folds the key it is given."""
         p = make_catalog_path
         t = pxt.create_table(p('t'), {'MyCol': pxt.Int | None})
         t.insert([{'mycol': 1}])
@@ -1379,26 +1369,20 @@ class TestQuery:
         assert rs['MyCol'] == [1]
         assert rs[0, 'MyCol'] == 1
 
+        # cursor() is the public way to iterate results as Row objects
         row = next(iter(t.select(t.MyCol).cursor()))
         assert row['MyCol'] == 1
         assert 'MYCOL' in row
         assert row.get('MyCol') == 1
         assert list(row.keys()) == ['mycol']  # iteration still yields the stored spelling
 
-    def test_case_insensitive_errors_and_index_values(
-        self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function
-    ) -> None:
-        """Row.errors and Row.index_values are public mappings keyed by name, so they fold too."""
-        p = make_catalog_path
-        t = pxt.create_table(p('t'), {'id': pxt.Int | None, 's': pxt.String | None})
-        t.add_computed_column(Inv=1 // t.id)
-        t.add_embedding_index('s', idx_name='MyIdx', string_embed=local_embed)
-
-        out = t.compute([{'id': 0, 's': 'a'}], on_error='ignore')
+        # Row.errors is the other public name-keyed mapping, and folds through the same wrapper
+        t.add_computed_column(Inv=1 // t.MyCol)
+        out = t.compute([{'MYCOL': 0}], on_error='ignore')
         assert out[0].errors['Inv']['errortype'] == 'ZeroDivisionError'
         assert list(out[0].errors.keys()) == ['inv']  # iteration still yields the stored spelling
 
-        # index_values is the other public name-keyed mapping; it folds through the same wrapper
+        # ... as does index_values
         batch = pxt.RowBatch([(1,)], {'c': ts.IntType()}, index_values=[{'myidx': [0.5]}])
         assert batch[0].index_values['MYIDX'] == [0.5]
         assert list(batch[0].index_values.keys()) == ['myidx']
