@@ -449,10 +449,10 @@ class Env:
 
         if self.is_local:
             # Embedded postmaster: create or reset the database as needed.
-            if reinit_db and self._store_db_exists():
+            if reinit_db and self._store_db_exists(self._db_name):
                 self._drop_store_db()
 
-            create_db = not self._store_db_exists()
+            create_db = not self._store_db_exists(self._db_name)
             if create_db:
                 _logger.info(f'creating database at: {self.db_url}')
                 self._create_store_db()
@@ -491,7 +491,7 @@ class Env:
             if dialect == 'cockroachdb':
                 self._dbms = CockroachDbms(db_url)
                 # Check if database exists (CockroachDB exposes pg_database via the system DB)
-                if not self._store_db_exists():
+                if not self._store_db_exists(self._db_name):
                     error = f'Database {self._db_name!r} does not exist'
                     _logger.error(error)
                     raise excs.RequestError(excs.ErrorCode.INVALID_CONFIGURATION, error)
@@ -583,14 +583,12 @@ class Env:
         self._db_url = self._db_server.get_uri(database=db_name, driver='psycopg')
         self._dbms = PostgresqlDbms(sql.make_url(self._db_url))
 
-    def _store_db_exists(self, db_name: str | None = None) -> bool:
+    def _store_db_exists(self, db_name: str) -> bool:
         """Whether `db_name`, defaulting to this Env's database, exists in the store."""
-        name = self._db_name if db_name is None else db_name
-        assert name is not None
         engine = sql.create_engine(self._dbms.default_system_db_url(), future=True)
         try:
             with engine.begin() as conn:
-                stmt = f"SELECT COUNT(*) FROM pg_database WHERE datname = '{name}'"
+                stmt = f"SELECT COUNT(*) FROM pg_database WHERE datname = '{db_name}'"
                 result = conn.scalar(sql.text(stmt))
                 assert result <= 1
                 return result == 1
