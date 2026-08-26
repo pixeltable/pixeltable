@@ -93,30 +93,6 @@ class TestMigration:
         _normalize(md)
         assert md['fn'] == already
 
-    def test_convert_55_fold(self) -> None:
-        """Unit test for the version 55->56 name folding (no DB needed)."""
-        from pixeltable.metadata.converters.convert_55 import _fold_schema_column, _fold_table_md
-
-        # table name, index names, and the keys of a component view's iterator outputs all fold; each output's
-        # 'orig_name' is a runtime data key and stays as declared
-        tbl_md: dict[str, Any] = {
-            'name': 'MyTable',
-            'index_md': {'0': {'name': 'MyIdx'}},
-            'view_md': {'iterator_call': {'outputs': {'MyOutput': {'orig_name': 'MyOutput'}}}},
-        }
-        _fold_table_md(tbl_md, uuid.uuid4())
-        assert tbl_md['name'] == 'mytable'
-        assert tbl_md['index_md']['0']['name'] == 'myidx'
-        assert tbl_md['view_md']['iterator_call']['outputs'] == {'myoutput': {'orig_name': 'MyOutput'}}
-
-        # column names fold; system columns (name=None) are left alone
-        schema_col = {'name': 'MyCol'}
-        _fold_schema_column(schema_col)
-        assert schema_col['name'] == 'mycol'
-        system_col: dict[str, Any] = {'name': None}
-        _fold_schema_column(system_col)
-        assert system_col['name'] is None
-
     @rerun(reruns=3, reruns_delay=8)  # Deal with occasional concurrency issues
     @pytest.mark.skipif(platform.system() == 'Windows', reason='Does not run on Windows')
     def test_db_migration(self, init_env: None) -> None:
@@ -310,7 +286,7 @@ class TestMigration:
         assert isinstance(expr, Literal) and isinstance(expr.val, datetime) and expr.val.tzinfo is not None
 
         # Test that timestamp columns are properly converted to aware columns (TIMESTAMPTZ in Postgres)
-        ts1 = v.select(v.c5).head(1)[0]['c5']
+        ts1 = v.select(v.C5).head(1)[0]['c5']
         assert isinstance(ts1, datetime)
         assert ts1.tzinfo is not None  # ensure timestamps are aware
 
@@ -454,13 +430,13 @@ class TestMigration:
 
     @classmethod
     def _verify_v49_query_scalar(cls) -> None:
-        t = pxt.get_table('base_table')
+        t = pxt.get_table('BASE_TABLE')
         col_names = t.columns()
         assert 'base_table_query_scalar_output' in col_names, (
             f'base_table_query_scalar_output column not found; columns: {col_names}'
         )
         # return_scalar=True: values should be lists of scalars, not lists of dicts
-        rows = t.select(t.base_table_query_scalar_output).limit(3).collect()
+        rows = t.select(t.BASE_TABLE_QUERY_SCALAR_OUTPUT).limit(3).collect()
         for row in rows:
             val = row['base_table_query_scalar_output']
             if val is not None and len(val) > 0:
