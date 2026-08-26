@@ -82,8 +82,7 @@ class TableOp:
     def extra_locked_tbl_ids(self) -> list[uuid.UUID]:
         """Tables other than self.tbl_id whose metadata this op writes.
 
-        The finalization transaction locks self.tbl_id from the ids alone, before it can read anything; anything
-        else the op touches has to be named here so that it is locked in the schema-change mode too.
+        Its transaction locks self.tbl_id before it can read any op, so anything else has to be declared up front.
         """
         return []
 
