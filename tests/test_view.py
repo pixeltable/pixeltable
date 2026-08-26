@@ -330,7 +330,9 @@ class TestView:
 
         # adding column with same name as a base table column at
         # the time of creating a view will raise an error now.
-        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=r"Column 'c1' already exists in the base table"):
+        with pxt_raises(
+            pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=re.escape("Columns ('c1') already exist in the base table")
+        ):
             pxt.create_view(p('test_view'), t, additional_columns={'c1': pxt.Int | None})
 
         # create a view and add a column with default value
@@ -1637,6 +1639,6 @@ class TestView:
 
         for name in ('foo', 'Foo', 'FOO'):
             with pxt_raises(
-                pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=r"Column 'foo' already exists in the base table"
+                pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=re.escape("Columns ('foo') already exist in the base table")
             ):
                 pxt.create_view(p(f'v_{name}'), t, additional_columns={name: pxt.String | None})

@@ -153,17 +153,11 @@ class ResultSet:
         required_fields = {fold_identifier(name) for name, field in model_fields.items() if field.is_required()}
         col_names = set(self._col_names)
         missing_fields = {folded_field_name_to_original[name] for name in required_fields - col_names}
-        if len(missing_fields) == 1:
+        if len(missing_fields) > 0:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Required model field {missing_fields.pop()} is missing from '
-                f'result set columns {", ".join(self._col_names)}',
-            )
-        elif len(missing_fields) > 1:
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'Required model fields {missing_fields} are missing from '
-                f'result set columns {", ".join(self._col_names)}',
+                f'Required model fields ({missing_fields}) are missing from '
+                f'result set columns ({", ".join(self._col_names)})',
             )
         if forbid_extra_fields:
             extra_fields = col_names - set(folded_field_name_to_original.keys())

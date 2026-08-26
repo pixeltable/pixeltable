@@ -411,15 +411,10 @@ def create_view(
     # additional columns should not be in the base table
     base_col_names = {col_md.name for col_md in tbl_path.column_md()}
     shadowed = [name for name in additional_columns if name in base_col_names]
-    if len(shadowed) == 1:
+    if len(shadowed) > 0:
         raise excs.AlreadyExistsError(
             excs.ErrorCode.COLUMN_ALREADY_EXISTS,
-            f'Column {shadowed[0]!r} already exists in the base table {tbl_path.tbl_name()!r}.',
-        )
-    elif len(shadowed) > 1:
-        raise excs.AlreadyExistsError(
-            excs.ErrorCode.COLUMN_ALREADY_EXISTS,
-            f'Columns {", ".join(repr(name) for name in shadowed)} already exist in the base table '
+            f'Columns ({", ".join(repr(name) for name in shadowed)}) already exist in the base table '
             f'{tbl_path.tbl_name()!r}.',
         )
 
