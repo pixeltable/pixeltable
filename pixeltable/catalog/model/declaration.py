@@ -342,20 +342,17 @@ class _ModelNamespace(dict):
         super().__setitem__(name, exprs.ColumnRefByName(name, type_))
 
 
-def _bind_query_templates(value: exprs.Expr, catalog_dir: str) -> exprs.Expr:
-    """Rebind every @pxt.query UDF in value that queries a model, so that it queries that model's table.
-
-    A stored column records the query its template holds, and a query over a model names columns of a table
-    that does not exist. The referenced model is created before this one (see _creation_order()), so its
-    table is there to bind against.
-    """
+def _bind_query_templates(e: exprs.Expr, catalog_dir: str) -> exprs.Expr:
+    """Rebind QueryTemplateFunction calls of ModelQuery instances to the equivalent Query of the bound model."""
     from .query import ModelQuery
 
-    for fn_call in value.subexprs(exprs.FunctionCall):
+    subst: exprs.ExprDict[exprs.Expr] = exprs.ExprDict()
+    for fn_call in e.subexprs(exprs.FunctionCall):
         fn = fn_call.fn
         if not isinstance(fn, func.QueryTemplateFunction) or not isinstance(fn.template_query, ModelQuery):
             continue
-        fn_call.fn = func.QueryTemplateFunction(
+        assert fn_call.group_by_start_idx == fn_call.group_by_stop_idx  # a query udf takes no window clause
+        rebound = func.QueryTemplateFunction(
             fn.template_query.bind(catalog_dir),
             list(fn.signature.parameters.values()),
             return_scalar=fn.return_scalar,
@@ -363,7 +360,17 @@ def _bind_query_templates(value: exprs.Expr, catalog_dir: str) -> exprs.Expr:
             name=fn.self_name,
             comment=fn.comment(),
         )
-    return value
+        # we need to substitute the FunctionCall itself, not just the Function instance
+        subst[fn_call] = rebound(*fn_call.args, **fn_call.kwargs)
+    if len(subst) == 0:
+        return e
+    result = e.substitute(subst)
+    # substitute() returns a replacement without descending into it, so a call nested in another one is missed
+    assert not any(
+        isinstance(c.fn, func.QueryTemplateFunction) and isinstance(c.fn.template_query, ModelQuery)
+        for c in result.subexprs(exprs.FunctionCall)
+    )
+    return result
 
 
 class TableModelMeta(type):
@@ -704,8 +711,6 @@ class TableModelMeta(type):
                     spec['type'], allow_builtin_types=False
                 )
             if 'value' in spec:
-                # a copy, because binding rewrites the query templates in place and this model's declaration
-                # has to survive the call unchanged
                 spec['value'] = _bind_query_templates(spec['value'].copy(), catalog_dir)
             columns[name] = spec
 

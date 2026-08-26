@@ -2367,6 +2367,43 @@ class TestTableModel:
         rows = probe.order_by(probe.cutoff).select(probe.matches).collect()['matches']
         assert rows == [[{'title': 'alpha'}, {'title': 'beta'}], [{'title': 'beta'}]]
 
+    def test_query_udf_column_shapes(self, make_catalog_path: Callable[[str], str]) -> None:
+        """Several columns over one query udf, and one that wraps its result, each hold their own value."""
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            doc_id: pxt.Int
+            title: pxt.String
+
+        @pxt.query
+        def titles_after(cutoff: int) -> pxt.Query:
+            return Docs.where(Docs.doc_id > cutoff).order_by(Docs.doc_id).select(Docs.title)  # type: ignore[arg-type]
+
+        class Probe(TableModel, name='probe'):
+            cutoff: pxt.Int
+            # the same udf called three ways: with the row's value, with a constant, and wrapped
+            matches = titles_after(cutoff)
+            from_two = titles_after(2)
+            match_count = pxtf.json.len(titles_after(cutoff))
+
+        target = make_catalog_path('qudf_shapes')
+        pxt.create_dir(target, parents=True)
+        TableModel.create_all(target)
+        pxt.get_table(f'{target}/docs').insert(
+            [{'doc_id': 1, 'title': 'alpha'}, {'doc_id': 2, 'title': 'beta'}, {'doc_id': 3, 'title': 'gamma'}]
+        )
+
+        reload_catalog()
+        probe = pxt.get_table(f'{target}/probe')
+        probe.insert([{'cutoff': 0}, {'cutoff': 2}])
+        rows = probe.order_by(probe.cutoff).select(probe.matches, probe.from_two, probe.match_count).collect()
+        assert [r['matches'] for r in rows] == [
+            [{'title': 'alpha'}, {'title': 'beta'}, {'title': 'gamma'}],
+            [{'title': 'gamma'}],
+        ]
+        assert [r['from_two'] for r in rows] == [[{'title': 'gamma'}], [{'title': 'gamma'}]]
+        assert [r['match_count'] for r in rows] == [3, 1]
+
     def test_table_model_validation_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """Errors that arise from a schema mismatch between a model and an existing table."""
         p = make_catalog_path
