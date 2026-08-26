@@ -307,8 +307,8 @@ class Catalog(CatalogBase):
     _tbls: OrderedDict[TableVersionKey, LocalTable]
     _in_write_xact: bool  # True if we're in a write transaction
     _write_locked_tbl_ids: set[UUID]  # Ids of tables exclusively locked for write in the current transaction
-    # store table name -> lock mode held in the current transaction; cleared on transaction exit
-    _locks_held: dict[str, TblLockMode]
+    # table id -> relation lock mode held in the current transaction; cleared on transaction exit
+    _locks_held: dict[UUID, TblLockMode]
     # counters for the optimistic lock-set scheme; a workload that reshapes a view tree between attempts shows up
     # here rather than looking like a hang
     _num_lock_set_warm_ups: int
@@ -903,27 +903,56 @@ class Catalog(CatalogBase):
 
         The guess is the transitive mutable views of the targets that asked for their tree; everything else in a
         lock set is static and needs no check. A lock on a node freezes that node's child set (§2.2), so one pass
-        suffices. On a mismatch nothing has happened yet beyond metadata reads, so the operation simply restarts
-        with a guess built from the metadata this pass just refreshed.
+        suffices -- but the pass has to descend the whole tree, not just its first level: a view added under a
+        locked view bumps that view's view_sn, not the target's, so the target's own child set still matches.
+        On a mismatch nothing has happened yet beyond metadata reads, so the operation simply restarts with a
+        guess built from the metadata this pass just refreshed.
         """
         locked_ids = {target.tbl_id for target, _, _ in lock_set.targets}
+        missing: set[UUID] = set()
         for tbl_id in lock_set.tree_target_ids:
-            tv = self._tbl_versions.get(TableVersionKey(tbl_id, None))
-            if tv is None:
-                continue
-            missing = {view.id for view in tv.mutable_views} - locked_ids
-            if len(missing) > 0:
-                _logger.debug(f'Lock set guess mismatch for {tbl_id}: {missing} not locked')
-                self._num_lock_set_mismatches += 1
-                # warm up the target too: a failed attempt purges the TableVersions it loaded, so without it the
-                # retry would take a second warm-up to rediscover the same tree
-                raise LockSetCacheMissError({*missing, tbl_id})
+            missing.update(self._unlocked_tree_members(tbl_id, locked_ids))
+        if len(missing) > 0:
+            _logger.debug(f'Lock set guess mismatch: {missing} not locked')
+            self._num_lock_set_mismatches += 1
+            # warm up the tree targets too: a failed attempt purges the TableVersions it loaded, so without them
+            # the retry would take a second warm-up to rediscover the same tree
+            raise LockSetCacheMissError({*missing, *lock_set.tree_target_ids})
 
-    def _resolve_path_targets(self, paths: Collection[Path], dir_paths: Collection[Path] = ()) -> list[UUID]:
-        """Resolves paths to the ids of the tables a path-based schema change will touch (create/drop/move).
+    def _unlocked_tree_members(self, tbl_id: UUID, locked_ids: set[UUID]) -> set[UUID]:
+        """Members of tbl_id's mutable tree, at any depth, that are not in locked_ids.
+
+        Descends only through views that *are* locked: an unlocked one is already a mismatch, and its own subtree
+        is unknown to this transaction anyway -- the warm-up that follows loads it.
+        """
+        tv = self._tbl_versions.get(TableVersionKey(tbl_id, None))
+        if tv is None:
+            return set()
+        result: set[UUID] = set()
+        for view in tv.mutable_views:
+            if view.id in locked_ids:
+                result.update(self._unlocked_tree_members(view.id, locked_ids))
+            else:
+                result.add(view.id)
+        return result
+
+    def _resolve_path_targets(
+        self, paths: Collection[Path], dir_paths: Collection[Path] = ()
+    ) -> tuple[list[UUID], list[UUID]]:
+        """Resolves paths to the tables a path-based schema change will touch (create/drop/move).
 
         Runs in its own read-only transaction, before the operation's transaction opens, because the lock set has to
         be known before the first lock statement and a path does not name a table id.
+
+        Returns (tbl_ids, base_ids): the tables at the given paths together with their transitive views, and the
+        mutable bases of those of the path occupants that are mutable views. Dropping a mutable view changes how
+        writes to its base propagate, so a caller that may drop what it resolved passes base_ids as
+        extra_schema_change_tbl_ids, the same rule create_view follows (§6); callers that never drop anything
+        ignore them.
+
+        The view closure is part of the result because force=True drops it too, and lock_mutable_tree does not
+        reach all of it: a snapshot's TableVersion carries no mutable views by construction, so a view of a
+        snapshot -- or of a pure snapshot, which has no TableVersion at all -- is invisible to that walk.
 
         The result is a guess: the occupant of a path can change between this call and the moment the locks are
         held. That is caught by the parent directory's row X-lock, which every operation that adds or removes a
@@ -935,6 +964,13 @@ class Catalog(CatalogBase):
         """
         assert not get_runtime().in_xact
         tbl_ids: list[UUID] = []
+        base_ids: list[UUID] = []
+
+        def add_tbl(tbl: LocalTable) -> None:
+            tbl_ids.extend(self._tbl_view_closure(tbl._id))
+            base_id = self._mutable_base_id(tbl)
+            if base_id is not None:
+                base_ids.append(base_id)
 
         @retry_loop(for_write=False, md_only=True)
         def resolve() -> None:
@@ -945,14 +981,37 @@ class Catalog(CatalogBase):
                     # a missing parent directory is the operation's error to report, not ours
                     continue
                 if isinstance(obj, LocalTable):
-                    tbl_ids.append(obj._id)
+                    add_tbl(obj)
             for dir_path in dir_paths:
                 dir = self._get_dir(dir_path)
-                if dir is not None:
-                    tbl_ids.extend(self._dir_tree_tbl_ids(dir.id))
+                if dir is None:
+                    continue
+                for tbl_id in self._dir_tree_tbl_ids(dir.id):
+                    tbl = self.get_table_by_id(tbl_id, ignore_if_dropped=True)
+                    if tbl is not None:
+                        add_tbl(tbl)
 
         resolve()
-        return tbl_ids
+        return tbl_ids, base_ids
+
+    def _tbl_view_closure(self, tbl_id: UUID) -> list[UUID]:
+        """tbl_id followed by the ids of all its transitive views, of every kind."""
+        result = [tbl_id]
+        for view_id in self.get_view_ids(tbl_id):
+            result.extend(self._tbl_view_closure(view_id))
+        return result
+
+    @classmethod
+    def _mutable_base_id(cls, tbl: LocalTable) -> UUID | None:
+        """The id of tbl's base, if tbl is a mutable view of a mutable base; None otherwise.
+
+        A pure snapshot's TableVersionPath is its base's, which is not mutable at the pinned version, so it answers
+        None here rather than naming its base's base.
+        """
+        tvp = tbl._tbl_version_path
+        if not isinstance(tbl, View) or tvp.base is None or not tvp.is_mutable() or not tvp.base.is_mutable():
+            return None
+        return tvp.base.tbl_id
 
     def _dir_tree_tbl_ids(self, dir_id: UUID) -> list[UUID]:
         """Ids of all live tables in dir_id and its subdirectories."""
@@ -1184,8 +1243,8 @@ class Catalog(CatalogBase):
                 self._try_rollback(conn)
                 raise StoreTableMissingError(store_tbl_names, [t.tbl_id for t in targets]) from e
             raise
-        for name in store_tbl_names:
-            self._locks_held[name] = mode
+        for target in targets:
+            self._locks_held[target.tbl_id] = mode
         fault_injection.process_fault(FaultLocation.CATALOG_AFTER_TBL_LOCK, mode=mode)
 
     def _cached_tbl_names_str(self, targets: Sequence[LockTarget]) -> str:
@@ -1196,23 +1255,30 @@ class Catalog(CatalogBase):
             names.append(repr(tv.name) if tv is not None else str(target.tbl_id))
         return ', '.join(names)
 
-    def is_locked(self, store_tbl_name: str, mode: TblLockMode) -> bool:
-        """True if the current transaction holds at least `mode` on `store_tbl_name`."""
-        held = self._locks_held.get(store_tbl_name)
+    def is_locked(self, tbl_id: UUID, mode: TblLockMode) -> bool:
+        """True if the current transaction holds at least `mode` on tbl_id's store table."""
+        held = self._locks_held.get(tbl_id)
         return held is not None and _LOCK_MODE_STRENGTH[held] >= _LOCK_MODE_STRENGTH[mode]
+
+    def assert_tbl_locked(self, tbl_id: UUID, mode: TblLockMode) -> None:
+        """Asserts that this transaction holds at least `mode` on tbl_id's store table.
+
+        Only for tables that have one: a pure snapshot has nothing to lock, and for those the `tables`-row X-lock
+        is the only serialization point there is (§4.3). Callers that can be handed either kind say so explicitly.
+        """
+        held = self._locks_held.get(tbl_id)
+        assert self.is_locked(tbl_id, mode), (
+            f'{tbl_id}: {mode.name} not held (held: {held.name if held is not None else None})'
+        )
 
     def assert_locked(self, tbl_version: TableVersion, mode: TblLockMode) -> None:
         """Asserts that this transaction holds at least `mode` on tbl_version's store table.
 
-        A table with no store table of its own -- a pure snapshot -- has nothing to lock and is exempt; for those
-        the `tables`-row X-lock is the only serialization point there is (§4.3).
+        A table with no store table of its own -- a pure snapshot -- has nothing to lock and is exempt.
         """
         if tbl_version.store_tbl is None:
             return
-        store_tbl = tbl_version.store_tbl._storage_name()
-        assert self.is_locked(store_tbl, mode), (
-            f'{store_tbl}: {mode.name} not held (held: {self._locks_held.get(store_tbl)})'
-        )
+        self.assert_tbl_locked(tbl_version.id, mode)
 
     def assert_write_locked(self, tbl_version: TableVersion) -> None:
         """Asserts that this transaction holds a lock strong enough to write tbl_version's data or metadata.
@@ -1221,6 +1287,10 @@ class Catalog(CatalogBase):
         floor: some write-class lock rather than none at all.
         """
         self.assert_locked(tbl_version, TblLockMode.OP_WRITE)
+
+    def assert_write_tbl_locked(self, tbl_id: UUID) -> None:
+        """assert_write_locked() for a table named by id, which is exempt only if it has no store table."""
+        self.assert_tbl_locked(tbl_id, TblLockMode.OP_WRITE)
 
     def _evict_caches(self) -> None:
         # Evict LRU _tbls entries
@@ -1542,6 +1612,10 @@ class Catalog(CatalogBase):
         # non-transactional table op.
         # Contains: (op, new_op_status, is_final_op)
         rollover_op_update: tuple[TableOp, OpStatus, bool] | None = None
+        # Tables besides tbl_id that an op we are about to run writes metadata for, and which therefore have to be in
+        # this transaction's schema-change lock set. Discovered by reading the op, which can only happen once tbl_id
+        # is locked, so the transaction that discovers a new one is redone with the wider set.
+        extra_tbl_ids: list[UUID] = []
 
         tbl_q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id).with_for_update()
 
@@ -1555,6 +1629,7 @@ class Catalog(CatalogBase):
                         finalize_pending_ops=False,
                         for_schema_change=True,
                         lock_nowait=not blocking,
+                        extra_schema_change_tbl_ids=extra_tbl_ids,
                     ) as conn,
                     self._allow_tbl_md_read(),
                 ):
@@ -1570,6 +1645,10 @@ class Catalog(CatalogBase):
                         return None
                     assert tbl_md.tbl_state in (schema.TableState.ROLLFORWARD, schema.TableState.ROLLBACK)
                     is_rollback = tbl_md.tbl_state == schema.TableState.ROLLBACK
+                    if not tbl_md.is_pure_snapshot:
+                        # covers everything this transaction goes on to write for tbl_id: the pending-op rows, the
+                        # `tables` row, and whatever the op itself does
+                        self.assert_tbl_locked(tbl_id, TblLockMode.SCHEMA_CHANGE)
 
                     if rollover_op_update is not None:
                         if self._set_pending_op_status(
@@ -1603,6 +1682,15 @@ class Catalog(CatalogBase):
                         # rollforward: we execute the first pending op
                         op = next(op for op in ops if op.status == OpStatus.PENDING)
                         is_final_op = op.op_sn == op.num_ops - 1
+
+                    missing_tbl_ids = [id for id in op.extra_locked_tbl_ids() if id not in extra_tbl_ids]
+                    if len(missing_tbl_ids) > 0:
+                        # nothing has been written yet, so this attempt is simply redone with the wider lock set
+                        _logger.debug(
+                            f'Finalize pending ops({tbl_id}): {op!s} also needs {missing_tbl_ids}; re-locking'
+                        )
+                        extra_tbl_ids.extend(missing_tbl_ids)
+                        continue
 
                     _logger.debug(
                         f'Finalize pending ops({tbl_id}): finalizing op {op!s}; is_rollback={is_rollback}, '
@@ -1999,7 +2087,7 @@ class Catalog(CatalogBase):
         return result
 
     def move(self, path: Path, new_path: Path, if_exists: IfExistsParam, if_not_exists: IfNotExistsParam) -> None:
-        tbl_ids = self._resolve_path_targets([path, new_path])
+        tbl_ids, _ = self._resolve_path_targets([path, new_path])
 
         @retry_loop(for_write=True, write_tbl_ids=tbl_ids, lock_mutable_tree=True, for_schema_change=True)
         def move_fn() -> None:
@@ -2277,10 +2365,17 @@ class Catalog(CatalogBase):
         if additional_idxs is None:
             additional_idxs = []
 
-        # if_exists='replace' drops whatever is at the path, so its relation belongs to the lock set
-        replaced_ids = self._resolve_path_targets([path])
+        # if_exists='replace' drops whatever is at the path, so its relation belongs to the lock set, and so does
+        # its base's if it is a mutable view (§6)
+        replaced_ids, replaced_base_ids = self._resolve_path_targets([path])
 
-        @retry_loop(for_write=True, write_tbl_ids=replaced_ids, lock_mutable_tree=True, for_schema_change=True)
+        @retry_loop(
+            for_write=True,
+            write_tbl_ids=replaced_ids,
+            lock_mutable_tree=True,
+            for_schema_change=True,
+            extra_schema_change_tbl_ids=replaced_base_ids,
+        )
         def create_fn() -> tuple[UUID, bool]:
             existing = self._handle_path_collision(path, InsertableTable, False, if_exists)
             if existing is not None:
@@ -2379,9 +2474,11 @@ class Catalog(CatalogBase):
         if additional_idxs is None:
             additional_idxs = []
 
-        replaced_ids = self._resolve_path_targets([path])
-        # a new mutable view changes how writes to the base propagate, so the base is excluded for the duration
+        replaced_ids, replaced_base_ids = self._resolve_path_targets([path])
+        # a new mutable view changes how writes to the base propagate, so the base is excluded for the duration;
+        # if_exists='replace' additionally drops the occupant, which excludes its own base for the same reason (§6)
         base_ids = [base.tbl_id] if not is_snapshot and base.is_mutable() else []
+        base_ids.extend(replaced_base_ids)
 
         @retry_loop(
             for_write=True,
@@ -2739,9 +2836,16 @@ class Catalog(CatalogBase):
         return obj
 
     def drop_table(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
-        tbl_ids = self._resolve_path_targets([path])
+        # dropping a mutable view changes how writes to its base propagate, so the base is excluded too (§6)
+        tbl_ids, base_ids = self._resolve_path_targets([path])
 
-        @retry_loop(for_write=True, write_tbl_ids=tbl_ids, lock_mutable_tree=True, for_schema_change=True)
+        @retry_loop(
+            for_write=True,
+            write_tbl_ids=tbl_ids,
+            lock_mutable_tree=True,
+            for_schema_change=True,
+            extra_schema_change_tbl_ids=base_ids,
+        )
         def drop_fn() -> None:
             tbl = self._get_schema_object(
                 path,
@@ -2826,7 +2930,7 @@ class Catalog(CatalogBase):
         if is_pure_snapshot:
             # there is no physical table, but we still need to delete the Table record; we can do that right now
             # as part of the current transaction
-            self.delete_tbl_md(tbl_id)
+            self.delete_tbl_md(tbl_id, is_pure_snapshot=True)
         else:
             # invalidate the TableVersion instance when we're done so that existing references to it can find out it
             # has been dropped
@@ -2859,7 +2963,11 @@ class Catalog(CatalogBase):
     def _incr_view_sn(self, tbl_id: UUID) -> None:
         """Increments the table's view_sn in the store within the current transaction"""
         self._clear_tv_cache(TableVersionKey(tbl_id, None))
+        # _acquire_write_lock() first: it reports a base that is already gone as TABLE_NOT_FOUND, which the caller
+        # handles, whereas the assertion below would report it as a protocol violation
         assert self._acquire_write_lock(tbl_id=tbl_id, check_pending_ops=False, for_schema_change=True), tbl_id
+        # this changes how writes to tbl_id propagate, so it is a schema change on tbl_id, not just on the view
+        self.assert_tbl_locked(tbl_id, TblLockMode.SCHEMA_CHANGE)
         result = get_runtime().conn.execute(
             sql.update(schema.Table)
             .values(
@@ -2898,9 +3006,17 @@ class Catalog(CatalogBase):
         return dir
 
     def drop_dir(self, path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None:
-        tbl_ids = self._resolve_path_targets([], dir_paths=[path])
+        # a dropped view's base is excluded for the same reason as in drop_table; a base inside the directory is
+        # already a write target, so this only adds the ones outside it
+        tbl_ids, base_ids = self._resolve_path_targets([], dir_paths=[path])
 
-        @retry_loop(for_write=True, write_tbl_ids=tbl_ids, lock_mutable_tree=True, for_schema_change=True)
+        @retry_loop(
+            for_write=True,
+            write_tbl_ids=tbl_ids,
+            lock_mutable_tree=True,
+            for_schema_change=True,
+            extra_schema_change_tbl_ids=base_ids,
+        )
         def drop_fn() -> None:
             _, _, schema_obj = self._prepare_dir_op(
                 drop_dir_path=path.parent,
@@ -3098,9 +3214,7 @@ class Catalog(CatalogBase):
 
     def _move_table(self, tbl_id: UUID, new_name: str, new_dir_id: UUID) -> None:
         """Update dir_id/name for tbl_id."""
-        # TODO(PXT-1197): Catalog does not properly lock tables for the move
-        # This assertion validates a crucial invariant, but it fails today.
-        # assert tbl_id in self._write_locked_tbl_ids, f"Table {tbl_id} should be locked for the move but isn't"
+        self.assert_tbl_locked(tbl_id, TblLockMode.SCHEMA_CHANGE)
         stmt = (
             sql.update(schema.Table)
             .where(schema.Table.id == tbl_id)
@@ -3419,6 +3533,32 @@ class Catalog(CatalogBase):
 
         return TableVersionMd(tbl_md, version_md, schema_version_md)
 
+    def _assert_md_write_locked(
+        self,
+        tbl_id: UUID,
+        *,
+        dir_id: UUID | None,
+        tbl_md: schema.TableMd | None,
+        schema_version_md: schema.SchemaVersionMd | None,
+        pending_ops: list[TableOp] | None,
+        remove_from_dir: bool,
+    ) -> None:
+        """Asserts that write_tbl_md() holds a lock appropriate to what it is about to write (§4.3).
+
+        Which mode that is follows from the arguments, because they are what distinguishes the two classes that
+        write `tables`: a data write on a versioned table records a new version and nothing else, whereas a schema
+        change records a new schema version, or pending ops, or a directory membership change. The check is what
+        makes `for_schema_change` a real selection rather than a convention -- a schema-change path that forgets it
+        holds only EXCLUSIVE and fails here.
+
+        Two cases hold no relation lock, both legitimately: creation (dir_id is not None) creates the relation
+        later in this same transaction, and a pure snapshot never has one.
+        """
+        if dir_id is not None or (tbl_md is not None and tbl_md.is_pure_snapshot):
+            return
+        is_schema_change = schema_version_md is not None or pending_ops is not None or remove_from_dir
+        self.assert_tbl_locked(tbl_id, TblLockMode.SCHEMA_CHANGE if is_schema_change else TblLockMode.OP_WRITE)
+
     def write_tbl_md(
         self,
         tbl_id: UUID,
@@ -3445,6 +3585,14 @@ class Catalog(CatalogBase):
         assert version_md is None or version_md.created_at > 0.0
         assert pending_ops is None or len(pending_ops) > 0
         assert pending_ops is None or tbl_md is not None  # if we write pending ops, we must also write new tbl_md
+        self._assert_md_write_locked(
+            tbl_id,
+            dir_id=dir_id,
+            tbl_md=tbl_md,
+            schema_version_md=schema_version_md,
+            pending_ops=pending_ops,
+            remove_from_dir=remove_from_dir,
+        )
         session = get_runtime().session
 
         # Construct and insert or update table record if requested.
@@ -3544,6 +3692,7 @@ class Catalog(CatalogBase):
 
     def delete_current_tbl_version_md(self, tbl_id: UUID) -> None:
         """Removes 'current_version' from stored metadata for table and resets the table to current_version - 1"""
+        self.assert_tbl_locked(tbl_id, TblLockMode.SCHEMA_CHANGE)
         conn = get_runtime().conn
         q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
         tbl_md = conn.execute(q).one()[0]
@@ -3594,6 +3743,7 @@ class Catalog(CatalogBase):
     def store_update_status(self, tbl_id: UUID, version: int, status: UpdateStatus) -> None:
         """Update the TableVersion.md.update_status field"""
         assert self._in_write_xact
+        self.assert_write_tbl_locked(tbl_id)
         conn = get_runtime().conn
 
         stmt = (
@@ -3605,10 +3755,15 @@ class Catalog(CatalogBase):
         res = conn.execute(stmt)
         assert res.rowcount == 1, res.rowcount
 
-    def delete_tbl_md(self, tbl_id: UUID) -> None:
+    def delete_tbl_md(self, tbl_id: UUID, *, is_pure_snapshot: bool = False) -> None:
         """
         Deletes all table metadata from the store for the given table UUID.
+
+        is_pure_snapshot=True exempts the caller from the relation-lock check: a pure snapshot has no store table,
+        so its `tables`-row X-lock is the only serialization point there is (§4.3).
         """
+        if not is_pure_snapshot:
+            self.assert_tbl_locked(tbl_id, TblLockMode.SCHEMA_CHANGE)
         conn = get_runtime().conn
         _logger.info(f'delete_tbl_md({tbl_id})')
         status = conn.execute(sql.delete(schema.TableSchemaVersion).where(schema.TableSchemaVersion.tbl_id == tbl_id))

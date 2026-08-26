@@ -79,6 +79,14 @@ class TableOp:
             assert op.needs_xact == needs_xact_legacy
         return op
 
+    def extra_locked_tbl_ids(self) -> list[uuid.UUID]:
+        """Tables other than self.tbl_id whose metadata this op writes.
+
+        The finalization transaction locks self.tbl_id from the ids alone, before it can read anything; anything
+        else the op touches has to be named here so that it is locked in the schema-change mode too.
+        """
+        return []
+
     def exec(self, tv: TableVersion | None) -> None:
         raise NotImplementedError(f'{self.__class__.__name__}.exec()')
 
@@ -206,6 +214,10 @@ class DeleteTableMdOp(TableOp):
     # None for pending ops written before store table removal moved into this op; in that case the store table is
     # dropped by the preceding DropStoreTableOp.
     is_view: bool | None = None
+
+    def extra_locked_tbl_ids(self) -> list[uuid.UUID]:
+        # advancing the base's view_sn changes how writes to it propagate, so it takes the schema-change mode (§6)
+        return [] if self.mutable_base_tbl_id is None else [uuid.UUID(self.mutable_base_tbl_id)]
 
     def exec(self, tv: TableVersion | None) -> None:
         assert get_runtime().in_xact
