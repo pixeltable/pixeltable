@@ -267,6 +267,15 @@ class TestService:
         assert [s['status'] for s in r.json['services']] == ['refused']
         assert services(cli) == {}
 
+        # applying the schema unblocks the service, and the new tables accept rows
+        cli('schema', 'update', app, target)
+        docs = pxt.get_table(f'{target}/docs')
+        docs.insert([{'doc_id': 1, 'title': 'hello', 'body': 'world', 'published': True}])
+        assert docs.select(docs.summary).collect()['summary'] == ['hello']
+        assert [
+            s['resolution'] for s in cli('service', 'diff', app, target, '--json', check=False).json['services']
+        ] == ['create']
+
         cli('schema', 'update', app, target)
         cli('service', 'update', app, target, '-f')
         assert_serving(cli, app, target, 'ingest')
@@ -385,6 +394,11 @@ class TestService:
         skip_test_if_not_installed('fastapi')
         app, target = apps('custom.py'), make_catalog_path('app')
         cli('schema', 'update', app, target)
+
+        # the file's models produce working tables even though its application cannot be served
+        notes = pxt.get_table(f'{target}/notes')
+        notes.insert([{'note_id': 1, 'text': 'hello'}])
+        assert notes.select(notes.text_upper).collect()['text_upper'] == ['HELLO']
 
         r = cli('service', 'diff', app, target, '--json', check=False)
         diffs = {s['name']: s for s in r.json['services']}

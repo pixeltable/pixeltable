@@ -36,6 +36,18 @@ SCHEMA_SRC = dedent(
 )
 
 
+def validate_tables(target: str) -> None:
+    """Make sure that tables created from models are functional."""
+    docs = pxt.get_table(f'{target}/docs')
+    docs.insert([{'title': 'alpha', 'body': 'first'}, {'title': '', 'body': 'untitled'}])
+    rows = docs.order_by(docs.title).select(docs.title, docs.body, docs.title_upper).collect()
+    assert [r['title_upper'] for r in rows] == ['', 'ALPHA']
+
+    # the view holds the rows its predicate admits, plus the column it declares
+    titled = pxt.get_table(f'{target}/titled_docs')
+    assert titled.select(titled.headline).collect()['headline'] == ['ALPHA!']
+
+
 def assert_in_agreement(cli: PxtRunner, app: str, target: str, cwd: pathlib.Path | None = None) -> None:
     """Assert that the target holds what the file declares: diff agrees, and no declared table is pending.
 
@@ -275,6 +287,7 @@ class TestSchema:
         schema_file.write_text(SCHEMA_SRC)
         target = p('drift')
         cli('schema', 'update', str(schema_file), target)
+        validate_tables(target)
 
         # add a column to the model and drop another: one safe op, one destructive
         schema_file.write_text(SCHEMA_SRC.replace('body: pxt.String | None', 'author: pxt.String | None'))
@@ -321,6 +334,22 @@ class TestSchema:
 
         assert_in_agreement(cli, apps('search.py'), target)
 
+    def test_query_udf_column(
+        self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
+    ) -> None:
+        """A column that calls a query udf reads that udf's table."""
+        target = make_catalog_path('retrieval')
+        cli('schema', 'update', apps('retrieval.py'), target)
+
+        pxt.get_table(f'{target}/docs').insert([{'doc_id': 1, 'title': 'alpha'}, {'doc_id': 5, 'title': 'beta'}])
+        probe = pxt.get_table(f'{target}/probe')
+        probe.insert([{'cutoff': 0}, {'cutoff': 1}])
+        assert probe.order_by(probe.cutoff).select(probe.matches).collect()['matches'] == [
+            [{'title': 'alpha'}, {'title': 'beta'}],
+            [{'title': 'beta'}],
+        ]
+        assert_in_agreement(cli, apps('retrieval.py'), target)
+
     def test_media_columns(
         self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
     ) -> None:
@@ -355,6 +384,9 @@ class TestSchema:
         """An application file's routes are invisible to the schema: only its models declare tables."""
         target = make_catalog_path('app')
         cli('schema', 'update', apps('basic.py'), target)
+        docs = pxt.get_table(f'{target}/docs')
+        docs.insert([{'doc_id': 1, 'title': 'hello', 'body': 'world', 'published': True}])
+        assert docs.select(docs.summary, docs.title_upper).collect()[0] == {'summary': 'hello', 'title_upper': 'HELLO'}
 
         # the variant adds a route and nothing else, so the schema is already in agreement with it
         assert_in_agreement(cli, apps('basic_added_route.py'), target)
@@ -369,6 +401,7 @@ class TestSchema:
         target = p('prune')
         cli('schema', 'update', str(schema_file), target)
         assert_in_agreement(cli, str(schema_file), target)
+        validate_tables(target)
 
         # nothing undeclared yet
         r = cli('schema', 'prune', str(schema_file), target, '-f')
@@ -557,6 +590,7 @@ class TestSchema:
         schema_file.write_text(SCHEMA_SRC)
         target = p('unsupported')
         cli('schema', 'update', str(schema_file), target)
+        validate_tables(target)
 
         # a model declaring a table where a view exists cannot be migrated in place
         schema_file.write_text(
@@ -794,7 +828,7 @@ class TestSchema:
         # a relative schema path is resolved against the client's cwd, so run the command from that directory
         r = cli('schema', 'update', 'app_schema.py', target, cwd=project_dir)
         assert r.stdout.count('created') == 2
-        assert pxt.get_table(f'{target}/docs') is not None
+        validate_tables(target)
 
     def test_update_unbound_config_var(
         self, cli: PxtRunner, make_catalog_path: Callable[[str], str], project_dir: pathlib.Path
