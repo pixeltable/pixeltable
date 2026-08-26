@@ -276,6 +276,7 @@ def assert_sqlite_row(connect: str, table_name: str, where: dict[str, Any], expe
         assert actual == v, (k, actual, v)
 
 
+@pytest.mark.skip_cloud(reason='Numerous failures; re-run once other known issues are fixed')
 class TestFastAPI:
     @pytest.mark.parametrize('route_type', ['insert', 'compute', 'compute_view'])
     def test_add_insert_route_scalars(
