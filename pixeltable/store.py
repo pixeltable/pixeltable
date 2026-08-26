@@ -651,6 +651,133 @@ class StoreBase:
         # stmt_text = f'INSERT INTO {self.sa_tbl.name} ({col_names_str}) VALUES ({placeholders_str})'
         # conn.exec_driver_sql(stmt_text, table_rows)
 
+    # prefix for the bind parameter names of update_rows(); avoids collisions with the store column names that
+    # SQLAlchemy uses for the parameters it generates itself
+    __UPDATE_PARAM_PREFIX = 'pxt_upd_'
+
+    @classmethod
+    def __update_bind_param(cls, sa_col: sql.Column) -> sql.BindParameter:
+        col_type = sa_col.type
+        if isinstance(col_type, sql.dialects.postgresql.JSONB):
+            # a Python None must be stored as a SQL NULL, not as a JSON 'null'
+            col_type = sql.dialects.postgresql.JSONB(none_as_null=True)
+        return sql.bindparam(f'{cls.__UPDATE_PARAM_PREFIX}{sa_col.name}', type_=col_type)
+
+    def _create_update_stmt(self, set_col_names: list[str]) -> sql.Update:
+        """Return an Update stmt that assigns set_col_names in the row identified by the pk columns.
+
+        Every value, including the pk values, is a bind parameter named by `__update_bind_param()`.
+        """
+        pk_clause = sql.and_(*[c == self.__update_bind_param(c) for c in self._pk_cols])
+        set_clause = {name: self.__update_bind_param(self.sa_tbl.c[name]) for name in set_col_names}
+        return sql.update(self.sa_tbl).where(pk_clause).values(set_clause)
+
+    def update_rows(
+        self, exec_plan: ExecNode, set_cols: list[catalog.Column], return_rows: bool = False
+    ) -> tuple[set[int], RowCountStats, list[dict[str, Any]] | None]:
+        """Update rows of an operational table in place with the rows produced by exec_plan.
+
+        Only the store columns of set_cols are written; every other store column retains its current value.
+        exec_plan is expected to produce one row per row to update, identified by its pk.
+
+        Returns:
+            set of column ids that have exceptions, row count stats, updated rows (if return_rows)
+        """
+        assert not self.tbl_version.get().is_data_versioned
+        num_excs = 0
+        num_rows = 0
+        cols_with_excs: set[int] = set()
+        row_builder = exec_plan.row_builder
+
+        store_col_names = row_builder.store_column_names()
+        num_pk_cols = len(self._pk_cols)
+        assert store_col_names[:num_pk_cols] == [c.name for c in self._pk_cols]
+        set_col_names: set[str] = set()
+        for col in set_cols:
+            set_col_names.add(col.store_name())
+            if col.stores_cellmd:
+                set_col_names.add(col.cellmd_store_name())
+        # positions in the table rows produced by row_builder that the Update stmt assigns from
+        set_col_idxs = [i for i, name in enumerate(store_col_names) if i >= num_pk_cols and name in set_col_names]
+        assert len(set_col_idxs) == len(set_col_names), (store_col_names, set_col_names)
+        param_idxs = [*range(num_pk_cols), *set_col_idxs]
+        param_names = [f'{self.__UPDATE_PARAM_PREFIX}{store_col_names[i]}' for i in param_idxs]
+        stmt = self._create_update_stmt([store_col_names[i] for i in set_col_idxs])
+
+        table_rows: list[list[Any]] = []
+        params: list[dict[str, Any]] = []
+        updated_rows: list[dict[str, Any]] = []
+
+        def flush() -> int:
+            nonlocal table_rows, params
+            n = len(table_rows)
+            self.sql_update(stmt, params)
+            if return_rows:
+                updated_rows.extend(row_builder.create_output_rows(table_rows=table_rows, has_pk=True))
+            table_rows = []
+            params = []
+            return n
+
+        with exec_plan:
+            progress_reporter = exec_plan.ctx.add_progress_reporter(
+                f'Rows updated (table {self.tbl_version.get().name!r})', 'rows'
+            )
+
+            for row_batch in exec_plan:
+                num_rows += len(row_batch)
+                with telemetry.span('pixeltable.store.build_rows', level=telemetry.DEBUG, rows=len(row_batch)):
+                    for row in row_batch:
+                        table_row, num_row_exc = row_builder.create_store_table_row(row, cols_with_excs, row.pk)
+                        num_excs += num_row_exc
+                        table_rows.append(table_row)
+                        # a JSON null arrives as a SQL construct, which can't be a bind parameter value; the bind
+                        # parameters of JSON columns turn a Python None into a SQL NULL instead
+                        params.append(
+                            {
+                                name: None if isinstance(table_row[i], sql.sql.elements.Null) else table_row[i]
+                                for name, i in zip(param_names, param_idxs)
+                            }
+                        )
+
+                if len(table_rows) >= self.__INSERT_BATCH_SIZE:
+                    n = flush()
+                    if progress_reporter is not None:
+                        progress_reporter.update(n)
+
+            if len(table_rows) > 0:
+                n = flush()
+                if progress_reporter is not None:
+                    progress_reporter.update(n)
+
+        row_counts = RowCountStats(upd_rows=num_rows, num_excs=num_excs)
+        return cols_with_excs, row_counts, (updated_rows if return_rows else None)
+
+    def sql_update(self, stmt: sql.Update, params: list[dict[str, Any]]) -> None:
+        assert len(params) > 0
+        conn = get_runtime().conn
+        try:
+            with telemetry.span('pixeltable.sa.update_rows'):
+                conn.execute(stmt, params)
+        except sql.exc.IntegrityError as e:
+            if (
+                isinstance(e.orig, psycopg.errors.UniqueViolation)
+                and e.orig.diag.constraint_name is not None
+                and e.orig.diag.constraint_name == self.pk_constraint_name(self.tbl_version.get())
+            ):
+                detail = e.orig.diag.message_detail or ''
+                for col in self.tbl_version.get().primary_key_columns():
+                    detail = detail.replace(col.store_name(), col.name)
+                raise excs.RequestError(
+                    excs.ErrorCode.CONSTRAINT_VIOLATION, f'Duplicate primary key value: {detail}'
+                ) from e
+            raise
+        except sql.exc.OperationalError as e:
+            if isinstance(e.orig, psycopg.errors.ProgramLimitExceeded):
+                idx_info = self._offending_idx(e.orig)
+                if idx_info is not None:
+                    raise self._index_row_size_error(idx_info) from e
+            raise
+
     def _offending_idx(self, e: Exception) -> catalog.TableVersion.IndexInfo | None:
         """Return the index named by the given Postgres error, or None if it doesn't name one of this table's."""
         tv = self.tbl_version.get()

@@ -427,20 +427,34 @@ class Planner:
 
     @classmethod
     def _build_update_columns(
-        cls, target: catalog.TableVersion, updated_cols: set[Column], recomputed_cols: set[Column]
+        cls,
+        target: catalog.TableVersion,
+        updated_cols: set[Column],
+        recomputed_cols: set[Column],
+        include_identity_cols: bool = True,
     ) -> tuple[list[Column], list[exprs.Expr], list[Column]]:
         """Classifies columns for an update plan and builds recomputed/remap expressions.
 
         Mutates `recomputed_cols` in-place (adds changed index val cols, removes non-stored).
+
+        Args:
+            include_identity_cols: if False, the unchanged stored columns are left out of the plan altogether.
+                Only legitimate for an operational table, which updates its rows in place and therefore doesn't
+                need to carry them over.
 
         Returns:
             - evaluated_cols: recomputed + remap columns (parallel with select_list)
             - select_list: resolved exprs for evaluated_cols
             - identity_cols: unchanged stored columns
         """
-        # The logic here assumes that every index with a value column also has an undo column. It needs to be updated
-        # when that is no longer true.
-        assert all(info.undo_col is not None for info in target.idxs.values() if info.val_col is not None)
+        # A data-versioned table restores the index values of a carried-over row from the undo columns; an
+        # operational table updates rows in place and has no undo columns.
+        is_data_versioned = target.is_data_versioned
+        assert all(
+            (info.undo_col is not None) == is_data_versioned
+            for info in target.idxs.values()
+            if info.val_col is not None
+        )
 
         # We always need to update all indices on any updated/recomputed column
         modified_base_cols = {c for c in updated_cols | recomputed_cols if c.get_tbl().id == target.id}
@@ -455,7 +469,11 @@ class Planner:
         recomputed_base_cols = {col for col in recomputed_cols if col.get_tbl().id == target.id}
 
         excluded = updated_cols | recomputed_cols | target.idx_undo_cols | unmodified_val_cols
-        identity_cols = [col for col in target.cols_by_id.values() if col.is_stored and col not in excluded]
+        identity_cols = (
+            [col for col in target.cols_by_id.values() if col.is_stored and col not in excluded]
+            if include_identity_cols
+            else []
+        )
 
         evaluated_cols: list[Column] = []
         select_list: list[exprs.Expr] = []
@@ -469,7 +487,7 @@ class Planner:
 
         # Mapping undo columns into corresponding value columns
         for info in target.idxs.values():
-            if info.val_col in unmodified_val_cols:
+            if info.val_col in unmodified_val_cols and info.undo_col is not None:
                 evaluated_cols.append(info.val_col)
                 select_list.append(exprs.ColumnRef(info.undo_col.column_version_md()))
 
@@ -482,7 +500,9 @@ class Planner:
         update_targets: dict[catalog.Column, exprs.Expr],
         recompute_targets: list[catalog.Column],
         cascade: bool,
-    ) -> tuple[exec.ExecNode, list[str], list[catalog.Column]]:
+        where: exprs.Expr | None = None,
+        include_identity_cols: bool = True,
+    ) -> tuple[exec.ExecNode, list[str], list[catalog.Column], list[catalog.Column]]:
         """Creates a plan to materialize updated rows.
 
         The plan:
@@ -492,10 +512,16 @@ class Planner:
           and copies the values of all other stored columns
         - if cascade is False, copies all columns that aren't update targets from the original rows
 
+        Args:
+            where: restricts the plan to the rows satisfying this predicate. Only for an operational table; a
+                data-versioned table restricts the update by expiring the affected rows before running the plan.
+            include_identity_cols: see `_build_update_columns()`
+
         Returns:
             - root node of the plan
             - list of qualified column names that are getting updated
             - list of user-visible columns that are being recomputed
+            - list of columns the plan produces new values for
         """
         # retrieve all stored cols and all target exprs
         assert isinstance(tbl, catalog.TableVersionPath)
@@ -503,6 +529,7 @@ class Planner:
         assert len(update_targets) == 0 or len(recompute_targets) == 0
 
         target = tbl.tbl_version.get()  # the one we need to update
+        assert where is None or not target.is_data_versioned
         # Updated cols are columns for which a new value is explicitly provided
         # Recomputed cols are columns for which we need to compute a new value (not necessarily due to upstream change)
         updated_cols = set(update_targets.keys())
@@ -510,7 +537,9 @@ class Planner:
         if cascade:
             recomputed_cols |= target.get_dependent_columns(updated_cols | recomputed_cols)
 
-        eval_cols, eval_exprs, identity_cols = cls._build_update_columns(target, updated_cols, recomputed_cols)
+        eval_cols, eval_exprs, identity_cols = cls._build_update_columns(
+            target, updated_cols, recomputed_cols, include_identity_cols
+        )
 
         cls.__check_valid_columns(target, recomputed_cols, 'updated in')
 
@@ -522,15 +551,17 @@ class Planner:
         evaluated_cols: list[Column] = list(update_targets.keys()) + eval_cols
         select_list: list[exprs.Expr] = list(update_targets.values()) + eval_exprs
 
-        # Read from rows that were just deleted (expired) at the current version.
+        # On a data-versioned table, read from the rows that were just deleted (expired) at the current version.
         # The where clause was already applied during deletion; delete_rows() nullifies index value columns,
         # which would cause the where clause to fail on the expired rows.
+        # An operational table doesn't expire rows, so we read the live rows and apply the where clause here.
         plan = cls.create_query_plan(
             FromClause(tbls=[tbl]),
             select_list=select_list,
             columns=identity_cols,
+            where_clause=where,
             ignore_errors=True,
-            deleted_at_current_version=[tbl.tbl_version],
+            deleted_at_current_version=[tbl.tbl_version] if target.is_data_versioned else None,
         )
 
         # Register output columns with the row builder
@@ -546,6 +577,7 @@ class Planner:
             plan,
             [f'{c.get_tbl().name}.{c.name}' for c in list(update_targets.keys()) + recomputed_user_cols],
             recomputed_user_cols,
+            evaluated_cols,
         )
 
     @classmethod
@@ -687,16 +719,28 @@ class Planner:
         cls,
         tbl: catalog.TableVersionPath,
         batch: list[dict[catalog.Column, exprs.Expr]],
-        rowids: list[tuple[int, ...]],
+        rowids: list[tuple[Any, ...]],
         cascade: bool,
-    ) -> tuple[exec.ExecNode, exec.RowUpdateNode, sql.ColumnElement[bool], list[catalog.Column], list[catalog.Column]]:
+        include_identity_cols: bool = True,
+    ) -> tuple[
+        exec.ExecNode,
+        exec.RowUpdateNode,
+        sql.ColumnElement[bool],
+        list[catalog.Column],
+        list[catalog.Column],
+        list[catalog.Column],
+    ]:
         """
+        Args:
+            include_identity_cols: see `_build_update_columns()`
+
         Returns:
         - root node of the plan to produce the updated rows
         - RowUpdateNode of plan
         - Where clause for deleting the current versions of updated rows
         - list of columns that are getting updated
         - list of user-visible columns that are being recomputed
+        - list of columns the plan produces new values for
         """
         assert isinstance(tbl, catalog.TableVersionPath)
         target = tbl.tbl_version.get()  # the one we need to update
@@ -714,7 +758,9 @@ class Planner:
         updated_cols = batch[0].keys() - target.primary_key_columns()
         recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
 
-        eval_cols, eval_exprs, identity_cols = cls._build_update_columns(target, updated_cols, recomputed_cols)
+        eval_cols, eval_exprs, identity_cols = cls._build_update_columns(
+            target, updated_cols, recomputed_cols, include_identity_cols
+        )
 
         # Materialize as a list once for stable iteration order across parallel lists
         updated_cols_list = list(updated_cols)
@@ -742,15 +788,20 @@ class Planner:
         analyzer.finalize(row_builder)
 
         cell_md_col_refs = cls._cell_md_col_refs(sql_exprs)
+        # RowUpdateNode identifies rows by their primary key values, which the lookup must materialize even when
+        # the plan carries no identity columns
+        lookup_cols = (
+            identity_cols if len(rowids) > 0 else list(dict.fromkeys([*identity_cols, *target.primary_key_columns()]))
+        )
         sql_lookup_node = exec.SqlLookupNode(
             tbl,
             row_builder,
             sql_exprs,
-            columns=identity_cols,
+            columns=lookup_cols,
             sa_key_cols=sa_key_cols,
             key_vals=key_vals,
             cell_md_col_refs=cell_md_col_refs,
-            deleted_at_current_version=[tbl.tbl_version],
+            deleted_at_current_version=[tbl.tbl_version] if target.is_data_versioned else None,
         )
         col_vals = [{col: row[col].val for col in updated_cols} for row in batch]
         row_update_node = exec.RowUpdateNode(tbl, key_vals, len(rowids) > 0, col_vals, row_builder, sql_lookup_node)
@@ -778,6 +829,7 @@ class Planner:
             sql_lookup_node.where_clause_element,
             updated_cols_list + recomputed_user_cols,
             recomputed_user_cols,
+            evaluated_cols,
         )
 
     @classmethod

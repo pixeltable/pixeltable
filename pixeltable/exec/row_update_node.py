@@ -21,6 +21,7 @@ class RowUpdateNode(ExecNode):
     is_rowid_key: bool  # if True, key_vals_batch contains rowids rather than primary key values
     col_slot_idxs: dict[catalog.Column, int]
     pk_columns: list[catalog.Column]
+    num_rowid_cols: int
     matched_key_vals: set[tuple]
 
     def __init__(
@@ -46,6 +47,7 @@ class RowUpdateNode(ExecNode):
         assert all(col in all_col_slot_idxs for col in col_vals_batch[0])
         self.col_slot_idxs = {col: all_col_slot_idxs[col] for col in col_vals_batch[0]}
         self.pk_columns = tbl.tbl_version.get().primary_key_columns()
+        self.num_rowid_cols = tbl.tbl_version.get().num_rowid_columns()
         self._init_exec_state()
 
     def _init_exec_state(self) -> None:
@@ -57,7 +59,11 @@ class RowUpdateNode(ExecNode):
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         async for batch in self.input:
             for row in batch:
-                key_vals = row.rowid if self.is_rowid_key else tuple(row.cell_vals[col.id] for col in self.pk_columns)
+                key_vals = (
+                    row.pk[: self.num_rowid_cols]
+                    if self.is_rowid_key
+                    else tuple(row.cell_vals[col.id] for col in self.pk_columns)
+                )
                 if key_vals not in self.updates:
                     continue
                 self.matched_key_vals.add(key_vals)
