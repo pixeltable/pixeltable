@@ -53,7 +53,7 @@ if TYPE_CHECKING:
     from pixeltable._query import Query
     from pixeltable.catalog.table_version_handle import TableVersionHandle
     from pixeltable.io.data_sources import SqlDataSource
-    from pixeltable.plan import SampleClause
+    from pixeltable.plan import SampleClause, UpdatePlan
 
     from .table_path import TableVersionPath
 
@@ -755,7 +755,7 @@ class TableVersion:
         idx_cols: set[Column] = self.idx_val_cols | self.idx_undo_cols
         row_count = self.store_tbl.count()
         num_excs = 0
-        cols_with_excs: list[Column] = []
+        cols_with_excs: list[int] = []
         for col in cols:
             if not col.is_computed or not col.is_stored or row_count == 0:
                 continue
@@ -776,7 +776,7 @@ class TableVersion:
                         f'Unexpected SQL error during execution of computed column {col.name!r}:\n{exc}',
                     ) from exc
             if excs_per_col > 0:
-                cols_with_excs.append(col)
+                cols_with_excs.append(col.id)
                 num_excs += excs_per_col
 
         get_runtime().catalog.record_column_dependencies(self)
@@ -786,10 +786,7 @@ class TableVersion:
 
         # TODO: what to do about system columns with exceptions?
         row_counts = RowCountStats(upd_rows=row_count, num_excs=num_excs, computed_values=0)  # add_columns
-        return UpdateStatus(
-            cols_with_excs=[f'{col.get_tbl().name}.{col.name}' for col in cols_with_excs if col.name is not None],
-            row_count_stats=row_counts,
-        )
+        return UpdateStatus(cols_with_excs=self._cols_with_excs_names(cols_with_excs), row_count_stats=row_counts)
 
     def _own_col_refs(self, value_expr_dict: dict[str, Any] | None) -> set[int]:
         """The ids of the columns of this table that value_expr_dict references. value_expr_dict can be None for if
@@ -816,6 +813,22 @@ class TableVersion:
         """Returns a counter starting at the next available column position."""
         highest_pos = max((c.pos for c in self._schema_version_md.columns.values() if c.pos is not None), default=-1)
         return itertools.count(start=highest_pos + 1)
+
+    def _cols_with_excs_names(self, col_ids: Iterable[int]) -> list[str]:
+        """Qualified names of the given columns, for UpdateStatus.cols_with_excs.
+
+        An index value column is named as '<table>.<indexed_column>:<index>'.
+        """
+        idxs_by_val_col_id = {info.val_col.id: info for info in self.idxs.values() if info.val_col is not None}
+        names: list[str] = []
+        for col_id in col_ids:
+            col = self.cols_by_id[col_id]
+            if not col.is_system_col:
+                names.append(f'{self.name}.{col.name}')
+            elif col_id in idxs_by_val_col_id:
+                info = idxs_by_val_col_id[col_id]
+                names.append(f'{self.name}.{info.col.name}:{info.name}')
+        return names
 
     def drop_column(self, col: Column) -> None:
         """Drop a column from the table."""
@@ -1327,9 +1340,7 @@ class TableVersion:
             exec_plan, rowids=rowids, abort_on_exc=abort_on_exc, return_rows=return_rows
         )
         result = UpdateStatus(
-            cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs],
-            rows=rows,
-            row_count_stats=row_counts,
+            cols_with_excs=self._cols_with_excs_names(cols_with_excs), rows=rows, row_count_stats=row_counts
         )
 
         # update views
@@ -1368,11 +1379,9 @@ class TableVersion:
                 including within views.
             return_rows: if True, capture the post-update row state in UpdateStatus.rows.
         """
-        from pixeltable.exprs import SqlElementCache
         from pixeltable.plan import Planner
 
         assert self.is_mutable
-        assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
 
         update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True, allow_media=True)
         if where is not None:
@@ -1388,22 +1397,24 @@ class TableVersion:
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'Filter not expressible in SQL: {analysis_info.filter}'
                 )
 
-        plan, updated_cols, recomputed_cols = Planner.create_update_plan(self.path, update_spec, [], cascade)
-
-        timestamp = time.time()
-        self.bump_version(timestamp, bump_schema_version=False)
-        result = self._propagate_update(
-            [plan],
-            where.sql_expr(SqlElementCache()) if where is not None else None,
-            recomputed_cols,
-            modified_cols=list(update_spec.keys()),
-            base_versions=[],
-            timestamp=timestamp,
+        update_plan = Planner.create_update_plan(
+            self.path,
+            update_targets=update_spec,
+            recompute_targets=[],
+            where=where,
             cascade=cascade,
             return_rows=return_rows,
         )
-        result += UpdateStatus(updated_cols=updated_cols)
-        return result
+        if self.is_data_versioned:
+            timestamp = time.time()
+            self.bump_version(timestamp, bump_schema_version=False)
+            result = self._propagate_update_plan(
+                update_plan, list(update_spec.keys()), timestamp, cascade, return_rows=return_rows
+            )
+        else:
+            result = self._update_rows(update_plan.root, update_plan.set_cols, return_rows=return_rows)
+
+        return result + UpdateStatus(updated_cols=[c.qualified_name for c in update_plan.updated_cols])
 
     def batch_update(
         self,
@@ -1424,26 +1435,22 @@ class TableVersion:
 
         # if we do lookups of rowids, we must have one for each row in the batch
         assert len(rowids) == 0 or len(rowids) == len(batch)
-        assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
 
-        plan, row_update_node, delete_where_clause, updated_cols, recomputed_cols = Planner.create_batch_update_plan(
-            self.path, batch, rowids, cascade=cascade
+        update_plan = Planner.create_batch_update_plan(
+            self.path, batch, rowids, cascade=cascade, return_rows=return_rows
         )
-        timestamp = time.time()
-        self.bump_version(timestamp, bump_schema_version=False)
-        result = self._propagate_update(
-            [plan],
-            delete_where_clause,
-            recomputed_cols,
-            modified_cols=updated_cols,
-            base_versions=[],
-            timestamp=timestamp,
-            cascade=cascade,
-            return_rows=return_rows,
-        )
-        result += UpdateStatus(updated_cols=[c.qualified_name for c in updated_cols])
+        if self.is_data_versioned:
+            timestamp = time.time()
+            self.bump_version(timestamp, bump_schema_version=False)
+            result = self._propagate_update_plan(
+                update_plan, update_plan.updated_cols, timestamp, cascade, return_rows=return_rows
+            )
+        else:
+            result = self._update_rows(update_plan.root, update_plan.set_cols, return_rows=return_rows)
+        result += UpdateStatus(updated_cols=[c.qualified_name for c in update_plan.updated_cols])
 
-        unmatched_rows = row_update_node.unmatched_rows()
+        assert update_plan.row_update_node is not None
+        unmatched_rows = update_plan.row_update_node.unmatched_rows()
         if len(unmatched_rows) > 0:
             if error_if_not_exists:
                 raise excs.NotFoundError(
@@ -1455,6 +1462,16 @@ class TableVersion:
                 )
                 result += insert_status.to_cascade()
         return result
+
+    def _update_rows(self, plan: 'exec.ExecNode', set_cols: list[Column], return_rows: bool) -> UpdateStatus:
+        assert not self.is_data_versioned
+        assert len(self.mutable_views) == 0, 'TODO: implement view propagation for operational tables [PXT-1101]'
+        get_runtime().catalog.mark_modified_tv(self.handle)
+        plan.ctx.title = self.display_str()
+        cols_with_excs, row_counts, rows = self.store_tbl.update_rows(plan, set_cols, return_rows=return_rows)
+        return UpdateStatus(
+            row_count_stats=row_counts, cols_with_excs=self._cols_with_excs_names(cols_with_excs), rows=rows
+        )
 
     def _validate_update_spec(
         self, value_spec: dict[str, Any], allow_pk: bool, allow_exprs: bool, allow_media: bool
@@ -1542,7 +1559,7 @@ class TableVersion:
         cascade: bool = True,
         bump_version: bool = True,
     ) -> UpdateStatus:
-        from pixeltable.exprs import CompoundPredicate, SqlElementCache
+        from pixeltable.exprs import CompoundPredicate
         from pixeltable.plan import Planner
 
         assert self.is_mutable
@@ -1565,24 +1582,41 @@ class TableVersion:
                 != None
             )
             where_clause = CompoundPredicate.make_conjunction([where_clause, errortype_pred])
-        plan, updated_cols, recomputed_cols = Planner.create_update_plan(
-            self.path, update_targets={}, recompute_targets=target_columns, cascade=cascade
+        update_plan = Planner.create_update_plan(
+            self.path,
+            update_targets={},
+            recompute_targets=target_columns,
+            where=where_clause,
+            cascade=cascade,
+            return_rows=False,
         )
 
         timestamp = time.time()
         if bump_version:
             self.bump_version(timestamp, bump_schema_version=False)
-        result = self._propagate_update(
-            [plan],
-            where_clause.sql_expr(SqlElementCache()) if where_clause is not None else None,
-            recomputed_cols,
-            modified_cols=target_columns,
+        result = self._propagate_update_plan(update_plan, target_columns, timestamp, cascade)
+        result += UpdateStatus(updated_cols=[c.qualified_name for c in update_plan.updated_cols])
+        return result
+
+    def _propagate_update_plan(
+        self,
+        update_plan: UpdatePlan,
+        modified_cols: list[Column],
+        timestamp: float,
+        cascade: bool,
+        return_rows: bool = False,
+    ) -> UpdateStatus:
+        assert update_plan.soft_delete_where_clause is not None
+        return self._propagate_update(
+            [update_plan.root],
+            update_plan.soft_delete_where_clause,
+            update_plan.recomputed_cols,
+            modified_cols=modified_cols,
             base_versions=[],
             timestamp=timestamp,
             cascade=cascade,
+            return_rows=return_rows,
         )
-        result += UpdateStatus(updated_cols=updated_cols)
-        return result
 
     def _propagate_update(
         self,
@@ -1630,7 +1664,7 @@ class TableVersion:
             cols_with_excs, row_counts, rows = self.store_tbl.insert_rows(p, return_rows=return_rows)
             result += UpdateStatus(
                 row_count_stats=row_counts.insert_to_update(),
-                cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs],
+                cols_with_excs=self._cols_with_excs_names(cols_with_excs),
                 rows=rows,
             )
 

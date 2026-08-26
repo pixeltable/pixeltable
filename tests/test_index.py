@@ -586,7 +586,12 @@ class TestIndex:
             t.add_embedding_index('category', string_embed=local_embed)
 
     def test_update_img(
-        self, img_tbl: pxt.Table, test_tbl: pxt.Table, db_root: DatabaseRoot, reload_tester: ReloadTester
+        self,
+        img_tbl: pxt.Table,
+        test_tbl: pxt.Table,
+        db_root: DatabaseRoot,
+        reload_tester: ReloadTester,
+        is_data_versioned: bool,
     ) -> None:
         p = db_root.make_catalog_path
         img_t = img_tbl
@@ -605,7 +610,7 @@ class TestIndex:
             'split': pxt.String | None,
         }
         tbl_name = p('update_test')
-        img_t = pxt.create_table(tbl_name, schema, primary_key='pkey')
+        img_t = pxt.create_table(tbl_name, schema, primary_key='pkey', _is_data_versioned=is_data_versioned)
         img_t.insert(new_rows)
         print(img_t.head())
 
@@ -736,19 +741,21 @@ class TestIndex:
                 img_t.drop_embedding_index(column=img_t.category)
             assert 'does not have an index' in str(exc_info.value).lower()
 
-        # update() is not implemented for operational tables yet [PXT-1101]
+        rows = list(img_t.collect())
+        status = img_t.update({'split': 'other'}, where=img_t.split == 'test')
+        assert status.num_excs == 0
+
+        status = img_t.delete()
+        assert status.num_excs == 0
+
         if is_data_versioned:
-            rows = list(img_t.collect())
-            status = img_t.update({'split': 'other'}, where=img_t.split == 'test')
-            assert status.num_excs == 0
-
-            status = img_t.delete()
-            assert status.num_excs == 0
-
             # revert delete()
             img_t.revert()
             # revert update()
             img_t.revert()
+        else:
+            # can't revert, instead re-insert the rows
+            img_t.insert(rows)
 
         # make sure we can still do DML after reloading the metadata
         query = img_t.select().order_by(img_t.img)
@@ -756,22 +763,24 @@ class TestIndex:
         reload_tester.run_reload_test(clear=True)
         img_t = pxt.get_table(tbl_name)
 
-        # update() is not implemented for operational tables yet [PXT-1101]
+        status = img_t.insert(rows)
+        assert status.num_excs == 0
+
+        status = img_t.update({'split': 'other'}, where=img_t.split == 'test')
+        assert status.num_excs == 0
+
+        status = img_t.delete()
+        assert status.num_excs == 0
+
         if is_data_versioned:
-            status = img_t.insert(rows)
-            assert status.num_excs == 0
-
-            status = img_t.update({'split': 'other'}, where=img_t.split == 'test')
-            assert status.num_excs == 0
-
-            status = img_t.delete()
-            assert status.num_excs == 0
-
             # revert delete()
             img_t.revert()
             # revert update()
             img_t.revert()
             img_t = pxt.get_table(tbl_name)
+        else:
+            # can't revert, instead re-insert the rows
+            img_t.insert(rows + rows)
 
         # multiple indices
         img_t.add_embedding_index(img_t.img, idx_name='other_idx', embedding=local_embed)
@@ -1330,12 +1339,16 @@ class TestIndex:
         assert res[0]['rowid'] == 1
 
     def test_array_column_embedding_index(
-        self, db_root: DatabaseRoot, local_embed: pxt.Function, reload_tester: ReloadTester
+        self, db_root: DatabaseRoot, local_embed: pxt.Function, reload_tester: ReloadTester, is_data_versioned: bool
     ) -> None:
         p = db_root.make_catalog_path
         texts = ['a dog playing in the park', 'a cat sitting on a mat', 'a bird flying in the sky']
 
-        t = pxt.create_table(p('array_embedding_test'), {'id': pxt.Int | None, 'text': pxt.String | None})
+        t = pxt.create_table(
+            p('array_embedding_test'),
+            {'id': pxt.Int | None, 'text': pxt.String | None},
+            _is_data_versioned=is_data_versioned,
+        )
         validate_update_status(t.insert([{'id': i, 'text': s} for i, s in enumerate(texts)]), expected_rows=3)
 
         precomputed_embeddings = t.order_by(t.id).select(emb=local_embed(t.text)).collect()['emb']
@@ -1513,13 +1526,11 @@ class TestIndex:
         assert res[0]['text'] == 'a cat sitting on a mat'
 
         # the index is maintained correctly when a row is updated
-        # update() isn't supported for operational tables yet (PXT-1101)
-        if is_data_versioned:
-            validate_update_status(
-                t.update({'text': 'a helicopter hovering above the canyon'}, where=t.id == 0), expected_rows=1
-            )
-            sim = t.text.similarity(string='a helicopter', idx='emb_idx')
-            assert t.select(t.id).order_by(sim, asc=False).limit(1).collect()['id'] == [0]
+        validate_update_status(
+            t.update({'text': 'a helicopter hovering above the canyon'}, where=t.id == 0), expected_rows=1
+        )
+        sim = t.text.similarity(string='a helicopter', idx='emb_idx')
+        assert t.select(t.id).order_by(sim, asc=False).limit(1).collect()['id'] == [0]
 
         # the index is maintained correctly when a new row is inserted
         validate_update_status(t.insert([{'id': 3, 'text': 'the submarine surfaced near the reef'}]), expected_rows=1)
