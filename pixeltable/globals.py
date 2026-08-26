@@ -631,8 +631,7 @@ def move(
     path_obj, new_path_obj = catalog.Path.parse(path), catalog.Path.parse(new_path)
     if path_obj == new_path_obj:
         raise excs.RequestError(
-            excs.ErrorCode.UNSUPPORTED_OPERATION,
-            f'move(): source and destination cannot be identical ({path!r} -> {new_path!r})',
+            excs.ErrorCode.UNSUPPORTED_OPERATION, 'move(): source and destination cannot be identical'
         )
     if path_obj.catalog_uri != new_path_obj.catalog_uri:
         raise excs.RequestError(
