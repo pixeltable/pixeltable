@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import enum
 import functools
 import logging
 import random
@@ -185,6 +186,41 @@ class PendingTableOpsError(Exception):
         self.tbl_id = tbl_id
 
 
+class StoreTableMissingError(Exception):
+    """A LOCK TABLE statement named a store table that no longer exists.
+
+    Raised for both possible causes, which Postgres reports identically: the relation was already gone when the
+    statement ran, or it was dropped while we were waiting for the lock. The transaction is unusable afterwards.
+    """
+
+    store_tbl_names: tuple[str, ...]
+
+    def __init__(self, store_tbl_names: Collection[str]) -> None:
+        self.store_tbl_names = tuple(store_tbl_names)
+
+
+class TblLockMode(enum.Enum):
+    """Postgres table lock modes used by Pixeltable, weakest first."""
+
+    READ = 'ACCESS SHARE'  # queries
+    OP_WRITE = 'ROW EXCLUSIVE'  # operational-table data writes; compatible with itself
+    VERSIONED_WRITE = 'EXCLUSIVE'  # versioned data writes; serializes writers, not readers
+    SCHEMA_CHANGE = 'ACCESS EXCLUSIVE'  # md updates, DDL, pending-op resolution
+
+
+# Postgres lock modes are not totally ordered, but the four we use are: each conflicts with everything the next
+# weaker one conflicts with. That makes "at least as strong as" a meaningful check for the assertions of §4.3.
+_LOCK_MODE_STRENGTH: dict[TblLockMode, int] = {mode: i for i, mode in enumerate(TblLockMode)}
+
+
+@dataclasses.dataclass(frozen=True)
+class LockTarget:
+    """A member of a transaction's lock set: the table id is the sort key, the store table name goes into LOCK TABLE."""
+
+    tbl_id: UUID
+    store_tbl: str
+
+
 class Catalog(CatalogBase):
     """The functional interface to getting access to catalog objects
 
@@ -234,6 +270,8 @@ class Catalog(CatalogBase):
     _tbls: OrderedDict[TableVersionKey, LocalTable]
     _in_write_xact: bool  # True if we're in a write transaction
     _x_locked_tbl_ids: set[UUID]  # Ids of tables exclusively locked for write in the current transaction
+    # store table name -> lock mode held in the current transaction; cleared on transaction exit
+    _locks_held: dict[str, TblLockMode]
     _modified_tvs: set[TableVersionHandle]  # TableVersion instances modified in the current transaction
     _roll_forward_ids: set[UUID]  # ids of Tables that have pending TableOps
     _undo_actions: list[Callable[[], None]]
@@ -256,6 +294,7 @@ class Catalog(CatalogBase):
         self._tbls = OrderedDict()
         self._in_write_xact = False
         self._x_locked_tbl_ids = set()
+        self._locks_held = {}
         self._modified_tvs = set()
         self._roll_forward_ids = set()
         self._undo_actions = []
@@ -412,6 +451,7 @@ class Catalog(CatalogBase):
             try:
                 self._in_write_xact = for_write
                 self._x_locked_tbl_ids = set()
+                self._locks_held = {}
                 self._modified_tvs = set()
                 self._column_dependents = None
                 has_exc = False
@@ -492,6 +532,7 @@ class Catalog(CatalogBase):
                 xact_span = None
                 self._in_write_xact = False
                 self._x_locked_tbl_ids.clear()
+                self._locks_held.clear()
                 self._column_dependents = None
 
                 # invalidate cached current TableVersion instances
@@ -568,6 +609,59 @@ class Catalog(CatalogBase):
             self._refresh_tbl_cache(tbl_id=tbl_id, check_pending_ops=finalize_pending_ops)
 
         self._x_locked_tbl_ids = x_locked_ids
+
+    def _lock_tables(self, targets: Sequence[LockTarget], mode: TblLockMode, *, nowait: bool) -> None:
+        """Acquire `mode` on all of `targets`' store tables in one statement, in the given order.
+
+        Must be called before any statement that requires a snapshot: LOCK TABLE is snapshot-exempt, which is what
+        lets a transaction that waits here still read current metadata afterwards.
+
+        Raises:
+            excs.ConcurrencyError(SCHEMA_CHANGE_IN_PROGRESS): nowait=True and a conflicting lock is held.
+            StoreTableMissingError: a named store table does not exist (see the creation/drop protocol).
+        """
+        if len(targets) == 0:
+            return
+        store_tbl_names = [t.store_tbl for t in targets]
+        conn = get_runtime().conn
+        assert conn is not None
+        stmt = f'LOCK TABLE {", ".join(store_tbl_names)} IN {mode.value} MODE'
+        if nowait:
+            stmt += ' NOWAIT'
+        fault_injection.process_fault(FaultLocation.CATALOG_BEFORE_TBL_LOCK, mode=mode)
+        try:
+            conn.execute(sql.text(stmt))
+        except sql_exc.DBAPIError as e:
+            if isinstance(e.orig, psycopg.errors.LockNotAvailable):
+                # NOWAIT: convert here rather than in _is_retryable_exc(), which would turn fail-fast into
+                # retry-forever
+                self._try_rollback(conn)
+                raise excs.ConcurrencyError(
+                    excs.ErrorCode.SCHEMA_CHANGE_IN_PROGRESS,
+                    f'{self._cached_tbl_names_str(targets)}: a schema change is in progress; '
+                    'this operation cannot run concurrently with it.\nPlease retry once it completes.',
+                ) from e
+            if isinstance(e.orig, psycopg.errors.UndefinedTable):
+                _logger.debug(f'Store table missing while locking {store_tbl_names}: {e.orig}')
+                self._try_rollback(conn)
+                raise StoreTableMissingError(store_tbl_names) from e
+            raise
+        for name in store_tbl_names:
+            self._locks_held[name] = mode
+        fault_injection.process_fault(FaultLocation.CATALOG_AFTER_TBL_LOCK, mode=mode)
+
+    def _cached_tbl_names_str(self, targets: Sequence[LockTarget]) -> str:
+        """Names of `targets` as far as the metadata cache knows them; falls back to ids. Issues no statements."""
+        names: list[str] = []
+        for target in targets:
+            tv = self._tbl_versions.get(TableVersionKey(target.tbl_id, None))
+            names.append(repr(tv.name) if tv is not None else str(target.tbl_id))
+        return ', '.join(names)
+
+    def is_locked(self, store_tbl_name: str, mode: TblLockMode) -> bool:
+        """True if the current transaction holds at least `mode` on `store_tbl_name`."""
+        held = self._locks_held.get(store_tbl_name)
+        return held is not None and _LOCK_MODE_STRENGTH[held] >= _LOCK_MODE_STRENGTH[mode]
 
     def _evict_caches(self) -> None:
         # Evict LRU _tbls entries

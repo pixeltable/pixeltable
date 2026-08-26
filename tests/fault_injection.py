@@ -25,7 +25,7 @@ _logger = logging.getLogger('pixeltable_test')
 class Fault(Protocol):
     recurring: bool
 
-    def __call__(self, loc: FaultLocation) -> Any: ...
+    def __call__(self, loc: FaultLocation, **ctx: Any) -> Any: ...
 
 
 class FaultManager:
@@ -43,14 +43,14 @@ class FaultManager:
                 raise AssertionError(f'A fault is already armed at {loc}')
             self._fault_state[loc] = fault
 
-    def process_location(self, loc: FaultLocation) -> None:
+    def process_location(self, loc: FaultLocation, **ctx: Any) -> None:
         with self._lock:
             fault = self._fault_state.get(loc)
             if fault is None:
                 return
             if not fault.recurring:
                 del self._fault_state[loc]
-        fault(loc)
+        fault(loc, **ctx)
 
 
 class ExceptionFault:
@@ -65,7 +65,7 @@ class ExceptionFault:
         self.e = e
         self.recurring = recurring
 
-    def __call__(self, loc: FaultLocation) -> None:
+    def __call__(self, loc: FaultLocation, **ctx: Any) -> None:
         _logger.info(f'Injecting {type(self.e)} at fault location {loc}')
         with self._lock:
             self._counter += 1
@@ -96,7 +96,7 @@ class BlockFault:
         self.unblocked = Event()
         self.recurring = False
 
-    def __call__(self, loc: FaultLocation) -> None:
+    def __call__(self, loc: FaultLocation, **ctx: Any) -> None:
         _logger.info(f'Blocked at {loc}')
         self.reached.set()
         self.unblocked.wait()
@@ -116,7 +116,7 @@ def create_fault_manager() -> FaultManager:
     return FaultManager()
 
 
-def process_fault(loc: FaultLocation) -> None:
+def process_fault(loc: FaultLocation, **ctx: Any) -> None:
     from pixeltable.runtime import get_runtime
 
-    get_runtime().fault_manager.process_location(loc)
+    get_runtime().fault_manager.process_location(loc, **ctx)
