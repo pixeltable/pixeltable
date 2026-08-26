@@ -160,3 +160,14 @@ class ModelQuery(QueryBase):
             f'join(): a query over model `{self.model_cls.__name__}` cannot be joined; '
             'join the tables the models are bound to instead.',
         )
+
+    def __getattr__(self, item: str) -> Any:
+        """Raise a RequestError if this is a reference to a Query method."""
+        if hasattr(pxt.Query, item):
+            raise excs.RequestError(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                f'{item}(): this query is declared over model `{self.model_cls.__name__}`, which is not bound '
+                f'to a table; create the table with `{self.model_cls.__name__}.create()`, or call this on a '
+                f'query over a bound model.',
+            )
+        raise AttributeError(item)

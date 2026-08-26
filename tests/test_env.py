@@ -9,8 +9,8 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import env, exceptions as excs
-from pixeltable.config import Config
-from pixeltable.env import Env, _find_project_root
+from pixeltable.config import Config, _find_project_root
+from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.utils.filecache import FileCache
 
@@ -338,12 +338,12 @@ class TestProjectRoot:
         (root / 'pixeltable.toml').write_text('', encoding='utf-8')
         # copies, so that what Env records and appends is undone when the test ends
         monkeypatch.setattr(sys, 'path', list(sys.path))
-        monkeypatch.setattr(Env, 'project_root', None)
-        monkeypatch.setattr(Env, '_project_root_initialized', False)
+        monkeypatch.setattr(Config, 'project_root', None)
+        monkeypatch.setattr(Config, '_Config__project_root_initialized', False)
 
         monkeypatch.chdir(root / 'ad_gen')
         _reset_env(reinit=False, db_name=None)
-        assert Env.project_root == root.resolve()
+        assert Config.project_root == root.resolve()
         assert sys.path[-1] == str(root.resolve())
 
         # a process serves one project: starting over elsewhere keeps the project it already has, and
@@ -352,7 +352,7 @@ class TestProjectRoot:
         elsewhere.mkdir()
         monkeypatch.chdir(elsewhere)
         _reset_env(reinit=False, db_name=None)
-        assert Env.project_root == root.resolve()
+        assert Config.project_root == root.resolve()
 
     def test_a_process_told_it_serves_no_project_keeps_none(
         self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
@@ -362,11 +362,11 @@ class TestProjectRoot:
         root.mkdir()
         (root / 'pixeltable.toml').write_text('', encoding='utf-8')
         monkeypatch.setattr(sys, 'path', list(sys.path))
-        monkeypatch.setattr(Env, 'project_root', None)
-        monkeypatch.setattr(Env, '_project_root_initialized', False)
+        monkeypatch.setattr(Config, 'project_root', None)
+        monkeypatch.setattr(Config, '_Config__project_root_initialized', False)
 
         monkeypatch.chdir(root)
-        Env.set_project_root(None)
+        Config.set_project_root(None)
         _reset_env(reinit=False, db_name=None)
-        assert Env.project_root is None
+        assert Config.project_root is None
         assert str(root.resolve()) not in sys.path

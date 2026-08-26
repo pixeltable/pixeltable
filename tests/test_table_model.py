@@ -2234,6 +2234,11 @@ class TestTableModel:
             ):
                 getattr(ValidTableModel, method)(*args)
 
+        # the same refusal from a declared query, rather than from the model
+        declared = ValidTableModel.where(ValidTableModel.id > 0)  # type: ignore[arg-type]
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r'`ValidTableModel`, which is not bound'):
+            declared.collect()
+
         # similarity() on a column the model declares no embedding index on has nothing to resolve against
         with pxt_raises(excs.ErrorCode.INDEX_NOT_FOUND, match=r"No embedding index found for column 'id'"):
             _ = ValidTableModel.id.similarity(string='hello')  # type: ignore[attr-defined]

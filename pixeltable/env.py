@@ -13,7 +13,6 @@ import math
 import os
 import shutil
 import subprocess
-import sys
 import threading
 import types
 import typing
@@ -21,13 +20,12 @@ import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, TypeVar
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pixeltable_pgserver
 import sqlalchemy as sql
-import toml
 import tzlocal
 from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
 from tenacity import retry, stop_after_attempt, wait_exponential_jitter
@@ -45,41 +43,6 @@ if TYPE_CHECKING:
     from pixeltable.catalog.path import Path as CatalogPath
 
 _logger = logging.getLogger(__name__)
-
-# the file names that mark a project root
-PROJECT_CONFIG_FILE = 'pixeltable.toml'
-_PYPROJECT = 'pyproject.toml'
-
-
-def _find_project_root(start: Path) -> Path | None:
-    """Find the nearest project root at or above start. Returns None if that chain holds none.
-
-    A directory is a project root when it holds the project configuration: a pixeltable.toml, or a
-    pyproject.toml with a [tool.pixeltable] section. A directory holding both is configured by its
-    pixeltable.toml.
-    """
-    start = start.resolve()
-    for dir in (start, *start.parents):
-        if (dir / PROJECT_CONFIG_FILE).is_file():
-            return dir
-        pyproject = dir / _PYPROJECT
-        if pyproject.is_file() and _declares_pixeltable(pyproject):
-            return dir
-    return None
-
-
-def _declares_pixeltable(pyproject: Path) -> bool:
-    """Report whether pyproject holds a [tool.pixeltable] section.
-
-    A file Pixeltable cannot parse declares nothing, and the search continues above it.
-    """
-    try:
-        parsed = toml.load(pyproject)
-    except Exception:
-        return False
-    tool = parsed.get('tool')
-    return isinstance(tool, dict) and 'pixeltable' in tool
-
 
 LOG_FMT_STR = '%(asctime)s %(levelname)s %(threadName)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
@@ -164,11 +127,6 @@ class Env:
     _resource_pool_info: dict[str, Any]
     _resource_pool_lock: threading.Lock
     _dbms: Dbms | None
-
-    # project root: the directory holding the project config (pixeltable.toml or pyproject.toml with a
-    # tool.pixeltable section); it needs to be recorded independently of the Env instance
-    project_root: ClassVar[Path | None] = None
-    _project_root_initialized: ClassVar[bool] = False
 
     @classmethod
     def get(cls) -> Env:
@@ -260,31 +218,6 @@ class Env:
                 del os.environ['PIXELTABLE_USER']
         else:
             os.environ['PIXELTABLE_USER'] = user
-
-    @classmethod
-    def set_project_root(cls, root: Path | None) -> None:
-        """Record project root and put it on sys.path, if non-None."""
-        cls._project_root_initialized = True
-        if root is None:
-            cls.project_root = None
-            return
-        resolved = Path(root).expanduser().resolve()
-        assert resolved.is_dir(), f'not a directory: {root}'
-        cls.project_root = resolved
-        # append(): we want an installed module to take precedence over a project module of the same name
-        if str(resolved) not in sys.path:
-            sys.path.append(str(resolved))
-
-    @classmethod
-    def resolved_project_root(cls) -> Path | None:
-        """The project this process serves, searched for from the working directory on the first call.
-
-        For a caller that reads the root without initializing an Env, which is what a command launching a
-        daemon does.
-        """
-        if not cls._project_root_initialized:
-            cls.set_project_root(_find_project_root(Path.cwd()))
-        return cls.project_root
 
     @property
     def default_time_zone(self) -> ZoneInfo | None:
@@ -394,7 +327,7 @@ class Env:
         self._tmp_dir.mkdir(exist_ok=True)
         self._services_dir.mkdir(exist_ok=True)
 
-        self.resolved_project_root()
+        Config.get().resolved_project_root()
 
         self._file_cache_size_g = config.get_float_value('file_cache_size_g')
         if self._file_cache_size_g is None:

@@ -153,7 +153,7 @@ class ServiceDeployment:
             '--base-path',
             base_path,
         ]
-        project_root = Env.project_root
+        project_root = Config.get().project_root
         assert project_root is not None
         argv += ['--project-root', str(project_root)]
 

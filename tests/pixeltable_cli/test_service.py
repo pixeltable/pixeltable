@@ -1,6 +1,7 @@
 import pathlib
 import time
 from collections.abc import Callable, Iterator
+from textwrap import dedent
 from typing import Any
 
 import httpx
@@ -451,6 +452,43 @@ class TestService:
         r = cli('service', 'check', str(no_service), check=False)
         assert r.returncode == 1
         assert 'no service found' in r.stderr
+
+        # a router over models from another file, so this one declares no model base
+        (project_dir / 'schema.py').write_text(
+            dedent(
+                """
+                from __future__ import annotations
+
+                import pixeltable as pxt
+
+                TableModel = pxt.model_base()
+
+
+                class Docs(TableModel, name='docs'):
+                    doc_id = pxt.Column(type=pxt.Int, primary_key=True)
+                    title: pxt.String
+                """
+            ),
+            encoding='utf-8',
+        )
+        routes_only = project_dir / 'routes_only.py'
+        routes_only.write_text(
+            dedent(
+                f"""
+                from __future__ import annotations
+
+                from pixeltable.serving import FastAPIRouter
+
+                from {project_dir.name}.schema import Docs
+
+                api = FastAPIRouter(name='reader')
+                api.add_insert_route(Docs, path='/docs', inputs=[Docs.doc_id, Docs.title])
+                """
+            ),
+            encoding='utf-8',
+        )
+        report = cli('service', 'check', str(routes_only), '--json').json
+        assert (report['valid'], report['errors'], report['warnings']) == (True, [], []), report
 
     def test_errors(
         self,

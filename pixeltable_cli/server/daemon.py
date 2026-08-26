@@ -6,7 +6,7 @@ import os
 import pathlib
 import sys
 
-from pixeltable.env import Env
+from pixeltable.config import Config
 from pixeltable_cli.client.utils import is_running
 from pixeltable_cli.server.http_server import bind, run
 from pixeltable_cli.utils import get_port, pidfile_path
@@ -55,7 +55,7 @@ def main(argv: list[str] | None = None) -> None:
     _write_pidfile()
     atexit.register(_remove_pidfile_if_ours)
     # includes the None that means no project: a daemon's working directory says nothing about a project
-    Env.set_project_root(args.project_root)
+    Config.set_project_root(args.project_root)
     run(server)
 
 

@@ -24,11 +24,10 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.utils.app_module import (
     check_udf_references,
+    get_model_bases,
+    get_module_services,
     load_app_module,
-    load_model_bases,
     load_services,
-    model_bases,
-    services_of,
     shadowed_project_modules,
 )
 from pixeltable_cli import schema_types, service_types
@@ -526,7 +525,7 @@ def get_status() -> dict[str, Any]:
     try:
         env = Env.get()
         cfg = Config.get()
-        project_root = Env.project_root
+        project_root = Config.get().project_root
         config_info = {
             'home': str(cfg.home),
             'project_root': None if project_root is None else str(project_root),
@@ -682,7 +681,6 @@ def _path_key(pxt_path: PxtPath) -> tuple[str, ...]:
 
 
 def _list_tables(pxt_path: PxtPath) -> list[PxtPath]:
-    """Paths of the tables under the given path, or [] if it does not exist."""
     try:
         return [PxtPath(p) for p in pxt.list_tables(pxt_path, recursive=True)]
     except excs.NotFoundError:
@@ -690,19 +688,14 @@ def _list_tables(pxt_path: PxtPath) -> list[PxtPath]:
 
 
 def schema_check(schema_file: str) -> schema_types.CheckReport:
-    """Report whether the schema file stands on its own: it imports, declares models, and its udfs resolve.
-
-    Takes no target and touches no catalog, so it says nothing about what a target holds.
-    """
     module = load_app_module(schema_file, subject='schema file')
-    return _check_report(schema_file, model_bases(module, schema_file))
+    return _check_report(schema_file, get_model_bases(module))
 
 
 def service_check(app_file: str) -> schema_types.CheckReport:
-    """Report whether the application file stands on its own: it imports, declares services, and its udfs resolve."""
     module = load_app_module(app_file, subject='application file')
-    services_of(module, app_file)
-    return _check_report(app_file, model_bases(module, app_file))
+    get_module_services(module, app_file)
+    return _check_report(app_file, get_model_bases(module))
 
 
 def _check_report(file: str, bases: list[model.TableModelMeta]) -> schema_types.CheckReport:
@@ -711,21 +704,17 @@ def _check_report(file: str, bases: list[model.TableModelMeta]) -> schema_types.
 
 
 def schema_diff(schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaPlan:
-    """The changes that schema_update() would make to reconcile the catalog directory with the schema file.
-
-    Read-only: never creates the catalog directory, and never touches an existing table.
-    """
-    return _schema_plan(load_model_bases(schema_file), schema_file, catalog_dir)
+    module = load_app_module(schema_file, subject='schema file')
+    model_bases = get_model_bases(module)
+    return _schema_plan(model_bases, schema_file, catalog_dir)
 
 
 def _schema_plan(bases: list[model.TableModelMeta], schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaPlan:
-    """The plan for reconciling the catalog directory with the models declared by the given bases."""
     diffs = [diff for base in bases for diff in base.get_model_diff(catalog_dir).values()]
     return _plan_from_diffs(diffs, schema_file, catalog_dir)
 
 
 def _plan_from_diffs(diffs: list[model.TableDiff], schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaPlan:
-    """The plan that the given per-table diffs describe."""
     tables: list[schema_types.TableDiff] = []
     for diff in diffs:
         # a create subsumes the additions that constitute it, so only a migration enumerates operations
@@ -787,7 +776,9 @@ def schema_prune(schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaP
     a table that something outside the pruned set depends on is left in place and its error is raised.
     If this exits with an error, it may have dropped a partial list of tables.
     """
-    plan = _schema_plan(load_model_bases(schema_file), schema_file, catalog_dir)
+    module = load_app_module(schema_file, subject='schema file')
+    model_bases = get_model_bases(module)
+    plan = _schema_plan(model_bases, schema_file, catalog_dir)
     remaining = list(plan['extras'])
     dropped: list[PxtPath] = []
     while len(remaining) > 0:
@@ -823,8 +814,9 @@ def schema_update(
 
     Returns the plan that was applied, each operation annotated with its status.
     """
-    bases = load_model_bases(schema_file)
-    errors = check_udf_references(bases)
+    module = load_app_module(schema_file, subject='schema file')
+    model_bases = get_model_bases(module)
+    errors = check_udf_references(model_bases)
     if len(errors) > 0:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT,
@@ -841,7 +833,7 @@ def schema_update(
         pxt.create_dir(catalog_dir, parents=True, if_exists='ignore')
 
     applied: list[model.TableDiff] = []
-    for base in bases:
+    for base in model_bases:
         try:
             diffs = base.update_all(catalog_dir, allow_destructive=allow_destructive)
         except excs.RequestError as e:

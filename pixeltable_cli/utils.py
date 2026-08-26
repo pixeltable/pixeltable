@@ -141,13 +141,9 @@ _PYPROJECT = 'pyproject.toml'
 
 
 def find_project_root(start: Path) -> Path | None:
-    """Find the nearest project root at or above start. Returns None if that chain holds none.
+    """Find the nearest directory holding one of the recognized project config files.
 
-    A directory is a project root when it holds the project configuration: a pixeltable.toml, or a
-    pyproject.toml with a [tool.pixeltable] section. A directory holding both is configured by its
-    pixeltable.toml.
-
-    Mirrors pixeltable.env, which cannot be imported here: the client runs without importing pixeltable.
+    Duplicates config.py:_find_project_root(), which cannot be imported here.
     """
     start = start.resolve()
     for dir in (start, *start.parents):

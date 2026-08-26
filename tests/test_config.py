@@ -195,6 +195,101 @@ class TestConfig:
         assert 'did you mean PIXELTABLE_HOME' in stderr, stderr
         assert not (tmp_path / 'nope').exists(), 'the mis-cased variable was used as the home directory'
 
+    def test_project_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A config setting in the project is read, and wins over the home config."""
+        home = tmp_path / 'home.toml'
+        project = tmp_path / 'proj'
+        project.mkdir()
+
+        def load(home_text: str, project_text: str, *, in_pyproject: bool = False) -> Config:
+            home.write_text(home_text)
+            name = 'pyproject.toml' if in_pyproject else 'pixeltable.toml'
+            (project / name).write_text(project_text)
+            monkeypatch.setenv('PIXELTABLE_CONFIG', str(home))
+            # via monkeypatch: a directly set project root would outlive this test
+            monkeypatch.setattr(Config, 'project_root', project)
+            monkeypatch.setattr(Config, '_Config__project_root_initialized', True)
+            Config.init(reinit=True)
+            return Config.get()
+
+        # a var bound only by the project is read, and get_value_source() names its file
+        config = load(
+            '',
+            dedent(
+                """
+                [[pixeltable.database]]
+                vars.media_dest = 's3://project/bucket'
+                """
+            ),
+        )
+        assert config.project_config_file == project / 'pixeltable.toml'
+        assert config.get_string_value('media_dest', section=VAR_SECTION) == 's3://project/bucket'
+        assert config.get_value_source('media_dest', section=VAR_SECTION) == project / 'pixeltable.toml'
+        assert pxt.ConfigVar('media_dest', pxt.URI).value() == 's3://project/bucket'
+
+        # the two files configure one database together; the project's binding wins per name
+        config = load(
+            dedent(
+                """
+                [[pixeltable.database]]
+                vars.media_dest = 's3://home/bucket'
+                vars.other_dest = 's3://home/other'
+                secrets.shared_key = 'from-home'
+                """
+            ),
+            dedent(
+                """
+                [[pixeltable.database]]
+                vars.media_dest = 's3://project/bucket'
+                """
+            ),
+        )
+        assert config.get_string_value('media_dest', section=VAR_SECTION) == 's3://project/bucket'
+        assert config.get_value_source('media_dest', section=VAR_SECTION) == project / 'pixeltable.toml'
+        assert config.get_string_value('other_dest', section=VAR_SECTION) == 's3://home/other'
+        assert config.get_value_source('other_dest', section=VAR_SECTION) == home
+        assert config.get_string_value('shared_key', section=SECRET_SECTION) == 'from-home'
+
+        # an environment variable outranks both files
+        monkeypatch.setenv('PIXELTABLE_VAR_MEDIA_DEST', 's3://from/env')
+        assert Config.get().get_string_value('media_dest', section=VAR_SECTION) == 's3://from/env'
+        monkeypatch.delenv('PIXELTABLE_VAR_MEDIA_DEST')
+
+        # a setting that is not a database binding is project-settable too
+        config = load('', "[pixeltable]\ntime_zone = 'America/Anchorage'\n")
+        assert config.get_string_value('time_zone') == 'America/Anchorage'
+
+        # the same, declared in a pyproject.toml under [tool.pixeltable]
+        (project / 'pixeltable.toml').unlink()
+        config = load(
+            '',
+            dedent(
+                """
+                [project]
+                name = 'proj'
+
+                [[tool.pixeltable.database]]
+                vars.media_dest = 's3://from/pyproject'
+                """
+            ),
+            in_pyproject=True,
+        )
+        assert config.project_config_file == project / 'pyproject.toml'
+        assert config.get_string_value('media_dest', section=VAR_SECTION) == 's3://from/pyproject'
+        (project / 'pyproject.toml').unlink()
+
+        # a project file cannot set an installation setting; the message points at the home config
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r"Cannot set 'pixeltable.file_cache_size_g'"):
+            load('', '[pixeltable]\nfile_cache_size_g = 10.0\n')
+
+        # an edit to the project file is picked up
+        config = load('', "[[pixeltable.database]]\nvars.media_dest = 's3://before/edit'\n")
+        assert config.get_string_value('media_dest', section=VAR_SECTION) == 's3://before/edit'
+        time.sleep(0.01)  # the stamp is (mtime, size), so a same-size rewrite needs a distinct mtime
+        (project / 'pixeltable.toml').write_text("[[pixeltable.database]]\nvars.media_dest = 's3://after/edits'\n")
+        assert Config.reload_if_changed()
+        assert Config.get().get_string_value('media_dest', section=VAR_SECTION) == 's3://after/edits'
+
     def test_database_entries(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """The bindings a process reads come from the [[pixeltable.database]] entry for the local database."""
 

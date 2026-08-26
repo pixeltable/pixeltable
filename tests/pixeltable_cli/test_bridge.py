@@ -8,7 +8,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
-from pixeltable.env import Env
+from pixeltable.config import Config
 from pixeltable.func import Function
 from pixeltable.functions.video import frame_iterator
 from pixeltable.utils.app_module import load_app_module
@@ -60,12 +60,12 @@ class TestBridge:
         app_file = tmp_path / 'outside_app.py'
         app_file.write_text('import pixeltable as pxt\n', encoding='utf-8')
 
-        monkeypatch.setattr(Env, 'project_root', served)
+        monkeypatch.setattr(Config, 'project_root', served)
         with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r'which the file does not sit under') as exc_info:
             load_app_module(str(app_file), subject='application file')
         assert str(served) in exc_info.value.message
 
-        monkeypatch.setattr(Env, 'project_root', None)
+        monkeypatch.setattr(Config, 'project_root', None)
         with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r'serves no project') as exc_info:
             load_app_module(str(app_file), subject='application file')
         message = exc_info.value.message

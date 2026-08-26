@@ -21,7 +21,7 @@ from typing import Any
 
 import pytest
 
-from pixeltable.env import Env
+from pixeltable.config import Config
 
 
 def _pick_port() -> int:
@@ -48,18 +48,18 @@ def session_project(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Path:
     The daemon serves one project, and a client standing in another restarts it, so every CLI test works
     inside this one: its application files go in a directory of their own under this root.
 
-    autouse and session-scoped: the local proxy daemon is handed Env.project_root when it starts, and any
-    test in this package may be the one that starts it.
+    autouse and session-scoped: the local proxy daemon is handed the recorded project root when it starts,
+    and any test in this package may be the one that starts it.
     """
     root = tmp_path_factory.mktemp('pxt_project')
     (root / 'pixeltable.toml').write_text('', encoding='utf-8')
-    Env.set_project_root(root)
+    Config.set_project_root(root)
     return root
 
 
 @pytest.fixture(autouse=True)
 def set_project_root(session_project: pathlib.Path) -> None:
-    Env.set_project_root(session_project)
+    Config.set_project_root(session_project)
 
 
 @pytest.fixture

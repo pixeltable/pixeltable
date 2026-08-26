@@ -89,12 +89,8 @@ def _health(ep: str) -> dict[str, Any] | None:
 
 
 def _serves_another_project(health: dict[str, Any]) -> bool:
-    """Decide whether the daemon that reported health resolves udf module paths against a different project.
-
-    An Env.project_root of None reports no difference: a process with no project of its own records no
-    module paths to resolve.
-    """
-    root = Env.resolved_project_root()
+    """Decide whether the daemon that reported health resolves udf module paths against a different project."""
+    root = Config.get().project_root()
     return root is not None and health.get('project_root') != str(root)
 
 
@@ -136,7 +132,7 @@ def start(db: str, test_mode: bool = False) -> str:
             if not _serves_another_project(health):
                 return ep
             # this daemon resolves module paths against another project, so replace it with one that
-            # serves Env.project_root
+            # serves the caller's project
             stop(db)
 
     parent_home = Config.get().home
@@ -157,7 +153,7 @@ def start(db: str, test_mode: bool = False) -> str:
     argv = [sys.executable, '-m', 'pixeltable.service.proxy_daemon']
     if test_mode:
         argv.append('--test')
-    project_root = Env.resolved_project_root()
+    project_root = Config.get().resolved_project_root()
     if project_root is not None:
         argv += ['--project-root', str(project_root)]
     with open(log_path, 'a', encoding='utf-8') as log_file:
@@ -307,7 +303,7 @@ def _build_app(test_mode: bool = False) -> 'FastAPI':
 
     @app.get('/health')
     def health() -> dict[str, str | None]:
-        root = Env.project_root
+        root = Config.get().project_root
         return {'status': 'ok', 'project_root': None if root is None else str(root)}
 
     @app.get('/media/{ref:path}')
@@ -391,5 +387,5 @@ if __name__ == '__main__':
     parser.add_argument('--project-root', type=Path, default=None)
     parsed = parser.parse_args()
     # includes the None that means no project: a daemon's working directory says nothing about a project
-    Env.set_project_root(parsed.project_root)
+    Config.get().set_project_root(parsed.project_root)
     _serve(test_mode=parsed.test)

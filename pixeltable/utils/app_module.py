@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 
 from pixeltable import exceptions as excs
 from pixeltable.catalog import ProhibitedWriteError, is_valid_identifier, model
+from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.func import FunctionRegistry
 from pixeltable.runtime import get_runtime
@@ -40,7 +41,7 @@ def load_app_module(file: str, *, subject: str) -> ModuleType:
 
     # Env.get() establishes the project root
     Env.get()
-    root = Env.project_root
+    root = Config.get().project_root
     if root is None or not path.is_relative_to(root):
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, _no_root_msg(path, subject, root))
     module_name = _module_name(path, root, subject)
@@ -128,19 +129,8 @@ def _prohibited_write_msg(file: str, subject: str, exc: ProhibitedWriteError) ->
     )
 
 
-def load_model_bases(schema_file: str) -> list[model.TableModelMeta]:
-    """The model bases declared by a class-based schema file.
-
-    Raises RequestError if the file is missing, fails to import, or declares no model base.
-    """
-    return model_bases(load_app_module(schema_file, subject='schema file'), schema_file)
-
-
-def model_bases(module: ModuleType, file: str) -> list[model.TableModelMeta]:
-    """The model bases module declares; file names the source in error messages.
-
-    Raises RequestError if module declares none.
-    """
+def get_model_bases(module: ModuleType) -> list[model.TableModelMeta]:
+    """Returns the model bases found in module."""
     # a model base carries __registered_models__ as its own class attribute, whereas the models defined
     # on it merely inherit it
     bases = [
@@ -148,35 +138,26 @@ def model_bases(module: ModuleType, file: str) -> list[model.TableModelMeta]:
         for v in vars(module).values()
         if isinstance(v, model.TableModelMeta) and '__registered_models__' in v.__dict__
     ]
-    if len(bases) == 0:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_ARGUMENT,
-            f"no model_base() found in {file}; run 'pxt schema example' for a file to start from",
-        )
     return bases
 
 
 def check_udf_references(bases: list[model.TableModelMeta]) -> list[str]:
-    """Report the udfs the models on bases reference by a path another process cannot resolve.
-
-    A recorded reference is the defining module's dotted name followed by the udf's qualname, so reading it
-    back imports that module by name.
-    """
-    root = Env.project_root
-    assert root is not None  # a model came from a file under the project, so this process serves one
+    """Returns error strings for udf references in 'bases' that cannot be resolved."""
+    project_root = Config.get().project_root
+    assert project_root is not None
     errors: list[str] = []
-    self_paths = {fn.self_path for base in bases for cls in base.declared_models() for fn in cls.referenced_functions()}
-    for self_path in sorted(p for p in self_paths if p is not None):
-        defining = _defining_module(self_path)
-        if defining is None:
-            errors.append(f'{self_path}: names no module this process has loaded')
+    fn_paths = {fn.self_path for base in bases for cls in base.declared_models() for fn in cls.referenced_functions()}
+    for fn_path in sorted(p for p in fn_paths if p is not None):
+        resolved = _resolved_module(fn_path)
+        if resolved is None:
+            errors.append(f'{fn_path}: cannot be resolved to a known module')
             continue
-        file = getattr(defining, '__file__', None)
-        if file is None or not Path(file).resolve().is_relative_to(root):
-            continue  # an installed module, which every process resolves the same way
-        top_level = self_path.split('.', maxsplit=1)[0]
+        file = getattr(resolved, '__file__', None)
+        if file is None or not Path(file).resolve().is_relative_to(project_root):
+            continue  # an installed module
+        top_level = fn_path.split('.', maxsplit=1)[0]
         if _first_on_path(top_level) is None:
-            errors.append(f'{self_path}: an import of {top_level!r} finds nothing on sys.path')
+            errors.append(f'{fn_path}: {top_level!r} is not on sys.path')
     return errors
 
 
@@ -186,7 +167,7 @@ def shadowed_project_modules() -> list[str]:
     Env appends the project root to sys.path, so an installed distribution of the same name wins. The
     generic names a single-file recipe hands out collide most often.
     """
-    root = Env.project_root
+    root = Config.get().project_root
     assert root is not None  # only a process serving a project has modules to report
     warnings: list[str] = []
     for entry in sorted(root.iterdir()):
@@ -206,9 +187,9 @@ def shadowed_project_modules() -> list[str]:
     return warnings
 
 
-def _defining_module(self_path: str) -> ModuleType | None:
-    """Return the module self_path names: the longest prefix of it that sys.modules holds."""
-    parts = self_path.split('.')
+def _resolved_module(dotted_path: str) -> ModuleType | None:
+    """Return the most specific (longest prefix) module reference in dotted_path that's in sys.modules."""
+    parts = dotted_path.split('.')
     for i in range(len(parts) - 1, 0, -1):
         module = sys.modules.get('.'.join(parts[:i]))
         if module is not None:
@@ -216,9 +197,9 @@ def _defining_module(self_path: str) -> ModuleType | None:
     return None
 
 
-def _first_on_path(top_level: str) -> Path | None:
-    """Return the file an import of top_level reads, searching sys.path the way a fresh process does."""
-    spec = importlib.machinery.PathFinder.find_spec(top_level, sys.path)
+def _first_on_path(module_name: str) -> Path | None:
+    """Return the file read by 'import <module_name>'."""
+    spec = importlib.machinery.PathFinder.find_spec(module_name, sys.path)
     if spec is None:
         return None
     if spec.origin is not None and spec.origin != 'namespace':
@@ -228,23 +209,17 @@ def _first_on_path(top_level: str) -> Path | None:
 
 
 def load_services(app_file: str) -> dict[str, FastAPIRouter | fastapi.FastAPI]:
-    """The services an application file declares, keyed by service name.
+    """The FastAPIRouter/FastAPI instances in an app file, keyed by service name.
 
-    A router names the service it declares; one that does not is named after the variable holding it. An
-    application object the file supplies itself is a service too, named after its variable, whose routes
-    Pixeltable did not declare and therefore cannot compare.
-
-    Raises RequestError if the file is missing, fails to import, declares no service, declares two services
-    under one name, or holds a router in a variable whose name a service cannot have.
+    - FastAPIRouter instances are either explicitly named (name parameter) or implicitly via variable assignment
+    - a FastAPI instance is named via variable assignment
     """
-    return services_of(load_app_module(app_file, subject='application file'), app_file)
+    return get_module_services(load_app_module(app_file, subject='application file'), app_file)
 
 
-def services_of(module: ModuleType, file: str) -> dict[str, FastAPIRouter | fastapi.FastAPI]:
-    """The services module declares, keyed by service name; file names the source in error messages.
-
-    Raises RequestError if module declares no service, declares two under one name, or holds a router in a
-    variable whose name a service cannot have.
+def get_module_services(module: ModuleType, file: str) -> dict[str, FastAPIRouter | fastapi.FastAPI]:
+    """
+    Returns the FastAPIRouter/FastAPI instances found in module, keyed by service name.
     """
     # imported here rather than at module scope: pixeltable.serving pulls in fastapi, an optional dependency
     from pixeltable.serving import FastAPIRouter

@@ -142,15 +142,15 @@ def project_dir(tmp_path: pathlib.Path) -> pathlib.Path:
 def project_env(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> pathlib.Path:
     """A project root that this process serves, for a test that loads an application file in process.
 
-    Env resolves one project root when it starts and holds it for the life of the process, so a test that
-    needs a different one sets the resolved value rather than starting over: reinitializing Env would also
+    Config resolves one project root when it starts and holds it for the life of the process, so a test that
+    needs a different one sets the resolved value rather than starting over: reinitializing would also
     rebuild the file cache and the catalog that other tests in the session depend on.
     """
-    from pixeltable.env import Env
+    from pixeltable.config import Config
 
     (tmp_path / 'pixeltable.toml').write_text('', encoding='utf-8')
     monkeypatch.setattr(sys, 'path', [*sys.path, str(tmp_path)])
-    monkeypatch.setattr(Env, 'project_root', tmp_path)
+    monkeypatch.setattr(Config, 'project_root', tmp_path)
     return tmp_path
 
 

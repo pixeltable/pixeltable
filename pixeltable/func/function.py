@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Callable, Self, Sequence, cast
 import sqlalchemy as sql
 
 from pixeltable import exceptions as excs, type_system as ts
-from pixeltable.env import Env
+from pixeltable.config import Config
 
 from .globals import resolve_symbol
 from .signature import Signature
@@ -544,14 +544,14 @@ class Function(ABC):
             if isinstance(instance, Function):
                 return instance
             elif instance is None:
-                # resolve_symbol() returns None when no prefix of path names a module it can import
-                root = Env.project_root
-                where = (
-                    'This process serves no project.'
-                    if root is None
-                    else f'A module outside the project at {root} is only importable if it is installed.'
+                # we couldn't resolve the path
+                project_root = Config.get().project_root
+                detail = (
+                    "(There is no configured project root; did you forget to run `pxt init` inside the project's toy-level directory?)"
+                    if project_root is None
+                    else f'A module outside the project at {project_root} is only importable if it is installed.'
                 )
-                return InvalidFunction(path, d, f'{path!r} names no importable module. {where}')
+                return InvalidFunction(path, d, f'{path!r} names no importable module. {detail}')
             else:
                 return InvalidFunction(
                     path, d, f'the symbol {path!r} is no longer a UDF. (Was the `@pxt.udf` decorator removed?)'
