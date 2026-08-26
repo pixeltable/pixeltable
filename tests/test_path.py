@@ -237,9 +237,11 @@ class TestPath:
         # identifiers are restricted to ASCII, so that str.lower(), str.casefold() and SQL lower() all coincide
         assert not is_valid_identifier('café')
         assert not is_valid_identifier('Ω')
-        for bad in ('café', 'dir/café', 'pxt://café/tbl', 'pxt://variata:café/tbl'):
-            with pxt_raises(excs.ErrorCode.INVALID_PATH):
-                Path.parse(bad)
+        for path in (('Café'), ('dir/Café'), ('pxt://CAFÉ/tbl'), ('pxt://variata:CAFÉ/tbl')):
+            with pxt_raises(excs.ErrorCode.INVALID_PATH, match='Invalid [path|org|database]'):
+                Path.parse(path)
+        with pxt_raises(excs.ErrorCode.INVALID_PATH, match='Café'):
+            Path.from_components(('Café',))
 
     def test_case_folding(self) -> None:
         # components fold, and the folded form is what str() renders
@@ -254,10 +256,6 @@ class TestPath:
         assert (hosted.org, hosted.db, hosted.components) == ('org', 'db', ('x',))
         assert hosted == Path.parse('pxt://org:db/x')
         assert str(hosted) == 'pxt://org:db/x'
-
-        # an invalid path reports exactly what was typed, not a folded form the user never wrote
-        with pxt_raises(excs.ErrorCode.INVALID_PATH, match='Café'):
-            Path.parse('Café/x')
 
     def test_dir_prefix(self) -> None:
         # the prefix is folded, so callers can compare directory locations by string equality

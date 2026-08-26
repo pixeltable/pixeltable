@@ -37,12 +37,6 @@ class Path:
     version: int | None = None
 
     def __post_init__(self) -> None:
-        if self.org is not None:
-            object.__setattr__(self, 'org', fold_identifier(self.org))
-        if self.db is not None:
-            object.__setattr__(self, 'db', fold_identifier(self.db))
-        object.__setattr__(self, 'components', tuple(fold_identifier(c) for c in self.components))
-
         if self.db is not None and self.org is None:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_PATH, f'Path specifies a database ({self.db!r}) but no organization'
@@ -56,6 +50,12 @@ class Path:
         # the root is the empty tuple; every component of a non-root path must be a valid identifier
         if not all(is_valid_identifier(c, allow_hyphens=True) for c in self.components):
             raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path: {"/".join(self.components)}')
+
+        if self.org is not None:
+            object.__setattr__(self, 'org', fold_identifier(self.org))
+        if self.db is not None:
+            object.__setattr__(self, 'db', fold_identifier(self.db))
+        object.__setattr__(self, 'components', tuple(fold_identifier(c) for c in self.components))
 
     @classmethod
     def dir_prefix(cls, catalog_dir: str) -> str:
