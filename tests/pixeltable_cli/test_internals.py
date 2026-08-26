@@ -24,8 +24,9 @@ import typing
 import urllib.error
 from collections.abc import Callable, Iterator
 from email.message import Message
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import Any, ClassVar, Self
+from unittest.mock import patch
 
 import pydantic
 import pytest
@@ -61,11 +62,12 @@ from pixeltable_cli.client.commands import (
     daemon as daemon_cmd,
     db as db_cmd,
     org as org_cmd,
+    service as service_cmd,
     shell as shell_cmd,
     status as status_cmd,
 )
 from pixeltable_cli.server import daemon as server_daemon, router as server_router, routes as server_routes
-from tests.utils import pxt_raises
+from tests.utils import pxt_raises, skip_test_if_not_installed
 
 
 def _pick_port() -> int:
@@ -1870,6 +1872,28 @@ class TestHostedCommandRequests:
     def test_create_db_rejects_invalid_name(self, db: str) -> None:
         with pytest.raises(pydantic.ValidationError):
             CreateDbRequest(org='acme', db=db)
+
+
+class TestServiceOtel:
+    @pytest.mark.otel
+    def test_run_otel(self, tmp_path: pathlib.Path) -> None:
+        """--otel resolves the instrumentation package and wires init()/instrument_fastapi() into run."""
+        skip_test_if_not_installed('fastapi', 'uvicorn', 'opentelemetry.instrumentation.pixeltable')
+        app_file = tmp_path / 'app.py'
+        app_file.write_text('', encoding='utf-8')  # the routers it declares are patched out below
+        app = SimpleNamespace(routes=[])  # stands in for the FastAPI app, which run() counts the routes of
+
+        with (
+            patch('pixeltable.serving._app.load_service_routers', return_value={'ingest': object()}),
+            patch('pixeltable.serving._app.create_app_for_services', return_value=app),
+            patch('uvicorn.run') as mock_run,
+            patch('opentelemetry.instrumentation.pixeltable.init') as mock_otel_init,
+            patch('opentelemetry.instrumentation.pixeltable.instrument_fastapi') as mock_instrument_fastapi,
+        ):
+            service_cmd.run(['run', str(app_file), 'my_dir', 'ingest', '--otel'])
+        mock_otel_init.assert_called_once_with()
+        mock_instrument_fastapi.assert_called_once_with(app)
+        mock_run.assert_called_once()
 
 
 class TestHostedUriHelpers:

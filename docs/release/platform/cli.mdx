@@ -633,6 +633,23 @@ Like the `schema` verbs, `diff` reports drift in its exit status: `0` in agreeme
 | `-n`, `--dry-run` | `update`, `prune` | Print the intended change; don't apply it |
 | `--allow-destructive` | `update` | Permit changes that stop serving a route callers may be using |
 | `--host`, `--port` | `run` | Bind address and port (default `127.0.0.1:8000`) |
+| `--otel` | `run`, `update`, `diff` | Emit OpenTelemetry traces; see [Tracing](#tracing) |
+
+### Tracing
+
+`--otel` emits OpenTelemetry traces from the served application: Pixeltable's own spans, nested under the
+request spans of the FastAPI app. It needs the instrumentation package (`pip install 'pixeltable[otel]'`),
+and the endpoint and service name come from the `OTEL_*` environment variables or the `[otel]` config
+section, as they do for any Pixeltable process.
+
+```bash
+pxt service run app.py my_dir --otel       # traced, in this process
+pxt service update app.py my_dir --otel    # traced, in the background process update starts
+```
+
+Tracing is configured once per process, so it is a property of the deployment rather than of the file:
+adding or dropping `--otel` restarts the service, and `pxt service diff app.py my_dir --otel` reports that
+restart as a pending change before `update` performs it.
 
 ### Background and foreground
 

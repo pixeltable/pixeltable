@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
@@ -81,3 +81,26 @@ def create_app_for_services(
         app.include_router(service)
         _logger.info(f'serving {name!r} from {app_file}')
     return app
+
+
+_OTEL_NOT_INSTALLED = (
+    "OpenTelemetry tracing requires the instrumentation package; install: `pip install 'pixeltable[otel]'`"
+)
+
+
+def init_instrumentation(**kwargs: Any) -> None:
+    """Start emitting telemetry, with kwargs overriding the [otel] config and its OTEL_* environment variables.
+
+    Call before the first Pixeltable operation: init() configures the providers the instrumentation emits to.
+    """
+    Env.get().require_package('opentelemetry.instrumentation.pixeltable', not_installed_msg=_OTEL_NOT_INSTALLED)
+    import opentelemetry.instrumentation.pixeltable as pxt_otel
+
+    pxt_otel.init(**kwargs)
+
+
+def instrument_app(app: 'fastapi.FastAPI') -> None:
+    """Instrument a FastAPI application, so that Pixeltable spans nest under its request spans."""
+    import opentelemetry.instrumentation.pixeltable as pxt_otel
+
+    pxt_otel.instrument_fastapi(app)

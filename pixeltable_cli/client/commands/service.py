@@ -72,12 +72,23 @@ DIFF_EPILOG = f"""\
 Examples:
   pxt service diff app.py my_dir          # what update would change; exit 2 if anything is pending
   pxt service diff app.py my_dir --json
+  pxt service diff app.py my_dir --otel     # also report tracing that is off but was asked for
+
+Tracing:
+  --otel emits OpenTelemetry traces from the services 'update' starts, and needs the instrumentation
+  package ('pip install pixeltable[otel]'). It is deployment state: a service already running without
+  it restarts when 'update' is given the flag, and 'diff' reports that as a pending change.
 {_APP_FILE}"""
 
 UPDATE_EPILOG = f"""\
 Examples:
   pxt service update app.py my_dir                       # start what is declared, restart what changed
   pxt service update app.py my_dir --allow-destructive   # also stop serving routes that changed or went away
+  pxt service update app.py my_dir --otel                # emit OpenTelemetry traces from what it starts
+
+Tracing:
+  --otel needs the instrumentation package ('pip install pixeltable[otel]'). It is deployment state: a
+  service already running without it restarts to pick it up, and dropping the flag restarts it again.
 {_APP_FILE}"""
 
 RUN_EPILOG = f"""\
@@ -85,6 +96,7 @@ Examples:
   pxt service run app.py my_dir              # the only service the file declares, until interrupted
   pxt service run app.py my_dir ingest       # the named one, when the file declares several
   pxt service run app.py my_dir --port 9000
+  pxt service run app.py my_dir --otel       # emit OpenTelemetry traces from this process
 
 One service per process, as 'update' deploys them. Nothing is recorded: it runs for as long as this process
 does. Use 'update' to run it in the background, where 'list' and 'stop' can find it again.
@@ -213,7 +225,14 @@ def run(argv: list[str]) -> None:
     if verb in ('update', 'prune'):
         ap.add_argument('-f', '--force', action='store_true', help='skip confirmation')
         ap.add_argument('-n', '--dry-run', action='store_true', dest='dry_run')
+    if verb == 'diff':
+        ap.add_argument('--otel', action='store_true', help='compare the deployments against tracing being on')
     if verb == 'update':
+        ap.add_argument(
+            '--otel',
+            action='store_true',
+            help='emit OpenTelemetry traces (requires `pixeltable[otel]`)',
+        )
         ap.add_argument(
             '--allow-destructive',
             action='store_true',
@@ -226,6 +245,11 @@ def run(argv: list[str]) -> None:
         )
         ap.add_argument('--host', default='127.0.0.1', help='bind address (default: 127.0.0.1)')
         ap.add_argument('--port', type=int, default=8000, help='bind port (default: 8000)')
+        ap.add_argument(
+            '--otel',
+            action='store_true',
+            help='emit OpenTelemetry traces (requires `pixeltable[otel]`)',
+        )
     args = ap.parse_args(argv[1:])
 
     path = Path(args.app)
@@ -239,12 +263,18 @@ def run(argv: list[str]) -> None:
     app_file = str(path.resolve())
 
     if verb == 'diff':
-        _diff(app_file, args.target, as_json=args.as_json)
+        _diff(app_file, args.target, as_json=args.as_json, otel=args.otel)
     elif verb == 'prune':
         _prune(app_file, args.target, as_json=args.as_json, force=args.force, dry_run=args.dry_run)
     elif verb == 'run':
         _run_foreground(
-            app_file, args.target, service_name=args.service, host=args.host, port=args.port, as_json=args.as_json
+            app_file,
+            args.target,
+            service_name=args.service,
+            host=args.host,
+            port=args.port,
+            as_json=args.as_json,
+            otel=args.otel,
         )
     else:
         _update(
@@ -254,6 +284,7 @@ def run(argv: list[str]) -> None:
             force=args.force,
             dry_run=args.dry_run,
             allow_destructive=args.allow_destructive,
+            otel=args.otel,
         )
 
 
@@ -265,21 +296,28 @@ def _example(out: str | None) -> None:
     print(f'wrote {out}')
 
 
-def _service_plan(app_file: str, target: PxtPath) -> ServicePlan:
-    plan: ServicePlan = post_request('/api/localservice/diff', {'app_file': app_file, 'target': target})
+def _service_plan(app_file: str, target: PxtPath, otel: bool = False) -> ServicePlan:
+    plan: ServicePlan = post_request('/api/localservice/diff', {'app_file': app_file, 'target': target, 'otel': otel})
     return plan
 
 
-def _diff(app_file: str, target: PxtPath, *, as_json: bool) -> None:
-    plan = _service_plan(app_file, target)
+def _diff(app_file: str, target: PxtPath, *, as_json: bool, otel: bool = False) -> None:
+    plan = _service_plan(app_file, target, otel)
     _print_plan(plan, as_json=as_json)
     sys.exit(EXIT_IN_AGREEMENT if plan['in_agreement'] else EXIT_CHANGES_PENDING)
 
 
 def _update(
-    app_file: str, target: PxtPath, *, as_json: bool, force: bool, dry_run: bool, allow_destructive: bool
+    app_file: str,
+    target: PxtPath,
+    *,
+    as_json: bool,
+    force: bool,
+    dry_run: bool,
+    allow_destructive: bool,
+    otel: bool = False,
 ) -> None:
-    plan = _service_plan(app_file, target)
+    plan = _service_plan(app_file, target, otel)
     if plan['in_agreement']:
         # report the same shape as a run that applied something, so a caller reading --json sees one form
         for service in plan['services']:
@@ -300,13 +338,14 @@ def _update(
     )
 
     applied: ServicePlan = post_request(
-        '/api/localservice/update', {'app_file': app_file, 'target': target, 'allow_destructive': allow_destructive}
+        '/api/localservice/update',
+        {'app_file': app_file, 'target': target, 'allow_destructive': allow_destructive, 'otel': otel},
     )
     _print_plan(applied, as_json=as_json, applied=True)
 
 
 def _run_foreground(
-    app_file: str, target: PxtPath, *, service_name: str | None, host: str, port: int, as_json: bool
+    app_file: str, target: PxtPath, *, service_name: str | None, host: str, port: int, as_json: bool, otel: bool
 ) -> None:
     """Serve one of the file's services from this process, on one port, until interrupted.
 
@@ -317,8 +356,16 @@ def _run_foreground(
     # this command runs the server itself, so unlike the rest of the client it needs pixeltable in-process
     import uvicorn
 
-    from pixeltable.serving._app import create_app_for_services, load_service_routers
+    from pixeltable.serving._app import (
+        create_app_for_services,
+        init_instrumentation,
+        instrument_app,
+        load_service_routers,
+    )
 
+    if otel:
+        # before the first Pixeltable operation, so that loading the file is traced too
+        init_instrumentation()
     services = load_service_routers(app_file)
     if service_name is None:
         if len(services) > 1:
@@ -330,6 +377,8 @@ def _run_foreground(
             sys.exit(EXIT_ERROR)
         service_name = next(iter(services))
     app = create_app_for_services(services, app_file=app_file, base_path=target, service_name=service_name)
+    if otel:
+        instrument_app(app)
     n_routes = len(app.routes)
     display_host = 'localhost' if host in ('0.0.0.0', '::') else host
     url = f'http://{display_host}:{port}'

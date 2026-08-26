@@ -547,7 +547,7 @@ def get_status() -> dict[str, Any]:
     }
 
 
-def service_diff(app_file: str, target: PxtPath) -> service_types.ServicePlan:
+def service_diff(app_file: str, target: PxtPath, *, otel: bool = False) -> service_types.ServicePlan:
     """The changes that reconciling the services deployed at target with the ones app_file declares would make.
 
     Read-only: nothing is started, stopped or forgotten.
@@ -557,17 +557,17 @@ def service_diff(app_file: str, target: PxtPath) -> service_types.ServicePlan:
         target: the catalog directory the services' models bind against.
     """
     services = load_services(app_file)
-    diffs = [_service_diff(name, service, app_file, target) for name, service in sorted(services.items())]
+    diffs = [_service_diff(name, service, app_file, target, otel) for name, service in sorted(services.items())]
     return _plan_from_service_diffs(diffs, app_file, target)
 
 
 def _service_diff(
-    name: str, service: FastAPIRouter | fastapi.FastAPI, app_file: str, target: PxtPath
+    name: str, service: FastAPIRouter | fastapi.FastAPI, app_file: str, target: PxtPath, otel: bool = False
 ) -> service_types.ServiceDiff:
     """How the deployment of one declared service at target differs from its declaration."""
     # imported here rather than at module scope: pixeltable.serving pulls in fastapi, an optional dependency
     from pixeltable.serving import FastAPIRouter
-    from pixeltable.serving._diff import blocked_schema_op, compare_specs
+    from pixeltable.serving._diff import blocked_schema_op, compare_specs, otel_op
     from pixeltable.serving.service_deployment import ServiceDeployment
 
     deployment = ServiceDeployment.read(name, target)
@@ -581,6 +581,8 @@ def _service_diff(
         else:
             route_comparison = 'declarative'
             ops += [_service_plan_op(op) for op in compare_specs(deployment.spec, service.service_spec(name))]
+            if deployment.otel != otel:
+                ops.append(_service_plan_op(otel_op(deployment.otel, otel)))
         # the models the routes name have to describe the tables at the target, whether or not the service is
         # deployed; _validate_model_routes() reports the discrepancy without binding anything
         try:
@@ -867,7 +869,9 @@ def schema_update(
     return plan
 
 
-def service_update(app_file: str, target: PxtPath, *, allow_destructive: bool = False) -> service_types.ServicePlan:
+def service_update(
+    app_file: str, target: PxtPath, *, allow_destructive: bool = False, otel: bool = False
+) -> service_types.ServicePlan:
     """Reconcile the deployments at target with the services app_file declares, and leave them running.
 
     Starts a service that is not deployed, and restarts one whose declaration changed, since a service binds
@@ -908,7 +912,7 @@ def service_update(app_file: str, target: PxtPath, *, allow_destructive: bool = 
             deployment = ServiceDeployment.read(diff['name'], target)
             if deployment is not None:
                 deployment.stop()
-        started = ServiceDeployment.start(app_file, diff['name'], target)
+        started = ServiceDeployment.start(app_file, diff['name'], target, otel=otel)
         diff['status'] = 'applied'
         diff['state'] = 'AVAILABLE'
         diff['endpoint'] = started.endpoint

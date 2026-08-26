@@ -75,6 +75,9 @@ class ServiceDeployment:
 
     spec: ServiceSpec
 
+    # whether this deployment emits OpenTelemetry traces; an update that changes it restarts the service
+    otel: bool = False
+
     @classmethod
     def log_path(cls, name: str, base_path: str) -> Path:
         components = catalog.Path.parse(base_path, allow_empty_path=True).components
@@ -106,7 +109,7 @@ class ServiceDeployment:
         return Env.get().services_dir.joinpath(*parsed_path.components)
 
     @classmethod
-    def start(cls, app_file: str, service_name: str, base_path: str = '') -> ServiceDeployment:
+    def start(cls, app_file: str, service_name: str, base_path: str = '', *, otel: bool = False) -> ServiceDeployment:
         """
         Atomically start and record the named service from app_file with its models bound at base_path, or return the
         running one.
@@ -114,7 +117,7 @@ class ServiceDeployment:
         Raises RequestError if the service cannot be served, and Error if its process never becomes healthy.
         """
         with cls._service_lock(service_name, base_path):
-            return cls._start(app_file, service_name, base_path)
+            return cls._start(app_file, service_name, base_path, otel)
 
     @classmethod
     def _service_lock(cls, service_name: str, base_path: str) -> threading.Lock:
@@ -124,7 +127,7 @@ class ServiceDeployment:
             return _service_locks.setdefault(path, threading.Lock())
 
     @classmethod
-    def _start(cls, app_file: str, service_name: str, base_path: str) -> ServiceDeployment:
+    def _start(cls, app_file: str, service_name: str, base_path: str, otel: bool) -> ServiceDeployment:
         """Start the service and wait for it to report healthy, with cls._start_lock() held."""
         deployment = cls.read(service_name, base_path)
         if deployment is not None and deployment.health_ok():
@@ -153,6 +156,8 @@ class ServiceDeployment:
             '--base-path',
             base_path,
         ]
+        if otel:
+            argv.append('--otel')
         project_root = Config.get().project_root
         assert project_root is not None
         argv += ['--project-root', str(project_root)]
@@ -214,7 +219,7 @@ class ServiceDeployment:
 
     @classmethod
     def create(
-        cls, service_name: str, base_path: str, port: int, app_file: str, spec: ServiceSpec
+        cls, service_name: str, base_path: str, port: int, app_file: str, spec: ServiceSpec, otel: bool = False
     ) -> ServiceDeployment:
         """Create and write a new service record."""
         d = ServiceDeployment(
@@ -225,6 +230,7 @@ class ServiceDeployment:
             process_started_at=process_timestamp(os.getpid()),
             app_file=str(Path(app_file).resolve()),
             spec=spec,
+            otel=otel,
         )
 
         path = d._record_file(d.service_name, d.base_path)

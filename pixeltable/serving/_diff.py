@@ -31,11 +31,19 @@ class ServiceChangeOp(TypedDict):
     details: dict[str, str]  # 'from' and 'to' for an alter, 'command' for a blocked operation
 
 
-def blocked_schema_op(service_name: str, description: str, command: str) -> ServiceChangeOp:
-    """The operation for a service whose models do not describe the tables they name.
+def otel_op(deployed: bool, requested: bool) -> ServiceChangeOp:
+    state = {True: 'on', False: 'off'}
+    return {
+        'target': 'service',
+        'name': 'otel',
+        'op': 'alter',
+        'severity': 'additive',  # the routes are unchanged; the service restarts to pick up the new setting
+        'description': f'tracing will be turned {state[requested]}, which restarts the service',
+        'details': {'from': state[deployed], 'to': state[requested]},
+    }
 
-    A schema update is the only thing that reconciles them, so the operation carries the command that runs it.
-    """
+
+def blocked_schema_op(service_name: str, description: str, command: str) -> ServiceChangeOp:
     return {
         'target': 'service',
         'name': service_name,

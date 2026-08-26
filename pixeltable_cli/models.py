@@ -229,6 +229,7 @@ class SchemaUpdateBody(BaseModel):
 class ServiceDiffBody(BaseModel):
     app_file: str  # absolute filesystem path to the application file on the daemon host
     target: PxtPath  # the catalog directory the services' models bind against
+    otel: bool = False  # the tracing setting to compare the deployments against
 
 
 class ServicePruneBody(BaseModel):
@@ -240,6 +241,7 @@ class ServiceUpdateBody(BaseModel):
     app_file: str  # absolute filesystem path to the application file on the daemon host
     target: PxtPath
     allow_destructive: bool = False
+    otel: bool = False
 
 
 class ServiceStopBody(BaseModel):
