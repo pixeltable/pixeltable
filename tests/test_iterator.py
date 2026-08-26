@@ -724,5 +724,24 @@ class TestIterator:
             v1 = pxt.get_table(p('v1'))
             v2 = pxt.get_table(p('v2'))
 
+    def test_future_annotations_iterator(self, make_catalog_path: Callable[[str], str]) -> None:
+        """Tests that iterators can be defined in modules with `from __future__ import annotations`."""
+        from .module_with_future_annotations import split_words
+
+        p = make_catalog_path
+
+        assert split_words.call_output_schema({}) == {
+            'word': ts.StringType(),
+            'position': ts.IntType(),
+            'arr': ts.ArrayType(dtype=ts.FloatType(), nullable=True),
+        }
+
+        t = pxt.create_table(p('test_future_annotations'), {'text': pxt.String})
+        t.insert(text='the quick brown fox')
+        v = pxt.create_view(p('future_annotations_view'), t, iterator=split_words(t.text))
+        res = v.order_by(v.position).select(v.word, v.position).collect()
+        assert list(res['word']) == ['the', 'quick', 'brown', 'fox']
+        assert list(res['position']) == [0, 1, 2, 3]
+
 
 evolving_iterator: func.GeneratingFunction | None = None
