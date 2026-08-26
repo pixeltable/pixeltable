@@ -101,7 +101,7 @@ def _identity_diff(client: dict[str, Any], daemon: dict[str, Any]) -> list[str]:
 
 
 def _serves_another_project(daemon: dict[str, Any]) -> bool:
-    """Report whether the daemon serves a project other than the one the working directory establishes.
+    """Report whether the daemon's project root differs from the one the working directory establishes.
 
     A working directory that establishes no project asks for nothing, and leaves the daemon as it is.
     """

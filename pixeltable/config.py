@@ -78,6 +78,12 @@ class DatabaseConfig(pydantic.BaseModel):
 LOCAL_DATABASE = 'local'
 
 
+class _Unspecified:
+    """Distinguishes "no project root was given" from a given root of None, which means no project."""
+
+
+_UNSPECIFIED = _Unspecified()
+
 # the recognized config files
 PROJECT_CONFIG_FILE = 'pixeltable.toml'
 _PYPROJECT = 'pyproject.toml'  # with a [tool.pixeltable] section
@@ -307,12 +313,14 @@ class Config:
     # section -> key -> (value, source_path); source_path is None for settings that don't come from a file
     __config_dict: dict[str, dict[str, tuple[Any, Path | None]]]
 
-    # the directory holding the project config file; needs to be available independently of the Config instance
-    __project_root: ClassVar[Path | None] = None
-    __project_root_initialized: ClassVar[bool] = False
+    # the directory holding the project config file, or None when there is no project
+    __project_root: Path | None
 
-    def __init__(self, config_overrides: dict[str, Any]) -> None:
+    def __init__(
+        self, config_overrides: dict[str, Any], project_root: Path | _Unspecified | None = _UNSPECIFIED
+    ) -> None:
         assert self.__instance is None, 'Config is a singleton; use Config.get() to access the instance'
+        self.__project_root = self.__resolve_project_root(project_root)
 
         for var in config_overrides:
             section, _, key = var.rpartition('.')
@@ -361,39 +369,45 @@ class Config:
         return cls.__instance
 
     @classmethod
-    def init(cls, config_overrides: dict[str, Any] | None = None, reinit: bool = False) -> None:
+    def init(
+        cls,
+        config_overrides: dict[str, Any] | None = None,
+        reinit: bool = False,
+        project_root: Path | _Unspecified | None = _UNSPECIFIED,
+    ) -> None:
         if config_overrides is None:
             config_overrides = {}
         with cls.__init_lock:
             if reinit:
                 cls.__instance = None
             if cls.__instance is None:
-                cls.__instance = cls(config_overrides)
-            elif len(config_overrides) > 0:
+                cls.__instance = cls(config_overrides, project_root)
+            elif len(config_overrides) > 0 or not isinstance(project_root, _Unspecified):
+                # ignoring either one would leave the caller believing a setting took effect
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_STATE,
                     'Pixeltable has already been initialized; cannot specify new config values in the same session',
                 )
 
-    @classmethod
-    def set_project_root(cls, root: Path | None) -> None:
-        """Record the project root (incl None) and put it on sys.path."""
-        cls.__project_root_initialized = True
-        if root is None:
-            cls.__project_root = None
-            return
-        resolved = Path(root).expanduser().resolve()
-        assert resolved.is_dir(), f'not a directory: {root}'
-        cls.__project_root = resolved
+    @property
+    def project_root(self) -> Path | None:
+        return self.__project_root
+
+    def __resolve_project_root(self, root: Path | _Unspecified | None) -> Path | None:
+        """Set the project root and put it on sys.path."""
+        if isinstance(root, _Unspecified):
+            resolved = _find_project_root(Path.cwd())
+        elif root is None:
+            return None
+        else:
+            resolved = Path(root).expanduser().resolve()
+        if resolved is None:
+            return None
+        assert resolved.is_dir(), f'not a directory: {resolved}'
         # append(): we want an installed module to take precedence over a project module of the same name
         if str(resolved) not in sys.path:
             sys.path.append(str(resolved))
-
-    @classmethod
-    def project_root(cls) -> Path | None:
-        if not cls.__project_root_initialized:
-            cls.set_project_root(_find_project_root(Path.cwd()))
-        return cls.__project_root
+        return resolved
 
     @classmethod
     def reload_if_changed(cls) -> bool:
@@ -407,8 +421,10 @@ class Config:
             if cls.__instance.__file_stamp() == cls.__instance.__stamp:
                 return False
             config_overrides = cls.__instance.__config_overrides
+            # carried forward: the working directory may have moved
+            project_root = cls.__instance.__project_root
             cls.__instance = None
-            cls.__instance = cls(config_overrides)
+            cls.__instance = cls(config_overrides, project_root)
             return True
 
     def __file_stamp(self) -> tuple[tuple[float, int] | None, ...]:
@@ -457,7 +473,7 @@ class Config:
 
     def __resolve_project_config_file(self) -> Path | None:
         """A pixeltable.toml takes precedence over a pyproject.toml in the same directory."""
-        root = self.project_root()
+        root = self.__project_root
         if root is None:
             return None
         pixeltable_toml = root / PROJECT_CONFIG_FILE

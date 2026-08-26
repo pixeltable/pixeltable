@@ -139,8 +139,8 @@ def project_dir(tmp_path: pathlib.Path) -> pathlib.Path:
 
 
 @pytest.fixture
-def project_env(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> pathlib.Path:
-    """A project root that this process serves, for a test that loads an application file in process.
+def project_env(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[pathlib.Path]:
+    """A project root for a test that loads an application file in process.
 
     Config resolves one project root when it starts and holds it for the life of the process, so a test that
     needs a different one sets the resolved value rather than starting over: reinitializing would also
@@ -150,8 +150,10 @@ def project_env(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> path
 
     (tmp_path / 'pixeltable.toml').write_text('', encoding='utf-8')
     monkeypatch.setattr(sys, 'path', [*sys.path, str(tmp_path)])
-    monkeypatch.setattr(Config, 'project_root', tmp_path)
-    return tmp_path
+    original = Config.get().project_root
+    Config.init(reinit=True, project_root=tmp_path)
+    yield tmp_path
+    Config.init(reinit=True, project_root=original)
 
 
 @pytest.fixture(scope='session')
@@ -388,9 +390,15 @@ def catalog_mode(request: pytest.FixtureRequest) -> CatalogMode:
     return getattr(request, 'param', 'local')
 
 
+@pytest.fixture
+def served_project() -> pathlib.Path | None:
+    """The project a daemon should serve; the CLI package overrides this with its session project."""
+    return None
+
+
 @pytest.fixture(scope='function')
 def make_catalog_path(
-    init_env: None, catalog_mode: CatalogMode, request: pytest.FixtureRequest
+    init_env: None, catalog_mode: CatalogMode, served_project: pathlib.Path | None, request: pytest.FixtureRequest
 ) -> Iterator[Callable[[str], str]]:
     """Parameterized variant of uses_db: runs a test against both the in-process catalog and a delegated
     (proxied) catalog served by a local daemon.
@@ -401,6 +409,9 @@ def make_catalog_path(
     _reset_catalog_state()
 
     if catalog_mode == 'proxy':
+        # the daemon is handed the project Config holds when it starts, and never re-reads it
+        if served_project is not None and Config.get().project_root != served_project:
+            Config.init(reinit=True, project_root=served_project)
         db = request.getfixturevalue('proxy_daemon_db')
         # the daemon resolves udf module paths against the one project it was started with, and tests in
         # different packages serve different projects; start() reuses a daemon serving this test's project and

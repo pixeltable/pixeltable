@@ -60,13 +60,13 @@ class TestBridge:
         app_file = tmp_path / 'outside_app.py'
         app_file.write_text('import pixeltable as pxt\n', encoding='utf-8')
 
-        monkeypatch.setattr(Config, 'project_root', served)
+        Config.init(reinit=True, project_root=served)
         with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r'which the file does not sit under') as exc_info:
             load_app_module(str(app_file), subject='application file')
         assert str(served) in exc_info.value.message
 
-        monkeypatch.setattr(Config, 'project_root', None)
-        with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r'serves no project') as exc_info:
+        Config.init(reinit=True, project_root=None)
+        with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r'there is no project root') as exc_info:
             load_app_module(str(app_file), subject='application file')
         message = exc_info.value.message
         assert 'pixeltable.toml' in message

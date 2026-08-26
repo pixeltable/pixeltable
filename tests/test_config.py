@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
 from pathlib import Path
 from textwrap import dedent
 
@@ -17,6 +18,18 @@ from .utils import get_image_files, pxt_raises
 
 
 class TestConfig:
+    @pytest.fixture(autouse=True)
+    def mutates_project_root(self) -> Iterator[None]:
+        """Allows a test to re-init config with a new project root without changing it permanently.
+
+        A test here reinitializes Config to create a project dir; the root outlives the test otherwise,
+        and every process the session starts later is handed it.
+        """
+        original = Config.get().project_root
+        yield
+        if Config.get().project_root != original:
+            Config.init(reinit=True, project_root=original)
+
     def test_config_errors(self, init_env: None, tmp_path: Path) -> None:
         def spawn_cmd(env_vars: dict[str, str], expected_error_msg: str, init_arg: str = '') -> None:
             result = subprocess.run(
@@ -195,6 +208,50 @@ class TestConfig:
         assert 'did you mean PIXELTABLE_HOME' in stderr, stderr
         assert not (tmp_path / 'nope').exists(), 'the mis-cased variable was used as the home directory'
 
+    def test_project_discovery(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The project root is the nearest one at or above the working directory."""
+
+        def serving(cwd: Path) -> tuple[Path | None, Path | None]:
+            """What a process starting in cwd resolves: its project root and config file."""
+            monkeypatch.chdir(cwd)
+            Config.init(reinit=True)
+            return Config.get().project_root, Config.get().project_config_file
+
+        nested = tmp_path / 'proj' / 'ad_gen' / 'inner'
+        nested.mkdir(parents=True)
+
+        # a directory under no project config has no project root
+        assert serving(nested) == (None, None)
+
+        # a pyproject.toml that says nothing about Pixeltable is not a project config
+        (tmp_path / 'proj' / 'pyproject.toml').write_text('[project]\nname = "proj"\n')
+        assert serving(nested) == (None, None)
+
+        # one declaring [tool.pixeltable] is, and it configures every directory below it
+        (tmp_path / 'proj' / 'pyproject.toml').write_text('[project]\nname = "proj"\n\n[tool.pixeltable]\n')
+        assert serving(nested) == (tmp_path / 'proj', tmp_path / 'proj' / 'pyproject.toml')
+
+        # a config closer to the working directory wins
+        (tmp_path / 'proj' / 'ad_gen' / 'pixeltable.toml').write_text('')
+        assert serving(nested) == (tmp_path / 'proj' / 'ad_gen', tmp_path / 'proj' / 'ad_gen' / 'pixeltable.toml')
+
+        # a directory holding both is configured by its pixeltable.toml
+        (tmp_path / 'proj' / 'ad_gen' / 'pyproject.toml').write_text('[project]\nname = "x"\n\n[tool.pixeltable]\n')
+        assert serving(nested) == (tmp_path / 'proj' / 'ad_gen', tmp_path / 'proj' / 'ad_gen' / 'pixeltable.toml')
+
+        # an unparseable pyproject.toml configures nothing, rather than making the directory unusable
+        unparseable = tmp_path / 'unparseable'
+        unparseable.mkdir()
+        (unparseable / 'pyproject.toml').write_text('[tool.pixeltable\n')
+        assert serving(unparseable) == (None, None)
+
+        # an explicit root is used as given; an explicit None means no project
+        Config.init(reinit=True, project_root=tmp_path / 'proj')
+        assert Config.get().project_root == tmp_path / 'proj'
+        monkeypatch.chdir(nested)
+        Config.init(reinit=True, project_root=None)
+        assert Config.get().project_root is None
+
     def test_project_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A config setting in the project is read, and wins over the home config."""
         home = tmp_path / 'home.toml'
@@ -206,10 +263,7 @@ class TestConfig:
             name = 'pyproject.toml' if in_pyproject else 'pixeltable.toml'
             (project / name).write_text(project_text)
             monkeypatch.setenv('PIXELTABLE_CONFIG', str(home))
-            # via monkeypatch: a directly set project root would outlive this test
-            monkeypatch.setattr(Config, 'project_root', project)
-            monkeypatch.setattr(Config, '_Config__project_root_initialized', True)
-            Config.init(reinit=True)
+            Config.init(reinit=True, project_root=project)
             return Config.get()
 
         # a var bound only by the project is read, and get_value_source() names its file

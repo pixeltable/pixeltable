@@ -183,7 +183,7 @@ class TestConfig:
         assert (var['value'], var['source']) == ('s3://bucket/prefix', 'env')
         assert 'PIXELTABLE_SECRET_PXT_TEST_KEY' in resp['env_var_names']
 
-    def test_config_var_supplied_by_the_environment(
+    def test_config_var_from_env(
         self, cli: PxtRunner, make_catalog_path: Callable[[str], str], project_dir: pathlib.Path
     ) -> None:
         """A config var a schema declares is bound from the environment, with no entry in any config file."""
@@ -222,6 +222,59 @@ class TestConfig:
         entries = cli('config', '--json', env_overrides=bound).json['entries']
         dest = next(e for e in entries if e['key'] == 'pxt_test_dest')
         assert (dest['section'], dest['source']) == ('pixeltable.database.vars', 'env')
+
+    def test_config_var_from_project_config(
+        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], project_dir: pathlib.Path
+    ) -> None:
+        """A var and a secret bound in the project's pixeltable.toml reach the daemon."""
+        target = make_catalog_path('cfg')
+        media_dir = project_dir / 'media'
+        media_dir.mkdir()
+        schema_file = project_dir / 'app.py'
+        schema_file.write_text(
+            dedent(
+                """
+                from __future__ import annotations
+
+                import pixeltable as pxt
+
+                MEDIA_DEST = pxt.ConfigVar('pxt_proj_dest', pxt.URI)
+
+                TableModel = pxt.model_base()
+
+
+                class Clips(TableModel, name='clips'):
+                    img: pxt.Image | None
+                    thumb = pxt.Column(value=img.rotate(90), destination=MEDIA_DEST)
+                """
+            ),
+            encoding='utf-8',
+        )
+
+        # the project binds the var, with nothing in the environment and nothing in the home config
+        project_config = project_dir.parent / 'pixeltable.toml'
+        original = project_config.read_text(encoding='utf-8')
+        project_config.write_text(
+            f"{original}\n[[pixeltable.database]]\nvars.pxt_proj_dest = '{media_dir.as_posix()}'\n"
+            "secrets.pxt_proj_key = 'from-the-project'\n",
+            encoding='utf-8',
+        )
+        try:
+            cli('daemon', 'restart')  # the daemon read the project config when it started
+            cli('schema', 'update', str(schema_file), target)
+            assert cli('schema', 'diff', str(schema_file), target).returncode == 0
+
+            # the column records the variable, and pxt config names the project file as its source
+            md = pxt.get_table(f'{target}/clips').get_metadata()
+            assert md['columns']['thumb']['destination'] == '$pxt_proj_dest'
+            entries = cli('config', '--json').json['entries']
+            var = next(e for e in entries if e['key'] == 'pxt_proj_dest')
+            assert (var['section'], var['source']) == ('pixeltable.database.vars', str(project_config))
+            secret = next(e for e in entries if e['key'] == 'pxt_proj_key')
+            assert (secret['section'], secret['source']) == ('pixeltable.database.secrets', str(project_config))
+        finally:
+            project_config.write_text(original, encoding='utf-8')
+            cli('daemon', 'restart')
 
     def test_changing_a_value_in_the_config_file(
         self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
@@ -289,7 +342,7 @@ class TestConfig:
         slow = subprocess.Popen(
             ['pxt', 'schema', 'update', str(schema_file), target],
             env={**os.environ, 'BROWSER': 'true'},
-            # a client outside the project the daemon serves restarts it, so run where the schema file is
+            # a client outside the daemon's project root restarts it, so run where the schema file is
             cwd=project_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,

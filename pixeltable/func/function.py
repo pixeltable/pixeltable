@@ -547,7 +547,8 @@ class Function(ABC):
                 # we couldn't resolve the path
                 project_root = Config.get().project_root
                 detail = (
-                    "(There is no configured project root; did you forget to run `pxt init` inside the project's toy-level directory?)"
+                    '(There is no configured project root; did you forget to run `pxt init` in the '
+                    "project's top-level directory?)"
                     if project_root is None
                     else f'A module outside the project at {project_root} is only importable if it is installed.'
                 )

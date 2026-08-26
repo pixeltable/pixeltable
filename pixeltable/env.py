@@ -327,8 +327,6 @@ class Env:
         self._tmp_dir.mkdir(exist_ok=True)
         self._services_dir.mkdir(exist_ok=True)
 
-        Config.get().resolved_project_root()
-
         self._file_cache_size_g = config.get_float_value('file_cache_size_g')
         if self._file_cache_size_g is None:
             raise excs.RequestError(

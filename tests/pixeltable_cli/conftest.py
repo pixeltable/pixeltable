@@ -53,13 +53,24 @@ def session_project(tmp_path_factory: pytest.TempPathFactory) -> pathlib.Path:
     """
     root = tmp_path_factory.mktemp('pxt_project')
     (root / 'pixeltable.toml').write_text('', encoding='utf-8')
-    Config.set_project_root(root)
+    Config.init(reinit=True, project_root=root)
     return root
 
 
 @pytest.fixture(autouse=True)
-def set_project_root(session_project: pathlib.Path) -> None:
-    Config.set_project_root(session_project)
+def serve_the_session_project(session_project: pathlib.Path) -> None:
+    """Point Config at the session's project before each test.
+
+    Every process this package starts is handed the project Config holds at the time, and a test elsewhere in
+    the session leaves its own value behind.
+    """
+    if Config.get().project_root != session_project:
+        Config.init(reinit=True, project_root=session_project)
+
+
+@pytest.fixture
+def served_project(session_project: pathlib.Path) -> pathlib.Path:
+    return session_project
 
 
 @pytest.fixture

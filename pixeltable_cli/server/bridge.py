@@ -15,6 +15,7 @@ import logging
 import re
 import urllib.parse
 import urllib.request
+from types import ModuleType
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import pixeltable as pxt
@@ -687,9 +688,23 @@ def _list_tables(pxt_path: PxtPath) -> list[PxtPath]:
         return []
 
 
+def _schema_model_bases(module: ModuleType, schema_file: str) -> list[model.TableModelMeta]:
+    """The model bases schema_file declares; every schema verb needs at least one.
+
+    A service file may declare none, since its routes may serve tables another file declares.
+    """
+    bases = get_model_bases(module)
+    if len(bases) == 0:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f"no model_base() found in {schema_file}; run 'pxt schema example' for a file to start from",
+        )
+    return bases
+
+
 def schema_check(schema_file: str) -> schema_types.CheckReport:
     module = load_app_module(schema_file, subject='schema file')
-    return _check_report(schema_file, get_model_bases(module))
+    return _check_report(schema_file, _schema_model_bases(module, schema_file))
 
 
 def service_check(app_file: str) -> schema_types.CheckReport:
@@ -705,7 +720,7 @@ def _check_report(file: str, bases: list[model.TableModelMeta]) -> schema_types.
 
 def schema_diff(schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaPlan:
     module = load_app_module(schema_file, subject='schema file')
-    model_bases = get_model_bases(module)
+    model_bases = _schema_model_bases(module, schema_file)
     return _schema_plan(model_bases, schema_file, catalog_dir)
 
 
@@ -777,7 +792,7 @@ def schema_prune(schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaP
     If this exits with an error, it may have dropped a partial list of tables.
     """
     module = load_app_module(schema_file, subject='schema file')
-    model_bases = get_model_bases(module)
+    model_bases = _schema_model_bases(module, schema_file)
     plan = _schema_plan(model_bases, schema_file, catalog_dir)
     remaining = list(plan['extras'])
     dropped: list[PxtPath] = []
@@ -815,7 +830,7 @@ def schema_update(
     Returns the plan that was applied, each operation annotated with its status.
     """
     module = load_app_module(schema_file, subject='schema file')
-    model_bases = get_model_bases(module)
+    model_bases = _schema_model_bases(module, schema_file)
     errors = check_udf_references(model_bases)
     if len(errors) > 0:
         raise excs.RequestError(

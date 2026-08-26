@@ -63,21 +63,21 @@ def load_app_module(file: str, *, subject: str) -> ModuleType:
 
 
 def _no_root_msg(path: Path, subject: str, root: Path | None) -> str:
-    """Report the project this process serves, and what to do about a file outside it."""
+    """Report the project root, and what to do about a file outside it."""
     rule = (
         f'A UDF is recorded as a module path relative to the project root, which is the directory holding '
-        f'the project configuration, so this {subject} has to sit under the project this process serves.'
+        f'the project configuration, so this {subject} has to sit under that root.'
     )
     if root is None:
         return (
-            f'{path}: this process serves no project. Searched {Path.cwd()} and every directory above it for '
+            f'{path}: there is no project root. Searched {Path.cwd()} and every directory above it for '
             f'a project configuration: a pixeltable.toml, or a pyproject.toml with a [tool.pixeltable] '
             f'section.\n'
             f'{rule}\n'
             f"Run 'pxt init' in the directory that holds your project, then run this command again."
         )
     return (
-        f'{path}: this process serves the project at {root}, which the file does not sit under.\n'
+        f'{path}: the project root is {root}, which the file does not sit under.\n'
         f'{rule}\n'
         "Run this command from the file's own project."
     )

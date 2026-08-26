@@ -1,7 +1,5 @@
 import asyncio
 import os
-import pathlib
-import sys
 from typing import Iterator
 
 import numpy as np
@@ -9,7 +7,7 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable import env, exceptions as excs
-from pixeltable.config import Config, _find_project_root
+from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.utils.filecache import FileCache
@@ -296,77 +294,3 @@ class TestApiClients:
         clients = _test_clients[n_clients:]
         assert len(clients) == 1
         assert (clients[0].closes, clients[0].loop_was_open) == (1, True)
-
-
-class TestProjectRoot:
-    def test_marker_discovery(self, tmp_path: pathlib.Path) -> None:
-        """The nearest marker at or above a directory decides where its project starts."""
-        nested = tmp_path / 'proj' / 'ad_gen' / 'inner'
-        nested.mkdir(parents=True)
-
-        # nothing above the directory marks a project
-        assert _find_project_root(nested) is None
-
-        # a pyproject.toml that says nothing about Pixeltable is not a marker
-        (tmp_path / 'proj' / 'pyproject.toml').write_text('[project]\nname = "proj"\n', encoding='utf-8')
-        assert _find_project_root(nested) is None
-
-        # one that declares [tool.pixeltable] is
-        (tmp_path / 'proj' / 'pyproject.toml').write_text(
-            '[project]\nname = "proj"\n\n[tool.pixeltable]\n', encoding='utf-8'
-        )
-        assert _find_project_root(nested) == tmp_path / 'proj'
-        assert _find_project_root(tmp_path / 'proj') == tmp_path / 'proj'
-
-        # a marker closer to the directory wins
-        (tmp_path / 'proj' / 'ad_gen' / 'pixeltable.toml').write_text('', encoding='utf-8')
-        assert _find_project_root(nested) == tmp_path / 'proj' / 'ad_gen'
-
-        # a directory holding both is a project root by its pixeltable.toml, which needs no section
-        (tmp_path / 'proj' / 'ad_gen' / 'pyproject.toml').write_text('[project]\nname = "x"\n', encoding='utf-8')
-        assert _find_project_root(nested) == tmp_path / 'proj' / 'ad_gen'
-
-        # an unparseable pyproject.toml marks nothing, rather than making the directory unusable
-        (tmp_path / 'unparseable').mkdir()
-        (tmp_path / 'unparseable' / 'pyproject.toml').write_text('[tool.pixeltable\n', encoding='utf-8')
-        assert _find_project_root(tmp_path / 'unparseable') is None
-
-    def test_env_resolves_the_root(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Env resolves the root of the directory it starts in, and holds it for the life of the process."""
-        root = tmp_path / 'proj'
-        (root / 'ad_gen').mkdir(parents=True)
-        (root / 'pixeltable.toml').write_text('', encoding='utf-8')
-        # copies, so that what Env records and appends is undone when the test ends
-        monkeypatch.setattr(sys, 'path', list(sys.path))
-        monkeypatch.setattr(Config, 'project_root', None)
-        monkeypatch.setattr(Config, '_Config__project_root_initialized', False)
-
-        monkeypatch.chdir(root / 'ad_gen')
-        _reset_env(reinit=False, db_name=None)
-        assert Config.project_root == root.resolve()
-        assert sys.path[-1] == str(root.resolve())
-
-        # a process serves one project: starting over elsewhere keeps the project it already has, and
-        # serving another one takes a new process
-        elsewhere = tmp_path / 'elsewhere'
-        elsewhere.mkdir()
-        monkeypatch.chdir(elsewhere)
-        _reset_env(reinit=False, db_name=None)
-        assert Config.project_root == root.resolve()
-
-    def test_a_process_told_it_serves_no_project_keeps_none(
-        self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A daemon is handed its project on the command line, so nothing it starts in establishes one."""
-        root = tmp_path / 'proj'
-        root.mkdir()
-        (root / 'pixeltable.toml').write_text('', encoding='utf-8')
-        monkeypatch.setattr(sys, 'path', list(sys.path))
-        monkeypatch.setattr(Config, 'project_root', None)
-        monkeypatch.setattr(Config, '_Config__project_root_initialized', False)
-
-        monkeypatch.chdir(root)
-        Config.set_project_root(None)
-        _reset_env(reinit=False, db_name=None)
-        assert Config.project_root is None
-        assert str(root.resolve()) not in sys.path

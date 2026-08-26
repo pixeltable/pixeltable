@@ -55,7 +55,7 @@ def main(argv: list[str] | None = None) -> None:
     _write_pidfile()
     atexit.register(_remove_pidfile_if_ours)
     # includes the None that means no project: a daemon's working directory says nothing about a project
-    Config.set_project_root(args.project_root)
+    Config.init(project_root=args.project_root)
     run(server)
 
 
