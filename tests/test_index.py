@@ -1614,7 +1614,7 @@ class TestIndex:
         assert len(t.order_by(sim, asc=False).collect()) == 1
 
         # a second index differing only in case is a duplicate
-        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS):
+        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='Duplicate index name: idx'):
             t.add_embedding_index('text', idx_name='IDX', string_embed=local_embed)
 
         t.drop_index(idx_name='IDX')

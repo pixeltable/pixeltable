@@ -636,7 +636,9 @@ class TestComponentView:
         """A declared view column that folds onto an iterator output is rejected."""
         p = make_catalog_path
         t = pxt.create_table(p('base'), {'n': pxt.Int})
-        with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA):
+        with pxt_raises(
+            pxt.ErrorCode.INVALID_SCHEMA, match=r'Column.+are produced by the iterator and also declared by the view'
+        ):
             pxt.create_view(
                 p('v'), t, iterator=mixed_case_iterator(n=t.n), additional_columns={'MYOUTPUT': pxt.Int | None}
             )

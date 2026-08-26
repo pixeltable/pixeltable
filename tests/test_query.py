@@ -1379,7 +1379,7 @@ class TestQuery:
         assert rs['MyCol'] == [1]
         assert rs[0, 'MyCol'] == 1
 
-        row = rs._rows[0]
+        row = next(iter(t.select(t.MyCol).cursor()))
         assert row['MyCol'] == 1
         assert 'MYCOL' in row
         assert row.get('MyCol') == 1

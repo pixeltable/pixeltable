@@ -4511,8 +4511,9 @@ class TestTable:
         assert [(r['mycol'], r['other']) for r in rows] == [(3, 'a'), (10, 'b'), (None, 'c')]
 
         # the table itself resolves under any casing
-        assert pxt.get_table(p('t'))._id == t._id
-        assert pxt.get_table(p('T'))._id == t._id
+        path = t.get_metadata()['path']
+        assert pxt.get_table(p('t')).get_metadata()['path'] == path
+        assert pxt.get_table(p('T')).get_metadata()['path'] == path
 
     def test_case_insensitive_duplicate_columns(self, make_catalog_path: Callable[[str], str]) -> None:
         """A user-supplied mapping whose keys collide once folded is rejected, naming both spellings."""
@@ -4527,14 +4528,14 @@ class TestTable:
 
         # ... and a folded collision with an existing column is a duplicate, under every if_exists mode
         t.add_column(mycol=pxt.Int | None)
-        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS):
+        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match='Duplicate column name: mycol'):
             t.add_column(MyCol=pxt.String | None)
         t.add_column(MyCol=pxt.String | None, if_exists='ignore')
         assert t.get_metadata()['columns']['mycol']['type_'] == 'Int | None'
         t.add_column(MyCol=pxt.String | None, if_exists='replace')
         assert t.get_metadata()['columns']['mycol']['type_'] == 'String | None'
 
-        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS):
+        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match='Duplicate column name: mycol'):
             t.add_computed_column(MYCOL=t.c + 1)
         t.add_computed_column(MYCOL=t.c + 1, if_exists='ignore')
         assert t.get_metadata()['columns']['mycol']['type_'] == 'String | None'
@@ -4557,7 +4558,7 @@ class TestTable:
         assert t.get_metadata()['version'] == version  # no new schema version
 
         # a missing column is still an error, whatever the casing
-        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND):
+        with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='Unknown column: nope'):
             t.rename_column('nope', 'NOPE')
 
         # renaming to a different name still works, in any casing

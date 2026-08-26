@@ -1630,7 +1630,7 @@ class TestView:
                 additional_columns={'v1': {'type': pxt.Int | None, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
             )
 
-    def test_column_shadowing_shadowing(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_column_shadowing(self, make_catalog_path: Callable[[str], str]) -> None:
         """A view column that shadows a base column is rejected."""
         p = make_catalog_path
         t = pxt.create_table(p('base'), {'foo': pxt.Int | None, 'other': pxt.Int | None})

@@ -888,6 +888,21 @@ class TestTableModel:
         ):
             TableModel.create_all(p(''))
 
+        # shadowing is decided on the folded name, so a re-cased declaration is rejected the same way
+        CasedModel = pxt.model_base()
+
+        class CasedTableModel(CasedModel, name='test_table'):
+            id: pxt.Int
+            value: pxt.Float | None
+
+        class CasedViewModel(CasedModel, name='test_view', base=CasedTableModel):
+            Value: pxt.Float | None
+
+        with pxt_raises(
+            excs.ErrorCode.COLUMN_ALREADY_EXISTS, match=r"Column 'value' already exists in the base table 'test_table'"
+        ):
+            CasedModel.create_all(p(''))
+
     def test_update_all_adds_shadowing_column(self, make_catalog_path: Callable[[str], str]) -> None:
         """update_all() cannot add a view column that shadows a base column, the same as add_computed_column()."""
         p = make_catalog_path
@@ -2449,7 +2464,7 @@ class TestTableModel:
         # the class body's spelling resolves before binding ...
         assert isinstance(M.MyCol, pxt.exprs.ColumnRefByName)
         # ... and only that spelling: a class body follows Python's rules, so a re-cased reference is a NameError
-        with pytest.raises(NameError):
+        with pytest.raises(NameError, match="name 'mycol' is not defined"):
             exec(
                 'class Bad(TableModel, name="bad"):\n    MyCol: pxt.Int\n    d = mycol * 2\n',
                 {'pxt': pxt, 'TableModel': TableModel},
@@ -2467,7 +2482,7 @@ class TestTableModel:
         assert M.MyCol is M.mycol
         # a class attribute is Python-domain, so a casing that was never declared does *not* resolve;
         # the table handle is where case-insensitivity begins
-        with pytest.raises(AttributeError):
+        with pytest.raises(AttributeError, match=r'has no attribute .MYCOL.'):
             _ = M.MYCOL
         assert M.table.MYCOL.col_md.name == 'mycol'
 
@@ -2556,21 +2571,3 @@ class TestTableModel:
                     EmbeddingIndex(a, embedding=dummy_embedding.using(n=512), name='Idx'),
                     EmbeddingIndex(b, embedding=dummy_embedding.using(n=512), name='idx'),
                 ]
-
-    def test_view_model_case_insensitive_shadowing(self, make_catalog_path: Callable[[str], str]) -> None:
-        """Unlike create_view, a view model refuses a column that shadows an inherited one -- in any casing."""
-        p = make_catalog_path
-        TableModel = pxt.model_base()
-
-        class Base(TableModel, name='base'):
-            foo: pxt.Int
-            other: pxt.Int | None
-
-        # the check is only reachable when the base query is select(*), and it fires at creation time
-        class V(TableModel, name='v', base=Base):
-            Foo: pxt.String | None
-
-        with pxt_raises(excs.ErrorCode.COLUMN_ALREADY_EXISTS, match='already exists in the base table'):
-            TableModel.create_all(p(''))
-
-        assert V is not None
