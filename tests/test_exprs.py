@@ -2058,7 +2058,6 @@ class TestExprs:
         t = pxt.create_table(p('t'), {'JsonCol': pxt.Json | None})
         t.insert([{'jsoncol': {'someField': 1, 'somefield': 2}}])
 
-        # JSON path components are case sensitive
         res = t.select(exact=t.JSONCOL.someField, lowered=t.JSONCOL.somefield, uppered=t.JSONCOL.SOMEFIELD).collect()
         assert res['exact'] == [1]
         assert res['lowered'] == [2]

@@ -587,7 +587,6 @@ class Env:
         """Whether `db_name`, defaulting to this Env's database, exists in the store."""
         name = self._db_name if db_name is None else db_name
         assert name is not None
-        # don't try to connect to the database, it may not exist
         engine = sql.create_engine(self._dbms.default_system_db_url(), future=True)
         try:
             with engine.begin() as conn:

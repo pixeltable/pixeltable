@@ -2213,7 +2213,6 @@ class FastAPIRouter(fastapi.APIRouter):
         """
         Validate insert-/update-route args. Returns (pk_col_names, input_col_names, output_col_names, cols_by_name).
         """
-        # these name table columns, which are stored folded
         inputs = None if inputs is None else [fold_identifier(name) for name in inputs]
         uploadfile_inputs = None if uploadfile_inputs is None else [fold_identifier(name) for name in uploadfile_inputs]
         outputs = None if outputs is None else [fold_identifier(name) for name in outputs]

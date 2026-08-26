@@ -36,8 +36,7 @@ def prepare_model(
 
     Returns: a tuple of (rebound iterator, additional columns, additional idxs).
     """
-    # This is where a model's declarations cross from the Python domain into the catalog's: the class body keeps each
-    # column name as written, but from now on, identifiers are case-insensitive.
+    # This is where a model's declarations cross from the Python domain into the catalog's, and column names are folded.
     columns = fold_mapping_keys(columns)
 
     # View columns always go in a specific order:
