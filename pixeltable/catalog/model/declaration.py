@@ -36,14 +36,14 @@ if TYPE_CHECKING:
 MODEL_BY_DECLARED_TBL_ID: dict[UUID, 'TableModelMeta'] = {}
 
 # Table methods exposed as class-level operations on the model.
-# how an unbound model answers each method it forwards: a query over what it declares carries a clause, and
-# reading or writing rows needs the table that does not exist yet. Every other forwarded method is the
-# table's alone, and reports the model as unbound.
+# how an unbound model answers each method it forwards: a query over what it declares carries a clause or
+# prints itself, and reading or writing rows needs the table that does not exist yet. Every other forwarded
+# method is the table's alone, and reports the model as unbound.
 DECLARABLE_QUERY_METHODS: frozenset[str] = frozenset(
-    ('distinct', 'group_by', 'join', 'limit', 'order_by', 'sample', 'select', 'where')
+    ('describe', 'distinct', 'group_by', 'join', 'limit', 'order_by', 'sample', 'select', 'where')
 )
 ROW_METHODS: frozenset[str] = frozenset(
-    ('collect', 'count', 'cursor', 'delete', 'describe', 'head', 'recompute_columns', 'show', 'tail', 'update')
+    ('collect', 'count', 'cursor', 'delete', 'head', 'recompute_columns', 'show', 'tail', 'update')
 )
 
 FORWARDED_TABLE_METHODS: frozenset[str] = frozenset(

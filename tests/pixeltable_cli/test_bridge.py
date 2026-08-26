@@ -11,6 +11,7 @@ from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.func import Function
 from pixeltable.functions.video import frame_iterator
+from pixeltable.utils import app_module
 from pixeltable.utils.app_module import load_app_module
 from pixeltable_cli.server import bridge
 from pixeltable_cli.utils import PxtPath
@@ -52,7 +53,7 @@ class TestBridge:
         module = load_app_module(str(named), subject='application file')
         assert Function.from_dict(module.shout.as_dict()) is module.shout
 
-    def test_app_module_outside_the_project(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_app_module_outside_project(self, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Loading a file outside the served project is refused, as is loading one when no project is served."""
         served = tmp_path / 'served'
         served.mkdir()
@@ -98,6 +99,104 @@ class TestBridge:
         assert module.__name__ == 'ad_gen.app'
         assert sys.modules['ad_gen.app'] is module
         assert str(project_env) in sys.path
+
+    def test_edited_neighbor_is_read_again(self, project_env: pathlib.Path) -> None:
+        """Loading an application file again reads the modules it imports as they now stand."""
+        helpers = project_env / 'neighbor_helpers.py'
+        helpers.write_text("SUFFIX = 'first'\n", encoding='utf-8')
+        app_file = project_env / 'neighbor_app.py'
+        app_file.write_text('from neighbor_helpers import SUFFIX\n\nTAG = SUFFIX\n', encoding='utf-8')
+        assert load_app_module(str(app_file), subject='application file').TAG == 'first'
+
+        # only the imported module changed; a load that discarded just the entry module would miss this
+        helpers.write_text("SUFFIX = 'second'\n", encoding='utf-8')
+        assert load_app_module(str(app_file), subject='application file').TAG == 'second'
+
+        # the packages this process runs stay loaded, even with the project holding a checkout of them
+        assert sys.modules.get('pixeltable') is pxt
+
+    def test_prohibited_write_names_statement(self, uses_db: None, project_env: pathlib.Path) -> None:
+        """The refusal names the line and the statement that wrote to the catalog."""
+        direct = project_env / 'direct_write.py'
+        direct.write_text(
+            "import pixeltable as pxt\n\npxt.create_table('written_directly', {'c': pxt.Int})\n", encoding='utf-8'
+        )
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r'line 3: ') as exc_info:
+            load_app_module(str(direct), subject='schema file')
+        assert "create_table('written_directly'" in str(exc_info.value)
+
+        # the write happens in a helper, so the named statement is the call
+        (project_env / 'writer.py').write_text(
+            "import pixeltable as pxt\n\n\ndef make() -> None:\n    pxt.create_table('t2', {'c': pxt.Int})\n",
+            encoding='utf-8',
+        )
+        indirect = project_env / 'indirect_write.py'
+        indirect.write_text('from writer import make\n\nmake()\n', encoding='utf-8')
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r'line 3: make\(\)') as exc_info:
+            load_app_module(str(indirect), subject='schema file')
+
+    def test_shadowed_project_modules(self, project_env: pathlib.Path) -> None:
+        """A name that collides with an installed distribution is reported; nothing else is."""
+        # a module and a package whose names psutil claims
+        (project_env / 'psutil.py').write_text('TAG = 1\n', encoding='utf-8')
+        (project_env / 'shutil').mkdir()
+        (project_env / 'shutil' / 'inner.py').write_text('TAG = 2\n', encoding='utf-8')
+
+        # a name no import reaches elsewhere, and four that are not modules at all
+        (project_env / 'ad_gen.py').write_text('TAG = 3\n', encoding='utf-8')
+        (project_env / 'psutil.txt').write_text('not a module\n', encoding='utf-8')
+        (project_env / 'data').mkdir()  # a directory holding no Python
+        (project_env / 'data' / 'rows.csv').write_text('a,b\n', encoding='utf-8')
+        (project_env / 'class').mkdir()  # a keyword, so no module path can hold it
+        (project_env / 'class' / 'app.py').write_text('TAG = 4\n', encoding='utf-8')
+
+        reported = app_module.shadowed_project_modules()
+        assert sorted(w.split(':')[0] for w in reported) == ['psutil.py', 'shutil'], reported
+        assert "an import of 'psutil' reads" in next(w for w in reported if w.startswith('psutil.py'))
+
+    def test_unresolvable_udf_reference(self, uses_db: None, project_env: pathlib.Path) -> None:
+        """An unresolvable udf reference is reported as an error."""
+        (project_env / 'functions.py').write_text(
+            dedent(
+                """
+                import pixeltable as pxt
+
+                @pxt.udf
+                def tag(s: str) -> str:
+                    return f'{s}!'
+                """
+            ),
+            encoding='utf-8',
+        )
+        schema_file = project_env / 'app.py'
+        schema_file.write_text(
+            dedent(
+                """
+                from __future__ import annotations
+
+                import pixeltable as pxt
+
+                from functions import tag
+
+                TableModel = pxt.model_base()
+
+
+                class Docs(TableModel, name='docs'):
+                    title: pxt.String
+                    tagged = tag(title)  # noqa: F821
+                """
+            ),
+            encoding='utf-8',
+        )
+        module = load_app_module(str(schema_file), subject='schema file')
+        bases = app_module.get_model_bases(module)
+        assert app_module.check_udf_references(bases) == []
+
+        # the reference names a module this process no longer holds
+        sys.modules.pop('functions', None)
+        errors = app_module.check_udf_references(bases)
+        assert len(errors) == 1, errors
+        assert 'functions.tag' in errors[0]
 
     def test_app_module_cannot_modify_the_catalog(self, uses_db: None, project_env: pathlib.Path) -> None:
         """A mutation while an application file loads is refused; a read goes through."""

@@ -431,6 +431,42 @@ class TestService:
         assert_serving(cli, app, second, 'ingest')
 
     @pytest.mark.local('check reads no catalog, so the target axis adds nothing')
+    @pytest.mark.local('drives the local proxy daemon directly, so the target axis adds nothing')
+    def test_proxy_daemon_project_handoff(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
+        """A running proxy daemon is reused for its own project, and replaced for another."""
+        import httpx
+
+        from pixeltable.config import Config
+        from pixeltable.service import proxy_daemon
+
+        db = 'test_handoff'
+        original = Config.get().project_root
+        assert original is not None
+        try:
+            endpoint = proxy_daemon.start(db, test_mode=True)
+            first_pid = proxy_daemon.read_port_lock(db)['pid']
+
+            # the daemon reports the project it was handed
+            health = httpx.get(f'{endpoint}/health', timeout=10.0).json()
+            assert health['project_root'] == str(original)
+
+            # a caller in the same project reuses it
+            assert proxy_daemon.start(db, test_mode=True) == endpoint
+            assert proxy_daemon.read_port_lock(db)['pid'] == first_pid
+
+            # a caller in another project gets a daemon for that one instead
+            other = tmp_path / 'other_project'
+            other.mkdir()
+            (other / 'pixeltable.toml').write_text('', encoding='utf-8')
+            Config.init(reinit=True, project_root=other)
+            proxy_daemon.start(db, test_mode=True)
+            assert proxy_daemon.read_port_lock(db)['pid'] != first_pid
+            replaced = httpx.get(f'{proxy_daemon.endpoint(db)}/health', timeout=10.0).json()
+            assert replaced['project_root'] == str(other)
+        finally:
+            proxy_daemon.stop(db)
+            Config.init(reinit=True, project_root=original)
+
     def test_check(self, cli: PxtRunner, apps: Callable[[str], str], project_dir: pathlib.Path) -> None:
         """check validates an application file on its own: it imports and declares a service."""
         skip_test_if_not_installed('fastapi')

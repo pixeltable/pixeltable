@@ -133,6 +133,45 @@ def fresh_port(init_env: None) -> Iterator[int]:
             os.environ['PXT_PORT'] = prior
 
 
+class TestProjectRootParity:
+    """The client duplicates the library's project-root rule; the two copies have to agree."""
+
+    def test_copies_agree(self, tmp_path: pathlib.Path) -> None:
+        from pixeltable.config import _find_project_root as library_copy
+        from pixeltable_cli.utils import find_project_root as client_copy
+
+        nested = tmp_path / 'proj' / 'ad_gen'
+        nested.mkdir(parents=True)
+        elsewhere = tmp_path / 'elsewhere'
+        elsewhere.mkdir()
+
+        def both(start: pathlib.Path) -> tuple[pathlib.Path | None, pathlib.Path | None]:
+            return library_copy(start), client_copy(start)
+
+        # no config anywhere above
+        library, client = both(nested)
+        assert library == client is None
+
+        # a pyproject.toml without the section, then with it
+        (tmp_path / 'proj' / 'pyproject.toml').write_text('[project]\nname = "proj"\n')
+        library, client = both(nested)
+        assert library == client is None
+        (tmp_path / 'proj' / 'pyproject.toml').write_text('[project]\nname = "proj"\n\n[tool.pixeltable]\n')
+        library, client = both(nested)
+        assert library == client == tmp_path / 'proj'
+
+        # the nearest config wins, and a pixeltable.toml beats a pyproject.toml beside it
+        (nested / 'pyproject.toml').write_text('[tool.pixeltable]\n')
+        (nested / 'pixeltable.toml').write_text('')
+        library, client = both(nested)
+        assert library == client == nested
+
+        # a file neither copy can parse
+        (elsewhere / 'pyproject.toml').write_text('[tool.pixeltable\n')
+        library, client = both(elsewhere)
+        assert library == client is None
+
+
 class TestProbe:
     """Spawn / restart / kill safety paths."""
 

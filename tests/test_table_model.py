@@ -30,6 +30,7 @@ from .utils import (
     reload_env,
     schema_from_tbl_md,
     skip_test_if_not_installed,
+    validate_repr,
     validate_update_status,
 )
 
@@ -2221,7 +2222,6 @@ class TestTableModel:
             ('count', ()),
             ('cursor', ()),
             ('delete', ()),
-            ('describe', ()),
             ('head', ()),
             ('recompute_columns', ()),
             ('show', ()),
@@ -2233,6 +2233,17 @@ class TestTableModel:
                 match=rf'{method}\(\): `ValidTableModel`, which is not bound to a table, holds no rows',
             ):
                 getattr(ValidTableModel, method)(*args)
+
+        # describe() needs no table: it renders what the model declares, in full
+        ValidTableModel.describe()
+        validate_repr(
+            ValidTableModel.select(ValidTableModel.id),
+            """ Name        Type Expression
+               ----------------------------
+                 id  Int | None         id
+
+               From  valid_table""",
+        )
 
         # the same refusal from a declared query, rather than from the model
         declared = ValidTableModel.where(ValidTableModel.id > 0)  # type: ignore[arg-type]

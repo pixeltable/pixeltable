@@ -11,7 +11,7 @@ pytestmark = pytest.mark.local('writes a file on the filesystem, independent of 
 
 
 class TestInit:
-    def test_writes_the_project_configuration(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
+    def test_writes_project_config(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
         """A fresh directory gets a pixeltable.toml, and running it again reports what is already there."""
         r = cli('init', cwd=tmp_path)
         assert f'project root: {tmp_path}' in r.stdout
@@ -33,7 +33,7 @@ class TestInit:
             'unusable_dirs': [],
         }
 
-    def test_the_written_configuration_binds_a_var(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
+    def test_written_config_binds_var(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
         """The commented binding in the file it writes is the form that actually binds a var."""
         cli('init', cwd=tmp_path)
         config_file = tmp_path / 'pixeltable.toml'
@@ -43,7 +43,7 @@ class TestInit:
         entries = tomllib.loads(config_file.read_text())['pixeltable']['database']
         assert entries == [{'vars': {'media_dest': 's3://bucket/prefix'}}], entries
 
-    def test_pyproject_gets_the_configuration(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
+    def test_pyproject_gets_config(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
         """A directory that already has a pyproject.toml is configured in it, rather than beside it."""
         pyproject = tmp_path / 'pyproject.toml'
         pyproject.write_text('[project]\nname = "proj"\n', encoding='utf-8')
@@ -55,7 +55,7 @@ class TestInit:
         assert written == {'project': {'name': 'proj'}, 'tool': {'pixeltable': {'database': [{}]}}}, written
         assert cli('init', cwd=tmp_path).stdout.count('already configured by pyproject.toml') == 1
 
-    def test_a_root_above_is_refused(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
+    def test_root_above_is_refused(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
         """A directory under a project root is refused: a project has one root, and nesting is not offered."""
         (tmp_path / 'pixeltable.toml').write_text('', encoding='utf-8')
         nested = tmp_path / 'ad_gen'
@@ -67,7 +67,7 @@ class TestInit:
         assert str(tmp_path) in r.stderr
         assert not (nested / 'pixeltable.toml').exists()
 
-    def test_reports_a_directory_no_module_path_can_use(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
+    def test_reports_unusable_directory(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
         """A directory whose name is not an identifier is reported when it holds Python files."""
         (tmp_path / 'ad gen').mkdir()
         (tmp_path / 'ad gen' / 'app.py').write_text('', encoding='utf-8')
@@ -85,7 +85,7 @@ class TestInit:
 
 
 class TestProjectHandoff:
-    def test_daemon_serves_the_project_the_client_stands_in(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
+    def test_daemon_gets_client_project(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
         """A command establishes which project the daemon serves; one that establishes none takes it as it is."""
         project = tmp_path / 'proj'
         project.mkdir()

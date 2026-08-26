@@ -672,7 +672,12 @@ class TestSchema:
 
     @pytest.mark.local('check reads no catalog, so the target axis adds nothing')
     def test_check(
-        self, cli: PxtRunner, apps: Callable[[str], str], project_dir: pathlib.Path, session_project: pathlib.Path
+        self,
+        cli: PxtRunner,
+        apps: Callable[[str], str],
+        project_dir: pathlib.Path,
+        session_project: pathlib.Path,
+        tmp_path: pathlib.Path,
     ) -> None:
         """check validates a file on its own: it imports, declares models, and its udf paths resolve."""
         r = cli('schema', 'check', apps('basic.py'))
@@ -690,20 +695,37 @@ class TestSchema:
         assert r.returncode == 1
         assert 'modifies the catalog while it is imported' in r.stderr
 
-        # a file that imports but declares nothing
+        # an empty file
         empty = project_dir / 'empty.py'
         empty.write_text('import pixeltable as pxt\n', encoding='utf-8')
         r = cli('schema', 'check', str(empty), check=False)
         assert r.returncode == 1
         assert 'no model_base() found' in r.stderr
 
-        # a file the project does not hold
-        r = cli('schema', 'check', '/tmp/not_in_the_project.py', check=False)
+        # non-existent path
+        r = cli('schema', 'check', str(project_dir / 'nonexistent.py'), check=False)
         assert r.returncode == 1
         assert 'file not found' in r.stderr
 
-        # a project module an installed distribution answers to: the file is valid, and the warning names
-        # what an import of that name reads instead
+        # a file under a nested project config file
+        other_root = tmp_path / 'other_project'
+        other_root.mkdir()
+        (other_root / 'pixeltable.toml').write_text('', encoding='utf-8')
+        outside = other_root / 'app.py'
+        outside.write_text(SCHEMA_SRC, encoding='utf-8')
+        r = cli('schema', 'check', str(outside), check=False)
+        assert r.returncode == 1
+        assert f'the project root is {session_project}, which the file does not sit under' in r.stderr
+        assert 'has to sit under that root' in r.stderr
+
+        # missing project config file
+        no_project = tmp_path / 'loose.py'
+        no_project.write_text(SCHEMA_SRC, encoding='utf-8')
+        r = cli('schema', 'check', str(no_project), check=False)
+        assert r.returncode == 1
+        assert 'does not sit under' in r.stderr or 'there is no project root' in r.stderr
+
+        # a shadowed local source file
         shadowed = session_project / 'psutil.py'
         shadowed.write_text('TAG = 1\n', encoding='utf-8')
         try:

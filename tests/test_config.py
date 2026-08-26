@@ -252,6 +252,59 @@ class TestConfig:
         Config.init(reinit=True, project_root=None)
         assert Config.get().project_root is None
 
+    def test_project_config_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A project config file that cannot be used names itself in the error."""
+        project = tmp_path / 'proj'
+        project.mkdir()
+        config_file = project / 'pixeltable.toml'
+
+        def load(project_text: str) -> None:
+            config_file.write_text(project_text)
+            Config.init(reinit=True, project_root=project)
+
+        # two entries for one database make its bindings ambiguous
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r"Duplicate `DatabaseConfig` name 'local'"):
+            load('[[pixeltable.database]]\n\n[[pixeltable.database]]\n')
+
+        # a file Pixeltable cannot parse
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'pixeltable\.toml'):
+            load('[[pixeltable.database]\n')
+
+        # a database entry holding something no database is configured with
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'Invalid `DatabaseConfig`'):
+            load("[[pixeltable.database]]\nnot_a_setting = 'x'\n")
+
+        # a runtime spec that conda could not install, and one that would carry a shell command
+        for spec, message in (('""', r'non-empty conda package specs'), ('"ffmpeg; rm -rf /"', r'invalid character')):
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=message):
+                load(f'[[pixeltable.database]]\nsystem_dependencies = [{spec}]\n')
+
+        # a python version that is not a version
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'`python_version` must be a version'):
+            load("[[pixeltable.database]]\npython_version = '3'\n")
+
+    def test_project_root_after_reload(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The project root reaches Config through init(), and survives a reload."""
+        project = tmp_path / 'proj'
+        project.mkdir()
+        (project / 'pixeltable.toml').write_text('')
+        Config.init(reinit=True, project_root=project)
+
+        # a root for a Config that already has one is refused, rather than ignored
+        with pxt_raises(excs.ErrorCode.INVALID_STATE, match=r'already been initialized'):
+            Config.init(project_root=tmp_path)
+        assert Config.get().project_root == project
+
+        # a reload re-reads the files, and keeps the root even though the working directory moved
+        elsewhere = tmp_path / 'elsewhere'
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+        time.sleep(0.01)  # the stamp is (mtime, size), so a same-size rewrite needs a distinct mtime
+        (project / 'pixeltable.toml').write_text("[[pixeltable.database]]\nvars.after_reload = 'yes'\n")
+        assert Config.reload_if_changed()
+        assert Config.get().project_root == project
+        assert Config.get().get_string_value('after_reload', section=VAR_SECTION) == 'yes'
+
     def test_project_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A config setting in the project is read, and wins over the home config."""
         home = tmp_path / 'home.toml'

@@ -52,5 +52,5 @@ if __name__ == '__main__':
     parser.add_argument('--base-path', default='')
     parser.add_argument('--project-root', type=Path, required=True)
     args = parser.parse_args()
-    Config.init(project_root=args.project_root)
+    Config.init(reinit=True, project_root=args.project_root)
     _serve(args.app_file, args.name, args.base_path)
