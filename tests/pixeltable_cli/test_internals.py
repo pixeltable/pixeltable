@@ -1384,7 +1384,7 @@ class TestDaemonCmd:
         monkeypatch.setattr(
             daemon_cmd,
             'fetch_health',
-            lambda: {
+            lambda timeout=None: {
                 'pid': 4242,
                 'started_at': '2026-05-18T12:00:00+00:00',
                 'service': 'pxt',
@@ -1406,16 +1406,28 @@ class TestDaemonCmd:
 
     def test_status_json_is_raw_dict(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
         payload = {'pid': 4242, 'service': 'pxt', 'pixeltable_env': {}}
-        monkeypatch.setattr(daemon_cmd, 'fetch_health', lambda: payload)
+        monkeypatch.setattr(daemon_cmd, 'fetch_health', lambda timeout=None: payload)
         daemon_cmd.run(['status', '--json'])
         assert json.loads(capsys.readouterr().out) == payload
 
     def test_status_no_daemon_exits_1(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        monkeypatch.setattr(daemon_cmd, 'fetch_health', lambda: None)
+        monkeypatch.setattr(daemon_cmd, 'fetch_health', lambda timeout=None: None)
+        monkeypatch.setattr(daemon_cmd, 'port_is_open', lambda: False)
         with pytest.raises(SystemExit) as ei:
             daemon_cmd.run(['status'])
         assert ei.value.code == 1
         assert 'no daemon running' in capsys.readouterr().err
+
+    def test_status_busy_daemon_exits_1(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+        """A daemon that holds the port but does not answer is reported as busy, not as absent."""
+        monkeypatch.setattr(daemon_cmd, 'fetch_health', lambda timeout=None: None)
+        monkeypatch.setattr(daemon_cmd, 'port_is_open', lambda: True)
+        with pytest.raises(SystemExit) as ei:
+            daemon_cmd.run(['status'])
+        assert ei.value.code == 1
+        err = capsys.readouterr().err
+        assert 'busy with a request' in err
+        assert 'no daemon running' not in err
 
     def test_restart_stops_then_starts(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture, tmp_path: pathlib.Path
