@@ -125,7 +125,7 @@ def _set_up_external_db_schema(worker_id: int | str) -> str:
 
 def _worker_db_name(worker_id: int | str) -> str:
     """The db name used by both the pytest process and its proxy daemon."""
-    return f'test_{worker_id}'
+    return f'test_optbl_locking_{worker_id}'  # TODO: revert before pr
 
 
 @pytest.fixture(scope='session')
