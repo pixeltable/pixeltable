@@ -434,6 +434,7 @@ class TableVersion:
             return None
 
     def _write_md(self, new_version: bool, new_schema_version: bool) -> None:
+        get_runtime().catalog.assert_write_locked(self)
         get_runtime().catalog.write_tbl_md(
             self.id,
             None,
@@ -1056,6 +1057,7 @@ class TableVersion:
         return_rows: bool = False,
     ) -> UpdateStatus:
         """Insert rows produced by exec_plan and propagate to views"""
+        get_runtime().catalog.assert_write_locked(self)
         if self.is_data_versioned:
             # we're creating a new version
             self.bump_version(timestamp, bump_schema_version=False)
@@ -1323,6 +1325,7 @@ class TableVersion:
         """
         from pixeltable.plan import Planner
 
+        get_runtime().catalog.assert_write_locked(self)
         assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
         get_runtime().catalog.mark_modified_tv(self.handle)
         result = UpdateStatus()
@@ -1435,6 +1438,7 @@ class TableVersion:
         self, where: exprs.Expr | None, base_versions: list[int | None], timestamp: float
     ) -> UpdateStatus:
         """Delete rows in this table and propagate to views"""
+        get_runtime().catalog.assert_write_locked(self)
         get_runtime().catalog.mark_modified_tv(self.handle)
 
         sql_where_clause = where.sql_expr(exprs.SqlElementCache()) if where is not None else None

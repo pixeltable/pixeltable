@@ -54,6 +54,10 @@ class Runtime:
     conn: sql.Connection | None
     session: orm.Session | None
     isolation_level: str | None
+    # statements issued in the current transaction; maintained only under __debug__, for the assertion that lock
+    # statements come first (nothing may pin the snapshot before them)
+    num_stmts: int
+    last_stmt: str
     _progress: Progress | None
     _event_loop: asyncio.AbstractEventLoop | None  # event loop for this thread
     _owns_event_loop: bool  # False for a loop we adopted (eg Jupyter's), which is not ours to close
@@ -78,6 +82,8 @@ class Runtime:
         self.conn = None
         self.session = None
         self.isolation_level = None
+        self.num_stmts = 0
+        self.last_stmt = ''
         self._progress = None
         self._event_loop = None
         self._owns_event_loop = False
@@ -312,6 +318,8 @@ class Runtime:
                 ):
                     self.conn = conn
                     self.session = session
+                    # count only what the transaction's own callers issue, not SQLAlchemy's connection setup
+                    self.num_stmts = 0
                     yield conn
             finally:
                 self.session = None

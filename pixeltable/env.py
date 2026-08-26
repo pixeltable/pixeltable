@@ -11,6 +11,7 @@ import inspect
 import logging
 import math
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -70,6 +71,26 @@ def init_log_level(logger: logging.Logger, config: Config, config_key: str, *, d
             f"Invalid value for configuration parameter 'pixeltable.{config_key}': {level_name}",
         )
     logger.setLevel(level)
+
+
+# Statements Postgres exempts from taking a snapshot, and which may therefore precede a transaction's lock
+# statements: LOCK TABLE itself, and SET (the lock_timeout knob).
+_SNAPSHOT_EXEMPT_STMT = re.compile(r'^\s*(LOCK\s+TABLE|SET)\b', re.IGNORECASE)
+
+
+def _count_stmt(conn: sql.Connection, cursor: Any, statement: str, *args: Any) -> None:
+    """Counts the snapshot-pinning statements issued so far in the current transaction.
+
+    Catalog._lock_tables() asserts this is zero: LOCK TABLE only makes metadata current for a transaction that
+    waited on it if nothing has pinned the snapshot first.
+    """
+    from pixeltable.runtime import get_runtime
+
+    if _SNAPSHOT_EXEMPT_STMT.match(statement):
+        return
+    rt = get_runtime()
+    rt.num_stmts += 1
+    rt.last_stmt = statement[:150]
 
 
 def store_app_name() -> str:
@@ -528,6 +549,12 @@ class Env:
         self._sa_engine = sql.create_engine(
             updated_url, echo=echo, isolation_level=self._dbms.transaction_isolation_level
         )
+
+        if __debug__:
+            # Enforces the ordering the locking protocol depends on: LOCK TABLE is exempt from taking a snapshot, so
+            # a transaction that waits for a lock still reads current metadata -- but only if nothing before it has
+            # pinned the snapshot. Catalog._lock_tables() asserts this count is zero.
+            sql.event.listen(self._sa_engine, 'before_cursor_execute', _count_stmt)
 
         _logger.info(f'Created SQLAlchemy engine at: {self.db_url}')
         _logger.info(f'Engine dialect: {self._sa_engine.dialect.name}')

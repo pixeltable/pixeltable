@@ -1154,8 +1154,13 @@ class Catalog(CatalogBase):
         if len(targets) == 0:
             return
         store_tbl_names = [t.store_tbl for t in targets]
-        conn = get_runtime().conn
+        runtime = get_runtime()
+        conn = runtime.conn
         assert conn is not None
+        assert not __debug__ or runtime.num_stmts == 0, (
+            f'{runtime.num_stmts} statement(s) already issued in this transaction ({runtime.last_stmt!r}); '
+            'the lock statements must come first, or the snapshot they are meant to make current is already pinned'
+        )
         stmt = f'LOCK TABLE {", ".join(store_tbl_names)} IN {mode.value} MODE'
         if nowait:
             stmt += ' NOWAIT'
@@ -1193,6 +1198,27 @@ class Catalog(CatalogBase):
         """True if the current transaction holds at least `mode` on `store_tbl_name`."""
         held = self._locks_held.get(store_tbl_name)
         return held is not None and _LOCK_MODE_STRENGTH[held] >= _LOCK_MODE_STRENGTH[mode]
+
+    def assert_locked(self, tbl_version: TableVersion, mode: TblLockMode) -> None:
+        """Asserts that this transaction holds at least `mode` on tbl_version's store table.
+
+        A table with no store table of its own -- a pure snapshot -- has nothing to lock and is exempt; for those
+        the `tables`-row X-lock is the only serialization point there is (§4.3).
+        """
+        if tbl_version.store_tbl is None:
+            return
+        store_tbl = tbl_version.store_tbl._storage_name()
+        assert self.is_locked(store_tbl, mode), (
+            f'{store_tbl}: {mode.name} not held (held: {self._locks_held.get(store_tbl)})'
+        )
+
+    def assert_write_locked(self, tbl_version: TableVersion) -> None:
+        """Asserts that this transaction holds a lock strong enough to write tbl_version's data or metadata.
+
+        The exact mode depends on the operation class and the table kind (§1.1), so what is checked is the common
+        floor: some write-class lock rather than none at all.
+        """
+        self.assert_locked(tbl_version, TblLockMode.OP_WRITE)
 
     def _evict_caches(self) -> None:
         # Evict LRU _tbls entries
@@ -2757,8 +2783,8 @@ class Catalog(CatalogBase):
             # Bug(PXT-1198): when multiple tables are getting dropped within one transaction (like when self._drop_dir
             # calls self._drop_tbl), the expected base-before-view lock ordering is currently not guaranteed.
             if base_id not in self._write_locked_tbl_ids:
-                self._write_locked_tbl_ids.update(self._acquire_write_lock(tbl_id=base_id))
-        self._write_locked_tbl_ids.update(self._acquire_write_lock(tbl_id=tbl_id))
+                self._write_locked_tbl_ids.update(self._acquire_write_lock(tbl_id=base_id, for_schema_change=True))
+        self._write_locked_tbl_ids.update(self._acquire_write_lock(tbl_id=tbl_id, for_schema_change=True))
 
         view_ids = self.get_view_ids(tbl_id, for_update=True)
 
@@ -2822,7 +2848,7 @@ class Catalog(CatalogBase):
     def _incr_view_sn(self, tbl_id: UUID) -> None:
         """Increments the table's view_sn in the store within the current transaction"""
         self._clear_tv_cache(TableVersionKey(tbl_id, None))
-        assert self._acquire_write_lock(tbl_id=tbl_id, check_pending_ops=False), tbl_id
+        assert self._acquire_write_lock(tbl_id=tbl_id, check_pending_ops=False, for_schema_change=True), tbl_id
         result = get_runtime().conn.execute(
             sql.update(schema.Table)
             .values(
