@@ -282,7 +282,10 @@ class TableVersionPath(TablePath):
         if origin_catalog is cat and cached is not None and (not get_runtime().in_xact or cached.is_validated):
             return cached
 
-        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=[self]):
+        # md_only: this refreshes cached catalog metadata (schema, column ids); it reads no table rows and so
+        # takes no relation locks, which keeps resolving a column reference from ever blocking or failing behind a
+        # concurrent schema change
+        with get_runtime().catalog.begin_xact(for_write=False, read_tvps=[self], md_only=True):
             new_tv = self.tbl_version.get()
         self._local.cached_tbl_version = new_tv
         self._local.origin_catalog = cat

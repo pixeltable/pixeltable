@@ -495,7 +495,7 @@ class LocalTable(Table):
 
         # a retry loop is necessary because drop column needs it
         # lock_mutable_tree=True: we might end up having to drop existing columns, which requires locking the tree
-        @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)
+        @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True, for_schema_change=True)
         def do_add_columns() -> list[Column] | None:
             self._check_mutable('add columns to')
 
@@ -559,7 +559,7 @@ class LocalTable(Table):
         from pixeltable.catalog import retry_loop
 
         # a retry loop is necessary because drop column needs it.
-        @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)
+        @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True, for_schema_change=True)
         def do_add_computed_column() -> UpdateStatus:
             self._check_mutable('add columns to')
             self._check_single_column_kwarg(
@@ -624,7 +624,7 @@ class LocalTable(Table):
         # Retry loop is necessary because table metadata is loaded inside.
         # Note: the provided ColumnRef may belong to a different table.
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
-        @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)
+        @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True, for_schema_change=True)
         def do_drop_column() -> None:
             self._check_mutable('drop columns from')
             col: Column = None
@@ -700,7 +700,7 @@ class LocalTable(Table):
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=False
+            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=False, for_schema_change=True
         ):
             self._check_mutable('rename columns of')
             self._tbl_version.get().rename_column(old_name, new_name)
@@ -710,7 +710,7 @@ class LocalTable(Table):
 
         new_col_type = ts.ColumnType.normalize_type(type_, allow_builtin_types=False)
 
-        @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True)
+        @retry_loop(for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True, for_schema_change=True)
         def do_alter_column() -> None:
             self._check_mutable('alter columns of')
 
@@ -768,7 +768,7 @@ class LocalTable(Table):
             Column.validate_name(idx_name)
 
         with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True, for_schema_change=True
         ):
             tv = self._tbl_version.get()
             col = self._resolve_column_parameter(column)
@@ -812,7 +812,7 @@ class LocalTable(Table):
         self._validate_embedding_args(embedding, string_embed, image_embed)
 
         with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True, for_schema_change=True
         ):
             self._check_mutable('add an index to')
             col = self._resolve_column_parameter(column)
@@ -901,7 +901,7 @@ class LocalTable(Table):
             )
 
         with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True, for_schema_change=True
         ):
             col: Column = None
             if idx_name is None:
@@ -941,7 +941,7 @@ class LocalTable(Table):
             )
 
         with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True, for_schema_change=True
         ):
             col: Column = None
             if idx_name is None:
@@ -1180,7 +1180,7 @@ class LocalTable(Table):
 
     def revert(self) -> None:
         with get_runtime().catalog.begin_xact(
-            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True
+            for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=True, for_schema_change=True
         ):
             self._check_mutable('revert')
             tv = self._tbl_version.get()
