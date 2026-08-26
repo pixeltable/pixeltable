@@ -312,6 +312,9 @@ class Catalog(CatalogBase):
     # ids known to belong to pure snapshots, which have no store table and therefore contribute nothing to a lock
     # set. Immutable per table, so this never goes stale.
     _pure_snapshot_tbl_ids: set[UUID]
+    # ids of tables the lock-set warm-up found to be gone. Table ids are never reused, so this never goes stale
+    # either; it keeps a lock set from asking forever about a table that no warm-up can resolve.
+    _dropped_tbl_ids: set[UUID]
     _modified_tvs: set[TableVersionHandle]  # TableVersion instances modified in the current transaction
     _roll_forward_ids: set[UUID]  # ids of Tables that have pending TableOps
     _undo_actions: list[Callable[[], None]]
@@ -338,6 +341,7 @@ class Catalog(CatalogBase):
         self._num_lock_set_warm_ups = 0
         self._num_lock_set_mismatches = 0
         self._pure_snapshot_tbl_ids = set()
+        self._dropped_tbl_ids = set()
         self._modified_tvs = set()
         self._roll_forward_ids = set()
         self._undo_actions = []
@@ -740,6 +744,10 @@ class Catalog(CatalogBase):
 
         tv = self._tbl_versions.get(TableVersionKey(tbl_id, None))
         if tv is None:
+            # a snapshot has no mutable views; if that is all we have cached for tbl_id, the tree is empty. Should
+            # the target turn out to be the live version instead, _validate_lock_set() catches the under-locking.
+            if any(key.tbl_id == tbl_id for key in self._tbl_versions):
+                return []
             return None
         result: list[LockTarget] = []
         for view in tv.mutable_views:
@@ -835,6 +843,13 @@ class Catalog(CatalogBase):
                 write_targets[tbl_id] = path[0]
                 for target in path[1:]:
                     read_targets.setdefault(target.tbl_id, target)
+
+        # a table a warm-up found to be gone contributes no relation; keeping it would make the set unresolvable
+        for tbl_id in self._dropped_tbl_ids:
+            write_targets.pop(tbl_id, None)
+            read_targets.pop(tbl_id, None)
+        tree_target_ids -= self._dropped_tbl_ids
+        misses -= self._dropped_tbl_ids
 
         for tbl_id in write_targets.keys() | read_targets.keys():
             if self._cached_is_data_versioned(tbl_id) is None:
@@ -986,15 +1001,21 @@ class Catalog(CatalogBase):
         ):
             for tbl_id in tbl_ids:
                 try:
-                    if check_pending_ops:
-                        if self._load_tbl(tbl_id) is None:
-                            raise excs.table_was_dropped(tbl_id)
-                    else:
+                    if not check_pending_ops:
                         self._load_tbl_md_for_lock_set(tbl_id)
+                    elif (tbl := self._tbls.get(TableVersionKey(tbl_id, None))) is not None:
+                        # the handle's path is immutable (§2.1), so only its TableVersions need refreshing; keeping
+                        # the handle also keeps `pxt.get_table()` returning the same instance it did before
+                        self._raise_if_pending_ops(tbl_id)
+                        for handle in tbl._tbl_version_path.get_tbl_versions():
+                            self._get_tbl_version(handle.key)
+                    elif self._load_tbl(tbl_id) is None:
+                        raise excs.table_was_dropped(tbl_id)
                 except excs.Error:
                     if tbl_id in own_target_ids:
                         raise
                     _logger.debug(f'Lock set warm-up: {tbl_id} is gone; dropping it from the set')
+                    self._dropped_tbl_ids.add(tbl_id)
                     continue
                 tv = self._tbl_versions.get(TableVersionKey(tbl_id, None))
                 if tv is None:
@@ -1019,11 +1040,12 @@ class Catalog(CatalogBase):
         self._get_tbl_version(key, check_pending_ops=False)
 
     def _evict_tbl_id(self, tbl_id: UUID) -> None:
-        """Drops every cached entry for tbl_id, so that the next load reads current metadata."""
+        """Drops tbl_id's cached TableVersions, so that the next load reads current metadata.
+
+        The Table handles in _tbls are left alone: what they carry is the table's path, which is immutable.
+        """
         for key in [k for k in self._tbl_versions if k.tbl_id == tbl_id]:
             self._tbl_versions.pop(key).is_validated = False
-        for key in [k for k in self._tbls if k.tbl_id == tbl_id]:
-            del self._tbls[key]
 
     def _load_mutable_tree(self, tv: TableVersion, *, check_pending_ops: bool = True) -> None:
         """Loads the TableVersions of tv's transitive mutable views.
