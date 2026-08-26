@@ -74,7 +74,7 @@ class ModelQuery(QueryBase):
         """Validate that this query can be used to define a view."""
         from ..view import View
 
-        View.validate_view_query(self, prefix=f'{model_name}: ')
+        View.validate_view_query(self, error_prefix=f'{model_name}: ')
 
         # a view model turns each select() item into a class attribute, so every item needs a name
         if self.select_list is None:

@@ -113,7 +113,7 @@ endif
 DASHBOARD_SOURCES := $(shell find dashboard -type f -not -path '*/node_modules/*')
 .make-install/dashboard: $(DASHBOARD_SOURCES)
 	@echo 'Building dashboard assets ...'
-	@(cd dashboard && npm ci --silent && npm run build)
+	@(cd dashboard && npm install --silent && npm run build)
 	@touch .make-install/dashboard
 
 .PHONY: install-deps

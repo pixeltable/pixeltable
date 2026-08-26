@@ -58,12 +58,8 @@ class View(LocalTable):
         return 'table'
 
     @classmethod
-    def validate_view_query(cls, query: QueryBase, *, is_snapshot: bool = False, prefix: str = '') -> None:
-        """Verify that a view can be defined by query.
-
-        Args:
-            prefix: prepended to the message of every error raised here, to identify what is being defined.
-        """
+    def validate_view_query(cls, query: QueryBase, *, is_snapshot: bool = False, error_prefix: str = '') -> None:
+        """Verify that a view can be defined by query."""
         for clause_name, is_present in (
             ('group_by', query.group_by_clause is not None or query.grouping_tbl_key is not None),
             ('order_by', query.order_by_clause is not None),
@@ -73,7 +69,7 @@ class View(LocalTable):
             if is_present:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'{prefix}`{clause_name}` cannot be used in a view definition.',
+                    f'{error_prefix}`{clause_name}` cannot be used in a view definition.',
                 )
 
         aggregate_checks: list[tuple[str, exprs.Expr]] = []
@@ -87,14 +83,15 @@ class View(LocalTable):
             if expr.contains_(cls=exprs.FunctionCall, filter=lambda e: cast(exprs.FunctionCall, e).is_agg_fn_call):
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
-                    f'{prefix}{item} aggregates over the base table: {expr}\n'
+                    f'{error_prefix}{item} aggregates over the base table: {expr}\n'
                     'Aggregates are not allowed in a view definition.',
                 )
 
         if query.sample_clause is not None and not is_snapshot and not query.sample_clause.is_repeatable:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'{prefix}A view that is not a snapshot can only be defined by fractional, unstratified sampling.',
+                f'{error_prefix}A view that is not a snapshot can only be defined by fractional, '
+                'unstratified sampling.',
             )
 
     @classmethod

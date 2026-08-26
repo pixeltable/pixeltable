@@ -349,9 +349,11 @@ def _bind_query_templates(value: exprs.Expr, catalog_dir: str) -> exprs.Expr:
     that does not exist. The referenced model is created before this one (see _creation_order()), so its
     table is there to bind against.
     """
+    from .query import ModelQuery
+
     for fn_call in value.subexprs(exprs.FunctionCall):
         fn = fn_call.fn
-        if not isinstance(fn, func.QueryTemplateFunction) or fn.queries_tables:
+        if not isinstance(fn, func.QueryTemplateFunction) or not isinstance(fn.template_query, ModelQuery):
             continue
         fn_call.fn = func.QueryTemplateFunction(
             fn.template_query.bind(catalog_dir),
