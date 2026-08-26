@@ -730,7 +730,11 @@ class TestIterator:
 
         p = make_catalog_path
 
-        assert split_words.call_output_schema({}) == {'word': ts.StringType(), 'position': ts.IntType()}
+        assert split_words.call_output_schema({}) == {
+            'word': ts.StringType(),
+            'position': ts.IntType(),
+            'arr': ts.ArrayType(dtype=ts.FloatType(), nullable=True),
+        }
 
         t = pxt.create_table(p('test_future_annotations'), {'text': pxt.String})
         t.insert(text='the quick brown fox')
