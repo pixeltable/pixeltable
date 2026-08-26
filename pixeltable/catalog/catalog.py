@@ -152,7 +152,7 @@ def retry_loop(
                         return op(*args, **kwargs)
                 except PendingTableOpsError as e:
                     Env.get().console_logger.debug(f'retry_loop(): finalizing pending ops for {e.tbl_id}')
-                    cat._finalize_pending_ops(e.tbl_id)
+                    cat._finalize_pending_ops(e.tbl_id, blocking=for_schema_change)
                 except sql_exc.DBAPIError as e:
                     if _is_retryable_exc(e):
                         if num_retries < _MAX_RETRIES or _MAX_RETRIES == -1:
@@ -510,7 +510,9 @@ class Catalog(CatalogBase):
         while True:
             if pending_ops_tbl_id is not None:
                 Env.get().console_logger.debug(f'begin_xact(): finalizing pending ops for {pending_ops_tbl_id}')
-                self._finalize_pending_ops(pending_ops_tbl_id)
+                # a schema change blocks by policy (§1.1), so it also waits here rather than reporting a schema
+                # change in progress; only the fail-fast classes hand the work back
+                self._finalize_pending_ops(pending_ops_tbl_id, blocking=for_schema_change)
                 pending_ops_tbl_id = None
             if warm_up_tbl_ids is not None:
                 ids = warm_up_tbl_ids
@@ -1646,6 +1648,15 @@ class Catalog(CatalogBase):
 
             except excs.PixeltableWarning:
                 # Tests promote PixeltableWarnings to an error. Re-raise them to avoid getting stuck in a finalize loop.
+                raise
+
+            except excs.ConcurrencyError as e:
+                if e.error_code != excs.ErrorCode.SCHEMA_CHANGE_IN_PROGRESS:
+                    raise
+                # NOWAIT told us the owner of these ops holds the lock and is working on them. Leave them alone --
+                # in particular, do not treat this as a failure of the statement and switch it to ROLLBACK -- and
+                # let the caller report that a schema change is in progress.
+                _logger.debug(f'Finalize pending ops({tbl_id}): owner holds the lock, giving up')
                 raise
 
             except PendingTableOpsError as e:
