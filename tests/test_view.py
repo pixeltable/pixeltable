@@ -330,10 +330,11 @@ class TestView:
 
         # adding column with same name as a base table column at
         # the time of creating a view will raise an error now.
-        with pxt_raises(
-            pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=re.escape("Columns ('c1') already exist in the base table")
-        ):
-            pxt.create_view(p('test_view'), t, additional_columns={'c1': pxt.Int | None})
+        for col_name in ('c1', 'C1'):
+            with pxt_raises(
+                pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=re.escape("Columns ('c1') already exist in the base table")
+            ):
+                pxt.create_view(p('test_view'), t, additional_columns={col_name: pxt.Int | None})
 
         # create a view and add a column with default value
         v = pxt.create_view(p('test_view'), t, additional_columns={'v1': pxt.Int | None})
@@ -1631,14 +1632,3 @@ class TestView:
                 t,
                 additional_columns={'v1': {'type': pxt.Int | None, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
             )
-
-    def test_column_shadowing(self, make_catalog_path: Callable[[str], str]) -> None:
-        """A view column that shadows a base column is rejected."""
-        p = make_catalog_path
-        t = pxt.create_table(p('base'), {'foo': pxt.Int | None, 'other': pxt.Int | None})
-
-        for name in ('foo', 'Foo', 'FOO'):
-            with pxt_raises(
-                pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=re.escape("Columns ('foo') already exist in the base table")
-            ):
-                pxt.create_view(p(f'v_{name}'), t, additional_columns={name: pxt.String | None})
