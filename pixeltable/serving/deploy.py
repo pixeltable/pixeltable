@@ -200,6 +200,16 @@ def _load_database_config_from_toml(toml_path: Path, resolution: list[str], name
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION, f'Invalid [[pixeltable.database]] in {toml_path.name}: {e}'
         ) from e
+    # a name addresses one entry, so two entries sharing one leave the target ambiguous; Config enforces the
+    # same rule for the entries it reads
+    seen: set[str | None] = set()
+    for db in validated:
+        if db.name in seen:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_CONFIGURATION,
+                f'Duplicate [[pixeltable.database]] name {db.name!r} in {toml_path.name}',
+            )
+        seen.add(db.name)
     return _select_database(validated, name)
 
 

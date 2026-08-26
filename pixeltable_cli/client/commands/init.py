@@ -3,6 +3,7 @@
 import json
 import pathlib
 import sys
+import tomllib
 
 from pixeltable_cli.utils import PROJECT_CONFIG_FILE, find_project_root
 
@@ -98,6 +99,17 @@ def _write_project_config(root: pathlib.Path) -> pathlib.Path:
     pyproject = root / _PYPROJECT
     try:
         if pyproject.is_file():
+            try:
+                with open(pyproject, 'rb') as fp:
+                    tomllib.load(fp)
+            except tomllib.TOMLDecodeError as e:
+                print(
+                    f'pxt init: {pyproject} is not valid TOML, so the project configuration cannot be added '
+                    f'to it: {e}\nFix the file, or remove it to configure the project with '
+                    f'{PROJECT_CONFIG_FILE} instead.',
+                    file=sys.stderr,
+                )
+                sys.exit(EXIT_ERROR)
             with open(pyproject, 'a', encoding='utf-8') as fp:
                 fp.write(_PYPROJECT_CONFIG)
             return pyproject

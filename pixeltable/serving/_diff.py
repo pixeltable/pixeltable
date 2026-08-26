@@ -134,4 +134,8 @@ def _changed_fields(deployed: RouteSpec, declared: RouteSpec) -> list[str]:
     deployed_fields = cast(dict[str, Any], deployed)
     declared_fields = cast(dict[str, Any], declared)
     keys = set(deployed_fields) | set(declared_fields)
-    return sorted(k for k in keys if deployed_fields.get(k) != declared_fields.get(k))
+    return sorted(
+        k
+        for k in keys
+        if k not in deployed_fields or k not in declared_fields or deployed_fields[k] != declared_fields[k]
+    )

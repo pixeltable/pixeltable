@@ -443,7 +443,8 @@ class TestService:
         # a file that declares models but no service
         no_service = project_dir / 'no_service.py'
         no_service.write_text(
-            'import pixeltable as pxt\n\nTableModel = pxt.model_base()\n\n\n'
+            'from __future__ import annotations\n\nimport pixeltable as pxt\n\n'
+            'TableModel = pxt.model_base()\n\n\n'
             "class Docs(TableModel, name='docs'):\n    title: pxt.String\n",
             encoding='utf-8',
         )
