@@ -727,6 +727,7 @@ class StoreBase:
                 num_rows += len(row_batch)
                 with telemetry.span('pixeltable.store.build_rows', level=telemetry.DEBUG, rows=len(row_batch)):
                     for row in row_batch:
+                        assert len(row.pk) == num_pk_cols, (row.pk, num_pk_cols)
                         table_row, num_row_exc = row_builder.create_store_table_row(row, cols_with_excs, row.pk)
                         num_excs += num_row_exc
                         table_rows.append(table_row)
