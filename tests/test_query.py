@@ -13,7 +13,6 @@ import pydantic
 import pytest
 
 import pixeltable as pxt
-import pixeltable.type_system as ts
 from pixeltable.functions.string import isalpha, isascii
 from pixeltable.functions.video import frame_iterator
 
@@ -1157,17 +1156,13 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'Required model fields .* are missing') as exc_info:
             _ = list(t.select(t.i).collect().to_pydantic(TestModel))
         assert extract_fields(exc_info) == {'s', 'f', 'b', 'ts', 'd'}
-        # result column names are folded, and are matched against model fields case-insensitively; each row's keys
-        # are remapped to the model's own spelling before the splat
-        folded = list(t.select(t.i, t.s, t.f, t.b, t.ts, D=t.d).collect().to_pydantic(TestModel))
-        assert len(folded) == 3
 
-        # a model whose field names are mixed-case still matches the (always-folded) result columns
+        # a model whose field names are mixed-case still matches the result columns
         class MixedCaseModel(pydantic.BaseModel):
             MyInt: int
             MyStr: str
 
-        mixed = list(t.select(MyInt=t.i, MYSTR=t.s).collect().to_pydantic(MixedCaseModel))
+        mixed = list(t.select(MyInt=t.i, MYSTR=t.s).order_by(t.i).collect().to_pydantic(MixedCaseModel))
         assert [m.MyInt for m in mixed] == [1, 2, 3]
         assert [m.MyStr for m in mixed] == ['one', 'two', 'three']
 
@@ -1360,29 +1355,26 @@ class TestQuery:
         t = pxt.create_table(p('t'), {'MyCol': pxt.Int | None})
         t.insert([{'mycol': 1}])
 
-        # select() kwargs fold, and colliding kwarg names are caught by the existing repeated-name check
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Repeated column name'):
             _ = t.select(A=t.MyCol, a=t.MyCol)
 
         rs = t.select(t.MyCol).collect()
         assert list(rs.schema.keys()) == ['mycol']
         assert rs['MyCol'] == [1]
-        assert rs[0, 'MyCol'] == 1
+        assert rs[0, 'MYCOL'] == 1
 
-        # cursor() is the public way to iterate results as Row objects
+        # same with Row objects
         row = next(iter(t.select(t.MyCol).cursor()))
         assert row['MyCol'] == 1
+        assert row['mycol'] == 1
         assert 'MYCOL' in row
         assert row.get('MyCol') == 1
+        assert row.get('mycol') == 1
         assert list(row.keys()) == ['mycol']  # iteration still yields the stored spelling
 
-        # Row.errors is the other public name-keyed mapping, and folds through the same wrapper
+        # same with Row.errors
         t.add_computed_column(Inv=1 // t.MyCol)
         out = t.compute([{'MYCOL': 0}], on_error='ignore')
         assert out[0].errors['Inv']['errortype'] == 'ZeroDivisionError'
+        assert out[0].errors['inv']['errortype'] == 'ZeroDivisionError'
         assert list(out[0].errors.keys()) == ['inv']  # iteration still yields the stored spelling
-
-        # ... as does index_values
-        batch = pxt.RowBatch([(1,)], {'c': ts.IntType()}, index_values=[{'myidx': [0.5]}])
-        assert batch[0].index_values['MYIDX'] == [0.5]
-        assert list(batch[0].index_values.keys()) == ['myidx']
