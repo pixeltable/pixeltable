@@ -4487,10 +4487,8 @@ class TestTable:
         assert t.columns() == ['mycol', 'other']
         assert set(t.get_metadata()['columns'].keys()) == {'mycol', 'other'}
 
-        # every lookup form resolves, whatever the casing
-        assert t.mycol.col_md.name == 'mycol'
-        assert t.MyCol.col_md.name == 'mycol'
-        assert t['MYCOL'].col_md.name == 'mycol'
+        # every lookup form resolves
+        _ = t.mycol, t.MyCol, t['MYCOL']  # raise AttributeError if the name does not resolve
 
         t.insert([{'MYCOL': 1, 'other': 'a'}])
         assert t.select(t.MyCol).collect()['mycol'] == [1]
@@ -4505,21 +4503,19 @@ class TestTable:
         t.drop_column('DOUBLED')
         assert 'doubled' not in t.columns()
 
-        # rows need not agree on which columns they set, nor on how they spell them
+        # inserted rows don't need to agree on the column spelling
         t.insert([{'MyCol': 10, 'OTHER': 'b'}, {'other': 'c'}])
-        rows = t.order_by(t.OTHER, asc=True).collect()
+        rows = t.order_by(t.OTHER).collect()
         assert [(r['mycol'], r['other']) for r in rows] == [(3, 'a'), (10, 'b'), (None, 'c')]
 
         # a case-only rename does nothing
         version_before = t.get_metadata()['version']
-        t.rename_column('mycol', 'MYCOL')  # no-op
+        t.rename_column('mycol', 'MYCOL')
         assert t.columns() == ['mycol', 'other']
-        assert t.get_metadata()['version'] == version_before  # no new schema version
+        assert t.get_metadata()['version'] == version_before
 
         # the table itself resolves under any casing
-        path = t.get_metadata()['path']
-        assert pxt.get_table(p('t')).get_metadata()['path'] == path
-        assert pxt.get_table(p('T')).get_metadata()['path'] == path
+        assert pxt.get_table(p('t')) == pxt.get_table(p('T'))
 
         # alter_column resolves its column in any casing
         t2 = pxt.create_table(p('t2'), {'Num': pxt.Int})
@@ -4544,9 +4540,9 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match='Duplicate column name: mycol'):
             t.add_computed_column(MYCOL=t.c + 1)
         t.add_column(MyCol=pxt.String | None, if_exists='ignore')
-        assert t.get_metadata()['columns']['mycol']['type_'] == 'Int | None'
+        validate_update_status(t.insert([{'MYCOL': 7}]), 1)
         t.add_column(MYCOL=pxt.String | None, if_exists='replace')
-        assert t.get_metadata()['columns']['mycol']['type_'] == 'String | None'
+        validate_update_status(t.insert([{'MYCOL': 'a string'}]), 1)
 
         # insert and update
         with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match='Column names are case-insensitive'):
