@@ -286,6 +286,7 @@ t.where(t.result == None).select(
 Directory, table, column and index names are **case-insensitive**, and Pixeltable stores them lower-cased.
 
 ```python
+pxt.create_dir('MyDir', if_exists='ignore')
 t = pxt.create_table('MyDir.MyTable', {'MyCol': pxt.Int})
 
 # every casing resolves to the same table and column ...
@@ -297,13 +298,11 @@ t.columns()                         # ['mycol']
 t.select(t.MyCol).collect()         # result key: 'mycol'
 ```
 
-Because the casing you supply is not retained, two names that differ only in case denote the same thing:
-a schema with both `foo` and `Foo` is rejected, and renaming or moving something to a case variant of its own
-name does nothing.
-
-Names must also be **ASCII**, valid Python identifiers that don't start with `_`, and must avoid Python keywords
-and Pixeltable's own method names (`count`, `insert`, `select`, ...). Those bans apply in every casing, so `Count`
-and `Class` are rejected just as `count` and `class` are.
+Names must also be **ASCII**. Column and index names must be valid Python identifiers that don't start with `_`,
+and must avoid Python keywords and Pixeltable's own method names (`count`, `insert`, `select`, ...); those bans
+apply in every casing, so `Count` and `Class` are rejected just as `count` and `class` are. Directory, table and
+database names follow the same rules, except that they may also contain hyphens (just not as the first character)
+and are not subject to the reserved-name bans.
 
 <Info>
 JSON path components are data, not identifiers, and stay case-sensitive: `t.json_col.someField` and
