@@ -65,6 +65,7 @@ from pixeltable_cli.client.commands import (
     status as status_cmd,
 )
 from pixeltable_cli.server import daemon as server_daemon, router as server_router, routes as server_routes
+from tests.utils import pxt_raises
 
 
 def _pick_port() -> int:
@@ -166,10 +167,22 @@ class TestProjectRootParity:
         library, client = both(nested)
         assert library == client == nested
 
-        # a file neither copy can parse
+        # a file that cannot be parsed might be the project config, so both copies refuse rather than
+        # resolving against a directory above it
         (elsewhere / 'pyproject.toml').write_text('[tool.pixeltable\n')
-        library, client = both(elsewhere)
-        assert library == client is None
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'cannot be parsed'):
+            library_copy(elsewhere)
+        with pytest.raises(RuntimeError, match=r'cannot be parsed'):
+            client_copy(elsewhere)
+
+        # the same, with a project root above the unreadable file
+        unreadable = tmp_path / 'proj' / 'unreadable'
+        unreadable.mkdir()
+        (unreadable / 'pyproject.toml').write_text('[tool.pixeltable\n')
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'cannot be parsed'):
+            library_copy(unreadable)
+        with pytest.raises(RuntimeError, match=r'cannot be parsed'):
+            client_copy(unreadable)
 
 
 class TestProbe:

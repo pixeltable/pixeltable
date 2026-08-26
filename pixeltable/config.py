@@ -100,8 +100,11 @@ def _find_project_root(start: Path) -> Path | None:
         if pyproject.is_file():
             try:
                 parsed = toml.load(pyproject)
-            except Exception:
-                return None
+            except Exception as e:
+                # fail early
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION, f'{pyproject} cannot be parsed: {e}'
+                ) from e
             tool = parsed.get('tool')
             if isinstance(tool, dict) and 'pixeltable' in tool:
                 return dir

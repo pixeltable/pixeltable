@@ -239,11 +239,13 @@ class TestConfig:
         (tmp_path / 'proj' / 'ad_gen' / 'pyproject.toml').write_text('[project]\nname = "x"\n\n[tool.pixeltable]\n')
         assert serving(nested) == (tmp_path / 'proj' / 'ad_gen', tmp_path / 'proj' / 'ad_gen' / 'pixeltable.toml')
 
-        # an unparseable pyproject.toml configures nothing, rather than making the directory unusable
+        # a pyproject.toml that cannot be parsed might be the project config, so it is refused rather than
+        # resolved past
         unparseable = tmp_path / 'unparseable'
         unparseable.mkdir()
         (unparseable / 'pyproject.toml').write_text('[tool.pixeltable\n')
-        assert serving(unparseable) == (None, None)
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'cannot be parsed'):
+            serving(unparseable)
 
         # an explicit root is used as given; an explicit None means no project
         Config.init(reinit=True, project_root=tmp_path / 'proj')

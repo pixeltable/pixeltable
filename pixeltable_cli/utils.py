@@ -150,20 +150,17 @@ def find_project_root(start: Path) -> Path | None:
         if (dir / PROJECT_CONFIG_FILE).is_file():
             return dir
         pyproject = dir / _PYPROJECT
-        if pyproject.is_file() and _declares_pixeltable(pyproject):
-            return dir
+        if pyproject.is_file():
+            try:
+                with open(pyproject, 'rb') as fp:
+                    parsed = tomllib.load(fp)
+            except (OSError, tomllib.TOMLDecodeError) as e:
+                # fail early
+                raise RuntimeError(f'{pyproject} cannot be parsed: {e}') from e
+            tool = parsed.get('tool')
+            if isinstance(tool, dict) and 'pixeltable' in tool:
+                return dir
     return None
-
-
-def _declares_pixeltable(pyproject: Path) -> bool:
-    """Report whether pyproject holds a [tool.pixeltable] section."""
-    try:
-        with open(pyproject, 'rb') as fp:
-            parsed = tomllib.load(fp)
-    except (OSError, tomllib.TOMLDecodeError):
-        return False
-    tool = parsed.get('tool')
-    return isinstance(tool, dict) and 'pixeltable' in tool
 
 
 # Identity fingerprint keys
