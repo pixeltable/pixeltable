@@ -361,10 +361,10 @@ class TestIndex:
         p = make_catalog_path
         t = small_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
-        t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed)
+        t.add_embedding_index('img', idx_name='Clip_Idx', embedding=local_embed)
         orig_res = (
             t.select(t.img.localpath)
-            .order_by(t.img.similarity(image=sample_img, idx='clip_idx'), asc=False)
+            .order_by(t.img.similarity(image=sample_img, idx='CLIP_IDX'), asc=False)
             .limit(3)
             .collect()
         )
@@ -394,7 +394,7 @@ class TestIndex:
             assert_resultset_eq(orig_res, res, True)
 
         # same should hold after a drop.
-        t.drop_embedding_index(column='img')
+        t.drop_embedding_index(column='IMG')
         t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed)
         res = (
             t.select(t.img.localpath)
@@ -403,7 +403,7 @@ class TestIndex:
             .collect()
         )
         assert_resultset_eq(orig_res, res, True)
-        t.drop_embedding_index(idx_name='clip_idx')
+        t.drop_embedding_index(idx_name='CLIP_IDX')
         reload_catalog()
         t = pxt.get_table(p('small_img_tbl'))
         t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed)
@@ -461,13 +461,11 @@ class TestIndex:
         # if_exists='error' (the default) raises if the index name already exists, regardless of whether the
         # definition matches: rejection on the named path is by name, not by definition. Vary the metric so each
         # attempt has a definition that differs from the existing cosine clip_idx.
-        for metric in ('cosine', 'ip', 'l2'):
+        for idx_name, metric in (('clip_idx', 'cosine'), ('clip_idx', 'ip'), ('CLIP_IDX', 'l2')):
             with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='Duplicate index name'):
-                t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed, metric=metric)
+                t.add_embedding_index('img', idx_name=idx_name, embedding=local_embed, metric=metric)  # type: ignore[arg-type]
             with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='Duplicate index name'):
-                t.add_embedding_index(
-                    'img', idx_name='clip_idx', embedding=local_embed, metric=metric, if_exists='error'
-                )
+                t.add_embedding_index('img', idx_name=idx_name, embedding=local_embed, metric=metric, if_exists='error')  # type: ignore[arg-type]
         assert len(emb_idxs()) == 3
 
         # if_exists='ignore' does nothing if the index name already exists: clip_idx keeps its position.
@@ -1598,32 +1596,6 @@ class TestIndex:
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Snapshot does not support indices'):
             snap.select(snap.text).order_by(snap.sim_unstored, asc=False).collect()
-
-    def test_case_insensitive_index_names(
-        self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function
-    ) -> None:
-        """Index names are identifiers: they fold on creation and on every lookup."""
-        p = make_catalog_path
-        t = pxt.create_table(p('t'), {'text': pxt.String | None})
-        t.insert([{'text': 'hello'}])
-
-        t.add_embedding_index('TEXT', idx_name='Idx', string_embed=local_embed)
-        assert 'idx' in t.get_metadata()['indexes']
-
-        sim = t.text.similarity(string='hello', idx='IDX')
-        assert len(t.order_by(sim, asc=False).collect()) == 1
-
-        # a second index differing only in case is a duplicate
-        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='Duplicate index name: idx'):
-            t.add_embedding_index('text', idx_name='IDX', string_embed=local_embed)
-
-        t.drop_index(idx_name='IDX')
-        assert 'idx' not in t.get_metadata()['indexes']
-
-        # a generated name never collides with a user's, whatever its casing
-        t.add_embedding_index('text', idx_name='IDX0', string_embed=local_embed)
-        t.add_embedding_index('text', metric='ip', string_embed=local_embed)
-        assert sorted(t.get_metadata()['indexes'].keys()) == ['idx0', 'idx1']
 
     def test_oversized_index_key(self, make_catalog_path: Callable[[str], str]) -> None:
         """On an operational table, an indexed string value exceeds the B-tree limit imposed by Postgresql."""

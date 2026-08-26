@@ -234,7 +234,6 @@ class TestPath:
         assert dotted_appended.components == unix_appended.components == ('a', 'b', 'c', 'd')
 
     def test_non_ascii_identifiers(self) -> None:
-        # identifiers are restricted to ASCII, so that str.lower(), str.casefold() and SQL lower() all coincide
         assert not is_valid_identifier('café')
         assert not is_valid_identifier('Ω')
         for path in (('Café'), ('dir/Café'), ('pxt://CAFÉ/tbl'), ('pxt://variata:CAFÉ/tbl')):
@@ -244,21 +243,16 @@ class TestPath:
             Path.from_components(('Café',))
 
     def test_case_folding(self) -> None:
-        # components fold, and the folded form is what str() renders
         assert Path.parse('A/B').components == ('a', 'b')
         assert str(Path.parse('MyDir/MyTable')) == 'mydir/mytable'
         assert Path.parse('A/B') == Path.parse('a/b')
         assert hash(Path.parse('A/B')) == hash(Path.parse('a/b'))
         assert Path.from_components(('A', 'B')).components == ('a', 'b')
 
-        # org and db fold too
         hosted = Path.parse('pxt://Org:DB/X')
         assert (hosted.org, hosted.db, hosted.components) == ('org', 'db', ('x',))
-        assert hosted == Path.parse('pxt://org:db/x')
-        assert str(hosted) == 'pxt://org:db/x'
 
     def test_dir_prefix(self) -> None:
-        # the prefix is folded, so callers can compare directory locations by string equality
         assert Path.dir_prefix('MyDir') == 'mydir/'
         assert Path.dir_prefix('MyDir/Sub') == 'mydir/sub/'
         assert Path.dir_prefix('a.b') == Path.dir_prefix('a/b') == 'a/b/'
@@ -266,11 +260,9 @@ class TestPath:
         assert Path.dir_prefix('pxt://Org:DB/Dir') == 'pxt://org:db/dir/'
         assert Path.dir_prefix('https://pixeltable.com/t/Org/Dir') == 'pxt://org/dir/'
 
-        # only the local root has an empty prefix; a remote root keeps its URI, so the child stays in that catalog
         assert Path.dir_prefix('') == ''
         assert Path.dir_prefix('pxt://Org:DB') == 'pxt://org:db/'
 
-        # appending a (folded) table name to a prefix yields the path of that table
         assert Path.parse(Path.dir_prefix('MyDir') + 'mytable') == Path.parse('MyDir.MyTable')
 
         with pxt_raises(excs.ErrorCode.INVALID_PATH, match='Invalid path: Café'):

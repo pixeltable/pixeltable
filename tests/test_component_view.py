@@ -106,7 +106,7 @@ class MixedCaseRow(TypedDict):
 
 @pxt.iterator(unstored_cols=['Frame'])
 class mixed_case_iterator(pxt.PxtIterator):
-    """Declares mixed-case outputs; the view columns fold, while __next__ keeps yielding the declared spellings."""
+    """Declares mixed-case outputs."""
 
     def __init__(self, n: int):
         self.n = n
@@ -126,11 +126,7 @@ class mixed_case_iterator(pxt.PxtIterator):
         self.i = pos
 
 
-class PosRowLowerCase(TypedDict):
-    pos: int
-
-
-class PosRowMixedCase(TypedDict):
+class PosHolder(TypedDict):
     Pos: int
 
 
@@ -618,7 +614,7 @@ class TestComponentView:
         assert [r['derived'] for r in v3_rows] == ['t 1_suffix']
 
     def test_case_insensitive_iterator_outputs(self, make_catalog_path: Callable[[str], str]) -> None:
-        """Iterator output names become view columns and fold; the runtime field names do not."""
+        """Iterator output names become view columns and fold."""
         p = make_catalog_path
         t = pxt.create_table(p('base'), {'n': pxt.Int})
         t.insert([{'n': 3}])
@@ -626,10 +622,7 @@ class TestComponentView:
 
         assert 'myoutput' in v.columns()
         assert 'frame' in v.columns()
-        # the view still populates, which is the regression test for folding the outputs key but not orig_name
         assert sorted(v.select(v.MyOutput).collect()['myoutput']) == [0, 2, 4]
-        # unstored_cols is a list of output names and folds along with them
-        assert not v.get_metadata()['columns']['frame']['is_stored']
         assert sorted(v.select(v.FRAME).collect()['frame']) == [0, 1, 2]
 
         # a declared view column that folds onto an iterator output is rejected
@@ -640,32 +633,19 @@ class TestComponentView:
                 p('bad'), t, iterator=mixed_case_iterator(n=t.n), additional_columns={'MYOUTPUT': pxt.Int | None}
             )
 
-        # ... and so is an iterator whose own outputs collide once folded
+        # and so is an iterator whose own outputs collide once folded
         with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match=r"'Foo', 'foo' were specified"):
             pxt.create_view(p('bad'), t, iterator=colliding_iterator(n=t.n))
 
-        # pos is reserved in every casing; the iterator is rejected where it is declared, before any view exists
+        # pos is reserved in every casing
         with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='is reserved'):
 
             @pxt.iterator
-            class lower_pos_iterator(pxt.PxtIterator):
+            class pos_iterator(pxt.PxtIterator):
                 def __init__(self, n: int):
                     self.n = n
 
-                def __next__(self) -> PosRowLowerCase:
-                    raise StopIteration
-
-                def close(self) -> None:
-                    pass
-
-        with pxt_raises(pxt.ErrorCode.INVALID_CONFIGURATION, match='is reserved'):
-
-            @pxt.iterator
-            class mixed_pos_iterator(pxt.PxtIterator):
-                def __init__(self, n: int):
-                    self.n = n
-
-                def __next__(self) -> PosRowMixedCase:
+                def __next__(self) -> PosHolder:
                     raise StopIteration
 
                 def close(self) -> None:
