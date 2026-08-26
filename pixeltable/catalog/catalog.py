@@ -204,9 +204,13 @@ class StoreTableMissingError(Exception):
     """
 
     store_tbl_names: tuple[str, ...]
+    # ids of every table in the failed lock statement, all of which have to be re-read: the relation named in the
+    # error is not necessarily the one whose stale metadata put it there
+    tbl_ids: tuple[UUID, ...]
 
-    def __init__(self, store_tbl_names: Collection[str]) -> None:
+    def __init__(self, store_tbl_names: Collection[str], tbl_ids: Collection[UUID]) -> None:
         self.store_tbl_names = tuple(store_tbl_names)
+        self.tbl_ids = tuple(tbl_ids)
 
 
 class LockSetCacheMissError(Exception):
@@ -620,7 +624,8 @@ class Catalog(CatalogBase):
                 has_exc = True
                 _logger.debug(f'Store table(s) missing: {e.store_tbl_names}; re-warming lock set')
                 self._num_lock_set_mismatches += 1
-                warm_up_tbl_ids = self._lock_set_recovery_ids(write_tvps, write_tbl_ids, read_tvps, read_tbl_ids)
+                own_ids = self._lock_set_recovery_ids(write_tvps, write_tbl_ids, read_tvps, read_tbl_ids)
+                warm_up_tbl_ids = tuple({*own_ids, *e.tbl_ids})
                 continue
 
             except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
@@ -1170,7 +1175,7 @@ class Catalog(CatalogBase):
             if isinstance(e.orig, psycopg.errors.UndefinedTable):
                 _logger.debug(f'Store table missing while locking {store_tbl_names}: {e.orig}')
                 self._try_rollback(conn)
-                raise StoreTableMissingError(store_tbl_names) from e
+                raise StoreTableMissingError(store_tbl_names, [t.tbl_id for t in targets]) from e
             raise
         for name in store_tbl_names:
             self._locks_held[name] = mode
