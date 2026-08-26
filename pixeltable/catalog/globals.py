@@ -147,8 +147,8 @@ def fold_mapping_keys(m: Mapping[str, _T]) -> dict[str, _T]:
 
 
 def is_valid_identifier(name: str, *, allow_hyphens: bool = False) -> bool:
-    """Identifiers are restricted to ASCII: on ASCII, str.lower(), str.casefold() and SQL LOWER() all coincide, so
-    there is no ambiguity about which folding an identifier went through, and no Unicode normalization to reconcile.
+    """Identifiers are restricted to ASCII characters: on ASCII, str.lower(), str.casefold() and SQL LOWER() all behave
+    in the same way.
     """
     if not name.isascii():
         return False
@@ -163,7 +163,6 @@ def is_system_column_name(name: str) -> bool:
 
     global _PREDEF_SYMBOLS  # noqa: PLW0603
     if _PREDEF_SYMBOLS is None:
-        # fold the symbols, so that the ban doesn't depend on every public attribute staying lowercase
         _PREDEF_SYMBOLS = {fold_identifier(s) for s in itertools.chain(dir(InsertableTable), dir(View))}
     return name in _PREDEF_SYMBOLS
 

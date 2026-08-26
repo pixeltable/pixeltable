@@ -69,11 +69,7 @@ def _make_outputs(output_schema: dict[str, ts.ColumnType], unstored_cols: list[s
     """Build the iterator's output map, keyed by the folded name of the view column each output becomes.
 
     A component view exposes the pos column of its rowid; we create that column here, so it gets assigned a column id.
-
-    is_stored=False: it is not stored separately (it's already stored as part of the rowid).
     """
-    # outputs name view columns, so two that differ only in case are a collision, and none of them may claim the
-    # name of the pos column
     folded_name_to_col_schema = fold_mapping_keys({name: (name, col_type) for name, col_type in output_schema.items()})
     if _POS_COLUMN_NAME in folded_name_to_col_schema:
         raise excs.RequestError(
@@ -81,6 +77,7 @@ def _make_outputs(output_schema: dict[str, ts.ColumnType], unstored_cols: list[s
             f'{_POS_COLUMN_NAME!r} is reserved and cannot be the name of an iterator output.',
         )
 
+    # is_stored=False: it is not stored separately (it's already stored as part of the rowid).
     outputs = {_POS_COLUMN_NAME: IteratorOutput(orig_name=_POS_COLUMN_NAME, is_stored=False, col_type=ts.IntType())}
     for folded_name, (orig_name, col_type) in folded_name_to_col_schema.items():
         outputs[folded_name] = IteratorOutput(
@@ -112,7 +109,6 @@ class GeneratingFunction:
 
     def __init__(self, decorated_callable: Callable, unstored_cols: list[str], fqn: str | None = None) -> None:
         self.decorated_callable = decorated_callable
-        # these name iterator outputs, which become view column names
         self.unstored_cols = [fold_identifier(name) for name in unstored_cols]
         if fqn is None:
             self.fqn = f'{decorated_callable.__module__}.{decorated_callable.__qualname__}'

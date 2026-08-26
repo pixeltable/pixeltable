@@ -59,7 +59,7 @@ class Path:
 
     @classmethod
     def dir_prefix(cls, catalog_dir: str) -> str:
-        """Fold a directory path into the form a child path is appended to (empty, or ending in '/')."""
+        """Validate and fold a directory path into the form a child path is appended to (empty, or ending in '/')."""
         p = cls.parse(catalog_dir.rstrip('/'), allow_empty_path=True)
         # the local root is the only directory with an empty prefix; a remote root still carries its pxt:// URI
         return '' if p.is_root and p.is_local else f'{p}/'

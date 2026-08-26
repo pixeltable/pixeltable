@@ -86,7 +86,6 @@ def normalize_schema_names(
 
     schema: dict[str, Any] = {}
     col_mapping: dict[str, str] = {}  # Maps column names to Pixeltable column names if needed
-    # A source name that only had to be case-folded is a valid identifier; anything that needed more than that is not.
     invalid_names: list[str] = []
     for in_name, pxt_type in in_schema.items():
         pxt_name = normalize_pxt_col_name(in_name)
