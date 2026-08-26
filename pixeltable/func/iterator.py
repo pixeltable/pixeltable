@@ -199,9 +199,9 @@ class GeneratingFunction:
             self._default_output_schema = None
             return
 
-        annotations = typing.get_type_hints(output_schema_type, include_extras=True).items()
+        type_hints = typing.get_type_hints(output_schema_type, include_extras=True)
         self._default_output_schema = {}
-        for name, type_ in annotations:
+        for name, type_ in type_hints.items():
             if name == _POS_COLUMN_NAME:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_CONFIGURATION,
