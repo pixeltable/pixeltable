@@ -9,6 +9,7 @@ import os
 import platform
 import re
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -75,6 +76,7 @@ def read_pidfile() -> int | None:
 
 
 def fetch_health(timeout: float = 0.3) -> dict[str, Any] | None:
+    """What the daemon reports about itself, or None if nothing usable answered within timeout."""
     try:
         with urllib.request.urlopen(health_url(), timeout=timeout) as r:
             body = json.loads(r.read())
@@ -93,6 +95,17 @@ def fetch_health(timeout: float = 0.3) -> dict[str, Any] | None:
 
 def is_running(timeout: float = 0.3) -> bool:
     return fetch_health(timeout) is not None
+
+
+def port_is_open(timeout: float = 0.3) -> bool:
+    """Report whether something accepts a connection on the daemon's port.
+
+    A daemon busy with a request answers the connection but not the request, which tells 'still there, working'
+    apart from 'gone'.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(timeout)
+        return sock.connect_ex(('127.0.0.1', get_port())) == 0
 
 
 def _identity_diff(client: dict[str, Any], daemon: dict[str, Any]) -> list[str]:

@@ -448,6 +448,8 @@ class TestService:
     @pytest.mark.local('drives the local proxy daemon directly, so the target axis adds nothing')
     def test_proxy_daemon_project_handoff(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
         """A running proxy daemon is reused for its own project, and replaced for another."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
         import httpx
 
         from pixeltable.config import Config

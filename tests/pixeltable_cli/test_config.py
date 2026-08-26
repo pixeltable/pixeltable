@@ -353,7 +353,9 @@ class TestConfig:
             in_flight: list[dict[str, Any]] = []
             deadline = time.time() + 60.0
             while time.time() < deadline and slow.poll() is None:
-                in_flight = cli('daemon', 'status', '--json').json['in_flight']
+                # check=False: a daemon busy with the update may answer /health too late to be reported
+                r = cli('daemon', 'status', '--json', check=False)
+                in_flight = r.json['in_flight'] if r.returncode == 0 else []
                 if len(in_flight) > 0:
                     break
                 time.sleep(0.05)

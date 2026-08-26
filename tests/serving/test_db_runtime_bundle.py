@@ -216,10 +216,11 @@ class TestDbRuntimeBundle:
             build_db_runtime_bundle(tmp_path)
 
     def test_bundle_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Error paths in build_db_runtime_bundle()."""
+        """A project directory that does not exist, and a project config file Config cannot use."""
         with pytest.raises(FileNotFoundError, match='does not exist'):
             build_db_runtime_bundle(Path('/nonexistent/path/xyz'))
 
+        # Config reads the project's config file, so an unusable entry is refused before deploy sees it
         (tmp_path / 'pixeltable.toml').write_text(
             textwrap.dedent("""\
                 [[pixeltable.database]]
@@ -227,6 +228,5 @@ class TestDbRuntimeBundle:
             """)
         )
         monkeypatch.chdir(tmp_path)
-        Config.init(reinit=True)
-        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'Invalid \[\[pixeltable\.database\]\]'):
-            build_db_runtime_bundle(tmp_path)
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'Invalid `DatabaseConfig`'):
+            Config.init(reinit=True)
