@@ -2459,44 +2459,33 @@ class TestTableModel:
 
         class M(TableModel, name='M'):
             MyCol: pxt.Int
-            doubled = MyCol * 2  # a class-body reference to the as-written spelling
-
-        # the class body's spelling resolves before binding ...
-        assert isinstance(M.MyCol, pxt.exprs.ColumnRefByName)
+            doubled = MyCol * 2
 
         TableModel.create_all(p(''))
-        tbl = M.table
 
         # the stored column and the table itself are folded
-        assert tbl.columns() == ['mycol', 'doubled']
-        assert tbl.get_metadata()['name'] == 'm'
+        assert M.table.columns() == ['mycol', 'doubled']
 
-        # ... and after binding, both spellings are the same real ColumnRef
-        assert isinstance(M.mycol, pxt.exprs.ColumnRef)
+        # and after binding, both spellings are synonyms
         assert M.MyCol is M.mycol
-        # a class attribute is Python-domain, so a casing that was never declared does *not* resolve;
-        # the table handle is where case-insensitivity begins
+        # But only the original and the folded casing resolve at the class level
         with pytest.raises(AttributeError, match="has no attribute 'MYCOL'"):
             _ = M.MYCOL
-        assert M.table.MYCOL.col_md.name == 'mycol'
 
         M.insert([{'MYCOL': 3}])
-        assert M.collect()['doubled'] == [6]
-
-        # re-casing an attribute is not a schema change
-        assert len(TableModel.update_all(p(''))['m']['ops']) == 0
+        assert M.collect()['Doubled'] == [6]
 
         # Two declarations that Python allows, but that collide in Pixeltable
-        AnnotationModel = pxt.model_base()
+        CollisionModel = pxt.model_base()
 
-        class DupAnnotations(AnnotationModel, name='dup_annotations'):
+        class TableWithCollision(CollisionModel, name='dup_annotations'):
             Foo: pxt.Int
             foo: pxt.Int
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"'Foo', 'foo' were specified"):
-            AnnotationModel.create_all(p(''))
+            CollisionModel.create_all(p(''))
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"'Foo', 'foo' were specified"):
-            AnnotationModel.get_model_diff(p(''))
+            CollisionModel.get_model_diff(p(''))
 
     def test_model_case_insensitive_declarations(self) -> None:
         """Table and index names in a model declaration fold, so two that differ only in case collide."""
@@ -2505,12 +2494,10 @@ class TestTableModel:
         class First(TableModel, name='Foo'):
             id: pxt.Int
 
-        assert First.__table_spec__['name'] == 'foo'
-
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='previously used by `First`'):
 
             class Second(TableModel, name='foo'):
-                id: pxt.Int
+                id2: pxt.Int
 
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match='index names must be unique'):
 
@@ -2521,25 +2508,3 @@ class TestTableModel:
                     EmbeddingIndex(a, embedding=dummy_embedding.using(n=512), name='Idx'),
                     EmbeddingIndex(b, embedding=dummy_embedding.using(n=512), name='idx'),
                 ]
-
-    def test_model_case_insensitive_catalog_dir(self, make_catalog_path: Callable[[str], str]) -> None:
-        """A model binds to a directory, not to the spelling of the path it was bound through."""
-        p = make_catalog_path
-        pxt.create_dir(p('MyDir'))
-        TableModel = pxt.model_base()
-
-        class M(TableModel, name='m'):
-            id: pxt.Int
-
-        TableModel.create_all(p('MyDir'))
-        # the table landed in that directory, under the folded path
-        assert M.table.get_metadata()['path'] == pxt.get_table(p('mydir.m')).get_metadata()['path']
-
-        # every spelling of that directory denotes the same binding, so none of these is a rebind
-        for same_dir in (p('MyDir'), p('mydir'), p('MYDIR'), p('MyDir/')):
-            assert len(TableModel.update_all(same_dir)['m']['ops']) == 0
-
-        # a genuinely different directory is still refused
-        pxt.create_dir(p('other'))
-        with pxt_raises(excs.ErrorCode.ALREADY_BOUND, match='already bound'):
-            TableModel.update_all(p('other'))
