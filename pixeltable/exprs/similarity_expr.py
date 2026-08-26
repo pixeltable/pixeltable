@@ -12,7 +12,7 @@ import pixeltable.type_system as ts
 
 from ..runtime import get_runtime
 from .data_row import DataRow
-from .expr import Expr
+from .expr import Expr, GeneralValidationError
 from .literal import Literal
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
@@ -87,7 +87,7 @@ class SimilarityExpr(Expr):
         return result
 
     @property
-    def validation_error(self) -> str | None:
+    def validation_error(self) -> GeneralValidationError | None:
         from pixeltable.index import EmbeddingIndex
 
         if self.table_version_key.effective_version is not None:
@@ -97,7 +97,7 @@ class SimilarityExpr(Expr):
             self._tbl_path().get_idx_md(self.qcol_id, self.idx_name, EmbeddingIndex)
             return None
         except excs.Error as e:
-            return str(e)
+            return GeneralValidationError(str(e))
 
     def is_bound_by(self, tbls: list[catalog.TablePath], siblings: list[catalog.Column] | None = None) -> bool:
         # qcol_id identifies the indexed column; a column dropped from every path resolves to no match.

@@ -567,7 +567,7 @@ class Planner:
                         """
                     )
                     .strip()
-                    .format(validation_error=col.value_expr.validation_error),
+                    .format(validation_error=col.value_expr.validation_error.catalog_error_msg()),
                 )
 
     @classmethod

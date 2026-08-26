@@ -1454,18 +1454,18 @@ class TestFunction:
         db_params = '(a: pxt.String | None)' if as_kwarg else '(pxt.String | None)'
         signature_error = dedent(
             f"""
-            The signature stored in the database for a UDF call to 'tests.test_function.evolving_udf' no longer
+            The signature stored in the database for a UDF call to `tests.test_function.evolving_udf` no longer
             matches its signature as currently defined in the code. This probably means that the
-            code for 'tests.test_function.evolving_udf' has changed in a backward-incompatible way.
+            code for `tests.test_function.evolving_udf` has changed in a backward-incompatible way.
             Signature of UDF call in the database: {db_params} -> pxt.Array[float32] | None
             Signature of UDF as currently defined in code: {{params}} -> pxt.Array[float32] | None
             """
         ).strip()
         return_type_error = dedent(
             """
-            The return type stored in the database for a UDF call to 'tests.test_function.evolving_udf' no longer
+            The return type stored in the database for a UDF call to `tests.test_function.evolving_udf` no longer
             matches its return type as currently defined in the code. This probably means that the
-            code for 'tests.test_function.evolving_udf' has changed in a backward-incompatible way.
+            code for `tests.test_function.evolving_udf` has changed in a backward-incompatible way.
             Return type of UDF call in the database: Array[float32] | None
             Return type of UDF as currently defined in code: {return_type}
             """
@@ -1561,16 +1561,16 @@ class TestFunction:
         # Make the function into a non-UDF
         tests.test_function.evolving_udf = lambda x: x  # type: ignore[assignment]
         validation_error = (
-            "The UDF 'tests.test_function.evolving_udf' cannot be located, because\n"
-            "the symbol 'tests.test_function.evolving_udf' is no longer a UDF. (Was the `@pxt.udf` decorator removed?)"
+            "The UDF `tests.test_function.evolving_udf` cannot be located, because\n"
+            "the symbol `tests.test_function.evolving_udf` is no longer a UDF. (Was the `@pxt.udf` decorator removed?)"
         )
         reload_and_validate_table(validation_error=validation_error)
 
         # Remove the function entirely
         del tests.test_function.evolving_udf
         validation_error = (
-            "The UDF 'tests.test_function.evolving_udf' cannot be located, because\n"
-            "the symbol 'tests.test_function.evolving_udf' no longer exists. (Was the UDF moved or renamed?)"
+            "The UDF `tests.test_function.evolving_udf` cannot be located, because\n"
+            "the symbol `tests.test_function.evolving_udf` no longer exists. (Was the UDF moved or renamed?)"
         )
         reload_and_validate_table(validation_error=validation_error)
 

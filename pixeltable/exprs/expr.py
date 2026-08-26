@@ -7,7 +7,9 @@ import inspect
 import json
 import sys
 import typing
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, NoReturn, Self, TypeVar, overload
+from dataclasses import dataclass
+from textwrap import dedent
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal, NoReturn, Self, TypeVar, overload
 from uuid import UUID
 
 import numpy as np
@@ -24,6 +26,27 @@ if TYPE_CHECKING:
     from pixeltable import exprs, func
 
     from .expr_dict import ExprDict
+
+
+class ValidationError:
+    @abc.abstractmethod
+    def catalog_error_msg(self) -> str:
+        """The error to display if this invalid Expr was deserialized from a stored catalog."""
+
+    @abc.abstractmethod
+    def protocol_error_msg(self) -> str:
+        """The error to display if this invalid Expr was deserialized from a proxy server request."""
+
+
+@dataclass
+class GeneralValidationError(ValidationError):
+    msg: str
+
+    def catalog_error_msg(self) -> str:
+        return self.msg
+
+    def protocol_error_msg(self) -> str:
+        return self.msg
 
 
 class ExprScope:
@@ -141,7 +164,7 @@ class Expr(abc.ABC):
         return None
 
     @property
-    def validation_error(self) -> str | None:
+    def validation_error(self) -> ValidationError | None:
         """
         Subclasses can override this to indicate that validation has failed after a catalog load.
 

@@ -346,6 +346,36 @@ def _serialize(obj: Any, sink: PartSink) -> Any:
     raise AssertionError(f'cannot serialize {type(obj).__name__} for the proxy protocol')
 
 
+def _check_valid_fn(fn: func.Function) -> func.Function:
+    if isinstance(fn, func.InvalidFunction):
+        raise excs.RequestError(
+            excs.ErrorCode.FUNCTION_NOT_FOUND,
+            f'The request references the UDF `{fn.self_path}`, '
+            'but that UDF is not defined in the remote database.\n'
+            'You can deploy new code to the remote database with `pxt db update`.',
+        )
+    return fn
+
+
+def _check_valid_expr(expr: exprs.Expr) -> exprs.Expr:
+    if not expr.is_valid:
+        invalid_fn_calls = expr.subexprs(exprs.FunctionCall, lambda fc: fc.validation_error is not None)
+        first_invalid_fn_call = next(invalid_fn_calls, None)
+        assert first_invalid_fn_call is not None  # this is the only way an expression can be invalid
+
+        _check_valid_fn(first_invalid_fn_call.nested_invalid_fn)
+    return expr
+
+
+def _check_valid_gfc(gfc: func.GeneratingFunctionCall) -> func.GeneratingFunctionCall:
+    if not gfc.is_valid:
+        invalid_fn_calls = gfc.subexprs(exprs.FunctionCall, lambda fc: fc.nested_invalid_fn is not None)
+        first_invalid_fn_call = next(invalid_fn_calls, None)
+        assert first_invalid_fn_call is not None
+        _check_valid_fn(first_invalid_fn_call.nested_invalid_fn)
+    return gfc
+
+
 def _deserialize(
     obj: Any,
     binary_parts: list[bytes],
@@ -419,13 +449,13 @@ def _deserialize(
         if tag == 'TablePathKey':
             return TableVersionPath.from_key(TablePathKey.from_dict(v))
         if tag == 'Expr':
-            return exprs.Expr.from_dict(v)
+            return _check_valid_expr(exprs.Expr.from_dict(v))
         if tag == 'SampleClause':
             return SampleClause.from_dict(v)
         if tag == 'Function':
-            return func.Function.from_dict(v)
+            return _check_valid_fn(func.Function.from_dict(v))
         if tag == 'GeneratingFunctionCall':
-            return func.GeneratingFunctionCall.from_dict(v)
+            return _check_valid_gfc(func.GeneratingFunctionCall.from_dict(v))
         if tag == 'EmbeddingIndex':
             return EmbeddingIndex(**{name: _deserialize(val, []) for name, val in v.items()})
         if tag == 'BtreeIndex':
