@@ -199,7 +199,7 @@ class GeneratingFunction:
             self._default_output_schema = None
             return
 
-        annotations = output_schema_type.__annotations__.items()
+        annotations = typing.get_type_hints(output_schema_type, include_extras=True).items()
         self._default_output_schema = {}
         for name, type_ in annotations:
             if name == _POS_COLUMN_NAME:
@@ -211,7 +211,8 @@ class GeneratingFunction:
             if col_type is None:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_TYPE,
-                    f'Could not infer Pixeltable type for output field {name!r} (with Python type `{type_.__name__}`).'
+                    f'Could not infer Pixeltable type for output field {name!r} '
+                    f'(with Python type `{getattr(type_, "__name__", type_)}`).'
                     '\nThis field was mentioned in the return type '
                     f'`{output_schema_type.__module__}.{output_schema_type.__qualname__}` '
                     f'in function `{iter_fn.__module__}.{iter_fn.__qualname__}()`.',
