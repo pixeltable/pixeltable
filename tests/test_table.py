@@ -4515,6 +4515,10 @@ class TestTable:
         assert pxt.get_table(p('t')).get_metadata()['path'] == path
         assert pxt.get_table(p('T')).get_metadata()['path'] == path
 
+        t2 = pxt.create_table(p('t2'), {'Num': pxt.Int})
+        t2.alter_column('NUM', type_=pxt.Int | None)
+        validate_update_status(t2.insert([{'num': None}]), 1)
+
     def test_case_insensitive_duplicate_columns(self, make_catalog_path: Callable[[str], str]) -> None:
         """A user-supplied mapping whose keys collide once folded is rejected, naming both spellings."""
         p = make_catalog_path
