@@ -113,7 +113,9 @@ class TestTable:
         def value(self) -> int:
             return 1
 
-    def test_create(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
+    def test_create(
+        self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester, is_data_versioned: bool
+    ) -> None:
         p = make_catalog_path
         pxt.create_dir(p('dir1'))
         schema: dict[str, Any] = {
@@ -122,8 +124,8 @@ class TestTable:
             'c3': pxt.Float | None,
             'c4': pxt.Timestamp | None,
         }
-        tbl = pxt.create_table(p('test'), schema)
-        _ = pxt.create_table(p('dir1/test'), schema)
+        tbl = pxt.create_table(p('test'), schema, _is_data_versioned=is_data_versioned)
+        _ = pxt.create_table(p('dir1/test'), schema, _is_data_versioned=is_data_versioned)
 
         with pxt_raises(pxt.ErrorCode.INVALID_PATH, match=r'Invalid path: .*1test'):
             pxt.create_table(p('1test'), schema)
@@ -299,7 +301,7 @@ class TestTable:
         ):
             pxt.move(p('tbl1'), p('tbl1'))
 
-    def test_columns(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_columns(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
         schema: dict[str, Any] = {
             'c1': pxt.String | None,
@@ -307,7 +309,7 @@ class TestTable:
             'c3': pxt.Float | None,
             'c4': pxt.Timestamp | None,
         }
-        t = pxt.create_table(p('test'), schema)
+        t = pxt.create_table(p('test'), schema, _is_data_versioned=is_data_versioned)
         assert t.columns() == ['c1', 'c2', 'c3', 'c4']
 
     def test_table_metadata(self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> None:
@@ -1320,11 +1322,15 @@ class TestTable:
         out = t.compute(({'id': 1}, {'id': 2}))
         assert out == [{'id': 1, 'plus1': 2}, {'id': 2, 'plus1': 3}]
 
-    def test_array_and_media_columns(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_array_and_media_columns(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         # arrays and in-memory images cross the wire inlined; a file-backed media path is read directly (the
         # daemon shares this client's filesystem and media store)
         p = make_catalog_path
-        t = pxt.create_table(p('array_media'), {'id': pxt.Int | None, 'a': pxt.Array | None, 'img': pxt.Image | None})
+        t = pxt.create_table(
+            p('array_media'),
+            {'id': pxt.Int | None, 'a': pxt.Array | None, 'img': pxt.Image | None},
+            _is_data_versioned=is_data_versioned,
+        )
         t.add_computed_column(rotated=t.img.rotate(180), stored=False)
         img_file = get_image_files()[0]
         arr = np.arange(12, dtype=np.int64).reshape(3, 4)
@@ -1497,11 +1503,14 @@ class TestTable:
         assert len(out) == 0
         assert out.column_names == ['id', 'plus1', 'out2', 'o2x2', 'pos', 'out1', 'out3']
 
-    def test_insert_return_rows_with_idx(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_insert_return_rows_with_idx(
+        self, make_catalog_path: Callable[[str], str], is_data_versioned: bool
+    ) -> None:
         p = make_catalog_path
         t = pxt.create_table(
             p('test_insert_return_rows_with_idx'),
             {'id': pxt.Int | None, 'name': pxt.String | None, 'ts': pxt.Timestamp | None},
+            _is_data_versioned=is_data_versioned,
         )
         now = datetime.datetime.now()
         status = t.insert([{'id': 1, 'name': 'a', 'ts': now}, {'id': 2, 'name': 'b', 'ts': now}], return_rows=True)
@@ -1762,7 +1771,7 @@ class TestTable:
 
     # Test the various combinations of type hints available in schema definitions and validate that they map to the
     # correct ColumnType instances.
-    def test_schema_types(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_schema_types(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
         test_columns: dict[str, Any] = {
             'str_col': pxt.String | None,
@@ -1801,7 +1810,7 @@ class TestTable:
             'req_doc_col': pxt.Document,
         }
 
-        t = pxt.create_table(p('test'), test_columns)
+        t = pxt.create_table(p('test'), test_columns, _is_data_versioned=is_data_versioned)
 
         # Test all the types with add_column as well
         for col_name, col_type in test_columns.items():
@@ -1985,7 +1994,9 @@ class TestTable:
         pxt.drop_table(p('not_a_parent_dir/non_existing_table'), force=True)
         assert table_list == pxt.list_tables(p(''))
 
-    def test_image_table(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
+    def test_image_table(
+        self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, is_data_versioned: bool
+    ) -> None:
         p = make_catalog_path
         n_sample_rows = 20
         schema: dict[str, Any] = {
@@ -1994,7 +2005,7 @@ class TestTable:
             'split': pxt.String | None,
             'img_literal': pxt.Image | None,
         }
-        tbl = pxt.create_table(p('test'), schema)
+        tbl = pxt.create_table(p('test'), schema, _is_data_versioned=is_data_versioned)
         check_media_store_count(tbl, 0, catalog_mode, default_input_dest=True)
 
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
@@ -2025,9 +2036,10 @@ class TestTable:
         if Env.get().default_input_media_dest == Env.get().default_output_media_dest:
             check_media_store_count(tbl, 2 * n_sample_rows + shipped_img, catalog_mode, default_input_dest=True)
 
-        # Test that version-specific images are cleared when table is reverted
-        tbl.revert()
-        check_media_store_count(tbl, n_sample_rows + shipped_img, catalog_mode, default_input_dest=True)
+        if is_data_versioned:
+            # Test that version-specific images are cleared when table is reverted
+            tbl.revert()
+            check_media_store_count(tbl, n_sample_rows + shipped_img, catalog_mode, default_input_dest=True)
 
         # Test that all stored images are cleared when table is dropped
         pxt.drop_table(p('test'))
@@ -2475,7 +2487,7 @@ class TestTable:
         with av.open(local_path) as container:
             assert container.streams.video[0].codec_context.name == 'h264'
 
-    def test_insert_nulls(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_insert_nulls(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
         schema: dict[str, Any] = {
             'c1': pxt.String | None,
@@ -2487,12 +2499,12 @@ class TestTable:
             'c7': pxt.Image | None,
             'c8': pxt.Video | None,
         }
-        t = pxt.create_table(p('test1'), schema)
+        t = pxt.create_table(p('test1'), schema, _is_data_versioned=is_data_versioned)
         status = t.insert(c1='abc')
         assert status.num_rows == 1
         assert status.num_excs == 0
 
-    def test_insert(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_insert(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
         schema: dict[str, Any] = {
             'c1': pxt.String,
@@ -2506,7 +2518,7 @@ class TestTable:
             'c9': pxt.Timestamp,
         }
         tbl_name = p('test1')
-        t = pxt.create_table(tbl_name, schema)
+        t = pxt.create_table(tbl_name, schema, _is_data_versioned=is_data_versioned)
         rows = create_table_data(t)
         status = t.insert(rows)
         assert t.count() == len(rows)
@@ -2554,38 +2566,40 @@ class TestTable:
             schema.items(), ['c2', 'c3', 'c5', 'c5', 'c6', 'c9', 'c2', 'c2', 'c2']
         ):
             pxt.drop_table(tbl_name, if_not_exists='ignore')
-            t = pxt.create_table(tbl_name, {col_name: col_type})
+            t = pxt.create_table(tbl_name, {col_name: col_type}, _is_data_versioned=is_data_versioned)
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'expected|not a valid Pixeltable JSON object'):
                 t.insert({col_name: r[value_col_name]} for r in rows)
 
         # rows not list of dicts
         pxt.drop_table(tbl_name, if_not_exists='ignore')
-        t = pxt.create_table(tbl_name, {'c1': pxt.String | None})
+        t = pxt.create_table(tbl_name, {'c1': pxt.String | None}, _is_data_versioned=is_data_versioned)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Unsupported data source type'):
             t.insert(['1'])  # xtype: ignore[list-item]
 
         # bad null value
         pxt.drop_table(tbl_name, if_not_exists='ignore')
-        t = pxt.create_table(tbl_name, {'c1': pxt.String})
+        t = pxt.create_table(tbl_name, {'c1': pxt.String}, _is_data_versioned=is_data_versioned)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             t.insert(c1=None)
         assert 'expected non-None' in str(exc_info.value)
 
         # wrong array shape
         pxt.drop_table(tbl_name, if_not_exists='ignore')
-        t = pxt.create_table(tbl_name, {'c5': pxt.Array[(2, 3), np.float32] | None})
+        t = pxt.create_table(
+            tbl_name, {'c5': pxt.Array[(2, 3), np.float32] | None}, _is_data_versioned=is_data_versioned
+        )
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'expected numpy.ndarray\(\(2, 3\)'):
             t.insert(c5=np.ndarray((3, 2), dtype=np.float32))
 
         # bad array literal
         pxt.drop_table(tbl_name, if_not_exists='ignore')
-        t = pxt.create_table(tbl_name, {'c5': pxt.Array[pxt.Int] | None})
+        t = pxt.create_table(tbl_name, {'c5': pxt.Array[pxt.Int] | None}, _is_data_versioned=is_data_versioned)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'expected numpy.ndarray of dtype int64'):
             t.insert(c5=np.ndarray((3, 2), dtype=np.float32))
 
         # bad array literal
         pxt.drop_table(tbl_name, if_not_exists='ignore')
-        t = pxt.create_table(tbl_name, {'c5': pxt.Array | None})
+        t = pxt.create_table(tbl_name, {'c5': pxt.Array | None}, _is_data_versioned=is_data_versioned)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'expected numpy.ndarray, got'):
             t.insert(c5=8)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='unsupported dtype'):
@@ -2593,26 +2607,26 @@ class TestTable:
 
         # test that insert skips expression evaluation for
         # any columns that are not part of the current schema.
-        t = pxt.create_table(p('test'), {'str_col': pxt.String | None})
+        t = pxt.create_table(p('test'), {'str_col': pxt.String | None}, _is_data_versioned=is_data_versioned)
         t.add_computed_column(bad=raises_when_evaluated(t.str_col))  # Succeeds because the table has no data
         t.drop_column('bad')
         t.insert(str_col='Hello there.')  # Succeeds because column 'bad' is dropped
         pxt.drop_table(p('test'))
 
-    def test_insert_string_with_null(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_insert_string_with_null(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test'), {'c1': pxt.String | None})
+        t = pxt.create_table(p('test'), {'c1': pxt.String | None}, _is_data_versioned=is_data_versioned)
 
         t.insert([{'c1': 'this is a python\x00string'}])
         assert t.count() == 1
         for tup in t.collect():
             assert tup['c1'] == 'this is a python string'
 
-    def test_query(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_query(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('boto3')
         col_names = ['c1', 'c2', 'c3', 'c4', 'c5']
-        t = make_tbl(p('test'), col_names)
+        t = make_tbl(p('test'), col_names, is_data_versioned=is_data_versioned)
         rows = create_table_data(t)
         t.insert(rows)
         _ = t.show(n=0)
@@ -2971,7 +2985,11 @@ class TestTable:
         assert_resultset_eq(r1, r2)
 
     def test_delete(
-        self, test_tbl: pxt.Table, small_img_tbl: pxt.Table, make_catalog_path: Callable[[str], str]
+        self,
+        test_tbl: pxt.Table,
+        small_img_tbl: pxt.Table,
+        make_catalog_path: Callable[[str], str],
+        is_data_versioned: bool,
     ) -> None:
         t = test_tbl
 
@@ -2986,14 +3004,15 @@ class TestTable:
         cnt = t.where(t.c3 == 10.0).count()
         assert cnt == 1
 
-        # revert, then verify that we're back where we started
         reload_catalog()
         t = pxt.get_table(t.get_metadata()['path'])
-        t.revert()
-        cnt = t.where(t.c3 < 10.0).count()
-        assert cnt == 10
-        cnt = t.where(t.c3 == 10.0).count()
-        assert cnt == 1
+        if is_data_versioned:
+            # revert, then verify that we're back where we started
+            t.revert()
+            cnt = t.where(t.c3 < 10.0).count()
+            assert cnt == 10
+            cnt = t.where(t.c3 == 10.0).count()
+            assert cnt == 1
 
         # non-Predicate filter
         with pxt_raises(
@@ -3008,10 +3027,54 @@ class TestTable:
             img_t.delete(where=img_t.img.width > 100)
         assert 'not expressible' in str(excinfo.value)
 
-    def test_computed_cols(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_add_drop_column(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
+        """Add and drop columns on a populated table. Validates values, dependencies, and persistence."""
+        p = make_catalog_path
+        t = pxt.create_table(
+            p('add_drop'), {'c_int': pxt.Int, 'c_str': pxt.String}, _is_data_versioned=is_data_versioned
+        )
+        validate_update_status(t.insert([{'c_int': i, 'c_str': f'str{i}'} for i in range(3)]), expected_rows=3)
+
+        # a plain column starts out empty on the existing rows
+        t.add_column(c_float=pxt.Float | None)
+        assert t.order_by(t.c_int).collect()['c_float'] == [None] * 3
+
+        # a computed column is backfilled over the existing rows
+        t.add_computed_column(c_double=t.c_int * 2)
+        assert t.order_by(t.c_int).collect()['c_double'] == [0, 2, 4]
+
+        # both are populated on rows inserted after the schema change
+        validate_update_status(t.insert([{'c_int': 3, 'c_str': 'str3', 'c_float': 1.5}]), expected_rows=1)
+        rows = t.order_by(t.c_int).collect()
+        assert rows['c_float'] == [None, None, None, 1.5]
+        assert rows['c_double'] == [0, 2, 4, 6]
+
+        # a column that another column depends on cannot be dropped
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match="Cannot drop column 'c_int' because the following columns depend on it",
+        ):
+            t.drop_column('c_int')
+
+        t.drop_column('c_double')
+        t.drop_column('c_float')
+        assert list(t.get_metadata()['columns']) == ['c_int', 'c_str']
+
+        # the schema change and the surviving data are both persisted
+        reload_catalog()
+        t = pxt.get_table(p('add_drop'))
+        assert list(t.get_metadata()['columns']) == ['c_int', 'c_str']
+        assert t.order_by(t.c_int).collect()['c_int'] == [0, 1, 2, 3]
+
+        # the name of a dropped column can be reused
+        t.add_column(c_double=pxt.Int | None)
+        assert list(t.get_metadata()['columns']) == ['c_int', 'c_str', 'c_double']
+        assert t.order_by(t.c_int).collect()['c_double'] == [None] * 4
+
+    def test_computed_cols(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
         schema: dict[str, Any] = {'c1': pxt.Int | None, 'c2': pxt.Float | None, 'c3': pxt.Json | None}
-        t: pxt.Table = pxt.create_table(p('test'), schema)
+        t: pxt.Table = pxt.create_table(p('test'), schema, _is_data_versioned=is_data_versioned)
         status = t.add_computed_column(c4=t.c1 + 1)
         assert status.num_excs == 0
         status = t.add_computed_column(c5=t.c4 + 1)
@@ -3102,9 +3165,9 @@ class TestTable:
         for row in t_res:
             assert row['c3'] + 1000 == row['c4']
 
-    def test_expr_udf_computed_cols(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_expr_udf_computed_cols(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
-        t = pxt.create_table(p('test'), {'c1': pxt.Int | None})
+        t = pxt.create_table(p('test'), {'c1': pxt.Int | None}, _is_data_versioned=is_data_versioned)
         rows = [{'c1': i} for i in range(100)]
         status = t.insert(rows)
         assert status.num_rows == len(rows)
@@ -3137,7 +3200,9 @@ class TestTable:
         assert status.num_excs == 0
         check(t)
 
-    def test_computed_col_exceptions(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+    def test_computed_col_exceptions(
+        self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str], is_data_versioned: bool
+    ) -> None:
         p = make_catalog_path
         if Env.get().is_using_cockroachdb:
             # TODO Fix this on CockroachDB; it's a problem!
@@ -3145,7 +3210,7 @@ class TestTable:
         # exception during insert()
         schema: dict[str, Any] = {'c2': pxt.Int | None}
         rows = list(test_tbl.select(test_tbl.c2).collect())
-        t = pxt.create_table(p('test_insert'), schema)
+        t = pxt.create_table(p('test_insert'), schema, _is_data_versioned=is_data_versioned)
         status = t.add_computed_column(add1=self.f2(self.f1(t.c2)))
         assert status.num_excs == 0
         status = t.insert(rows, on_error='ignore')
@@ -3154,7 +3219,7 @@ class TestTable:
         assert t.where(t.add1.errortype != None).count() == 10
 
         # exception during add_computed_column()
-        t = pxt.create_table(p('test_add_column'), schema)
+        t = pxt.create_table(p('test_add_column'), schema, _is_data_versioned=is_data_versioned)
         status = t.insert(rows)
         assert status.num_rows == 100
         assert status.num_excs == 0
@@ -3255,14 +3320,16 @@ class TestTable:
         t.insert(rows, on_error='ignore')
         _ = t.select(t.c3.errortype).collect()
 
-    def test_computed_window_fn(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+    def test_computed_window_fn(
+        self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str], is_data_versioned: bool
+    ) -> None:
         p = make_catalog_path
         t = test_tbl
         # backfill
         t.add_computed_column(c9=pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3))
 
         schema: dict[str, Any] = {'c2': pxt.Int | None, 'c3': pxt.Float | None, 'c4': pxt.Bool | None}
-        new_t = pxt.create_table(p('insert_test'), schema)
+        new_t = pxt.create_table(p('insert_test'), schema, _is_data_versioned=is_data_versioned)
         new_t.add_computed_column(c5=square(new_t.c2))
         new_t.add_computed_column(c6=pxtf.sum(new_t.c5, group_by=new_t.c4, order_by=new_t.c3))
         rows = list(t.select(t.c2, t.c4, t.c3).collect())
@@ -3796,9 +3863,9 @@ class TestTable:
         pxt.drop_table(t1)
         pxt.drop_table(t2)
 
-    def test_rename_column(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_rename_column(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
-        t = create_test_tbl(p('test_tbl'))
+        t = create_test_tbl(p('test_tbl'), is_data_versioned=is_data_versioned)
         num_orig_cols = len(t.columns())
         t.rename_column('c1', 'c1_renamed')
         assert len(t.columns()) == num_orig_cols
@@ -3826,16 +3893,16 @@ class TestTable:
         t = pxt.get_table(p('test_tbl'))
         check_rename(t, 'c1_renamed', 'c1')
 
-        # revert() works
-        _ = t.select(t.c1_renamed).collect()
-        t.revert()
-        _ = t.select(t.c1).collect()
-        # check_rename(t, 'c1', 'c1_renamed')
+        if is_data_versioned:
+            # revert() works
+            _ = t.select(t.c1_renamed).collect()
+            t.revert()
+            _ = t.select(t.c1).collect()
 
-        # make sure this is still true after reloading the metadata once more
-        reload_catalog()
-        t = pxt.get_table(p('test_tbl'))
-        check_rename(t, 'c1', 'c1_renamed')
+            # make sure this is still true after reloading the metadata once more
+            reload_catalog()
+            t = pxt.get_table(p('test_tbl'))
+            check_rename(t, 'c1', 'c1_renamed')
 
     def test_add_computed_column(
         self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester
@@ -4284,31 +4351,8 @@ class TestTable:
             t.drop_column('c2')
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_add_columns_with_metadata(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
-        p = make_catalog_path
-        t = pxt.create_table(p('tbl'), {'c1': pxt.Int | None, 'c2': pxt.String | None})
-
-        # invalid metadata parameters are rejected
-        with pxt_raises(
-            pxt.ErrorCode.INVALID_ARGUMENT, match=r"media_validation must be one of: \['on_read', 'on_write']"
-        ):
-            t.add_columns({'non_existing_col1': {'type': pxt.Image | None, 'media_validation': 'on_error'}})  # type: ignore[dict-item]
-        with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match="'stored' must be a bool; got <class 'float'>"):
-            t.add_columns({'non_existing_col1': {'type': pxt.Image | None, 'stored': float}})  # type: ignore[dict-item]
-
-        # valid metadata parameters are accepted
-        t.add_columns({'c3': {'type': pxt.Image | None, 'stored': True, 'media_validation': 'on_write'}})
-
-        # make sure this metadata is persisted
-        reload_catalog(do_reload_catalog)
-
-        t = pxt.get_table(p('tbl'))
-        assert 'c3' in t.columns()
-        assert t.get_metadata()['columns']['c3']['is_stored']
-        assert t.get_metadata()['columns']['c3']['media_validation'] == 'on_write'
-
-    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_add_column_with_metadata(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
+        """Combined test for t.add_column() and t.add_columns()"""
         p = make_catalog_path
         t = pxt.create_table(p('tbl'), {'c1': pxt.Int | None, 'c2': pxt.String | None})
 
@@ -4326,26 +4370,28 @@ class TestTable:
 
         # valid metadata parameters are accepted
         t.add_column(c3={'type': pxt.Image | None, 'stored': True, 'media_validation': 'on_write'})
-
-        # verify column was added correctly
-        assert 'c3' in t.columns()
         assert t.get_metadata()['columns']['c3']['is_stored']
         assert t.get_metadata()['columns']['c3']['media_validation'] == 'on_write'
 
-        # add another column with on_read validation
-        t.add_column(c4={'type': pxt.Video | None, 'media_validation': 'on_read'})
-        assert 'c4' in t.columns()
+        # add_columns() carries per-column metadata across a batch
+        t.add_columns(
+            {
+                'c4': {'type': pxt.Video | None, 'media_validation': 'on_read'},
+                'c5': {'type': pxt.Image | None, 'stored': True},
+            }
+        )
         assert t.get_metadata()['columns']['c4']['media_validation'] == 'on_read'
+        assert t.get_metadata()['columns']['c5']['is_stored']
 
         # make sure this metadata is persisted
         reload_catalog(do_reload_catalog)
 
         t = pxt.get_table(p('tbl'))
-        assert 'c3' in t.columns()
+        assert list(t.get_metadata()['columns']) == ['c1', 'c2', 'c3', 'c4', 'c5']
         assert t.get_metadata()['columns']['c3']['is_stored']
         assert t.get_metadata()['columns']['c3']['media_validation'] == 'on_write'
-        assert 'c4' in t.columns()
         assert t.get_metadata()['columns']['c4']['media_validation'] == 'on_read'
+        assert t.get_metadata()['columns']['c5']['is_stored']
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_table_comment(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
@@ -4421,3 +4467,23 @@ class TestTable:
                 p('tbl_invalid'),
                 {'c': {'type': pxt.Int | None, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
             )
+
+    @pytest.mark.local("Operational table feature, doesn't need to run with proxy")
+    def test_unsupported_operational_tbl_ops(self, uses_db: None) -> None:
+        operational_tbl = pxt.create_table('t0', {'n': pxt.Int | None}, _is_data_versioned=False)
+        data_versioned_tbl = pxt.create_table('t1', {'n': pxt.Int | None}, _is_data_versioned=True)
+
+        # Joins between data-versioned and operational tables are not supported.
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match='join is not supported between data-versioned and operational tables',
+        ):
+            data_versioned_tbl.select().join(operational_tbl, on=(data_versioned_tbl.n == operational_tbl.n))
+        with pxt_raises(
+            pxt.ErrorCode.UNSUPPORTED_OPERATION,
+            match='join is not supported between data-versioned and operational tables',
+        ):
+            operational_tbl.select().join(data_versioned_tbl, on=(data_versioned_tbl.n == operational_tbl.n))
+
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Revert is supported on data-versioned tables only'):
+            operational_tbl.revert()

@@ -238,6 +238,14 @@ def create_table(
     # mapping and report the same errors
     schema = catalog.normalize_schema(schema)
 
+    # fold the primary_key parameter into the schema
+    for pk_col in primary_key or []:
+        if pk_col not in schema:
+            raise excs.NotFoundError(
+                excs.ErrorCode.COLUMN_NOT_FOUND, f'Primary key column {pk_col!r} not found in table schema.'
+            )
+        schema[pk_col] = {**schema[pk_col], 'primary_key': True}
+
     tbl, was_created = (
         get_runtime()
         .get_catalog(path_obj)
@@ -245,7 +253,6 @@ def create_table(
             path_obj,
             schema,
             if_exists=if_exists_,
-            primary_key=primary_key,
             comment=comment,
             custom_metadata=custom_metadata,
             media_validation=media_validation_,

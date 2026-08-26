@@ -198,11 +198,8 @@ class LocalTable(Table):
             iterator_call=None,
         )
 
-    def _get_version(self) -> int | None:
-        """Return the version of this table or None if not data-versioned.
-
-        Used by tests to ascertain version changes.
-        """
+    def _get_version(self) -> int:
+        """Return the current version of this table."""
         return self._tbl_version_path.version()
 
     def __hash__(self) -> int:
@@ -1211,7 +1208,6 @@ class LocalTable(Table):
         tbl_id = self._id
         # Collect an extra version, if available, to allow for computation of the first version's schema change
         vers_list = get_runtime().catalog.collect_tbl_history(tbl_id, n + 1)
-        assert vers_list[0].tbl_md.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
 
         # Construct the metadata change description dictionary
         md_list = [(vers_md.version_md.version, vers_md.schema_version_md.columns) for vers_md in vers_list]
