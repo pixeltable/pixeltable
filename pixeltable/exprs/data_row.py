@@ -7,6 +7,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 import numpy as np
 import pgvector.sqlalchemy
@@ -136,8 +137,9 @@ class DataRow:
     # exception handling under normal operation.
     _may_have_exc: bool
 
-    # the primary key of a store row is a sequence of ints (the number is different for table vs view)
-    pk: tuple[int, ...] | None
+    # the primary key of a store row; the number of components is different for table vs view, and the leading
+    # rowid component is a UUID for an operational table and an int for a data-versioned one
+    pk: tuple[int | UUID, ...] | None
     # for nested rows (ie, those produced by JsonMapperDispatcher)
     parent_row: DataRow | None
     parent_slot_idx: int | None
@@ -221,7 +223,7 @@ class DataRow:
         target.file_urls = self.file_urls.copy()
         target.file_paths = self.file_paths.copy()
 
-    def set_pk(self, pk: tuple[int, ...]) -> None:
+    def set_pk(self, pk: tuple[int | UUID, ...]) -> None:
         self.pk = pk
 
     def has_exc(self, slot_idx: int | None = None) -> bool:
@@ -387,11 +389,3 @@ class DataRow:
         self.file_paths[index] = str(filepath) if filepath is not None else None
         self.vals[index] = None
         return url
-
-    @property
-    def rowid(self) -> tuple[int, ...]:
-        return self.pk[:-1]
-
-    @property
-    def v_min(self) -> int:
-        return self.pk[-1]

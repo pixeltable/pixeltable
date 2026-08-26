@@ -754,24 +754,15 @@ class StoreBase:
         return cols_with_excs, row_counts, (updated_rows if return_rows else None)
 
     def sql_update(self, stmt: sql.Update, params: list[dict[str, Any]]) -> None:
+        """Run stmt for every element of params.
+
+        No handling of primary key violations: an update never assigns a primary key column.
+        """
         assert len(params) > 0
         conn = get_runtime().conn
         try:
             with telemetry.span('pixeltable.sa.update_rows'):
                 conn.execute(stmt, params)
-        except sql.exc.IntegrityError as e:
-            if (
-                isinstance(e.orig, psycopg.errors.UniqueViolation)
-                and e.orig.diag.constraint_name is not None
-                and e.orig.diag.constraint_name == self.pk_constraint_name(self.tbl_version.get())
-            ):
-                detail = e.orig.diag.message_detail or ''
-                for col in self.tbl_version.get().primary_key_columns():
-                    detail = detail.replace(col.store_name(), col.name)
-                raise excs.RequestError(
-                    excs.ErrorCode.CONSTRAINT_VIOLATION, f'Duplicate primary key value: {detail}'
-                ) from e
-            raise
         except sql.exc.OperationalError as e:
             if isinstance(e.orig, psycopg.errors.ProgramLimitExceeded):
                 idx_info = self._offending_idx(e.orig)
