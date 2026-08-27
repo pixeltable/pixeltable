@@ -61,6 +61,16 @@ if not os.environ.get('PIXELTABLE_PROXY_DAEMON') and not os.environ.get('PXTCLOU
         for i in range(n):
             yield MyRowV3(icol=str(i), scol=str(i))
 
+    class MyRowV4(TypedDict):
+        icol: int
+        scol: str
+        extra: str
+
+    @pxt.iterator
+    def evolving_iterator_v4(n: int) -> Iterator[MyRowV4]:
+        for i in range(n):
+            yield MyRowV4(icol=i, scol=str(i), extra=str(i))
+
 
 @pxt.udf
 def udf_with_import_error_on_cloud(cfg: str, n: int) -> int:
@@ -183,9 +193,16 @@ class TestCloudErrors:
         with pxt_raises(
             pxt.ErrorCode.FUNCTION_NOT_FOUND,
             match=r'The request references the iterator `tests\.cloud\.test_cloud_errors\.evolving_iterator`, '
-            r'but the output schema of the iterator\nin the remote database does not match its local definition\.\n'
-            r"The type of output field 'icol' is incompatible\n"
-            r'\(expected `pxt\.String`; got `pxt\.Int`\)\.',
+            r'but the output schema of the iterator\nin the remote database does not match its local definition\.',
         ):
             mimic(evolving_iterator_v3)
+            pxt.create_view(p('view'), t, iterator=tests.cloud.test_cloud_errors.evolving_iterator(t.n))
+
+        # Refer to an iterator with an output field that doesn't exist on cloud
+        with pxt_raises(
+            pxt.ErrorCode.FUNCTION_NOT_FOUND,
+            match=r'The request references the iterator `tests\.cloud\.test_cloud_errors\.evolving_iterator`, '
+            r'but the output schema of the iterator\nin the remote database does not match its local definition\.',
+        ):
+            mimic(evolving_iterator_v4)
             pxt.create_view(p('view'), t, iterator=tests.cloud.test_cloud_errors.evolving_iterator(t.n))
