@@ -545,7 +545,7 @@ def _requested_is_data_versioned(request: pytest.FixtureRequest) -> bool:
 
 
 @pytest.fixture(scope='function')
-def test_tbl(make_catalog_path: Callable[[str], str], request: pytest.FixtureRequest) -> pxt.Table:
+def test_tbl(db_root: DatabaseRoot, request: pytest.FixtureRequest) -> pxt.Table:
     """The standard test table."""
     return create_test_tbl(make_catalog_path('test_tbl'), is_data_versioned=_requested_is_data_versioned(request))
 
@@ -571,7 +571,7 @@ class SampleFileServer:
     def __init__(self, base_url: str) -> None:
         self.base_url = base_url
 
-    def url(self, path: str | pathlib.Path, catalog_mode: CatalogMode = 'local') -> str:
+    def url(self, path: str | pathlib.Path, db_root: DatabaseRoot = 'local') -> str:
         """Return the http:// URL of `path`, given either as an absolute path in the repo or relative to its root."""
         rel_path = pathlib.Path(path)
         if rel_path.is_absolute():
@@ -642,14 +642,14 @@ def test_tbl_exprs(test_tbl: pxt.Table) -> list[exprs.Expr]:
 
 
 @pytest.fixture(scope='function')
-def all_datatypes_tbl(make_catalog_path: Callable[[str], str], request: pytest.FixtureRequest) -> pxt.Table:
+def all_datatypes_tbl(db_root: DatabaseRoot, request: pytest.FixtureRequest) -> pxt.Table:
     return create_all_datatypes_tbl(
         name=make_catalog_path('all_datatype_tbl'), is_data_versioned=_requested_is_data_versioned(request)
     )
 
 
 @pytest.fixture(scope='function')
-def img_tbl(make_catalog_path: Callable[[str], str], request: pytest.FixtureRequest) -> pxt.Table:
+def img_tbl(db_root: DatabaseRoot, request: pytest.FixtureRequest) -> pxt.Table:
     return create_img_tbl(make_catalog_path('test_img_tbl'), is_data_versioned=_requested_is_data_versioned(request))
 
 
@@ -674,7 +674,7 @@ def multi_img_tbl_exprs(multi_idx_img_tbl: pxt.Table) -> list[exprs.Expr]:
 
 
 @pytest.fixture(scope='function')
-def small_img_tbl(make_catalog_path: Callable[[str], str], request: pytest.FixtureRequest) -> pxt.Table:
+def small_img_tbl(db_root: DatabaseRoot, request: pytest.FixtureRequest) -> pxt.Table:
     return create_img_tbl(
         make_catalog_path('small_img_tbl'), num_rows=40, is_data_versioned=_requested_is_data_versioned(request)
     )
@@ -682,7 +682,7 @@ def small_img_tbl(make_catalog_path: Callable[[str], str], request: pytest.Fixtu
 
 @pytest.fixture(scope='function')
 def indexed_img_tbl(
-    make_catalog_path: Callable[[str], str], local_embed: pxt.Function, request: pytest.FixtureRequest
+    db_root: DatabaseRoot, local_embed: pxt.Function, request: pytest.FixtureRequest
 ) -> pxt.Table:
     t = create_img_tbl(
         make_catalog_path('indexed_img_tbl'), num_rows=40, is_data_versioned=_requested_is_data_versioned(request)
@@ -695,7 +695,7 @@ def indexed_img_tbl(
 
 @pytest.fixture(scope='function')
 def multi_idx_img_tbl(
-    make_catalog_path: Callable[[str], str], local_embed: pxt.Function, request: pytest.FixtureRequest
+    db_root: DatabaseRoot, local_embed: pxt.Function, request: pytest.FixtureRequest
 ) -> pxt.Table:
     t = create_img_tbl(
         make_catalog_path('multi_idx_img_tbl'), num_rows=4, is_data_versioned=_requested_is_data_versioned(request)

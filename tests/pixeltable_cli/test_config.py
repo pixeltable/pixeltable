@@ -65,7 +65,7 @@ def make_table(target: str) -> None:
 
 
 class TestConfig:
-    def test_supplying_a_key_the_daemon_lacks(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
+    def test_supplying_a_key_the_daemon_lacks(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """A shell binds a credential the daemon has not got: work is refused, inspection is not, a restart fixes it."""
         target = make_catalog_path('cfg')
         make_table(target)
@@ -98,7 +98,7 @@ class TestConfig:
         cli('daemon', 'restart', env_overrides=with_key)
         assert 'hello' in cli('rows', f'{target}/docs', '-n', '1', env_overrides=with_key).stdout
 
-    def test_rotating_a_key(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
+    def test_rotating_a_key(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """A shell binds a credential to a new value: refused until the daemon is restarted with it."""
         target = make_catalog_path('cfg')
         make_table(target)
@@ -117,7 +117,7 @@ class TestConfig:
         cli('daemon', 'restart', env_overrides=second)
         assert 'hello' in cli('rows', f'{target}/docs', '-n', '1', env_overrides=second).stdout
 
-    def test_a_setting_that_is_not_a_credential(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
+    def test_a_setting_that_is_not_a_credential(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """Any env-settable setting counts, not just credentials: an endpoint decides what the work talks to."""
         target = make_catalog_path('cfg')
         make_table(target)
@@ -131,7 +131,7 @@ class TestConfig:
         assert 'hello' in cli('rows', f'{target}/docs', '-n', '1', env_overrides=other_endpoint).stdout
 
     def test_instance_settings_ignore_the_environment(
-        self, cli: PxtRunner, make_catalog_path: Callable[[str], str]
+        self, cli: PxtRunner, db_root: DatabaseRoot
     ) -> None:
         """A setting every process using the instance shares is read from the file, and says so when exported."""
         target = make_catalog_path('cfg')
@@ -147,7 +147,7 @@ class TestConfig:
         assert 'PIXELTABLE_FILE_CACHE_SIZE_G' not in entries['env_var_names']
         assert 'hello' in cli('rows', f'{target}/docs', '-n', '1', env_overrides=exported).stdout
 
-    def test_no_command_prints_a_credential(self, cli: PxtRunner, make_catalog_path: Callable[[str], str]) -> None:
+    def test_no_command_prints_a_credential(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """A credential the caller supplies never appears in output, whether the daemon agrees with it or not."""
         target = make_catalog_path('cfg')
         make_table(target)
@@ -184,7 +184,7 @@ class TestConfig:
         assert 'PIXELTABLE_SECRET_PXT_TEST_KEY' in resp['env_var_names']
 
     def test_config_var_from_env(
-        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], project_dir: pathlib.Path
+        self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
     ) -> None:
         """A config var a schema declares is bound from the environment, with no entry in any config file."""
         target = make_catalog_path('cfg')
@@ -224,7 +224,7 @@ class TestConfig:
         assert (dest['section'], dest['source']) == ('pixeltable.database.vars', 'env')
 
     def test_config_var_from_project_config(
-        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], project_dir: pathlib.Path
+        self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
     ) -> None:
         """A var and a secret bound in the project's pixeltable.toml reach the daemon."""
         target = make_catalog_path('cfg')
@@ -277,7 +277,7 @@ class TestConfig:
             cli('daemon', 'restart')
 
     def test_changing_a_value_in_the_config_file(
-        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+        self, cli: PxtRunner, db_root: DatabaseRoot, tmp_path: pathlib.Path
     ) -> None:
         """Editing a credential in the config file of a running daemon is refused until it is restarted."""
         target = make_catalog_path('cfg')
@@ -312,7 +312,7 @@ class TestConfig:
         assert test_key['source'] == str(config_file)
 
     def test_an_unparseable_config_file_is_reported(
-        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+        self, cli: PxtRunner, db_root: DatabaseRoot, tmp_path: pathlib.Path
     ) -> None:
         """A config file that stops parsing under a running daemon produces an error, not a dropped request."""
         target = make_catalog_path('cfg')
@@ -330,7 +330,7 @@ class TestConfig:
         assert 'RemoteDisconnected' not in r.stderr
 
     def test_restart_while_serving(
-        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], project_dir: pathlib.Path
+        self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
     ) -> None:
         """A restart that would abandon work in progress is refused; once the work is done it goes through."""
         skip_test_if_not_installed('sentence_transformers')

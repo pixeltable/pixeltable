@@ -152,7 +152,7 @@ def _(bound_args: dict[str, Any]) -> dict[str, type] | None:
 
 class TestIterator:
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_iterator(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
+    def test_iterator(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
         p = make_catalog_path
         for n, it in enumerate((simple_iterator, class_based_iterator, iterator_with_seek)):
             assert callable(it)
@@ -193,7 +193,7 @@ class TestIterator:
             pxt.drop_table(tbl_path, force=True)
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_iterator_column_shadowing(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
+    def test_iterator_column_shadowing(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
         p = make_catalog_path
         t = pxt.create_table(
             p('tbl'), schema={'pos': pxt.String | None, 'input': pxt.Int | None, 'scol': pxt.Float | None}
@@ -424,7 +424,7 @@ class TestIterator:
             def reserved_pos_iterator(x: int) -> Iterator[PosRow]:
                 yield from []
 
-    def test_create_view_schema_errors(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_create_view_schema_errors(self, db_root: DatabaseRoot) -> None:
         """create_view() validates the iterator's output schema; these errors surface in both local and proxy mode."""
         p = make_catalog_path
         t = pxt.create_table(p('tbl_plain_dict'), schema={'input': pxt.Int | None})
@@ -666,7 +666,7 @@ class TestIterator:
         pxt.drop_table('view')
         reload_and_validate_table(has_view=False)
 
-    def test_retrofit(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_retrofit(self, db_root: DatabaseRoot) -> None:
         """
         Tests that legacy iterators defined as subclasses of ComponentIterator can be retrofitted
         into the new GeneratingFunction-based iterator system.
@@ -688,7 +688,7 @@ class TestIterator:
         assert v.get_metadata()['iterator_call'].startswith('CustomLegacyIterator(')
         v.describe()
 
-    def test_nested_iterator(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_nested_iterator(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         n = 5
         t = pxt.create_table(p('test_nested'), schema={'input': pxt.Int | None})
@@ -724,7 +724,7 @@ class TestIterator:
             v1 = pxt.get_table(p('v1'))
             v2 = pxt.get_table(p('v2'))
 
-    def test_future_annotations_iterator(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_future_annotations_iterator(self, db_root: DatabaseRoot) -> None:
         """Tests that iterators can be defined in modules with `from __future__ import annotations`."""
         from .module_with_future_annotations import split_words
 

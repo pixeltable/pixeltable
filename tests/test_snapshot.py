@@ -86,7 +86,7 @@ class TestSnapshot:
         pxt.drop_table(snap_path)
         pxt.drop_table(tbl_path)
 
-    def test_basic(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_basic(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         pxt.create_dir(p('main'))
         pxt.create_dir(p('snap'))
@@ -191,7 +191,7 @@ class TestSnapshot:
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match='different base table'):
             _ = pxt.create_snapshot(p('snap_with_base'), other_base, if_exists='ignore')
 
-    def test_mixed_version_join(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_mixed_version_join(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         # A single query plan can reference the same physical column at two different versions: a table joined
         # with a snapshot of itself. Each version must resolve to its own value; if the two versions of a column
@@ -207,7 +207,7 @@ class TestSnapshot:
         assert res['live_v'] == [100, 101, 102, 103, 104]
         assert res['snap_v'] == [0, 1, 2, 3, 4]
 
-    def test_create_if_exists(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
+    def test_create_if_exists(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
         """Test the if_exists parameter while creating a snapshot."""
         p = make_catalog_path
         t = create_test_tbl(p('test_tbl'))
@@ -234,7 +234,7 @@ class TestSnapshot:
         assert s2._id == id_before['test_snap_v']
 
     def test_errors(
-        self, test_tbl: pxt.Table, local_embed: pxt.Function, make_catalog_path: Callable[[str], str]
+        self, test_tbl: pxt.Table, local_embed: pxt.Function, db_root: DatabaseRoot
     ) -> None:
         p = make_catalog_path
         tbl = test_tbl
@@ -277,7 +277,7 @@ class TestSnapshot:
             snap.add_btree_index('c2')
 
     @pytest.mark.parametrize('anonymous', [True, False])
-    def test_views_of_snapshots(self, anonymous: bool, make_catalog_path: Callable[[str], str]) -> None:
+    def test_views_of_snapshots(self, anonymous: bool, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('tbl'), {'a': pxt.Int | None})
         rows = [{'a': 1}, {'a': 2}, {'a': 3}]
@@ -306,7 +306,7 @@ class TestSnapshot:
         v2 = pxt.get_table(p('v2'))
         verify(s1, s2, v1, v2)
 
-    def test_snapshot_of_view_chain(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_snapshot_of_view_chain(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('tbl'), {'a': pxt.Int | None})
         rows = [{'a': 1}, {'a': 2}, {'a': 3}]
@@ -331,7 +331,7 @@ class TestSnapshot:
         s = pxt.get_table(p('s'))
         verify(v1, v2, s)
 
-    def test_snapshot_of_live_view(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
+    def test_snapshot_of_live_view(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
         # A snapshot of a live view of a live base table pins both the view and its base table: inserts, updates,
         # and deletes on the base table flow through to the live view but leave the snapshot's rows and its
         # view-computed column unchanged.
@@ -371,7 +371,7 @@ class TestSnapshot:
         reload_tester.run_reload_test()
         verify_snap(pxt.get_table(p('snap')))
 
-    def test_base_column_access_via_snapshot(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_base_column_access_via_snapshot(self, db_root: DatabaseRoot) -> None:
         # A base-table column reached through a snapshot of a (mutable) view must resolve to the snapshot's base version
         p = make_catalog_path
         t = pxt.create_table(p('tbl'), {'id': pxt.Int | None, 'val': pxt.Int | None})
@@ -387,7 +387,7 @@ class TestSnapshot:
         assert sorted(row['val'] for row in snap.select(snap.val).head(n=100)) == snap_result
         assert snap.count() == 5
 
-    def test_multiple_snapshot_paths(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_multiple_snapshot_paths(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         t = create_test_tbl(p('test_tbl'))
         c4 = t.select(t.c4).order_by(t.c2).collect().to_pandas()['c4']
@@ -454,7 +454,7 @@ class TestSnapshot:
         validate(t, v, s1, s2, s3, s4)
 
     def test_drop_column_in_view_predicate(
-        self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester
+        self, db_root: DatabaseRoot, reload_tester: ReloadTester
     ) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('tbl'), {'c1': pxt.Int | None, 'c2': pxt.Int | None})
@@ -501,7 +501,7 @@ class TestSnapshot:
         assert 'view_snap1' not in str(e.value).lower()
         assert 'view_snap2' not in str(e.value).lower()
 
-    def test_unstored_snapshot(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
+    def test_unstored_snapshot(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
         """Tests that a snapshot of a table with unstored columns is queryable."""
         p = make_catalog_path
         t = pxt.create_table(p('tbl'), {'c1': pxt.Int | None})
@@ -511,7 +511,7 @@ class TestSnapshot:
         reload_tester.run_query(snap.order_by(t.c1))
         reload_tester.run_reload_test()
 
-    def test_rename_column(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_rename_column(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('tbl'), {'c1': pxt.Int | None, 'c2': pxt.Int | None})
 
@@ -539,7 +539,7 @@ class TestSnapshot:
     # TODO: Currently, comments and custom_metadata are not persisted for pure snapshots.
     # Should we consider snapshots as non-pure when these are provided?
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_snapshot_comment(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
+    def test_snapshot_comment(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('tbl'), {'c': pxt.Int | None})
         s1 = pxt.create_snapshot(
@@ -561,7 +561,7 @@ class TestSnapshot:
             )
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_snapshot_custom_metadata(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
+    def test_snapshot_custom_metadata(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
         p = make_catalog_path
         custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
         t = pxt.create_table(p('tbl'), {'c': pxt.Int | None})
@@ -582,7 +582,7 @@ class TestSnapshot:
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_snapshot_column_custom_metadata(
-        self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool
+        self, db_root: DatabaseRoot, do_reload_catalog: bool
     ) -> None:
         p = make_catalog_path
         custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
@@ -605,7 +605,7 @@ class TestSnapshot:
             )
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_snapshot_column_comment(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
+    def test_snapshot_column_comment(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('tbl'), {'c': pxt.Int | None})
         s = pxt.create_snapshot(
@@ -628,7 +628,7 @@ class TestSnapshot:
             )
 
     @pytest.mark.parametrize('load_order', ['base_first', 'snapshot_first'])
-    def test_load_snapshot_with_dropped_cols(self, make_catalog_path: Callable[[str], str], load_order: str) -> None:
+    def test_load_snapshot_with_dropped_cols(self, db_root: DatabaseRoot, load_order: str) -> None:
         """
         Create a table and take a snapshot. Then drop some columns.
         Validate that after loading both (in either order) everything works as intended.

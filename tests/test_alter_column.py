@@ -10,7 +10,7 @@ from .utils import pxt_raises, reload_catalog, validate_update_status
 class TestAlterColumn:
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_alter_column(
-        self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool, is_data_versioned: bool
+        self, db_root: DatabaseRoot, do_reload_catalog: bool, is_data_versioned: bool
     ) -> None:
         t = pxt.create_table(make_catalog_path('test_tbl'), {'c1': pxt.String}, _is_data_versioned=is_data_versioned)
         validate_update_status(t.insert(c1='a'), 1)
@@ -34,14 +34,14 @@ class TestAlterColumn:
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='expected non-None'):
                 t.insert(c1=None)
 
-    def test_alter_column_via_reference(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
+    def test_alter_column_via_reference(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         t = pxt.create_table(make_catalog_path('test_tbl'), {'c1': pxt.Float}, _is_data_versioned=is_data_versioned)
         t.add_column(c2=pxt.Float)
         t.alter_column(t.c1, type_=pxt.Float | None)
         t.alter_column(t.c2, type_=pxt.Float | None)
         validate_update_status(t.insert(c1=None, c2=None), 1)
 
-    def test_alter_column_same_type(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
+    def test_alter_column_same_type(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         t = pxt.create_table(
             make_catalog_path('test_tbl'), {'c1': pxt.Int | None}, _is_data_versioned=is_data_versioned
         )
@@ -53,7 +53,7 @@ class TestAlterColumn:
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_alter_column_history(
-        self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool, is_data_versioned: bool
+        self, db_root: DatabaseRoot, do_reload_catalog: bool, is_data_versioned: bool
     ) -> None:
         t = pxt.create_table(make_catalog_path('test_tbl'), {'c1': pxt.String}, _is_data_versioned=is_data_versioned)
         t.alter_column('c1', type_=pxt.String | None)
@@ -67,7 +67,7 @@ class TestAlterColumn:
         hist = str(t.history())
         assert schema_change in hist
 
-    def test_alter_column_errors(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_alter_column_errors(self, db_root: DatabaseRoot) -> None:
         t = pxt.create_table(
             make_catalog_path('test_tbl'),
             {'c1': pxt.String, 'c2': pxt.Int | None, 'c3': pxt.Float, 'c5': pxt.Int},

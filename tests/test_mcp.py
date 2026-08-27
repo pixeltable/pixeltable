@@ -19,7 +19,7 @@ _logger = logging.getLogger('pixeltable_test')
 @rerun_on_network_error()
 @pytest.mark.skip_cloud(reason='MCP server is not available in cloud tests')
 class TestMcp:
-    def test_mcp_server(self, make_catalog_path: Callable[[str], str], init_mcp_server: str) -> None:
+    def test_mcp_server(self, db_root: DatabaseRoot, init_mcp_server: str) -> None:
         skip_test_if_not_installed('mcp')
 
         udfs = pxt.mcp_udfs(init_mcp_server)
@@ -35,7 +35,7 @@ class TestMcp:
         assert res[0]['pixelmultiple'] == str((3 + 22) * 4)
         assert res[1]['pixelmultiple'] == str((5 + 22) * 6)
 
-    def test_mcp_persistence(self, make_catalog_path: Callable[[str], str], init_mcp_server: str) -> None:
+    def test_mcp_persistence(self, db_root: DatabaseRoot, init_mcp_server: str) -> None:
         # a column backed by an MCP UDF survives a catalog reload: its stored values read back, and the
         # reconstructed function still computes newly inserted rows against the server
         skip_test_if_not_installed('mcp')
@@ -52,7 +52,7 @@ class TestMcp:
         t.insert([{'a': 5, 'b': 6}])
         assert t.where(t.a == 5).collect()[0]['pixelmultiple'] == str((5 + 22) * 6)
 
-    def test_mcp_tool_changed(self, make_catalog_path: Callable[[str], str], worker_id: str) -> None:
+    def test_mcp_tool_changed(self, db_root: DatabaseRoot, worker_id: str) -> None:
         # evaluating an MCP-backed column reports a clear error if the server's tool set has drifted since the
         # column was created: the tool's signature changed, or the tool is gone entirely
         skip_test_if_not_installed('mcp')
@@ -79,7 +79,7 @@ class TestMcp:
             assert t.insert([{'a': 7, 'b': 8}], on_error='ignore').num_excs > 0
             assert 'no longer available' in t.where(t.a == 7).select(m=t.pixelmultiple.errormsg).collect()[0]['m']
 
-    def test_mcp_as_tools(self, make_catalog_path: Callable[[str], str], init_mcp_server: str) -> None:
+    def test_mcp_as_tools(self, db_root: DatabaseRoot, init_mcp_server: str) -> None:
         skip_test_if_not_installed('mcp', 'openai')
         skip_test_if_no_client('openai')
         from pixeltable.functions import openai

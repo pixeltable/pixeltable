@@ -82,7 +82,7 @@ class TestTableModel:
         assert {fn.name for fn in Chunks.referenced_functions()} == {'excerpt'}
         assert Docs.declared_models() == [Docs, Long, Chunks]
 
-    def test_table_path(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_table_path(self, db_root: DatabaseRoot) -> None:
         """A model describes its shape before the table exists, and the description matches what gets created."""
         p = make_catalog_path
         from pixeltable.functions.video import frame_iterator
@@ -132,7 +132,7 @@ class TestTableModel:
 
     @pytest.mark.parametrize('root', ['', 'dir/subdir'])
     def test_table_model_basic(
-        self, root: str, make_catalog_path: Callable[[str], str], is_data_versioned: bool
+        self, root: str, db_root: DatabaseRoot, is_data_versioned: bool
     ) -> None:
         p = make_catalog_path
         TableModel = pxt.model_base()
@@ -418,7 +418,7 @@ class TestTableModel:
             tbl.get_metadata(),
         )
 
-    def test_btree_index_declaration(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_btree_index_declaration(self, db_root: DatabaseRoot) -> None:
         root = make_catalog_path('')
         TableModel = pxt.model_base()
 
@@ -458,7 +458,7 @@ class TestTableModel:
         assert btree_idxs(tbl) == {'idx0': 'name', 'idx1': 'img'}
         assert btree_idxs(ExampleViewModel.table) == {'idx0': 'vc'}
 
-    def test_default_idxs_diff(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_default_idxs_diff(self, db_root: DatabaseRoot) -> None:
         """Verifies how model diff interacts with has_default_idxs."""
         p = make_catalog_path
         root = p('')
@@ -516,7 +516,7 @@ class TestTableModel:
         ):
             TableModelV3.diff_all(root)
 
-    def test_operational_table_model_diff(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_operational_table_model_diff(self, db_root: DatabaseRoot) -> None:
         """There is no conversion between the two table kinds, so a mismatched model is unsupported."""
         p = make_catalog_path
         root = p('')
@@ -550,7 +550,7 @@ class TestTableModel:
         ):
             TableModelV2.diff_all(root)
 
-    def test_primary_key_model(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
+    def test_primary_key_model(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """A model-declared primary key is enforced, and survives the schema change that `update_all()` applies."""
         p = make_catalog_path
         root = p('')
@@ -595,7 +595,7 @@ class TestTableModel:
         with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='Duplicate primary key'):
             t.insert([{'note_id': 1}])
 
-    def test_btree_index_validation(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_btree_index_validation(self, db_root: DatabaseRoot) -> None:
         """`update_all()` and `create_all()` enforce the same B-tree eligibility rules as `Table.add_btree_index()`."""
         root = make_catalog_path('')
         TableModel = pxt.model_base()
@@ -665,7 +665,7 @@ class TestTableModel:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='belongs to a base table'):
             TM_create.create_all(root)
 
-    def test_index_name_collision_on_update(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_index_name_collision_on_update(self, db_root: DatabaseRoot) -> None:
         """`update_all()` rejects a declared index whose name is taken by one of the table's existing indexes."""
         p = make_catalog_path
         root = p('')
@@ -690,7 +690,7 @@ class TestTableModel:
 
         assert btree_idxs(Defaults.table) == {'idx0': 'txt'}
 
-    def test_all_table_exprs(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
+    def test_all_table_exprs(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = make_catalog_path
         TableModel = pxt.model_base()
 
@@ -772,7 +772,7 @@ class TestTableModel:
         assert_resultset_eq(tbl.collect(), tbl2.collect())
 
     @pytest.mark.parametrize('root', ['', 'dir/subdir'])
-    def test_view_model(self, root: str, make_catalog_path: Callable[[str], str]) -> None:
+    def test_view_model(self, root: str, db_root: DatabaseRoot) -> None:
         skip_test_if_not_installed('imagehash')
 
         p = make_catalog_path
@@ -913,7 +913,7 @@ class TestTableModel:
             assert schema_from_tbl_md(mtbl.get_metadata()) == schema_from_tbl_md(atbl.get_metadata())
             assert_resultset_eq(mtbl.order_by(mtbl.value).collect(), atbl.order_by(atbl.value).collect())
 
-    def test_view_model_shadows_base_column(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_view_model_shadows_base_column(self, db_root: DatabaseRoot) -> None:
         """A view model column cannot shadow a base column, the same as create_view()."""
         p = make_catalog_path
         TableModel = pxt.model_base()
@@ -930,7 +930,7 @@ class TestTableModel:
         ):
             TableModel.create_all(p(''))
 
-    def test_update_all_adds_shadowing_column(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_update_all_adds_shadowing_column(self, db_root: DatabaseRoot) -> None:
         """update_all() cannot add a view column that shadows a base column, the same as add_computed_column()."""
         p = make_catalog_path
         TableModel = pxt.model_base()
@@ -963,7 +963,7 @@ class TestTableModel:
         t = ExampleViewModel.table
         assert t.select(t.value).collect()['value'] == [2.0]
 
-    def test_view_model_index_on_iterator_column(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_view_model_index_on_iterator_column(self, db_root: DatabaseRoot) -> None:
         """An embedding index in a view model can name a column produced by the view's iterator."""
         skip_test_if_not_installed('spacy')
         p = make_catalog_path
@@ -1005,7 +1005,7 @@ class TestTableModel:
             'zero sentence.',
         ]
 
-    def test_view_model_iterator_column_shadows_base(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_view_model_iterator_column_shadows_base(self, db_root: DatabaseRoot) -> None:
         """An iterator output shadows a base column of the same name, so the model's text is the chunk text
         throughout: the column, the index declared on it, and queries against it."""
         skip_test_if_not_installed('spacy')
@@ -1037,7 +1037,7 @@ class TestTableModel:
         sim = view.text.similarity(string='One sentence.')
         assert len(view.order_by(sim, asc=False).limit(1).collect()) == 1
 
-    def test_view_model_column_collides_with_iterator(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_view_model_column_collides_with_iterator(self, db_root: DatabaseRoot) -> None:
         """A model column cannot reuse the name of one of the view's iterator outputs."""
         p = make_catalog_path
         TableModel = pxt.model_base()
@@ -1068,7 +1068,7 @@ class TestTableModel:
                 additional_columns={'text': pxt.String | None},
             )
 
-    def test_view_model_with_iterator(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_view_model_with_iterator(self, db_root: DatabaseRoot) -> None:
         skip_test_if_not_installed('imagehash')
 
         p = make_catalog_path
@@ -1142,7 +1142,7 @@ class TestTableModel:
             view_from_query2.order_by(view_from_query2.id, view_from_query2.pos).collect(),
         )
 
-    def test_diff_all(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_diff_all(self, db_root: DatabaseRoot) -> None:
         """diff_all() reports added/dropped columns and an iterator mismatch against already-created tables."""
         skip_test_if_not_installed('imagehash')
 
@@ -1689,7 +1689,7 @@ class TestTableModel:
         ):
             TableModelV2.update_all(root)
 
-    def test_update_all(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
+    def test_update_all(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """`update_all()` applies purely additive changes (new columns and indexes) to existing tables."""
         skip_test_if_not_installed('imagehash')
 
@@ -1864,7 +1864,7 @@ class TestTableModel:
         )
         assert tbl.where(tbl.id == 5).collect()['doubled'] == [10.0]
 
-    def test_update_all_errors(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_update_all_errors(self, db_root: DatabaseRoot) -> None:
         """`update_all()` raises an error if a model's schema is inconsistent with the existing table."""
         p = make_catalog_path
         TableModel = pxt.model_base()
@@ -1914,7 +1914,7 @@ class TestTableModel:
         ):
             TableModelV3.update_all(p(''), allow_destructive=True)
 
-    def test_drop_col_with_view_index(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_drop_col_with_view_index(self, db_root: DatabaseRoot) -> None:
         """update_all() cannot drop a column that a view's index is built on."""
         p = make_catalog_path
         base = pxt.create_table(p('base_t'), {'c0': pxt.String | None, 'c1': pxt.String | None})
@@ -1940,7 +1940,7 @@ class TestTableModel:
         TableModel.update_all(p(''), allow_destructive=True)
         assert pxt.get_table(p('base_t')).columns() == ['c1']
 
-    def test_update_all_view_predicate(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_update_all_view_predicate(self, db_root: DatabaseRoot) -> None:
         """update_all() cannot drop a column that a view's predicate references."""
         p = make_catalog_path
         TableModel = pxt.model_base()
@@ -1973,7 +1973,7 @@ class TestTableModel:
 
         assert 'value' in ExampleTable.table.columns()
 
-    def test_table_model_errors(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_table_model_errors(self, db_root: DatabaseRoot) -> None:
         """Reproduce each error condition raised by pixeltable.catalog.model."""
         p = make_catalog_path
         TableModel = pxt.model_base()
@@ -2339,7 +2339,7 @@ class TestTableModel:
 
         assert [c.name for c in Projected.table_path().column_md()] == ['v', 'plus']
 
-    def test_query_udf_over_model(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_query_udf_over_model(self, db_root: DatabaseRoot) -> None:
         """A computed column calling a @pxt.query UDF over another model queries that model's table."""
         TableModel = pxt.model_base()
 
@@ -2367,7 +2367,7 @@ class TestTableModel:
         rows = probe.order_by(probe.cutoff).select(probe.matches).collect()['matches']
         assert rows == [[{'title': 'alpha'}, {'title': 'beta'}], [{'title': 'beta'}]]
 
-    def test_query_udf_column_shapes(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_query_udf_column_shapes(self, db_root: DatabaseRoot) -> None:
         """Several columns over one query udf, and one that wraps its result, each hold their own value."""
         TableModel = pxt.model_base()
 
@@ -2404,7 +2404,7 @@ class TestTableModel:
         assert [r['from_two'] for r in rows] == [[{'title': 'gamma'}], [{'title': 'gamma'}]]
         assert [r['match_count'] for r in rows] == [3, 1]
 
-    def test_table_model_validation_errors(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_table_model_validation_errors(self, db_root: DatabaseRoot) -> None:
         """Errors that arise from a schema mismatch between a model and an existing table."""
         p = make_catalog_path
         TableModel = pxt.model_base()
@@ -2485,7 +2485,7 @@ class TestTableModel:
 
     @pytest.mark.local('a local filesystem destination is rejected for a hosted table')
     def test_config_var_destination(
-        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+        self, db_root: DatabaseRoot, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A column destination is resolved when a file is written, not when the column is declared.
 

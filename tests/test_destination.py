@@ -73,7 +73,7 @@ class TestDestination:
                 pytest.skip(f'Destination {str(dest_id)!r} not reachable or not configured properly: {exc}')
             return None
 
-    def test_dest_errors(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
+    def test_dest_errors(self, db_root: DatabaseRoot, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('test_dest_errors'), schema={'img': pxt.Image | None})
 
@@ -111,7 +111,7 @@ class TestDestination:
             )
 
     @pytest.mark.very_expensive
-    def test_invalid_bucket(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_invalid_bucket(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('boto3')
         t = pxt.create_table(p('test_invalid_dest'), schema={'img': pxt.Image | None})
@@ -145,7 +145,7 @@ class TestDestination:
             )
             assert re.search(f'{msg1}|{msg2}', str(e)), f'Unexpected message: {e}'
 
-    def test_dest_parser(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_dest_parser(self, db_root: DatabaseRoot) -> None:
         a_name = 'acct-name'
         o_name = 'obj-name'
         p_name1 = 'path-name'
@@ -218,7 +218,7 @@ class TestDestination:
 
     @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS.values())
     def test_destination(
-        self, make_catalog_path: Callable[[str], str], dest_id: StorageTarget, catalog_mode: CatalogMode
+        self, db_root: DatabaseRoot, dest_id: StorageTarget, db_root: DatabaseRoot
     ) -> None:
         """Test various media destinations."""
         if catalog_mode != 'local' and dest_id == StorageTarget.LOCAL_STORE:
@@ -299,7 +299,7 @@ class TestDestination:
 
     @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS.values())
     def test_dest_two_copies(
-        self, make_catalog_path: Callable[[str], str], dest_id: StorageTarget, catalog_mode: CatalogMode
+        self, db_root: DatabaseRoot, dest_id: StorageTarget, db_root: DatabaseRoot
     ) -> None:
         """Test destination with two Stores receiving copies of the same computed image"""
         if catalog_mode != 'local' and dest_id == StorageTarget.LOCAL_STORE:
@@ -374,7 +374,7 @@ class TestDestination:
         assert ObjectOps.count(t._id, dest=dest1_uri) == len(r)
 
     @pytest.mark.very_expensive
-    def test_dest_all(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_dest_all(self, db_root: DatabaseRoot) -> None:
         """Test destination with all available storage targets"""
         p = make_catalog_path
         dest_uris = tuple(self.resolve_destination_uri(dest_id) + '/bucket1' for dest_id in self.TESTED_DESTINATIONS)

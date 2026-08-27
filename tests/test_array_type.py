@@ -14,7 +14,7 @@ from .utils import pxt_raises, reload_catalog, validate_update_status
 class TestArrayType:
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_array_dtypes(
-        self, do_reload_catalog: bool, init_env: None, make_catalog_path: Callable[[str], str]
+        self, do_reload_catalog: bool, init_env: None, db_root: DatabaseRoot
     ) -> None:
         p = make_catalog_path
         test_cases: list = [
@@ -47,7 +47,7 @@ class TestArrayType:
         col_dtype: type[np.generic] | ColumnType,
         acceptable_dtypes: list,
         do_reload_catalog: bool,
-        make_catalog_path: Callable[[str], str],
+        db_root: DatabaseRoot,
     ) -> None:
         schema = {'array_col_req': pxt.Array[col_dtype], 'array_col_opt': pxt.Array[col_dtype] | None}
         pxt.create_table(make_catalog_path('test_numpy_dtypes'), schema, if_exists='replace')
@@ -106,7 +106,7 @@ class TestArrayType:
                 raise ValueError(f'Unsupported dtype: {literal_dtype}')
 
     def test_non_parameterized_array_accepts_all_dtypes(
-        self, init_env: None, make_catalog_path: Callable[[str], str]
+        self, init_env: None, db_root: DatabaseRoot
     ) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('test_numpy_dtypes'), {'array': pxt.Array | None})
@@ -119,7 +119,7 @@ class TestArrayType:
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_array_shape_validation(
-        self, do_reload_catalog: bool, init_env: None, make_catalog_path: Callable[[str], str]
+        self, do_reload_catalog: bool, init_env: None, db_root: DatabaseRoot
     ) -> None:
         p = make_catalog_path
         schema = {

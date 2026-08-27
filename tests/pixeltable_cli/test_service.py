@@ -86,7 +86,7 @@ def assert_not_serving(cli: PxtRunner, *names: str) -> None:
 
 class TestService:
     def test_deploying_needs_agreeing_config(
-        self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
+        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
     ) -> None:
         """A service inherits the daemon's config values, so a caller resolving them differently cannot deploy."""
         skip_test_if_not_installed('fastapi')
@@ -107,7 +107,7 @@ class TestService:
         deploy(cli, app, target)
         assert_serving(cli, app, target, 'ingest')
 
-    def test_basic(self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]) -> None:
+    def test_basic(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """The first deployment: declare, see what is pending, apply it, use it, take it down."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
@@ -158,7 +158,7 @@ class TestService:
         assert_not_serving(cli, 'ingest')
 
     def test_iteration(
-        self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
+        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
     ) -> None:
         """Editing the file: an added route is applied by restarting; a changed contract needs a flag."""
         skip_test_if_not_installed('fastapi')
@@ -197,7 +197,7 @@ class TestService:
         cli('service', 'update', apps('basic_changed_route.py'), target, '-f', '--allow-destructive')
         assert_serving(cli, apps('basic_changed_route.py'), target, 'ingest')
 
-    def test_prune(self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]) -> None:
+    def test_prune(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A service the file stopped declaring is stopped and forgotten, and can be started again."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
@@ -225,7 +225,7 @@ class TestService:
         cli: PxtRunner,
         cli_bg: Callable[..., BackgroundPxt],
         apps: Callable[[str], str],
-        make_catalog_path: Callable[[str], str],
+        db_root: DatabaseRoot,
     ) -> None:
         """run serves from the calling process and records nothing; update is the background form."""
         skip_test_if_not_installed('fastapi')
@@ -250,7 +250,7 @@ class TestService:
         assert_serving(cli, app, target, 'ingest')
 
     def test_blocked_on_the_database(
-        self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
+        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
     ) -> None:
         """A service whose tables do not exist is blocked until the schema is applied."""
         skip_test_if_not_installed('fastapi')
@@ -281,7 +281,7 @@ class TestService:
         assert_serving(cli, app, target, 'ingest')
 
     def test_inspection(
-        self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
+        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
     ) -> None:
         """list inspects what a service serves, for every service or for one named by its address."""
         skip_test_if_not_installed('fastapi')
@@ -309,7 +309,7 @@ class TestService:
         out = cli('service', 'list', f'{target}/clips').stdout
         assert '/clips' in out and 'video (file)' in out, out
 
-    def test_media(self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]) -> None:
+    def test_media(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """The routes whose request or response is not JSON: file uploads, a file response, a background job."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
@@ -361,7 +361,7 @@ class TestService:
         assert_not_serving(cli, 'frames')
         assert _post(running['clips']['endpoint'], '/poster', clip_id=4, video=video_url).status_code == 200
 
-    def test_search(self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]) -> None:
+    def test_search(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """An iterator view and an embedding index over the column the iterator produces."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
@@ -388,7 +388,7 @@ class TestService:
         assert resp.json()['text'].strip() in sentences, resp.json()
 
     def test_custom_app(
-        self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
+        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
     ) -> None:
         """A file supplying its own application declares a service Pixeltable cannot compare or serve."""
         skip_test_if_not_installed('fastapi')
@@ -417,7 +417,7 @@ class TestService:
         assert services(cli) == {}
 
     def test_addressing(
-        self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
+        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
     ) -> None:
         """One name at two targets: a bare name is ambiguous, an address is not."""
         skip_test_if_not_installed('fastapi')
@@ -546,7 +546,7 @@ class TestService:
         self,
         cli: PxtRunner,
         apps: Callable[[str], str],
-        make_catalog_path: Callable[[str], str],
+        db_root: DatabaseRoot,
         project_dir: pathlib.Path,
     ) -> None:
         """What the verbs do with a file that is missing, unimportable, or declares no service."""
@@ -581,7 +581,7 @@ class TestService:
         assert r.returncode != 0
         assert 'binds its models to the local catalog' in r.stderr, r.stderr
 
-    def test_example(self, cli: PxtRunner, make_catalog_path: Callable[[str], str], project_dir: pathlib.Path) -> None:
+    def test_example(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """The file `example` writes declares both the tables and the services, and serves."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')

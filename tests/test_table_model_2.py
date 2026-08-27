@@ -21,7 +21,7 @@ class TestTableModel2:
         sys.version_info >= (3, 14),
         reason='Fails on Python 3.14 without `from __future__ import annotations` (PEP 649)',
     )
-    def test_table_model_no_from_future(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_table_model_no_from_future(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         TableModel = pxt.model_base()
 

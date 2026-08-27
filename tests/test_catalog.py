@@ -18,7 +18,7 @@ from tests.utils import pxt_raises
 class TestCatalog:
     """Tests for miscellanous catalog functions."""
 
-    def test_json_reserved_key(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
+    def test_json_reserved_key(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         # JSON cell values are user data and may contain a key that collides with the proxy protocol's reserved
         # tag; inserting and reading such values back must round-trip rather than be rejected.
         p = make_catalog_path
@@ -42,7 +42,7 @@ class TestCatalog:
         with pytest.raises(excs.Error, match='same catalog'):
             pxt.move('pxt://local:db/t', 'local_t')  # hosted -> local
 
-    def test_ls(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_ls(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         pxt.create_dir(p('test_dir'))
         pxt.create_dir(p('test_dir/subdir'))
@@ -78,7 +78,7 @@ class TestCatalog:
         actual = [list(df.columns), *([v for v in row if v != ''] for row in df.itertuples(index=False))]
         assert actual == tokens(expected)
 
-    def test_cross_type_replacement(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_cross_type_replacement(self, db_root: DatabaseRoot) -> None:
         """Test that tables, views, and snapshots can replace each other with if_exists='replace'.
 
         This tests the path collision handling logic: dirs can only collide with dirs,

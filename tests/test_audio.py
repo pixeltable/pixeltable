@@ -58,7 +58,7 @@ class TestAudio:
         paths = audio_t.select(output=audio_t.audio_file.localpath).collect()['output']
         assert set(paths) == set(audio_filepaths)
 
-    def test_extract(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
+    def test_extract(self, db_root: DatabaseRoot, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         video_filepaths = get_video_files()
         video_t = pxt.create_table(p('videos'), {'video': pxt.Video | None})
@@ -179,7 +179,7 @@ class TestAudio:
         reload_tester.run_reload_test()
 
     def test_audio_splitter_on_videos_revert_media_store(
-        self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester, catalog_mode: CatalogMode
+        self, db_root: DatabaseRoot, reload_tester: ReloadTester, db_root: DatabaseRoot
     ) -> None:
         p = make_catalog_path
         video_filepaths = get_video_files()

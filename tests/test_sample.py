@@ -32,7 +32,7 @@ class TestSample:
                     rowid += 1
         return pxt.create_table(p('scm_t'), source=rows, schema_overrides=schema)
 
-    def test_sample_errors(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_sample_errors(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         t = create_test_tbl(p('test_tbl'))
 
@@ -122,7 +122,7 @@ class TestSample:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not expressible in SQL'):
             t.select().where(t.c2.apply(str) == '11').sample(n=10).collect()
 
-    def test_sample_display(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_sample_display(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         t = create_test_tbl(p('test_tbl'))
 
@@ -145,7 +145,7 @@ class TestSample:
         print(r)
         cls._check_sample_count(expected, len(r))
 
-    def test_sample_basic_n(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_sample_basic_n(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         t = self.create_sample_data(p, 4, 6, False)
 
@@ -155,7 +155,7 @@ class TestSample:
         query = t.select().where(t.id < 200).sample(n=20)
         self._check_sample(query, 20)
 
-    def test_sample_basic_f(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_sample_basic_f(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         t = self.create_sample_data(p, 4, 6, False)
         t_rows = t.count()
@@ -169,7 +169,7 @@ class TestSample:
         query = t.select().where(t.id < 200).sample(fraction=0.5, seed=876)
         self._check_sample(query, 200 * 0.5)
 
-    def test_sample_snapshot_reload(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
+    def test_sample_snapshot_reload(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
         p = make_catalog_path
         t = self.create_sample_data(p, 4, 6, False)
 
@@ -180,7 +180,7 @@ class TestSample:
         print(results)
         reload_tester.run_reload_test()
 
-    def test_sample_stratified_n(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_sample_stratified_n(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         t = self.create_sample_data(p, 4, 6, True)
 
@@ -196,7 +196,7 @@ class TestSample:
         print(p)
         assert len(r) == 10
 
-    def test_sample_stratified_f(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_sample_stratified_f(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         t = self.create_sample_data(p, 4, 6, True)
         t_rows = t.count()
@@ -236,7 +236,7 @@ class TestSample:
                 assert view_results_1.equals(snap_results_1)
 
     @pytest.mark.parametrize('seed', [None, 4171780])
-    def test_sample_snapshot(self, make_catalog_path: Callable[[str], str], seed: int) -> None:
+    def test_sample_snapshot(self, db_root: DatabaseRoot, seed: int) -> None:
         p = make_catalog_path
         t = self.create_sample_data(p, 4, 6, True)
         t_rows = t.count()
@@ -247,7 +247,7 @@ class TestSample:
         self.validate_snapshot(p, query, t_rows, allow_mutable_view=True, seeded=(seed is not None))
 
     @pytest.mark.parametrize('seed', [None, 4171780])
-    def test_sample_snapshot_stratified(self, make_catalog_path: Callable[[str], str], seed: int) -> None:
+    def test_sample_snapshot_stratified(self, db_root: DatabaseRoot, seed: int) -> None:
         p = make_catalog_path
         t = self.create_sample_data(p, 4, 6, True)
         t_rows = t.count()
@@ -280,7 +280,7 @@ class TestSample:
         new_table.insert(query)
         assert new_table.count() == 2 * n_sample
 
-    def test_sample_create_insert_table(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+    def test_sample_create_insert_table(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         t = self.create_sample_data(p, 4, 6, False)
 
@@ -300,7 +300,7 @@ class TestSample:
         query = t.sample(n=20, seed=4171780)
         self.check_create_insert(p, t, query, 20, sort_key='c2')
 
-    def test_randomized_sample(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_randomized_sample(self, db_root: DatabaseRoot) -> None:
         """Test that subsequent calls to a non-seeded sample return different results."""
         p = make_catalog_path
         t = self.create_sample_data(p, 4, 6, False)
@@ -312,7 +312,7 @@ class TestSample:
         # potential causes of test failure.
         assert not r0.equals(r1)
 
-    def test_reproducible_sample(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_reproducible_sample(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         t = self.create_sample_data(p, 4, 6, False)
 
@@ -322,7 +322,7 @@ class TestSample:
             r_df = query.collect().to_pandas().sort_values('id').reset_index(drop=True)
             assert r0_df.equals(r_df)
 
-    def test_sample_view(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_sample_view(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         t = self.create_sample_data(p, 4, 6, False)
 
@@ -343,7 +343,7 @@ class TestSample:
         n = len(t.select().sample(fraction=0.01, seed=0).collect())
         assert v.count() == n
 
-    def test_sample_iterator(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_sample_iterator(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         print('\n\nCREATE TABLE WITH ONE IMAGE COLUMN\n')
         t = pxt.create_table(p('test_tile_tbl'), {'image': pxt.Image | None})
@@ -395,7 +395,7 @@ class TestSample:
         v_rows = v.count()
         print(f'total rows: {v_rows}')
 
-    def test_count(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_count(self, db_root: DatabaseRoot) -> None:
         """Test that count() correctly returns the number of sampled rows."""
         p = make_catalog_path
         t = create_test_tbl(p('test_tbl'))

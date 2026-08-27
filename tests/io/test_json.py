@@ -19,7 +19,7 @@ from ..utils import (
 
 
 class TestJson:
-    def test_export_all_types(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_export_all_types(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Export a table with every supported type and verify the JSONL output."""
         p = make_catalog_path
         t = create_all_datatypes_tbl(name=p('all_datatype_tbl'))
@@ -59,7 +59,7 @@ class TestJson:
                 assert exp_row[col_name] == url_row[f'{col_name}_fileurl']
 
     def test_export_non_serializable_json_errors(
-        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+        self, db_root: DatabaseRoot, tmp_path: pathlib.Path
     ) -> None:
         """Exporting a JSON column with non-serializable values should raise an error."""
         p = make_catalog_path
@@ -67,7 +67,7 @@ class TestJson:
         with pytest.raises(pxt.Error, match='not JSON-serializable'):
             pxt.io.export_json(t, tmp_path / 'should_fail.jsonl')
 
-    def test_export_with_nulls(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_export_with_nulls(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Verify null handling across multiple types."""
         p = make_catalog_path
         t = pxt.create_table(
@@ -99,7 +99,7 @@ class TestJson:
         assert exported[0]['c_timestamp'] is None
         assert exported[1]['c_int'] is None
 
-    def test_export_with_query(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_export_with_query(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Test export with filtering and column selection."""
         p = make_catalog_path
         t = pxt.create_table(p('test_json_query'), {'c_int': pxt.Int | None, 'c_string': pxt.String | None})
@@ -120,7 +120,7 @@ class TestJson:
         assert len(exported) == 10
         assert list(exported[0].keys()) == ['c_string']
 
-    def test_export_non_ascii(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_export_non_ascii(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Verify non-ASCII characters are preserved."""
         p = make_catalog_path
         t = pxt.create_table(p('test_json_encoding'), {'name': pxt.String | None})
@@ -135,7 +135,7 @@ class TestJson:
         assert 'Manwë' in names
         assert 'Fëanor' in names
 
-    def test_round_trip(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_round_trip(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Export JSONL, re-import, and verify data matches."""
         p = make_catalog_path
         t = pxt.create_table(
@@ -154,7 +154,7 @@ class TestJson:
         assert original == reimported
 
     @pytest.mark.skip_cloud(reason='Fails due to inaccessible .fileurl [PXT-1323]')
-    def test_round_trip_media(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_round_trip_media(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Export JSONL with media columns, re-import, and verify file URLs survive the round-trip."""
         p = make_catalog_path
         t = create_all_datatypes_tbl(name=p('all_datatype_tbl'))
@@ -174,7 +174,7 @@ class TestJson:
         assert original == reimported
 
     @rerun_on_network_error()
-    def test_export_remote_urls(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_export_remote_urls(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Verify that remote URLs (S3, HTTPS) are exported as-is."""
         p = make_catalog_path
         skip_test_if_not_installed('boto3')
@@ -200,7 +200,7 @@ class TestJson:
             assert exported[0][col] == expected_url, f'{col}: expected {expected_url}, got {exported[0][col]}'
 
     def test_export_unstored_media_expression_errors(
-        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+        self, db_root: DatabaseRoot, tmp_path: pathlib.Path
     ) -> None:
         """Exporting a media-typed expression that is not backed by a stored column should raise an error."""
         p = make_catalog_path

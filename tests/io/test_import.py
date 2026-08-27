@@ -32,7 +32,7 @@ EXPECTED_SCHEMA_WITH_JSON_INFERENCE = {
 
 
 class TestImport:
-    def test_import_rows(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_import_rows(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
         with open(example, encoding='utf-8') as fp:
@@ -73,7 +73,7 @@ class TestImport:
             pxt.io.import_rows(p('example7'), [{'__unusable_name': 'abc'}])
         assert 'Column names must be valid pixeltable identifiers' in str(exc_info.value)
 
-    def test_insert_rows(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_insert_rows(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
         with open(example, encoding='utf-8') as fp:
@@ -88,7 +88,7 @@ class TestImport:
         t2.insert(data)
         assert t2.count() == 8
 
-    def test_import_json(self, make_catalog_path: Callable[[str], str], sample_file_server: SampleFileServer) -> None:
+    def test_import_json(self, db_root: DatabaseRoot, sample_file_server: SampleFileServer) -> None:
         p = make_catalog_path
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
         jeopardy = sample_file_server.url('tests/data/json/jeopardy.json')
@@ -110,7 +110,7 @@ class TestImport:
         ],
     )
     @rerun_on_network_error()
-    def test_import_json_from_remote(self, make_catalog_path: Callable[[str], str], source: str) -> None:
+    def test_import_json_from_remote(self, db_root: DatabaseRoot, source: str) -> None:
         p = make_catalog_path
         if source.startswith('s3://'):
             ensure_s3_pytest_resources_access()
@@ -119,7 +119,7 @@ class TestImport:
         assert tab._get_schema() == EXPECTED_SCHEMA
 
     def test_insert_json(
-        self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, sample_file_server: SampleFileServer
+        self, db_root: DatabaseRoot, db_root: DatabaseRoot, sample_file_server: SampleFileServer
     ) -> None:
         p = make_catalog_path
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
@@ -137,7 +137,7 @@ class TestImport:
         t2.insert(jeopardy)
         assert t2.count() == 20000
 
-    def test_insert_file_reader_options(self, make_catalog_path: Callable[[str], str], tmp_path: Path) -> None:
+    def test_insert_file_reader_options(self, db_root: DatabaseRoot, tmp_path: Path) -> None:
         """A file source's reader options (kwargs) and schema_overrides are honored, including for a table
         with a media column."""
         p = make_catalog_path

@@ -101,7 +101,7 @@ class scaled_iterator(pxt.PxtIterator):
 
 class TestComponentView:
     @pytest.mark.skip(reason='surfaces a bug (DuplicateAlias)')
-    def test_same_base_join(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_same_base_join(self, db_root: DatabaseRoot) -> None:
         # Two distinct component views over the same base, one live and one snapshotted, joined with both unstored
         # iterator columns selected: the base table appears at two versions in one plan. Per-view iterator-arg
         # retargeting binds each view to its own base version, but join SQL generation currently gives the shared
@@ -123,7 +123,7 @@ class TestComponentView:
         assert res['live'] == [90, 91, 92]
         assert res['pinned'] == [50, 51, 52]
 
-    def test_basic(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
+    def test_basic(self, db_root: DatabaseRoot, db_root: DatabaseRoot) -> None:
         # create video table
         p = make_catalog_path
         schema: dict[str, Any] = {'video': pxt.Video | None, 'angle': pxt.Int | None, 'other_angle': pxt.Int | None}
@@ -172,7 +172,7 @@ class TestComponentView:
             assert len(result) > 0
             assert np.all(result['frame_idx'] == pd.Series(range(len(result))))
 
-    def test_add_column(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_add_column(self, db_root: DatabaseRoot) -> None:
         # create video table
         p = make_catalog_path
         video_t = pxt.create_table(p('video_tbl'), {'video': pxt.Video | None})
@@ -192,7 +192,7 @@ class TestComponentView:
         with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match='Duplicate column name: annotation'):
             view_t.add_column(annotation=pxt.Json)
 
-    def test_nondeterministic(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_nondeterministic(self, db_root: DatabaseRoot) -> None:
         """Test that a nondeterministic expr in a view column is recomputed for each row"""
         p = make_catalog_path
         video_t = pxt.create_table(p('video_tbl'), {'video': pxt.Video | None})
@@ -221,7 +221,7 @@ class TestComponentView:
         res = view_t.select(view_t.id).collect()
         assert len(res) > 0 and len(set(res['id'])) == len(res)
 
-    def test_update(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_update(self, db_root: DatabaseRoot) -> None:
         # create video table
         p = make_catalog_path
         video_t = pxt.create_table(p('video_tbl'), {'video': pxt.Video | None})
@@ -265,7 +265,7 @@ class TestComponentView:
         assert 'must be nullable' in str(excinfo.value)
 
     @pytest.mark.parametrize('has_column,has_filter', [(False, False), (True, False), (False, True), (True, True)])
-    def test_snapshot(self, has_column: bool, has_filter: bool, make_catalog_path: Callable[[str], str]) -> None:
+    def test_snapshot(self, has_column: bool, has_filter: bool, db_root: DatabaseRoot) -> None:
         for reload_md in [False, True]:
             reload_catalog()
             self.run_snapshot_test(make_catalog_path, has_column=has_column, has_filter=has_filter, reload_md=reload_md)
@@ -350,7 +350,7 @@ class TestComponentView:
         pxt.drop_table(view_path)
         pxt.drop_table(base_path)
 
-    def test_chained_views(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
+    def test_chained_views(self, db_root: DatabaseRoot, db_root: DatabaseRoot) -> None:
         """Component view followed by a standard view"""
         # create video table
         p = make_catalog_path
@@ -465,7 +465,7 @@ class TestComponentView:
             assert sorted(str.split('.')[1] for str in status.updated_cols) == ['img4', 'int2', 'int6', 'int7']
             check_view()
 
-    def test_create_view_error(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_create_view_error(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('test'), {'i': pxt.Int | None})
         status = t.insert({'i': i} for i in range(100))
@@ -483,7 +483,7 @@ class TestComponentView:
         # the second attempt succeeds
         _ = pxt.create_view(p('view'), t, iterator=error_iterator(t.i, 100))
 
-    def test_update_iterator_param(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_update_iterator_param(self, db_root: DatabaseRoot) -> None:
         """Updating a base table column used as an iterator parameter re-evaluates the iterator."""
         p = make_catalog_path
         t = pxt.create_table(p('tbl'), {'n': pxt.Int | None})
@@ -501,7 +501,7 @@ class TestComponentView:
         scol_values = [row['scol'] for row in rows]
         assert scol_values == ['t 0', 't 1', 't 2', 't 3', 't 4', 't 5']
 
-    def test_update_changes_view_membership(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_update_changes_view_membership(self, db_root: DatabaseRoot) -> None:
         """A base update that changes whether a row satisfies a component view's filter updates its component rows."""
         p = make_catalog_path
         t = pxt.create_table(p('tbl'), {'n': pxt.Int | None})
@@ -518,7 +518,7 @@ class TestComponentView:
         t.update({'n': 1}, where=t.n == 3)
         assert len(v.collect()) == 4
 
-    def test_update_iterator_param_with_dependent_view(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_update_iterator_param_with_dependent_view(self, db_root: DatabaseRoot) -> None:
         """A view on an iterator view also updates when the base iterator param changes."""
         p = make_catalog_path
         t = pxt.create_table(p('tbl'), {'n': pxt.Int | None})

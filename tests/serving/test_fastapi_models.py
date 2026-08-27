@@ -19,7 +19,7 @@ from .test_fastapi import add_one, make_test_client
 
 
 class TestFastAPIModels:
-    def test_model_target(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_model_target(self, db_root: DatabaseRoot) -> None:
         """Routes can be declared against a model before the table it describes exists."""
         p = make_catalog_path
         skip_test_if_not_installed('fastapi')
@@ -115,7 +115,7 @@ class TestFastAPIModels:
         assert resp.status_code == 409, resp.text
         assert 'schema changed' in resp.json()['detail']
 
-    def test_model_target_errors(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_model_target_errors(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
@@ -173,7 +173,7 @@ class TestFastAPIModels:
         assert client.post('/ins', json={'note_id': 1, 'val': 10}).status_code == 200
         assert client.post('/q', json={}).json() == {'rows': [{'val': 10}]}
 
-    def test_view_model_target(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_view_model_target(self, db_root: DatabaseRoot) -> None:
         """A compute route can be declared against a view model before either table exists."""
         p = make_catalog_path
         skip_test_if_not_installed('fastapi')
@@ -226,7 +226,7 @@ class TestFastAPIModels:
         assert client.post('/half', json={'note_id': 3, 'val': 20}).json() == {'half': 10.0, 'plus': 11.0}
         assert client.post('/half', json={'note_id': 4, 'val': 5}).json() is None
 
-    def test_bind(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_bind(self, db_root: DatabaseRoot) -> None:
         """bind() resolves model targets, refuses what the tables cannot serve, and rejects a second target."""
         p = make_catalog_path
         skip_test_if_not_installed('fastapi')
@@ -287,7 +287,7 @@ class TestFastAPIModels:
             router.bind(p(''))
 
     @pytest.mark.skip_cloud(reason='Unclear; re-run once other known issues are fixed')
-    def test_bind_mismatches(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_bind_mismatches(self, db_root: DatabaseRoot) -> None:
         """Every difference between a model and the table it names stops the routes declared against it."""
         p = make_catalog_path
         skip_test_if_not_installed('fastapi')

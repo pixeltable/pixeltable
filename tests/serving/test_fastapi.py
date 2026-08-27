@@ -282,7 +282,7 @@ class TestFastAPI:
     @pytest.mark.parametrize('route_type', ['insert', 'compute', 'compute_view'])
     def test_add_insert_route_scalars(
         self,
-        make_catalog_path: Callable[[str], str],
+        db_root: DatabaseRoot,
         tmp_path: pathlib.Path,
         route_type: Literal['insert', 'compute', 'compute_view'],
     ) -> None:
@@ -503,8 +503,8 @@ class TestFastAPI:
     @pytest.mark.parametrize('use_uploadfile', [True, False])
     def test_add_insert_route_video(
         self,
-        make_catalog_path: Callable[[str], str],
-        catalog_mode: CatalogMode,
+        db_root: DatabaseRoot,
+        db_root: DatabaseRoot,
         use_uploadfile: bool,
         route_type: Literal['insert', 'compute'],
     ) -> None:
@@ -618,8 +618,8 @@ class TestFastAPI:
     @pytest.mark.parametrize('use_uploadfile', [True, False])
     def test_add_insert_route_image(
         self,
-        make_catalog_path: Callable[[str], str],
-        catalog_mode: CatalogMode,
+        db_root: DatabaseRoot,
+        db_root: DatabaseRoot,
         use_uploadfile: bool,
         tmp_path: pathlib.Path,
         route_type: Literal['insert', 'compute'],
@@ -774,8 +774,8 @@ class TestFastAPI:
     @pytest.mark.parametrize('use_uploadfile', [True, False])
     def test_add_insert_route_audio(
         self,
-        make_catalog_path: Callable[[str], str],
-        catalog_mode: CatalogMode,
+        db_root: DatabaseRoot,
+        db_root: DatabaseRoot,
         use_uploadfile: bool,
         route_type: Literal['insert', 'compute'],
     ) -> None:
@@ -896,8 +896,8 @@ class TestFastAPI:
     @pytest.mark.parametrize('use_uploadfile', [True, False])
     def test_add_insert_route_video_bg(
         self,
-        make_catalog_path: Callable[[str], str],
-        catalog_mode: CatalogMode,
+        db_root: DatabaseRoot,
+        db_root: DatabaseRoot,
         use_uploadfile: bool,
         tmp_path: pathlib.Path,
         route_type: Literal['insert', 'compute'],
@@ -1032,7 +1032,7 @@ class TestFastAPI:
         assert loops[0].is_closed(), 'app shutdown left the worker thread with an open event loop'
         assert t.count() == 1, 'the job did not finish'
 
-    def test_openapi(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_openapi(self, db_root: DatabaseRoot) -> None:
         """Verify the generated OpenAPI schema reflects column comments, column types, and route shapes."""
         p = make_catalog_path
         skip_test_if_not_installed('fastapi')
@@ -1147,7 +1147,7 @@ class TestFastAPI:
         p0 = media_op['parameters'][0]
         assert p0['name'] == 'path' and p0['in'] == 'path'
 
-    def test_add_query_route_scalars(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_add_query_route_scalars(self, db_root: DatabaseRoot) -> None:
         """Multi-column scalar query route, plus retrieval_udf flavor and registration errors."""
         p = make_catalog_path
         skip_test_if_not_installed('fastapi')
@@ -1235,7 +1235,7 @@ class TestFastAPI:
         assert default_schema['properties']['min_len']['default'] == 3
         assert 'min_len' not in default_schema.get('required', [])
 
-    def test_add_query_route_single_column(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_add_query_route_single_column(self, db_root: DatabaseRoot) -> None:
         """Single-column queries: return_scalar=False produces dict-per-row in a wrapper,
         return_scalar=True produces a plain list of scalar values."""
         p = make_catalog_path
@@ -1269,7 +1269,7 @@ class TestFastAPI:
         assert resp.status_code == 200, resp.text
         assert resp.json() == ['t0', 't1', 't2']
 
-    def test_add_query_route_one_row(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_add_query_route_one_row(self, db_root: DatabaseRoot) -> None:
         """one_row=True returns a flat JSON object (or bare scalar with return_scalar=True).
         0 rows -> 404; >1 rows -> 409."""
         p = make_catalog_path
@@ -1350,7 +1350,7 @@ class TestFastAPI:
         assert scalar_schema.get('type') != 'array'
         assert 'rows' not in str(scalar_schema)
 
-    def test_add_query_route_image(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
+    def test_add_query_route_image(self, db_root: DatabaseRoot, db_root: DatabaseRoot) -> None:
         """Image query route: JSON response, return_fileresponse (happy/404/500), and background."""
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
@@ -1428,7 +1428,7 @@ class TestFastAPI:
         assert len(result['rows']) == 1
         assert '/media/' in result['rows'][0]['resized']
 
-    def test_add_query_route_image_transform(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_add_query_route_image_transform(self, db_root: DatabaseRoot) -> None:
         """Inline image transformations (non-ColumnRef expressions) in the SELECT list.
 
         The query-route rewrite at `_fastapi.py` only targets `ColumnRef` items. When the
@@ -1471,7 +1471,7 @@ class TestFastAPI:
         assert resp.headers['content-type'].startswith('image/')
         assert len(resp.content) > 0
 
-    def test_add_mirror_route_video(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_add_mirror_route_video(self, db_root: DatabaseRoot) -> None:
         """Round trip over a proxy table: an insert route ingests a local video; a query route returns the
         persisted, computed `mirrored` video by id. Over proxy this exercises the upload path and the
         persisted-media download (daemon media URL -> client FileCache)."""
@@ -1507,7 +1507,7 @@ class TestFastAPI:
         assert media.status_code == 200
         assert len(media.content) > 0
 
-    def test_duplicate_routes(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_duplicate_routes(self, db_root: DatabaseRoot) -> None:
         """Registering the same (path, method) twice must raise rather than silently shadow."""
         p = make_catalog_path
         skip_test_if_not_installed('fastapi')
@@ -1565,7 +1565,7 @@ class TestFastAPI:
         with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS, match="already registered: POST '/v1/c'"):
             router.add_insert_route(t, path='/c')
 
-    def test_add_query_route_errors(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_add_query_route_errors(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
@@ -1614,7 +1614,7 @@ class TestFastAPI:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='GET endpoints cannot have uploadfile_inputs'):
             router.add_query_route(path='/e', query=by_image, uploadfile_inputs=['img'], method='get')
 
-    def test_unservable_output_cols(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_unservable_output_cols(self, db_root: DatabaseRoot) -> None:
         """Routes reject Array/Binary output cols at registration; JSON with embedded objects is rejected per row."""
         p = make_catalog_path
         skip_test_if_not_installed('fastapi')
@@ -1692,7 +1692,7 @@ class TestFastAPI:
             assert resp.status_code == 500, resp.text
             assert expected in resp.text, resp.text
 
-    def test_decorator_routes_allow_unservable_outputs(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_decorator_routes_allow_unservable_outputs(self, db_root: DatabaseRoot) -> None:
         """Decorator-form routes let user code handle outputs that add_*_route forms reject."""
         p = make_catalog_path
         skip_test_if_not_installed('fastapi')
@@ -1728,7 +1728,7 @@ class TestFastAPI:
             assert resp.status_code == 200, resp.text
             assert resp.json() == {'ok': True}, resp.json()
 
-    def test_add_compute_route_view(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_add_compute_route_view(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Compute routes against a two-level view hierarchy: filter view -> frame-iterator view.
 
         A compute route on a view takes base-table rows and returns the view's output rows: an empty
@@ -1904,7 +1904,7 @@ class TestFastAPI:
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     def test_add_insert_route_errors(
-        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path, route_type: Literal['insert', 'compute']
+        self, db_root: DatabaseRoot, tmp_path: pathlib.Path, route_type: Literal['insert', 'compute']
     ) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('fastapi')
@@ -2035,7 +2035,7 @@ class TestFastAPI:
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     def test_insert_route(
-        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path, route_type: Literal['insert', 'compute']
+        self, db_root: DatabaseRoot, tmp_path: pathlib.Path, route_type: Literal['insert', 'compute']
     ) -> None:
         """`insert_route()`/`compute_route()` as a decorator: user fn consumes outputs and shapes the response."""
         p = make_catalog_path
@@ -2085,7 +2085,7 @@ class TestFastAPI:
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     def test_insert_route_type_validation(
-        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path, route_type: Literal['insert', 'compute']
+        self, db_root: DatabaseRoot, tmp_path: pathlib.Path, route_type: Literal['insert', 'compute']
     ) -> None:
         """Parameter annotations are validated against the column types (strict nullability)."""
         p = make_catalog_path
@@ -2158,7 +2158,7 @@ class TestFastAPI:
                 return BadResponse(x=id)
 
     def test_update_route_type_validation(
-        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+        self, db_root: DatabaseRoot, tmp_path: pathlib.Path
     ) -> None:
         """Update-route parameter annotations are validated against column types (strict nullability)."""
         p = make_catalog_path
@@ -2230,7 +2230,7 @@ class TestFastAPI:
             def _bad(*, id: int) -> BadResponse:
                 return BadResponse(x=id)
 
-    def test_route_decorators_future_annotations(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_route_decorators_future_annotations(self, db_root: DatabaseRoot) -> None:
         """Decorated function defined in a module with `from __future__ import annotations`.
 
         Under PEP 563, parameter and return annotations are strings at runtime; the validator
@@ -2309,7 +2309,7 @@ class TestFastAPI:
         finally:
             del sys.modules['_test_future_ann_mod']
 
-    def test_route_decorators_unresolvable_annotation(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_route_decorators_unresolvable_annotation(self, db_root: DatabaseRoot) -> None:
         """Forward-ref that can't be resolved produces a clean INVALID_ARGUMENT error at registration."""
         p = make_catalog_path
         skip_test_if_not_installed('fastapi')
@@ -2351,7 +2351,7 @@ class TestFastAPI:
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     def test_insert_route_image(
-        self, make_catalog_path: Callable[[str], str], route_type: Literal['insert', 'compute']
+        self, db_root: DatabaseRoot, route_type: Literal['insert', 'compute']
     ) -> None:
         """Media columns surface as /media/ URLs in the decorated fn's kwargs."""
         p = make_catalog_path
@@ -2387,7 +2387,7 @@ class TestFastAPI:
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     @pytest.mark.parametrize('use_uploadfile', [True, False])
     def test_insert_route_uploadfile(
-        self, make_catalog_path: Callable[[str], str], use_uploadfile: bool, route_type: Literal['insert', 'compute']
+        self, db_root: DatabaseRoot, use_uploadfile: bool, route_type: Literal['insert', 'compute']
     ) -> None:
         """Decorator + multipart/form-data upload."""
         p = make_catalog_path
@@ -2435,7 +2435,7 @@ class TestFastAPI:
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     def test_insert_route_background(
-        self, make_catalog_path: Callable[[str], str], route_type: Literal['insert', 'compute']
+        self, db_root: DatabaseRoot, route_type: Literal['insert', 'compute']
     ) -> None:
         """Background variant: 202-like response with job_url; poll for the decorated fn's result."""
         p = make_catalog_path
@@ -2470,7 +2470,7 @@ class TestFastAPI:
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     def test_insert_route_errors(
-        self, make_catalog_path: Callable[[str], str], route_type: Literal['insert', 'compute']
+        self, db_root: DatabaseRoot, route_type: Literal['insert', 'compute']
     ) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('fastapi')
@@ -2519,7 +2519,7 @@ class TestFastAPI:
             def _(*, id: int):  # type: ignore[no-untyped-def]  # intentionally missing return annotation
                 return {'x': id}
 
-    def test_compute_route_batch(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_compute_route_batch(self, db_root: DatabaseRoot) -> None:
         """compute_route() batch form on an iterator view: the fn takes list[RowModel] of all fanned-out rows."""
         p = make_catalog_path
         skip_test_if_not_installed('fastapi')
@@ -2656,7 +2656,7 @@ class TestFastAPI:
             def _(rows: list[KwRow]) -> Resp:  # pragma: no cover
                 raise AssertionError
 
-    def test_add_update_route(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_add_update_route(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Update routes: JSON, subset inputs/outputs, FileResponse, 404 for missing row, background."""
         p = make_catalog_path
         skip_test_if_not_installed('fastapi')
@@ -2756,7 +2756,7 @@ class TestFastAPI:
         assert resp.status_code == 500, resp.text
         assert 'expected 1' in resp.json()['detail']
 
-    def test_add_update_route_errors(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_add_update_route_errors(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter, SqlExport
@@ -2805,7 +2805,7 @@ class TestFastAPI:
                 export_sql=SqlExport(db_connect=db_connect, table='tgt'),
             )
 
-    def test_update_route(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_update_route(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """`update_route()` decorator: custom response model, 404, background, function still callable."""
         p = make_catalog_path
         skip_test_if_not_installed('fastapi')
@@ -2873,7 +2873,7 @@ class TestFastAPI:
         result = await_background_job(client, job, require_pending=False)['result']
         assert result == {'key': 2, 'upper': '', 'doubled': 14}
 
-    def test_update_route_errors(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_update_route_errors(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('fastapi')
         import pydantic
@@ -2920,7 +2920,7 @@ class TestFastAPI:
             def _(*, id: int):  # type: ignore[no-untyped-def]
                 return {'x': id}
 
-    def test_add_delete_route(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_add_delete_route(self, db_root: DatabaseRoot) -> None:
         """Delete routes: primary-key default, explicit match_columns, multi-col AND, 0-match, background."""
         p = make_catalog_path
         skip_test_if_not_installed('fastapi')
@@ -2983,7 +2983,7 @@ class TestFastAPI:
         assert result == {'num_rows': 1}
         assert t.where(t.id == 5).count() == 0
 
-    def test_add_delete_route_errors(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_add_delete_route_errors(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
@@ -3004,7 +3004,7 @@ class TestFastAPI:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='table has no primary key'):
             router.add_delete_route(t_no_pk, path='/e')
 
-    def test_column_ref_args(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_column_ref_args(self, db_root: DatabaseRoot) -> None:
         """Routes accept ColumnRefs wherever they accept column names."""
         p = make_catalog_path
         skip_test_if_not_installed('fastapi')
@@ -3036,7 +3036,7 @@ class TestFastAPI:
         assert resp.status_code == 200, resp.text
         assert resp.json() == {'id': 7}
 
-    def test_bind_table_targets(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_bind_table_targets(self, db_root: DatabaseRoot) -> None:
         """A route declared against a Table needs no binding: it already names the table it serves."""
         p = make_catalog_path
         skip_test_if_not_installed('fastapi')
@@ -3063,7 +3063,7 @@ class TestFastAPI:
     @pytest.mark.parametrize('schema_op', ['add_column', 'drop'])
     def test_schema_change(
         self,
-        make_catalog_path: Callable[[str], str],
+        db_root: DatabaseRoot,
         op_name: str,
         first_body: dict[str, Any],
         retry_body: dict[str, Any],

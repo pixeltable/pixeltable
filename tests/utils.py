@@ -1144,7 +1144,7 @@ def list_store_indexes(t: pxt.Table) -> list[str]:
 def check_media_store_count(
     tbl: pxt.Table,
     expected_count: int,
-    catalog_mode: CatalogMode,
+    db_root: DatabaseRoot,
     *,
     tbl_version: int | None = None,
     default_input_dest: bool = False,
@@ -1176,7 +1176,7 @@ def check_media_store_count(
     assert actual == expected_count, f'expected {expected_count} media objects, found {actual}'
 
 
-def get_temp_store_count(tbl: pxt.Table, catalog_mode: CatalogMode) -> int:
+def get_temp_store_count(tbl: pxt.Table, db_root: DatabaseRoot) -> int:
     """Count the objects in the temp store of the catalog tbl lives in."""
     if catalog_mode == 'cloud':
         return 0  # temp store not reachable
@@ -1188,7 +1188,7 @@ def get_temp_store_count(tbl: pxt.Table, catalog_mode: CatalogMode) -> int:
         return LocalStore(proxy_daemon.proxy_home(catalog_uri.db) / 'tmp').count(None)
 
 
-def check_temp_store_count(tbl: pxt.Table, expected_count: int, catalog_mode: CatalogMode) -> None:
+def check_temp_store_count(tbl: pxt.Table, expected_count: int, db_root: DatabaseRoot) -> None:
     """Count the objects in the temp store of the catalog tbl lives in."""
     if catalog_mode == 'cloud':
         # TODO: We should find a way to assert this [PXT-1313].

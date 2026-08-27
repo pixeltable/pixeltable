@@ -168,7 +168,7 @@ class TestSql:
             return conn.execute(sql.text(f'SELECT COUNT(*) FROM {table_name}')).scalar_one()
 
     def _run_export_suite(
-        self, spec: _DialectSpec, tmp_path: pathlib.Path, p: Callable[[str], str], catalog_mode: CatalogMode
+        self, spec: _DialectSpec, tmp_path: pathlib.Path, p: Callable[[str], str], db_root: DatabaseRoot
     ) -> None:
         # over the proxy every export collect()s the source rows to the client; keep the volume modest there
         num_rows = 100_000 if catalog_mode == 'local' else 1_000
@@ -202,17 +202,17 @@ class TestSql:
         assert self._row_count(engine, 'fresh_table') == 5
 
     def test_export_sqlite(
-        self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, tmp_path: pathlib.Path
+        self, db_root: DatabaseRoot, db_root: DatabaseRoot, tmp_path: pathlib.Path
     ) -> None:
         self._run_export_suite(self._sqlite_spec(), tmp_path, make_catalog_path, catalog_mode)
 
     @pytest.mark.skip_cloud(reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]')
     def test_export_postgresql(
-        self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, tmp_path: pathlib.Path
+        self, db_root: DatabaseRoot, db_root: DatabaseRoot, tmp_path: pathlib.Path
     ) -> None:
         self._run_export_suite(self._postgresql_spec(), tmp_path, make_catalog_path, catalog_mode)
 
-    def test_errors(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_errors(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         connection_string = Env.get().db_url
 
@@ -252,7 +252,7 @@ class TestSql:
     @pytest.mark.parametrize('dbms', _IMPORT_DBMS)
     @pytest.mark.skip_cloud(reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]')
     def test_import_full_table(
-        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path, dbms: str
+        self, db_root: DatabaseRoot, tmp_path: pathlib.Path, dbms: str
     ) -> None:
         """End-to-end import of a full SA Table: type inference for all common SA types, nullable vs non-nullable
         propagation, NULL-to-None value roundtrip, exact value preservation, and the single-version-bump claim
@@ -335,7 +335,7 @@ class TestSql:
 
     @pytest.mark.parametrize('dbms', _IMPORT_DBMS)
     def test_import_select_and_filter(
-        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path, dbms: str
+        self, db_root: DatabaseRoot, tmp_path: pathlib.Path, dbms: str
     ) -> None:
         """Import via `sa.select(...)` rather than a bare Table: column projection (subset), row filter via
         `.where(...)`, labeled expressions, accepting an `sa.Connection` (not just an Engine), and the 0-row
@@ -382,7 +382,7 @@ class TestSql:
 
     @pytest.mark.parametrize('dbms', _IMPORT_DBMS)
     def test_import_text_columns(
-        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path, dbms: str
+        self, db_root: DatabaseRoot, tmp_path: pathlib.Path, dbms: str
     ) -> None:
         """Import via `sql.text(...).columns(...)`: raw SQL whose output columns are typed by the user. Type
         inference and nullability propagation must come from the `.columns(...)` declaration, not from the
@@ -422,7 +422,7 @@ class TestSql:
 
     @pytest.mark.parametrize('dbms', _IMPORT_DBMS)
     @pytest.mark.skip_cloud('Relies on a locally instantiated DB server')
-    def test_import_on_server(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path, dbms: str) -> None:
+    def test_import_on_server(self, db_root: DatabaseRoot, tmp_path: pathlib.Path, dbms: str) -> None:
         p = make_catalog_path
         engine = _import_engine(dbms, tmp_path)
         rows = [{'c_int': i, 'c_str': f'row_{i}'} for i in range(15)]
@@ -513,7 +513,7 @@ class TestSql:
         for i, row in enumerate(path_result):
             assert row['c_path'] == img_paths[i]
 
-    def test_image_bytes_via_override(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_image_bytes_via_override(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Source `LargeBinary` column holding raw image bytes + `schema_overrides={'c_img': pxt.Image}`.
         SqlDataNode must spill the bytes to TempStore so on-write media validation still runs (mirroring
         InMemoryDataNode's image-bytes handling)."""
@@ -542,7 +542,7 @@ class TestSql:
         for row in result:
             assert isinstance(row['c_img'], PIL.Image.Image)
 
-    def test_if_exists(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_if_exists(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Walk the if_exists matrix in a single test, since the branching is purely pixeltable-side and doesn't
         depend on the SQL backend."""
         p = make_catalog_path
@@ -618,7 +618,7 @@ class TestSql:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match=r"must be one of 'error', 'append'"):
             import_sql(src_a, engine, p('dest'), if_exists='garbage')  # type: ignore[arg-type]
 
-    def test_validation_errors(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_validation_errors(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Broad sweep of the remaining `RequestError` / `NotFoundError` paths in `import_sql` and
         `SqlDataNode._open()`.
         """
@@ -677,7 +677,7 @@ class TestSql:
         with pxt_raises(pxt.ErrorCode.MISSING_REQUIRED, match='c_required'):
             import_sql(partial_src, engine, p('req_dest'), if_exists='append')
 
-    def test_import_on_error_ignore(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
+    def test_import_on_error_ignore(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """`on_error='ignore'` import: per-row computed-column failures surface as nulls."""
         p = make_catalog_path
         engine = _import_engine('sqlite', tmp_path)
@@ -696,7 +696,7 @@ class TestSql:
         assert result['c_checked'] == [None if v < 0 else False for v in sorted(values)]
 
     def test_import_null_into_non_nullable(
-        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+        self, db_root: DatabaseRoot, tmp_path: pathlib.Path
     ) -> None:
         """A source NULL mapped to a non-nullable destination column aborts the import, like the in-memory insert
         path, rather than being silently stored; this holds regardless of `on_error`."""

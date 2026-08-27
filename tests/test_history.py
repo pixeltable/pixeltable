@@ -22,7 +22,7 @@ class TestHistory:
 
     @pytest.mark.parametrize('variant', ['get_versions', 'history'])
     def test_history(
-        self, variant: Literal['get_versions', 'history'], make_catalog_path: Callable[[str], str]
+        self, variant: Literal['get_versions', 'history'], db_root: DatabaseRoot
     ) -> None:
         p = make_catalog_path
 
