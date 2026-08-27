@@ -68,6 +68,10 @@ class ServiceManagerBase(abc.ABC):
 
     @abc.abstractmethod
     def stop(self, instance: ServiceInstance) -> None:
+        """Stop instance, leaving it startable again."""
+
+    @abc.abstractmethod
+    def delete(self, instance: ServiceInstance) -> None:
         """Stop instance and forget it."""
 
 
@@ -113,6 +117,10 @@ class ServiceManager(ServiceManagerBase):
         """
         with self._service_lock(name, base_path):
             return self._start(app_file, name, base_path, otel)
+
+    def delete(self, instance: ServiceInstance) -> None:
+        # a local instance has no registration apart from its process
+        self.stop(instance)
 
     def stop(self, instance: ServiceInstance) -> None:
         record = instance.record
@@ -163,6 +171,7 @@ class ServiceManager(ServiceManagerBase):
             app_module=module_name(app_file, subject='application file'),
             spec=spec,
             otel=otel,
+            created_at=time.time(),
         )
 
         path = self._record_file(record.service_name, record.base_path)

@@ -40,6 +40,14 @@ class ServiceInstanceRecord(pydantic.BaseModel):
 
     state: ServiceInstanceState = ServiceInstanceState.AVAILABLE
 
+    created_at: float | None = None
+
+    # the reason for a FAILED state
+    error: str | None = None
+
+    # how many workers serve the instance; a local instance is always one process
+    workers: int | None = None
+
     # the process serving the instance; set only for an instance running on this machine
     pid: int | None = None
 
@@ -87,5 +95,9 @@ class ServiceInstance:
         return self.record.state
 
     def stop(self) -> None:
-        """Stop serving and forget this instance."""
+        """Stop serving, leaving this instance startable again."""
         self._manager.stop(self)
+
+    def delete(self) -> None:
+        """Stop serving and forget this instance."""
+        self._manager.delete(self)

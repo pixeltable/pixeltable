@@ -43,7 +43,7 @@ from pixeltable.service.management_protocol import (
     GetDbRequest,
     ListDbRequest,
     ListOrgsRequest,
-    ServiceOperationType,
+    ManagementOperationType,
     StartDbRequest,
     StopDbRequest,
     UpdateDbRequest,
@@ -2128,6 +2128,6 @@ class TestManagementClient:
 
     def test_read_ops_are_known_operation_types(self) -> None:
         # _READ_OPS holds operation_type strings; a rename on the protocol side must not leave stale ones
-        op_values = {op.value for op in ServiceOperationType}
+        op_values = {op.value for op in ManagementOperationType}
         stale = management_client._READ_OPS - op_values
         assert len(stale) == 0, stale

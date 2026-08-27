@@ -948,7 +948,7 @@ def service_prune(app_file: str, target: PxtPath) -> service_types.ServicePlan:
             # it stopped between the diff and here; nothing to stop, and it is already forgotten
             ops.append(service_types.delete_service_op(name, None, 'skipped'))
             continue
-        running.stop()
+        running.delete()
         ops.append(service_types.delete_service_op(name, running.endpoint, 'applied'))
     plan['ops'] = ops
     return plan

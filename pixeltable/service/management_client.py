@@ -28,7 +28,7 @@ def api_url() -> str:
 _LONG_OPS = frozenset({'create_db', 'update_runtime', 'delete_db'})
 
 # operations that don't change server state; can be sent multiple times
-_READ_OPS = frozenset({'list_orgs', 'list_dbs', 'get_db', 'list_services', 'get_service'})
+_READ_OPS = frozenset({'list_orgs', 'list_dbs', 'get_db', 'list_service_instances', 'get_service_instance'})
 
 # maximum number of connections kept open to the service, sized for concurrent calls from multiple threads
 _POOL_MAXSIZE = 16

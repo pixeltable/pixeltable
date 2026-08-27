@@ -2,31 +2,28 @@
 
 from __future__ import annotations
 
-import json
 import re
 from enum import Enum
 from typing import Literal
 
 from pydantic import BaseModel, field_validator
 
-from pixeltable.serving import ServiceSpec
+from pixeltable.serving import ServiceInstanceRecord, ServiceSpec
 
 
-class ServiceOperationType(str, Enum):
+class ManagementOperationType(str, Enum):
     CREATE_DB = 'create_db'
     GET_DB = 'get_db'
     LIST_DBS = 'list_dbs'
     DELETE_DB = 'delete_db'
 
-    CREATE_SERVICE = 'create_service'
-    GET_SERVICE = 'get_service'
-    LIST_SERVICES = 'list_services'
-    UPDATE_SERVICE = 'update_service'
-    START_SERVICE = 'start_service'
-    STOP_SERVICE = 'stop_service'
-    DELETE_SERVICE = 'delete_service'
-    LIST_SERVICE_RUNS = 'list_service_runs'
-    GET_SERVICE_RUN = 'get_service_run'
+    CREATE_SERVICE_INSTANCE = 'create_service_instance'
+    GET_SERVICE_INSTANCE = 'get_service_instance'
+    LIST_SERVICE_INSTANCES = 'list_service_instances'
+    UPDATE_SERVICE_INSTANCE = 'update_service_instance'
+    START_SERVICE_INSTANCE = 'start_service_instance'
+    STOP_SERVICE_INSTANCE = 'stop_service_instance'
+    DELETE_SERVICE_INSTANCE = 'delete_service_instance'
 
     START_DB = 'start_db'
     STOP_DB = 'stop_db'
@@ -63,7 +60,7 @@ def _validate_hosted_name(value: str, kind: str) -> str:
 
 
 class CreateDbRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.CREATE_DB] = ServiceOperationType.CREATE_DB
+    operation_type: Literal[ManagementOperationType.CREATE_DB] = ManagementOperationType.CREATE_DB
     org: str | None = None
     db: str
     db_name: str | None = None
@@ -80,18 +77,18 @@ class CreateDbRequest(BaseModel):
 
 
 class GetDbRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.GET_DB] = ServiceOperationType.GET_DB
+    operation_type: Literal[ManagementOperationType.GET_DB] = ManagementOperationType.GET_DB
     org: str | None = None
     db: str
 
 
 class ListDbRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.LIST_DBS] = ServiceOperationType.LIST_DBS
+    operation_type: Literal[ManagementOperationType.LIST_DBS] = ManagementOperationType.LIST_DBS
     org: str | None = None
 
 
 class UpdateDbRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.UPDATE_DB] = ServiceOperationType.UPDATE_DB
+    operation_type: Literal[ManagementOperationType.UPDATE_DB] = ManagementOperationType.UPDATE_DB
     org: str | None = None
     db: str
     db_name: str | None = None
@@ -103,32 +100,34 @@ class UpdateDbRequest(BaseModel):
 
 
 class DeleteDbRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.DELETE_DB] = ServiceOperationType.DELETE_DB
+    operation_type: Literal[ManagementOperationType.DELETE_DB] = ManagementOperationType.DELETE_DB
     org: str | None = None
     db: str
 
 
 class StartDbRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.START_DB] = ServiceOperationType.START_DB
+    operation_type: Literal[ManagementOperationType.START_DB] = ManagementOperationType.START_DB
     org: str | None = None
     db: str
 
 
 class StopDbRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.STOP_DB] = ServiceOperationType.STOP_DB
+    operation_type: Literal[ManagementOperationType.STOP_DB] = ManagementOperationType.STOP_DB
     org: str | None = None
     db: str
 
 
 class UpdateRuntimeRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.UPDATE_RUNTIME] = ServiceOperationType.UPDATE_RUNTIME
+    operation_type: Literal[ManagementOperationType.UPDATE_RUNTIME] = ManagementOperationType.UPDATE_RUNTIME
     org: str | None = None
     db: str
     bundle_s3_key: str
 
 
 class GetBundleUploadUrlRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.GET_BUNDLE_UPLOAD_URL] = ServiceOperationType.GET_BUNDLE_UPLOAD_URL
+    operation_type: Literal[ManagementOperationType.GET_BUNDLE_UPLOAD_URL] = (
+        ManagementOperationType.GET_BUNDLE_UPLOAD_URL
+    )
     org: str | None = None
     db: str
 
@@ -142,7 +141,7 @@ class GetBundleUploadUrlResponse(BaseModel):
 
 
 class SetSecretRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.SET_SECRET] = ServiceOperationType.SET_SECRET
+    operation_type: Literal[ManagementOperationType.SET_SECRET] = ManagementOperationType.SET_SECRET
     org: str
     db: str | None = None
     key: str
@@ -154,7 +153,7 @@ class SetSecretResponse(BaseModel):
 
 
 class DeleteSecretRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.DELETE_SECRET] = ServiceOperationType.DELETE_SECRET
+    operation_type: Literal[ManagementOperationType.DELETE_SECRET] = ManagementOperationType.DELETE_SECRET
     org: str
     db: str | None = None
     key: str
@@ -165,7 +164,7 @@ class DeleteSecretResponse(BaseModel):
 
 
 class ListSecretsRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.LIST_SECRETS] = ServiceOperationType.LIST_SECRETS
+    operation_type: Literal[ManagementOperationType.LIST_SECRETS] = ManagementOperationType.LIST_SECRETS
     org: str
     db: str | None = None
 
@@ -177,159 +176,111 @@ class ListSecretsResponse(BaseModel):
 # Services
 
 
-class ServiceRecord(BaseModel):
-    service_id: str
-    org_id: str
-    db_id: str
-    service_name: str
-    base_path: str = ''
-    workers_min: int = 1
-    workers_max: int = 1
-    state: str  # DEPLOYING | AVAILABLE | STOPPED | UPDATING | FAILED
-    endpoint: str | None = None
-    error: str | None = None
-    created_at: float
-    service_spec: str | None = None  # JSON-serialized ServiceSpec from latest run
-
-
-class CreateServiceRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.CREATE_SERVICE] = ServiceOperationType.CREATE_SERVICE
+class CreateServiceInstanceRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.CREATE_SERVICE_INSTANCE] = (
+        ManagementOperationType.CREATE_SERVICE_INSTANCE
+    )
     org: str | None = None
     db: str
     service_name: str
-    base_path: str = ''
-    workers_min: int = 1
-    description: str | None = None
+    base_path: str = ''  # the path within the database (excludes the catalog uri)
+    spec: ServiceSpec
+    app_module: str
+    otel: bool = False
+    workers: int = 1
     cpu: float = 0.5
     memory_mb: int = 512
     disk_gb: int = 10
-    service_spec: ServiceSpec | None = None
-
-    @field_validator('service_spec', mode='before')
-    @classmethod
-    def _parse_service_spec(cls, v: object) -> object:
-        if isinstance(v, str):
-            return json.loads(v)
-        return v
-
-
-class CreateServiceResponse(BaseModel):
-    service: ServiceRecord
-
-
-class GetServiceRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.GET_SERVICE] = ServiceOperationType.GET_SERVICE
-    org: str | None = None
-    db: str
-    service_name: str
-
-
-class GetServiceResponse(BaseModel):
-    service: ServiceRecord
-
-
-class ListServicesRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.LIST_SERVICES] = ServiceOperationType.LIST_SERVICES
-    org: str | None = None
-    db: str
-
-
-class ListServicesResponse(BaseModel):
-    services: list[ServiceRecord]
-
-
-class StartServiceRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.START_SERVICE] = ServiceOperationType.START_SERVICE
-    org: str | None = None
-    db: str
-    service_name: str
-
-
-class StartServiceResponse(BaseModel):
-    service: ServiceRecord
-
-
-class StopServiceRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.STOP_SERVICE] = ServiceOperationType.STOP_SERVICE
-    org: str | None = None
-    db: str
-    service_name: str
-
-
-class StopServiceResponse(BaseModel):
-    service: ServiceRecord
-
-
-class UpdateServiceRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.UPDATE_SERVICE] = ServiceOperationType.UPDATE_SERVICE
-    org: str | None = None
-    db: str
-    service_name: str
-    workers_min: int | None = None
     description: str | None = None
+
+
+class CreateServiceInstanceResponse(BaseModel):
+    instance: ServiceInstanceRecord
+
+
+class GetServiceInstanceRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.GET_SERVICE_INSTANCE] = ManagementOperationType.GET_SERVICE_INSTANCE
+    org: str | None = None
+    db: str
+    service_name: str
+
+
+class GetServiceInstanceResponse(BaseModel):
+    instance: ServiceInstanceRecord
+
+
+class ListServiceInstancesRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.LIST_SERVICE_INSTANCES] = (
+        ManagementOperationType.LIST_SERVICE_INSTANCES
+    )
+    org: str | None = None
+    db: str
+
+
+class ListServiceInstancesResponse(BaseModel):
+    instances: list[ServiceInstanceRecord]
+
+
+class UpdateServiceInstanceRequest(BaseModel):
+    """An omitted field is left as it is."""
+
+    operation_type: Literal[ManagementOperationType.UPDATE_SERVICE_INSTANCE] = (
+        ManagementOperationType.UPDATE_SERVICE_INSTANCE
+    )
+    org: str | None = None
+    db: str
+    service_name: str
+    spec: ServiceSpec | None = None
+    app_module: str | None = None
+    otel: bool | None = None
+    workers: int | None = None
     cpu: float | None = None
     memory_mb: int | None = None
     disk_gb: int | None = None
-    service_spec: ServiceSpec | None = None
-
-    @field_validator('service_spec', mode='before')
-    @classmethod
-    def _parse_service_spec(cls, v: object) -> object:
-        if isinstance(v, str):
-            return json.loads(v)
-        return v
+    description: str | None = None
 
 
-class UpdateServiceResponse(BaseModel):
-    service: ServiceRecord
+class UpdateServiceInstanceResponse(BaseModel):
+    instance: ServiceInstanceRecord
 
 
-class DeleteServiceRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.DELETE_SERVICE] = ServiceOperationType.DELETE_SERVICE
+class StartServiceInstanceRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.START_SERVICE_INSTANCE] = (
+        ManagementOperationType.START_SERVICE_INSTANCE
+    )
     org: str | None = None
     db: str
     service_name: str
 
 
-class DeleteServiceResponse(BaseModel):
-    service_name: str
+class StartServiceInstanceResponse(BaseModel):
+    instance: ServiceInstanceRecord
 
 
-class ListServiceRunsRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.LIST_SERVICE_RUNS] = ServiceOperationType.LIST_SERVICE_RUNS
+class StopServiceInstanceRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.STOP_SERVICE_INSTANCE] = (
+        ManagementOperationType.STOP_SERVICE_INSTANCE
+    )
     org: str | None = None
     db: str
     service_name: str
 
 
-class GetServiceRunRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.GET_SERVICE_RUN] = ServiceOperationType.GET_SERVICE_RUN
+class StopServiceInstanceResponse(BaseModel):
+    instance: ServiceInstanceRecord
+
+
+class DeleteServiceInstanceRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.DELETE_SERVICE_INSTANCE] = (
+        ManagementOperationType.DELETE_SERVICE_INSTANCE
+    )
     org: str | None = None
     db: str
     service_name: str
-    run_id: str
 
 
-class ServiceRunRecord(BaseModel):
-    run_id: str
-    workers_min: int
-    state: str  # AVAILABLE | STOPPED | FAILED
-    started_at: float
-    stopped_at: float | None = None
-    runtime_build_id: str | None = None
-    bundle_r2_path: str | None = None
-    service_spec: str | None = None  # JSON-serialized ServiceSpec for this run
-    cpu: float = 0.5
-    memory_mb: int = 512
-    disk_gb: int = 10
-
-
-class ListServiceRunsResponse(BaseModel):
-    runs: list[ServiceRunRecord]
-
-
-class GetServiceRunResponse(BaseModel):
-    run: ServiceRunRecord
+class DeleteServiceInstanceResponse(BaseModel):
+    service_name: str
 
 
 # Orgs
@@ -344,7 +295,7 @@ class OrgRecord(BaseModel):
 
 
 class ListOrgsRequest(BaseModel):
-    operation_type: Literal[ServiceOperationType.LIST_ORGS] = ServiceOperationType.LIST_ORGS
+    operation_type: Literal[ManagementOperationType.LIST_ORGS] = ManagementOperationType.LIST_ORGS
 
 
 class ListOrgsResponse(BaseModel):
