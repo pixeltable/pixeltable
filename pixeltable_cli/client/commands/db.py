@@ -22,10 +22,6 @@ from ..hosted import (
 from ..parser import Parser
 from ..utils import get_request, post_request
 
-# Stages the server records on the database. bundling and upload happen locally, so those two
-# only appear if the server saw a failure before the build began.
-_STAGE_NAMES = {'BUNDLE': 'bundling', 'UPLOAD': 'upload', 'BUILD': 'the image build', 'DEPLOY': 'deploy'}
-
 EPILOG = """\
 Examples:
   pxt db create pxt://org:db
@@ -237,7 +233,19 @@ def _update_runtime(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     show_progress = not args.json_output
-    bundle_path = build_db_runtime_bundle(project_dir, show_progress=show_progress)
+
+    def report(stage: str, state: str, detail: str = '') -> None:
+        if args.json_output:
+            return
+        line = f'{stage} {state}' + (f': {detail}' if detail else '')
+        print(line, file=sys.stderr if state == 'failed' else sys.stdout)
+
+    try:
+        bundle_path = build_db_runtime_bundle(project_dir, show_progress=show_progress)
+    except Exception as exc:
+        report('bundle', 'failed', str(exc))
+        sys.exit(1)
+    report('bundle', 'succeeded', f'{bundle_path.stat().st_size / (1024 * 1024):.1f} MB')
 
     try:
         url_resp = get_request('/api/db/upload-url', {'org': org, 'db': db})
@@ -258,8 +266,12 @@ def _update_runtime(args: argparse.Namespace) -> None:
             with urllib.request.urlopen(req, timeout=300) as r:
                 if r.status >= 400:
                     raise RuntimeError(f'Bundle upload failed: HTTP {r.status}')
+    except Exception as exc:
+        report('upload', 'failed', str(exc))
+        sys.exit(1)
     finally:
         bundle_path.unlink(missing_ok=True)
+    report('upload', 'succeeded')
 
     post_request('/api/db/update-runtime', {'org': org, 'db': db, 'bundle_s3_key': bundle_s3_key})
 
@@ -268,19 +280,19 @@ def _update_runtime(args: argparse.Namespace) -> None:
         '/api/db', {'org': org, 'db': db}, 'database', {'UPDATING'}, RUNTIME_POLL_INTERVAL, RUNTIME_POLL_TIMEOUT, label
     )
 
-    # last_build_state covers the whole update, so a failure has to name the stage it reached: the
-    # image almost always builds fine and it is the rollout that does not come up.
-    build_failed = result.get('last_build_state') == 'FAILED'
-    build_error = result.get('last_build_error') or ''
-    if not args.json_output:
-        final_state = result.get('state', '')
-        if build_failed:
-            stage = _STAGE_NAMES.get(result.get('build_stage') or '', 'the update')
-            print(f'DB update runtime failed during {stage}: {build_error}', file=sys.stderr)
-        elif final_state == 'AVAILABLE':
-            print('DB update runtime complete.')
-        elif final_state:
-            print(f'DB update runtime ended in state {final_state}.')
+    # The server records the stage the update reached and what became of it, so report that pair:
+    # "build failed" and "deploy failed" are different problems and only the stage separates them.
+    status = result.get('update_runtime_status') or {}
+    stage = str(status.get('stage', '')).lower()
+    state = str(status.get('state', '')).lower()
+    build_failed = state == 'failed' or result.get('last_build_state') == 'FAILED'
+    build_error = status.get('error') or result.get('last_build_error') or ''
+    if build_failed:
+        report(stage or 'update', 'failed', build_error)
+    elif state == 'succeeded':
+        report(stage or 'deploy', 'succeeded')
+    elif not args.json_output:
+        print(f'DB update runtime ended in state {result.get("state", "")}.')
 
     if args.json_output:
         print(json.dumps(result))
