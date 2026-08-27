@@ -101,7 +101,7 @@ class ImportValidationError(ValidationError):
             dependencies in the remote database:
             {self.import_error_msg}
             """
-        )
+        ).strip()
 
 
 class FunctionCall(Expr):
