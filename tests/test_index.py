@@ -950,7 +950,7 @@ class TestIndex:
         validate_update_status(t.insert(rows), expected_rows=num_rows)
         median_value = sorted(data)[num_rows // 2]
 
-        assert t.where(t.data == median_value).count() == 1
+        assert t.where(t.data == median_value).count() == 1, median_value
         assert t.where(t.data < median_value).count() == num_rows // 2
         assert t.where(t.data <= median_value).count() == num_rows // 2 + 1
         assert t.where(t.data > median_value).count() == num_rows // 2
@@ -1013,12 +1013,11 @@ class TestIndex:
         assert t.where(t.data >= s).count() == 2
         assert t.where(t.data > s).count() == 1
 
-    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to exact timestamp match not working on cloud [PXT-1317]')
     def test_timestamp_btree(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
         random.seed(1)
-        start = datetime.datetime(2000, 1, 1)
-        end = datetime.datetime(2020, 1, 1)
+        start = datetime.datetime(2000, 1, 1, tzinfo=datetime.timezone.utc)
+        end = datetime.datetime(2020, 1, 1, tzinfo=datetime.timezone.utc)
         delta = end - start
         delta_secs = int(delta.total_seconds())
         data = [
