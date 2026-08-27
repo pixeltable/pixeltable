@@ -31,7 +31,7 @@ class ServiceChangeOp(TypedDict):
     details: dict[str, str]  # 'from' and 'to' for an alter, 'command' for a blocked operation
 
 
-def otel_op(deployed: bool, requested: bool) -> ServiceChangeOp:
+def otel_op(current: bool, requested: bool) -> ServiceChangeOp:
     state = {True: 'on', False: 'off'}
     return {
         'target': 'service',
@@ -39,7 +39,7 @@ def otel_op(deployed: bool, requested: bool) -> ServiceChangeOp:
         'op': 'alter',
         'severity': 'additive',  # the routes are unchanged; the service restarts to pick up the new setting
         'description': f'tracing will be turned {state[requested]}, which restarts the service',
-        'details': {'from': state[deployed], 'to': state[requested]},
+        'details': {'from': state[current], 'to': state[requested]},
     }
 
 
@@ -59,8 +59,8 @@ def _route_name(route: RouteSpec, prefix: str) -> str:
     return f'{route["method"]} {prefix}{route["path"]}'
 
 
-def compare_specs(deployed: ServiceSpec, declared: ServiceSpec) -> list[ServiceChangeOp]:
-    """The operations that would bring a deployed service definition to the declared one.
+def compare_specs(current: ServiceSpec, declared: ServiceSpec) -> list[ServiceChangeOp]:
+    """The operations that would bring the current service definition to the declared one.
 
     Two routes with the same method and path serve the same callers, so a difference between them is an
     alteration of one route rather than a drop and an add. Only adding a route leaves what is already served
@@ -68,7 +68,7 @@ def compare_specs(deployed: ServiceSpec, declared: ServiceSpec) -> list[ServiceC
     """
     ops: list[ServiceChangeOp] = []
 
-    if deployed['prefix'] != declared['prefix']:
+    if current['prefix'] != declared['prefix']:
         # the prefix is part of every route's URL, but not of the route declarations compared below
         ops.append(
             {
@@ -78,20 +78,20 @@ def compare_specs(deployed: ServiceSpec, declared: ServiceSpec) -> list[ServiceC
                 'severity': 'destructive',
                 'description': (
                     f'service {declared["name"]!r} will be served at prefix {declared["prefix"]!r} '
-                    f'rather than {deployed["prefix"]!r}'
+                    f'rather than {current["prefix"]!r}'
                 ),
-                'details': {'from': deployed['prefix'], 'to': declared['prefix']},
+                'details': {'from': current['prefix'], 'to': declared['prefix']},
             }
         )
 
     # keyed by method and path, which ignores declaration order: valid paths don't contain parameters, which avoids
     # ambiguity
-    deployed_routes = {(r['method'], r['path']): r for r in deployed['routes']}
+    current_routes = {(r['method'], r['path']): r for r in current['routes']}
     declared_routes = {(r['method'], r['path']): r for r in declared['routes']}
 
     for key, route in declared_routes.items():
         name = _route_name(route, declared['prefix'])
-        previous = deployed_routes.get(key)
+        previous = current_routes.get(key)
         if previous is None:
             ops.append(
                 {
@@ -117,10 +117,10 @@ def compare_specs(deployed: ServiceSpec, declared: ServiceSpec) -> list[ServiceC
                 }
             )
 
-    for key, route in deployed_routes.items():
+    for key, route in current_routes.items():
         if key in declared_routes:
             continue
-        name = _route_name(route, deployed['prefix'])
+        name = _route_name(route, current['prefix'])
         ops.append(
             {
                 'target': 'route',
@@ -135,9 +135,9 @@ def compare_specs(deployed: ServiceSpec, declared: ServiceSpec) -> list[ServiceC
     return ops
 
 
-def _changed_fields(deployed: RouteSpec, declared: RouteSpec) -> list[str]:
+def _changed_fields(current: RouteSpec, declared: RouteSpec) -> list[str]:
     """The fields in which two route declarations differ."""
     # cast: mypy indexes a TypedDict by literal keys only
-    deployed_fields = cast(dict[str, Any], deployed)
+    current_fields = cast(dict[str, Any], current)
     declared_fields = cast(dict[str, Any], declared)
-    return sorted(k for k in declared_fields if deployed_fields[k] != declared_fields[k])
+    return sorted(k for k in declared_fields if current_fields[k] != declared_fields[k])

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 import pydantic
@@ -11,8 +11,7 @@ if TYPE_CHECKING:
     from .service_manager import ServiceManagerBase
 
 
-# str-valued: the plan and listing types the daemon validates declare state as str
-class ServiceInstanceState(str, Enum):
+class ServiceInstanceState(StrEnum):
     DEPLOYING = 'DEPLOYING'
     AVAILABLE = 'AVAILABLE'
     STOPPED = 'STOPPED'
