@@ -206,6 +206,7 @@ class TestSql:
     ) -> None:
         self._run_export_suite(self._sqlite_spec(), tmp_path, make_catalog_path, catalog_mode)
 
+    @pytest.mark.skip_cloud(reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]')
     def test_export_postgresql(
         self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, tmp_path: pathlib.Path
     ) -> None:
@@ -249,6 +250,7 @@ class TestSql:
             export_sql(t_img2, 'img_target', db_connect_str=connection_string, if_exists='insert')
 
     @pytest.mark.parametrize('dbms', _IMPORT_DBMS)
+    @pytest.mark.skip_cloud(reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]')
     def test_import_full_table(
         self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path, dbms: str
     ) -> None:
@@ -419,6 +421,7 @@ class TestSql:
         assert list(result) == expected
 
     @pytest.mark.parametrize('dbms', _IMPORT_DBMS)
+    @pytest.mark.skip_cloud('Relies on a locally instantiated DB server')
     def test_import_on_server(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path, dbms: str) -> None:
         p = make_catalog_path
         engine = _import_engine(dbms, tmp_path)

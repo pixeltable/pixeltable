@@ -17,6 +17,7 @@ _logger = logging.getLogger('pixeltable_test')
 
 
 @rerun_on_network_error()
+@pytest.mark.skip_cloud(reason='MCP server is not available in cloud tests')
 class TestMcp:
     def test_mcp_server(self, make_catalog_path: Callable[[str], str], init_mcp_server: str) -> None:
         skip_test_if_not_installed('mcp')

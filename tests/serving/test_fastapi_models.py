@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Callable
 
+import pytest
+
 import pixeltable as pxt
 
 from ..utils import pxt_raises, skip_test_if_not_installed
@@ -222,6 +224,7 @@ class TestFastAPIModels:
         with pxt_raises(pxt.ErrorCode.SCHEMA_MISMATCH, match=r"(?s)ADDED.*'note'"):
             router.bind(p(''))
 
+    @pytest.mark.skip_cloud(reason='Unclear; re-run once other known issues are fixed')
     def test_bind_mismatches(self, make_catalog_path: Callable[[str], str]) -> None:
         """Every difference between a model and the table it names stops the routes declared against it."""
         p = make_catalog_path

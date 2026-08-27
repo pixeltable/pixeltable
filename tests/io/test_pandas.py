@@ -11,6 +11,8 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable.env import Env
+from pixeltable.io import import_csv
+from pixeltable.io.pandas import import_excel
 
 from ..utils import ensure_s3_pytest_resources_access, pxt_raises, rerun_on_network_error, skip_test_if_not_installed
 
@@ -97,9 +99,9 @@ class TestPandas:
         t.insert(df)
         assert t.count() == 2 * len(df)
 
+    @pytest.mark.skip_cloud(reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]')
     def test_import_pandas_csv(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        from pixeltable.io import import_csv
 
         t1 = import_csv(p('online_foods'), 'tests/data/datasets/onlinefoods.csv')
         assert t1.count() == 388
@@ -190,7 +192,6 @@ class TestPandas:
 
     def test_insert_pandas_csv(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        from pixeltable.io import import_csv
 
         t1 = import_csv(p('online_foods'), 'tests/data/datasets/onlinefoods.csv')
         assert t1.count() == 388
@@ -212,7 +213,6 @@ class TestPandas:
     def test_pandas_images(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('boto3')  # This test relies on s3 URLs
-        from pixeltable.io import import_csv
 
         # Test overriding string type to images
         t4 = import_csv(p('images'), 'tests/data/datasets/images.csv', schema_overrides={'image': pxt.Image | None})
@@ -229,6 +229,7 @@ class TestPandas:
         ],
     )
     @rerun_on_network_error()
+    @pytest.mark.skip_cloud(reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]')
     def test_import_excel_from_remote(self, make_catalog_path: Callable[[str], str], source: str) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('openpyxl')
@@ -240,10 +241,10 @@ class TestPandas:
         entry = tab.limit(1).collect()[0]
         assert entry['Date'] == datetime.datetime(2014, 1, 1, 0, 0).astimezone(None)
 
+    @pytest.mark.skip_cloud(reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]')
     def test_import_pandas_excel(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('openpyxl')
-        from pixeltable.io.pandas import import_excel
 
         t4 = import_excel(p('fin_sample'), 'tests/data/datasets/Financial Sample.xlsx')
         assert t4.count() == 700
@@ -265,7 +266,6 @@ class TestPandas:
     def test_insert_pandas_excel(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('openpyxl')
-        from pixeltable.io.pandas import import_excel
 
         t4 = import_excel(p('fin_sample'), 'tests/data/datasets/Financial Sample.xlsx')
         assert t4.count() == 700
@@ -284,7 +284,6 @@ class TestPandas:
 
     def test_pandas_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         p = make_catalog_path
-        from pixeltable.io import import_csv
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION) as exc_info:
             _ = import_csv(

@@ -83,7 +83,7 @@ class TestDestination:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be a valid reference to a supported'):
             t.add_computed_column(img_rot=t.img.rotate(90), destination='https://anything/')
 
-        if catalog_mode == 'proxy':
+        if catalog_mode != 'local':
             # a hosted table has no client-accessible local store, so any local-filesystem destination is rejected
             # (before the more specific local-path checks below would apply)
             with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='not supported for a hosted table'):
@@ -221,7 +221,7 @@ class TestDestination:
         self, make_catalog_path: Callable[[str], str], dest_id: StorageTarget, catalog_mode: CatalogMode
     ) -> None:
         """Test various media destinations."""
-        if catalog_mode == 'proxy' and dest_id == StorageTarget.LOCAL_STORE:
+        if catalog_mode != 'local' and dest_id == StorageTarget.LOCAL_STORE:
             pytest.skip(
                 'a local-filesystem destination is not valid for a hosted table: the daemon keeps media in '
                 'its media dir or an external store, never a local path'
@@ -302,7 +302,7 @@ class TestDestination:
         self, make_catalog_path: Callable[[str], str], dest_id: StorageTarget, catalog_mode: CatalogMode
     ) -> None:
         """Test destination with two Stores receiving copies of the same computed image"""
-        if catalog_mode == 'proxy' and dest_id == StorageTarget.LOCAL_STORE:
+        if catalog_mode != 'local' and dest_id == StorageTarget.LOCAL_STORE:
             pytest.skip(
                 'a local-filesystem destination is not valid for a hosted table: the daemon keeps media in '
                 'its media dir or an external store, never a local path'
