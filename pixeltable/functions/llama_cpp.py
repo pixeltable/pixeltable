@@ -1,3 +1,6 @@
+# mypy: ignore-errors
+# (llama_cpp is temporarily removed from the dev environment)
+
 """
 Pixeltable UDFs for llama.cpp models.
 
