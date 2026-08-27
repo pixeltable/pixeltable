@@ -17,25 +17,18 @@ from pixeltable.env import Env
 from pixeltable.service import management_client
 from pixeltable.service.management_protocol import (
     CreateDbRequest,
-    CreateServiceRequest,
     DeleteDbRequest,
     DeleteSecretRequest,
-    DeleteServiceRequest,
     GetBundleUploadUrlRequest,
     GetDbRequest,
-    GetServiceRequest,
     ListDbRequest,
     ListOrgsRequest,
     ListSecretsRequest,
-    ListServicesRequest,
     SetSecretRequest,
     StartDbRequest,
-    StartServiceRequest,
     StopDbRequest,
-    StopServiceRequest,
     UpdateDbRequest,
     UpdateRuntimeRequest,
-    UpdateServiceRequest,
 )
 from pixeltable.types import TreeNode
 from pixeltable_cli import models, schema_types, service_types
@@ -496,12 +489,6 @@ def schema_check(req: Request) -> schema_types.CheckReport:
     return _CHECK_REPORT.validate_python(bridge.schema_check(body.schema_file))
 
 
-@router.post('/api/localservice/check')
-def service_check(req: Request) -> schema_types.CheckReport:
-    body = req.body(models.ServiceCheckBody)
-    return _CHECK_REPORT.validate_python(bridge.service_check(body.app_file))
-
-
 @router.post('/api/schema/diff')
 def schema_diff(req: Request) -> schema_types.SchemaPlan:
     body = req.body(models.SchemaDiffBody)
@@ -523,7 +510,13 @@ def schema_update(req: Request) -> schema_types.SchemaPlan:
     return _SCHEMA_PLAN.validate_python(applied)
 
 
-@router.post('/api/localservice/diff')
+@router.post('/api/service/check')
+def service_check(req: Request) -> schema_types.CheckReport:
+    body = req.body(models.ServiceCheckBody)
+    return _CHECK_REPORT.validate_python(bridge.service_check(body.app_file))
+
+
+@router.post('/api/service/diff')
 def service_diff(req: Request) -> service_types.ServicePlan:
     body = req.body(models.ServiceDiffBody)
     return _SERVICE_PLAN.validate_python(
@@ -531,7 +524,7 @@ def service_diff(req: Request) -> service_types.ServicePlan:
     )
 
 
-@router.post('/api/localservice/update')
+@router.post('/api/service/update')
 def service_update(req: Request) -> service_types.ServicePlan:
     body = req.body(models.ServiceUpdateBody)
     applied = bridge.service_update(
@@ -540,19 +533,19 @@ def service_update(req: Request) -> service_types.ServicePlan:
     return _SERVICE_PLAN.validate_python(applied)
 
 
-@router.post('/api/localservice/prune')
+@router.post('/api/service/prune')
 def service_prune(req: Request) -> service_types.ServicePlan:
     body = req.body(models.ServicePruneBody)
     return _SERVICE_PLAN.validate_python(bridge.service_prune(body.app_file, req.resolve_path(body.target)))
 
 
-@router.post('/api/localservice/stop')
+@router.post('/api/service/stop')
 def service_stop(req: Request) -> list[service_types.ServiceChangeOp]:
     body = req.body(models.ServiceStopBody)
     return _SERVICE_OPS.validate_python(bridge.service_stop(body.names, req.resolve_path(body.target)))
 
 
-@router.get('/api/localservice/list')
+@router.get('/api/service/list')
 def service_list(req: Request) -> list[service_types.ServiceInstance]:
     target = req.query_str('target')
     return _SERVICE_INSTANCES.validate_python(bridge.service_list(None if target is None else req.resolve_path(target)))
@@ -840,46 +833,3 @@ def get_upload_url(req: Request) -> dict[str, Any]:
 @router.post('/api/db/update-runtime')
 def trigger_runtime_update(req: Request) -> dict[str, Any]:
     return management_client.api_call(req.body(UpdateRuntimeRequest))
-
-
-@router.get('/api/services')
-def list_services(req: Request) -> dict[str, Any]:
-    return management_client.api_call(
-        ListServicesRequest(org=req.required_query_str('org'), db=req.required_query_str('db'))
-    )
-
-
-@router.post('/api/services')
-def create_service(req: Request) -> dict[str, Any]:
-    return management_client.api_call(req.body(CreateServiceRequest))
-
-
-@router.get('/api/service')
-def get_service(req: Request) -> dict[str, Any]:
-    return management_client.api_call(
-        GetServiceRequest(
-            org=req.required_query_str('org'),
-            db=req.required_query_str('db'),
-            service_name=req.required_query_str('service_name'),
-        )
-    )
-
-
-@router.post('/api/service/delete')
-def delete_service(req: Request) -> dict[str, Any]:
-    return management_client.api_call(req.body(DeleteServiceRequest))
-
-
-@router.post('/api/service/start')
-def start_service(req: Request) -> dict[str, Any]:
-    return management_client.api_call(req.body(StartServiceRequest))
-
-
-@router.post('/api/service/stop')
-def stop_service(req: Request) -> dict[str, Any]:
-    return management_client.api_call(req.body(StopServiceRequest))
-
-
-@router.post('/api/service/update')
-def update_service(req: Request) -> dict[str, Any]:
-    return management_client.api_call(req.body(UpdateServiceRequest))

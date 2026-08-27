@@ -63,7 +63,7 @@ class ServiceManagerBase(abc.ABC):
 
     @abc.abstractmethod
     def start(self, app_file: str, name: str, base_path: str = '', *, otel: bool = False) -> ServiceInstance:
-        """Make the named router in app_file serve base_path, and return its instance."""
+        """Make the named service in app_file serve base_path, and return its instance."""
 
     @abc.abstractmethod
     def stop(self, instance: ServiceInstance) -> None:

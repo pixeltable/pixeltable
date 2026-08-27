@@ -38,23 +38,16 @@ from pixeltable.catalog import model
 from pixeltable.service import management_client
 from pixeltable.service.management_protocol import (
     CreateDbRequest,
-    CreateServiceRequest,
     DeleteDbRequest,
-    DeleteServiceRequest,
     GetBundleUploadUrlRequest,
     GetDbRequest,
-    GetServiceRequest,
     ListDbRequest,
     ListOrgsRequest,
-    ListServicesRequest,
     ServiceOperationType,
     StartDbRequest,
-    StartServiceRequest,
     StopDbRequest,
-    StopServiceRequest,
     UpdateDbRequest,
     UpdateRuntimeRequest,
-    UpdateServiceRequest,
 )
 from pixeltable_cli import schema_types as wire, utils
 from pixeltable_cli.client import confirm, hosted, main as client_main, parser as client_parser, utils as client_utils
@@ -1714,51 +1707,6 @@ _POST_ROUTE_REQUESTS = [
         {'org': 'acme', 'db': 'main', 'bundle_s3_key': 'bundles/acme/main.tar.gz'},
         UpdateRuntimeRequest(org='acme', db='main', bundle_s3_key='bundles/acme/main.tar.gz'),
     ),
-    (
-        server_routes.create_service,
-        {
-            'org': 'acme',
-            'db': 'main',
-            'service_name': 'svc',
-            'base_path': 'dir',
-            'workers_min': 3,
-            'cpu': 1.5,
-            'memory_mb': 1024,
-            'disk_gb': 20,
-            'service_spec': json.dumps({'name': 'svc', 'prefix': '', 'routes': []}),
-        },
-        CreateServiceRequest(
-            org='acme',
-            db='main',
-            service_name='svc',
-            base_path='dir',
-            workers_min=3,
-            cpu=1.5,
-            memory_mb=1024,
-            disk_gb=20,
-            service_spec={'name': 'svc', 'prefix': '', 'routes': []},
-        ),
-    ),
-    (
-        server_routes.update_service,
-        {'org': 'acme', 'db': 'main', 'service_name': 'svc', 'workers_min': 4, 'service_spec': None},
-        UpdateServiceRequest(org='acme', db='main', service_name='svc', workers_min=4),
-    ),
-    (
-        server_routes.delete_service,
-        {'org': 'acme', 'db': 'main', 'service_name': 'svc'},
-        DeleteServiceRequest(org='acme', db='main', service_name='svc'),
-    ),
-    (
-        server_routes.start_service,
-        {'org': 'acme', 'db': 'main', 'service_name': 'svc'},
-        StartServiceRequest(org='acme', db='main', service_name='svc'),
-    ),
-    (
-        server_routes.stop_service,
-        {'org': 'acme', 'db': 'main', 'service_name': 'svc'},
-        StopServiceRequest(org='acme', db='main', service_name='svc'),
-    ),
 ]
 
 _GET_ROUTE_REQUESTS = [
@@ -1766,12 +1714,6 @@ _GET_ROUTE_REQUESTS = [
     (server_routes.list_dbs, {'org': ['acme']}, ListDbRequest(org='acme')),
     (server_routes.get_db, {'org': ['acme'], 'db': ['main']}, GetDbRequest(org='acme', db='main')),
     (server_routes.get_upload_url, {'org': ['acme'], 'db': ['main']}, GetBundleUploadUrlRequest(org='acme', db='main')),
-    (server_routes.list_services, {'org': ['acme'], 'db': ['main']}, ListServicesRequest(org='acme', db='main')),
-    (
-        server_routes.get_service,
-        {'org': ['acme'], 'db': ['main'], 'service_name': ['svc']},
-        GetServiceRequest(org='acme', db='main', service_name='svc'),
-    ),
 ]
 
 
@@ -1828,7 +1770,6 @@ class TestHostedCommandRequests:
         monkeypatch.setattr(module, 'post_request', post_request)
         monkeypatch.setattr(module, 'get_request', lambda path, params=None: {})
         monkeypatch.setattr(module, 'poll_db', poll, raising=False)
-        monkeypatch.setattr(module, 'poll_svc', poll, raising=False)
         module.run(argv)
         assert len(posted) == 1, posted
         return posted[0]

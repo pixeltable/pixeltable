@@ -985,6 +985,7 @@ def service_list(target: PxtPath | None = None) -> list[service_types.ServiceIns
             name=i.service_name,
             base_path=PxtPath(i.base_path),
             endpoint=i.endpoint,
+            state=i.state,
             pid=i.record.pid,
             process_started_at=i.record.process_started_at,
             app_file=i.app_file,

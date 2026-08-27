@@ -137,15 +137,17 @@ class ServiceSpec(TypedDict):
 
 
 class ServiceInstance(TypedDict):
-    """A service running locally, as `pxt service list` reports it."""
+    """A service instance; mirrors pixeltable/serving/service_instance.py."""
 
     name: str
     base_path: PxtPath  # the catalog directory the service's models are bound to
     endpoint: str
-    pid: int
-    process_started_at: float | None  # creation time of pid, None where the platform does not report one
+    state: str
     app_file: str  # the file the service was served from
     spec: ServiceSpec  # what it serves
+
+    pid: int | None  # the process serving the instance; set only for an instance running on this machine
+    process_started_at: float | None  # creation time of pid, None where the platform does not report one
 
 
 def delete_service_op(name: str, endpoint: str | None, status: OpStatus) -> ServiceChangeOp:

@@ -40,7 +40,6 @@ class ServiceInstanceRecord(pydantic.BaseModel):
     # whether the instance emits OpenTelemetry traces
     otel: bool = False
 
-    # a record read from disk takes the default, since the process table decides whether its instance serves
     state: ServiceInstanceState = ServiceInstanceState.AVAILABLE
 
     # the process serving the instance; set only for an instance running on this machine
@@ -51,11 +50,7 @@ class ServiceInstanceRecord(pydantic.BaseModel):
 
 
 class ServiceInstance:
-    """A running instance of a service.
-
-    The router executes the routes; this reports where it runs and what it serves, and takes it down. The
-    manager that produced it carries out both, so a local and a hosted instance are the same class.
-    """
+    """A running instance of a service."""
 
     record: ServiceInstanceRecord
     _manager: ServiceManagerBase

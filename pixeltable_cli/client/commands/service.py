@@ -199,7 +199,7 @@ def run(argv: list[str]) -> None:
         ap.add_argument('app', help='path to a Python file declaring FastAPIRouter services')
         ap.add_argument('--json', action='store_true', dest='as_json')
         args = ap.parse_args(argv[1:])
-        check_file('/api/localservice/check', 'app_file', args.app, verb='service check', as_json=args.as_json)
+        check_file('/api/service/check', 'app_file', args.app, verb='service check', as_json=args.as_json)
         return
 
     if verb == 'stop':
@@ -291,7 +291,7 @@ def _example(out: str | None) -> None:
 
 
 def _service_plan(app_file: str, target: PxtPath, otel: bool = False) -> ServicePlan:
-    plan: ServicePlan = post_request('/api/localservice/diff', {'app_file': app_file, 'target': target, 'otel': otel})
+    plan: ServicePlan = post_request('/api/service/diff', {'app_file': app_file, 'target': target, 'otel': otel})
     return plan
 
 
@@ -332,7 +332,7 @@ def _update(
     )
 
     applied: ServicePlan = post_request(
-        '/api/localservice/update',
+        '/api/service/update',
         {'app_file': app_file, 'target': target, 'allow_destructive': allow_destructive, 'otel': otel},
     )
     _print_plan(applied, as_json=as_json, applied=True)
@@ -405,7 +405,7 @@ def _prune(app_file: str, target: PxtPath, *, as_json: bool, force: bool, dry_ru
             [delete_service_op(name, None, 'refused') for name in extras], as_json=as_json, verb='would stop'
         ),
     )
-    pruned: ServicePlan = post_request('/api/localservice/prune', {'app_file': app_file, 'target': target})
+    pruned: ServicePlan = post_request('/api/service/prune', {'app_file': app_file, 'target': target})
     _print_ops(pruned.get('ops', []), as_json=as_json, verb='stopped')
 
 
@@ -426,7 +426,7 @@ def _stop(names: list[str], *, as_json: bool) -> None:
         by_target.setdefault(service['base_path'], []).append(service['name'])
 
     for target, target_names in by_target.items():
-        ops += post_request('/api/localservice/stop', {'names': target_names, 'target': target})
+        ops += post_request('/api/service/stop', {'names': target_names, 'target': target})
     _print_ops(ops, as_json=as_json, verb='stopped')
 
 
@@ -444,7 +444,8 @@ def _list(target: str | None, *, as_json: bool) -> None:
         return
     width = max(len(_address(d)) for d in running)
     for d in running:
-        print(f'{_address(d):<{width}s}  {d["endpoint"]}  pid {d["pid"]}  {d["app_file"]}')
+        pid_or_state = f'pid {d["pid"]}' if d['pid'] is not None else d['state']
+        print(f'{_address(d):<{width}s}  {d["endpoint"]}  {pid_or_state}  {d["app_file"]}')
         prefix = d['spec']['prefix']
         for route in d['spec']['routes']:
             served = ', '.join(route['outputs']) if len(route['outputs']) > 0 else '-'
@@ -457,7 +458,7 @@ def _list(target: str | None, *, as_json: bool) -> None:
 
 def _running(target: str | None = None) -> list[ServiceInstance]:
     params = {} if target is None else {'target': target}
-    instances: list[ServiceInstance] = get_request('/api/localservice/list', params)
+    instances: list[ServiceInstance] = get_request('/api/service/list', params)
     return instances
 
 
