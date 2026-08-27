@@ -651,20 +651,26 @@ class StoreBase:
         # stmt_text = f'INSERT INTO {self.sa_tbl.name} ({col_names_str}) VALUES ({placeholders_str})'
         # conn.exec_driver_sql(stmt_text, table_rows)
 
-    # keeps update_rows()'s bind parameters from colliding with the ones SQLAlchemy generates itself
-    __UPDATE_PARAM_PREFIX = 'pxt_upd_'
+    @classmethod
+    def _update_bind_name(cls, store_col_name: str) -> str:
+        """Name of the bind parameter that update_rows() supplies the value of store_col_name in.
+
+        The prefix keeps these from colliding with the parameters SQLAlchemy generates itself, which it names
+        after the store columns.
+        """
+        return f'_{store_col_name}'
 
     @classmethod
-    def __update_bind_param(cls, sa_col: sql.Column) -> sql.BindParameter:
+    def _bind_param(cls, sa_col: sql.Column) -> sql.BindParameter:
         col_type = sa_col.type
         if isinstance(col_type, sql.dialects.postgresql.JSONB):
             # a Python None must be stored as a SQL NULL, not as a JSON 'null'
             col_type = sql.dialects.postgresql.JSONB(none_as_null=True)
-        return sql.bindparam(f'{cls.__UPDATE_PARAM_PREFIX}{sa_col.name}', type_=col_type)
+        return sql.bindparam(cls._update_bind_name(sa_col.name), type_=col_type)
 
     def _create_update_stmt(self, set_col_names: list[str]) -> sql.Update:
-        pk_clause = sql.and_(*[c == self.__update_bind_param(c) for c in self._pk_cols])
-        set_clause = {name: self.__update_bind_param(self.sa_tbl.c[name]) for name in set_col_names}
+        pk_clause = sql.and_(*[c == self._bind_param(c) for c in self._pk_cols])
+        set_clause = {name: self._bind_param(self.sa_tbl.c[name]) for name in set_col_names}
         return sql.update(self.sa_tbl).where(pk_clause).values(set_clause)
 
     def update_rows(
@@ -695,22 +701,27 @@ class StoreBase:
         set_col_idxs = [i for i, name in enumerate(store_col_names) if i >= num_pk_cols and name in set_col_names]
         assert len(set_col_idxs) == len(set_col_names), (store_col_names, set_col_names)
         param_idxs = [*range(num_pk_cols), *set_col_idxs]
-        param_names = [f'{self.__UPDATE_PARAM_PREFIX}{store_col_names[i]}' for i in param_idxs]
+        bind_param_names = [self._update_bind_name(store_col_names[i]) for i in param_idxs]
         stmt = self._create_update_stmt([store_col_names[i] for i in set_col_idxs])
 
         table_rows: list[list[Any]] = []
-        params: list[dict[str, Any]] = []
+        bind_params: list[dict[str, Any]] = []
         updated_rows: list[dict[str, Any]] = []
 
-        def flush() -> int:
-            nonlocal table_rows, params
-            n = len(table_rows)
-            self.sql_update(stmt, params)
+        def flush() -> None:
+            nonlocal table_rows, bind_params
+            self.sql_update(stmt, bind_params)
             if return_rows:
                 updated_rows.extend(row_builder.create_output_rows(table_rows=table_rows, has_pk=True))
             table_rows = []
-            params = []
-            return n
+            bind_params = []
+
+        def row_value_to_bind_param(val: Any) -> Any:
+            # TODO investigate if we can get rid of this
+            # a JSON null arrives as a SQL construct, which can't be a bind parameter value
+            if isinstance(val, sql.sql.elements.Null):
+                return None
+            return val
 
         with exec_plan:
             progress_reporter = exec_plan.ctx.add_progress_reporter(
@@ -721,25 +732,26 @@ class StoreBase:
                 num_rows += len(row_batch)
                 with telemetry.span('pixeltable.store.build_rows', level=telemetry.DEBUG, rows=len(row_batch)):
                     for row in row_batch:
-                        assert len(row.pk) == num_pk_cols, (row.pk, num_pk_cols)
+                        assert len(row.pk) == num_pk_cols
                         table_row, num_row_exc = row_builder.create_store_table_row(row, cols_with_excs, row.pk)
                         num_excs += num_row_exc
                         table_rows.append(table_row)
-                        # a JSON null arrives as a SQL construct, which can't be a bind parameter value
-                        params.append(
+                        bind_params.append(
                             {
-                                name: None if isinstance(table_row[i], sql.sql.elements.Null) else table_row[i]
-                                for name, i in zip(param_names, param_idxs)
+                                bind_param: row_value_to_bind_param(table_row[param_idx])
+                                for bind_param, param_idx in zip(bind_param_names, param_idxs)
                             }
                         )
 
                 if len(table_rows) >= self.__INSERT_BATCH_SIZE:
-                    n = flush()
+                    n = len(table_rows)
+                    flush()
                     if progress_reporter is not None:
                         progress_reporter.update(n)
 
             if len(table_rows) > 0:
-                n = flush()
+                n = len(table_rows)
+                flush()
                 if progress_reporter is not None:
                     progress_reporter.update(n)
 
