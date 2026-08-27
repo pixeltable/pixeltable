@@ -25,7 +25,7 @@ Multi-node HA and horizontal scaling planned for Pixeltable Cloud (2026).
 ## Web Framework Concurrency
 
 <Tip>
-**For standard insert, query, and delete endpoints,** consider [built-in HTTP serving](/howto/deployment/serving) with `FastAPIRouter` or a TOML config before writing custom endpoint handlers. It handles request/response schemas, media serving, and background jobs automatically.
+**For standard insert, query, and delete endpoints,** consider [built-in HTTP serving](/howto/deployment/serving) with `pxt service` or `FastAPIRouter` before writing custom endpoint handlers. It handles request/response schemas, media serving, and background jobs automatically.
 </Tip>
 
 Pixeltable is thread-safe and works with FastAPI, Flask, Django, and other web frameworks out of the box. The key rule: **use sync (`def`) endpoint handlers**, not `async def`.
@@ -185,7 +185,7 @@ docs_table.add_computed_column(
     if_exists='ignore'  # No-op if column exists
 )
 ```
-- Version control `schema.py` like database migration scripts.
+- Version control `app.py` like database migration scripts.
 - Rollback via `table.revert()` (single operation) or Git revert (complex changes).
 
 ### Updating Models
@@ -225,7 +225,7 @@ Because both columns coexist, you can A/B test retrieval quality before cutting 
 
 **Web Applications:**
 - For standard endpoints, use [`pxt service`](/howto/deployment/serving) with an application file, or [`FastAPIRouter`](/howto/deployment/serving#quickstart-python)
-- Run `python schema.py` once before starting workers to create tables
+- Run `pxt schema update app.py TARGET` once before starting workers to create tables
 - Each router calls `pxt.get_table()` directly and defines its own `@pxt.query` functions
 - Use sync (`def`) endpoint handlers for concurrent request support
 
@@ -277,7 +277,7 @@ COPY backend/ ./
 COPY --from=frontend-build /app/backend/static ./static
 ENV PIXELTABLE_HOME=/data/pixeltable
 EXPOSE 8000
-CMD ["sh", "-c", "uv run python schema.py && uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4"]
+CMD ["sh", "-c", "uv run pxt schema update app.py my_app && uv run pxt service run app.py my_app"]
 ```
 
 ## Environment Management

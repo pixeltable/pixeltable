@@ -46,7 +46,7 @@ pixeltable/
 ├── docs/
 │   ├── release/          # Mintlify documentation source (notebooks, MDX)
 │   ├── _guidelines/      # Documentation style guides
-│   └── sample-apps/      # Example applications
+│   └── sample-apps/      # Older showcases; examples live in pixeltable-starter-kit
 └── tool/                 # Development utilities
 ```
 
@@ -196,30 +196,38 @@ class MyIterator(ComponentIterator):
 
 ### Working with Tables
 
+Apps declare schema as a `TableModel` and apply it with `pxt schema update`. HTTP routes go in the same file on a `FastAPIRouter`. Tests, notebooks, and one-off REPL work still use `pxt.create_table()`.
+
 ```python
+from __future__ import annotations
+
 import pixeltable as pxt
+import pixeltable.functions as pxtf
+from pixeltable.serving import FastAPIRouter
 
-# Create table with schema
-t = pxt.create_table('my_dir.my_table', {
-    'text': pxt.String,
-    'image': pxt.Image,
-    'metadata': pxt.Json,
-})
+TableModel = pxt.model_base()
 
-# Add computed columns
-t.add_computed_column(embedding=some_embedding_fn(t.text))
-t.add_computed_column(analysis=some_analysis_fn(t.image))
 
-# Add embedding index
-t.add_embedding_index('text', embedding=embed_fn)
+class Docs(TableModel, name='docs'):
+    title: pxt.String
+    body: pxt.String | None
+    title_upper = pxtf.string.upper(title)
 
-# Insert data
-t.insert([{'text': 'hello', 'image': 'path/to/image.jpg'}])
 
-# Query with similarity search
-sim = t.text.similarity(string='search query')
-results = t.order_by(sim, asc=False).limit(10).select(t.text, sim).collect()
+ingest = FastAPIRouter(name='ingest')
+ingest.add_insert_route(
+    Docs, path='/docs', inputs=[Docs.title, Docs.body], outputs=[Docs.title, Docs.title_upper]
+)
 ```
+
+```bash
+pxt schema update app.py my_app
+pxt service update app.py my_app
+```
+
+Runtime after apply: `t = pxt.get_table('my_app.docs')`, then `t.insert()` / `.select()` / `.collect()`. Indexes belong on the model (`__indexes__ = [pxt.EmbeddingIndex(...)]`), not `add_embedding_index()` on an app schema.
+
+Examples: [pixeltable-starter-kit](https://github.com/pixeltable/pixeltable-starter-kit).
 
 ### Error Handling
 

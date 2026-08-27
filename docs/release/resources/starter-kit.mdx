@@ -1,10 +1,13 @@
 ---
 title: 'Starter kit'
-description: 'Reference app and deployment configs for Pixeltable backends'
+description: 'Project templates for Pixeltable backends'
 ---
 
-The [Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit) is a reference implementation for shipping multimodal backends: FastAPI + React, batch jobs, declarative serving, and deploy configs for Docker, Helm, Terraform, and CDK.
+The [Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit) is the example home: serving, batch, and FastAPI + React patterns, plus `uvx pixeltable-new` templates.
 
-<Card title="pixeltable/pixeltable-starter-kit" icon="github" href="https://github.com/pixeltable/pixeltable-starter-kit">
-  Clone the starter kit on GitHub
-</Card>
+```bash
+uvx pixeltable-new --list
+uvx pixeltable-new myapp --template knowledge-base
+```
+
+First-run without a template: [Quickstart](/overview/quick-start) (`pxt service example` → `pxt schema update` → `pxt service update`).

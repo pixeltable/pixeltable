@@ -1,0 +1,79 @@
+---
+title: 'Deploy to Pixeltable Cloud'
+sidebarTitle: 'Deploy to Pixeltable Cloud'
+description: 'Same application file against a hosted database'
+---
+
+The [Quickstart](/overview/quick-start) file is the Cloud file. Create a hosted database, then apply it to a `pxt://` URI.
+
+`PIXELTABLE_API_KEY` is required. Set it in the environment or in `config.toml` — [Configuration](/platform/configuration).
+
+```bash
+pxt db create pxt://org:mydb
+pxt schema update app.py pxt://org:mydb
+```
+
+Then `t = pxt.get_table('pxt://org:mydb/docs')`.
+
+```python
+from __future__ import annotations
+
+import pixeltable as pxt
+import pixeltable.functions as pxtf
+from pixeltable.serving import FastAPIRouter
+
+TableModel = pxt.model_base()
+
+
+class Docs(TableModel, name='docs'):
+    title: pxt.String
+    body: pxt.String | None
+    title_upper = pxtf.string.upper(title)
+
+
+ingest = FastAPIRouter(name='ingest')
+ingest.add_insert_route(
+    Docs, path='/docs', inputs=[Docs.title, Docs.body], outputs=[Docs.title, Docs.title_upper]
+)
+```
+
+`pxt schema update` creates the tables on the hosted catalog. It does not start HTTP. `pxt service` binds to the **local** catalog — a `pxt://` target is refused. Managed cloud HTTP is coming; [join the waitlist](https://www.pixeltable.com/waitlist).
+
+## Media on the home bucket
+
+Every Cloud database includes a managed bucket. No provider account, no credentials file. Declare it on a computed column:
+
+```python
+class Images(TableModel, name='images'):
+    photo: pxt.Image
+    thumbnail = pxt.Column(
+        value=photo.resize((256, 256)),
+        destination='pxtfs://org:mydb/home',
+    )
+```
+
+Or set `output_media_dest` as the default for computed media. Details: [Cloud storage](/integrations/cloud-storage#pixeltable-cloud-home-bucket).
+
+## Local vs Cloud
+
+| | Local | Cloud |
+|---|---|---|
+| Catalog | `pxt schema update app.py my_app` | `pxt schema update app.py pxt://org:mydb` |
+| HTTP | `pxt service update app.py my_app` | Coming soon |
+| Media | local disk | `pxtfs://org:mydb/home` |
+
+`pxt db` also lists, starts, stops, and deletes hosted databases, and `pxt db update-runtime` rebuilds the Python image. [CLI](/platform/cli#cloud).
+
+## Coming later
+
+- Managed HTTP over the hosted catalog
+- Multi-writer live tables
+
+<CardGroup cols={2}>
+  <Card title="Join the waitlist" icon="envelope" href="https://www.pixeltable.com/waitlist">
+    Early access to managed endpoints.
+  </Card>
+  <Card title="Book a demo" icon="calendar" href="https://calendar.google.com/calendar/u/0/appointments/schedules/AcZssZ0BSvx8SRh7HoLdgvGeYUuhdyaifN42nhieCJESo3B1Hmy_buqteAagnSwADXG1lhKFUg3_VTZM">
+    Talk through a Cloud deployment.
+  </Card>
+</CardGroup>

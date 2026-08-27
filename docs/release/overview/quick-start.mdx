@@ -1,258 +1,98 @@
 ---
 title: 'Quickstart'
-description: 'The fastest way to get started using Pixeltable'
+description: 'Declare an app file, apply it, serve an insert endpoint'
 ---
 
-## System requirements
+Python 3.11+ on Linux, macOS, or Windows.
 
-Before installing, ensure your system meets these requirements:
-
-- Python 3.11 or higher
-- Linux, MacOS, or Windows
-
-## Installation
-
-It is recommended that you install Pixeltable in a virtual environment.
+## Install
 
 <Tabs>
   <Tab title="venv">
-    <Steps>
-      <Step title="Create virtual environment">
-        ```bash
-        python -m venv .venv
-        ```
-      </Step>
-      <Step title="Activate environment">
-        <CodeGroup>
-          ```bash Linux/MacOS
-          source .venv/bin/activate
-          ```
-          ```bash Windows
-          .venv\Scripts\activate
-          ```
-        </CodeGroup>
-      </Step>
-      <Step title="Install Pixeltable">
-        ```bash
-        pip install pixeltable
-        ```
-      </Step>
-    </Steps>
+    ```bash
+    python -m venv .venv
+    source .venv/bin/activate   # Windows: .venv\Scripts\activate
+    pip install 'pixeltable[serve]'
+    ```
   </Tab>
   <Tab title="uv">
-    <Steps>
-      <Step title="Install uv">
-        Install uv from the [Installing uv](https://docs.astral.sh/uv/getting-started/installation/) guide.
-      </Step>
-      <Step title="Create environment">
-        ```bash
-        uv venv --python 3.12
-        ```
-      </Step>
-      <Step title="Activate environment">
-        <CodeGroup>
-          ```bash Linux/MacOS
-          source .venv/bin/activate
-          ```
-          ```bash Windows
-          .venv\Scripts\activate
-          ```
-        </CodeGroup>
-      </Step>
-      <Step title="Install Pixeltable">
-        ```bash
-        uv pip install pixeltable
-        ```
-      </Step>
-    </Steps>
-  </Tab>
-  <Tab title="conda">
-    <Steps>
-      <Step title="Install Miniconda">
-        Download and install from the [Miniconda Installation](https://www.anaconda.com/docs/getting-started/miniconda/main) guide.
-      </Step>
-      <Step title="Create and activate environment">
-        ```bash
-        conda create --name pxt python=3.12
-        conda activate pxt
-        ```
-      </Step>
-      <Step title="Install Pixeltable">
-        ```bash
-        pip install pixeltable
-        ```
-      </Step>
-    </Steps>
+    ```bash
+    uv venv --python 3.12
+    source .venv/bin/activate   # Windows: .venv\Scripts\activate
+    uv pip install 'pixeltable[serve]'
+    ```
   </Tab>
 </Tabs>
 
-## Getting help
+`[serve]` pulls in FastAPI and uvicorn, which `pxt service` needs.
 
-- Join our [Discord Community](https://discord.com/invite/QPyqFYx2UN)
-- Report issues on [GitHub](https://github.com/pixeltable/pixeltable/issues)
-- Contact [support@pixeltable.com](mailto:support@pixeltable.com)
+## Declare, apply, serve
 
-## Build an image analysis app
+One file holds the models and the routes. `pxt service example` writes a working one:
 
-<Tip>
-This guide will help you spin up a functioning AI workload in 5 minutes.
-</Tip>
+```bash
+pxt service example --out app.py
+pxt schema update app.py my_app
+pxt service update app.py my_app
+```
 
-<Steps>
-  <Step title="Install Required Packages">
-    Pixeltable requires only a minimal set of Python packages by default. To use AI models, you'll need to install
-    additional dependencies.
-    ```bash
-    pip install torch transformers openai
-    ```
-  </Step>
+That file looks like this:
 
-  <Step title="Create a Table">
-    ```python
-    import pixeltable as pxt
+```python
+from __future__ import annotations  # required to declare a model on Python 3.14+
 
-    # Create a namespace and table
-    pxt.create_dir('quickstart', if_exists='replace_force')
-    t = pxt.create_table('quickstart/images', {'image': pxt.Image})
-    ```
+import pixeltable as pxt
+import pixeltable.functions as pxtf
+from pixeltable.serving import FastAPIRouter
 
-    <Note>
-    Tables are persistent: your data survives restarts and can be queried anytime.
-    </Note>
-  </Step>
+TableModel = pxt.model_base()
 
-  <Step title="Add AI Object Detection">
-    ```python
-    from pixeltable.functions import huggingface
 
-    # Add DETR object detection as a computed column
-    t.add_computed_column(
-        detections=huggingface.detr_for_object_detection(
-            t.image,
-            model_id='facebook/detr-resnet-50'
-        )
-    )
+class Docs(TableModel, name='docs'):
+    title: pxt.String                         # a stored column
+    body: pxt.String | None                   # a stored column that may be null
+    title_upper = pxtf.string.upper(title)    # a computed column: an assignment, not an annotation
 
-    # Extract labels from detections
-    t.add_computed_column(labels=t.detections.label_text)
-    ```
 
-    <Note>
-    Computed columns run automatically whenever new data is inserted.
-    </Note>
-  </Step>
+ingest = FastAPIRouter(name='ingest')
+ingest.add_insert_route(
+    Docs, path='/docs', inputs=[Docs.title, Docs.body], outputs=[Docs.title, Docs.title_upper]
+)
+```
 
-  <Step title="Insert Data">
-    ```python
-    # Insert a few images
-    t.insert([
-      {'image': 'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000001.jpg'},
-      {'image': 'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000025.jpg'}
-    ])
-    ```
+An annotation is a stored column. An assignment is a computed column.
 
-    <Note>
-    You can insert images from URLs and/or local paths in any combination.
-    </Note>
-  </Step>
+Insert a row; `title_upper` is computed on the way in. `pxt service list` prints the URL (the port is assigned):
 
-  <Step title="Query Results">
-    ```python
-    # Query results
-    t.select(t.image, t.labels).collect()
-    ```
+```bash
+pxt service list
+# ingest  http://127.0.0.1:<port>  ...
+curl -X POST http://127.0.0.1:<port>/docs \
+  -H 'Content-Type: application/json' \
+  -d '{"title": "Hello", "body": "world"}'
+```
 
-    **Expected output:**
+`pxt schema update` creates the directory and tables. It does not start HTTP. `pxt service update` does not create tables — apply first.
 
-    | image      | labels              |
-    |------------|---------------------|
-    | [Image]    | [car, parking meter, truck, car, car, truck]   |
-    | [Image]    | [giraffe, giraffe] |
+In a notebook, `pxt.create_table()` is still valid. An application’s contract is the application file.
 
-  </Step>
+<Note>
+**App vs notebook.** An application's contract is a `TableModel` in `app.py`, applied with `pxt schema update`. Notebooks and tests use `pxt.create_table()`, `add_computed_column()`, and `add_embedding_index()`.
+</Note>
 
-  <Step title="(Optional) Add LLM Vision">
-    <Tip>
-    You'll need an OpenAI API key to use this step. If you don't have one, you can
-    safely skip this step.
-    </Tip>
-
-    ```python
-    import os
-    from pixeltable.functions import openai
-
-    # Set your API key
-    os.environ['OPENAI_API_KEY'] = 'your-key-here'
-
-    messages = [
-        {
-            'role': 'user',
-            'content': [
-                {'type': 'text', 'text': 'Describe this image in one sentence.'},
-                {'type': 'image_url', 'image_url': t.image},
-            ],
-        }
-    ]
-    t.add_computed_column(
-        response=openai.chat_completions(messages, model='gpt-4o-mini')
-    )
-
-    t.select(t.image, t.labels, t.response.choices[0].message.content).collect()
-    ```
-
-    ```python
-    # See the full text of the response in row 0
-    t.select(t.response.choices[0].message.content).collect()[0]
-    ```
-
-    <Note>
-    Pixeltable orchestrates LLM calls for optimized throughput, handling
-    rate limiting, retries, and caching automatically.
-    </Note>
-  </Step>
-
-  <Step title="Insert More Data">
-    ```python
-    t.insert([
-      {'image': 'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000034.jpg'},
-      {'image': 'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000057.jpg'}
-    ])
-
-    t.select(t.image, t.labels).collect()
-    ```
-
-    <Note>
-    When new data is inserted into tables, Pixeltable incrementally runs all
-    computed columns against the new data, ensuring the table is up to date.
-    If you completed the optional LLM Vision step, the descriptions will also
-    be generated automatically for these new images.
-    </Note>
-  </Step>
-</Steps>
-
-<Accordion title="What happened behind the scenes?">
-Pixeltable automatically:
-
-1. Created a persistent multimodal table
-2. Downloaded and cached the DETR model
-3. Ran inference on your image
-4. Stored all results (including computed columns) for instant retrieval
-5. Will incrementally process any new images you insert
-</Accordion>
-
-## Next Steps
+## Next
 
 <CardGroup cols={2}>
-  <Card title="10-Minute Tour" icon="play" href="/overview/ten-minute-tour">
-    A deeper walkthrough with video, embeddings, and similarity search.
+  <Card title="CLI" icon="terminal" href="/platform/cli">
+    `pxt schema` and `pxt service`: `diff`, `update`, `prune`, `run`, `list`.
   </Card>
-  <Card title="Deployment Overview" icon="rocket" href="/howto/deployment/overview">
-    Three production patterns: Full Backend (FastAPI + React), Batch Processing (export to your DB), and Declarative Serving (API from an application file).
+  <Card title="HTTP serving" icon="globe" href="/howto/deployment/serving">
+    `FastAPIRouter` routes, `pxt service run`, background jobs.
   </Card>
-  <Card title="HTTP Serving" icon="globe" href="/howto/deployment/serving">
-    Expose tables and queries as HTTP endpoints with `pxt service` or `FastAPIRouter`.
+  <Card title="Cloud" icon="cloud" href="/howto/deployment/cloud">
+    Same file against `pxt://org:db`.
   </Card>
-  <Card title="Create a Project" icon="wand-magic-sparkles" href="https://github.com/pixeltable/pixeltable-new">
-    `uvx pixeltable-new myapp` — scaffold a full project (serving, backend, or batch) in one command.
+  <Card title="Starter kit" icon="github" href="https://github.com/pixeltable/pixeltable-starter-kit">
+    Templates for serving, batch, and full-stack apps.
   </Card>
 </CardGroup>

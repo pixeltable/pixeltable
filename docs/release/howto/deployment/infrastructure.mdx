@@ -5,17 +5,15 @@ description: "Code organization and storage architecture for Pixeltable deployme
 
 ## Code Organization
 
-Separate schema definition from router logic.
+Put models and routes in one application file. Apply schema, then serve.
 
-**Schema Definition (`schema.py`):**
-- Tables, views, computed columns, indexes, and agent-internal `@pxt.query` functions
-- Flat module with `if_exists='ignore'` for idempotency (no `setup()` wrapper, no `_initialized` flag)
-- Run once before starting workers: `python schema.py`
+**Application file (`app.py`):**
+- `TableModel` classes for tables, views, computed columns, and indexes
+- `FastAPIRouter` services for HTTP
+- Apply once: `pxt schema update app.py TARGET`
+- Serve: `pxt service update app.py TARGET` (or `pxt service run` in the foreground)
 
-**Router Files (`routers/data.py`, `routers/search.py`, etc.):**
-- Call `pxt.get_table()` directly to get table handles
-- Define router-facing `@pxt.query` functions next to the routes that use them
-- No `import schema` needed; tables already exist from the init step
+**Approach 2 (existing FastAPI app):** keep the same `app.py` models. Mount `FastAPIRouter` with `app.include_router()`. Do not run `python schema.py`.
 
 **Configuration (`config.py`):**
 - Externalizes model IDs, API keys, thresholds, connection strings
@@ -23,33 +21,46 @@ Separate schema definition from router logic.
 - Never hardcodes secrets
 
 ```python
-# schema.py — creates tables (flat, idempotent, no queries for routers)
+# app.py
+from __future__ import annotations
+
 import pixeltable as pxt
-import config
-
-pxt.create_dir(config.APP_NAMESPACE, if_exists='ignore')
-
-docs = pxt.create_table(
-    f'{config.APP_NAMESPACE}/documents',
-    {'document': pxt.Document, 'metadata': pxt.Json, 'timestamp': pxt.Timestamp},
-    if_exists='ignore',
-)
-
-# ---
-
-# routers/data.py — queries live next to the routes that use them
-import pixeltable as pxt
+from pixeltable.functions.huggingface import sentence_transformer
 from pixeltable.serving import FastAPIRouter
 import config
 
-router = FastAPIRouter(prefix="/api/data", tags=["data"])
-docs = pxt.get_table(f'{config.APP_NAMESPACE}/documents')
+TableModel = pxt.model_base()
+embed = sentence_transformer.using(model_id=config.EMBEDDING_MODEL)
 
-@pxt.query
-def list_documents():
-    return docs.select(docs.title, docs.document).order_by(docs.title)
 
-router.add_query_route(path="/documents", query=list_documents, method="get")
+class Documents(TableModel, name='documents'):
+    document: pxt.Document
+    metadata: pxt.Json
+    timestamp: pxt.Timestamp
+    __indexes__ = [
+        pxt.EmbeddingIndex(document, embedding=embed, name='docs_embed'),
+    ]
+
+
+api = FastAPIRouter(name='api', prefix='/api')
+api.add_insert_route(
+    Documents, path='/documents', inputs=[Documents.document, Documents.metadata]
+)
+```
+
+```bash
+pxt schema update app.py my_app
+pxt service update app.py my_app
+```
+
+To mount the same router on an existing FastAPI app:
+
+```python
+from fastapi import FastAPI
+from app import api
+
+app = FastAPI()
+app.include_router(api)
 ```
 
 ## Project Structure
@@ -60,13 +71,8 @@ router.add_query_route(path="/documents", query=list_documents, method="get")
 project/
 ├── config.py              # Environment variables, model IDs, API keys
 ├── functions.py           # Custom UDFs (imported as modules)
-├── schema.py              # Schema definition (tables, views, indexes)
-├── main.py                # FastAPI app, mounts routers
-├── routers/
-│   ├── data.py            # CRUD routes + queries for data pipeline
-│   ├── search.py          # Search routes + queries
-│   └── agent.py           # Agent routes (declarative + hand-written)
-├── app.py                 # Models and services, run by pxt service
+├── app.py                 # TableModel classes + FastAPIRouter; pxt schema / pxt service
+├── main.py                # Optional: FastAPI app that include_router()s app.py
 └── .env                   # Secrets (gitignored)
 ```
   </Tab>
@@ -108,67 +114,59 @@ async def call_custom_model(prompt: str) -> dict:
 ```
   </Tab>
 
-  <Tab title="schema.py">
+  <Tab title="app.py">
 ```python
+from __future__ import annotations
+
 import pixeltable as pxt
 from pixeltable.functions.huggingface import sentence_transformer
-import config
-
-pxt.create_dir(config.APP_NAMESPACE, if_exists='ignore')
-
-docs = pxt.create_table(
-    f'{config.APP_NAMESPACE}/documents',
-    {'document': pxt.Document, 'metadata': pxt.Json, 'timestamp': pxt.Timestamp},
-    if_exists='ignore',
-)
-
-docs.add_computed_column(
-    embedding=sentence_transformer(docs.document, model_id=config.EMBEDDING_MODEL),
-    if_exists='ignore',
-)
-
-docs.add_embedding_index('embedding', idx_name='docs_embed', metric='cosine', if_exists='ignore')
-```
-  </Tab>
-
-  <Tab title="routers/search.py">
-```python
-import pixeltable as pxt
 from pixeltable.serving import FastAPIRouter
 import config
 
-router = FastAPIRouter(prefix="/api/search", tags=["search"])
-docs = pxt.get_table(f'{config.APP_NAMESPACE}/documents')
+TableModel = pxt.model_base()
+embed = sentence_transformer.using(model_id=config.EMBEDDING_MODEL)
+
+
+class Documents(TableModel, name='documents'):
+    document: pxt.Document
+    metadata: pxt.Json
+    timestamp: pxt.Timestamp
+    __indexes__ = [
+        pxt.EmbeddingIndex(document, embedding=embed, name='docs_embed'),
+    ]
+
 
 @pxt.query
 def search_documents(query_text: str, limit: int = 5):
-    sim = docs.embedding.similarity(string=query_text)
+    docs = pxt.get_table(f'{config.APP_NAMESPACE}.documents')
+    sim = docs.document.similarity(string=query_text)
     return docs.order_by(sim, asc=False).limit(limit).select(docs.document, sim)
 
-router.add_query_route(path="/documents", query=search_documents)
+
+api = FastAPIRouter(name='api', prefix='/api')
+api.add_insert_route(Documents, path='/documents', inputs=[Documents.document, Documents.metadata])
+api.add_query_route(path='/search', query=search_documents)
 ```
   </Tab>
 
-  <Tab title="main.py">
+  <Tab title="main.py (Approach 2)">
 ```python
 from fastapi import FastAPI
-from routers import data, search
+from app import api
 
 app = FastAPI()
-app.include_router(data.router)
-app.include_router(search.router)
+app.include_router(api)
 ```
   </Tab>
 </Tabs>
 
 <Note>
 **Key Principles:**
-- **Schema separate from routers:** `schema.py` defines tables/views/indexes. Router files define `@pxt.query` functions next to the routes that use them. No cross-imports needed.
+- **One application file:** `app.py` declares tables and routes. `pxt schema update` creates tables; `pxt service update` / `run` serves them.
+- **Approach 2:** `include_router()` the same `FastAPIRouter` on an existing FastAPI app. Apply schema with `pxt schema update` first — not `python schema.py`.
 - **Module UDFs** (`functions.py`): Update when code changes; improve testability. [Learn more](/platform/udfs-in-pixeltable)
-- **Idempotency:** Use `if_exists='ignore'` to make `schema.py` safely re-runnable.
-- **Built-in HTTP serving:** For standard endpoints, consider [`pxt service`](/howto/deployment/serving) with an application file.
 - **`return_rows=True`:** Pass to `insert()`/`update()` to get computed column values back without a follow-up query. See [HTTP Serving](/howto/deployment/serving#reading-back-computed-columns-after-insert).
-- **Multi-worker deployments:** With `--workers N`, run `python schema.py` before `uvicorn` so schema creation happens once, not per worker (see [Starter Kit Dockerfile](https://github.com/pixeltable/pixeltable-starter-kit)).
+- **Multi-worker deployments:** Apply schema once (`pxt schema update app.py TARGET`) before starting workers. See [Starter Kit Dockerfile](https://github.com/pixeltable/pixeltable-starter-kit).
 </Note>
 
 <Card title="Pixeltable Starter Kit" icon="github" href="https://github.com/pixeltable/pixeltable-starter-kit">

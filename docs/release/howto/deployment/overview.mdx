@@ -43,8 +43,8 @@ You don't install, configure, or manage these — Pixeltable handles them native
 
 | Instead of … | With Pixeltable … |
 |---|---|
-| **PostgreSQL / MySQL** | `pxt.create_table()` — schema is Python, versioned automatically |
-| **Pinecone / Weaviate / Qdrant** | `add_embedding_index()` — one line, auto-maintained on insert/update/delete |
+| **PostgreSQL / MySQL** | `TableModel` in `app.py` — schema is Python, applied with `pxt schema update` |
+| **Pinecone / Weaviate / Qdrant** | `EmbeddingIndex` on the model — auto-maintained on insert/update/delete |
 | **S3 / boto3 / blob storage** | `pxt.Image` / `Video` / `Audio` / `Document` types with transparent caching; `destination='s3://…'` for cloud routing |
 | **Airflow / Prefect / Celery** | Computed columns trigger on insert — no orchestrator, no workers, no DAGs |
 | **LangChain / LlamaIndex** (RAG) | `@pxt.query` + `.similarity()` + computed column chaining |
@@ -156,7 +156,8 @@ flowchart TB
 
   <Accordion title="Architecture" icon="sitemap">
     - Run Pixeltable in an ephemeral container (Cloud Run Job, ECS Fargate, K8s Job, Lambda)
-    - Define tables, views, computed columns in `schema.py` (idempotent)
+    - Declare tables, views, computed columns as `TableModel` in `app.py`
+    - `pxt schema update app.py TARGET` applies them (idempotent)
     - Insert data from queue, RDBMS, or cloud storage
     - Computed columns process everything automatically (chunking, embeddings, LLM calls)
     - `export_sql` pushes structured results to your serving database
@@ -176,31 +177,43 @@ flowchart TB
 </AccordionGroup>
 
 ```python
-# schema.py: declarative schema (idempotent, safe to re-run)
+# app.py: declarative schema
+from __future__ import annotations
+
 import pixeltable as pxt
+import pixeltable.functions as pxtf
 from pixeltable.functions.huggingface import sentence_transformer
-from pixeltable.functions.string import string_splitter
 from pixeltable.functions.uuid import uuid7
 
-pxt.create_dir('pipeline', if_exists='ignore')
+TableModel = pxt.model_base()
 embed_fn = sentence_transformer.using(model_id='all-MiniLM-L6-v2')
 
-documents = pxt.create_table('pipeline.documents', {
-    'title': pxt.String,
-    'body': pxt.String,
-    'source_id': pxt.String,
-    'uuid': uuid7(),
-    'timestamp': pxt.Timestamp,
-}, primary_key=['uuid'], if_exists='ignore')
 
-sentences = pxt.create_view(
-    'pipeline.sentences', documents,
-    iterator=string_splitter(text=documents.body, separators='sentence'),
-    if_exists='ignore',
-)
-sentences.add_embedding_index(
-    'text', idx_name='sentences_embed', string_embed=embed_fn, if_exists='ignore'
-)
+class Documents(TableModel, name='documents'):
+    title: pxt.String
+    body: pxt.String
+    source_id: pxt.String
+    uuid = uuid7()
+    timestamp: pxt.Timestamp
+
+
+class Sentences(
+    TableModel,
+    name='sentences',
+    base=Documents,
+    iterator=pxtf.string.string_splitter(Documents.body, separators='sentence'),
+):
+    __indexes__ = [
+        pxt.EmbeddingIndex(
+            text,  # type: ignore[name-defined]  # iterator output
+            embedding=embed_fn,
+            name='sentences_embed',
+        )
+    ]
+```
+
+```bash
+pxt schema update app.py pipeline
 ```
 
 ```python
@@ -318,7 +331,7 @@ app.include_router(router)
 `FastAPIRouter` auto-generates request/response schemas from column types, handles file uploads via `uploadfile_inputs`, and supports `background=True` for long-running inserts. OpenAPI docs are available at `/docs`.
 
 <Tip>
-**When to keep hand-written endpoints:** Use `@router.post()` for multi-table operations, conditional logic, or custom response shapes. Since `FastAPIRouter` extends `APIRouter`, hand-written and declarative routes coexist on the same router. See the [migration guide](/migrate/from-hand-written-endpoints) for details.
+**When to keep hand-written endpoints:** Use `@router.post()` for multi-table operations, conditional logic, or custom response shapes. `FastAPIRouter` extends `APIRouter`, so hand-written and declarative routes coexist on the same router. See [HTTP serving](/howto/deployment/serving).
 </Tip>
 
 <Tip>
@@ -397,7 +410,6 @@ api.add_insert_route(Documents, path='/ingest', inputs=[Documents.title, Documen
 ```
 
 ```bash
-pxt init  # writes the project configuration, making this the project root
 pxt schema update app.py pipeline
 pxt service update app.py pipeline
 pxt service list  # pipeline/my-service  http://127.0.0.1:49213  pid 8123  app.py
@@ -441,7 +453,7 @@ The starter kit contains reference implementations for all three deployment patt
 
 <CardGroup cols={2}>
   <Card title="HTTP Serving" icon="globe" href="/howto/deployment/serving">
-    Expose tables and queries as HTTP endpoints with TOML or Python
+    Expose tables and queries as HTTP endpoints with `pxt service` or `FastAPIRouter`
   </Card>
   <Card title="Infrastructure Setup" icon="server" href="/howto/deployment/infrastructure">
     Code organization and storage architecture

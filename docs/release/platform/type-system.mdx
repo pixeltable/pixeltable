@@ -5,6 +5,10 @@ description: 'Understanding Pixeltable types for structured data, media, and ML 
 
 Pixeltable provides a rich type system designed for multimodal AI applications. Every column and expression has an associated type that determines what data it can hold and what operations are available.
 
+<Note>
+**App vs notebook.** An application's contract is a `TableModel` in `app.py`, applied with `pxt schema update`. Notebooks and tests use `pxt.create_table()`, `add_computed_column()`, and `add_embedding_index()`. The examples below lead with `TableModel`; the notebook form follows.
+</Note>
+
 ## Type overview
 
 | Pixeltable Type | Python Type | Description |
@@ -30,14 +34,30 @@ Pixeltable provides a rich type system designed for multimodal AI applications. 
 ## Basic types
 
 ```python
+from __future__ import annotations
+
 import pixeltable as pxt
 
+TableModel = pxt.model_base()
+
+
+class Example(TableModel, name='basic_types'):
+    text: pxt.String
+    count: pxt.Int
+    score: pxt.Float
+    active: pxt.Bool
+    created: pxt.Timestamp
+```
+
+In a notebook:
+
+```python
 table = pxt.create_table('example/basic_types', {
-    'text': pxt.String,        # Text data
-    'count': pxt.Int,          # Integer numbers
-    'score': pxt.Float,        # Decimal numbers
-    'active': pxt.Bool,        # Boolean values
-    'created': pxt.Timestamp   # Date/time values
+    'text': pxt.String,
+    'count': pxt.Int,
+    'score': pxt.Float,
+    'active': pxt.Bool,
+    'created': pxt.Timestamp
 })
 ```
 
@@ -79,11 +99,28 @@ See the [UUID cookbook](/howto/cookbooks/core/workflow-uuid-identity) for more e
 Pixeltable natively supports images, video, audio, and documents as first-class column types.
 
 ```python
+from __future__ import annotations
+
+import pixeltable as pxt
+
+TableModel = pxt.model_base()
+
+
+class Media(TableModel, name='media'):
+    image: pxt.Image
+    video: pxt.Video
+    audio: pxt.Audio
+    document: pxt.Document
+```
+
+In a notebook:
+
+```python
 media = pxt.create_table('example/media', {
-    'image': pxt.Image,      # Any image
-    'video': pxt.Video,      # Video reference
-    'audio': pxt.Audio,      # Audio file
-    'document': pxt.Document # PDF/text document
+    'image': pxt.Image,
+    'video': pxt.Video,
+    'audio': pxt.Audio,
+    'document': pxt.Document
 })
 ```
 
