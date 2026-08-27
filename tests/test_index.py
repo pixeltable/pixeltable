@@ -198,9 +198,7 @@ class TestIndex:
 
         t.drop_embedding_index(column='img')
 
-    def test_query(
-        self, db_root: DatabaseRoot, local_embed: pxt.Function, is_data_versioned: bool
-    ) -> None:
+    def test_query(self, db_root: DatabaseRoot, local_embed: pxt.Function, is_data_versioned: bool) -> None:
         # def test_query(self, uses_db: None, local_embed: pxt.Function) -> None:
         p = db_root.make_catalog_path
         queries = pxt.create_table(
@@ -289,11 +287,7 @@ class TestIndex:
         _ = list(t.select(img=t.img.localpath, matches=img_matches(t.img)).head(1))
 
     def test_similarity_errors(
-        self,
-        indexed_img_tbl: pxt.Table,
-        small_img_tbl: pxt.Table,
-        db_root: DatabaseRoot,
-        local_embed: pxt.Function,
+        self, indexed_img_tbl: pxt.Table, small_img_tbl: pxt.Table, db_root: DatabaseRoot, local_embed: pxt.Function
     ) -> None:
         p = db_root.make_catalog_path
         t = indexed_img_tbl
@@ -351,11 +345,7 @@ class TestIndex:
         assert 'does not have an image embedding' in str(exc_info.value).lower()
 
     def test_add_index_after_drop(
-        self,
-        small_img_tbl: pxt.Table,
-        db_root: DatabaseRoot,
-        local_embed: pxt.Function,
-        is_data_versioned: bool,
+        self, small_img_tbl: pxt.Table, db_root: DatabaseRoot, local_embed: pxt.Function, is_data_versioned: bool
     ) -> None:
         """Test that an index with the same name can be added after the previous one is dropped"""
         p = db_root.make_catalog_path
@@ -540,11 +530,7 @@ class TestIndex:
 
     @pytest.mark.db_roots('local', 'proxy', reason='Fails due to inaccessible .fileurl [PXT-1323]')
     def test_update_img(
-        self,
-        img_tbl: pxt.Table,
-        test_tbl: pxt.Table,
-        db_root: DatabaseRoot,
-        reload_tester: ReloadTester,
+        self, img_tbl: pxt.Table, test_tbl: pxt.Table, db_root: DatabaseRoot, reload_tester: ReloadTester
     ) -> None:
         p = db_root.make_catalog_path
         img_t = img_tbl
@@ -600,11 +586,7 @@ class TestIndex:
 
     @pytest.mark.db_roots('local', 'proxy', reason='Fails due to inaccessible .fileurl [PXT-1323]')
     def test_embedding_access(
-        self,
-        img_tbl: pxt.Table,
-        db_root: DatabaseRoot,
-        local_embed: pxt.Function,
-        is_data_versioned: bool,
+        self, img_tbl: pxt.Table, db_root: DatabaseRoot, local_embed: pxt.Function, is_data_versioned: bool
     ) -> None:
         p = db_root.make_catalog_path
         img_t = img_tbl
@@ -788,9 +770,7 @@ class TestIndex:
 
         _ = reload_tester.run_query(img_t.select())
 
-    def test_view_indices(
-        self, db_root: DatabaseRoot, local_embed: pxt.Function, reload_tester: ReloadTester
-    ) -> None:
+    def test_view_indices(self, db_root: DatabaseRoot, local_embed: pxt.Function, reload_tester: ReloadTester) -> None:
         p = db_root.make_catalog_path
         # Create a base table
         t = pxt.create_table(p('t1'), {'n': pxt.Int | None, 's': pxt.String | None})
@@ -992,7 +972,9 @@ class TestIndex:
         data = [random.uniform(0, sys.float_info.max) for _ in range(self.BTREE_TEST_NUM_ROWS)]
         self.run_btree_test(p, data, pxt.Float, is_data_versioned)
 
-    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to case-insensitive string comparison on cloud [PXT-1316]')
+    @pytest.mark.db_roots(
+        'local', 'proxy', reason='Fails due to case-insensitive string comparison on cloud [PXT-1316]'
+    )
     def test_string_btree(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
 
@@ -1058,9 +1040,7 @@ class TestIndex:
         ]
         self.run_btree_test(p, data, pxt.Date, is_data_versioned)
 
-    def test_add_btree_index(
-        self, db_root: DatabaseRoot, local_embed: pxt.Function, is_data_versioned: bool
-    ) -> None:
+    def test_add_btree_index(self, db_root: DatabaseRoot, local_embed: pxt.Function, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(
             p('add_index_test'),
@@ -1181,9 +1161,7 @@ class TestIndex:
         v.add_btree_index('segment_start')
         assert set(btree_idxs(v).values()) == {'segment_start'}
 
-    def test_default_idxs(
-        self, db_root: DatabaseRoot, local_embed: pxt.Function, is_data_versioned: bool
-    ) -> None:
+    def test_default_idxs(self, db_root: DatabaseRoot, local_embed: pxt.Function, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
 
         # a table created without default indexes doesn't index columns added later
@@ -1405,11 +1383,7 @@ class TestIndex:
 
     @pytest.mark.parametrize('index_type', ['btree', 'embedding'])
     def test_drop_index(
-        self,
-        index_type: str,
-        db_root: DatabaseRoot,
-        request: pytest.FixtureRequest,
-        is_data_versioned: bool,
+        self, index_type: str, db_root: DatabaseRoot, request: pytest.FixtureRequest, is_data_versioned: bool
     ) -> None:
         """Test that indices (B-tree and embedding) are properly dropped, observed through get_metadata(); the
         physical removal from the local Postgres store is additionally checked in local mode."""

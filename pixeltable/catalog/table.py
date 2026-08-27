@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import abc
-from typing import Sequence
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, overload
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, Sequence, overload
 
 import pandas as pd
 from typing_extensions import TypeForm

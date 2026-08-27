@@ -9,8 +9,8 @@ import pytest
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.functions.video import frame_iterator, legacy_frame_iterator
-from .test_iterator import simple_iterator
 
+from .test_iterator import simple_iterator
 from .utils import (
     DatabaseRoot,
     assert_resultset_eq,
@@ -268,7 +268,9 @@ class TestComponentView:
     def test_snapshot(self, has_column: bool, has_filter: bool, db_root: DatabaseRoot) -> None:
         for reload_md in [False, True]:
             reload_catalog()
-            self.run_snapshot_test(db_root.make_catalog_path, has_column=has_column, has_filter=has_filter, reload_md=reload_md)
+            self.run_snapshot_test(
+                db_root.make_catalog_path, has_column=has_column, has_filter=has_filter, reload_md=reload_md
+            )
 
     def run_snapshot_test(self, p: Callable[[str], str], has_column: bool, has_filter: bool, reload_md: bool) -> None:
         base_path = p('video_tbl')

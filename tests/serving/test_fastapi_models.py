@@ -13,7 +13,7 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import get_image_files, pxt_raises, skip_test_if_not_installed, DatabaseRoot
+from ..utils import DatabaseRoot, get_image_files, pxt_raises, skip_test_if_not_installed
 from .test_fastapi import add_one, make_test_client
 
 

@@ -15,9 +15,8 @@ import socket
 import subprocess
 import sys
 import time
-from typing import Callable, Iterator
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable, Iterator
 
 import pytest
 

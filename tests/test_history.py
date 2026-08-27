@@ -4,7 +4,8 @@ from typing import Any, Literal
 import pytest
 
 import pixeltable as pxt
-from .utils import assert_version_metadata_eq, pxt_raises, DatabaseRoot
+
+from .utils import DatabaseRoot, assert_version_metadata_eq, pxt_raises
 
 
 class TestHistory:
@@ -21,9 +22,7 @@ class TestHistory:
         print('============================================================')
 
     @pytest.mark.parametrize('variant', ['get_versions', 'history'])
-    def test_history(
-        self, variant: Literal['get_versions', 'history'], db_root: DatabaseRoot
-    ) -> None:
+    def test_history(self, variant: Literal['get_versions', 'history'], db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
 
         def fn(tbl: pxt.Table, n: int | None = None) -> Any:

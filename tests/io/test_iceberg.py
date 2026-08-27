@@ -11,12 +11,12 @@ from pixeltable.utils.fault_injection import FaultLocation
 
 from ..fault_injection import ExceptionFault
 from ..utils import (
+    DatabaseRoot,
     create_all_datatypes_tbl,
     iceberg_catalog,
     pxt_raises,
     skip_test_if_not_installed,
     validate_update_status,
-    DatabaseRoot
 )
 
 
@@ -85,9 +85,7 @@ class TestIceberg:
             assert isinstance(exp_row['c_image'], bytes)
             assert len(exp_row['c_image']) > 0
 
-    def test_export_fixed_shape_tensor_errors(
-        self, db_root: DatabaseRoot, tmp_path: pathlib.Path
-    ) -> None:
+    def test_export_fixed_shape_tensor_errors(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Fixed-shape array columns should raise; Iceberg has no analogous type."""
         skip_test_if_not_installed('pyiceberg')
         p = db_root.make_catalog_path
@@ -217,9 +215,7 @@ class TestIceberg:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='namespace-qualified'):
             pxt.io.export_iceberg(t, catalog, 'ns.')
 
-    def test_failure_handling(
-        self, db_root: DatabaseRoot, fault_injection: None, tmp_path: pathlib.Path
-    ) -> None:
+    def test_failure_handling(self, db_root: DatabaseRoot, fault_injection: None, tmp_path: pathlib.Path) -> None:
         """Inject faults at the instrumented points in export_iceberg() and verify that the existing
         table is left intact and no temp table is leaked."""
         skip_test_if_not_installed('pyiceberg')
@@ -269,9 +265,7 @@ class TestIceberg:
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='not compatible'):
             pxt.io.export_iceberg(t.select(t.c_int, t.c_string), catalog, 'pxt.mismatch', if_exists='append')
 
-    def test_export_json_invalid_rejected(
-        self, db_root: DatabaseRoot, tmp_path: pathlib.Path
-    ) -> None:
+    def test_export_json_invalid_rejected(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """JSON columns whose values cannot be reduced to a single arrow type must be rejected."""
         skip_test_if_not_installed('pyiceberg')
         p = db_root.make_catalog_path

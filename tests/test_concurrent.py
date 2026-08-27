@@ -8,7 +8,7 @@ import pytest
 
 import pixeltable as pxt
 
-from .utils import DummyIterator, validate_update_status, DatabaseRoot
+from .utils import DatabaseRoot, DummyIterator, validate_update_status
 
 
 @pxt.udf
@@ -57,9 +57,7 @@ class TestConcurrentOps:
         )
 
     @pytest.mark.parametrize('num_threads,rows_per_thread', [(4, 100)])
-    def test_concurrent_insert_and_select(
-        self, db_root: DatabaseRoot, num_threads: int, rows_per_thread: int
-    ) -> None:
+    def test_concurrent_insert_and_select(self, db_root: DatabaseRoot, num_threads: int, rows_per_thread: int) -> None:
         """Verify that concurrent inserts and selects from multiple threads work correctly."""
         p = db_root.make_catalog_path
         t = pxt.create_table(p('test_concurrent'), {'thread_id': pxt.Int, 'row_idx': pxt.Int, 'value': pxt.Int})

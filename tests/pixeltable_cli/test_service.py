@@ -1,15 +1,14 @@
 import pathlib
 import time
-from typing import Callable, Iterator
 from textwrap import dedent
-from typing import Any
+from typing import Any, Callable, Iterator
 
 import httpx
 import pytest
 
 import pixeltable as pxt
 
-from ..utils import get_audio_files, get_documents, get_video_files, skip_test_if_not_installed, DatabaseRoot
+from ..utils import DatabaseRoot, get_audio_files, get_documents, get_video_files, skip_test_if_not_installed
 from .conftest import BackgroundPxt, PxtRunner
 
 pytestmark = pytest.mark.db_roots('local', reason='a local service serves the in-process catalog')
@@ -157,9 +156,7 @@ class TestService:
         cli('service', 'stop', 'ingest')
         assert_not_serving(cli, 'ingest')
 
-    def test_iteration(
-        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
-    ) -> None:
+    def test_iteration(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """Editing the file: an added route is applied by restarting; a changed contract needs a flag."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
@@ -221,11 +218,7 @@ class TestService:
         assert_serving(cli, apps('basic.py'), target, 'ingest')
 
     def test_run_in_the_foreground(
-        self,
-        cli: PxtRunner,
-        cli_bg: Callable[..., BackgroundPxt],
-        apps: Callable[[str], str],
-        db_root: DatabaseRoot,
+        self, cli: PxtRunner, cli_bg: Callable[..., BackgroundPxt], apps: Callable[[str], str], db_root: DatabaseRoot
     ) -> None:
         """run serves from the calling process and records nothing; update is the background form."""
         skip_test_if_not_installed('fastapi')
@@ -249,9 +242,7 @@ class TestService:
         cli('service', 'update', app, target, '-f')
         assert_serving(cli, app, target, 'ingest')
 
-    def test_blocked_on_the_database(
-        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
-    ) -> None:
+    def test_blocked_on_the_database(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A service whose tables do not exist is blocked until the schema is applied."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
@@ -280,9 +271,7 @@ class TestService:
         cli('service', 'update', app, target, '-f')
         assert_serving(cli, app, target, 'ingest')
 
-    def test_inspection(
-        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
-    ) -> None:
+    def test_inspection(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """list inspects what a service serves, for every service or for one named by its address."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
@@ -387,9 +376,7 @@ class TestService:
         assert resp.status_code == 200, resp.text
         assert resp.json()['text'].strip() in sentences, resp.json()
 
-    def test_custom_app(
-        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
-    ) -> None:
+    def test_custom_app(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A file supplying its own application declares a service Pixeltable cannot compare or serve."""
         skip_test_if_not_installed('fastapi')
         app, target = apps('custom.py'), db_root.make_catalog_path('app')
@@ -416,9 +403,7 @@ class TestService:
         assert 'is an application object of its own' in r.stderr
         assert services(cli) == {}
 
-    def test_addressing(
-        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
-    ) -> None:
+    def test_addressing(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """One name at two targets: a bare name is ambiguous, an address is not."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
@@ -543,11 +528,7 @@ class TestService:
         assert (report['valid'], report['errors'], report['warnings']) == (True, [], []), report
 
     def test_errors(
-        self,
-        cli: PxtRunner,
-        apps: Callable[[str], str],
-        db_root: DatabaseRoot,
-        project_dir: pathlib.Path,
+        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot, project_dir: pathlib.Path
     ) -> None:
         """What the verbs do with a file that is missing, unimportable, or declares no service."""
         target = db_root.make_catalog_path('app')

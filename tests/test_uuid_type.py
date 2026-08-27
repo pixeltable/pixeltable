@@ -8,14 +8,13 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
+
 from .utils import DatabaseRoot, ReloadTester, pxt_raises, validate_update_status
 
 
 class TestUUIDType:
     @pytest.mark.parametrize('uuid_fn, uuid_version', [(pxtf.uuid.uuid4, 4), (pxtf.uuid.uuid7, 7)])
-    def test_uuid_function(
-        self, uuid_fn: pxt.Function, uuid_version: int, db_root: DatabaseRoot
-    ) -> None:
+    def test_uuid_function(self, uuid_fn: pxt.Function, uuid_version: int, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('test_uuid_tbl'), {'id': pxt.Int | None})
         validate_update_status(t.insert([{'id': 1}, {'id': 2}, {'id': 3}]), expected_rows=3)

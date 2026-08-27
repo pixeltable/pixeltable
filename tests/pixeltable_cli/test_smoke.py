@@ -18,8 +18,8 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable_cli.client.utils import display_path
-from ..utils import DatabaseRoot, get_image_files
 
+from ..utils import DatabaseRoot, get_image_files
 from .conftest import PxtRunner
 
 
@@ -189,9 +189,7 @@ class TestCwd:
         finally:
             cli('cd')  # never leak the working directory into other tests sharing this session
 
-    def test_listings_honor_wd(
-        self, cli: PxtRunner, db_root: DatabaseRoot
-    ) -> None:
+    def test_listings_honor_wd(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """'columns' and 'idxs' with no path cover the working directory, not the whole catalog."""
         p = db_root.make_catalog_path
         pxt.create_dir(p('cli_cwd_list'), if_exists='ignore')
@@ -323,9 +321,7 @@ class TestCwd:
             cli('cd')  # never leak the working directory into other tests sharing this session
 
     @pytest.mark.db_roots('local', reason='daemon session store; independent of the catalog backend')
-    def test_rejects_nonexistent_and_isolates_sessions(
-        self, db_root: DatabaseRoot, pxt_daemon: int
-    ) -> None:
+    def test_rejects_nonexistent_and_isolates_sessions(self, db_root: DatabaseRoot, pxt_daemon: int) -> None:
         p = db_root.make_catalog_path
         pxt.create_dir(p('cli_cwd_iso'), if_exists='ignore')
         base = f'http://127.0.0.1:{pxt_daemon}'
@@ -485,7 +481,9 @@ class TestHistory:
         assert 'version' in text
         assert 'change_type' in text
 
-    @pytest.mark.db_roots('local', reason='direct-HTTP test of the daemon route validator; fires before catalog resolution')
+    @pytest.mark.db_roots(
+        'local', reason='direct-HTTP test of the daemon route validator; fires before catalog resolution'
+    )
     def test_server_rejects_malformed_n(self, pxt_daemon: int) -> None:
         # A non-integer or out-of-range n must produce a structured 4xx, not bubble up as a
         # generic 500. The CLI client validates -n before sending, so this exercises the
@@ -690,7 +688,9 @@ class TestCount:
         assert r.returncode != 0
 
 
-@pytest.mark.db_roots('local', reason='reports daemon/host status (version, pid, home, dir sizes); not catalog-specific')
+@pytest.mark.db_roots(
+    'local', reason='reports daemon/host status (version, pid, home, dir sizes); not catalog-specific'
+)
 class TestStatus:
     def test_basics(self, cli: PxtRunner) -> None:
         # --json: paths are reported raw (no redaction)
@@ -1089,7 +1089,9 @@ class TestPathValidator:
             assert 'control characters' in json.loads(ei.value.read())['detail']
 
 
-@pytest.mark.db_roots('local', reason='client-side --cols token validator; fires before the request reaches the catalog')
+@pytest.mark.db_roots(
+    'local', reason='client-side --cols token validator; fires before the request reaches the catalog'
+)
 class TestColsValidator:
     """Client-side --cols validator (parser.parse_cols). Rejects every shape that would
     yield an empty token. Shared between `rows` and `get`."""

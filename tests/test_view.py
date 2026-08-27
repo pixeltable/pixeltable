@@ -321,9 +321,7 @@ class TestView:
         _ = reload_tester.run_query(v3.select().order_by(v3.c2))
         reload_tester.run_reload_test()
 
-    def test_add_column_to_view(
-        self, test_tbl: pxt.Table, db_root: DatabaseRoot, reload_tester: ReloadTester
-    ) -> None:
+    def test_add_column_to_view(self, test_tbl: pxt.Table, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
         """Test add_column* methods for views"""
         p = db_root.make_catalog_path
         t = test_tbl
@@ -1428,9 +1426,7 @@ class TestView:
         v2.update({'v2': 102})
 
     @pytest.mark.parametrize('with_computed_col', [False, True], ids=['plain', 'computed'])
-    def test_update_changes_view_membership(
-        self, with_computed_col: bool, db_root: DatabaseRoot
-    ) -> None:
+    def test_update_changes_view_membership(self, with_computed_col: bool, db_root: DatabaseRoot) -> None:
         """A base update that changes whether a row satisfies a view's filter adds it to / removes it from the view."""
         p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl'), {'n': pxt.Int | None})
@@ -1587,9 +1583,7 @@ class TestView:
             pxt.create_view(p('tbl_view_invalid'), t, custom_metadata={'key': set})
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_view_column_custom_metadata(
-        self, db_root: DatabaseRoot, do_reload_catalog: bool
-    ) -> None:
+    def test_view_column_custom_metadata(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
         p = db_root.make_catalog_path
         custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
         t = pxt.create_table(p('tbl'), {'c': pxt.Int | None})

@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import json
-from typing import Callable
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 import pgvector.sqlalchemy
 import sqlalchemy as sql

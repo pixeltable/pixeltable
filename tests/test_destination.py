@@ -217,9 +217,7 @@ class TestDestination:
             ObjectPath.parse_object_storage_addr('pxtfs://org:db/homebucket', allow_obj_name=False)
 
     @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS.values())
-    def test_destination(
-        self, db_root: DatabaseRoot, dest_id: StorageTarget
-    ) -> None:
+    def test_destination(self, db_root: DatabaseRoot, dest_id: StorageTarget) -> None:
         """Test various media destinations."""
         if db_root.id != 'local' and dest_id == StorageTarget.LOCAL_STORE:
             pytest.skip(
@@ -298,9 +296,7 @@ class TestDestination:
         assert ObjectOps.count(save_id, dest=dest2_uri) == 0
 
     @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS.values())
-    def test_dest_two_copies(
-        self, db_root: DatabaseRoot, dest_id: StorageTarget
-    ) -> None:
+    def test_dest_two_copies(self, db_root: DatabaseRoot, dest_id: StorageTarget) -> None:
         """Test destination with two Stores receiving copies of the same computed image"""
         if db_root.id != 'local' and dest_id == StorageTarget.LOCAL_STORE:
             pytest.skip(

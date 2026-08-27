@@ -9,7 +9,7 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.catalog.model import Column, EmbeddingIndex
 
-from .utils import assert_resultset_eq, capture_console_output, dummy_embedding, schema_from_tbl_md, DatabaseRoot
+from .utils import DatabaseRoot, assert_resultset_eq, capture_console_output, dummy_embedding, schema_from_tbl_md
 
 # Separate model tests, in a different file from test_table_model.py that is declared without
 # `from __future__ import annotations`

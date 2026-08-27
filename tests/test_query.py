@@ -68,9 +68,7 @@ class TestQuery:
 
         return t1, t2, t3
 
-    def test_select_where(
-        self, test_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool
-    ) -> None:
+    def test_select_where(self, test_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
         t = test_tbl
         res1 = t.collect()
@@ -527,9 +525,7 @@ class TestQuery:
         assert rows == []
         assert list(cur.schema.keys()) == ['c1', 'c2']
 
-    def test_head_tail(
-        self, test_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool
-    ) -> None:
+    def test_head_tail(self, test_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
         t = test_tbl
         res = t.head(10).to_pandas()
@@ -1269,9 +1265,7 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='dropped'):
             q.collect()
 
-    def test_query_after_column_drop_and_add(
-        self, db_root: DatabaseRoot, is_data_versioned: bool
-    ) -> None:
+    def test_query_after_column_drop_and_add(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('t_readd'), {'a': pxt.Int, 'keep': pxt.Int}, _is_data_versioned=is_data_versioned)
         validate_update_status(t.insert([{'a': 1, 'keep': 0}]), expected_rows=1)
@@ -1306,9 +1300,7 @@ class TestQuery:
         assert len(res) == 1
         assert res[0] == {'c1': 2}
 
-    def test_order_by_after_schema_change(
-        self, db_root: DatabaseRoot, is_data_versioned: bool
-    ) -> None:
+    def test_order_by_after_schema_change(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
         # Confirm where/order_by/limit clauses don't capture stale select-list state.
         t = pxt.create_table(

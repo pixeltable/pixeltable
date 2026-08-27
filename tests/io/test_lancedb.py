@@ -9,7 +9,7 @@ import PIL.Image
 
 import pixeltable as pxt
 
-from ..utils import pxt_raises, skip_test_if_not_installed, DatabaseRoot
+from ..utils import DatabaseRoot, pxt_raises, skip_test_if_not_installed
 
 
 @pxt.udf

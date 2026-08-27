@@ -234,9 +234,7 @@ class TestSnapshot:
         assert s1._id == id_before['test_snap_t']
         assert s2._id == id_before['test_snap_v']
 
-    def test_errors(
-        self, test_tbl: pxt.Table, local_embed: pxt.Function, db_root: DatabaseRoot
-    ) -> None:
+    def test_errors(self, test_tbl: pxt.Table, local_embed: pxt.Function, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         tbl = test_tbl
         snap_name = p('snap')
@@ -454,9 +452,7 @@ class TestSnapshot:
         s1, s2, s3, s4 = pxt.get_table(p('s1')), pxt.get_table(p('s2')), pxt.get_table(p('s3')), pxt.get_table(p('s4'))
         validate(t, v, s1, s2, s3, s4)
 
-    def test_drop_column_in_view_predicate(
-        self, db_root: DatabaseRoot, reload_tester: ReloadTester
-    ) -> None:
+    def test_drop_column_in_view_predicate(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl'), {'c1': pxt.Int | None, 'c2': pxt.Int | None})
         _ = pxt.create_snapshot(p('base_snap'), t, additional_columns={'s1': pxt.Int | None})
@@ -582,9 +578,7 @@ class TestSnapshot:
             )
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_snapshot_column_custom_metadata(
-        self, db_root: DatabaseRoot, do_reload_catalog: bool
-    ) -> None:
+    def test_snapshot_column_custom_metadata(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
         p = db_root.make_catalog_path
         custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
         t = pxt.create_table(p('tbl'), {'c': pxt.Int | None})

@@ -1,5 +1,5 @@
-from typing import Iterator
 from pathlib import Path
+from typing import Iterator
 
 import PIL.Image
 import pytest

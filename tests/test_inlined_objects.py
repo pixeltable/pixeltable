@@ -201,9 +201,7 @@ class TestInlinedObjects:
             assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
     @pytest.mark.db_roots('local', 'proxy', reason='Fails, possibly due to bytes/ndarray being inlined [PXT-1318]')
-    def test_nonstandard_json_construction(
-        self, db_root: DatabaseRoot
-    ) -> None:
+    def test_nonstandard_json_construction(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         skip_test_if_not_installed('imagehash')
         reload_tester = ReloadTester()

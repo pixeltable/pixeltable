@@ -9,12 +9,12 @@ from pixeltable.config import Config
 
 from ..utils import (
     ALL_DATATYPES_SCHEMA,
+    DatabaseRoot,
     create_all_datatypes_tbl,
     get_image_files,
     rerun_on_network_error,
     skip_test_if_not_installed,
     validate_update_status,
-    DatabaseRoot,
 )
 
 
@@ -58,9 +58,7 @@ class TestJson:
             for col_name in media_cols:
                 assert exp_row[col_name] == url_row[f'{col_name}_fileurl']
 
-    def test_export_non_serializable_json_errors(
-        self, db_root: DatabaseRoot, tmp_path: pathlib.Path
-    ) -> None:
+    def test_export_non_serializable_json_errors(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Exporting a JSON column with non-serializable values should raise an error."""
         p = db_root.make_catalog_path
         t = create_all_datatypes_tbl(name=p('all_datatype_tbl'), non_serializable_json=True)
@@ -199,9 +197,7 @@ class TestJson:
         for col, expected_url in urls.items():
             assert exported[0][col] == expected_url, f'{col}: expected {expected_url}, got {exported[0][col]}'
 
-    def test_export_unstored_media_expression_errors(
-        self, db_root: DatabaseRoot, tmp_path: pathlib.Path
-    ) -> None:
+    def test_export_unstored_media_expression_errors(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Exporting a media-typed expression that is not backed by a stored column should raise an error."""
         p = db_root.make_catalog_path
         t = pxt.create_table(p('test_json_transform'), {'img': pxt.Image | None})

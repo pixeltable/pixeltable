@@ -117,9 +117,7 @@ class TestImport:
         assert tab.count() == 4
         assert tab._get_schema() == EXPECTED_SCHEMA
 
-    def test_insert_json(
-        self, db_root: DatabaseRoot, sample_file_server: SampleFileServer
-    ) -> None:
+    def test_insert_json(self, db_root: DatabaseRoot, sample_file_server: SampleFileServer) -> None:
         p = db_root.make_catalog_path
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
         jeopardy = sample_file_server.url('tests/data/json/jeopardy.json', db_root.id)

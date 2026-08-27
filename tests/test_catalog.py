@@ -8,9 +8,10 @@ import pixeltable.exceptions as excs
 from pixeltable.env import Env, store_app_name
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.fault_injection import FaultLocation
+
 from .coordinator import MultiThreadedScenario
 from .fault_injection import BlockFault, ExceptionFault
-from .utils import pxt_raises, DatabaseRoot
+from .utils import DatabaseRoot, pxt_raises
 
 
 class TestCatalog:

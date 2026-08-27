@@ -2,8 +2,8 @@
 
 import pathlib
 import re
-from typing import Callable
 from textwrap import dedent
+from typing import Callable
 
 import pytest
 
@@ -63,11 +63,7 @@ def assert_in_agreement(cli: PxtRunner, app: str, target: str, cwd: pathlib.Path
 
 class TestSchema:
     def test_basic(
-        self,
-        cli: PxtRunner,
-        apps: Callable[[str], str],
-        db_root: DatabaseRoot,
-        project_dir: pathlib.Path,
+        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot, project_dir: pathlib.Path
     ) -> None:
         """The first application of a file: create, use what it created, rerun, and hit a conflict."""
         p = db_root.make_catalog_path
@@ -132,9 +128,7 @@ class TestSchema:
         assert 'update_all()' not in r.stderr
         assert 'pxt.move()' not in r.stderr
 
-    def test_in_place_edit(
-        self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
-    ) -> None:
+    def test_in_place_edit(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """A second update of a path the daemon already served reads the file as it now stands."""
         p = db_root.make_catalog_path
         target = p('reload')
@@ -174,9 +168,7 @@ class TestSchema:
         assert docs.select(docs.shouted).collect()['shouted'] == ['hello world!']
         assert_in_agreement(cli, str(schema_file), target)
 
-    def test_evolution(
-        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
-    ) -> None:
+    def test_evolution(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """Editing the file under data: an added column is applied as it stands, a dropped one is refused."""
         p = db_root.make_catalog_path
         target = p('evolve')
@@ -280,9 +272,7 @@ class TestSchema:
         assert f'= {target}/docs' in r.stdout
         assert 'Plan: 0 create, 0 update, 2 unchanged, 0 extra  |  0 destructive' in r.stdout
 
-    def test_diff_drift(
-        self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
-    ) -> None:
+    def test_diff_drift(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         p = db_root.make_catalog_path
         schema_file = project_dir / 'app_schema.py'
         schema_file.write_text(SCHEMA_SRC)
@@ -309,9 +299,7 @@ class TestSchema:
         assert "column 'author' will be added  safe" in r.stdout
         assert "column 'body' will be dropped  DESTRUCTIVE" in r.stdout
 
-    def test_iterator_view_and_indexes(
-        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
-    ) -> None:
+    def test_iterator_view_and_indexes(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A schema that declares an iterator view and indexes over what the iterator produces."""
         skip_test_if_not_installed('spacy')  # the view's iterator splits on sentences
         target = db_root.make_catalog_path('app')
@@ -335,9 +323,7 @@ class TestSchema:
 
         assert_in_agreement(cli, apps('search.py'), target)
 
-    def test_query_udf_column(
-        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
-    ) -> None:
+    def test_query_udf_column(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A column that calls a query udf reads that udf's table."""
         target = db_root.make_catalog_path('retrieval')
         cli('schema', 'update', apps('retrieval.py'), target)
@@ -351,9 +337,7 @@ class TestSchema:
         ]
         assert_in_agreement(cli, apps('retrieval.py'), target)
 
-    def test_media_columns(
-        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
-    ) -> None:
+    def test_media_columns(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A schema with media columns and a view over an iterator that extracts frames from them."""
         target = db_root.make_catalog_path('app')
         cli('schema', 'update', apps('media.py'), target)
@@ -379,9 +363,7 @@ class TestSchema:
 
         assert_in_agreement(cli, apps('media.py'), target)
 
-    def test_routes_are_not_schema(
-        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
-    ) -> None:
+    def test_routes_are_not_schema(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """An application file's routes are invisible to the schema: only its models declare tables."""
         target = db_root.make_catalog_path('app')
         cli('schema', 'update', apps('basic.py'), target)
@@ -392,9 +374,7 @@ class TestSchema:
         # the variant adds a route and nothing else, so the schema is already in agreement with it
         assert_in_agreement(cli, apps('basic_added_route.py'), target)
 
-    def test_extras_and_prune(
-        self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
-    ) -> None:
+    def test_extras_and_prune(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """A table the file does not declare: reported as an extra, left alone by update, dropped by prune."""
         p = db_root.make_catalog_path
         schema_file = project_dir / 'app_schema.py'
@@ -522,7 +502,9 @@ class TestSchema:
         assert pxt.get_table(f'{target}/raw') is not None
         assert f'{target}/gone' not in pxt.list_tables(target)
 
-    @pytest.mark.db_roots('local', 'proxy', reason='Fails with an SSL error, possibly due to excessive data transfer [PXT-1327]')
+    @pytest.mark.db_roots(
+        'local', 'proxy', reason='Fails with an SSL error, possibly due to excessive data transfer [PXT-1327]'
+    )
     def test_example(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         skip_test_if_not_installed('sentence_transformers')
         p = db_root.make_catalog_path
@@ -584,9 +566,7 @@ class TestSchema:
         for verb in ('diff', 'update', 'prune', 'example'):
             assert "'pxt schema example'" in cli('schema', verb, '--help').stdout
 
-    def test_diff_unsupported(
-        self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
-    ) -> None:
+    def test_diff_unsupported(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         p = db_root.make_catalog_path
         schema_file = project_dir / 'app_schema.py'
         schema_file.write_text(SCHEMA_SRC)
@@ -622,12 +602,7 @@ class TestSchema:
         ]
         assert r.json['summary']['unsupported'] == 1
 
-    def test_udfs_in_application_files(
-        self,
-        cli: PxtRunner,
-        db_root: DatabaseRoot,
-        project_dir: pathlib.Path,
-    ) -> None:
+    def test_udfs_in_application_files(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """Computed columns over udfs that an application's own package and its neighbors define."""
         if db_root.id == 'cloud':
             pytest.skip('the runtime of a hosted database does not hold this project')
@@ -771,13 +746,11 @@ class TestSchema:
         assert len(report['warnings']) == 1, report
         assert "an import of 'psutil' reads" in report['warnings'][0]
 
-    @pytest.mark.db_roots('local', reason='the column is resolved in this process, so the report of a missing file lands here')
+    @pytest.mark.db_roots(
+        'local', reason='the column is resolved in this process, so the report of a missing file lands here'
+    )
     def test_update_errors(
-        self,
-        cli: PxtRunner,
-        apps: Callable[[str], str],
-        db_root: DatabaseRoot,
-        project_dir: pathlib.Path,
+        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot, project_dir: pathlib.Path
     ) -> None:
         p = db_root.make_catalog_path
         schema_file = project_dir / 'app_schema.py'
@@ -819,9 +792,7 @@ class TestSchema:
         assert r.returncode == 1
         assert 'attempted relative import' in r.stderr
 
-    def test_update_relative_path(
-        self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
-    ) -> None:
+    def test_update_relative_path(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         p = db_root.make_catalog_path
         (project_dir / 'app_schema.py').write_text(SCHEMA_SRC)
         target = p('rel_app')
@@ -831,9 +802,7 @@ class TestSchema:
         assert r.stdout.count('created') == 2
         validate_tables(target)
 
-    def test_update_unbound_config_var(
-        self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
-    ) -> None:
+    def test_update_unbound_config_var(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """A schema referencing a value the target has not bound fails before any table is created."""
         p = db_root.make_catalog_path
         schema_file = project_dir / 'app_schema.py'

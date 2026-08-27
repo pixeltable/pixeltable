@@ -201,15 +201,13 @@ class TestSql:
         export_sql(t.where(t.c_int < 5), 'fresh_table', db_connect_str=connect, if_not_exists='create')
         assert self._row_count(engine, 'fresh_table') == 5
 
-    def test_export_sqlite(
-        self, db_root: DatabaseRoot, tmp_path: pathlib.Path
-    ) -> None:
+    def test_export_sqlite(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         self._run_export_suite(self._sqlite_spec(), tmp_path, db_root.make_catalog_path, db_root.id)
 
-    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]')
-    def test_export_postgresql(
-        self, db_root: DatabaseRoot, tmp_path: pathlib.Path
-    ) -> None:
+    @pytest.mark.db_roots(
+        'local', 'proxy', reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]'
+    )
+    def test_export_postgresql(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         self._run_export_suite(self._postgresql_spec(), tmp_path, db_root.make_catalog_path, db_root.id)
 
     def test_errors(self, db_root: DatabaseRoot) -> None:
@@ -250,10 +248,10 @@ class TestSql:
             export_sql(t_img2, 'img_target', db_connect_str=connection_string, if_exists='insert')
 
     @pytest.mark.parametrize('dbms', _IMPORT_DBMS)
-    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]')
-    def test_import_full_table(
-        self, db_root: DatabaseRoot, tmp_path: pathlib.Path, dbms: str
-    ) -> None:
+    @pytest.mark.db_roots(
+        'local', 'proxy', reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]'
+    )
+    def test_import_full_table(self, db_root: DatabaseRoot, tmp_path: pathlib.Path, dbms: str) -> None:
         """End-to-end import of a full SA Table: type inference for all common SA types, nullable vs non-nullable
         propagation, NULL-to-None value roundtrip, exact value preservation, and the single-version-bump claim
         across batch boundaries (rows > the insert batch size so streaming actually engages)."""
@@ -334,9 +332,7 @@ class TestSql:
         assert list(result) == seed_rows
 
     @pytest.mark.parametrize('dbms', _IMPORT_DBMS)
-    def test_import_select_and_filter(
-        self, db_root: DatabaseRoot, tmp_path: pathlib.Path, dbms: str
-    ) -> None:
+    def test_import_select_and_filter(self, db_root: DatabaseRoot, tmp_path: pathlib.Path, dbms: str) -> None:
         """Import via `sa.select(...)` rather than a bare Table: column projection (subset), row filter via
         `.where(...)`, labeled expressions, accepting an `sa.Connection` (not just an Engine), and the 0-row
         edge case (impossible filter -> empty destination, schema still created)."""
@@ -381,9 +377,7 @@ class TestSql:
         assert empty_tbl.count() == 0
 
     @pytest.mark.parametrize('dbms', _IMPORT_DBMS)
-    def test_import_text_columns(
-        self, db_root: DatabaseRoot, tmp_path: pathlib.Path, dbms: str
-    ) -> None:
+    def test_import_text_columns(self, db_root: DatabaseRoot, tmp_path: pathlib.Path, dbms: str) -> None:
         """Import via `sql.text(...).columns(...)`: raw SQL whose output columns are typed by the user. Type
         inference and nullability propagation must come from the `.columns(...)` declaration, not from the
         source table."""
@@ -440,9 +434,10 @@ class TestSql:
         assert [(r['c_int'], r['c_str']) for r in result] == [(r['c_int'], r['c_str']) for r in rows]
 
     @pytest.mark.parametrize('dbms', _IMPORT_DBMS)
-    @pytest.mark.db_roots('local', reason=
-        'SQL media columns referencing local file paths are a local-only scenario; a hosted '
-        "daemon cannot read the client's local files"
+    @pytest.mark.db_roots(
+        'local',
+        reason='SQL media columns referencing local file paths are a local-only scenario; a hosted '
+        "daemon cannot read the client's local files",
     )
     def test_media_via_overrides(self, uses_db: None, tmp_path: pathlib.Path, dbms: str) -> None:
         """`schema_overrides` promotes plain String path columns into Pixeltable media types (Image, Video,
@@ -695,9 +690,7 @@ class TestSql:
         assert result['c_int'] == sorted(values)
         assert result['c_checked'] == [None if v < 0 else False for v in sorted(values)]
 
-    def test_import_null_into_non_nullable(
-        self, db_root: DatabaseRoot, tmp_path: pathlib.Path
-    ) -> None:
+    def test_import_null_into_non_nullable(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """A source NULL mapped to a non-nullable destination column aborts the import, like the in-memory insert
         path, rather than being silently stored; this holds regardless of `on_error`."""
         p = db_root.make_catalog_path
@@ -714,9 +707,10 @@ class TestSql:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='non-None'):
             import_sql(src, engine, p('null_dest'), schema_overrides=overrides, on_error='ignore')
 
-    @pytest.mark.db_roots('local', reason=
-        'seeds a local-file image into the SQL source, which is a local-only scenario (a hosted '
-        "daemon cannot read the client's local files)"
+    @pytest.mark.db_roots(
+        'local',
+        reason='seeds a local-file image into the SQL source, which is a local-only scenario (a hosted '
+        "daemon cannot read the client's local files)",
     )
     def test_import_abort_and_view_errors(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """A row error under the default `on_error='abort'` aborts a new-table import and drops the freshly

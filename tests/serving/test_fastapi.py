@@ -281,10 +281,7 @@ def assert_sqlite_row(connect: str, table_name: str, where: dict[str, Any], expe
 class TestFastAPI:
     @pytest.mark.parametrize('route_type', ['insert', 'compute', 'compute_view'])
     def test_add_insert_route_scalars(
-        self,
-        db_root: DatabaseRoot,
-        tmp_path: pathlib.Path,
-        route_type: Literal['insert', 'compute', 'compute_view'],
+        self, db_root: DatabaseRoot, tmp_path: pathlib.Path, route_type: Literal['insert', 'compute', 'compute_view']
     ) -> None:
         """Test insert routes with all scalar types and various input/output combinations."""
         p = db_root.make_catalog_path
@@ -502,10 +499,7 @@ class TestFastAPI:
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     @pytest.mark.parametrize('use_uploadfile', [True, False])
     def test_add_insert_route_video(
-        self,
-        db_root: DatabaseRoot,
-        use_uploadfile: bool,
-        route_type: Literal['insert', 'compute'],
+        self, db_root: DatabaseRoot, use_uploadfile: bool, route_type: Literal['insert', 'compute']
     ) -> None:
         """Test insert/compute routes with video data, including FileResponse and media serving."""
         skip_test_if_not_installed('fastapi')
@@ -771,10 +765,7 @@ class TestFastAPI:
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
     @pytest.mark.parametrize('use_uploadfile', [True, False])
     def test_add_insert_route_audio(
-        self,
-        db_root: DatabaseRoot,
-        use_uploadfile: bool,
-        route_type: Literal['insert', 'compute'],
+        self, db_root: DatabaseRoot, use_uploadfile: bool, route_type: Literal['insert', 'compute']
     ) -> None:
         """Audio counterpart of test_add_insert_route_video/_image. Structurally parallel so the
         three tests can later be generalized over a media-kind fixture. Uses the audio UDFs
@@ -995,7 +986,9 @@ class TestFastAPI:
         # (export_sql writes the response body, so this assertion holds for both insert and compute)
         assert_sqlite_row(db_connect, 'bg_resize', {'resized': result['resized']}, {'resized': result['resized']})
 
-    @pytest.mark.db_roots('local', reason='a background job computes in the router process only for an in-process catalog')
+    @pytest.mark.db_roots(
+        'local', reason='a background job computes in the router process only for an in-process catalog'
+    )
     @pytest.mark.parametrize('busy_at_shutdown', [False, True])
     def test_background_job_teardown(self, uses_db: None, busy_at_shutdown: bool) -> None:
         """A background job runs on a worker thread with an event loop of its own, which app shutdown closes."""
@@ -2153,9 +2146,7 @@ class TestFastAPI:
             def _bad(*, id: int) -> BadResponse:
                 return BadResponse(x=id)
 
-    def test_update_route_type_validation(
-        self, db_root: DatabaseRoot, tmp_path: pathlib.Path
-    ) -> None:
+    def test_update_route_type_validation(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Update-route parameter annotations are validated against column types (strict nullability)."""
         p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
@@ -2346,9 +2337,7 @@ class TestFastAPI:
             del sys.modules['_test_unresolvable_ann_mod']
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
-    def test_insert_route_image(
-        self, db_root: DatabaseRoot, route_type: Literal['insert', 'compute']
-    ) -> None:
+    def test_insert_route_image(self, db_root: DatabaseRoot, route_type: Literal['insert', 'compute']) -> None:
         """Media columns surface as /media/ URLs in the decorated fn's kwargs."""
         p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
@@ -2430,9 +2419,7 @@ class TestFastAPI:
         assert '/media/' in resp.json()['thumb_url']
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
-    def test_insert_route_background(
-        self, db_root: DatabaseRoot, route_type: Literal['insert', 'compute']
-    ) -> None:
+    def test_insert_route_background(self, db_root: DatabaseRoot, route_type: Literal['insert', 'compute']) -> None:
         """Background variant: 202-like response with job_url; poll for the decorated fn's result."""
         p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
@@ -2465,9 +2452,7 @@ class TestFastAPI:
         assert result == {'doubled': 14}
 
     @pytest.mark.parametrize('route_type', ['insert', 'compute'])
-    def test_insert_route_errors(
-        self, db_root: DatabaseRoot, route_type: Literal['insert', 'compute']
-    ) -> None:
+    def test_insert_route_errors(self, db_root: DatabaseRoot, route_type: Literal['insert', 'compute']) -> None:
         p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import pydantic

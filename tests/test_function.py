@@ -19,8 +19,8 @@ from pixeltable import env, func
 from pixeltable.func import Batch, Function, FunctionRegistry
 
 from .utils import (
-    ReloadTester,
     DatabaseRoot,
+    ReloadTester,
     assert_resultset_eq,
     assert_type_eq,
     get_image_files,
@@ -203,9 +203,7 @@ class TestFunction:
             t.add_computed_column(bad=pickled_q(t.c1))
 
     @pytest.mark.db_roots('local', reason='inline __main__ UDF resolves only in the defining process')
-    def test_inline_notebook_udf(
-        self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_inline_notebook_udf(self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch) -> None:
         # a udf defined at the top level of module __main__, as in a notebook cell or a script
         def word_count(s: str) -> int:
             return len(s.split())
@@ -932,7 +930,9 @@ class TestFunction:
     def crt_test_udf(a: int, b: int, c: int = 5) -> pxt.Array[pxt.Int]:
         return np.ones((b, c)) * a
 
-    @pytest.mark.db_roots('local', reason='exercises a UDF conditional_return_type defined as a client-process-local class attribute')
+    @pytest.mark.db_roots(
+        'local', reason='exercises a UDF conditional_return_type defined as a client-process-local class attribute'
+    )
     def test_conditional_return_type(self, uses_db: None) -> None:
         f = self.crt_test_udf
 
@@ -1351,7 +1351,9 @@ class TestFunction:
 
         reload_catalog()
 
-    @pytest.mark.db_roots('local', reason='swaps UDF code in the client process across catalog reloads; not visible to the daemon')
+    @pytest.mark.db_roots(
+        'local', reason='swaps UDF code in the client process across catalog reloads; not visible to the daemon'
+    )
     @pytest.mark.parametrize('as_kwarg', [False, True])
     def test_udf_evolution(self, as_kwarg: bool, uses_db: None) -> None:
         """
@@ -1597,7 +1599,9 @@ class TestFunction:
         # mimic(udf_version_7)
         # reload_and_validate_table(validation_error=return_type_error.format(return_type='Array | None'))
 
-    @pytest.mark.db_roots('local', reason='patches a client-process-local UDF to raise on catalog load; not visible to the daemon')
+    @pytest.mark.db_roots(
+        'local', reason='patches a client-process-local UDF to raise on catalog load; not visible to the daemon'
+    )
     def test_udf_import_error(self, uses_db: None) -> None:
         """
         Tests that the Pixeltable catalog loads successfully when a function's conditional_return_type() method

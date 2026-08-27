@@ -10,7 +10,8 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import exprs, func, type_system as ts
 from pixeltable.iterators.base import ComponentIterator
-from .utils import pxt_raises, reload_catalog, DatabaseRoot
+
+from .utils import DatabaseRoot, pxt_raises, reload_catalog
 
 
 class MyRow(TypedDict):
@@ -446,8 +447,9 @@ class TestIterator:
 
     # test_evolving_iterator stays local-only: it monkey-patches the module-global `evolving_iterator` in this
     # process, which the proxy daemon (a separate process resolving its own module state) would never observe.
-    @pytest.mark.db_roots('local', reason=
-        'monkey-patches the module-global evolving_iterator in this process, which the daemon would never observe'
+    @pytest.mark.db_roots(
+        'local',
+        reason='monkey-patches the module-global evolving_iterator in this process, which the daemon would never observe',
     )
     @pytest.mark.parametrize('as_kwarg', [False, True])
     def test_evolving_iterator(self, as_kwarg: bool, uses_db: None) -> None:

@@ -50,7 +50,9 @@ def validate_parquet_files(path: pathlib.Path, rows: list[dict]) -> None:
 
 
 class TestParquet:
-    @pytest.mark.db_roots('local', reason='uses import_pandas; an in-memory DataFrame source is not yet supported over the proxy')
+    @pytest.mark.db_roots(
+        'local', reason='uses import_pandas; an in-memory DataFrame source is not yet supported over the proxy'
+    )
     def test_import_parquet_examples(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
 
@@ -136,7 +138,9 @@ class TestParquet:
         assert r1['bigint_col'] == 10 and r1['double_col'] == 10.1
         assert abs(r1['float_col'] - 1.1) < 1e-5  # float32 precision
 
-    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]')
+    @pytest.mark.db_roots(
+        'local', 'proxy', reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]'
+    )
     def test_import_parquet(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         p = db_root.make_catalog_path
         skip_test_if_not_installed('pyarrow')
@@ -206,9 +210,7 @@ class TestParquet:
         tab.insert(str(parquet_dir), source_format='parquet')
         assert tab.count() == len1 * 2
 
-    def test_insert_empty_dir(
-        self, db_root: DatabaseRoot, tmp_path: pathlib.Path
-    ) -> None:
+    def test_insert_empty_dir(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         if db_root.id != 'proxy':
             pytest.skip('rejecting an empty directory is specific to the hosted insert path')
         p = db_root.make_catalog_path
@@ -218,8 +220,9 @@ class TestParquet:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='empty directory'):
             tab.insert(str(empty_dir), source_format='parquet')
 
-    @pytest.mark.db_roots('local', reason=
-        'export is read-side (collect then write a local parquet); dual-mode conversion is a separate follow-up'
+    @pytest.mark.db_roots(
+        'local',
+        reason='export is read-side (collect then write a local parquet); dual-mode conversion is a separate follow-up',
     )
     def test_export_parquet_simple(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         p = db_root.make_catalog_path
@@ -307,8 +310,9 @@ class TestParquet:
         assert it.select(it.c3).collect() == t.where(t.c1 == 1).select(t.c3).collect()
         assert it.select(it.c4).collect() == t.where(t.c1 == 1).select(t.c4).collect()
 
-    @pytest.mark.db_roots('local', reason=
-        'export is read-side (collect then write a local parquet); dual-mode conversion is a separate follow-up'
+    @pytest.mark.db_roots(
+        'local',
+        reason='export is read-side (collect then write a local parquet); dual-mode conversion is a separate follow-up',
     )
     def test_export_parquet(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         p = db_root.make_catalog_path
@@ -378,10 +382,7 @@ class TestParquet:
         _ = pxt.io.import_parquet(p('imported_image'), parquet_path=str(export_path))
 
     def test_import_images(
-        self,
-        db_root: DatabaseRoot,
-        tmp_path: pathlib.Path,
-        sample_file_server: SampleFileServer,
+        self, db_root: DatabaseRoot, tmp_path: pathlib.Path, sample_file_server: SampleFileServer
     ) -> None:
         p = db_root.make_catalog_path
         valid_images = get_image_files()

@@ -3,9 +3,9 @@ import os
 import subprocess
 import sys
 import time
-from typing import Iterator
 from pathlib import Path
 from textwrap import dedent
+from typing import Iterator
 
 import pytest
 

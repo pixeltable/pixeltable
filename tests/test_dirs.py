@@ -4,7 +4,7 @@ import pytest
 
 import pixeltable as pxt
 
-from .utils import make_tbl, pxt_raises, reload_catalog, DatabaseRoot
+from .utils import DatabaseRoot, make_tbl, pxt_raises, reload_catalog
 
 
 @pxt.udf

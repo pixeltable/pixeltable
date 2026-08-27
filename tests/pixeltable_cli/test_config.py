@@ -8,15 +8,14 @@ import os
 import pathlib
 import subprocess
 import time
-from typing import Iterator
 from textwrap import dedent
-from typing import Any
+from typing import Any, Iterator
 
 import pytest
 
 import pixeltable as pxt
 
-from ..utils import skip_test_if_not_installed, DatabaseRoot
+from ..utils import DatabaseRoot, skip_test_if_not_installed
 from .conftest import PxtRunner
 
 pytestmark = pytest.mark.db_roots('local', reason='the daemon under test is the one serving the in-process catalog')
@@ -130,9 +129,7 @@ class TestConfig:
         cli('daemon', 'restart', env_overrides=other_endpoint)
         assert 'hello' in cli('rows', f'{target}/docs', '-n', '1', env_overrides=other_endpoint).stdout
 
-    def test_instance_settings_ignore_the_environment(
-        self, cli: PxtRunner, db_root: DatabaseRoot
-    ) -> None:
+    def test_instance_settings_ignore_the_environment(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """A setting every process using the instance shares is read from the file, and says so when exported."""
         target = db_root.make_catalog_path('cfg')
         make_table(target)
@@ -183,9 +180,7 @@ class TestConfig:
         assert (var['value'], var['source']) == ('s3://bucket/prefix', 'env')
         assert 'PIXELTABLE_SECRET_PXT_TEST_KEY' in resp['env_var_names']
 
-    def test_config_var_from_env(
-        self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
-    ) -> None:
+    def test_config_var_from_env(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """A config var a schema declares is bound from the environment, with no entry in any config file."""
         target = db_root.make_catalog_path('cfg')
         media_dir = project_dir / 'media'
@@ -329,9 +324,7 @@ class TestConfig:
         assert str(config_file) in r.stderr
         assert 'RemoteDisconnected' not in r.stderr
 
-    def test_restart_while_serving(
-        self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
-    ) -> None:
+    def test_restart_while_serving(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """A restart that would abandon work in progress is refused; once the work is done it goes through."""
         skip_test_if_not_installed('sentence_transformers')
         target = db_root.make_catalog_path('cfg')

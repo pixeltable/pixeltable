@@ -3,11 +3,10 @@ from __future__ import annotations
 import copy
 import os
 import tempfile
-from typing import Iterator
 from contextlib import contextmanager
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
-from typing import IO, Any
+from typing import IO, Any, Iterator
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs

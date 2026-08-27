@@ -10,9 +10,8 @@ For more information on FLUX models, see the [BFL documentation](https://docs.bf
 import asyncio
 import logging
 import re
-from typing import Mapping
 from io import BytesIO
-from typing import Literal
+from typing import Literal, Mapping
 
 import aiohttp
 import PIL.Image

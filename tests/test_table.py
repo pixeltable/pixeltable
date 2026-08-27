@@ -113,9 +113,7 @@ class TestTable:
         def value(self) -> int:
             return 1
 
-    def test_create(
-        self, db_root: DatabaseRoot, reload_tester: ReloadTester, is_data_versioned: bool
-    ) -> None:
+    def test_create(self, db_root: DatabaseRoot, reload_tester: ReloadTester, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
         pxt.create_dir(p('dir1'))
         schema: dict[str, Any] = {
@@ -1010,9 +1008,7 @@ class TestTable:
             )
         assert "media_validation must be one of: ['on_read', 'on_write']" in str(exc_info.value)
 
-    def test_validate_on_read(
-        self, db_root: DatabaseRoot, reload_tester: ReloadTester
-    ) -> None:
+    def test_validate_on_read(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
         p = db_root.make_catalog_path
         files = get_video_files(include_bad_video=True)
         rows = [{'id': i, 'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for i, f in enumerate(files)]
@@ -1045,9 +1041,7 @@ class TestTable:
 
         reload_tester.run_reload_test()
 
-    def test_validate_on_read_with_computed_col(
-        self, db_root: DatabaseRoot
-    ) -> None:
+    def test_validate_on_read_with_computed_col(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         files = get_video_files(include_bad_video=True)
         rows = [{'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for f in files]
@@ -1503,9 +1497,7 @@ class TestTable:
         assert len(out) == 0
         assert out.column_names == ['id', 'plus1', 'out2', 'o2x2', 'pos', 'out1', 'out3']
 
-    def test_insert_return_rows_with_idx(
-        self, db_root: DatabaseRoot, is_data_versioned: bool
-    ) -> None:
+    def test_insert_return_rows_with_idx(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(
             p('test_insert_return_rows_with_idx'),
@@ -1994,9 +1986,7 @@ class TestTable:
         pxt.drop_table(p('not_a_parent_dir/non_existing_table'), force=True)
         assert table_list == pxt.list_tables(p(''))
 
-    def test_image_table(
-        self, db_root: DatabaseRoot, is_data_versioned: bool
-    ) -> None:
+    def test_image_table(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
         n_sample_rows = 20
         schema: dict[str, Any] = {
@@ -2292,9 +2282,7 @@ class TestTable:
         ]
         self.check_bad_media(p, rows, pxt.Video, validate_local_path=db_root.id == 'local')
 
-    def test_file_paths(
-        self, db_root: DatabaseRoot, reload_tester: ReloadTester
-    ) -> None:
+    def test_file_paths(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('test'), {'img': pxt.Image | None})
 
@@ -2737,9 +2725,7 @@ class TestTable:
         assert res[0].items() >= {'id': 1, 'val_upper': 'UPDATED', 'num_x2': 20.0}.items()
         assert res[1].items() >= {'id': 2, 'val_upper': 'CHANGED', 'num_x2': 40.0}.items()
 
-    def test_update(
-        self, test_tbl: pxt.Table, small_img_tbl: pxt.Table, db_root: DatabaseRoot
-    ) -> None:
+    def test_update(self, test_tbl: pxt.Table, small_img_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
         t = test_tbl
         # update every type with a literal
         test_cases = [
@@ -2985,11 +2971,7 @@ class TestTable:
         assert_resultset_eq(r1, r2)
 
     def test_delete(
-        self,
-        test_tbl: pxt.Table,
-        small_img_tbl: pxt.Table,
-        db_root: DatabaseRoot,
-        is_data_versioned: bool,
+        self, test_tbl: pxt.Table, small_img_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool
     ) -> None:
         t = test_tbl
 
@@ -3200,9 +3182,7 @@ class TestTable:
         assert status.num_excs == 0
         check(t)
 
-    def test_computed_col_exceptions(
-        self, test_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool
-    ) -> None:
+    def test_computed_col_exceptions(self, test_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
         if Env.get().is_using_cockroachdb:
             # TODO Fix this on CockroachDB; it's a problem!
@@ -3242,7 +3222,9 @@ class TestTable:
         assert sum('division by zero' in msg for msg in msgs if msg is not None) == 10
 
     # TODO: cannot be converted: KeyboardInterrupt injection is client-process-local and does not reach the daemon
-    @pytest.mark.db_roots('local', reason='KeyboardInterrupt injection is client-process-local and does not reach the daemon')
+    @pytest.mark.db_roots(
+        'local', reason='KeyboardInterrupt injection is client-process-local and does not reach the daemon'
+    )
     def test_computed_col_with_interrupts(self, uses_db: None) -> None:
         schema: dict[str, Any] = {'c1': pxt.Int | None}
         t = pxt.create_table('test_interrupt', schema)
@@ -3320,9 +3302,7 @@ class TestTable:
         t.insert(rows, on_error='ignore')
         _ = t.select(t.c3.errortype).collect()
 
-    def test_computed_window_fn(
-        self, test_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool
-    ) -> None:
+    def test_computed_window_fn(self, test_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
         t = test_tbl
         # backfill
@@ -3904,9 +3884,7 @@ class TestTable:
             t = pxt.get_table(p('test_tbl'))
             check_rename(t, 'c1', 'c1_renamed')
 
-    def test_add_computed_column(
-        self, test_tbl: pxt.Table, db_root: DatabaseRoot, reload_tester: ReloadTester
-    ) -> None:
+    def test_add_computed_column(self, test_tbl: pxt.Table, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
         p = db_root.make_catalog_path
         t = test_tbl
         status = t.add_computed_column(add1=t.c2 + 10)
@@ -3970,12 +3948,7 @@ class TestTable:
         actual_schema = {col: val['type_'] for col, val in metadata['columns'].items()}
         assert expected_schema == actual_schema
 
-    def test_repr(
-        self,
-        db_root: DatabaseRoot,
-        test_tbl: pxt.Table,
-        local_embed: pxt.Function,
-    ) -> None:
+    def test_repr(self, db_root: DatabaseRoot, test_tbl: pxt.Table, local_embed: pxt.Function) -> None:
         p = db_root.make_catalog_path
 
         def loc(path: str) -> str:
@@ -4209,9 +4182,7 @@ class TestTable:
         # we can create references to those column via __getattr__
         _ = tbl.select(tbl.id, tbl.name, tbl.version, tbl.comment).collect()
 
-    def test_table_api_on_dropped_table(
-        self, db_root: DatabaseRoot, local_embed: pxt.Function
-    ) -> None:
+    def test_table_api_on_dropped_table(self, db_root: DatabaseRoot, local_embed: pxt.Function) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('test'), {'c1': pxt.Int | None, 'c2': pxt.String | None})
         pxt.drop_table(p('test'))
@@ -4295,9 +4266,7 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
             t.revert()
 
-    def test_drop_column_in_view_predicate(
-        self, db_root: DatabaseRoot, reload_tester: ReloadTester
-    ) -> None:
+    def test_drop_column_in_view_predicate(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl'), {'c1': pxt.Int | None, 'c2': pxt.Int | None})
         v1 = pxt.create_view(p('view1'), t.where(t.c1 % 2 == 0), additional_columns={'vc1': pxt.Int | None})

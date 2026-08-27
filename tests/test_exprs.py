@@ -734,7 +734,8 @@ class TestExprs:
         # a null element, or a non-list element under a further projection becomes null, never dropped. So parallel
         # projections stay the same length and line up by index, and nesting preserves structure at every level.
         t = pxt.create_table(
-            db_root.make_catalog_path('proj'), {'id': pxt.Int | None, 'dets': pxt.Json | None, 'matrix': pxt.Json | None}
+            db_root.make_catalog_path('proj'),
+            {'id': pxt.Int | None, 'dets': pxt.Json | None, 'matrix': pxt.Json | None},
         )
         t.insert(
             [
@@ -1464,9 +1465,7 @@ class TestExprs:
         result = t.select(t.img, t.img.height, t.img.rotate(90)).show(n=100)
         _ = result._repr_html_()
 
-    def test_ext_imgs(
-        self, db_root: DatabaseRoot, sample_file_server: SampleFileServer
-    ) -> None:
+    def test_ext_imgs(self, db_root: DatabaseRoot, sample_file_server: SampleFileServer) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('img_test'), {'name': pxt.String, 'img': pxt.Image})
         images = [

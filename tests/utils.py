@@ -1,5 +1,4 @@
 import asyncio
-from dataclasses import dataclass
 import datetime
 import gc
 import glob
@@ -18,6 +17,7 @@ import sysconfig
 import time
 import uuid
 from contextlib import contextmanager
+from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, TypedDict

@@ -131,9 +131,7 @@ class TestTableModel:
         assert all(m.table_path() is declared[m] for m in models)
 
     @pytest.mark.parametrize('root', ['', 'dir/subdir'])
-    def test_table_model_basic(
-        self, root: str, db_root: DatabaseRoot, is_data_versioned: bool
-    ) -> None:
+    def test_table_model_basic(self, root: str, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
         TableModel = pxt.model_base()
 

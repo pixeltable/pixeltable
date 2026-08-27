@@ -11,7 +11,13 @@ import pytest
 
 import pixeltable as pxt
 
-from .utils import reload_catalog, rerun_on_network_error, skip_test_if_no_client, skip_test_if_not_installed, DatabaseRoot
+from .utils import (
+    DatabaseRoot,
+    reload_catalog,
+    rerun_on_network_error,
+    skip_test_if_no_client,
+    skip_test_if_not_installed,
+)
 
 _logger = logging.getLogger('pixeltable_test')
 

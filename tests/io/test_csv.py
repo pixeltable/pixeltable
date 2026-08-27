@@ -9,7 +9,14 @@ import pytest
 import pixeltable as pxt
 from pixeltable.config import Config
 
-from ..utils import create_all_datatypes_tbl, create_test_tbl, get_csv_file, get_image_files, validate_update_status, DatabaseRoot
+from ..utils import (
+    DatabaseRoot,
+    create_all_datatypes_tbl,
+    create_test_tbl,
+    get_csv_file,
+    get_image_files,
+    validate_update_status,
+)
 
 
 class TestCsv:
@@ -126,9 +133,7 @@ class TestCsv:
         assert list(exported[0].keys()) == ['c_string']
 
     @pytest.mark.parametrize('delimiter', ['\t', ';', '|'])
-    def test_export_custom_delimiter(
-        self, db_root: DatabaseRoot, tmp_path: pathlib.Path, delimiter: str
-    ) -> None:
+    def test_export_custom_delimiter(self, db_root: DatabaseRoot, tmp_path: pathlib.Path, delimiter: str) -> None:
         """Test CSV export with custom delimiters."""
         p = db_root.make_catalog_path
         t = pxt.create_table(p('test_csv_delim'), {'c_int': pxt.Int | None, 'c_string': pxt.String | None})
@@ -143,9 +148,7 @@ class TestCsv:
         assert int(exported[0]['c_int']) == 1
         assert exported[1]['c_string'] == 'world'
 
-    def test_export_non_serializable_json_errors(
-        self, db_root: DatabaseRoot, tmp_path: pathlib.Path
-    ) -> None:
+    def test_export_non_serializable_json_errors(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Exporting a JSON column with non-serializable values should raise an error."""
         p = db_root.make_catalog_path
         t = create_all_datatypes_tbl(name=p('all_datatype_tbl'), non_serializable_json=True)

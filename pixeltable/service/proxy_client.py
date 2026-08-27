@@ -13,11 +13,10 @@ import logging
 import socket
 import ssl
 import threading
-from typing import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable, Iterator
 from uuid import UUID
 
 import httpx

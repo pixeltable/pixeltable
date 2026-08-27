@@ -6,9 +6,8 @@ Lookup is an exact (method, path) match; catalog paths travel in the query strin
 
 from __future__ import annotations
 
-from typing import Callable
 from dataclasses import dataclass, field
-from typing import Any, TypeVar, overload
+from typing import Any, Callable, TypeVar, overload
 
 import pydantic
 

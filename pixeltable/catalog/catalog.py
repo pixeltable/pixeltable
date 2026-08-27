@@ -8,9 +8,8 @@ import random
 import time
 import warnings
 from collections import OrderedDict, defaultdict
-from typing import Collection, Sequence
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Mapping, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Collection, Iterator, Literal, Mapping, Sequence, TypeVar
 from uuid import UUID, uuid4
 
 import psycopg

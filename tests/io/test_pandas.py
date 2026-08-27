@@ -13,7 +13,13 @@ from pixeltable.env import Env
 from pixeltable.io import import_csv
 from pixeltable.io.pandas import import_excel
 
-from ..utils import ensure_s3_pytest_resources_access, pxt_raises, rerun_on_network_error, skip_test_if_not_installed, DatabaseRoot
+from ..utils import (
+    DatabaseRoot,
+    ensure_s3_pytest_resources_access,
+    pxt_raises,
+    rerun_on_network_error,
+    skip_test_if_not_installed,
+)
 
 EXPECTED_SCHEMA = {
     'int_col': ts.IntType(nullable=True),
@@ -98,7 +104,9 @@ class TestPandas:
         t.insert(df)
         assert t.count() == 2 * len(df)
 
-    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]')
+    @pytest.mark.db_roots(
+        'local', 'proxy', reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]'
+    )
     def test_import_pandas_csv(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
 
@@ -228,7 +236,9 @@ class TestPandas:
         ],
     )
     @rerun_on_network_error()
-    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]')
+    @pytest.mark.db_roots(
+        'local', 'proxy', reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]'
+    )
     def test_import_excel_from_remote(self, db_root: DatabaseRoot, source: str) -> None:
         p = db_root.make_catalog_path
         skip_test_if_not_installed('openpyxl')
@@ -240,7 +250,9 @@ class TestPandas:
         entry = tab.limit(1).collect()[0]
         assert entry['Date'] == datetime.datetime(2014, 1, 1, 0, 0).astimezone(None)
 
-    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]')
+    @pytest.mark.db_roots(
+        'local', 'proxy', reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]'
+    )
     def test_import_pandas_excel(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         skip_test_if_not_installed('openpyxl')

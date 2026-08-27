@@ -5,7 +5,7 @@ import pytest
 
 import pixeltable as pxt
 
-from .utils import SAMPLE_IMAGE_FILE_PATH, ReloadTester, create_test_tbl, pxt_raises, DatabaseRoot
+from .utils import SAMPLE_IMAGE_FILE_PATH, DatabaseRoot, ReloadTester, create_test_tbl, pxt_raises
 
 
 def _local_path(name: str) -> str:

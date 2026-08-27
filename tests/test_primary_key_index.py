@@ -5,7 +5,8 @@ import string
 
 import pixeltable as pxt
 from pixeltable.index.btree import BtreeIndex
-from .utils import pxt_raises, reload_catalog, validate_update_status, DatabaseRoot
+
+from .utils import DatabaseRoot, pxt_raises, reload_catalog, validate_update_status
 
 
 class TestPrimaryKeyIndex:
@@ -123,9 +124,7 @@ class TestPrimaryKeyIndex:
         validate_update_status(t.insert([{'key': different_prefix + '_suffix1', 'val': 3}]), expected_rows=1)
         assert t.count() == 2
 
-    def test_batch_with_duplicate_fails_atomically(
-        self, db_root: DatabaseRoot, is_data_versioned: bool
-    ) -> None:
+    def test_batch_with_duplicate_fails_atomically(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """A batch containing a duplicate fails and does not persist any rows from the batch."""
         p = db_root.make_catalog_path
         t = pxt.create_table(

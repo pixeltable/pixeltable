@@ -341,13 +341,14 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
             params = db_roots_marker.args
             if not set(params) <= {'local', 'proxy', 'cloud'}:
                 raise pytest.UsageError(
-                    f"Invalid db_roots marker args. Must be a nonempty subset of"
+                    f'Invalid db_roots marker args. Must be a nonempty subset of'
                     f"('local', 'proxy', 'cloud'); got: {params!r}"
                 )
-            if not isinstance(db_roots_marker.kwargs.get('reason'), str) or not db_roots_marker.kwargs['reason'].strip():
-                raise pytest.UsageError(
-                    f"db_roots marker must include a nonempty 'reason' kwarg"
-                )
+            if (
+                not isinstance(db_roots_marker.kwargs.get('reason'), str)
+                or not db_roots_marker.kwargs['reason'].strip()
+            ):
+                raise pytest.UsageError(f"db_roots marker must include a nonempty 'reason' kwarg")
 
         else:
             params = ('local', 'proxy', 'cloud')  # Default is all three targets
@@ -532,7 +533,9 @@ def _requested_is_data_versioned(request: pytest.FixtureRequest) -> bool:
 @pytest.fixture(scope='function')
 def test_tbl(db_root: DatabaseRoot, request: pytest.FixtureRequest) -> pxt.Table:
     """The standard test table."""
-    return create_test_tbl(db_root.make_catalog_path('test_tbl'), is_data_versioned=_requested_is_data_versioned(request))
+    return create_test_tbl(
+        db_root.make_catalog_path('test_tbl'), is_data_versioned=_requested_is_data_versioned(request)
+    )
 
 
 @pytest.fixture(scope='function')
@@ -635,7 +638,9 @@ def all_datatypes_tbl(db_root: DatabaseRoot, request: pytest.FixtureRequest) -> 
 
 @pytest.fixture(scope='function')
 def img_tbl(db_root: DatabaseRoot, request: pytest.FixtureRequest) -> pxt.Table:
-    return create_img_tbl(db_root.make_catalog_path('test_img_tbl'), is_data_versioned=_requested_is_data_versioned(request))
+    return create_img_tbl(
+        db_root.make_catalog_path('test_img_tbl'), is_data_versioned=_requested_is_data_versioned(request)
+    )
 
 
 @pytest.fixture(scope='function')
@@ -666,11 +671,11 @@ def small_img_tbl(db_root: DatabaseRoot, request: pytest.FixtureRequest) -> pxt.
 
 
 @pytest.fixture(scope='function')
-def indexed_img_tbl(
-    db_root: DatabaseRoot, local_embed: pxt.Function, request: pytest.FixtureRequest
-) -> pxt.Table:
+def indexed_img_tbl(db_root: DatabaseRoot, local_embed: pxt.Function, request: pytest.FixtureRequest) -> pxt.Table:
     t = create_img_tbl(
-        db_root.make_catalog_path('indexed_img_tbl'), num_rows=40, is_data_versioned=_requested_is_data_versioned(request)
+        db_root.make_catalog_path('indexed_img_tbl'),
+        num_rows=40,
+        is_data_versioned=_requested_is_data_versioned(request),
     )
     t.add_embedding_index(
         'img', idx_name='img_idx0', metric='cosine', image_embed=local_embed, string_embed=local_embed
@@ -679,11 +684,11 @@ def indexed_img_tbl(
 
 
 @pytest.fixture(scope='function')
-def multi_idx_img_tbl(
-    db_root: DatabaseRoot, local_embed: pxt.Function, request: pytest.FixtureRequest
-) -> pxt.Table:
+def multi_idx_img_tbl(db_root: DatabaseRoot, local_embed: pxt.Function, request: pytest.FixtureRequest) -> pxt.Table:
     t = create_img_tbl(
-        db_root.make_catalog_path('multi_idx_img_tbl'), num_rows=4, is_data_versioned=_requested_is_data_versioned(request)
+        db_root.make_catalog_path('multi_idx_img_tbl'),
+        num_rows=4,
+        is_data_versioned=_requested_is_data_versioned(request),
     )
     t.add_embedding_index(
         'img', idx_name='img_idx1', metric='cosine', image_embed=local_embed, string_embed=local_embed
