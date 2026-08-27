@@ -22,6 +22,62 @@ from .diff import (
 from .resolution import TableSchemaChangeSet
 
 
+def _referenced_models(model: TableModelMeta) -> set[TableModelMeta]:
+    """The models that have to be tables before `model` can be created.
+
+    Its base, and every model a computed column queries through a @pxt.query UDF: both are recorded against
+    the table the model resolves to, so that table has to exist first.
+    """
+    from pixeltable import exprs, func
+
+    from .query import ModelQuery
+
+    result: set[TableModelMeta] = set()
+    base = model.__table_spec__['base']
+    if isinstance(base, ModelQuery):
+        result.add(base.model_cls)
+    for col_spec in model.__columns__.values():
+        value = col_spec.get('value')
+        if not isinstance(value, exprs.Expr):
+            continue
+        for fn_call in value.subexprs(exprs.FunctionCall):
+            fn = fn_call.fn
+            if isinstance(fn, func.QueryTemplateFunction) and isinstance(fn.template_query, ModelQuery):
+                result.add(fn.template_query.model_cls)
+    return result
+
+
+def _creation_order(registered_models: dict[str, TableModelMeta]) -> list[tuple[str, TableModelMeta]]:
+    """The registered models, ordered so that each follows the models it references.
+
+    A model referencing one that is not registered here is left in place: that model is not being created by
+    this call, so it has to be a table already.
+    """
+    names = {model: name for name, model in registered_models.items()}
+    ordered: list[tuple[str, TableModelMeta]] = []
+    done: set[TableModelMeta] = set()
+    visiting: list[TableModelMeta] = []
+
+    def visit(name: str, model: TableModelMeta) -> None:
+        if model in done:
+            return
+        if model in visiting:
+            cycle = ' -> '.join(m.__name__ for m in (*visiting[visiting.index(model) :], model))
+            raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'Models reference each other in a cycle: {cycle}')
+        visiting.append(model)
+        for referenced in _referenced_models(model):
+            referenced_name = names.get(referenced)
+            if referenced_name is not None:
+                visit(referenced_name, referenced)
+        visiting.pop()
+        done.add(model)
+        ordered.append((name, model))
+
+    for name, model in registered_models.items():
+        visit(name, model)
+    return ordered
+
+
 def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
     # mypy fundamentally does not understand metaclasses.
     cls = TableModelMeta(cls_name, (), {}, name='')
@@ -37,7 +93,7 @@ def model_base(cls_name: str = 'TableModel') -> type[TableModelMeta]:
 
         Raises ConcurrencyError if a model named in expect_created already exists.
         """
-        for name, model in registered_models.items():
+        for name, model in _creation_order(registered_models):
             tbl, was_created = model._create(catalog_dir)
             if name in expect_created and not was_created:
                 raise excs.ConcurrencyError(

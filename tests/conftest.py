@@ -128,6 +128,34 @@ def _worker_db_name(worker_id: int | str) -> str:
     return f'test_{worker_id}'
 
 
+@pytest.fixture
+def project_dir(tmp_path: pathlib.Path) -> pathlib.Path:
+    """A directory that is a project root, for a test that writes an application or schema file into it.
+
+    A file is imported under a module path relative to its project root, so it has to sit under one.
+    """
+    (tmp_path / 'pixeltable.toml').write_text('', encoding='utf-8')
+    return tmp_path
+
+
+@pytest.fixture
+def project_env(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[pathlib.Path]:
+    """A project root for a test that loads an application file in process.
+
+    Config resolves one project root when it starts and holds it for the life of the process, so a test that
+    needs a different one sets the resolved value rather than starting over: reinitializing would also
+    rebuild the file cache and the catalog that other tests in the session depend on.
+    """
+    from pixeltable.config import Config
+
+    (tmp_path / 'pixeltable.toml').write_text('', encoding='utf-8')
+    monkeypatch.setattr(sys, 'path', [*sys.path, str(tmp_path)])
+    original = Config.get().project_root
+    Config.init(reinit=True, project_root=tmp_path)
+    yield tmp_path
+    Config.init(reinit=True, project_root=original)
+
+
 @pytest.fixture(scope='session')
 def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:  # type: ignore[misc]
     os.chdir(os.path.dirname(os.path.dirname(__file__)))  # Project root directory
@@ -181,7 +209,7 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
         # Config caches the home directory on first use, and Env._set_up() reads it from there. A test that
         # reached Config before this fixture ran would have cached the user's real home, which the Env rebuild
         # below would then adopt; re-read it now that PIXELTABLE_HOME points at this worker's directory.
-        Config.init(reinit=True)
+        Config.init(reinit=True, project_root=Config.get().project_root)
         # We need to call `Env._init_env()` with `reinit_db=True`. This is because if a previous test run was
         # interrupted (e.g., by an inopportune Ctrl-C), there may be residual DB artifacts that interfere with
         # initialization.
@@ -244,7 +272,7 @@ def _reset_catalog_state() -> None:
     # Clean the DB *before* reloading. This is because some tests
     # (such as test_migration.py) may leave the DB in a broken state.
     clean_db()
-    Config.init(reinit=True)
+    Config.init(reinit=True, project_root=Config.get().project_root)
     Env.get().default_time_zone = None
     Env.get().user = None
     reload_catalog()
@@ -366,9 +394,15 @@ def catalog_mode(request: pytest.FixtureRequest) -> CatalogMode:
     return getattr(request, 'param', 'local')
 
 
+@pytest.fixture
+def served_project() -> pathlib.Path | None:
+    """The project a daemon should serve; the CLI package overrides this with its session project."""
+    return None
+
+
 @pytest.fixture(scope='function')
 def make_catalog_path(
-    init_env: None, catalog_mode: CatalogMode, request: pytest.FixtureRequest
+    init_env: None, catalog_mode: CatalogMode, served_project: pathlib.Path | None, request: pytest.FixtureRequest
 ) -> Iterator[Callable[[str], str]]:
     """Parameterized variant of uses_db: runs a test against both the in-process catalog and a delegated
     (proxied) catalog served by a local daemon.
@@ -379,7 +413,14 @@ def make_catalog_path(
     _reset_catalog_state()
 
     if catalog_mode == 'proxy':
+        # the daemon is handed the project Config holds when it starts, and never re-reads it
+        if served_project is not None and Config.get().project_root != served_project:
+            Config.init(reinit=True, project_root=served_project)
         db = request.getfixturevalue('proxy_daemon_db')
+        # the daemon resolves udf module paths against the one project it was started with, and tests in
+        # different packages serve different projects; start() reuses a daemon serving this test's project and
+        # replaces one serving another, so a test never inherits the project of whichever test ran before it
+        proxy_daemon.start(db, test_mode=True)
         proxy_daemon.reinitialize(db)
         prefix = f'pxt://local:{db}'
 

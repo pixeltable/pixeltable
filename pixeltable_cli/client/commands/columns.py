@@ -1,5 +1,7 @@
 import json
 
+from pixeltable_cli import models
+
 from ...utils import validate_path_shape
 from ..parser import Parser
 from ..utils import display_path, get_request
@@ -31,14 +33,16 @@ def run(argv: list[str]) -> None:
         if err is not None:
             ap.error(err)
 
-    resp = get_request('/api/columns', params={'path': args.path or None, 'computed': args.computed_only or None})
-    entries = resp['entries']
+    resp = models.ColumnsResponse.model_validate(
+        get_request('/api/columns', params={'path': args.path or None, 'computed': args.computed_only or None})
+    )
+    entries = resp.entries
 
     if args.as_json:
-        print(json.dumps(entries, indent=2))
+        print(json.dumps([e.model_dump() for e in entries], indent=2, default=str))
         return
 
     for e in entries:
-        flag = 'computed' if e['is_computed'] else 'stored'
-        expr = e['computed_with'] if e.get('computed_with') is not None else ''
-        print(f'{display_path(e["table"])}\t{e["column"]}\t{e["type_"]}\t{flag}\t{expr}')
+        flag = 'computed' if e.is_computed else 'stored'
+        expr = e.computed_with if e.computed_with is not None else ''
+        print(f'{display_path(e.table)}\t{e.column}\t{e.type_}\t{flag}\t{expr}')

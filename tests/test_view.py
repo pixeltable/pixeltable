@@ -92,8 +92,8 @@ class TestView:
             ):
                 _ = pxt.create_view(p('bad_view'), query)
 
-        # an aggregate makes a row's value depend on which other rows are present
-        for query in [t.select(total=pxtf.sum(t.c2)), t.select(pxtf.sum(t.c2))]:
+        # an aggregate makes a row's value depend on which other rows are present, wherever it appears
+        for query in [t.select(total=pxtf.sum(t.c2)), t.select(pxtf.sum(t.c2)), t.where(pxtf.sum(t.c2) > 0)]:
             with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'aggregates over the base table'):
                 _ = pxt.create_view(p('bad_view'), query)
 

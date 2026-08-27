@@ -38,7 +38,7 @@ from pixeltable.service.management_protocol import (
     UpdateServiceRequest,
 )
 from pixeltable.types import TreeNode
-from pixeltable_cli import models, schema_types
+from pixeltable_cli import models, schema_types, service_types
 from pixeltable_cli.utils import identity
 
 from . import bridge
@@ -54,12 +54,29 @@ _IDENTITY: dict[str, Any] = identity()
 
 # schema plans cross as plain dicts; this checks their shape in place of a response model
 _SCHEMA_PLAN = pydantic.TypeAdapter(schema_types.SchemaPlan)
+_CHECK_REPORT = pydantic.TypeAdapter(schema_types.CheckReport)
+_SERVICE_PLAN = pydantic.TypeAdapter(service_types.ServicePlan)
+_SERVICE_OPS = pydantic.TypeAdapter(list[service_types.ServiceChangeOp])
+_SERVICE_DEPLOYMENTS = pydantic.TypeAdapter(list[service_types.ServiceDeployment])
+
+
+def _project_root() -> str | None:
+    # classvar, not instance var: /api/health answers before anything has needed an initialized Env,
+    # and initializing one here would hold up health while the daemon starts a database
+    # TODO: is that really necessary?
+    root = Config.get().project_root
+    return None if root is None else str(root)
 
 
 @router.get('/api/health', checks_env=False)
 def health(_req: Request) -> models.HealthResponse:
     return models.HealthResponse(
-        ok=True, pid=os.getpid(), started_at=_STARTED_AT, in_flight=daemon_state.in_flight_requests(), **_IDENTITY
+        ok=True,
+        pid=os.getpid(),
+        started_at=_STARTED_AT,
+        in_flight=daemon_state.in_flight_requests(),
+        project_root=_project_root(),
+        **_IDENTITY,
     )
 
 
@@ -75,6 +92,7 @@ def status(req: Request) -> models.StatusResponse:
         pid=os.getpid(),
         started_at=_STARTED_AT,
         home=cfg.get('home'),
+        project_root=cfg.get('project_root'),
         db_url=_redact_db_password(cfg.get('db_url')),
         media_dir=media_dir,
         file_cache_dir=file_cache_dir,
@@ -105,7 +123,7 @@ def config(_req: Request) -> models.ConfigResponse:
         elif is_sensitive:
             value = '<redacted>'
         else:
-            # ck.expected_type can be a parameterized generic (eg list[ServiceConfig]).
+            # ck.expected_type can be a parameterized generic (eg list[str]).
             # Config.get_value() coerces via `expected_type(value)`, which raises TypeError
             # for types.GenericAlias; collapse to the origin (eg list) for the lookup.
             coerce_type = typing.get_origin(ck.expected_type) or ck.expected_type
@@ -472,6 +490,18 @@ def move(req: Request) -> models.MoveResponse:
     return models.MoveResponse(path=src, new_path=dst)
 
 
+@router.post('/api/schema/check')
+def schema_check(req: Request) -> schema_types.CheckReport:
+    body = req.body(models.SchemaCheckBody)
+    return _CHECK_REPORT.validate_python(bridge.schema_check(body.schema_file))
+
+
+@router.post('/api/localservice/check')
+def service_check(req: Request) -> schema_types.CheckReport:
+    body = req.body(models.ServiceCheckBody)
+    return _CHECK_REPORT.validate_python(bridge.service_check(body.app_file))
+
+
 @router.post('/api/schema/diff')
 def schema_diff(req: Request) -> schema_types.SchemaPlan:
     body = req.body(models.SchemaDiffBody)
@@ -491,6 +521,43 @@ def schema_update(req: Request) -> schema_types.SchemaPlan:
         body.schema_file, req.resolve_path(body.catalog_dir), allow_destructive=body.allow_destructive
     )
     return _SCHEMA_PLAN.validate_python(applied)
+
+
+@router.post('/api/localservice/diff')
+def service_diff(req: Request) -> service_types.ServicePlan:
+    body = req.body(models.ServiceDiffBody)
+    return _SERVICE_PLAN.validate_python(
+        bridge.service_diff(body.app_file, req.resolve_path(body.target), otel=body.otel)
+    )
+
+
+@router.post('/api/localservice/update')
+def service_update(req: Request) -> service_types.ServicePlan:
+    body = req.body(models.ServiceUpdateBody)
+    applied = bridge.service_update(
+        body.app_file, req.resolve_path(body.target), allow_destructive=body.allow_destructive, otel=body.otel
+    )
+    return _SERVICE_PLAN.validate_python(applied)
+
+
+@router.post('/api/localservice/prune')
+def service_prune(req: Request) -> service_types.ServicePlan:
+    body = req.body(models.ServicePruneBody)
+    return _SERVICE_PLAN.validate_python(bridge.service_prune(body.app_file, req.resolve_path(body.target)))
+
+
+@router.post('/api/localservice/stop')
+def service_stop(req: Request) -> list[service_types.ServiceChangeOp]:
+    body = req.body(models.ServiceStopBody)
+    return _SERVICE_OPS.validate_python(bridge.service_stop(body.names, req.resolve_path(body.target)))
+
+
+@router.get('/api/localservice/list')
+def service_list(req: Request) -> list[service_types.ServiceDeployment]:
+    target = req.query_str('target')
+    return _SERVICE_DEPLOYMENTS.validate_python(
+        bridge.service_list(None if target is None else req.resolve_path(target))
+    )
 
 
 @router.get('/api/dashboard/search', checks_env=False)
