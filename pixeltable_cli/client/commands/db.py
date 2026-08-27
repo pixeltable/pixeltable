@@ -315,20 +315,23 @@ def _update_runtime(args: argparse.Namespace) -> None:
 
     # The server moves through its own stages; watching each reading is the only way to time them
     # separately, since the record only ever holds the stage currently in flight.
-    watching = {'stage': '', 'since': time.monotonic()}
+    watched_stage = ''
+    watched_since = time.monotonic()
 
     def on_poll(res: dict[str, Any], spinner: Spinner) -> None:
+        nonlocal watched_stage, watched_since
         stage = str((res.get('update_runtime_status') or {}).get('stage', '')).lower()
-        if not stage or stage == watching['stage']:
+        if not stage or stage == watched_stage:
             return
         now = time.monotonic()
-        if watching['stage']:
-            stages.append((str(watching['stage']), 'succeeded', now - float(watching['since']), ''))
-        watching['stage'], watching['since'] = stage, now
+        if watched_stage:
+            stages.append((watched_stage, 'succeeded', now - watched_since, ''))
+        watched_stage, watched_since = stage, now
         spinner.label(f'{stage} ...')
 
     label = None if args.json_output else 'build ...'
     started = time.monotonic()
+    watched_since = started
     result = poll_state(
         '/api/db',
         {'org': org, 'db': db},
@@ -340,8 +343,8 @@ def _update_runtime(args: argparse.Namespace) -> None:
         on_poll=on_poll,
     )
     # A server that reports no stages still ran them; time the wait as one span rather than inventing names.
-    server_stage = str(watching['stage']) or 'build+deploy'
-    server_seconds = time.monotonic() - float(watching['since'] if watching['stage'] else started)
+    server_stage = watched_stage or 'build+deploy'
+    server_seconds = time.monotonic() - (watched_since if watched_stage else started)
 
     # The server reports the stage the update reached and what became of it: "build failed" and
     # "deploy failed" are different problems and only the stage separates them. A server that does not
