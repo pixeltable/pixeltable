@@ -2,8 +2,6 @@
 # ruff: noqa: N806
 # ruff: noqa: RUF012
 
-from __future__ import annotations
-
 import os
 import pathlib
 import textwrap
