@@ -305,7 +305,7 @@ def proxy_daemon_db(init_env: None, worker_id: str) -> Iterator[str]:
     post-test _validate_catalog_state() actually validates the store state at the end of the test.
 
     The db name is worker-scoped so parallel xdist workers don't share a catalog. start() is idempotent,
-    so the per-test db_root.make_catalog_path fixture only reloads the daemon's catalog rather than restarting the process.
+    so the per-test db_root fixture only reloads the daemon's catalog rather than restarting the process.
     """
     # the proxy daemon serves over HTTP via fastapi/uvicorn (the serve extra); a minimal install omits them
     pytest.importorskip('fastapi')
@@ -357,14 +357,12 @@ def cloud_db_base_uri(init_env: None) -> Iterator[str]:
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """Drive the catalog-backend and data-versioning axes.
 
-    db_root.id: any test that (transitively) reaches catalog_mode runs against both 'local' and 'proxy',
-    unless marked @pytest.mark.local, in which case it runs 'local' only. With --cloud, tests run against the
-    cloud catalog instead of local/proxy.
+    db_root: any test that (transitively) reaches db_root runs against 'local', 'proxy', and 'cloud'.
 
     is_data_versioned: any test that (transitively) reaches is_data_versioned runs against both a
     data-versioned and an operational table.
 
-    metafunc.fixturenames is the transitive fixture closure, so a test reaching db_root.make_catalog_path (directly
+    metafunc.fixturenames is the transitive fixture closure, so a test reaching db_root (directly
     or via an adapted fixture like test_tbl) or is_data_versioned auto-forks with no per-test boilerplate.
     Tests that touch neither axis run once.
     """
@@ -385,6 +383,11 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
 def served_project() -> pathlib.Path | None:
     """The project a daemon should serve; the CLI package overrides this with its session project."""
     return None
+
+
+@pytest.fixture(scope='function')
+def db_root_id(request: pytest.FixtureRequest) -> Literal['local', 'proxy', 'cloud']:
+    return getattr(request, 'param', 'local')
 
 
 @pytest.fixture(scope='function')
@@ -419,6 +422,7 @@ def db_root(
             yield DatabaseRoot('proxy', f'pxt://local:{db}')
 
         case 'cloud':
+            assert os.environ.get('PXTTEST_CLOUD_DB_URI')
             cloud_db_base_uri = request.getfixturevalue('cloud_db_base_uri')
             test_dir = uuid.uuid4().hex
             prefix = f'{cloud_db_base_uri}/test_{test_dir}'
