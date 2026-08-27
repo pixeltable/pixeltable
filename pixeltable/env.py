@@ -19,7 +19,7 @@ import typing
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
-from sys import stderr, stdout
+from sys import stdout
 from typing import TYPE_CHECKING, Any, Callable, TypeVar
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -420,18 +420,6 @@ class Env:
         uvicorn_logger.addHandler(fh)
         uvicorn_logger.propagate = False
         self._managed_logging_handlers.append((uvicorn_logger, fh))
-
-        # Everything above writes to files under the home directory. A log collector sees only what a
-        # process writes to stdout/stderr, so in a container those files reach nothing and are lost when
-        # it restarts; mirroring them to stderr is what makes them collectable.
-        if config.get_bool_value('log_to_stderr'):
-            stream_handler = logging.StreamHandler(stderr)
-            stream_handler.setFormatter(logging.Formatter(LOG_FMT_STR))
-            # user-visible records already reach stdout through ConsoleOutputHandler
-            stream_handler.addFilter(lambda record: not getattr(record, 'user_visible', False))
-            for lg in (pxt_logger, sql_logger, av_logger, _http_server_logger, uvicorn_logger):
-                lg.addHandler(stream_handler)
-                self._managed_logging_handlers.append((lg, stream_handler))
 
         self.clear_tmp_dir()
         tz_name = self._get_tz_name()

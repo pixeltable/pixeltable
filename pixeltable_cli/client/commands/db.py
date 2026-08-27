@@ -22,6 +22,10 @@ from ..hosted import (
 from ..parser import Parser
 from ..utils import get_request, post_request
 
+# Stages the server records on the database. bundling and upload happen locally, so those two
+# only appear if the server saw a failure before the build began.
+_STAGE_NAMES = {'BUNDLE': 'bundling', 'UPLOAD': 'upload', 'BUILD': 'the image build', 'DEPLOY': 'deploy'}
+
 EPILOG = """\
 Examples:
   pxt db create pxt://org:db
@@ -264,14 +268,15 @@ def _update_runtime(args: argparse.Namespace) -> None:
         '/api/db', {'org': org, 'db': db}, 'database', {'UPDATING'}, RUNTIME_POLL_INTERVAL, RUNTIME_POLL_TIMEOUT, label
     )
 
-    # last_build_state covers the whole update, image build through rollout, so it cannot be reported as
-    # a build failure: the image usually built fine and the new pods are what did not come up.
+    # last_build_state covers the whole update, so a failure has to name the stage it reached: the
+    # image almost always builds fine and it is the rollout that does not come up.
     build_failed = result.get('last_build_state') == 'FAILED'
     build_error = result.get('last_build_error') or ''
     if not args.json_output:
         final_state = result.get('state', '')
         if build_failed:
-            print(f'DB update runtime failed: {build_error}', file=sys.stderr)
+            stage = _STAGE_NAMES.get(result.get('build_stage') or '', 'the update')
+            print(f'DB update runtime failed during {stage}: {build_error}', file=sys.stderr)
         elif final_state == 'AVAILABLE':
             print('DB update runtime complete.')
         elif final_state:
