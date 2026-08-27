@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 import urllib.request
 from pathlib import Path
 from typing import IO, Any
@@ -12,6 +13,7 @@ from typing import IO, Any
 from ..hosted import (
     RUNTIME_POLL_INTERVAL,
     RUNTIME_POLL_TIMEOUT,
+    Spinner,
     exit_unless_reached,
     parse_org_uri,
     poll_db,
@@ -21,6 +23,25 @@ from ..hosted import (
 )
 from ..parser import Parser
 from ..utils import get_request, post_request
+
+
+def _elapsed(seconds: float) -> str:
+    if seconds < 1:
+        return 'less than a second'
+    whole = int(round(seconds))
+    return f'{whole}s' if whole < 60 else f'{whole // 60}m{whole % 60:02d}s'
+
+
+def _print_stages(stages: list[tuple[str, str, float, str]]) -> None:
+    """The progress bars are transient; this is what is still on screen afterwards.
+
+    One stream for the whole table: splitting the failed row onto stderr reorders it against the rows
+    around it, so the one row that matters lands somewhere else. The exit status carries the failure.
+    """
+    width = max((len(name) for name, _, _, _ in stages), default=0)
+    for name, state, seconds, detail in stages:
+        line = f'{name:<{width}}  {state:<9}  {_elapsed(seconds)}'
+        print(f'{line}  {detail}' if detail else line)
 
 EPILOG = """\
 Examples:
@@ -233,20 +254,24 @@ def _update_runtime(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     show_progress = not args.json_output
+    stages: list[tuple[str, str, float, str]] = []  # name, state, seconds, detail
 
-    def report(stage: str, state: str, detail: str = '') -> None:
-        if args.json_output:
-            return
-        line = f'{stage} {state}' + (f': {detail}' if detail else '')
-        print(line, file=sys.stderr if state == 'failed' else sys.stdout)
+    def finish(code: int) -> None:
+        if not args.json_output:
+            _print_stages(stages)
+        sys.exit(code)
 
+    started = time.monotonic()
     try:
         bundle_path = build_db_runtime_bundle(project_dir, show_progress=show_progress)
     except Exception as exc:
-        report('bundle', 'failed', str(exc))
-        sys.exit(1)
-    report('bundle', 'succeeded', f'{bundle_path.stat().st_size / (1024 * 1024):.1f} MB')
+        stages.append(('bundle', 'failed', time.monotonic() - started, str(exc)))
+        finish(1)
+    stages.append(
+        ('bundle', 'succeeded', time.monotonic() - started, f'{bundle_path.stat().st_size / (1024 * 1024):.1f} MB')
+    )
 
+    started = time.monotonic()
     try:
         url_resp = get_request('/api/db/upload-url', {'org': org, 'db': db})
         presigned_url = url_resp['presigned_url']
@@ -267,18 +292,44 @@ def _update_runtime(args: argparse.Namespace) -> None:
                 if r.status >= 400:
                     raise RuntimeError(f'Bundle upload failed: HTTP {r.status}')
     except Exception as exc:
-        report('upload', 'failed', str(exc))
-        sys.exit(1)
+        stages.append(('upload', 'failed', time.monotonic() - started, str(exc)))
+        bundle_path.unlink(missing_ok=True)
+        finish(1)
     finally:
         bundle_path.unlink(missing_ok=True)
-    report('upload', 'succeeded')
+    stages.append(('upload', 'succeeded', time.monotonic() - started, ''))
 
     post_request('/api/db/update-runtime', {'org': org, 'db': db, 'bundle_s3_key': bundle_s3_key})
 
-    label = None if args.json_output else 'Waiting for runtime build (this may take 10 minutes or longer) ...'
+    # The server moves through its own stages; watching each reading is the only way to time them
+    # separately, since the record only ever holds the stage currently in flight.
+    watching = {'stage': '', 'since': time.monotonic()}
+
+    def on_poll(res: dict[str, Any], spinner: Spinner) -> None:
+        stage = str((res.get('update_runtime_status') or {}).get('stage', '')).lower()
+        if not stage or stage == watching['stage']:
+            return
+        now = time.monotonic()
+        if watching['stage']:
+            stages.append((str(watching['stage']), 'succeeded', now - float(watching['since']), ''))
+        watching['stage'], watching['since'] = stage, now
+        spinner.label(f'{stage} ...')
+
+    label = None if args.json_output else 'build ...'
+    started = time.monotonic()
     result = poll_state(
-        '/api/db', {'org': org, 'db': db}, 'database', {'UPDATING'}, RUNTIME_POLL_INTERVAL, RUNTIME_POLL_TIMEOUT, label
+        '/api/db',
+        {'org': org, 'db': db},
+        'database',
+        {'UPDATING'},
+        RUNTIME_POLL_INTERVAL,
+        RUNTIME_POLL_TIMEOUT,
+        label,
+        on_poll=on_poll,
     )
+    # A server that reports no stages still ran them; time the wait as one span rather than inventing names.
+    server_stage = str(watching['stage']) or 'build+deploy'
+    server_seconds = time.monotonic() - float(watching['since'] if watching['stage'] else started)
 
     # The server reports the stage the update reached and what became of it: "build failed" and
     # "deploy failed" are different problems and only the stage separates them. A server that does not
@@ -291,14 +342,16 @@ def _update_runtime(args: argparse.Namespace) -> None:
     succeeded = state == 'succeeded' or (not state and last_build_state == 'ACTIVE')
     build_error = status.get('error') or result.get('last_build_error') or ''
     if build_failed:
-        report(stage or 'update', 'failed', build_error)
+        stages.append((server_stage, 'failed', server_seconds, build_error))
     elif succeeded:
-        report(stage or 'deploy', 'succeeded')
-    elif not args.json_output:
-        print(f'DB update runtime ended in state {result.get("state", "")}.')
+        stages.append((server_stage, 'succeeded', server_seconds, ''))
+    else:
+        stages.append((server_stage, str(result.get('state', 'unknown')).lower(), server_seconds, ''))
 
     if args.json_output:
         print(json.dumps(result))
+    else:
+        _print_stages(stages)
     if build_failed:
         sys.exit(1)
     exit_unless_reached(result, 'AVAILABLE', f'the runtime build of database {db!r}')

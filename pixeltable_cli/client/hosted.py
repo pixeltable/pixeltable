@@ -7,7 +7,7 @@ import contextlib
 import json
 import sys
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
 from pixeltable_cli.utils import split_pxt_uri
@@ -156,11 +156,30 @@ def print_org(org: dict[str, Any]) -> None:
     print(line)
 
 
+class Spinner:
+    """Handle on the running spinner: rename what it says, or print a line above it."""
+
+    def __init__(self, progress: Any = None, task: Any = None) -> None:
+        self._progress = progress
+        self._task = task
+
+    def label(self, text: str) -> None:
+        if self._progress is not None:
+            self._progress.update(self._task, description=text)
+
+    def line(self, text: str) -> None:
+        # printing straight to stdout would be overwritten by the live display
+        if self._progress is not None:
+            self._progress.console.print(text)
+        else:
+            print(text)
+
+
 @contextlib.contextmanager
-def _spinner(label: str | None) -> Iterator[None]:
+def _spinner(label: str | None) -> Iterator[Spinner]:
     """Display a transient progress spinner showing label for the duration of the block; None displays nothing."""
     if label is None:
-        yield
+        yield Spinner()
         return
 
     # imported lazily: rich is a heavy import, and a poll without a label never reaches this
@@ -174,8 +193,8 @@ def _spinner(label: str | None) -> Iterator[None]:
         redirect_stdout=False,
         redirect_stderr=False,
     ) as progress:
-        progress.add_task(label, total=None)
-        yield
+        task = progress.add_task(label, total=None)
+        yield Spinner(progress, task)
 
 
 def poll_state(
@@ -186,15 +205,17 @@ def poll_state(
     interval: float,
     timeout: float,
     label: str | None,
+    on_poll: Callable[[dict[str, Any], Spinner], None] | None = None,
 ) -> dict[str, Any]:
     """Poll a daemon route until the resource's 'state' leaves pending_states, or timeout seconds elapse.
 
     Returns the last response read, or an empty dict if none succeeded. A failed read is retried until the
-    deadline, so a resource that is briefly unreachable mid-transition doesn't abort the wait.
+    deadline, so a resource that is briefly unreachable mid-transition doesn't abort the wait. on_poll sees
+    every reading, which is the only place a caller can watch a long operation move between its stages.
     """
     result: dict[str, Any] = {}
     deadline = time.monotonic() + timeout
-    with _spinner(label):
+    with _spinner(label) as spinner:
         while time.monotonic() < deadline:
             time.sleep(interval)
             try:
@@ -204,6 +225,8 @@ def poll_state(
             except Exception:
                 continue
             result = resp.get(result_key, resp) if isinstance(resp, dict) else {}
+            if on_poll is not None:
+                on_poll(result, spinner)
             if result.get('state') not in pending_states:
                 break
     return result
