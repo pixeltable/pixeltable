@@ -12,7 +12,7 @@ import pixeltable as pxt
 from ..utils import get_audio_files, get_documents, get_video_files, skip_test_if_not_installed, DatabaseRoot
 from .conftest import BackgroundPxt, PxtRunner
 
-pytestmark = pytest.mark.local('a local service serves the in-process catalog')
+pytestmark = pytest.mark.db_roots('local', reason='a local service serves the in-process catalog')
 
 _REQUEST_TIMEOUT = 30.0
 
@@ -444,8 +444,8 @@ class TestService:
         assert services(cli, first) == {}
         assert_serving(cli, app, second, 'ingest')
 
-    @pytest.mark.local('check reads no catalog, so the target axis adds nothing')
-    @pytest.mark.local('drives the local proxy daemon directly, so the target axis adds nothing')
+    @pytest.mark.db_roots('local', reason='check reads no catalog, so the target axis adds nothing')
+    @pytest.mark.db_roots('local', reason='drives the local proxy daemon directly, so the target axis adds nothing')
     def test_proxy_daemon_project_handoff(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
         """A running proxy daemon is reused for its own project, and replaced for another."""
         skip_test_if_not_installed('fastapi')

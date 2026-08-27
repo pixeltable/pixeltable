@@ -9,7 +9,7 @@ from .coordinator import MultiThreadedScenario
 from .fault_injection import BlockFault
 from .utils import pxt_raises
 
-pytestmark = pytest.mark.local('multi-threaded/fault-injection test of user-namespace internals')
+pytestmark = pytest.mark.db_roots('local', reason='multi-threaded/fault-injection test of user-namespace internals')
 
 
 class TestUser:

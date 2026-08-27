@@ -153,7 +153,7 @@ class TestJson:
 
         assert original == reimported
 
-    @pytest.mark.skip_cloud(reason='Fails due to inaccessible .fileurl [PXT-1323]')
+    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to inaccessible .fileurl [PXT-1323]')
     def test_round_trip_media(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Export JSONL with media columns, re-import, and verify file URLs survive the round-trip."""
         p = db_root.make_catalog_path
@@ -210,7 +210,7 @@ class TestJson:
         with pytest.raises(pxt.Error, match='Cannot export media expression'):
             pxt.io.export_json(t.select(t.img.rotate(90)), tmp_path / 'should_fail.jsonl')
 
-    @pytest.mark.local('uses a local-filesystem destination, which a hosted table does not support')
+    @pytest.mark.db_roots('local', reason='uses a local-filesystem destination, which a hosted table does not support')
     def test_export_computed_media_with_destination(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Computed media columns with a local file destination export their file URLs."""
         dest_path = Config.get().home / 'test-json-dest'

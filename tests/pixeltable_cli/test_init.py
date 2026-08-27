@@ -7,7 +7,7 @@ import pytest
 
 from .conftest import PxtRunner
 
-pytestmark = pytest.mark.local('writes a file on the filesystem, independent of any catalog')
+pytestmark = pytest.mark.db_roots('local', reason='writes a file on the filesystem, independent of any catalog')
 
 
 class TestInit:

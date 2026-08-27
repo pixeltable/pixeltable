@@ -314,8 +314,6 @@ markers = [
     "remote_api: marks tests as calling a remote API (such as OpenAI)",
     "benchmark: marks tests as benchmark tests (excluded from regular test runs)",
     "db_roots: test runs only against specified database roots, e.g. @pytest.mark.db_roots('local', reason='...')",
-    "local: test runs only against the in-process catalog, not the proxy or cloud-hosted tables (arg: reason)",
-    "skip_cloud: test does not run against cloud-hosted tables (arg: reason)",
     "cloud_e2e: marks tests as cloud end-to-end tests requiring PIXELTABLE_API_KEY",
     "otel: marks tests as requiring the otel extra (run on the otel CI leg)",
 ]

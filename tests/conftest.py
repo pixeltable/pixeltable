@@ -75,14 +75,13 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 
     offenders: list[str] = []
     for item in items:
-        if 'uses_db' not in getattr(item, 'fixturenames', ()):
-            continue
-        marker = item.get_closest_marker('local')
-        if marker is None or not marker.args or not isinstance(marker.args[0], str) or not marker.args[0].strip():
-            offenders.append(item.nodeid)
+        if 'uses_db' in getattr(item, 'fixturenames', ()):
+            marker = item.get_closest_marker('db_roots')
+            if marker is None or marker.args != ('local',):
+                offenders.append(item.nodeid)
     if offenders:
         raise pytest.UsageError(
-            "tests using the 'uses_db' fixture must be marked @pytest.mark.local('<reason>'):\n  "
+            "tests using the 'uses_db' fixture must be marked @pytest.mark.db_roots('local', reason='...'):\n  "
             + '\n  '.join(offenders)
         )
 
@@ -345,6 +344,11 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
                     f"Invalid db_roots marker args. Must be a nonempty subset of"
                     f"('local', 'proxy', 'cloud'); got: {params!r}"
                 )
+            if not isinstance(db_roots_marker.kwargs.get('reason'), str) or not db_roots_marker.kwargs['reason'].strip():
+                raise pytest.UsageError(
+                    f"db_roots marker must include a nonempty 'reason' kwarg"
+                )
+
         else:
             params = ('local', 'proxy', 'cloud')  # Default is all three targets
 

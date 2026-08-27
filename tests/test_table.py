@@ -2323,7 +2323,7 @@ class TestTable:
         reason='Specifying a default media destination disrupts the file cache counts',
     )
     # TODO: cannot be converted because it inspects the local file cache via FileCache and tbl._id
-    @pytest.mark.local('inspects the local file cache via FileCache and tbl._id')
+    @pytest.mark.db_roots('local', reason='inspects the local file cache via FileCache and tbl._id')
     @rerun_on_network_error()
     def test_create_s3_image_table(self, uses_db: None) -> None:
         skip_test_if_not_installed('boto3')
@@ -2405,7 +2405,7 @@ class TestTable:
             assert container.streams.video[0].codec_context.name == 'h264'
 
     @rerun_on_network_error()
-    @pytest.mark.skip_cloud(reason='Cloud service hangs on first insert [PXT-1320]')
+    @pytest.mark.db_roots('local', 'proxy', reason='Cloud service hangs on first insert [PXT-1320]')
     def test_create_video_table(self, db_root: DatabaseRoot) -> None:
         if Env.get().is_using_cockroachdb:
             # TODO(PXT-921): fix this on CockroachDB
@@ -3143,7 +3143,7 @@ class TestTable:
         assert sorted(t.select(r=t.c2.apply(math.sqrt, col_type=pxt.Float)).collect()['r']) == [2.0, 3.0]
 
     # TODO: cannot be converted because the UDF reads a client-process-local module global the daemon cannot see
-    @pytest.mark.local('UDF reads a client-process-local module global the daemon cannot see')
+    @pytest.mark.db_roots('local', reason='UDF reads a client-process-local module global the daemon cannot see')
     def test_unstored_computed_cols(self, uses_db: None) -> None:
         schema: dict[str, Any] = {'c1': pxt.Int | None, 'c2': pxt.Float | None}
         t = pxt.create_table('test', schema)
@@ -3242,7 +3242,7 @@ class TestTable:
         assert sum('division by zero' in msg for msg in msgs if msg is not None) == 10
 
     # TODO: cannot be converted: KeyboardInterrupt injection is client-process-local and does not reach the daemon
-    @pytest.mark.local('KeyboardInterrupt injection is client-process-local and does not reach the daemon')
+    @pytest.mark.db_roots('local', reason='KeyboardInterrupt injection is client-process-local and does not reach the daemon')
     def test_computed_col_with_interrupts(self, uses_db: None) -> None:
         schema: dict[str, Any] = {'c1': pxt.Int | None}
         t = pxt.create_table('test_interrupt', schema)
@@ -3294,7 +3294,7 @@ class TestTable:
     def img_fn_with_exc(img: PIL.Image.Image) -> PIL.Image.Image:
         raise RuntimeError
 
-    @pytest.mark.skip_cloud(reason='Cloud service hangs on first insert [PXT-1320]')
+    @pytest.mark.db_roots('local', 'proxy', reason='Cloud service hangs on first insert [PXT-1320]')
     def test_computed_img_cols(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         schema: dict[str, Any] = {'img': pxt.Image | None}
@@ -3643,7 +3643,7 @@ class TestTable:
         return str(i + TestTable.recompute_udf_increment)
 
     # TODO: cannot be converted because the UDF reads client-process-local class attributes the daemon cannot see
-    @pytest.mark.local('UDF reads client-process-local class attributes the daemon cannot see')
+    @pytest.mark.db_roots('local', reason='UDF reads client-process-local class attributes the daemon cannot see')
     def test_recompute_column(self, uses_db: None) -> None:
         t = pxt.create_table('recompute_test', schema={'i': pxt.Int | None, 's': pxt.String | None})
         status = t.add_computed_column(i1=self.recompute_int_udf(t.i))
@@ -4467,7 +4467,7 @@ class TestTable:
                 {'c': {'type': pxt.Int | None, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
             )
 
-    @pytest.mark.local("Operational table feature, doesn't need to run with proxy")
+    @pytest.mark.db_roots('local', reason="Operational table feature, doesn't need to run with proxy")
     def test_unsupported_operational_tbl_ops(self, uses_db: None) -> None:
         operational_tbl = pxt.create_table('t0', {'n': pxt.Int | None}, _is_data_versioned=False)
         data_versioned_tbl = pxt.create_table('t1', {'n': pxt.Int | None}, _is_data_versioned=True)

@@ -142,7 +142,7 @@ class TestCatalog:
         assert op.needs_xact  # now a ClassVar
         assert 'needs_xact' not in op.to_dict()
 
-    @pytest.mark.local('fault-injection/concurrency test against the in-process catalog internals')
+    @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
     def test_finalize_pending_ops_retriable_error(self, uses_db: None, fault_injection: None) -> None:
         t = pxt.create_table('test', {'a': pxt.Int | None})
         exc = sql_exc.DBAPIError('', {}, orig=psycopg.errors.SerializationFailure())
@@ -152,7 +152,7 @@ class TestCatalog:
         fault.assert_count(1)
         _ = t.select(t.b).collect()
 
-    @pytest.mark.local('fault-injection/concurrency test against the in-process catalog internals')
+    @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
     def test_finalize_pending_ops_non_retriable_error(self, uses_db: None, fault_injection: None) -> None:
         t = pxt.create_table('test', {'a': pxt.Int | None})
         # Inject a non-retriable error into LoadViewOp. LoadViewOp is the last of 3 ops that constitute a view creation.
@@ -171,7 +171,7 @@ class TestCatalog:
         assert len(ls) == 1, ls
         assert ls['Name'].iloc[0] == 'test', ls
 
-    @pytest.mark.local('recovers transparently when the server drops the pooled db connections')
+    @pytest.mark.db_roots('local', reason='recovers transparently when the server drops the pooled db connections')
     def test_dropped_connection(self, uses_db: None) -> None:
         if not Env.get().is_local:
             # the way this test drops connections (pg_terminate_backend on the pixeltable db) is specific to pgserver
@@ -214,7 +214,7 @@ class TestCatalog:
         t.insert([{'a': 2}])
         assert t.count() == 2
 
-    @pytest.mark.local('fault-injection/concurrency test against the in-process catalog internals')
+    @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
     def test_concurrent_add_column_insert(self, uses_db: None, fault_injection: None, is_data_versioned: bool) -> None:
         """Concurrent insert while add_column is blocked mid-finalize"""
         t = pxt.create_table('test', {'a': pxt.Int | None}, _is_data_versioned=is_data_versioned)
@@ -241,7 +241,7 @@ class TestCatalog:
         assert len(result) == 1
         assert result[0] == {'a': 1, 'b': 2}
 
-    @pytest.mark.local('fault-injection/concurrency test against the in-process catalog internals')
+    @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
     def test_create_view_stale_base_tv_after_txn_failure(self, uses_db: None, fault_injection: None) -> None:
         """
         Verifies bug fix: due to an error in view creation, Catalog would fail to invalidate a modified but not
@@ -283,7 +283,7 @@ class TestCatalog:
         # Verify that the insert was propagated to vb.
         assert pxt.get_table('vb').count() == 1
 
-    @pytest.mark.local('fault-injection/concurrency test against the in-process catalog internals')
+    @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
     def test_load_view_concurrent_drop_view(self, uses_db: None, fault_injection: None) -> None:
         """
         Start with a base table and a view. Thread 0 loads the view md, and is about to initialize it when Thread 1
@@ -312,7 +312,7 @@ class TestCatalog:
         base.insert([{'a': 1}])
         assert base.count() == 1
 
-    @pytest.mark.local('fault-injection/concurrency test against the in-process catalog internals')
+    @pytest.mark.db_roots('local', reason='fault-injection/concurrency test against the in-process catalog internals')
     def test_drop_view_concurrent_insert(self, uses_db: None, fault_injection: None) -> None:
         """
         Start with a base table and a view. Thread 0 begins to drop the view, but pauses inside finalize pending ops

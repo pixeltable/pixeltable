@@ -119,7 +119,7 @@ class TestFunction:
         assert isinstance(td['templates'], list) and len(td['templates']) == 1
         assert isinstance(Function.from_dict(td), func.ExprTemplateFunction)
 
-    @pytest.mark.local('inspects the in-process FunctionRegistry')
+    @pytest.mark.db_roots('local', reason='inspects the in-process FunctionRegistry')
     def test_list(self, uses_db: None) -> None:
         _ = FunctionRegistry.get().list_functions()
         print(_)
@@ -202,7 +202,7 @@ class TestFunction:
         ):
             t.add_computed_column(bad=pickled_q(t.c1))
 
-    @pytest.mark.local('inline __main__ UDF resolves only in the defining process')
+    @pytest.mark.db_roots('local', reason='inline __main__ UDF resolves only in the defining process')
     def test_inline_notebook_udf(
         self, db_root: DatabaseRoot, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -932,7 +932,7 @@ class TestFunction:
     def crt_test_udf(a: int, b: int, c: int = 5) -> pxt.Array[pxt.Int]:
         return np.ones((b, c)) * a
 
-    @pytest.mark.local('exercises a UDF conditional_return_type defined as a client-process-local class attribute')
+    @pytest.mark.db_roots('local', reason='exercises a UDF conditional_return_type defined as a client-process-local class attribute')
     def test_conditional_return_type(self, uses_db: None) -> None:
         f = self.crt_test_udf
 
@@ -1351,7 +1351,7 @@ class TestFunction:
 
         reload_catalog()
 
-    @pytest.mark.local('swaps UDF code in the client process across catalog reloads; not visible to the daemon')
+    @pytest.mark.db_roots('local', reason='swaps UDF code in the client process across catalog reloads; not visible to the daemon')
     @pytest.mark.parametrize('as_kwarg', [False, True])
     def test_udf_evolution(self, as_kwarg: bool, uses_db: None) -> None:
         """
@@ -1597,7 +1597,7 @@ class TestFunction:
         # mimic(udf_version_7)
         # reload_and_validate_table(validation_error=return_type_error.format(return_type='Array | None'))
 
-    @pytest.mark.local('patches a client-process-local UDF to raise on catalog load; not visible to the daemon')
+    @pytest.mark.db_roots('local', reason='patches a client-process-local UDF to raise on catalog load; not visible to the daemon')
     def test_udf_import_error(self, uses_db: None) -> None:
         """
         Tests that the Pixeltable catalog loads successfully when a function's conditional_return_type() method
@@ -1660,7 +1660,7 @@ class TestFunction:
             pxt.tools(pxt.functions.sum)  # type: ignore[arg-type]
         assert 'Aggregator UDFs cannot be used as tools' in str(exc_info.value)
 
-    @pytest.mark.local('builds a retrieval tool from a table')
+    @pytest.mark.db_roots('local', reason='builds a retrieval tool from a table')
     def test_retrieval_tool(self, uses_db: None) -> None:
         t = pxt.create_table('customers', {'customer_id': pxt.String, 'name': pxt.String, 'sales': pxt.Int | None})
         t.insert(
@@ -1729,7 +1729,7 @@ class TestFunction:
         lookup.add_computed_column(matching=fn2(customer_id=lookup.lookup_id))
         assert lookup.matching.col_type == fn2.signature.return_type
 
-    @pytest.mark.local('builds a query function from a table via Function.from_table')
+    @pytest.mark.db_roots('local', reason='builds a query function from a table via Function.from_table')
     def test_from_table(self, uses_db: None) -> None:
         schema: dict[str, Any] = {'in1': pxt.Int, 'in2': pxt.String, 'in3': pxt.Float | None, 'in4': pxt.Image | None}
         t = pxt.create_table('test', schema)
@@ -1891,7 +1891,7 @@ class TestFunction:
 
         assert len(t.where(t.col_2.match('def')).collect()) == 1
 
-    @pytest.mark.local('runs a UDF-definition script in a subprocess')
+    @pytest.mark.db_roots('local', reason='runs a UDF-definition script in a subprocess')
     def test_udf_in_global_namespace(self, uses_db: None) -> None:
         process = subprocess.run(('python', 'tests/script_with_udf.py'), check=False, capture_output=True, text=True)
         assert process.returncode != 0  # The script should fail with an appropriate error message

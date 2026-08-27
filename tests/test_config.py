@@ -484,7 +484,7 @@ class TestConfig:
                 os.environ['PIXELTABLE_CONFIG'] = original_config
             Config.init(reinit=True)
 
-    @pytest.mark.local('a local filesystem destination is rejected for a hosted table')
+    @pytest.mark.db_roots('local', reason='a local filesystem destination is rejected for a hosted table')
     def test_config_var_destination_follows_rebinding(self, uses_db: None, tmp_path: Path) -> None:
         """Rows written after a config var is rebound land where it now points.
 

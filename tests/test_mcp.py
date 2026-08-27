@@ -17,7 +17,7 @@ _logger = logging.getLogger('pixeltable_test')
 
 
 @rerun_on_network_error()
-@pytest.mark.skip_cloud(reason='MCP server is not available in cloud tests')
+@pytest.mark.db_roots('local', 'proxy', reason='MCP server is not available in cloud tests')
 class TestMcp:
     def test_mcp_server(self, db_root: DatabaseRoot, init_mcp_server: str) -> None:
         skip_test_if_not_installed('mcp')

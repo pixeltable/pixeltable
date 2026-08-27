@@ -259,7 +259,7 @@ class TestConcurrentOps:
         errors = _run_workers(worker, n_threads=self.NUM_THREADS)
         self._assert_no_errors(errors)
 
-    @pytest.mark.skip_cloud(reason='Fails for unclear reasons [PXT-1315]')
+    @pytest.mark.db_roots('local', 'proxy', reason='Fails for unclear reasons [PXT-1315]')
     def test_concurrent_select_insert(self, db_root: DatabaseRoot) -> None:
         """
         Concurrent threads doing select and insert operations on the same table.

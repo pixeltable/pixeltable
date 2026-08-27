@@ -37,7 +37,7 @@ def _trivial_embed(s: str) -> pxt.Array[(8,), np.float32]:
     return np.zeros(8, dtype=np.float32)
 
 
-@pytest.mark.local('reports daemon liveness/version; not catalog-specific')
+@pytest.mark.db_roots('local', reason='reports daemon liveness/version; not catalog-specific')
 class TestHealth:
     def test_basics(self, cli: PxtRunner, pxt_daemon: int) -> None:
         out = cli('health').json
@@ -210,7 +210,7 @@ class TestCwd:
         finally:
             cli('cd')
 
-    @pytest.mark.local("'..' resolves against the local catalog root")
+    @pytest.mark.db_roots('local', reason="'..' resolves against the local catalog root")
     def test_dot_segments(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """'.' and '..' navigate relative to the working directory, as they do in a shell."""
         p = db_root.make_catalog_path
@@ -242,7 +242,7 @@ class TestCwd:
         finally:
             cli('cd')
 
-    @pytest.mark.local("a leading '/' absolute path is a local-catalog notion")
+    @pytest.mark.db_roots('local', reason="a leading '/' absolute path is a local-catalog notion")
     def test_mv_destination_honors_absolute_path(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         pxt.create_dir(p('cli_mv_wd'), if_exists='ignore')
@@ -271,7 +271,7 @@ class TestCwd:
             cli('cd')
             pxt.drop_table(p('movee'), if_not_exists='ignore')
 
-    @pytest.mark.local("a leading '/' absolute path is a local-catalog notion")
+    @pytest.mark.db_roots('local', reason="a leading '/' absolute path is a local-catalog notion")
     def test_absolute_path_ignores_wd(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         pxt.create_dir(p('cli_cwd_abs'), if_exists='ignore')
@@ -287,7 +287,7 @@ class TestCwd:
         finally:
             cli('cd')
 
-    @pytest.mark.local('prompt renders the working directory in the CLI absolute convention')
+    @pytest.mark.db_roots('local', reason='prompt renders the working directory in the CLI absolute convention')
     def test_shell_prompt_shows_working_directory(
         self, cli: PxtRunner, pxt_daemon: int, db_root: DatabaseRoot, session_project: pathlib.Path
     ) -> None:
@@ -322,7 +322,7 @@ class TestCwd:
         finally:
             cli('cd')  # never leak the working directory into other tests sharing this session
 
-    @pytest.mark.local('daemon session store; independent of the catalog backend')
+    @pytest.mark.db_roots('local', reason='daemon session store; independent of the catalog backend')
     def test_rejects_nonexistent_and_isolates_sessions(
         self, db_root: DatabaseRoot, pxt_daemon: int
     ) -> None:
@@ -485,7 +485,7 @@ class TestHistory:
         assert 'version' in text
         assert 'change_type' in text
 
-    @pytest.mark.local('direct-HTTP test of the daemon route validator; fires before catalog resolution')
+    @pytest.mark.db_roots('local', reason='direct-HTTP test of the daemon route validator; fires before catalog resolution')
     def test_server_rejects_malformed_n(self, pxt_daemon: int) -> None:
         # A non-integer or out-of-range n must produce a structured 4xx, not bubble up as a
         # generic 500. The CLI client validates -n before sending, so this exercises the
@@ -690,7 +690,7 @@ class TestCount:
         assert r.returncode != 0
 
 
-@pytest.mark.local('reports daemon/host status (version, pid, home, dir sizes); not catalog-specific')
+@pytest.mark.db_roots('local', reason='reports daemon/host status (version, pid, home, dir sizes); not catalog-specific')
 class TestStatus:
     def test_basics(self, cli: PxtRunner) -> None:
         # --json: paths are reported raw (no redaction)
@@ -721,7 +721,7 @@ class TestStatus:
         assert any(unit in sized for unit in ('B)', 'KB)', 'MB)', 'GB)'))
 
 
-@pytest.mark.local('reports resolved configuration settings; not catalog-specific')
+@pytest.mark.db_roots('local', reason='reports resolved configuration settings; not catalog-specific')
 class TestConfig:
     def test_basics(self, cli: PxtRunner) -> None:
         """cli config reports every documented configuration setting with its resolved value and
@@ -1052,7 +1052,7 @@ class TestRevert:
         assert 'steps must be >= 1' in json.loads(ei.value.read())['detail']
 
 
-@pytest.mark.local('client-side path-shape validator; the pxt:// prefix is validated elsewhere')
+@pytest.mark.db_roots('local', reason='client-side path-shape validator; the pxt:// prefix is validated elsewhere')
 class TestPathValidator:
     """Client-side path validator (pixeltable_cli.client.utils.validate_path_arg). Catches every well-known
     bad shape before the request reaches the server so the user gets a clear error message
@@ -1089,7 +1089,7 @@ class TestPathValidator:
             assert 'control characters' in json.loads(ei.value.read())['detail']
 
 
-@pytest.mark.local('client-side --cols token validator; fires before the request reaches the catalog')
+@pytest.mark.db_roots('local', reason='client-side --cols token validator; fires before the request reaches the catalog')
 class TestColsValidator:
     """Client-side --cols validator (parser.parse_cols). Rejects every shape that would
     yield an empty token. Shared between `rows` and `get`."""
@@ -1106,7 +1106,7 @@ class TestColsValidator:
         assert 'must not be empty' in r.stderr
 
 
-@pytest.mark.local('top-level CLI surface (help, argparse); no catalog interaction')
+@pytest.mark.db_roots('local', reason='top-level CLI surface (help, argparse); no catalog interaction')
 class TestCli:
     """Top-level CLI surface (help, unknown commands, argparse errors)."""
 
@@ -1134,7 +1134,7 @@ class TestCli:
         assert 'Examples' in r.stderr  # the per-command epilog block is appended on error
 
 
-@pytest.mark.local('dashboard SPA routes read the daemon in-process catalog directly over HTTP')
+@pytest.mark.db_roots('local', reason='dashboard SPA routes read the daemon in-process catalog directly over HTTP')
 class TestDashboard:
     """Dashboard SPA + SPA-only routes are always available when the daemon is up."""
 
@@ -1216,7 +1216,7 @@ class TestDashboard:
             assert 'svg' in r.headers.get('Content-Type', '').lower()
 
 
-@pytest.mark.local('dashboard command is a URL launcher; no catalog interaction')
+@pytest.mark.db_roots('local', reason='dashboard command is a URL launcher; no catalog interaction')
 class TestDashboardCommand:
     """The `pxt dashboard` command (a thin URL-launcher) exercised through subprocess."""
 
@@ -1235,7 +1235,7 @@ class TestDashboardCommand:
         assert r.returncode == 0
 
 
-@pytest.mark.local('measures client import cost; independent of the catalog backend')
+@pytest.mark.db_roots('local', reason='measures client import cost; independent of the catalog backend')
 class TestColdStartBudget:
     """Locks in the cold-start budget for daemon-routed commands.
 

@@ -19,7 +19,7 @@ import pixeltable as pxt
 from ..utils import skip_test_if_not_installed, DatabaseRoot
 from .conftest import PxtRunner
 
-pytestmark = pytest.mark.local('the daemon under test is the one serving the in-process catalog')
+pytestmark = pytest.mark.db_roots('local', reason='the daemon under test is the one serving the in-process catalog')
 
 # values no daemon in this module was started with, and that no output may ever contain
 _A_KEY = 'sk-pxt-test-aaaa'

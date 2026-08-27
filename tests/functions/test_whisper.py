@@ -6,7 +6,7 @@ import pixeltable as pxt
 
 from ..utils import get_audio_files, rerun_on_network_error, skip_test_if_not_installed, validate_update_status
 
-pytestmark = pytest.mark.local('UDF/integration test')
+pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
 @rerun_on_network_error()

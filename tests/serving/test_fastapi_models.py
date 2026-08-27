@@ -285,7 +285,7 @@ class TestFastAPIModels:
         with pxt_raises(pxt.ErrorCode.SCHEMA_MISMATCH, match=r"(?s)ADDED.*'note'"):
             router.bind(p(''))
 
-    @pytest.mark.skip_cloud(reason='Unclear; re-run once other known issues are fixed')
+    @pytest.mark.db_roots('local', 'proxy', reason='Unclear; re-run once other known issues are fixed')
     def test_bind_mismatches(self, db_root: DatabaseRoot) -> None:
         """Every difference between a model and the table it names stops the routes declared against it."""
         p = db_root.make_catalog_path

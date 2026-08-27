@@ -1253,7 +1253,7 @@ class TestExprs:
         assert len(errormsgs) == t.count() // 2
         assert all('Expected non-None value' in msg for msg in errormsgs), errormsgs
 
-    @pytest.mark.local('resolves images from client-local filesystem paths the daemon cannot see')
+    @pytest.mark.db_roots('local', reason='resolves images from client-local filesystem paths the daemon cannot see')
     def test_astype_str_to_img(self, uses_db: None) -> None:
         img_files = get_image_files()
         img_files = sorted(img_files[:5])
@@ -1552,7 +1552,7 @@ class TestExprs:
         assert repr(sim1) == "img.similarity('red truck', 'img_idx1')"
         assert repr(sim2) == "img.similarity('red truck', 'img_idx2')"
 
-    @pytest.mark.local('TODO: convert')
+    @pytest.mark.db_roots('local', reason='TODO: convert')
     def test_ids(
         self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr], multi_img_tbl_exprs: list[exprs.Expr]
     ) -> None:
@@ -1563,7 +1563,7 @@ class TestExprs:
             d[e.id] = e
         assert len(d) == len(test_tbl_exprs) + len(img_tbl_exprs) + len(multi_img_tbl_exprs)
 
-    @pytest.mark.local('TODO: convert')
+    @pytest.mark.db_roots('local', reason='TODO: convert')
     def test_serialization(
         self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr], multi_img_tbl_exprs: list[exprs.Expr]
     ) -> None:
@@ -1575,7 +1575,7 @@ class TestExprs:
             e_deserialized = Expr.deserialize(e_serialized)
             assert e.equals(e_deserialized)
 
-    @pytest.mark.local('TODO: convert')
+    @pytest.mark.db_roots('local', reason='TODO: convert')
     def test_print(
         self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr], multi_img_tbl_exprs: list[exprs.Expr]
     ) -> None:
@@ -1909,7 +1909,7 @@ class TestExprs:
 
         assert "'group_by' is a reserved parameter name" in str(exc_info.value).lower()
 
-    @pytest.mark.local('asserts on Expr repr strings')
+    @pytest.mark.db_roots('local', reason='asserts on Expr repr strings')
     def test_repr(self, uses_db: None) -> None:
         t = create_all_datatypes_tbl()
         instances: list[tuple[exprs.Expr, str]] = [
@@ -2068,7 +2068,7 @@ def _add_two(x: int, y: int) -> int:
     return x + y
 
 
-@pytest.mark.local('exercises expr-eval slot GC internals')
+@pytest.mark.db_roots('local', reason='exercises expr-eval slot GC internals')
 def test_gc_bug_leaked_slot(uses_db: None) -> None:
     """Reproduce the GC bug where has_val doesn't distinguish 'not computed' from 'already GC'd'.
 

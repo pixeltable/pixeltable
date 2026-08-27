@@ -2483,7 +2483,7 @@ class TestTableModel:
         with pxt_raises(excs.ErrorCode.SCHEMA_MISMATCH, match=r'Call `update_all\(\)` instead'):
             TableModel.create_all(p(''))
 
-    @pytest.mark.local('a local filesystem destination is rejected for a hosted table')
+    @pytest.mark.db_roots('local', reason='a local filesystem destination is rejected for a hosted table')
     def test_config_var_destination(
         self, db_root: DatabaseRoot, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

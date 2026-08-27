@@ -228,7 +228,7 @@ class TestIterator:
         # the shadowing columns hold the innermost iterator's values, not the shadowed ones
         assert all(r['scol'] == f'string {r["icol"]}' for r in vv.collect())
 
-    @pytest.mark.local('validates the @pxt.iterator decorator on client-process-local classes')
+    @pytest.mark.db_roots('local', reason='validates the @pxt.iterator decorator on client-process-local classes')
     def test_iterator_errors(self, uses_db: None) -> None:
         # Error: class not a subclass of PxtIterator
         with pxt_raises(
@@ -446,7 +446,7 @@ class TestIterator:
 
     # test_evolving_iterator stays local-only: it monkey-patches the module-global `evolving_iterator` in this
     # process, which the proxy daemon (a separate process resolving its own module state) would never observe.
-    @pytest.mark.local(
+    @pytest.mark.db_roots('local', reason=
         'monkey-patches the module-global evolving_iterator in this process, which the daemon would never observe'
     )
     @pytest.mark.parametrize('as_kwarg', [False, True])

@@ -152,7 +152,7 @@ class TestCsv:
         with pytest.raises(pxt.Error, match='not JSON-serializable'):
             pxt.io.export_csv(t, tmp_path / 'should_fail.csv')
 
-    @pytest.mark.local('uses a local-filesystem destination, which a hosted table does not support')
+    @pytest.mark.db_roots('local', reason='uses a local-filesystem destination, which a hosted table does not support')
     def test_export_computed_media_with_destination(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Computed media columns with a local file destination export their file URLs."""
         dest_path = Config.get().home / 'test-csv-dest'

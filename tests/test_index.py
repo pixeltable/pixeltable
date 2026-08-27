@@ -500,7 +500,7 @@ class TestIndex:
         # sanity check persistence
         reload_tester.run_reload_test()
 
-    @pytest.mark.local('TODO: convert')
+    @pytest.mark.db_roots('local', reason='TODO: convert')
     def test_unnamed_duplicate_detection(self, small_img_tbl: pxt.Table, local_embed: pxt.Function) -> None:
         t = small_img_tbl
 
@@ -538,7 +538,7 @@ class TestIndex:
         with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='identical embedding index'):
             t.add_embedding_index('category', string_embed=local_embed)
 
-    @pytest.mark.skip_cloud(reason='Fails due to inaccessible .fileurl [PXT-1323]')
+    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to inaccessible .fileurl [PXT-1323]')
     def test_update_img(
         self,
         img_tbl: pxt.Table,
@@ -598,7 +598,7 @@ class TestIndex:
             img_t.batch_update([repl_row], cascade=True)
         print(img_t.select(img_t.pkey, img_t.img).collect())
 
-    @pytest.mark.skip_cloud(reason='Fails due to inaccessible .fileurl [PXT-1323]')
+    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to inaccessible .fileurl [PXT-1323]')
     def test_embedding_access(
         self,
         img_tbl: pxt.Table,
@@ -635,7 +635,7 @@ class TestIndex:
         img_t.drop_column('ebd_copy')
         img_t.drop_embedding_index(column=img_t.category)
 
-    @pytest.mark.skip_cloud(reason='Fails due to inaccessible .fileurl [PXT-1323]')
+    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to inaccessible .fileurl [PXT-1323]')
     def test_embedding_basic(
         self,
         img_tbl: pxt.Table,
@@ -992,7 +992,7 @@ class TestIndex:
         data = [random.uniform(0, sys.float_info.max) for _ in range(self.BTREE_TEST_NUM_ROWS)]
         self.run_btree_test(p, data, pxt.Float, is_data_versioned)
 
-    @pytest.mark.skip_cloud(reason='Fails due to case-insensitive string comparison on cloud [PXT-1316]')
+    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to case-insensitive string comparison on cloud [PXT-1316]')
     def test_string_btree(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
 
@@ -1031,7 +1031,7 @@ class TestIndex:
         assert t.where(t.data >= s).count() == 2
         assert t.where(t.data > s).count() == 1
 
-    @pytest.mark.skip_cloud(reason='Fails due to exact timestamp match not working on cloud [PXT-1317]')
+    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to exact timestamp match not working on cloud [PXT-1317]')
     def test_timestamp_btree(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path
         random.seed(1)

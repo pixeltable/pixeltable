@@ -206,7 +206,7 @@ class TestSql:
     ) -> None:
         self._run_export_suite(self._sqlite_spec(), tmp_path, db_root.make_catalog_path, db_root.id)
 
-    @pytest.mark.skip_cloud(reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]')
+    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]')
     def test_export_postgresql(
         self, db_root: DatabaseRoot, tmp_path: pathlib.Path
     ) -> None:
@@ -250,7 +250,7 @@ class TestSql:
             export_sql(t_img2, 'img_target', db_connect_str=connection_string, if_exists='insert')
 
     @pytest.mark.parametrize('dbms', _IMPORT_DBMS)
-    @pytest.mark.skip_cloud(reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]')
+    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]')
     def test_import_full_table(
         self, db_root: DatabaseRoot, tmp_path: pathlib.Path, dbms: str
     ) -> None:
@@ -421,7 +421,7 @@ class TestSql:
         assert list(result) == expected
 
     @pytest.mark.parametrize('dbms', _IMPORT_DBMS)
-    @pytest.mark.skip_cloud('Relies on a locally instantiated DB server')
+    @pytest.mark.db_roots('local', 'proxy', reason='Relies on a locally instantiated DB server')
     def test_import_on_server(self, db_root: DatabaseRoot, tmp_path: pathlib.Path, dbms: str) -> None:
         p = db_root.make_catalog_path
         engine = _import_engine(dbms, tmp_path)
@@ -440,7 +440,7 @@ class TestSql:
         assert [(r['c_int'], r['c_str']) for r in result] == [(r['c_int'], r['c_str']) for r in rows]
 
     @pytest.mark.parametrize('dbms', _IMPORT_DBMS)
-    @pytest.mark.local(
+    @pytest.mark.db_roots('local', reason=
         'SQL media columns referencing local file paths are a local-only scenario; a hosted '
         "daemon cannot read the client's local files"
     )
@@ -714,7 +714,7 @@ class TestSql:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='non-None'):
             import_sql(src, engine, p('null_dest'), schema_overrides=overrides, on_error='ignore')
 
-    @pytest.mark.local(
+    @pytest.mark.db_roots('local', reason=
         'seeds a local-file image into the SQL source, which is a local-only scenario (a hosted '
         "daemon cannot read the client's local files)"
     )

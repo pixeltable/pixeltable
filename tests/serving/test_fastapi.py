@@ -277,7 +277,7 @@ def assert_sqlite_row(connect: str, table_name: str, where: dict[str, Any], expe
         assert actual == v, (k, actual, v)
 
 
-@pytest.mark.skip_cloud(reason='Numerous failures; re-run once other known issues are fixed')
+@pytest.mark.db_roots('local', 'proxy', reason='Numerous failures; re-run once other known issues are fixed')
 class TestFastAPI:
     @pytest.mark.parametrize('route_type', ['insert', 'compute', 'compute_view'])
     def test_add_insert_route_scalars(
@@ -995,7 +995,7 @@ class TestFastAPI:
         # (export_sql writes the response body, so this assertion holds for both insert and compute)
         assert_sqlite_row(db_connect, 'bg_resize', {'resized': result['resized']}, {'resized': result['resized']})
 
-    @pytest.mark.local('a background job computes in the router process only for an in-process catalog')
+    @pytest.mark.db_roots('local', reason='a background job computes in the router process only for an in-process catalog')
     @pytest.mark.parametrize('busy_at_shutdown', [False, True])
     def test_background_job_teardown(self, uses_db: None, busy_at_shutdown: bool) -> None:
         """A background job runs on a worker thread with an event loop of its own, which app shutdown closes."""

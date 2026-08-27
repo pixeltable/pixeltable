@@ -161,7 +161,7 @@ class TestQuery:
         with pxt_raises(pxt.ErrorCode.INVALID_STATE, match=r'where\(\) clause already specified'):
             _ = t.select(t.c2).where(t.c2 <= 10).where(t.c2 <= 20).count()
 
-    @pytest.mark.skip_cloud(reason='Fails due to server timeout [PXT-1319]')
+    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to server timeout [PXT-1319]')
     def test_join(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
         num_rows = 1000
@@ -815,7 +815,7 @@ class TestQuery:
         self.__check_constant_query(t.select(foo=5), 5)
         self.__check_constant_query(t.select(foo=None), None)
 
-    @pytest.mark.local('TODO: convert')
+    @pytest.mark.db_roots('local', reason='TODO: convert')
     def test_to_pytorch_dataset(self, all_datatypes_tbl: pxt.Table) -> None:
         """tests all types are handled correctly in this conversion"""
         skip_test_if_not_installed('torch', 'torchvision', 'pyarrow')
@@ -845,7 +845,7 @@ class TestQuery:
             assert isinstance(tup['c_video'], str)
             assert isinstance(tup['c_json'], dict)
 
-    @pytest.mark.local('TODO: convert')
+    @pytest.mark.db_roots('local', reason='TODO: convert')
     def test_to_pytorch_image_format(self, all_datatypes_tbl: pxt.Table) -> None:
         """tests the image_format parameter is honored"""
         skip_test_if_not_installed('torch', 'torchvision', 'pyarrow')
@@ -900,7 +900,7 @@ class TestQuery:
             elt_count += 1
         assert elt_count == 1
 
-    @pytest.mark.local('to_pytorch_dataset caching keyed on the local dataset cache')
+    @pytest.mark.db_roots('local', reason='to_pytorch_dataset caching keyed on the local dataset cache')
     def test_pytorch_dataset_caching(self, uses_db: None) -> None:
         """Tests that dataset caching works
         1. using the same dataset twice in a row uses the cache
@@ -944,7 +944,7 @@ class TestQuery:
         assert isinstance(ds4, PixeltablePytorchDataset)
         assert ds4.path != ds3.path, 'different select list, hence different path should be used'
 
-    @pytest.mark.local('exports a COCO dataset to the local filesystem')
+    @pytest.mark.db_roots('local', reason='exports a COCO dataset to the local filesystem')
     def test_to_coco(self, uses_db: None) -> None:
         pytest.importorskip('pycocotools')
         from pycocotools.coco import COCO
@@ -1242,7 +1242,7 @@ class TestQuery:
         assert all('a' in row and 'b' in row for row in rows)
 
     @pytest.mark.benchmark(group='select_inexpensive')
-    @pytest.mark.skip_cloud(reason='Fails due to server timeout [PXT-1319]')
+    @pytest.mark.db_roots('local', 'proxy', reason='Fails due to server timeout [PXT-1319]')
     def test_select_inexpensive(self, db_root: DatabaseRoot, benchmark: Any) -> None:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('test_inexpensive'), {'c1': pxt.Int | None, 'c2': pxt.String | None})

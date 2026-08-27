@@ -522,7 +522,7 @@ class TestSchema:
         assert pxt.get_table(f'{target}/raw') is not None
         assert f'{target}/gone' not in pxt.list_tables(target)
 
-    @pytest.mark.skip_cloud('Fails with an SSL error, possibly due to excessive data transfer [PXT-1327]')
+    @pytest.mark.db_roots('local', 'proxy', reason='Fails with an SSL error, possibly due to excessive data transfer [PXT-1327]')
     def test_example(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         skip_test_if_not_installed('sentence_transformers')
         p = db_root.make_catalog_path
@@ -705,7 +705,7 @@ class TestSchema:
         (project_dir / 'proj1' / 'helpers.py').write_text("TAG = 'edited'\n")
         assert_in_agreement(cli, str(project_dir / 'proj1' / 'app.py'), p('proj1'))
 
-    @pytest.mark.local('check reads no catalog, so the target axis adds nothing')
+    @pytest.mark.db_roots('local', reason='check reads no catalog, so the target axis adds nothing')
     def test_check(
         self,
         cli: PxtRunner,
@@ -771,7 +771,7 @@ class TestSchema:
         assert len(report['warnings']) == 1, report
         assert "an import of 'psutil' reads" in report['warnings'][0]
 
-    @pytest.mark.local('the column is resolved in this process, so the report of a missing file lands here')
+    @pytest.mark.db_roots('local', reason='the column is resolved in this process, so the report of a missing file lands here')
     def test_update_errors(
         self,
         cli: PxtRunner,

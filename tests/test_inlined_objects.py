@@ -43,7 +43,7 @@ class TestInlinedObjects:
         assert all(row['data'] is not None for row in res)
         assert all(row['i'] % 2 == 0 for row in res)
 
-    @pytest.mark.skip_cloud(reason='Fails, possibly due to bytes/ndarray being inlined [PXT-1318]')
+    @pytest.mark.db_roots('local', 'proxy', reason='Fails, possibly due to bytes/ndarray being inlined [PXT-1318]')
     def test_insert_arrays(self, db_root: DatabaseRoot) -> None:
         """Test storing arrays of various sizes and dtypes."""
         p = db_root.make_catalog_path
@@ -123,7 +123,7 @@ class TestInlinedObjects:
         if db_root.id == 'local':
             assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
-    @pytest.mark.skip_cloud(reason='Fails, possibly due to bytes/ndarray being inlined [PXT-1318]')
+    @pytest.mark.db_roots('local', 'proxy', reason='Fails, possibly due to bytes/ndarray being inlined [PXT-1318]')
     def test_insert_inlined_objects(self, db_root: DatabaseRoot) -> None:
         """Test storing lists and dicts with arrays of various sizes and dtypes."""
         p = db_root.make_catalog_path
@@ -200,7 +200,7 @@ class TestInlinedObjects:
         if db_root.id == 'local':
             assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
-    @pytest.mark.skip_cloud(reason='Fails, possibly due to bytes/ndarray being inlined [PXT-1318]')
+    @pytest.mark.db_roots('local', 'proxy', reason='Fails, possibly due to bytes/ndarray being inlined [PXT-1318]')
     def test_nonstandard_json_construction(
         self, db_root: DatabaseRoot
     ) -> None:
@@ -366,7 +366,7 @@ class TestInlinedObjects:
 
         reload_tester.run_reload_test()
 
-    @pytest.mark.local('TODO: convert; file-path media in JSON not yet shipped over proxy')
+    @pytest.mark.db_roots('local', reason='TODO: convert; file-path media in JSON not yet shipped over proxy')
     def test_json_media(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
 
