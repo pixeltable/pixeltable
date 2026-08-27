@@ -1155,7 +1155,7 @@ def check_media_store_count(
     A cloud database's media store lives in its own container, unreachable from the test process, so the check
     is skipped in that mode.
     """
-    if catalog_mode == 'cloud':
+    if db_root.id == 'cloud':
         # TODO: We should find a way to assert this [PXT-1313].
         return  # media store not reachable; don't assert anything
 
@@ -1178,7 +1178,7 @@ def check_media_store_count(
 
 def get_temp_store_count(tbl: pxt.Table, db_root: DatabaseRoot) -> int:
     """Count the objects in the temp store of the catalog tbl lives in."""
-    if catalog_mode == 'cloud':
+    if db_root.id == 'cloud':
         return 0  # temp store not reachable
 
     catalog_uri = tbl._tbl_path.catalog_uri
@@ -1190,7 +1190,7 @@ def get_temp_store_count(tbl: pxt.Table, db_root: DatabaseRoot) -> int:
 
 def check_temp_store_count(tbl: pxt.Table, expected_count: int, db_root: DatabaseRoot) -> None:
     """Count the objects in the temp store of the catalog tbl lives in."""
-    if catalog_mode == 'cloud':
+    if db_root.id == 'cloud':
         # TODO: We should find a way to assert this [PXT-1313].
         return  # temp store not reachable; don't assert anything
 

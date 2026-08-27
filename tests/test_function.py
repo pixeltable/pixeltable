@@ -6,7 +6,7 @@ import typing
 import warnings
 from datetime import datetime, timezone
 from textwrap import dedent
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 import pytest
@@ -20,6 +20,7 @@ from pixeltable.func import Batch, Function, FunctionRegistry
 
 from .utils import (
     ReloadTester,
+    DatabaseRoot,
     assert_resultset_eq,
     assert_type_eq,
     get_image_files,
@@ -130,7 +131,7 @@ class TestFunction:
     def test_stored_udf(self, db_root: DatabaseRoot) -> None:
         # a udf without a fully-qualified path (forced here via _force_stored) can't be persisted into a
         # computed column, but still works as a query expression
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test'), {'c1': pxt.Int | None, 'c2': pxt.Float | None})
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
         status = t.insert(rows)
@@ -153,7 +154,7 @@ class TestFunction:
     def test_using_storable(self, db_root: DatabaseRoot) -> None:
         # .using() on a module UDF yields a storable template (its inlined expression references the function by
         # path), so it can back a computed column; .using() on a local UDF inlines a pickled function and cannot
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test'), {'c1': pxt.Int | None, 'c2': pxt.Float | None})
         t.insert([{'c1': i, 'c2': i + 0.5} for i in range(10)])
 
@@ -176,7 +177,7 @@ class TestFunction:
     def test_query_storable(self, db_root: DatabaseRoot) -> None:
         # a @pxt.query is serialized by value, so it is storable only if its clauses embed no pickled function: one
         # built from storable exprs can back a computed column, one that filters with a local UDF cannot
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test'), {'c1': pxt.Int | None, 'c2': pxt.Float | None})
         t.insert([{'c1': i, 'c2': i + 0.5} for i in range(10)])
 
@@ -223,7 +224,7 @@ class TestFunction:
         assert wc.self_path == '__main__.word_count'
         assert wc.is_storable
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('articles'), {'content': pxt.String | None})
         t.add_computed_column(word_count=wc(t.content))
         t.insert([{'content': 'a b c'}, {'content': 'one two three four'}])
@@ -425,7 +426,7 @@ class TestFunction:
         return s + suffix
 
     def test_member_access_udf(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test'), {'c1': pxt.String | None, 'c2': pxt.Int | None})
         rows = [{'c1': 'a', 'c2': 1}, {'c1': 'b', 'c2': 2}]
         validate_update_status(t.insert(rows))
@@ -467,7 +468,7 @@ class TestFunction:
         assert 'Stored functions cannot be declared using `is_method` or `is_property`' in str(exc_info.value)
 
     def test_query(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('imagehash')
 
         name = p('test')
@@ -538,7 +539,7 @@ class TestFunction:
         validate_update_status(t.insert(rows))
 
     def test_query_bound_limit_offset(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test'), {'c1': pxt.Int | None})
         t.insert([{'c1': i} for i in range(10)])
 
@@ -591,7 +592,7 @@ class TestFunction:
             neg.add_computed_column(c=skipped(neg.n), on_error='abort')
 
     def test_query2(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         schema: dict[str, Any] = {'query_text': pxt.String | None, 'i': pxt.Int | None}
         queries = pxt.create_table(p('queries'), schema)
         query_rows = [
@@ -657,7 +658,7 @@ class TestFunction:
     # TODO: find a general solution
     @pytest.mark.filterwarnings("ignore:The computed column 'result' in table 'retrieval' is no longer valid")
     def test_query_over_view(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('test'))
         t = pxt.create_table(p('test/tbl'), {'a': pxt.String | None})
         v = pxt.create_view(p('test/view'), t, additional_columns={'text': pxt.String | None})
@@ -762,7 +763,7 @@ class TestFunction:
                 return t.select(t.c4).limit(10, offset=n)  # type: ignore[arg-type]
 
     def test_query_json_mapper(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test'), {'c1': pxt.Int | None, 'c2': pxt.Float | None})
         t_rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
         validate_update_status(t.insert(t_rows), 100)
@@ -780,7 +781,7 @@ class TestFunction:
         _ = u.select(u.out).collect()
 
     def test_query_errors(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         schema: dict[str, Any] = {'a': pxt.Int | None, 'b': pxt.Int | None}
         t = pxt.create_table(p('test'), schema)
         rows = [{'a': i, 'b': i + 1} for i in range(100)]
@@ -797,7 +798,7 @@ class TestFunction:
         after the UDF's referenced column or table is dropped. The reload path must deserialize the
         stored Query without raising; affected columns become invalid, but the host table and views over it must still
         load."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         src = pxt.create_table(p('src'), {'id': pxt.Int, 'val': pxt.Int, 'extra': pxt.Int | None})
         validate_update_status(src.insert([{'id': i, 'val': i * 10, 'extra': i} for i in range(5)]), expected_rows=5)
 
@@ -870,7 +871,7 @@ class TestFunction:
         return f'{p1} {p2} {p3} {p4}'
 
     def test_partial_binding(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pb1 = self.binding_test_udf.using(p2='y')
         pb2 = self.binding_test_udf.using(p1='x', p3='z')
         pb3 = self.binding_test_udf.using(p1='x', p2='y', p3='z')
@@ -906,7 +907,7 @@ class TestFunction:
             _ = pb1(p1='a')
 
     def test_nested_partial_binding(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pb1 = self.binding_test_udf.using(p2='y')
         pb2 = pb1.using(p1='x')
         pb3 = pb2.using(p3='z')
@@ -1338,7 +1339,7 @@ class TestFunction:
         """
         Test UDFs with default values and/or constant arguments that are not JSON serializable.
         """
-        p = make_catalog_path
+        p = db_root.make_catalog_path
 
         t = pxt.create_table(p('test1'), {'ts1': pxt.Timestamp | None})
         t.add_computed_column(seconds_since_epoch=udf_with_timestamp_constants(t.ts1))
@@ -1872,7 +1873,7 @@ class TestFunction:
 
     def test_required_parameter_missing(self, db_root: DatabaseRoot) -> None:
         """Tests scenarios in which a required input parameter for a UDF or UDA is missing."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test'), {'col_0': pxt.Int | None, 'col_1': pxt.Int | None, 'col_2': pxt.String | None})
         t.insert(
             [
@@ -1898,7 +1899,7 @@ class TestFunction:
 
     def test_resource_estimator_polymorphic(self, db_root: DatabaseRoot) -> None:
         """resource_estimator with _param_types works for valid overloads and fails for mismatched ones."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
 
         # Text overload: estimator param 'content' matches the resolved signature
         t_text = pxt.create_table(p('test_est_text'), {'content': pxt.String | None})
@@ -1921,21 +1922,21 @@ class TestFunction:
 
     def test_resource_estimator_non_polymorphic(self, db_root: DatabaseRoot) -> None:
         """resource_estimator works for a plain (non-polymorphic) UDF."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test_est_plain'), {'content': pxt.String | None})
         t.add_computed_column(emb=mock_embed_plain(t.content))
         validate_update_status(t.insert([{'content': 'hello world'}, {'content': 'foo bar'}]))
 
     def test_resource_estimator_batch(self, db_root: DatabaseRoot) -> None:
         """resource_estimator works for a batched UDF."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test_est_batch'), {'content': pxt.String | None})
         t.add_computed_column(emb=mock_embed_batch(t.content))
         validate_update_status(t.insert([{'content': 'hello world'}, {'content': 'foo bar'}, {'content': 'baz qux'}]))
 
     def test_sync_udf_with_resource_pool(self, db_root: DatabaseRoot) -> None:
         """A sync UDF with a resource_pool must raise an error (scalar, batched, and polymorphic)."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         # scalar
         t1 = pxt.create_table(p('test_sync_rp'), {'text': pxt.String | None})
         t1.add_computed_column(result=sync_udf_with_rp(t1.text))
@@ -1956,7 +1957,7 @@ class TestFunction:
 
     def test_future_annotations_udf(self, db_root: DatabaseRoot) -> None:
         """Tests that UDFs can be defined in modules with `from __future__ import annotations`."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         from .module_with_future_annotations import future_annotations_udf
 
         t = pxt.create_table(p('test_future_annotations'), {'a': pxt.Int | None})

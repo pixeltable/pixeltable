@@ -243,7 +243,7 @@ def cli_bg(
 
 @pytest.fixture
 def cli(pxt_daemon: int, db_root: DatabaseRoot, session_project: pathlib.Path) -> PxtRunner:
-    # make_catalog_path resets the catalog (like uses_db) and pulls in the local/proxy axis, so a test
+    # db_root.make_catalog_path resets the catalog (like uses_db) and pulls in the local/proxy axis, so a test
     # using cli() auto-forks over both backends unless it is marked @pytest.mark.local. The CLI daemon and
     # this test process share PIXELTABLE_HOME, so both resolve a pxt:// path to the same local proxy daemon.
     def _run(

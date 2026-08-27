@@ -14,7 +14,7 @@ from pixeltable.functions.audio import audio_splitter, encode_audio
 from pixeltable.utils import av as av_utils
 
 from .utils import (
-    CatalogMode,
+    DatabaseRoot,
     ReloadTester,
     check_media_store_count,
     check_temp_store_count,
@@ -59,7 +59,7 @@ class TestAudio:
         assert set(paths) == set(audio_filepaths)
 
     def test_extract(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         video_filepaths = get_video_files()
         video_t = pxt.create_table(p('videos'), {'video': pxt.Video | None})
         video_t.add_computed_column(audio=video_t.video.extract_audio())
@@ -76,10 +76,10 @@ class TestAudio:
         )
         # the default store holds one extracted-audio file per video with audio; over the proxy it additionally
         # holds each input video, shipped and persisted there (local references the source files in place)
-        shipped_videos = len(video_filepaths) if catalog_mode == 'proxy' else 0
-        check_media_store_count(video_t, videos_with_audio + shipped_videos, catalog_mode, default_output_dest=True)
+        shipped_videos = len(video_filepaths) if db_root.id == 'proxy' else 0
+        check_media_store_count(video_t, videos_with_audio + shipped_videos, db_root.id, default_output_dest=True)
         assert video_t.where(video_t.audio != None).count() == videos_with_audio
-        init_temp_store_count = get_temp_store_count(video_t, catalog_mode)
+        init_temp_store_count = get_temp_store_count(video_t, db_root.id)
 
         video_t = pxt.get_table(p('videos'))
         assert video_t.where(video_t.audio != None).count() == videos_with_audio
@@ -88,7 +88,7 @@ class TestAudio:
         paths = video_t.select(output=video_t.video.extract_audio(format='wav', codec='pcm_s16le')).collect()['output']
         # media files that are created as a part of a query end up in the tmp dir
         check_temp_store_count(
-            video_t, init_temp_store_count + video_t.where(video_t.audio != None).count(), catalog_mode
+            video_t, init_temp_store_count + video_t.where(video_t.audio != None).count(), db_root.id
         )
         for path in [pth for pth in paths if pth is not None]:
             self.check_audio_params(path, format='wav', codec='pcm_s16le')
@@ -179,22 +179,22 @@ class TestAudio:
         reload_tester.run_reload_test()
 
     def test_audio_splitter_on_videos_revert_media_store(
-        self, db_root: DatabaseRoot, reload_tester: ReloadTester, db_root: DatabaseRoot
+        self, db_root: DatabaseRoot, reload_tester: ReloadTester
     ) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         video_filepaths = get_video_files()
         video_t = pxt.create_table(p('videos'), {'video': pxt.Video | None})
         video_t.insert({'video': path} for path in video_filepaths)
 
-        shipped_files = len(video_filepaths) if catalog_mode == 'proxy' else 0
-        check_media_store_count(video_t, shipped_files, catalog_mode, default_output_dest=True)
+        shipped_files = len(video_filepaths) if db_root.id == 'proxy' else 0
+        check_media_store_count(video_t, shipped_files, db_root.id, default_output_dest=True)
         # extract audio
         video_t.add_computed_column(audio=video_t.video.extract_audio(format='mp3'))
         rows_with_audio = video_t.where(video_t.audio != None).count()
         assert rows_with_audio > 0
-        check_media_store_count(video_t, rows_with_audio + shipped_files, catalog_mode, default_output_dest=True)
+        check_media_store_count(video_t, rows_with_audio + shipped_files, db_root.id, default_output_dest=True)
         video_t.revert()
-        check_media_store_count(video_t, shipped_files, catalog_mode, default_output_dest=True)
+        check_media_store_count(video_t, shipped_files, db_root.id, default_output_dest=True)
 
     @pytest.mark.local('TODO: convert; audio-splitter view')
     def test_audio_splitter_single_file(self, uses_db: None, reload_tester: ReloadTester) -> None:

@@ -1,10 +1,8 @@
-from typing import Callable
-
 import pytest
 
 import pixeltable as pxt
 
-from .utils import pxt_raises, reload_catalog, validate_update_status
+from .utils import pxt_raises, reload_catalog, validate_update_status, DatabaseRoot
 
 
 class TestAlterColumn:
@@ -12,7 +10,7 @@ class TestAlterColumn:
     def test_alter_column(
         self, db_root: DatabaseRoot, do_reload_catalog: bool, is_data_versioned: bool
     ) -> None:
-        t = pxt.create_table(make_catalog_path('test_tbl'), {'c1': pxt.String}, _is_data_versioned=is_data_versioned)
+        t = pxt.create_table(db_root.make_catalog_path('test_tbl'), {'c1': pxt.String}, _is_data_versioned=is_data_versioned)
         validate_update_status(t.insert(c1='a'), 1)
 
         # before type widening, inserting a null into the non-nullable column is rejected
@@ -35,7 +33,7 @@ class TestAlterColumn:
                 t.insert(c1=None)
 
     def test_alter_column_via_reference(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
-        t = pxt.create_table(make_catalog_path('test_tbl'), {'c1': pxt.Float}, _is_data_versioned=is_data_versioned)
+        t = pxt.create_table(db_root.make_catalog_path('test_tbl'), {'c1': pxt.Float}, _is_data_versioned=is_data_versioned)
         t.add_column(c2=pxt.Float)
         t.alter_column(t.c1, type_=pxt.Float | None)
         t.alter_column(t.c2, type_=pxt.Float | None)
@@ -43,7 +41,7 @@ class TestAlterColumn:
 
     def test_alter_column_same_type(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         t = pxt.create_table(
-            make_catalog_path('test_tbl'), {'c1': pxt.Int | None}, _is_data_versioned=is_data_versioned
+            db_root.make_catalog_path('test_tbl'), {'c1': pxt.Int | None}, _is_data_versioned=is_data_versioned
         )
         vers_before = len(t.get_versions())
         # alter c1, new type is the same as old type
@@ -55,7 +53,7 @@ class TestAlterColumn:
     def test_alter_column_history(
         self, db_root: DatabaseRoot, do_reload_catalog: bool, is_data_versioned: bool
     ) -> None:
-        t = pxt.create_table(make_catalog_path('test_tbl'), {'c1': pxt.String}, _is_data_versioned=is_data_versioned)
+        t = pxt.create_table(db_root.make_catalog_path('test_tbl'), {'c1': pxt.String}, _is_data_versioned=is_data_versioned)
         t.alter_column('c1', type_=pxt.String | None)
         reload_catalog(do_reload_catalog)
 
@@ -69,7 +67,7 @@ class TestAlterColumn:
 
     def test_alter_column_errors(self, db_root: DatabaseRoot) -> None:
         t = pxt.create_table(
-            make_catalog_path('test_tbl'),
+            db_root.make_catalog_path('test_tbl'),
             {'c1': pxt.String, 'c2': pxt.Int | None, 'c3': pxt.Float, 'c5': pxt.Int},
             primary_key='c5',
         )
@@ -100,17 +98,17 @@ class TestAlterColumn:
             t.alter_column('unknown', type_=pxt.String | None)
 
         # column of a different table
-        t2 = pxt.create_table(make_catalog_path('test_tbl2'), {'c1': pxt.String})
+        t2 = pxt.create_table(db_root.make_catalog_path('test_tbl2'), {'c1': pxt.String})
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match='Unknown column'):
             t2.alter_column(t.c1, type_=pxt.String | None)
 
         # not allowed on a snapshot
-        s = pxt.create_snapshot(make_catalog_path('snap'), t)
+        s = pxt.create_snapshot(db_root.make_catalog_path('snap'), t)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot alter columns of a snapshot'):
             s.alter_column('c1', type_=pxt.String | None)
 
         # not allowed on a base table column via a view
-        v = pxt.create_view(make_catalog_path('view'), t)
+        v = pxt.create_view(db_root.make_catalog_path('view'), t)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot alter base table column'):
             v.alter_column('c1', type_=pxt.String | None)
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Cannot alter base table column'):

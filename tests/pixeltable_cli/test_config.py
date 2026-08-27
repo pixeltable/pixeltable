@@ -8,7 +8,7 @@ import os
 import pathlib
 import subprocess
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from textwrap import dedent
 from typing import Any
 
@@ -16,7 +16,7 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import skip_test_if_not_installed
+from ..utils import skip_test_if_not_installed, DatabaseRoot
 from .conftest import PxtRunner
 
 pytestmark = pytest.mark.local('the daemon under test is the one serving the in-process catalog')
@@ -67,7 +67,7 @@ def make_table(target: str) -> None:
 class TestConfig:
     def test_supplying_a_key_the_daemon_lacks(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """A shell binds a credential the daemon has not got: work is refused, inspection is not, a restart fixes it."""
-        target = make_catalog_path('cfg')
+        target = db_root.make_catalog_path('cfg')
         make_table(target)
         with_key = {'OPENAI_API_KEY': _A_KEY}
         without_key: dict[str, str | None] = {'OPENAI_API_KEY': None}
@@ -100,7 +100,7 @@ class TestConfig:
 
     def test_rotating_a_key(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """A shell binds a credential to a new value: refused until the daemon is restarted with it."""
-        target = make_catalog_path('cfg')
+        target = db_root.make_catalog_path('cfg')
         make_table(target)
         first = {'OPENAI_API_KEY': _A_KEY}
         second = {'OPENAI_API_KEY': _ANOTHER_KEY}
@@ -119,7 +119,7 @@ class TestConfig:
 
     def test_a_setting_that_is_not_a_credential(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """Any env-settable setting counts, not just credentials: an endpoint decides what the work talks to."""
-        target = make_catalog_path('cfg')
+        target = db_root.make_catalog_path('cfg')
         make_table(target)
         other_endpoint = {'OPENAI_BASE_URL': 'https://example.invalid/v1'}
         cli('daemon', 'restart', env_overrides={'OPENAI_BASE_URL': None})
@@ -134,7 +134,7 @@ class TestConfig:
         self, cli: PxtRunner, db_root: DatabaseRoot
     ) -> None:
         """A setting every process using the instance shares is read from the file, and says so when exported."""
-        target = make_catalog_path('cfg')
+        target = db_root.make_catalog_path('cfg')
         make_table(target)
         exported = {'PIXELTABLE_FILE_CACHE_SIZE_G': '1'}
 
@@ -149,7 +149,7 @@ class TestConfig:
 
     def test_no_command_prints_a_credential(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """A credential the caller supplies never appears in output, whether the daemon agrees with it or not."""
-        target = make_catalog_path('cfg')
+        target = db_root.make_catalog_path('cfg')
         make_table(target)
         with_key = {'OPENAI_API_KEY': _A_KEY}
 
@@ -187,7 +187,7 @@ class TestConfig:
         self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
     ) -> None:
         """A config var a schema declares is bound from the environment, with no entry in any config file."""
-        target = make_catalog_path('cfg')
+        target = db_root.make_catalog_path('cfg')
         media_dir = project_dir / 'media'
         media_dir.mkdir()
         schema_file = project_dir / 'app.py'
@@ -227,7 +227,7 @@ class TestConfig:
         self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
     ) -> None:
         """A var and a secret bound in the project's pixeltable.toml reach the daemon."""
-        target = make_catalog_path('cfg')
+        target = db_root.make_catalog_path('cfg')
         media_dir = project_dir / 'media'
         media_dir.mkdir()
         schema_file = project_dir / 'app.py'
@@ -280,7 +280,7 @@ class TestConfig:
         self, cli: PxtRunner, db_root: DatabaseRoot, tmp_path: pathlib.Path
     ) -> None:
         """Editing a credential in the config file of a running daemon is refused until it is restarted."""
-        target = make_catalog_path('cfg')
+        target = db_root.make_catalog_path('cfg')
         make_table(target)
 
         # the daemon reads the file PIXELTABLE_CONFIG names, and picks up a change of that name by itself
@@ -315,7 +315,7 @@ class TestConfig:
         self, cli: PxtRunner, db_root: DatabaseRoot, tmp_path: pathlib.Path
     ) -> None:
         """A config file that stops parsing under a running daemon produces an error, not a dropped request."""
-        target = make_catalog_path('cfg')
+        target = db_root.make_catalog_path('cfg')
         make_table(target)
         config_file = tmp_path / 'config.toml'
         config_file.write_text('[pixeltable]\nfile_cache_size_g = 1.0\n', encoding='utf-8')
@@ -334,7 +334,7 @@ class TestConfig:
     ) -> None:
         """A restart that would abandon work in progress is refused; once the work is done it goes through."""
         skip_test_if_not_installed('sentence_transformers')
-        target = make_catalog_path('cfg')
+        target = db_root.make_catalog_path('cfg')
         schema_file = project_dir / 'slow.py'
         schema_file.write_text(_SLOW_SCHEMA_SRC, encoding='utf-8')
 

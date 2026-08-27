@@ -2,17 +2,16 @@
 
 import random
 import string
-from typing import Callable
 
 import pixeltable as pxt
 from pixeltable.index.btree import BtreeIndex
-from tests.utils import pxt_raises, reload_catalog, validate_update_status
+from .utils import pxt_raises, reload_catalog, validate_update_status, DatabaseRoot
 
 
 class TestPrimaryKeyIndex:
     def test_single_pk(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """Single-column PK: rejects duplicates, allows re-insert after delete, survives reload."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(
             p('test_pk'),
             {'id': pxt.Int, 'name': pxt.String | None},
@@ -53,7 +52,7 @@ class TestPrimaryKeyIndex:
 
     def test_nullable_pk_rejected(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """A nullable primary key is rejected however it is declared: Postgres admits duplicate NULLs."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         msg = r"Primary key column 'id' cannot be nullable"
 
         # via the primary_key argument
@@ -68,13 +67,13 @@ class TestPrimaryKeyIndex:
 
     def test_unknown_pk_column(self, db_root: DatabaseRoot) -> None:
         """The primary_key argument must name columns of the schema."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match=r"Primary key column 'nonexistent' not found"):
             pxt.create_table(p('t0'), {'id': pxt.Int}, primary_key=['id', 'nonexistent'])
 
     def test_pk_via_column_spec(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """A primary key can be declared by a column spec."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(
             p('test_pk'), {'id': {'type': pxt.Int, 'primary_key': True}}, _is_data_versioned=is_data_versioned
         )
@@ -85,7 +84,7 @@ class TestPrimaryKeyIndex:
 
     def test_composite_pk(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """Composite PK: partial matches are fine, exact matches are rejected, delete-reinsert works."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(
             p('test_pk'),
             {'a': pxt.Int, 'b': pxt.String, 'val': pxt.Int | None},
@@ -109,7 +108,7 @@ class TestPrimaryKeyIndex:
 
     def test_string_pk_truncation(self, db_root: DatabaseRoot) -> None:
         """String PK index uses left(col, MAX_STRING_LEN). Strings identical in first MAX_STRING_LEN chars collide."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test_pk'), {'key': pxt.String, 'val': pxt.Int | None}, primary_key='key')
         base = 'a' * BtreeIndex.MAX_STRING_LEN
 
@@ -128,7 +127,7 @@ class TestPrimaryKeyIndex:
         self, db_root: DatabaseRoot, is_data_versioned: bool
     ) -> None:
         """A batch containing a duplicate fails and does not persist any rows from the batch."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(
             p('test_pk'),
             {'id': pxt.Int, 'v': pxt.String | None},
@@ -147,7 +146,7 @@ class TestPrimaryKeyIndex:
 
     def test_pk_too_long(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """The combined length of PK values exceeds Postgres's limit."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         schema = {f'k{i}': pxt.String for i in range(11)}
         pk_cols = [f'k{i}' for i in range(11)]
         t = pxt.create_table(p('test_pk'), schema, primary_key=pk_cols, _is_data_versioned=is_data_versioned)
@@ -167,7 +166,7 @@ class TestPrimaryKeyIndex:
 
     def test_batch_update_with_pk_index(self, db_root: DatabaseRoot) -> None:
         """batch_update works correctly with the PK index: updates expire the old version."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test_pk'), {'id': pxt.Int, 'val': pxt.Int | None}, primary_key='id')
         validate_update_status(t.insert([{'id': 1, 'val': 10}, {'id': 2, 'val': 20}]), expected_rows=2)
 
@@ -181,7 +180,7 @@ class TestPrimaryKeyIndex:
             t.insert([{'id': 1, 'val': 50}])
 
     def test_prohibited_pk_col_ops(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(
             p('test'),
             {'id0': pxt.Int, 'id1': pxt.Int},

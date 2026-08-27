@@ -2,14 +2,14 @@
 
 import pathlib
 import re
-from collections.abc import Callable
+from typing import Callable
 from textwrap import dedent
 
 import pytest
 
 import pixeltable as pxt
 
-from ..utils import CatalogMode, get_audio_files, get_documents, get_video_files, skip_test_if_not_installed
+from ..utils import DatabaseRoot, get_audio_files, get_documents, get_video_files, skip_test_if_not_installed
 from .conftest import PxtRunner
 
 # A minimal schema, for the cases that assert on an error message rather than on what Pixeltable can express.
@@ -70,7 +70,7 @@ class TestSchema:
         project_dir: pathlib.Path,
     ) -> None:
         """The first application of a file: create, use what it created, rerun, and hit a conflict."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         schema_file = project_dir / 'app.py'
         schema_file.write_text(pathlib.Path(apps('basic.py')).read_text(encoding='utf-8'), encoding='utf-8')
         target = p('app')
@@ -136,7 +136,7 @@ class TestSchema:
         self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
     ) -> None:
         """A second update of a path the daemon already served reads the file as it now stands."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         target = p('reload')
         declaration = dedent(
             """
@@ -178,7 +178,7 @@ class TestSchema:
         self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
     ) -> None:
         """Editing the file under data: an added column is applied as it stands, a dropped one is refused."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         target = p('evolve')
         cli('schema', 'update', apps('basic.py'), target)
         docs = pxt.get_table(f'{target}/docs')
@@ -240,7 +240,7 @@ class TestSchema:
         assert 'catalog is up to date' in r.stdout
 
     def test_diff(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         schema_file = project_dir / 'app_schema.py'
         schema_file.write_text(SCHEMA_SRC)
         target = p('app')
@@ -283,7 +283,7 @@ class TestSchema:
     def test_diff_drift(
         self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
     ) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         schema_file = project_dir / 'app_schema.py'
         schema_file.write_text(SCHEMA_SRC)
         target = p('drift')
@@ -314,7 +314,7 @@ class TestSchema:
     ) -> None:
         """A schema that declares an iterator view and indexes over what the iterator produces."""
         skip_test_if_not_installed('spacy')  # the view's iterator splits on sentences
-        target = make_catalog_path('app')
+        target = db_root.make_catalog_path('app')
         cli('schema', 'update', apps('search.py'), target)
 
         articles = pxt.get_table(f'{target}/articles')
@@ -339,7 +339,7 @@ class TestSchema:
         self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
     ) -> None:
         """A column that calls a query udf reads that udf's table."""
-        target = make_catalog_path('retrieval')
+        target = db_root.make_catalog_path('retrieval')
         cli('schema', 'update', apps('retrieval.py'), target)
 
         pxt.get_table(f'{target}/docs').insert([{'doc_id': 1, 'title': 'alpha'}, {'doc_id': 5, 'title': 'beta'}])
@@ -355,7 +355,7 @@ class TestSchema:
         self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
     ) -> None:
         """A schema with media columns and a view over an iterator that extracts frames from them."""
-        target = make_catalog_path('app')
+        target = db_root.make_catalog_path('app')
         cli('schema', 'update', apps('media.py'), target)
 
         clips = pxt.get_table(f'{target}/clips')
@@ -383,7 +383,7 @@ class TestSchema:
         self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
     ) -> None:
         """An application file's routes are invisible to the schema: only its models declare tables."""
-        target = make_catalog_path('app')
+        target = db_root.make_catalog_path('app')
         cli('schema', 'update', apps('basic.py'), target)
         docs = pxt.get_table(f'{target}/docs')
         docs.insert([{'doc_id': 1, 'title': 'hello', 'body': 'world', 'published': True}])
@@ -396,7 +396,7 @@ class TestSchema:
         self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
     ) -> None:
         """A table the file does not declare: reported as an extra, left alone by update, dropped by prune."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         schema_file = project_dir / 'app_schema.py'
         schema_file.write_text(SCHEMA_SRC)
         target = p('prune')
@@ -457,7 +457,7 @@ class TestSchema:
     def test_prune_keeps_tables_with_declared_dependents(
         self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
     ) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         target = p('keep')
 
         # 'derived' is declared as a view of 'raw', but only 'derived' is in the schema, so 'raw' reads as an extra
@@ -489,7 +489,7 @@ class TestSchema:
     def test_prune_reports_tables_dropped_before_the_failure(
         self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
     ) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         target = p('partial')
 
         # 'gone' prunes cleanly; 'raw' cannot, because the schema keeps the view that depends on it
@@ -525,7 +525,7 @@ class TestSchema:
     @pytest.mark.skip_cloud('Fails with an SSL error, possibly due to excessive data transfer [PXT-1327]')
     def test_example(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         skip_test_if_not_installed('sentence_transformers')
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         target = p('documented')
 
         # the file the command emits has to be one that actually works
@@ -587,7 +587,7 @@ class TestSchema:
     def test_diff_unsupported(
         self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
     ) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         schema_file = project_dir / 'app_schema.py'
         schema_file.write_text(SCHEMA_SRC)
         target = p('unsupported')
@@ -626,13 +626,12 @@ class TestSchema:
         self,
         cli: PxtRunner,
         db_root: DatabaseRoot,
-        db_root: DatabaseRoot,
         project_dir: pathlib.Path,
     ) -> None:
         """Computed columns over udfs that an application's own package and its neighbors define."""
-        if catalog_mode == 'cloud':
+        if db_root.id == 'cloud':
             pytest.skip('the runtime of a hosted database does not hold this project')
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         # project_dir sits directly under the project root, so it leads every module path below it
         package = project_dir.name
 
@@ -780,7 +779,7 @@ class TestSchema:
         db_root: DatabaseRoot,
         project_dir: pathlib.Path,
     ) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         schema_file = project_dir / 'app_schema.py'
         schema_file.write_text(SCHEMA_SRC)
 
@@ -823,7 +822,7 @@ class TestSchema:
     def test_update_relative_path(
         self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
     ) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         (project_dir / 'app_schema.py').write_text(SCHEMA_SRC)
         target = p('rel_app')
 
@@ -836,7 +835,7 @@ class TestSchema:
         self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path
     ) -> None:
         """A schema referencing a value the target has not bound fails before any table is created."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         schema_file = project_dir / 'app_schema.py'
         schema_file.write_text(
             dedent(

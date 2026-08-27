@@ -8,20 +8,19 @@ classes defined inside the test functions, and pydantic cannot resolve stringize
 from __future__ import annotations
 
 import json
-from typing import Callable
 
 import pytest
 
 import pixeltable as pxt
 
-from ..utils import get_image_files, pxt_raises, skip_test_if_not_installed
+from ..utils import get_image_files, pxt_raises, skip_test_if_not_installed, DatabaseRoot
 from .test_fastapi import add_one, make_test_client
 
 
 class TestFastAPIModels:
     def test_model_target(self, db_root: DatabaseRoot) -> None:
         """Routes can be declared against a model before the table it describes exists."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
@@ -116,7 +115,7 @@ class TestFastAPIModels:
         assert 'schema changed' in resp.json()['detail']
 
     def test_model_target_errors(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
@@ -175,7 +174,7 @@ class TestFastAPIModels:
 
     def test_view_model_target(self, db_root: DatabaseRoot) -> None:
         """A compute route can be declared against a view model before either table exists."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
@@ -228,7 +227,7 @@ class TestFastAPIModels:
 
     def test_bind(self, db_root: DatabaseRoot) -> None:
         """bind() resolves model targets, refuses what the tables cannot serve, and rejects a second target."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import fastapi
         from fastapi.testclient import TestClient
@@ -289,7 +288,7 @@ class TestFastAPIModels:
     @pytest.mark.skip_cloud(reason='Unclear; re-run once other known issues are fixed')
     def test_bind_mismatches(self, db_root: DatabaseRoot) -> None:
         """Every difference between a model and the table it names stops the routes declared against it."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
 
         from pixeltable.serving import FastAPIRouter

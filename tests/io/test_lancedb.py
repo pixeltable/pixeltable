@@ -1,7 +1,7 @@
 import datetime
 import io
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -9,7 +9,7 @@ import PIL.Image
 
 import pixeltable as pxt
 
-from ..utils import pxt_raises, skip_test_if_not_installed
+from ..utils import pxt_raises, skip_test_if_not_installed, DatabaseRoot
 
 
 @pxt.udf
@@ -24,7 +24,7 @@ class TestLanceDb:
         skip_test_if_not_installed('lance', 'lancedb')
         import lancedb  # type: ignore[import-untyped]
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         n_rows = 1000
         schema = {
             'row_id': pxt.Int | None,

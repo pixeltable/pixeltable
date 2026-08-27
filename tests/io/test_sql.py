@@ -17,7 +17,7 @@ import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.io.sql import export_sql, import_sql
 
-from ..utils import CatalogMode, error, get_documents, get_image_files, get_video_files, pxt_raises
+from ..utils import DatabaseRoot, error, get_documents, get_image_files, get_video_files, pxt_raises
 
 
 @dataclasses.dataclass(frozen=True)
@@ -171,7 +171,7 @@ class TestSql:
         self, spec: _DialectSpec, tmp_path: pathlib.Path, p: Callable[[str], str], db_root: DatabaseRoot
     ) -> None:
         # over the proxy every export collect()s the source rows to the client; keep the volume modest there
-        num_rows = 100_000 if catalog_mode == 'local' else 1_000
+        num_rows = 100_000 if db_root.id == 'local' else 1_000
         t, rows = self.create_test_data(p('test1'), num_rows)
         connect = spec.connect(tmp_path)
         engine = sql.create_engine(connect)
@@ -204,16 +204,16 @@ class TestSql:
     def test_export_sqlite(
         self, db_root: DatabaseRoot, tmp_path: pathlib.Path
     ) -> None:
-        self._run_export_suite(self._sqlite_spec(), tmp_path, make_catalog_path, catalog_mode)
+        self._run_export_suite(self._sqlite_spec(), tmp_path, db_root.make_catalog_path, db_root.id)
 
     @pytest.mark.skip_cloud(reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]')
     def test_export_postgresql(
         self, db_root: DatabaseRoot, tmp_path: pathlib.Path
     ) -> None:
-        self._run_export_suite(self._postgresql_spec(), tmp_path, make_catalog_path, catalog_mode)
+        self._run_export_suite(self._postgresql_spec(), tmp_path, db_root.make_catalog_path, db_root.id)
 
     def test_errors(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         connection_string = Env.get().db_url
 
         # unsupported column type
@@ -257,7 +257,7 @@ class TestSql:
         """End-to-end import of a full SA Table: type inference for all common SA types, nullable vs non-nullable
         propagation, NULL-to-None value roundtrip, exact value preservation, and the single-version-bump claim
         across batch boundaries (rows > the insert batch size so streaming actually engages)."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         engine = _import_engine(dbms, tmp_path)
         n = 2500  # > the 1024-row insert batch size, to force at least 3 batches
 
@@ -340,7 +340,7 @@ class TestSql:
         """Import via `sa.select(...)` rather than a bare Table: column projection (subset), row filter via
         `.where(...)`, labeled expressions, accepting an `sa.Connection` (not just an Engine), and the 0-row
         edge case (impossible filter -> empty destination, schema still created)."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         engine = _import_engine(dbms, tmp_path)
         rows = [{'c_int': i, 'c_str': f'row_{i}', 'c_float': float(i)} for i in range(20)]
         src = _seed_source(
@@ -387,7 +387,7 @@ class TestSql:
         """Import via `sql.text(...).columns(...)`: raw SQL whose output columns are typed by the user. Type
         inference and nullability propagation must come from the `.columns(...)` declaration, not from the
         source table."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         engine = _import_engine(dbms, tmp_path)
         rows: list[dict[str, Any]] = [{'c_int': i, 'c_str': f'row_{i}', 'c_float': float(i)} for i in range(5)]
         _seed_source(
@@ -423,7 +423,7 @@ class TestSql:
     @pytest.mark.parametrize('dbms', _IMPORT_DBMS)
     @pytest.mark.skip_cloud('Relies on a locally instantiated DB server')
     def test_import_on_server(self, db_root: DatabaseRoot, tmp_path: pathlib.Path, dbms: str) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         engine = _import_engine(dbms, tmp_path)
         rows = [{'c_int': i, 'c_str': f'row_{i}'} for i in range(15)]
         src = _seed_source(
@@ -517,7 +517,7 @@ class TestSql:
         """Source `LargeBinary` column holding raw image bytes + `schema_overrides={'c_img': pxt.Image}`.
         SqlDataNode must spill the bytes to TempStore so on-write media validation still runs (mirroring
         InMemoryDataNode's image-bytes handling)."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         engine = _import_engine('sqlite', tmp_path)
         img_paths = get_image_files()[:2]
         img_bytes = [pathlib.Path(p).read_bytes() for p in img_paths]
@@ -545,7 +545,7 @@ class TestSql:
     def test_if_exists(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Walk the if_exists matrix in a single test, since the branching is purely pixeltable-side and doesn't
         depend on the SQL backend."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         engine = _import_engine('sqlite', tmp_path)
         seed_a = [{'c_int': i, 'c_str': f'a_{i}'} for i in range(3)]
         seed_b = [{'c_int': 100 + i, 'c_str': f'b_{i}'} for i in range(2)]
@@ -622,7 +622,7 @@ class TestSql:
         """Broad sweep of the remaining `RequestError` / `NotFoundError` paths in `import_sql` and
         `SqlDataNode._open()`.
         """
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         engine = _import_engine('sqlite', tmp_path)
 
         # `sql.Interval` has no entry in our SA -> pxt mapping; without an override the inference must fail.
@@ -679,7 +679,7 @@ class TestSql:
 
     def test_import_on_error_ignore(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """`on_error='ignore'` import: per-row computed-column failures surface as nulls."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         engine = _import_engine('sqlite', tmp_path)
 
         dest = pxt.create_table(p('on_error_dest'), {'c_int': pxt.Int | None})
@@ -700,7 +700,7 @@ class TestSql:
     ) -> None:
         """A source NULL mapped to a non-nullable destination column aborts the import, like the in-memory insert
         path, rather than being silently stored; this holds regardless of `on_error`."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         engine = _import_engine('sqlite', tmp_path)
         src = _seed_source(
             engine,

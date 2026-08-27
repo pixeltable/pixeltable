@@ -1,6 +1,6 @@
 import pathlib
 import time
-from collections.abc import Callable, Iterator
+from typing import Callable, Iterator
 from textwrap import dedent
 from typing import Any
 
@@ -9,7 +9,7 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import get_audio_files, get_documents, get_video_files, skip_test_if_not_installed
+from ..utils import get_audio_files, get_documents, get_video_files, skip_test_if_not_installed, DatabaseRoot
 from .conftest import BackgroundPxt, PxtRunner
 
 pytestmark = pytest.mark.local('a local service serves the in-process catalog')
@@ -91,7 +91,7 @@ class TestService:
         """A service inherits the daemon's config values, so a caller resolving them differently cannot deploy."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
-        app, target = apps('basic.py'), make_catalog_path('app')
+        app, target = apps('basic.py'), db_root.make_catalog_path('app')
         cli('schema', 'update', app, target)
         differing = {'OPENAI_API_KEY': 'sk-not-the-one-the-daemon-has'}
 
@@ -111,7 +111,7 @@ class TestService:
         """The first deployment: declare, see what is pending, apply it, use it, take it down."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
-        app, target = apps('basic.py'), make_catalog_path('app')
+        app, target = apps('basic.py'), db_root.make_catalog_path('app')
         cli('schema', 'update', app, target)
 
         # nothing is deployed yet, and diff says so in its exit status
@@ -163,7 +163,7 @@ class TestService:
         """Editing the file: an added route is applied by restarting; a changed contract needs a flag."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
-        target = make_catalog_path('app')
+        target = db_root.make_catalog_path('app')
         deploy(cli, apps('basic.py'), target)
         before = assert_serving(cli, apps('basic.py'), target, 'ingest')['ingest']
 
@@ -201,7 +201,7 @@ class TestService:
         """A service the file stopped declaring is stopped and forgotten, and can be started again."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
-        target = make_catalog_path('app')
+        target = db_root.make_catalog_path('app')
         deploy(cli, apps('basic.py'), target)
 
         # the variant declares the same models under a service of another name, so 'ingest' is an extra
@@ -230,7 +230,7 @@ class TestService:
         """run serves from the calling process and records nothing; update is the background form."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
-        app, target = apps('basic.py'), make_catalog_path('app')
+        app, target = apps('basic.py'), db_root.make_catalog_path('app')
         cli('schema', 'update', app, target)
 
         served = cli_bg('service', 'run', app, target)
@@ -255,7 +255,7 @@ class TestService:
         """A service whose tables do not exist is blocked until the schema is applied."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
-        app, target = apps('basic.py'), make_catalog_path('app')
+        app, target = apps('basic.py'), db_root.make_catalog_path('app')
 
         r = cli('service', 'diff', app, target, '--json', check=False)
         assert r.returncode == 2
@@ -286,7 +286,7 @@ class TestService:
         """list inspects what a service serves, for every service or for one named by its address."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
-        target = make_catalog_path('app')
+        target = db_root.make_catalog_path('app')
         deploy(cli, apps('media.py'), target)
         assert_serving(cli, apps('media.py'), target, 'clips', 'frames', 'recordings')
 
@@ -313,7 +313,7 @@ class TestService:
         """The routes whose request or response is not JSON: file uploads, a file response, a background job."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
-        app, target = apps('media.py'), make_catalog_path('app')
+        app, target = apps('media.py'), db_root.make_catalog_path('app')
         deploy(cli, app, target)
         running = assert_serving(cli, app, target, 'clips', 'frames', 'recordings')
 
@@ -366,7 +366,7 @@ class TestService:
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
         skip_test_if_not_installed('spacy')  # the view's iterator splits on sentences
-        app, target = apps('search.py'), make_catalog_path('app')
+        app, target = apps('search.py'), db_root.make_catalog_path('app')
         deploy(cli, app, target)
         endpoint = assert_serving(cli, app, target, 'search')['search']['endpoint']
 
@@ -392,7 +392,7 @@ class TestService:
     ) -> None:
         """A file supplying its own application declares a service Pixeltable cannot compare or serve."""
         skip_test_if_not_installed('fastapi')
-        app, target = apps('custom.py'), make_catalog_path('app')
+        app, target = apps('custom.py'), db_root.make_catalog_path('app')
         cli('schema', 'update', app, target)
 
         # the file's models produce working tables even though its application cannot be served
@@ -423,7 +423,7 @@ class TestService:
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
         app = apps('basic.py')
-        first, second = make_catalog_path('one'), make_catalog_path('two')
+        first, second = db_root.make_catalog_path('one'), db_root.make_catalog_path('two')
         deploy(cli, app, first)
         deploy(cli, app, second)
         assert_serving(cli, app, first, 'ingest')
@@ -550,7 +550,7 @@ class TestService:
         project_dir: pathlib.Path,
     ) -> None:
         """What the verbs do with a file that is missing, unimportable, or declares no service."""
-        target = make_catalog_path('app')
+        target = db_root.make_catalog_path('app')
 
         r = cli('service', 'diff', str(project_dir / 'nosuch.py'), target, check=False)
         assert r.returncode == 1
@@ -587,7 +587,7 @@ class TestService:
         skip_test_if_not_installed('uvicorn')
         app_file = project_dir / 'app.py'
         cli('service', 'example', '--out', str(app_file))
-        target = make_catalog_path('example')
+        target = db_root.make_catalog_path('example')
 
         deploy(cli, str(app_file), target)
         endpoint = assert_serving(cli, str(app_file), target, 'ingest')['ingest']['endpoint']

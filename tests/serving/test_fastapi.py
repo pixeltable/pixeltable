@@ -20,7 +20,7 @@ import pixeltable as pxt
 import pixeltable.functions.json as pxt_json
 from pixeltable.env import Env
 from tests.utils import (
-    CatalogMode,
+    DatabaseRoot,
     get_audio_files,
     get_image_files,
     get_video_files,
@@ -287,7 +287,7 @@ class TestFastAPI:
         route_type: Literal['insert', 'compute', 'compute_view'],
     ) -> None:
         """Test insert routes with all scalar types and various input/output combinations."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter, SqlExport
 
@@ -504,7 +504,6 @@ class TestFastAPI:
     def test_add_insert_route_video(
         self,
         db_root: DatabaseRoot,
-        db_root: DatabaseRoot,
         use_uploadfile: bool,
         route_type: Literal['insert', 'compute'],
     ) -> None:
@@ -512,7 +511,7 @@ class TestFastAPI:
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         video_path = get_video_files()[0]
         pxt.create_dir(p('test_serve'))
         t = pxt.create_table(
@@ -559,13 +558,13 @@ class TestFastAPI:
 
         # `video` is served as a /media/ URL when it was uploaded, or (over proxy) when a referenced local file
         # had to be shipped to the daemon; a locally-referenced external file is left as a file:// URL.
-        if use_uploadfile or catalog_mode == 'proxy':
+        if use_uploadfile or db_root.id == 'proxy':
             assert '/media/' in result['video'], result['video']
         else:
             assert result['video'].startswith('file:'), result['video']
 
         if route_type == 'insert':
-            if catalog_mode == 'local':
+            if db_root.id == 'local':
                 # storage-location / byte-identity checks only apply when the router and the table share a filesystem
                 media_dir = str(Env.get().media_dir)
                 video_local = t.where(t.id == 1).select(p=t.video.localpath).collect()[0]['p']
@@ -619,7 +618,6 @@ class TestFastAPI:
     def test_add_insert_route_image(
         self,
         db_root: DatabaseRoot,
-        db_root: DatabaseRoot,
         use_uploadfile: bool,
         tmp_path: pathlib.Path,
         route_type: Literal['insert', 'compute'],
@@ -629,7 +627,7 @@ class TestFastAPI:
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter, SqlExport
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         image_path = get_image_files()[0]
         with PIL.Image.open(image_path) as img:
             orig_w, orig_h = img.size
@@ -705,12 +703,12 @@ class TestFastAPI:
 
         # `image` is served as a /media/ URL when uploaded, or (over proxy) when a referenced local file had to
         # be shipped to the daemon; a locally-referenced external file is left as a file:// URL.
-        if use_uploadfile or catalog_mode == 'proxy':
+        if use_uploadfile or db_root.id == 'proxy':
             assert '/media/' in result['image'], result['image']
         else:
             assert result['image'].startswith('file:'), result['image']
         if route_type == 'insert':
-            if catalog_mode == 'local':
+            if db_root.id == 'local':
                 media_dir = str(Env.get().media_dir)
                 image_local = t.where(t.id == 1).select(p=t.image.localpath).collect()[0]['p']
                 if use_uploadfile:
@@ -756,7 +754,7 @@ class TestFastAPI:
         assert resp.status_code == 200, resp.text
         assert resp.headers['content-type'].startswith('image/'), resp.headers['content-type']
         assert_image_bytes(resp.content, size=(64, 48))
-        if route_type == 'insert' and catalog_mode == 'local':
+        if route_type == 'insert' and db_root.id == 'local':
             resized_path = t.where(t.id == 2).select(p=t.resized.localpath).collect()[0]['p']
             assert_fileresponse_ok(resp, resized_path, 'image/')
 
@@ -766,7 +764,7 @@ class TestFastAPI:
         assert resp.status_code == 200, resp.text
         assert resp.headers['content-type'].startswith('image/'), resp.headers['content-type']
         assert_image_bytes(resp.content, size=(orig_w, orig_h))
-        if route_type == 'insert' and catalog_mode == 'local':
+        if route_type == 'insert' and db_root.id == 'local':
             rotated_path = t.where(t.id == 3).select(p=t.rotated.localpath).collect()[0]['p']
             assert_fileresponse_ok(resp, rotated_path, 'image/')
 
@@ -774,7 +772,6 @@ class TestFastAPI:
     @pytest.mark.parametrize('use_uploadfile', [True, False])
     def test_add_insert_route_audio(
         self,
-        db_root: DatabaseRoot,
         db_root: DatabaseRoot,
         use_uploadfile: bool,
         route_type: Literal['insert', 'compute'],
@@ -785,7 +782,7 @@ class TestFastAPI:
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         # Use sample-16-bit.wav specifically so the mime type in upload mode is deterministic.
         audio_path = next(f for f in get_audio_files() if f.endswith('sample-16-bit.wav'))
         pxt.create_dir(p('test_serve'))
@@ -839,12 +836,12 @@ class TestFastAPI:
 
         # `audio` is served as a /media/ URL when uploaded, or (over proxy) when a referenced local file had to
         # be shipped to the daemon; a locally-referenced external file is left as a file:// URL.
-        if use_uploadfile or catalog_mode == 'proxy':
+        if use_uploadfile or db_root.id == 'proxy':
             assert '/media/' in result['audio'], result['audio']
         else:
             assert result['audio'].startswith('file:'), result['audio']
         if route_type == 'insert':
-            if catalog_mode == 'local':
+            if db_root.id == 'local':
                 media_dir = str(Env.get().media_dir)
                 audio_local = t.where(t.id == 1).select(p=t.audio.localpath).collect()[0]['p']
                 if use_uploadfile:
@@ -878,7 +875,7 @@ class TestFastAPI:
         assert resp.status_code == 200, resp.text
         assert resp.headers['content-type'].startswith('audio/'), resp.headers['content-type']
         assert_audio_bytes(resp.content)
-        if route_type == 'insert' and catalog_mode == 'local':
+        if route_type == 'insert' and db_root.id == 'local':
             scaled_path = t.where(t.id == 2).select(p=t.scaled.localpath).collect()[0]['p']
             assert_fileresponse_ok(resp, scaled_path, 'audio/')
 
@@ -888,7 +885,7 @@ class TestFastAPI:
         assert resp.status_code == 200, resp.text
         assert resp.headers['content-type'].startswith('audio/'), resp.headers['content-type']
         assert_audio_bytes(resp.content)
-        if route_type == 'insert' and catalog_mode == 'local':
+        if route_type == 'insert' and db_root.id == 'local':
             normalized_path = t.where(t.id == 3).select(p=t.normalized.localpath).collect()[0]['p']
             assert_fileresponse_ok(resp, normalized_path, 'audio/')
 
@@ -896,7 +893,6 @@ class TestFastAPI:
     @pytest.mark.parametrize('use_uploadfile', [True, False])
     def test_add_insert_route_video_bg(
         self,
-        db_root: DatabaseRoot,
         db_root: DatabaseRoot,
         use_uploadfile: bool,
         tmp_path: pathlib.Path,
@@ -907,7 +903,7 @@ class TestFastAPI:
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter, SqlExport
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         video_path = get_video_files()[0]
         pxt.create_dir(p('test_serve'))
         t = pxt.create_table(
@@ -956,12 +952,12 @@ class TestFastAPI:
 
         # `video` is served as a /media/ URL when uploaded, or (over proxy) when a referenced local file had to
         # be shipped to the daemon; a locally-referenced external file is left as a file:// URL.
-        if use_uploadfile or catalog_mode == 'proxy':
+        if use_uploadfile or db_root.id == 'proxy':
             assert '/media/' in result['video'], result['video']
         else:
             assert result['video'].startswith('file:'), result['video']
         if route_type == 'insert':
-            if catalog_mode == 'local':
+            if db_root.id == 'local':
                 media_dir = str(Env.get().media_dir)
                 video_local = t.where(t.id == 1).select(p=t.video.localpath).collect()[0]['p']
                 if use_uploadfile:
@@ -991,7 +987,7 @@ class TestFastAPI:
         result = single_row(await_background_job(client, job)['result'], route_type)
         # single-output response model: only 'resized' is present
         assert set(result.keys()) == {'resized'}, result
-        if route_type == 'insert' and catalog_mode == 'local':
+        if route_type == 'insert' and db_root.id == 'local':
             resize_local = t.where(t.id == 2).select(p=t.resized.localpath).collect()[0]['p']
             assert_media_fetchable(client, result['resized'], resize_local)
         fetch_and_decode_media(client, result['resized'], assert_video_bytes, width=160)
@@ -1034,7 +1030,7 @@ class TestFastAPI:
 
     def test_openapi(self, db_root: DatabaseRoot) -> None:
         """Verify the generated OpenAPI schema reflects column comments, column types, and route shapes."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
@@ -1149,7 +1145,7 @@ class TestFastAPI:
 
     def test_add_query_route_scalars(self, db_root: DatabaseRoot) -> None:
         """Multi-column scalar query route, plus retrieval_udf flavor and registration errors."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
@@ -1238,7 +1234,7 @@ class TestFastAPI:
     def test_add_query_route_single_column(self, db_root: DatabaseRoot) -> None:
         """Single-column queries: return_scalar=False produces dict-per-row in a wrapper,
         return_scalar=True produces a plain list of scalar values."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
@@ -1272,7 +1268,7 @@ class TestFastAPI:
     def test_add_query_route_one_row(self, db_root: DatabaseRoot) -> None:
         """one_row=True returns a flat JSON object (or bare scalar with return_scalar=True).
         0 rows -> 404; >1 rows -> 409."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
@@ -1355,7 +1351,7 @@ class TestFastAPI:
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         image_path = get_image_files()[0]
         pxt.create_dir(p('test_serve'))
         t = pxt.create_table(p('test_serve/images'), {'id': pxt.Int | None, 'image': pxt.Image | None})
@@ -1402,7 +1398,7 @@ class TestFastAPI:
 
         # FileResponse: exactly one matching row -> image bytes
         resp = client.post('/one-file', json={'img_id': 1})
-        if catalog_mode == 'local':
+        if db_root.id == 'local':
             resized_local = t.where(t.id == 1).select(p=t.resized.localpath).collect()[0]['p']
             assert_fileresponse_ok(resp, resized_local, 'image/')
         else:
@@ -1440,7 +1436,7 @@ class TestFastAPI:
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         image_path = get_image_files()[0]
         pxt.create_dir(p('test_serve'))
         t = pxt.create_table(p('test_serve/img_xform'), {'id': pxt.Int | None, 'image': pxt.Image | None})
@@ -1478,7 +1474,7 @@ class TestFastAPI:
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         video_path = get_video_files()[0]
         pxt.create_dir(p('test_serve'))
         t = pxt.create_table(p('test_serve/mirror'), {'id': pxt.Int | None, 'v': pxt.Video | None})
@@ -1509,7 +1505,7 @@ class TestFastAPI:
 
     def test_duplicate_routes(self, db_root: DatabaseRoot) -> None:
         """Registering the same (path, method) twice must raise rather than silently shadow."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
@@ -1566,7 +1562,7 @@ class TestFastAPI:
             router.add_insert_route(t, path='/c')
 
     def test_add_query_route_errors(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
@@ -1616,7 +1612,7 @@ class TestFastAPI:
 
     def test_unservable_output_cols(self, db_root: DatabaseRoot) -> None:
         """Routes reject Array/Binary output cols at registration; JSON with embedded objects is rejected per row."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
@@ -1694,7 +1690,7 @@ class TestFastAPI:
 
     def test_decorator_routes_allow_unservable_outputs(self, db_root: DatabaseRoot) -> None:
         """Decorator-form routes let user code handle outputs that add_*_route forms reject."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
@@ -1740,7 +1736,7 @@ class TestFastAPI:
         from pixeltable.functions.video import frame_iterator
         from pixeltable.serving import FastAPIRouter, SqlExport
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         # a short clip (~3.5s), so fps=1 keeps the fan-out small but still produces multiple frames
         video_path = next(f for f in get_video_files() if f.endswith('v_shooting_01_01.mpg'))
         pxt.create_dir(p('test_serve'))
@@ -1906,7 +1902,7 @@ class TestFastAPI:
     def test_add_insert_route_errors(
         self, db_root: DatabaseRoot, tmp_path: pathlib.Path, route_type: Literal['insert', 'compute']
     ) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import sqlalchemy as sql
 
@@ -2038,7 +2034,7 @@ class TestFastAPI:
         self, db_root: DatabaseRoot, tmp_path: pathlib.Path, route_type: Literal['insert', 'compute']
     ) -> None:
         """`insert_route()`/`compute_route()` as a decorator: user fn consumes outputs and shapes the response."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import pydantic
 
@@ -2088,7 +2084,7 @@ class TestFastAPI:
         self, db_root: DatabaseRoot, tmp_path: pathlib.Path, route_type: Literal['insert', 'compute']
     ) -> None:
         """Parameter annotations are validated against the column types (strict nullability)."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import pydantic
 
@@ -2161,7 +2157,7 @@ class TestFastAPI:
         self, db_root: DatabaseRoot, tmp_path: pathlib.Path
     ) -> None:
         """Update-route parameter annotations are validated against column types (strict nullability)."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import pydantic
 
@@ -2236,7 +2232,7 @@ class TestFastAPI:
         Under PEP 563, parameter and return annotations are strings at runtime; the validator
         must resolve them via typing.get_type_hints() before interpreting them.
         """
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import sys
         import textwrap
@@ -2311,7 +2307,7 @@ class TestFastAPI:
 
     def test_route_decorators_unresolvable_annotation(self, db_root: DatabaseRoot) -> None:
         """Forward-ref that can't be resolved produces a clean INVALID_ARGUMENT error at registration."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import sys
         import textwrap
@@ -2354,7 +2350,7 @@ class TestFastAPI:
         self, db_root: DatabaseRoot, route_type: Literal['insert', 'compute']
     ) -> None:
         """Media columns surface as /media/ URLs in the decorated fn's kwargs."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import pydantic
 
@@ -2390,7 +2386,7 @@ class TestFastAPI:
         self, db_root: DatabaseRoot, use_uploadfile: bool, route_type: Literal['insert', 'compute']
     ) -> None:
         """Decorator + multipart/form-data upload."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import pydantic
 
@@ -2438,7 +2434,7 @@ class TestFastAPI:
         self, db_root: DatabaseRoot, route_type: Literal['insert', 'compute']
     ) -> None:
         """Background variant: 202-like response with job_url; poll for the decorated fn's result."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import pydantic
 
@@ -2472,7 +2468,7 @@ class TestFastAPI:
     def test_insert_route_errors(
         self, db_root: DatabaseRoot, route_type: Literal['insert', 'compute']
     ) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import pydantic
 
@@ -2521,7 +2517,7 @@ class TestFastAPI:
 
     def test_compute_route_batch(self, db_root: DatabaseRoot) -> None:
         """compute_route() batch form on an iterator view: the fn takes list[RowModel] of all fanned-out rows."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import pydantic
 
@@ -2658,7 +2654,7 @@ class TestFastAPI:
 
     def test_add_update_route(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """Update routes: JSON, subset inputs/outputs, FileResponse, 404 for missing row, background."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter, SqlExport
 
@@ -2757,7 +2753,7 @@ class TestFastAPI:
         assert 'expected 1' in resp.json()['detail']
 
     def test_add_update_route_errors(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter, SqlExport
 
@@ -2807,7 +2803,7 @@ class TestFastAPI:
 
     def test_update_route(self, db_root: DatabaseRoot, tmp_path: pathlib.Path) -> None:
         """`update_route()` decorator: custom response model, 404, background, function still callable."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import pydantic
 
@@ -2874,7 +2870,7 @@ class TestFastAPI:
         assert result == {'key': 2, 'upper': '', 'doubled': 14}
 
     def test_update_route_errors(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import pydantic
 
@@ -2922,7 +2918,7 @@ class TestFastAPI:
 
     def test_add_delete_route(self, db_root: DatabaseRoot) -> None:
         """Delete routes: primary-key default, explicit match_columns, multi-col AND, 0-match, background."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
@@ -2984,7 +2980,7 @@ class TestFastAPI:
         assert t.where(t.id == 5).count() == 0
 
     def test_add_delete_route_errors(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
@@ -3006,7 +3002,7 @@ class TestFastAPI:
 
     def test_column_ref_args(self, db_root: DatabaseRoot) -> None:
         """Routes accept ColumnRefs wherever they accept column names."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 
@@ -3038,7 +3034,7 @@ class TestFastAPI:
 
     def test_bind_table_targets(self, db_root: DatabaseRoot) -> None:
         """A route declared against a Table needs no binding: it already names the table it serves."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         import fastapi
         from fastapi.testclient import TestClient
@@ -3070,7 +3066,7 @@ class TestFastAPI:
         schema_op: str,
     ) -> None:
         """Schema-version bump or drop-and-recreate after route registration causes the handler to 409."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
 

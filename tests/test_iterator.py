@@ -1,7 +1,7 @@
 import re
 import warnings
 from textwrap import dedent
-from typing import Any, Callable, Iterator, TypedDict
+from typing import Any, Iterator, TypedDict
 
 import numpy as np
 import pytest
@@ -10,7 +10,7 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import exprs, func, type_system as ts
 from pixeltable.iterators.base import ComponentIterator
-from tests.utils import pxt_raises, reload_catalog
+from .utils import pxt_raises, reload_catalog, DatabaseRoot
 
 
 class MyRow(TypedDict):
@@ -153,7 +153,7 @@ def _(bound_args: dict[str, Any]) -> dict[str, type] | None:
 class TestIterator:
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_iterator(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         for n, it in enumerate((simple_iterator, class_based_iterator, iterator_with_seek)):
             assert callable(it)
             tbl_path = p(f'tbl_{n}')
@@ -194,7 +194,7 @@ class TestIterator:
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_iterator_column_shadowing(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(
             p('tbl'), schema={'pos': pxt.String | None, 'input': pxt.Int | None, 'scol': pxt.Float | None}
         )
@@ -426,7 +426,7 @@ class TestIterator:
 
     def test_create_view_schema_errors(self, db_root: DatabaseRoot) -> None:
         """create_view() validates the iterator's output schema; these errors surface in both local and proxy mode."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl_plain_dict'), schema={'input': pxt.Int | None})
 
         # iterator returns a plain dict without a conditional_output_schema
@@ -671,7 +671,7 @@ class TestIterator:
         Tests that legacy iterators defined as subclasses of ComponentIterator can be retrofitted
         into the new GeneratingFunction-based iterator system.
         """
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test'), schema={'input': pxt.String | None})
         t.insert([{'input': 'balloon'}])
         with pytest.warns(DeprecationWarning, match=r'The `ComponentIterator` class is deprecated'):
@@ -689,7 +689,7 @@ class TestIterator:
         v.describe()
 
     def test_nested_iterator(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         n = 5
         t = pxt.create_table(p('test_nested'), schema={'input': pxt.Int | None})
         t.insert([{'input': n}])
@@ -728,7 +728,7 @@ class TestIterator:
         """Tests that iterators can be defined in modules with `from __future__ import annotations`."""
         from .module_with_future_annotations import split_words
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
 
         assert split_words.call_output_schema({}) == {
             'word': ts.StringType(),

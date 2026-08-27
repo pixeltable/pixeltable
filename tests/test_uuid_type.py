@@ -3,13 +3,12 @@ Tests for UUID type and UUID primary key functionality.
 """
 
 import uuid
-from typing import Callable
 
 import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-from tests.utils import ReloadTester, pxt_raises, validate_update_status
+from .utils import DatabaseRoot, ReloadTester, pxt_raises, validate_update_status
 
 
 class TestUUIDType:
@@ -17,7 +16,7 @@ class TestUUIDType:
     def test_uuid_function(
         self, uuid_fn: pxt.Function, uuid_version: int, db_root: DatabaseRoot
     ) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test_uuid_tbl'), {'id': pxt.Int | None})
         validate_update_status(t.insert([{'id': 1}, {'id': 2}, {'id': 3}]), expected_rows=3)
 
@@ -37,7 +36,7 @@ class TestUUIDType:
         assert len(set(res['uuid_col'])) == 3
 
     def test_uuid_type(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         # Test UUIDs of different versions
         test_uuids: list[uuid.UUID] = [
             uuid.uuid1(),
@@ -109,7 +108,7 @@ class TestUUIDType:
         reload_tester.run_reload_test()
 
     def test_uuid_primary_key(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         # Test creating a table with a UUID primary key using computed column
         t = pxt.create_table(
             p('test_uuid_pk_tbl1'), {'id': pxtf.uuid.uuid4(), 'data': pxt.String | None}, primary_key=['id']

@@ -17,6 +17,7 @@ from pixeltable.functions.string import isalpha, isascii
 from pixeltable.functions.video import frame_iterator
 
 from .utils import (
+    DatabaseRoot,
     ReloadTester,
     create_all_datatypes_tbl,
     get_audio_files,
@@ -70,7 +71,7 @@ class TestQuery:
     def test_select_where(
         self, test_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool
     ) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = test_tbl
         res1 = t.collect()
         res2 = t.select().collect()
@@ -162,7 +163,7 @@ class TestQuery:
 
     @pytest.mark.skip_cloud(reason='Fails due to server timeout [PXT-1319]')
     def test_join(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         num_rows = 1000
         t1, t2, t3 = self.create_join_tbls(num_rows, p)
         # inner join
@@ -232,7 +233,7 @@ class TestQuery:
         # TODO: verify result
 
     def test_join_errors(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t1, t2, t3 = self.create_join_tbls(1000, p)
 
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT) as exc_info:
@@ -429,7 +430,7 @@ class TestQuery:
             _ = t.sample(n=10).limit(5)
 
     def test_limit_joins(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         num_rows = 100
         t1, t2, _ = self.create_join_tbls(num_rows, p)
 
@@ -453,7 +454,7 @@ class TestQuery:
         assert len(res) == 10
 
     def test_limit_iterator_views(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         base_t = pxt.create_table(p('lim_base'), {'video': pxt.Video | None})
         view_t = pxt.create_view(p('lim_frames'), base_t, iterator=frame_iterator(base_t.video, fps=1))
         base_t.insert(video=get_video_files()[0])
@@ -529,7 +530,7 @@ class TestQuery:
     def test_head_tail(
         self, test_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool
     ) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = test_tbl
         res = t.head(10).to_pandas()
         assert np.all(res.c2 == list(range(10)))
@@ -626,7 +627,7 @@ class TestQuery:
     def test_count_join(self, db_root: DatabaseRoot) -> None:
         """Tests for join...count queries"""
         # TODO(PXT-1108): when the join+where bug is fixed, add some queries with where().
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         num_rows = 100
         t1, t2, t3 = self.create_join_tbls(num_rows, p)
 
@@ -648,7 +649,7 @@ class TestQuery:
         assert res[next(iter(res.schema.keys()))] == [1.0] * 10
 
     def test_html_media_url(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         tab = pxt.create_table(
             p('test_html_repr'), {'video': pxt.Video | None, 'audio': pxt.Audio | None, 'doc': pxt.Document | None}
         )
@@ -706,7 +707,7 @@ class TestQuery:
         assert t.count() == 0
 
     def test_mutation_op_restrictions(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = test_tbl
 
         # select_list
@@ -1004,7 +1005,7 @@ class TestQuery:
         assert 'missing key "image"' in str(exc_info.value).lower()
 
     def test_distinct(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         schema: dict[str, Any] = {
             'c1': pxt.String | None,
             'c2': pxt.Int | None,
@@ -1104,7 +1105,7 @@ class TestQuery:
         assert 'c4' in results.schema
 
     def test_to_pydantic(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
 
         class TestModel(pydantic.BaseModel):
             i: int
@@ -1233,7 +1234,7 @@ class TestQuery:
                     row['nonexistent']
 
     def test_table_cursor(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         tbl = pxt.create_table(p('cursor_tbl'), {'a': pxt.Int | None, 'b': pxt.String | None})
         tbl.insert([{'a': i, 'b': f'val_{i}'} for i in range(5)])
         rows = list(tbl.cursor())
@@ -1243,7 +1244,7 @@ class TestQuery:
     @pytest.mark.benchmark(group='select_inexpensive')
     @pytest.mark.skip_cloud(reason='Fails due to server timeout [PXT-1319]')
     def test_select_inexpensive(self, db_root: DatabaseRoot, benchmark: Any) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test_inexpensive'), {'c1': pxt.Int | None, 'c2': pxt.String | None})
 
         row_count = 100000
@@ -1257,7 +1258,7 @@ class TestQuery:
         benchmark(select_inexpensive)
 
     def test_query_after_column_drop(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('t_drop'), {'a': pxt.Int, 'b': pxt.Int}, _is_data_versioned=is_data_versioned)
         validate_update_status(t.insert([{'a': i, 'b': i * 10} for i in range(10)]), expected_rows=10)
         q = t.select(t.a, t.b)
@@ -1271,7 +1272,7 @@ class TestQuery:
     def test_query_after_column_drop_and_add(
         self, db_root: DatabaseRoot, is_data_versioned: bool
     ) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('t_readd'), {'a': pxt.Int, 'keep': pxt.Int}, _is_data_versioned=is_data_versioned)
         validate_update_status(t.insert([{'a': 1, 'keep': 0}]), expected_rows=1)
         q = t.select(t.a)
@@ -1284,7 +1285,7 @@ class TestQuery:
             q.collect()
 
     def test_query_after_schema_change(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('t_add'), {'c1': pxt.Int | None}, _is_data_versioned=is_data_versioned)
         q_c1 = t.where(t.c1 > 1).select(t.c1)
         q_where = t.where(t.c1 > 1)
@@ -1308,7 +1309,7 @@ class TestQuery:
     def test_order_by_after_schema_change(
         self, db_root: DatabaseRoot, is_data_versioned: bool
     ) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         # Confirm where/order_by/limit clauses don't capture stale select-list state.
         t = pxt.create_table(
             p('t_add_ob'), {'c1': pxt.Int | None, 'c2': pxt.Int | None}, _is_data_versioned=is_data_versioned

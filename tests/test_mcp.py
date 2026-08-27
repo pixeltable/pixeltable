@@ -5,13 +5,13 @@ import subprocess
 import sys
 import time
 from contextlib import contextmanager
-from typing import Callable, Iterator
+from typing import Iterator
 
 import pytest
 
 import pixeltable as pxt
 
-from .utils import reload_catalog, rerun_on_network_error, skip_test_if_no_client, skip_test_if_not_installed
+from .utils import reload_catalog, rerun_on_network_error, skip_test_if_no_client, skip_test_if_not_installed, DatabaseRoot
 
 _logger = logging.getLogger('pixeltable_test')
 
@@ -28,7 +28,7 @@ class TestMcp:
         assert udfs[1].name == 'pixeldict'
         assert udfs[1].comment() == 'Returns the Pixeldict of a dictionary.'
 
-        t = pxt.create_table(make_catalog_path('test_mcp'), {'a': pxt.Int | None, 'b': pxt.Int | None})
+        t = pxt.create_table(db_root.make_catalog_path('test_mcp'), {'a': pxt.Int | None, 'b': pxt.Int | None})
         t.add_computed_column(pixelmultiple=udfs[0](a=t.a, b=t.b))
         t.insert([{'a': 3, 'b': 4}, {'a': 5, 'b': 6}])
         res = t.order_by(t.a).collect()
@@ -40,7 +40,7 @@ class TestMcp:
         # reconstructed function still computes newly inserted rows against the server
         skip_test_if_not_installed('mcp')
 
-        path = make_catalog_path('test_mcp')
+        path = db_root.make_catalog_path('test_mcp')
         udfs = pxt.mcp_udfs(init_mcp_server)
         t = pxt.create_table(path, {'a': pxt.Int | None, 'b': pxt.Int | None})
         t.add_computed_column(pixelmultiple=udfs[0](a=t.a, b=t.b))
@@ -66,7 +66,7 @@ class TestMcp:
         with _mcp_server_variant('full', port):
             udfs = pxt.mcp_udfs(url)
             pixelmultiple = next(udf for udf in udfs if udf.name == 'pixelmultiple')
-            t = pxt.create_table(make_catalog_path('test_mcp'), {'a': pxt.Int | None, 'b': pxt.Int | None})
+            t = pxt.create_table(db_root.make_catalog_path('test_mcp'), {'a': pxt.Int | None, 'b': pxt.Int | None})
             t.add_computed_column(pixelmultiple=pixelmultiple(a=t.a, b=t.b))
 
         # the live 'pixelmultiple' tool now takes only (a), no longer matching the stored (a, b) signature
@@ -87,7 +87,7 @@ class TestMcp:
         udfs = pxt.mcp_udfs(init_mcp_server)
         tools = pxt.tools(*udfs)
 
-        t = pxt.create_table(make_catalog_path('test_mcp'), {'prompt': pxt.String | None})
+        t = pxt.create_table(db_root.make_catalog_path('test_mcp'), {'prompt': pxt.String | None})
         messages = [{'role': 'user', 'content': t.prompt}]
         t.add_computed_column(response=openai.chat_completions(messages, model='gpt-4o-mini', tools=tools))
         t.add_computed_column(tool_calls=openai.invoke_tools(tools, t.response))

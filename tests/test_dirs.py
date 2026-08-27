@@ -4,7 +4,7 @@ import pytest
 
 import pixeltable as pxt
 
-from .utils import make_tbl, pxt_raises, reload_catalog
+from .utils import make_tbl, pxt_raises, reload_catalog, DatabaseRoot
 
 
 @pxt.udf
@@ -16,7 +16,7 @@ def _fail_on_neg(x: int) -> int:
 
 class TestDirs:
     def test_create(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         dirs = ['dir1', 'dir1/sub1', 'dir1/sub1/subsub1']
         for name in dirs:
             pxt.create_dir(p(name))
@@ -77,7 +77,7 @@ class TestDirs:
         assert listing == {'dirs': [p('dir1/sub1/subsub1')], 'tables': []}
 
     def test_get_dir_tree(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         for name in ['dir1', 'dir1/sub1', 'dir1/sub1/subsub1']:
             pxt.create_dir(p(name))
         t = make_tbl(p('dir1/t1'))
@@ -103,7 +103,7 @@ class TestDirs:
         assert pxt.get_dir_tree(p('')) == [dir1, t2]
 
     def test_get_dir_tree_error_count(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('errs'), {'x': pxt.Int | None})
         t.add_computed_column(y=_fail_on_neg(t.x))
         t.insert([{'x': 1}, {'x': -1}, {'x': -2}, {'x': 3}], on_error='ignore')
@@ -117,7 +117,7 @@ class TestDirs:
 
     def test_create_if_exists(self, db_root: DatabaseRoot) -> None:
         """Test if_exists parameter of create_dir API"""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         dirs = ['dir1', 'dir1/sub1', 'dir1/sub1/subsub1']
         expected = [p(d) for d in dirs]
         id_before = {}
@@ -207,7 +207,7 @@ class TestDirs:
         assert "if_not_exists must be one of: ['error', 'ignore']" in str(exc_info.value).lower()
 
     def test_drop(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         dirs = ['dir1', 'dir1/sub1', 'dir1/sub1/subsub1']
         for name in dirs:
             pxt.create_dir(p(name))
@@ -241,7 +241,7 @@ class TestDirs:
         assert pxt.list_dirs(p('dir1/sub1')) == []
 
     def test_drop_force(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('dir1'))
         pxt.create_dir(p('dir2'))
         pxt.create_dir(p('dir1/subdir'))
@@ -261,7 +261,7 @@ class TestDirs:
         assert len(pxt.list_dirs(p(''))) == 1
 
     def test_move(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('dir1'))
         pxt.create_dir(p('dir1/sub1'))
         make_tbl(p('dir1/sub1/t1'))
@@ -284,7 +284,7 @@ class TestDirs:
         assert pxt.list_tables(p('dir2')) == [p('dir2/dir1/sub1/t2')]
 
     def test_create_with_parents(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         all_dirs = ['dir1', 'dir1/dir2', 'dir1/dir2/dir3']
         pxt.create_dir(p('dir1/dir2/dir3'), parents=True)
         listing = pxt.list_dirs(p(''), recursive=True)

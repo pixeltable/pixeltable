@@ -1,4 +1,4 @@
-from typing import Callable, Iterable
+from typing import Iterable
 
 import numpy as np
 import pytest
@@ -8,7 +8,7 @@ import pixeltable.exceptions as excs
 from pixeltable import type_system as ts
 from pixeltable.type_system import ArrayType, ColumnType, IntType
 
-from .utils import pxt_raises, reload_catalog, validate_update_status
+from .utils import pxt_raises, reload_catalog, validate_update_status, DatabaseRoot
 
 
 class TestArrayType:
@@ -16,7 +16,7 @@ class TestArrayType:
     def test_array_dtypes(
         self, do_reload_catalog: bool, init_env: None, db_root: DatabaseRoot
     ) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         test_cases: list = [
             (np.bool, [np.bool, pxt.Bool]),
             (np.str_, [np.str_, pxt.String]),
@@ -50,9 +50,9 @@ class TestArrayType:
         db_root: DatabaseRoot,
     ) -> None:
         schema = {'array_col_req': pxt.Array[col_dtype], 'array_col_opt': pxt.Array[col_dtype] | None}
-        pxt.create_table(make_catalog_path('test_numpy_dtypes'), schema, if_exists='replace')
+        pxt.create_table(db_root.make_catalog_path('test_numpy_dtypes'), schema, if_exists='replace')
         reload_catalog(do_reload_catalog)
-        t = pxt.get_table(make_catalog_path('test_numpy_dtypes'))
+        t = pxt.get_table(db_root.make_catalog_path('test_numpy_dtypes'))
 
         # Generate inserts for all dtypes that these columns should accept
         validate_update_status(
@@ -108,7 +108,7 @@ class TestArrayType:
     def test_non_parameterized_array_accepts_all_dtypes(
         self, init_env: None, db_root: DatabaseRoot
     ) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test_numpy_dtypes'), {'array': pxt.Array | None})
         validate_update_status(t.insert(array=(1, 1)), 1)
         validate_update_status(t.insert(array=[1.0, 2.0]), 1)
@@ -121,7 +121,7 @@ class TestArrayType:
     def test_array_shape_validation(
         self, do_reload_catalog: bool, init_env: None, db_root: DatabaseRoot
     ) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         schema = {
             'arr_1': pxt.Array[(1,), np.uint8] | None,
             'arr_2': pxt.Array[(2, 2), pxt.Float] | None,

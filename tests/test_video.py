@@ -21,7 +21,7 @@ from pixeltable.functions.video import (
 from pixeltable.utils import av as av_utils
 
 from .utils import (
-    CatalogMode,
+    DatabaseRoot,
     check_media_store_count,
     generate_test_video,
     get_audio_files,
@@ -89,21 +89,21 @@ class TestVideo:
         strict=False,
     )
     def test_basic(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         video_filepaths = get_video_files()
 
         # computed images are not stored
         _, view = self.create_and_insert(False, video_filepaths, p=p)
-        check_media_store_count(view, 0, catalog_mode, default_output_dest=True)
+        check_media_store_count(view, 0, db_root.id, default_output_dest=True)
 
         # computed images are stored
         tbl, view = self.create_and_insert(True, video_filepaths, p=p)
-        check_media_store_count(view, view.count(), catalog_mode, default_output_dest=True)
+        check_media_store_count(view, view.count(), db_root.id, default_output_dest=True)
 
         # revert() also removes computed images
         tbl.insert({'video': path} for path in video_filepaths)
         tbl.revert()
-        check_media_store_count(view, view.count(), catalog_mode, default_output_dest=True)
+        check_media_store_count(view, view.count(), db_root.id, default_output_dest=True)
 
     @pytest.mark.local('TODO: convert; frame-iterator view')
     @rerun_on_network_error()

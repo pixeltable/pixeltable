@@ -22,7 +22,7 @@ import subprocess
 import sys
 import typing
 import urllib.error
-from collections.abc import Callable, Iterator
+from typing import Callable, Iterator
 from email.message import Message
 from types import ModuleType, SimpleNamespace
 from typing import Any, ClassVar, Self

@@ -1,5 +1,3 @@
-from typing import Callable
-
 import psycopg
 import pytest
 import sqlalchemy as sql
@@ -10,9 +8,9 @@ import pixeltable.exceptions as excs
 from pixeltable.env import Env, store_app_name
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.fault_injection import FaultLocation
-from tests.coordinator import MultiThreadedScenario
-from tests.fault_injection import BlockFault, ExceptionFault
-from tests.utils import pxt_raises
+from .coordinator import MultiThreadedScenario
+from .fault_injection import BlockFault, ExceptionFault
+from .utils import pxt_raises, DatabaseRoot
 
 
 class TestCatalog:
@@ -21,7 +19,7 @@ class TestCatalog:
     def test_json_reserved_key(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         # JSON cell values are user data and may contain a key that collides with the proxy protocol's reserved
         # tag; inserting and reading such values back must round-trip rather than be rejected.
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(
             p('json_tbl'), {'id': pxt.Int | None, 'data': pxt.Json | None}, _is_data_versioned=is_data_versioned
         )
@@ -43,7 +41,7 @@ class TestCatalog:
             pxt.move('pxt://local:db/t', 'local_t')  # hosted -> local
 
     def test_ls(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('test_dir'))
         pxt.create_dir(p('test_dir/subdir'))
 
@@ -84,7 +82,7 @@ class TestCatalog:
         This tests the path collision handling logic: dirs can only collide with dirs,
         but all table subtypes (table, view, snapshot) can collide with each other.
         """
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         base_table = pxt.create_table(p('base'), {'c1': pxt.Int | None})
 
         # One lambda per create_x with expected columns

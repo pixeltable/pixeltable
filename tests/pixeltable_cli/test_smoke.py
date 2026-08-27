@@ -12,14 +12,13 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
-from collections.abc import Callable
 
 import numpy as np
 import pytest
 
 import pixeltable as pxt
 from pixeltable_cli.client.utils import display_path
-from tests.utils import CatalogMode, get_image_files
+from ..utils import DatabaseRoot, get_image_files
 
 from .conftest import PxtRunner
 
@@ -54,7 +53,7 @@ class TestHealth:
 class TestLs:
     def test_lists(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """Bare ls (text + json) lists what's in the catalog and reflects mutations."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_ls'), if_exists='ignore')
         pxt.create_table(p('cli_ls/t'), {'x': pxt.Int | None}, if_exists='replace')
 
@@ -80,7 +79,7 @@ class TestLs:
     def test_long_and_metadata(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """-l / -l --json populate num_cols and flags via get_metadata(). Bare --json is the
         cheap path: it skips the per-entry metadata fetch and returns num_cols=None."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_ls_long'), if_exists='ignore')
         t = pxt.create_table(p('cli_ls_long/t'), {'a': pxt.Int | None}, if_exists='replace')
         t.add_computed_column(b=t.a * 2)
@@ -106,7 +105,7 @@ class TestLs:
     def test_tree_and_counts(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """--tree formats the nested catalog with ASCII prefixes. --counts populates
         num_rows in both text and JSON; a dirs-only target skips the count pool entirely."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_ls_tree'), if_exists='ignore')
         pxt.create_dir(p('cli_ls_tree/sub'), if_exists='ignore')
         pxt.create_table(p('cli_ls_tree/sub/leaf'), {'a': pxt.Int | None}, if_exists='replace')
@@ -140,7 +139,7 @@ class TestLs:
         """ls distinguishes 'path does not exist' (404) from 'path exists but is not a directory'
         (422). The latter case names the offending component and its kind so the user can fix
         a typo like `pxt ls my_table` vs `pxt describe my_table`."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_ls_err'), if_exists='ignore')
         pxt.create_table(p('cli_ls_err/t'), {'a': pxt.Int | None}, if_exists='replace')
 
@@ -165,7 +164,7 @@ class TestCwd:
     """cwd/pwd: the per-session working directory the daemon prepends to relative paths."""
 
     def test_working_directory(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_cwd'), if_exists='ignore')
         pxt.create_dir(p('cli_cwd/sub'), if_exists='ignore')
         pxt.create_table(p('cli_cwd/sub/t'), {'x': pxt.Int | None}, if_exists='replace')
@@ -194,7 +193,7 @@ class TestCwd:
         self, cli: PxtRunner, db_root: DatabaseRoot
     ) -> None:
         """'columns' and 'idxs' with no path cover the working directory, not the whole catalog."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_cwd_list'), if_exists='ignore')
         pxt.create_table(p('cli_cwd_list/inside'), {'x': pxt.String | None}, if_exists='replace')
         pxt.create_table(p('cli_cwd_outside'), {'y': pxt.String | None}, if_exists='replace')
@@ -206,7 +205,7 @@ class TestCwd:
 
             # cleared, the command covers the catalog again: the no-path form locally, the db root over proxy
             cli('cd')
-            args = ('columns', '--json') if catalog_mode == 'local' else ('columns', p(''), '--json')
+            args = ('columns', '--json') if db_root.id == 'local' else ('columns', p(''), '--json')
             assert p('cli_cwd_outside') in {e['table'] for e in cli(*args).json}
         finally:
             cli('cd')
@@ -214,7 +213,7 @@ class TestCwd:
     @pytest.mark.local("'..' resolves against the local catalog root")
     def test_dot_segments(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """'.' and '..' navigate relative to the working directory, as they do in a shell."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_dots'), if_exists='ignore')
         pxt.create_dir(p('cli_dots/sub'), if_exists='ignore')
         pxt.create_table(p('cli_dots/t'), {'x': pxt.Int | None}, if_exists='replace')
@@ -245,7 +244,7 @@ class TestCwd:
 
     @pytest.mark.local("a leading '/' absolute path is a local-catalog notion")
     def test_mv_destination_honors_absolute_path(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_mv_wd'), if_exists='ignore')
         pxt.create_dir(p('cli_mv_wd/sub'), if_exists='ignore')
         pxt.create_table(p('cli_mv_wd/movee'), {'a': pxt.Int | None}, if_exists='replace')
@@ -274,7 +273,7 @@ class TestCwd:
 
     @pytest.mark.local("a leading '/' absolute path is a local-catalog notion")
     def test_absolute_path_ignores_wd(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_cwd_abs'), if_exists='ignore')
         pxt.create_dir(p('cli_cwd_abs/sub'), if_exists='ignore')
         pxt.create_table(p('cli_cwd_abs/sub/t'), {'x': pxt.Int | None}, if_exists='replace')
@@ -292,7 +291,7 @@ class TestCwd:
     def test_shell_prompt_shows_working_directory(
         self, cli: PxtRunner, pxt_daemon: int, db_root: DatabaseRoot, session_project: pathlib.Path
     ) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_cwd_shell'), if_exists='ignore')
         env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
 
@@ -327,7 +326,7 @@ class TestCwd:
     def test_rejects_nonexistent_and_isolates_sessions(
         self, db_root: DatabaseRoot, pxt_daemon: int
     ) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_cwd_iso'), if_exists='ignore')
         base = f'http://127.0.0.1:{pxt_daemon}'
 
@@ -356,7 +355,7 @@ class TestCwd:
 
 class TestDescribe:
     def test_basics(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_desc'), if_exists='ignore')
         pxt.create_table(p('cli_desc/t'), {'a': pxt.Int | None, 'b': pxt.String | None}, if_exists='replace')
 
@@ -370,7 +369,7 @@ class TestDescribe:
         assert 'b' in text
 
     def test_errors(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         r = cli('describe', p('does_not_exist'), check=False)
         assert r.returncode != 0
 
@@ -379,7 +378,7 @@ class TestColumns:
     def test_lists(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """columns lists a single table, walks a directory recursively, or (no path) the whole catalog;
         `computed` is an alias for `columns --computed`."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_cols'), if_exists='ignore')
         t = pxt.create_table(p('cli_cols/t'), {'a': pxt.Int | None, 'b': pxt.String | None}, if_exists='replace')
         t.add_computed_column(doubled=t.a * 2)
@@ -412,7 +411,7 @@ class TestColumns:
         assert cli('columns', p('cli_cols/does_not_exist'), check=False).returncode != 0
 
         # the whole catalog: the no-path form locally, the db root (pxt://org:db) over proxy
-        if catalog_mode == 'local':
+        if db_root.id == 'local':
             entries = cli('columns', '--json').json
         else:
             entries = cli('columns', p(''), '--json').json
@@ -424,7 +423,7 @@ class TestColumns:
 class TestIdxs:
     def test_lists(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """idxs runs against one table, a directory (recursively), or the whole catalog."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_idx'), if_exists='ignore')
         pxt.create_table(p('cli_idx/t'), {'a': pxt.Int | None}, if_exists='replace', has_default_idxs=True)
 
@@ -444,7 +443,7 @@ class TestIdxs:
         assert p('cli_idx/sub/t2') in walked
 
         # the whole catalog: the no-path form locally, the db root (pxt://org:db) over proxy
-        if catalog_mode == 'local':
+        if db_root.id == 'local':
             assert cli('idxs', '--json').returncode == 0
         else:
             assert p('cli_idx/t') in {e['table'] for e in cli('idxs', p(''), '--json').json}
@@ -453,7 +452,7 @@ class TestIdxs:
         """--embedding filters to embedding indexes only; a table with both a btree-style
         index and an embedding index reports one entry each, then only the embedding under
         --embedding."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_idx_emb'), if_exists='ignore')
         t = pxt.create_table(p('cli_idx_emb/t'), {'s': pxt.String | None}, if_exists='replace')
         t.add_embedding_index('s', idx_name='emb_idx', string_embed=_trivial_embed)
@@ -467,7 +466,7 @@ class TestIdxs:
 
 class TestHistory:
     def test_basics(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_hist'), if_exists='ignore')
         t = pxt.create_table(p('cli_hist/t'), {'a': pxt.Int | None}, if_exists='replace')
         for i in range(4):
@@ -502,7 +501,7 @@ class TestHistory:
 class TestRows:
     def test_basics(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """rows: text + --json default; -n limit; --cols subset; null cells render as empty."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_rows'), if_exists='ignore')
         t = pxt.create_table(p('cli_rows/t'), {'n': pxt.Int | None, 's': pxt.String | None}, if_exists='replace')
         t.insert([{'n': i, 's': f'row{i}'} for i in range(5)])
@@ -528,7 +527,7 @@ class TestRows:
     def test_image_column(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """Image cells must render as `<Image WxH MODE>` in both text and JSON modes -
         not as raw bytes, base64, or a PIL repr."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         img_paths = get_image_files()[:2]
         pxt.create_dir(p('cli_img'), if_exists='ignore')
         t = pxt.create_table(
@@ -556,7 +555,7 @@ class TestRows:
         assert 'img\t<Image ' in get_text
 
     def test_errors(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_rows_err'), if_exists='ignore')
         pxt.create_table(p('cli_rows_err/t'), {'a': pxt.Int | None}, if_exists='replace')
 
@@ -579,7 +578,7 @@ class TestRows:
 class TestGet:
     def test_basics(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """Single + composite PK; text + json + missing-row; --cols subset."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_get'), if_exists='ignore')
         t = pxt.create_table(
             p('cli_get/t'),
@@ -609,7 +608,7 @@ class TestGet:
     def test_pk_coercion(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """A numeric-looking PK token is coerced to int or float; everything else stays a
         string. There is no quoting escape for a string PK that looks like a number."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_get_coerce'), if_exists='ignore')
 
         # float PK: '1.5' coerces to float; whitespace around the numeric token is stripped
@@ -630,7 +629,7 @@ class TestGet:
 
     def test_errors(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """No-PK rejection, PK count mismatch, unknown col, empty/whitespace PK, empty --cols token."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_get_err'), if_exists='ignore')
         pxt.create_table(p('cli_get_err/no_pk'), {'a': pxt.Int | None}, if_exists='replace')
         pxt.create_table(p('cli_get_err/t'), {'k': pxt.Int}, primary_key='k', if_exists='replace')
@@ -674,7 +673,7 @@ class TestGet:
 
 class TestCount:
     def test_basics(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_count'), if_exists='ignore')
         t = pxt.create_table(p('cli_count/t'), {'a': pxt.Int | None}, if_exists='replace')
         t.insert([{'a': i} for i in range(7)])
@@ -684,7 +683,7 @@ class TestCount:
         assert cli('count', p('cli_count/t')).stdout.strip() == '7'
 
     def test_errors(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         # count on a directory is not allowed
         pxt.create_dir(p('cli_count_dir'), if_exists='ignore')
         r = cli('count', p('cli_count_dir'), check=False)
@@ -797,7 +796,7 @@ class TestErrors:
 
     def test_basics(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """Populated + empty cases, JSON and text."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_errs'), if_exists='ignore')
 
         # No computed columns -> no errors -> empty JSON list and empty text output
@@ -827,7 +826,7 @@ class TestErrors:
 
     def test_errors(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """No-PK rejection, unknown --col, --col on a non-stored-computed column."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_errs_err'), if_exists='ignore')
         pxt.create_table(p('cli_errs_err/no_pk'), {'a': pxt.Int | None}, if_exists='replace')
         pxt.create_table(
@@ -855,7 +854,7 @@ class TestDrop:
     surface (--force, --dry-run, --json) and the no-TTY refusal."""
 
     def test_basics(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_drop'), if_exists='ignore')
         pxt.create_dir(p('cli_drop/nest'), if_exists='ignore')
         pxt.create_table(p('cli_drop/nest/victim'), {'a': pxt.Int | None}, if_exists='replace')
@@ -899,7 +898,7 @@ class TestDrop:
     def test_cascade(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """--cascade maps to force=True server-side: drops a table that has dependent views.
         Without --cascade, dropping a table with a view fails."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_drop_csc'), if_exists='ignore')
         t = pxt.create_table(p('cli_drop_csc/base'), {'a': pxt.Int | None}, if_exists='replace')
         pxt.create_view(p('cli_drop_csc/dep_view'), t, if_exists='replace')
@@ -915,7 +914,7 @@ class TestDrop:
         assert pxt.get_table(p('cli_drop_csc/dep_view'), if_not_exists='ignore') is None
 
     def test_errors(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         # no -f, no TTY: refuse to proceed
         pxt.create_dir(p('cli_drop_err'), if_exists='ignore')
         pxt.create_table(p('cli_drop_err/protected'), {'a': pxt.Int | None}, if_exists='replace')
@@ -933,7 +932,7 @@ class TestDrop:
 
 class TestRename:
     def test_basics(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_rn'), if_exists='ignore')
         pxt.create_table(p('cli_rn/old_name'), {'a': pxt.Int | None}, if_exists='replace')
         pxt.create_table(p('cli_rn/dr'), {'a': pxt.Int | None}, if_exists='replace')
@@ -955,7 +954,7 @@ class TestRename:
 
     def test_errors(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """`new_name` must be a name, not a path: no '/' or '.'."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_rn_err'), if_exists='ignore')
         pxt.create_table(p('cli_rn_err/t'), {'a': pxt.Int | None}, if_exists='replace')
         r = cli('rename', p('cli_rn_err/t'), 'a/b', check=False)
@@ -965,7 +964,7 @@ class TestRename:
 
 class TestMv:
     def test_basics(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_mv'), if_exists='ignore')
         pxt.create_dir(p('cli_mv/src'), if_exists='ignore')
         pxt.create_dir(p('cli_mv/dst'), if_exists='ignore')
@@ -992,7 +991,7 @@ class TestMv:
         assert 'would move' in r.stdout
 
     def test_errors(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         # nonexistent source path
         r = cli('mv', p('cli_mv_err/missing'), p('cli_mv_err'), check=False)
         assert r.returncode != 0
@@ -1000,7 +999,7 @@ class TestMv:
 
 class TestRevert:
     def test_basics(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_rv'), if_exists='ignore')
         t = pxt.create_table(p('cli_rv/t'), {'a': pxt.Int | None}, if_exists='replace')
         t.insert([{'a': 1}])
@@ -1025,7 +1024,7 @@ class TestRevert:
         """Client preflight: --steps must be >= 1. Server: cannot revert past version 0.
         Plus a direct HTTP test confirming the server's own steps<1 check fires for any
         future programmatic caller that bypasses the CLI."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         pxt.create_dir(p('cli_rv_err'), if_exists='ignore')
         pxt.create_table(p('cli_rv_err/t'), {'a': pxt.Int | None}, if_exists='replace')
 

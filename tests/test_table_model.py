@@ -7,7 +7,6 @@ from __future__ import annotations
 import os
 import pathlib
 import textwrap
-from typing import Callable
 
 import numpy as np
 import pytest
@@ -19,6 +18,7 @@ from pixeltable.catalog.model import BtreeIndex, Column, EmbeddingIndex
 from pixeltable.config import Config
 
 from .utils import (
+    DatabaseRoot,
     assert_resultset_eq,
     assert_table_metadata_eq,
     btree_idxs,
@@ -84,7 +84,7 @@ class TestTableModel:
 
     def test_table_path(self, db_root: DatabaseRoot) -> None:
         """A model describes its shape before the table exists, and the description matches what gets created."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         from pixeltable.functions.video import frame_iterator
 
         TableModel = pxt.model_base()
@@ -134,7 +134,7 @@ class TestTableModel:
     def test_table_model_basic(
         self, root: str, db_root: DatabaseRoot, is_data_versioned: bool
     ) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         TableModel = pxt.model_base()
 
         class ExampleTableModel(TableModel, name='test_table', _is_data_versioned=is_data_versioned):
@@ -419,7 +419,7 @@ class TestTableModel:
         )
 
     def test_btree_index_declaration(self, db_root: DatabaseRoot) -> None:
-        root = make_catalog_path('')
+        root = db_root.make_catalog_path('')
         TableModel = pxt.model_base()
 
         class ExampleTableModel(TableModel, name='test_table'):
@@ -460,7 +460,7 @@ class TestTableModel:
 
     def test_default_idxs_diff(self, db_root: DatabaseRoot) -> None:
         """Verifies how model diff interacts with has_default_idxs."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         root = p('')
         TableModel = pxt.model_base()
 
@@ -518,7 +518,7 @@ class TestTableModel:
 
     def test_operational_table_model_diff(self, db_root: DatabaseRoot) -> None:
         """There is no conversion between the two table kinds, so a mismatched model is unsupported."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         root = p('')
         TableModel = pxt.model_base()
 
@@ -552,7 +552,7 @@ class TestTableModel:
 
     def test_primary_key_model(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """A model-declared primary key is enforced, and survives the schema change that `update_all()` applies."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         root = p('')
         TableModel = pxt.model_base()
 
@@ -597,7 +597,7 @@ class TestTableModel:
 
     def test_btree_index_validation(self, db_root: DatabaseRoot) -> None:
         """`update_all()` and `create_all()` enforce the same B-tree eligibility rules as `Table.add_btree_index()`."""
-        root = make_catalog_path('')
+        root = db_root.make_catalog_path('')
         TableModel = pxt.model_base()
 
         class Base(TableModel, name='base'):
@@ -667,7 +667,7 @@ class TestTableModel:
 
     def test_index_name_collision_on_update(self, db_root: DatabaseRoot) -> None:
         """`update_all()` rejects a declared index whose name is taken by one of the table's existing indexes."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         root = p('')
         TableModel = pxt.model_base()
 
@@ -691,7 +691,7 @@ class TestTableModel:
         assert btree_idxs(Defaults.table) == {'idx0': 'txt'}
 
     def test_all_table_exprs(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         TableModel = pxt.model_base()
 
         class AllExprsTableModel(TableModel, name='all_exprs_table', _is_data_versioned=is_data_versioned):
@@ -775,7 +775,7 @@ class TestTableModel:
     def test_view_model(self, root: str, db_root: DatabaseRoot) -> None:
         skip_test_if_not_installed('imagehash')
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         TableModel = pxt.model_base()
 
         class ExampleTableModel(TableModel, name='test_table', has_default_idxs=True):
@@ -915,7 +915,7 @@ class TestTableModel:
 
     def test_view_model_shadows_base_column(self, db_root: DatabaseRoot) -> None:
         """A view model column cannot shadow a base column, the same as create_view()."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         TableModel = pxt.model_base()
 
         class ExampleTableModel(TableModel, name='test_table'):
@@ -932,7 +932,7 @@ class TestTableModel:
 
     def test_update_all_adds_shadowing_column(self, db_root: DatabaseRoot) -> None:
         """update_all() cannot add a view column that shadows a base column, the same as add_computed_column()."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         TableModel = pxt.model_base()
 
         class ExampleTableModel(TableModel, name='test_table'):
@@ -966,7 +966,7 @@ class TestTableModel:
     def test_view_model_index_on_iterator_column(self, db_root: DatabaseRoot) -> None:
         """An embedding index in a view model can name a column produced by the view's iterator."""
         skip_test_if_not_installed('spacy')
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         TableModel = pxt.model_base()
 
         class ExampleTableModel(TableModel, name='test_table'):
@@ -1009,7 +1009,7 @@ class TestTableModel:
         """An iterator output shadows a base column of the same name, so the model's text is the chunk text
         throughout: the column, the index declared on it, and queries against it."""
         skip_test_if_not_installed('spacy')
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         TableModel = pxt.model_base()
 
         class ExampleTableModel(TableModel, name='test_table'):
@@ -1039,7 +1039,7 @@ class TestTableModel:
 
     def test_view_model_column_collides_with_iterator(self, db_root: DatabaseRoot) -> None:
         """A model column cannot reuse the name of one of the view's iterator outputs."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         TableModel = pxt.model_base()
 
         class ExampleTableModel(TableModel, name='test_table'):
@@ -1071,7 +1071,7 @@ class TestTableModel:
     def test_view_model_with_iterator(self, db_root: DatabaseRoot) -> None:
         skip_test_if_not_installed('imagehash')
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         TableModel = pxt.model_base()
 
         class ExampleTableModel(TableModel, name='test_table'):
@@ -1146,7 +1146,7 @@ class TestTableModel:
         """diff_all() reports added/dropped columns and an iterator mismatch against already-created tables."""
         skip_test_if_not_installed('imagehash')
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         root = p('')
 
         # A base with a table model and a view model, 4 columns each. has_default_idxs=False keeps the diff
@@ -1693,7 +1693,7 @@ class TestTableModel:
         """`update_all()` applies purely additive changes (new columns and indexes) to existing tables."""
         skip_test_if_not_installed('imagehash')
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         root = p('')
 
         TableModel = pxt.model_base()
@@ -1866,7 +1866,7 @@ class TestTableModel:
 
     def test_update_all_errors(self, db_root: DatabaseRoot) -> None:
         """`update_all()` raises an error if a model's schema is inconsistent with the existing table."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         TableModel = pxt.model_base()
 
         class ExampleTable(TableModel, name='test_table'):
@@ -1916,7 +1916,7 @@ class TestTableModel:
 
     def test_drop_col_with_view_index(self, db_root: DatabaseRoot) -> None:
         """update_all() cannot drop a column that a view's index is built on."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         base = pxt.create_table(p('base_t'), {'c0': pxt.String | None, 'c1': pxt.String | None})
         v = pxt.create_view(p('view_t'), base)
         v.add_embedding_index('c0', idx_name='v_idx', embedding=dummy_embedding.using(n=32))
@@ -1942,7 +1942,7 @@ class TestTableModel:
 
     def test_update_all_view_predicate(self, db_root: DatabaseRoot) -> None:
         """update_all() cannot drop a column that a view's predicate references."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         TableModel = pxt.model_base()
 
         class ExampleTable(TableModel, name='test_table'):
@@ -1975,7 +1975,7 @@ class TestTableModel:
 
     def test_table_model_errors(self, db_root: DatabaseRoot) -> None:
         """Reproduce each error condition raised by pixeltable.catalog.model."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         TableModel = pxt.model_base()
 
         with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r'`name` must be a valid Pixeltable identifier'):
@@ -2355,7 +2355,7 @@ class TestTableModel:
             cutoff: pxt.Int
             matches = titles_after(cutoff)
 
-        target = make_catalog_path('qudf')
+        target = db_root.make_catalog_path('qudf')
         pxt.create_dir(target, parents=True)
         TableModel.create_all(target)
         pxt.get_table(f'{target}/docs').insert([{'doc_id': 1, 'title': 'alpha'}, {'doc_id': 5, 'title': 'beta'}])
@@ -2386,7 +2386,7 @@ class TestTableModel:
             from_two = titles_after(2)
             match_count = pxtf.json.len(titles_after(cutoff))
 
-        target = make_catalog_path('qudf_shapes')
+        target = db_root.make_catalog_path('qudf_shapes')
         pxt.create_dir(target, parents=True)
         TableModel.create_all(target)
         pxt.get_table(f'{target}/docs').insert(
@@ -2406,7 +2406,7 @@ class TestTableModel:
 
     def test_table_model_validation_errors(self, db_root: DatabaseRoot) -> None:
         """Errors that arise from a schema mismatch between a model and an existing table."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         TableModel = pxt.model_base()
 
         t = pxt.create_table(p('test_table'), {'id': pxt.Int, 'name': pxt.String | None, 'img': pxt.Image | None})
@@ -2492,7 +2492,7 @@ class TestTableModel:
         A pxt.ConfigVar destination follows whatever the target binds it to, and a default destination the
         instance configures belongs to no column's schema.
         """
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         media_dir = tmp_path / 'media'
         media_dir.mkdir()
         other_dir = tmp_path / 'other'

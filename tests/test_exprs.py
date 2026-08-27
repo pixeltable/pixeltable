@@ -9,7 +9,7 @@ import os
 import re
 import uuid
 from pathlib import Path
-from typing import Any, Callable, NamedTuple
+from typing import Any, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -25,7 +25,7 @@ from pixeltable.functions.video import legacy_frame_iterator
 
 from .conftest import SampleFileServer
 from .utils import (
-    CatalogMode,
+    DatabaseRoot,
     ReloadTester,
     assert_columns_eq,
     create_all_datatypes_tbl,
@@ -235,7 +235,7 @@ class TestExprs:
         res = img_t.select(img_t.img.fileurl).collect().to_pandas()
         stored_urls = set(res.iloc[:, 0])
         assert len(stored_urls) == len(res)
-        if catalog_mode == 'local':
+        if db_root.id == 'local':
             all_urls = {Path(path).as_uri() for path in get_image_files()}
             assert stored_urls <= all_urls
         else:
@@ -246,7 +246,7 @@ class TestExprs:
         res = img_t.select(img_t.img.localpath).collect().to_pandas()
         stored_paths = set(res.iloc[:, 0])
         assert len(stored_paths) == len(res)
-        if catalog_mode == 'local':
+        if db_root.id == 'local':
             all_paths = set(get_image_files())
             assert stored_paths <= all_paths
         else:
@@ -289,7 +289,7 @@ class TestExprs:
         assert 'only valid for' in str(excinfo.value)
 
     def test_null_args(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         # create table with two columns
         schema: dict[str, Any] = {'c1': pxt.Float | None, 'c2': pxt.Float | None}
         t = pxt.create_table(p('test'), schema)
@@ -734,7 +734,7 @@ class TestExprs:
         # a null element, or a non-list element under a further projection becomes null, never dropped. So parallel
         # projections stay the same length and line up by index, and nesting preserves structure at every level.
         t = pxt.create_table(
-            make_catalog_path('proj'), {'id': pxt.Int | None, 'dets': pxt.Json | None, 'matrix': pxt.Json | None}
+            db_root.make_catalog_path('proj'), {'id': pxt.Int | None, 'dets': pxt.Json | None, 'matrix': pxt.Json | None}
         )
         t.insert(
             [
@@ -774,7 +774,7 @@ class TestExprs:
         # every element, which is exactly what the aligned nulls above realize at runtime. (A strict schema won't
         # accept a missing field or null element, so the null values themselves are exercised on the untyped col.)
         tt = pxt.create_table(
-            make_catalog_path('proj_typed'), {'dets': pxt.Json[[{'l': pxt.String, 's': pxt.Float}]] | None}
+            db_root.make_catalog_path('proj_typed'), {'dets': pxt.Json[[{'l': pxt.String, 's': pxt.Float}]] | None}
         )
         tt.insert([{'dets': [{'l': 'a', 's': 0.9}, {'l': 'b', 's': 0.1}]}])
         typed = tt.select(labels=tt.dets['*'].l, scores=tt.dets['*'].s).collect()
@@ -785,7 +785,7 @@ class TestExprs:
         assert list(typed['scores']) == [[0.9, 0.1]]
 
     def test_json_path_types(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         spec = {
             'f1': str,
             'img': pxt.Image,
@@ -1051,7 +1051,7 @@ class TestExprs:
         reload_tester.run_reload_test()
 
     def test_multi_json_mapper(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         # Workflow with multiple JsonMapper instances
         t = pxt.create_table(p('test'), {'id': pxt.Int | None, 'jcol': pxt.Json | None})
         t.add_computed_column(outputx=pxtf.map(t.jcol.x, lambda x: x + 1))
@@ -1080,7 +1080,7 @@ class TestExprs:
         reload_tester.run_reload_test()
 
     def test_nested_chained_mappers(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test'), {'j': pxt.Json | None, 'jj': pxt.Json | None})
         t.insert([{'j': [1, -2, 3], 'jj': [[1, 2], [3]]}])
 
@@ -1154,7 +1154,7 @@ class TestExprs:
         assert 'Invalid array indices' in str(excinfo.value)
 
     def test_in(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = test_tbl
         user_cols = [t.c1, t.c1n, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7]
         # list of literals
@@ -1286,7 +1286,7 @@ class TestExprs:
             assert np.array_equal(np.array(orig_img), np.array(retrieved_img))
 
     def test_astype_str_to_img_data_url(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('astype_test'), {'url': pxt.String | None})
         t.add_computed_column(img=t.url.astype(pxt.Image | None))
         images = get_image_files(include_bad_image=True)[:5]  # bad image is at idx 0
@@ -1413,7 +1413,7 @@ class TestExprs:
     def test_nonmodule_function_errors(self, db_root: DatabaseRoot) -> None:
         # a function without a fully-qualified path (from apply() or defined in a notebook) can only be stored as a
         # pickled body; every persistence site must reject it with a clear message
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('base'), {'c2': pxt.Int | None, 's': pxt.String | None})
         t.insert([{'c2': i, 's': str(i)} for i in range(10)])
         match = r'was created with `\.apply\(\)` or defined as a local'
@@ -1467,10 +1467,10 @@ class TestExprs:
     def test_ext_imgs(
         self, db_root: DatabaseRoot, sample_file_server: SampleFileServer
     ) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('img_test'), {'name': pxt.String, 'img': pxt.Image})
         images = [
-            (name, sample_file_server.url(f'docs/resources/images/{name}', catalog_mode))
+            (name, sample_file_server.url(f'docs/resources/images/{name}', db_root.id))
             for name in (
                 '000000000030.jpg',
                 '000000000034.jpg',
@@ -1598,7 +1598,7 @@ class TestExprs:
         assert t.img.equals(subexprs[0])
 
     def test_window_fns(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = test_tbl
         _ = t.select(pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3)).show(100)
 
@@ -1659,7 +1659,7 @@ class TestExprs:
         assert all(json.loads(res['dumped_py'][i]) == res['json_col'][i] for i in range(len(res)))
 
     def test_agg(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = create_scalars_tbl(1000, path=p('scalars_tbl'))
         df = t.select().collect().to_pandas()
 
@@ -1964,7 +1964,7 @@ class TestExprs:
 
     def test_string_operations(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
         # create table with two columns
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         schema: dict[str, Any] = {'s1': pxt.String | None, 's2': pxt.String | None, 'i1': pxt.Int | None}
         t = pxt.create_table(p('test_str_concat'), schema)
         t.add_computed_column(s3=t.s1 + '-' + t.s2)
@@ -2004,7 +2004,7 @@ class TestExprs:
         reload_tester.run_reload_test()
 
     def test_base_table_col_refs(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = test_tbl
         # Filter down to just 5 rows of the table.
         v = pxt.create_view(p('test_view'), t.where(t.c2 < 5))

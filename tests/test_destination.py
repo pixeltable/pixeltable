@@ -6,7 +6,7 @@ import re
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Callable, ClassVar
+from typing import ClassVar
 
 import pytest
 import requests
@@ -18,7 +18,7 @@ from pixeltable.functions.net import presigned_url
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
 
-from .utils import CatalogMode, check_media_store_count, pxt_raises, rerun_on_network_error, skip_test_if_not_installed
+from .utils import DatabaseRoot, check_media_store_count, pxt_raises, rerun_on_network_error, skip_test_if_not_installed
 
 
 @rerun_on_network_error()
@@ -74,7 +74,7 @@ class TestDestination:
             return None
 
     def test_dest_errors(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test_dest_errors'), schema={'img': pxt.Image | None})
 
         # destination type and scheme are checked regardless of the catalog kind
@@ -83,7 +83,7 @@ class TestDestination:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be a valid reference to a supported'):
             t.add_computed_column(img_rot=t.img.rotate(90), destination='https://anything/')
 
-        if catalog_mode != 'local':
+        if db_root.id != 'local':
             # a hosted table has no client-accessible local store, so any local-filesystem destination is rejected
             # (before the more specific local-path checks below would apply)
             with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='not supported for a hosted table'):
@@ -112,7 +112,7 @@ class TestDestination:
 
     @pytest.mark.very_expensive
     def test_invalid_bucket(self, db_root: DatabaseRoot) -> None:
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('boto3')
         t = pxt.create_table(p('test_invalid_dest'), schema={'img': pxt.Image | None})
 
@@ -218,15 +218,15 @@ class TestDestination:
 
     @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS.values())
     def test_destination(
-        self, db_root: DatabaseRoot, dest_id: StorageTarget, db_root: DatabaseRoot
+        self, db_root: DatabaseRoot, dest_id: StorageTarget
     ) -> None:
         """Test various media destinations."""
-        if catalog_mode != 'local' and dest_id == StorageTarget.LOCAL_STORE:
+        if db_root.id != 'local' and dest_id == StorageTarget.LOCAL_STORE:
             pytest.skip(
                 'a local-filesystem destination is not valid for a hosted table: the daemon keeps media in '
                 'its media dir or an external store, never a local path'
             )
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('boto3')
         from pixeltable.utils.pxt_store import PxtStore
         from pixeltable.utils.s3_store import S3Store
@@ -252,16 +252,16 @@ class TestDestination:
         # img_rot1 (destination=None) goes to the catalog's default store; img_rot2/3 to the explicit (shared) dests.
         # img is inserted from local file paths: referenced in place locally, but over the proxy each insert ships
         # the file and persists it in the daemon's default store, so the default store also holds one img per row.
-        shipped_per_insert = 1 if catalog_mode == 'proxy' else 0
-        check_media_store_count(t, 2 + 2 * shipped_per_insert, catalog_mode, default_output_dest=True)
+        shipped_per_insert = 1 if db_root.id == 'proxy' else 0
+        check_media_store_count(t, 2 + 2 * shipped_per_insert, db_root.id, default_output_dest=True)
         assert ObjectOps.count(t._id, dest=dest1_uri) == 2
         assert ObjectOps.count(t._id, dest=dest2_uri) == 2
 
-        check_media_store_count(t, 1, catalog_mode, tbl_version=2, default_output_dest=True)
+        check_media_store_count(t, 1, db_root.id, tbl_version=2, default_output_dest=True)
         assert ObjectOps.count(t._id, 3, dest=dest1_uri) == 1
         assert ObjectOps.count(t._id, 4, dest=dest2_uri) == 1
 
-        check_media_store_count(t, 1 + shipped_per_insert, catalog_mode, tbl_version=5, default_output_dest=True)
+        check_media_store_count(t, 1 + shipped_per_insert, db_root.id, tbl_version=5, default_output_dest=True)
         assert ObjectOps.count(t._id, 5, dest=dest1_uri) == 1
         assert ObjectOps.count(t._id, 5, dest=dest2_uri) == 1
 
@@ -293,21 +293,21 @@ class TestDestination:
         save_id = t._id
         pxt.drop_table(t)
 
-        check_media_store_count(t, 0, catalog_mode, default_output_dest=True)
+        check_media_store_count(t, 0, db_root.id, default_output_dest=True)
         assert ObjectOps.count(save_id, dest=dest1_uri) == 0
         assert ObjectOps.count(save_id, dest=dest2_uri) == 0
 
     @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS.values())
     def test_dest_two_copies(
-        self, db_root: DatabaseRoot, dest_id: StorageTarget, db_root: DatabaseRoot
+        self, db_root: DatabaseRoot, dest_id: StorageTarget
     ) -> None:
         """Test destination with two Stores receiving copies of the same computed image"""
-        if catalog_mode != 'local' and dest_id == StorageTarget.LOCAL_STORE:
+        if db_root.id != 'local' and dest_id == StorageTarget.LOCAL_STORE:
             pytest.skip(
                 'a local-filesystem destination is not valid for a hosted table: the daemon keeps media in '
                 'its media dir or an external store, never a local path'
             )
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         dest_uri = self.resolve_destination_uri(dest_id)
 
         dest1_uri = f'{dest_uri}/bucket1'
@@ -330,8 +330,8 @@ class TestDestination:
         assert len(r) == 2
         # img_rot1 (destination=None) goes to the default store, one per row; over the proxy that store also holds
         # each input img, shipped and persisted there (local references the source files in place)
-        shipped_imgs = len(r) if catalog_mode == 'proxy' else 0
-        check_media_store_count(t, len(r) + shipped_imgs, catalog_mode, default_output_dest=True)
+        shipped_imgs = len(r) if db_root.id == 'proxy' else 0
+        check_media_store_count(t, len(r) + shipped_imgs, db_root.id, default_output_dest=True)
         assert len(r) == ObjectOps.count(t._id, dest=dest1_uri)
 
         # The outcome of this test is unusual:
@@ -376,7 +376,7 @@ class TestDestination:
     @pytest.mark.very_expensive
     def test_dest_all(self, db_root: DatabaseRoot) -> None:
         """Test destination with all available storage targets"""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         dest_uris = tuple(self.resolve_destination_uri(dest_id) + '/bucket1' for dest_id in self.TESTED_DESTINATIONS)
 
         t = pxt.create_table(p('test_dest'), schema={'img': pxt.Image | None})
