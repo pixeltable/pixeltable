@@ -228,11 +228,7 @@ def run(argv: list[str]) -> None:
     if verb == 'diff':
         ap.add_argument('--otel', action='store_true', help='compare the deployments against tracing being on')
     if verb == 'update':
-        ap.add_argument(
-            '--otel',
-            action='store_true',
-            help='emit OpenTelemetry traces (requires `pixeltable[otel]`)',
-        )
+        ap.add_argument('--otel', action='store_true', help='emit OpenTelemetry traces (requires `pixeltable[otel]`)')
         ap.add_argument(
             '--allow-destructive',
             action='store_true',
@@ -245,11 +241,7 @@ def run(argv: list[str]) -> None:
         )
         ap.add_argument('--host', default='127.0.0.1', help='bind address (default: 127.0.0.1)')
         ap.add_argument('--port', type=int, default=8000, help='bind port (default: 8000)')
-        ap.add_argument(
-            '--otel',
-            action='store_true',
-            help='emit OpenTelemetry traces (requires `pixeltable[otel]`)',
-        )
+        ap.add_argument('--otel', action='store_true', help='emit OpenTelemetry traces (requires `pixeltable[otel]`)')
     args = ap.parse_args(argv[1:])
 
     path = Path(args.app)

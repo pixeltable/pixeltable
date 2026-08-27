@@ -1070,7 +1070,8 @@ class QueryBase(ABC):
     @classmethod
     def _subclass(cls, classname: str) -> type[QueryBase]:
         # imported here because Query's module imports this one
-        if classname == 'Query':
+        # 'DataFrame': the name this class had when the metadata was written; convert_22() leaves it in place
+        if classname in ('Query', 'DataFrame'):
             from pixeltable._query import Query
 
             return Query
