@@ -1,15 +1,19 @@
-from typing import Literal, Optional
+from typing import Any, Literal
 
 from typing_extensions import TypedDict
 
 # a service plan and a schema plan share these definitions; moving them to a common module is a follow-up
-from pixeltable_cli.schema_types import DiffResolution, OpStatus, _Status
+from pixeltable_cli.schema_types import OpStatus, _Status
 from pixeltable_cli.utils import PxtPath
 
 # Extends the severities a schema plan uses (its three, plus 'blocked'). 'blocked' marks an operation that
 # 'service update' cannot carry out because the database, not the deployment, has to satisfy it; the command
 # that does so is in the operation's details.
 Severity = Literal['additive', 'destructive', 'unsupported', 'blocked']
+
+# Extends the resolutions a schema plan uses with 'blocked': the deployment cannot be reconciled until the
+# database satisfies what one of its routes needs, and the command that does so is in the operation's details.
+ServiceResolution = Literal['up_to_date', 'create', 'update_additive', 'update_destructive', 'unsupported', 'blocked']
 
 # How the routes were compared. 'declarative' compares the route declarations a deployment was created
 # from; 'openapi' compares the OpenAPI document generated from a custom application. 'unavailable' means the
@@ -47,8 +51,8 @@ class ServiceDiff(_Status):
 
     name: str
     exists: bool
-    state: Optional[str]  # the deployment's state, None when it does not exist
-    endpoint: Optional[str]
+    state: str | None  # the deployment's state, None when it does not exist
+    endpoint: str | None
 
     # the catalog path the definition's models bind against
     base_path: PxtPath
@@ -57,10 +61,10 @@ class ServiceDiff(_Status):
     # application object
     kind: Literal['declarative', 'custom']
 
-    resolution: DiffResolution
+    resolution: ServiceResolution
 
     route_comparison: RouteComparison
-    route_detail: Optional[str]  # why the routes were not compared, when they were not
+    route_detail: str | None  # why the routes were not compared, when they were not
 
     # empty for a create, which subsumes the additions that constitute it
     ops: list[ServiceChangeOp]
@@ -76,12 +80,17 @@ class ServicePlanSummary(TypedDict):
     update_destructive: int
     unsupported: int
     extras: int
+    blocked: int  # deployments whose reconciliation the database has to enable first
     destructive: int  # operations, not deployments
-    blocked: int  # operations the database has to satisfy before the plan can be applied
+    blocked_ops: int  # operations the database has to satisfy before the plan can be applied
     restarts: int  # deployments that applying the plan would interrupt
 
 
-class ServicePlan(TypedDict):
+class _PlanOps(TypedDict, total=False):
+    ops: list[ServiceChangeOp]  # on whole deployments, unlike ServiceDiff.ops
+
+
+class ServicePlan(_PlanOps):
     """Set of changes needed to reconcile the deployments at a target with the definitions a file holds."""
 
     app_file: str
@@ -95,7 +104,51 @@ class ServicePlan(TypedDict):
     summary: ServicePlanSummary
 
 
-def delete_service_op(name: str, endpoint: Optional[str], status: OpStatus) -> ServiceChangeOp:
+class RouteSpec(TypedDict):
+    """Mirror of pixeltable.serving.RouteSpec: one route of a service definition."""
+
+    method: Literal['GET', 'POST']
+    path: str
+    route_type: Literal['insert', 'update', 'delete', 'compute', 'query']
+
+    # the model a route is declared against, or the catalog path of the table; a query route written against
+    # tables has neither
+    model: str | None
+    table: str | None
+
+    inputs: list[str]
+    uploadfile_inputs: list[str]
+    outputs: list[str]
+    match_columns: list[str]
+
+    background: bool
+    return_fileresponse: bool
+    one_row: bool
+    export_sql: dict[str, Any] | None
+    query: str | None
+
+
+class ServiceSpec(TypedDict):
+    """Mirror of pixeltable.serving.ServiceSpec: everything an application file declares about one service."""
+
+    name: str
+    prefix: str
+    routes: list[RouteSpec]
+
+
+class ServiceDeployment(TypedDict):
+    """A service running locally, as `pxt service list` reports it."""
+
+    name: str
+    base_path: PxtPath  # the catalog directory the service's models are bound to
+    endpoint: str
+    pid: int
+    process_started_at: float | None  # creation time of pid, None where the platform does not report one
+    app_file: str  # the file the service was served from
+    spec: ServiceSpec  # what it serves
+
+
+def delete_service_op(name: str, endpoint: str | None, status: OpStatus) -> ServiceChangeOp:
     """The operation for deleting the named deployment, in the given status."""
     served = '' if endpoint is None else f' at {endpoint}'
     return {
@@ -112,13 +165,16 @@ def delete_service_op(name: str, endpoint: Optional[str], status: OpStatus) -> S
 
 
 __all__ = [
-    'DiffResolution',
     'OpStatus',
     'RouteComparison',
+    'RouteSpec',
     'ServiceChangeOp',
+    'ServiceDeployment',
     'ServiceDiff',
     'ServicePlan',
     'ServicePlanSummary',
+    'ServiceResolution',
+    'ServiceSpec',
     'Severity',
     'delete_service_op',
 ]

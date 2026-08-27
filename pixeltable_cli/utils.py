@@ -7,6 +7,7 @@ import importlib.metadata
 import os
 import re
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any, NamedTuple, NewType
 
@@ -135,6 +136,33 @@ def resolve_dot_segments(path: str) -> str:
     return prefix if resolved == '' else f'{prefix}/{resolved}'
 
 
+PROJECT_CONFIG_FILE = 'pixeltable.toml'
+_PYPROJECT = 'pyproject.toml'
+
+
+def find_project_root(start: Path) -> Path | None:
+    """Find the nearest directory holding one of the recognized project config files.
+
+    Duplicates config.py:_find_project_root(), which cannot be imported here.
+    """
+    start = start.resolve()
+    for dir in (start, *start.parents):
+        if (dir / PROJECT_CONFIG_FILE).is_file():
+            return dir
+        pyproject = dir / _PYPROJECT
+        if pyproject.is_file():
+            try:
+                with open(pyproject, 'rb') as fp:
+                    parsed = tomllib.load(fp)
+            except (OSError, tomllib.TOMLDecodeError) as e:
+                # fail early
+                raise RuntimeError(f'{pyproject} cannot be parsed: {e}') from e
+            tool = parsed.get('tool')
+            if isinstance(tool, dict) and 'pixeltable' in tool:
+                return dir
+    return None
+
+
 # Identity fingerprint keys
 _IDENTITY_KEYS: tuple[str, ...] = (
     'pxt_version',
@@ -183,6 +211,12 @@ def _snapshot_pixeltable_env(environ: dict[str, str] | None = None) -> dict[str,
     """Returns dict mapping PIXELTABLE_* env vars to their redacted values."""
     env = os.environ if environ is None else environ
     return {k: _redact_env_value(k, env[k]) for k in sorted(env) if k.startswith('PIXELTABLE_')}
+
+
+def project_root() -> str | None:
+    """The project root at or above the working directory, and None when that chain marks no project."""
+    found = find_project_root(Path.cwd())
+    return None if found is None else str(found)
 
 
 def env_fingerprint(environ: dict[str, str] | None = None) -> dict[str, str]:

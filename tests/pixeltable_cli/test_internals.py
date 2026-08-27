@@ -24,8 +24,9 @@ import typing
 import urllib.error
 from collections.abc import Callable, Iterator
 from email.message import Message
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import Any, ClassVar, Self
+from unittest.mock import patch
 
 import pydantic
 import pytest
@@ -34,7 +35,6 @@ import typing_extensions
 
 from pixeltable import exceptions as excs
 from pixeltable.catalog import model
-from pixeltable.config import ServiceConfig
 from pixeltable.service import management_client
 from pixeltable.service.management_protocol import (
     CreateDbRequest,
@@ -56,7 +56,6 @@ from pixeltable.service.management_protocol import (
     UpdateRuntimeRequest,
     UpdateServiceRequest,
 )
-from pixeltable.serving import _config as serving_config
 from pixeltable_cli import schema_types as wire, utils
 from pixeltable_cli.client import confirm, hosted, main as client_main, parser as client_parser, utils as client_utils
 from pixeltable_cli.client.commands import (
@@ -68,6 +67,7 @@ from pixeltable_cli.client.commands import (
     status as status_cmd,
 )
 from pixeltable_cli.server import daemon as server_daemon, router as server_router, routes as server_routes
+from tests.utils import pxt_raises, skip_test_if_not_installed
 
 
 def _pick_port() -> int:
@@ -94,6 +94,8 @@ def _patch_identity(monkeypatch: pytest.MonkeyPatch, overrides: dict[str, object
     """Pin utils.identity() to a known dict so tests don't depend on the host environment."""
     ident = {**_DEFAULT_IDENTITY, **overrides}
     monkeypatch.setattr(client_utils, 'identity', lambda: dict(ident))
+    # pin project_root to None to avoid daemon restarts
+    monkeypatch.setattr(client_utils, 'project_root', lambda: None)
     return ident
 
 
@@ -132,6 +134,57 @@ def fresh_port(init_env: None) -> Iterator[int]:
             os.environ.pop('PXT_PORT', None)
         else:
             os.environ['PXT_PORT'] = prior
+
+
+class TestProjectRootParity:
+    """The client duplicates the library's project-root rule; the two copies have to agree."""
+
+    def test_copies_agree(self, tmp_path: pathlib.Path) -> None:
+        from pixeltable.config import _find_project_root as library_copy
+        from pixeltable_cli.utils import find_project_root as client_copy
+
+        nested = tmp_path / 'proj' / 'ad_gen'
+        nested.mkdir(parents=True)
+        elsewhere = tmp_path / 'elsewhere'
+        elsewhere.mkdir()
+
+        def both(start: pathlib.Path) -> tuple[pathlib.Path | None, pathlib.Path | None]:
+            return library_copy(start), client_copy(start)
+
+        # no config anywhere above
+        library, client = both(nested)
+        assert library == client is None
+
+        # a pyproject.toml without the section, then with it
+        (tmp_path / 'proj' / 'pyproject.toml').write_text('[project]\nname = "proj"\n')
+        library, client = both(nested)
+        assert library == client is None
+        (tmp_path / 'proj' / 'pyproject.toml').write_text('[project]\nname = "proj"\n\n[tool.pixeltable]\n')
+        library, client = both(nested)
+        assert library == client == tmp_path / 'proj'
+
+        # the nearest config wins, and a pixeltable.toml beats a pyproject.toml beside it
+        (nested / 'pyproject.toml').write_text('[tool.pixeltable]\n')
+        (nested / 'pixeltable.toml').write_text('')
+        library, client = both(nested)
+        assert library == client == nested
+
+        # a file that cannot be parsed might be the project config, so both copies refuse rather than
+        # resolving against a directory above it
+        (elsewhere / 'pyproject.toml').write_text('[tool.pixeltable\n')
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'cannot be parsed'):
+            library_copy(elsewhere)
+        with pytest.raises(RuntimeError, match=r'cannot be parsed'):
+            client_copy(elsewhere)
+
+        # the same, with a project root above the unreadable file
+        unreadable = tmp_path / 'proj' / 'unreadable'
+        unreadable.mkdir()
+        (unreadable / 'pyproject.toml').write_text('[tool.pixeltable\n')
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'cannot be parsed'):
+            library_copy(unreadable)
+        with pytest.raises(RuntimeError, match=r'cannot be parsed'):
+            client_copy(unreadable)
 
 
 class TestProbe:
@@ -498,7 +551,7 @@ class TestProbe:
         client_utils.spawn_detached()
 
         args, kwargs = calls[0]
-        assert args == [sys.executable, '-m', 'pixeltable_cli.server.daemon']
+        assert args[:3] == [sys.executable, '-m', 'pixeltable_cli.server.daemon']
         assert kwargs['cwd'] == client_utils._resolve_pixeltable_home()
         assert kwargs['env']['PYTHONSAFEPATH'] == '1'
 
@@ -1144,7 +1197,7 @@ class TestServerDaemon:
         monkeypatch.setattr(server_daemon, 'bind', fake_bind)
         monkeypatch.setattr(server_daemon, 'run', lambda s: ran.append(s))
         monkeypatch.setattr(server_daemon.atexit, 'register', lambda _fn: None)
-        server_daemon.main()
+        server_daemon.main([])
         assert bound == [12345]
         assert ran == [fake_server]
 
@@ -1158,7 +1211,7 @@ class TestServerDaemon:
         monkeypatch.setattr(server_daemon, 'bind', fail)
         monkeypatch.setattr(server_daemon, 'is_running', lambda: True)
         with pytest.raises(SystemExit) as info:
-            server_daemon.main()
+            server_daemon.main([])
         assert info.value.code == 0
 
     def test_main_reports_unrelated_port_holder(
@@ -1173,7 +1226,7 @@ class TestServerDaemon:
         monkeypatch.setattr(server_daemon, 'bind', fail)
         monkeypatch.setattr(server_daemon, 'is_running', lambda: False)
         with pytest.raises(SystemExit) as info:
-            server_daemon.main()
+            server_daemon.main([])
         assert info.value.code == 1
         captured = capsys.readouterr()
         assert 'bind to 127.0.0.1:12345 failed' in captured.err
@@ -1346,7 +1399,7 @@ class TestDaemonCmd:
         monkeypatch.setattr(
             daemon_cmd,
             'fetch_health',
-            lambda: {
+            lambda timeout=None: {
                 'pid': 4242,
                 'started_at': '2026-05-18T12:00:00+00:00',
                 'service': 'pxt',
@@ -1368,16 +1421,28 @@ class TestDaemonCmd:
 
     def test_status_json_is_raw_dict(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
         payload = {'pid': 4242, 'service': 'pxt', 'pixeltable_env': {}}
-        monkeypatch.setattr(daemon_cmd, 'fetch_health', lambda: payload)
+        monkeypatch.setattr(daemon_cmd, 'fetch_health', lambda timeout=None: payload)
         daemon_cmd.run(['status', '--json'])
         assert json.loads(capsys.readouterr().out) == payload
 
     def test_status_no_daemon_exits_1(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
-        monkeypatch.setattr(daemon_cmd, 'fetch_health', lambda: None)
+        monkeypatch.setattr(daemon_cmd, 'fetch_health', lambda timeout=None: None)
+        monkeypatch.setattr(daemon_cmd, 'port_is_open', lambda: False)
         with pytest.raises(SystemExit) as ei:
             daemon_cmd.run(['status'])
         assert ei.value.code == 1
         assert 'no daemon running' in capsys.readouterr().err
+
+    def test_status_busy_daemon_exits_1(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+        """A daemon that holds the port but does not answer is reported as busy, not as absent."""
+        monkeypatch.setattr(daemon_cmd, 'fetch_health', lambda timeout=None: None)
+        monkeypatch.setattr(daemon_cmd, 'port_is_open', lambda: True)
+        with pytest.raises(SystemExit) as ei:
+            daemon_cmd.run(['status'])
+        assert ei.value.code == 1
+        err = capsys.readouterr().err
+        assert 'busy with a request' in err
+        assert 'no daemon running' not in err
 
     def test_restart_stops_then_starts(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture, tmp_path: pathlib.Path
@@ -1545,21 +1610,21 @@ class TestHardeningHeaders:
             assert r.headers.get('Referrer-Policy') == 'no-referrer'
 
 
-class TestConfigRouteWithGenericTypes:
-    """KNOWN_CONFIG_OPTIONS includes parametric-generic types (eg list[ServiceConfig]).
-    /api/config must not crash on those (a previous regression called expected_type(value)
-    on a types.GenericAlias and raised TypeError)."""
+class TestConfigRoute:
+    def test_config_route_renders_every_known_option(self, init_env: None) -> None:
+        """/api/config reports each option in KNOWN_CONFIG_OPTIONS, whatever its declared type.
 
-    def test_config_route_handles_list_generic(self, init_env: None) -> None:
-        # In-process call into the route handler; doesn't require the daemon subprocess.
-        # The key signal: route returns a ConfigResponse rather than raising.
+        A declared type is coerced onto the configured value, which a parametric generic (eg list[X]) does
+        not survive: calling it raises TypeError. The route collapses such a type to its origin first.
+        """
+        # in-process call into the route handler; doesn't require the daemon subprocess
+        from pixeltable.config import KNOWN_CONFIG_OPTIONS
         from pixeltable_cli.server.router import Request
 
-        req = Request(query={}, body_bytes=b'')
-        resp = server_routes.config(req)
-        # Spot-check: pixeltable.service entry is present (the generic-typed one).
-        services = [e for e in resp.entries if e.section == 'pixeltable' and e.key == 'service']
-        assert len(services) == 1
+        resp = server_routes.config(Request(query={}, body_bytes=b''))
+        reported = {(e.section, e.key) for e in resp.entries}
+        expected = {(section, key) for section, options in KNOWN_CONFIG_OPTIONS.items() for key in options}
+        assert reported == expected
 
     def test_config_route_redacts_otel_headers(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
         from pixeltable_cli.server.router import Request
@@ -1594,8 +1659,6 @@ class TestHostedCommandHelp:
         [
             (db_cmd, ['--help'], ['create', 'list', 'update', 'update-runtime', 'status']),
             (db_cmd, ['update', '--help'], ['--workers', '--cpu']),
-            (service_cmd, ['--help'], ['create', 'update', 'stop', 'start', 'status']),
-            (service_cmd, ['update', '--help'], ['--workers']),
             (org_cmd, ['--help'], ['list', 'status']),
         ],
     )
@@ -1662,7 +1725,7 @@ _POST_ROUTE_REQUESTS = [
             'cpu': 1.5,
             'memory_mb': 1024,
             'disk_gb': 20,
-            'service_config': ServiceConfig(name='svc').model_dump_json(),
+            'service_spec': json.dumps({'name': 'svc', 'prefix': '', 'routes': []}),
         },
         CreateServiceRequest(
             org='acme',
@@ -1673,12 +1736,12 @@ _POST_ROUTE_REQUESTS = [
             cpu=1.5,
             memory_mb=1024,
             disk_gb=20,
-            service_config=ServiceConfig(name='svc'),
+            service_spec={'name': 'svc', 'prefix': '', 'routes': []},
         ),
     ),
     (
         server_routes.update_service,
-        {'org': 'acme', 'db': 'main', 'service_name': 'svc', 'workers_min': 4, 'service_config': None},
+        {'org': 'acme', 'db': 'main', 'service_name': 'svc', 'workers_min': 4, 'service_spec': None},
         UpdateServiceRequest(org='acme', db='main', service_name='svc', workers_min=4),
     ),
     (
@@ -1788,24 +1851,6 @@ class TestHostedCommandRequests:
             (db_cmd, ['start', 'pxt://acme:main'], server_routes.start_db, StartDbRequest(org='acme', db='main')),
             (db_cmd, ['stop', 'pxt://acme:main'], server_routes.stop_db, StopDbRequest(org='acme', db='main')),
             (db_cmd, ['delete', 'pxt://acme:main'], server_routes.delete_db, DeleteDbRequest(org='acme', db='main')),
-            (
-                service_cmd,
-                ['start', 'pxt://acme:main/services/svc'],
-                server_routes.start_service,
-                StartServiceRequest(org='acme', db='main', service_name='svc'),
-            ),
-            (
-                service_cmd,
-                ['stop', 'pxt://acme:main/services/svc'],
-                server_routes.stop_service,
-                StopServiceRequest(org='acme', db='main', service_name='svc'),
-            ),
-            (
-                service_cmd,
-                ['delete', 'pxt://acme:main/services/svc'],
-                server_routes.delete_service,
-                DeleteServiceRequest(org='acme', db='main', service_name='svc'),
-            ),
         ],
     )
     def test_command_body(
@@ -1819,22 +1864,6 @@ class TestHostedCommandRequests:
         body = self._posted_body(monkeypatch, module, argv)
         assert _forwarded_request(monkeypatch, handler, body=body) == expected
 
-    def test_service_create_and_update_bodies(self, init_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
-        svc_config = ServiceConfig(name='svc')
-        monkeypatch.setattr(serving_config, 'lookup_service_config', lambda name: svc_config)
-
-        argv = ['create', 'svc', '--base-uri', 'pxt://acme:main/dir', '--workers', '3']
-        body = self._posted_body(monkeypatch, service_cmd, argv)
-        assert _forwarded_request(monkeypatch, server_routes.create_service, body=body) == CreateServiceRequest(
-            org='acme', db='main', service_name='svc', base_path='dir', workers_min=3, service_config=svc_config
-        )
-
-        argv = ['update', 'pxt://acme:main/services/svc', '--workers', '4']
-        body = self._posted_body(monkeypatch, service_cmd, argv)
-        assert _forwarded_request(monkeypatch, server_routes.update_service, body=body) == UpdateServiceRequest(
-            org='acme', db='main', service_name='svc', workers_min=4, service_config=svc_config
-        )
-
     @pytest.mark.parametrize('db', ['main', 'my-db', 'db1', 'video-search', 'a' * 29])
     def test_create_db_accepts_valid_name(self, db: str) -> None:
         assert CreateDbRequest(org='acme', db=db).db == db
@@ -1843,6 +1872,28 @@ class TestHostedCommandRequests:
     def test_create_db_rejects_invalid_name(self, db: str) -> None:
         with pytest.raises(pydantic.ValidationError):
             CreateDbRequest(org='acme', db=db)
+
+
+class TestServiceOtel:
+    @pytest.mark.otel
+    def test_run_otel(self, tmp_path: pathlib.Path) -> None:
+        """--otel resolves the instrumentation package and wires init()/instrument_fastapi() into run."""
+        skip_test_if_not_installed('fastapi', 'uvicorn', 'opentelemetry.instrumentation.pixeltable')
+        app_file = tmp_path / 'app.py'
+        app_file.write_text('', encoding='utf-8')  # the routers it declares are patched out below
+        app = SimpleNamespace(routes=[])  # stands in for the FastAPI app, which run() counts the routes of
+
+        with (
+            patch('pixeltable.serving._app.load_service_routers', return_value={'ingest': object()}),
+            patch('pixeltable.serving._app.create_app_for_services', return_value=app),
+            patch('uvicorn.run') as mock_run,
+            patch('opentelemetry.instrumentation.pixeltable.init') as mock_otel_init,
+            patch('opentelemetry.instrumentation.pixeltable.instrument_fastapi') as mock_instrument_fastapi,
+        ):
+            service_cmd.run(['run', str(app_file), 'my_dir', 'ingest', '--otel'])
+        mock_otel_init.assert_called_once_with()
+        mock_instrument_fastapi.assert_called_once_with(app)
+        mock_run.assert_called_once()
 
 
 class TestHostedUriHelpers:

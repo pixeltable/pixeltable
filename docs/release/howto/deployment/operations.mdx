@@ -224,7 +224,7 @@ Because both columns coexist, you can A/B test retrieval quality before cutting 
 ## Deployment Patterns
 
 **Web Applications:**
-- For standard endpoints, use [`pxt serve`](/howto/deployment/serving) with a TOML config or [`FastAPIRouter`](/howto/deployment/serving#quickstart-python)
+- For standard endpoints, use [`pxt service`](/howto/deployment/serving) with an application file, or [`FastAPIRouter`](/howto/deployment/serving#quickstart-python)
 - Run `python schema.py` once before starting workers to create tables
 - Each router calls `pxt.get_table()` directly and defines its own `@pxt.query` functions
 - Use sync (`def`) endpoint handlers for concurrent request support

@@ -74,7 +74,7 @@ class TestDbRuntimeBundle:
 
         (tmp_path / 'pixeltable.toml').write_text(
             textwrap.dedent("""\
-                [pixeltable.clouddb]
+                [[pixeltable.database]]
                 exclude = ["*.py", "b_exclude.txt"]
                 include = ["a_include.py"]
             """)
@@ -128,10 +128,13 @@ class TestDbRuntimeBundle:
             assert 'runtime_config.json' not in tar.getnames()
 
     def test_bundle_system_dependencies_in_metadata(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """system_dependencies from pixeltable.toml are validated and written to metadata.json."""
+        """system_dependencies from pixeltable.toml are validated and written to metadata.json.
+
+        The single-table form, which a project written before [[pixeltable.database]] became an array uses.
+        """
         (tmp_path / 'pixeltable.toml').write_text(
             textwrap.dedent("""\
-                [pixeltable.clouddb]
+                [pixeltable.database]
                 system_dependencies = ["ffmpeg", "libpq"]
             """)
         )
@@ -213,17 +216,17 @@ class TestDbRuntimeBundle:
             build_db_runtime_bundle(tmp_path)
 
     def test_bundle_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Error paths in build_db_runtime_bundle()."""
+        """A project directory that does not exist, and a project config file Config cannot use."""
         with pytest.raises(FileNotFoundError, match='does not exist'):
             build_db_runtime_bundle(Path('/nonexistent/path/xyz'))
 
+        # Config reads the project's config file, so an unusable entry is refused before deploy sees it
         (tmp_path / 'pixeltable.toml').write_text(
             textwrap.dedent("""\
-                [pixeltable.clouddb]
+                [[pixeltable.database]]
                 include = "not-a-list"
             """)
         )
         monkeypatch.chdir(tmp_path)
-        Config.init(reinit=True)
-        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'Invalid \[pixeltable\.clouddb\]'):
-            build_db_runtime_bundle(tmp_path)
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match=r'Invalid `DatabaseConfig`'):
+            Config.init(reinit=True)

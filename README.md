@@ -247,24 +247,22 @@ t.add_computed_column(
 <summary><b>Serve:</b> HTTP from schema</summary>
 <br>
 
-`pxt serve` from TOML or `FastAPIRouter` routes on the same app. Not hand-written FastAPI endpoints for every table operation.
+`pxt service` over an application file, or `FastAPIRouter` routes on your own app. Not hand-written FastAPI endpoints for every table operation.
 
-```toml
-# pyproject.toml
-[[tool.pixeltable.service]]
-name = "my-service"
-modules = ["schema"]
+```python
+# app.py
+class Docs(TableModel, name='docs'):
+    document: pxt.Document
+    summary = summarize(document)
 
-[[tool.pixeltable.service.routes]]
-type = "insert"
-table = "myapp.docs"
-path = "/ingest"
-inputs = ["document"]
-outputs = ["document", "summary"]
+
+api = FastAPIRouter(name='my-service')
+api.add_insert_route(Docs, path='/ingest', inputs=[Docs.document], outputs=[Docs.summary])
 ```
 
 ```bash
-pxt serve my-service
+pxt schema update app.py myapp    # create the tables the models declare
+pxt service update app.py myapp   # serve them
 ```
 
 ```python
@@ -318,7 +316,7 @@ snapshot = pxt.get_table('my_table:472')  # query a snapshot
 |---|---|---|
 | **Full Backend** | FastAPI + React web app | Python schema + endpoints + frontend |
 | **Batch Processing** | Cron / queue / Cloud Run Job | Python script: ingest, compute, `export_sql`, exit |
-| **Declarative API** | REST API from TOML config | `pyproject.toml` routes + `pxt serve` |
+| **Declarative API** | REST API from one application file | models + `FastAPIRouter` routes + `pxt service` |
 
 ---
 
@@ -344,40 +342,41 @@ Head start on a production-ready app: scaffold schema, routes, and deployment pa
 uvx pixeltable-new myapp
 ```
 
-Default: declarative serving (`schema.py` + `pyproject.toml` → `pxt serve`). `--backend` for FastAPI + React; `--batch` for cron/queue scripts. Templates from the [Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit).
+Default: declarative serving (one `app.py` -> `pxt service`). `--backend` for FastAPI + React; `--batch` for cron/queue scripts. Templates from the [Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit).
 
 ## Quick Start
 
-Define schema in Python, routes in TOML: a `pxt.Video` table, frame view, one computed column on the frame view, and a single insert endpoint.
+Tables, views and routes in one file: a `pxt.Video` table, a frame view, one computed column on the frame view, and a single insert endpoint.
 
 ```python
-# demo.py
+# app.py
+from __future__ import annotations
+
 import pixeltable as pxt
 from pixeltable.functions.video import frame_iterator
+from pixeltable.serving import FastAPIRouter
 
-videos = pxt.create_table('videos', {'video': pxt.Video, 'title': pxt.String}, if_exists='ignore')
-frames = pxt.create_view('frames', videos, iterator=frame_iterator(videos.video, fps=1), if_exists='ignore')
-frames.add_computed_column(thumb=frames.frame.thumbnail((320, 320)), if_exists='ignore')
-```
+TableModel = pxt.model_base()
 
-```toml
-# pyproject.toml
-[[tool.pixeltable.service]]
-name = "video-api"
-modules = ["demo"]
 
-[[tool.pixeltable.service.routes]]
-type = "insert"
-path = "/videos"
-table = "videos"
-inputs = ["video", "title"]
-outputs = ["title"]
+class Videos(TableModel, name='videos'):
+    video: pxt.Video
+    title: pxt.String
+
+
+class Frames(TableModel, name='frames', base=Videos, iterator=frame_iterator(video=Videos.video, fps=1)):
+    thumb = frame.thumbnail((320, 320))  # noqa: F821  (an iterator column, declared by the view)
+
+
+api = FastAPIRouter(name='video-api')
+api.add_insert_route(Videos, path='/videos', inputs=[Videos.video, Videos.title], outputs=[Videos.title])
 ```
 
 ```bash
-python demo.py   # create tables, views, and computed columns
-pxt serve video-api   # start REST API from pyproject.toml (POST /videos insert route)
-curl -X POST localhost:8000/videos -H 'Content-Type: application/json' \
+pxt schema update app.py ''   # create the tables, views and computed columns
+pxt service update app.py ''  # start the REST API in the background (POST /videos insert route)
+pxt service list              # video-api  http://127.0.0.1:49213  pid 8123  app.py
+curl -X POST http://127.0.0.1:49213/videos -H 'Content-Type: application/json' \
   -d '{"video": "https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/bangkok.mp4", "title": "Bangkok"}'   # insert video; triggers frame extraction + thumb
 pxt rows frames -n 1 --cols pos,thumb   # one frame row + computed thumbnail
 ```

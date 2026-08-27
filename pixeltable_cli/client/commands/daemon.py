@@ -6,7 +6,7 @@ import sys
 import time
 from typing import Any
 
-from pixeltable_cli.client.utils import ensure_running, fetch_health, kill_and_wait, read_pidfile
+from pixeltable_cli.client.utils import ensure_running, fetch_health, kill_and_wait, port_is_open, read_pidfile
 from pixeltable_cli.utils import get_port, pidfile_path
 
 from ..parser import Parser
@@ -129,9 +129,18 @@ def _stop(force: bool, ok_if_absent: bool = False) -> None:
 
 
 def _status(as_json: bool) -> None:
-    health = fetch_health()
+    # a longer timeout than the default: a daemon serving a slow request answers late, and reporting it as
+    # absent would be wrong
+    health = fetch_health(timeout=5.0)
     if health is None:
-        print('pxt: no daemon running', file=sys.stderr)
+        if port_is_open():
+            print(
+                'pxt: the daemon is not answering; it is busy with a request. '
+                "Run 'pxt daemon status' again, or 'pxt daemon stop -f' to take it down.",
+                file=sys.stderr,
+            )
+        else:
+            print('pxt: no daemon running', file=sys.stderr)
         sys.exit(1)
 
     if as_json:
