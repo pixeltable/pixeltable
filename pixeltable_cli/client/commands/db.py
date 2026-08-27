@@ -33,15 +33,26 @@ def _elapsed(seconds: float) -> str:
 
 
 def _print_stages(stages: list[tuple[str, str, float, str]]) -> None:
-    """The progress bars are transient; this is what is still on screen afterwards.
+    """What is still on screen once the transient progress displays have cleared.
 
-    One stream for the whole table: splitting the failed row onto stderr reorders it against the rows
-    around it, so the one row that matters lands somewhere else. The exit status carries the failure.
+    Not transient, so the timings survive the run; one display for every row, because splitting the
+    failed one onto another stream reorders it against its neighbours. The exit status carries failure.
     """
-    width = max((len(name) for name, _, _, _ in stages), default=0)
-    for name, state, seconds, detail in stages:
-        line = f'{name:<{width}}  {state:<9}  {_elapsed(seconds)}'
-        print(f'{line}  {detail}' if detail else line)
+    # imported lazily to match the rest of the client: rich is a heavy import for a stdlib-only CLI
+    from rich.progress import Column, Progress, TextColumn
+
+    with Progress(
+        TextColumn('[progress.description]{task.description}', table_column=Column(min_width=8)),
+        TextColumn('{task.fields[state]}', table_column=Column(min_width=10)),
+        TextColumn('{task.fields[took]}', table_column=Column(min_width=18)),
+        # fold rather than clip: the reason a stage failed is the one thing that must stay readable
+        TextColumn('{task.fields[detail]}', table_column=Column(overflow='fold')),
+        transient=False,
+        redirect_stdout=False,
+        redirect_stderr=False,
+    ) as progress:
+        for name, state, seconds, detail in stages:
+            progress.add_task(name, total=None, state=state, took=_elapsed(seconds), detail=detail)
 
 EPILOG = """\
 Examples:
