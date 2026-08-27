@@ -337,13 +337,27 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
         metafunc.parametrize('is_data_versioned', [True, False], ids=['data_versioned', 'operational'])
 
     if 'db_root' in metafunc.fixturenames:
-        if metafunc.definition.get_closest_marker('local') is not None:
-            # local-only: don't fork the axis; db_root_id defaults to 'local' and the nodeid stays unparametrized
-            return
-        params = ['local', 'proxy']
-        if os.environ.get('PXTTEST_CLOUD_DB_URI') and metafunc.definition.get_closest_marker('skip_cloud') is None:
-            params.append('cloud')
-        metafunc.parametrize('db_root', params, indirect=True)
+        db_roots_marker = metafunc.definition.get_closest_marker('db_roots')
+        if db_roots_marker is not None:
+            params = db_roots_marker.args
+            if not set(params) <= {'local', 'proxy', 'cloud'}:
+                raise pytest.UsageError(
+                    f"Invalid db_roots marker args. Must be a nonempty subset of"
+                    f"('local', 'proxy', 'cloud'); got: {params!r}"
+                )
+        else:
+            params = ('local', 'proxy', 'cloud')  # Default is all three targets
+
+        if os.environ.get('PXTTEST_CLOUD_DB_URI') is None:
+            # If the cloud db URI is not set, skip generating any cloud tests. We short-circuit them here rather
+            # than later via pytest.skip(), for performance reasons.
+            params = tuple(p for p in params if p != 'cloud')
+
+        if params != ('local',):
+            # If the only target is 'local', then don't parameterize at all; just leave the nodeid alone.
+            # Otherwise, use the db_root_id as a temporary value; it will get resolved into a proper
+            # DatabaseRoot when the fixture instantiates.
+            metafunc.parametrize('db_root', params, indirect=True)
 
 
 @pytest.fixture
