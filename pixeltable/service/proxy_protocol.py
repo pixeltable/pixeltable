@@ -374,8 +374,8 @@ def _check_valid_gfc(gfc: func.GeneratingFunctionCall) -> func.GeneratingFunctio
     if not gfc.is_valid:
         raise excs.NotFoundError(
             excs.ErrorCode.FUNCTION_NOT_FOUND,
-            f'{gfc.validation_error}\n'
-            'You can use `pxt db update` to deploy a new version of the UDF to the remote database.',
+            f'{gfc.validation_error.protocol_error_msg()}\n'
+            'You can use `pxt db update` to deploy a new version of the iterator to the remote database.',
         )
     return gfc
 

@@ -16,7 +16,7 @@ import sqlalchemy as sql
 from deprecated import deprecated
 from typing_extensions import TypeForm
 
-from pixeltable import catalog, exceptions as excs, func, type_system as ts
+from pixeltable import catalog, exceptions as excs, type_system as ts
 
 from .data_row import DataRow
 from .globals import ArithmeticOperator, ComparisonOperator, LiteralPythonTypes, LogicalOperator, StringOperator
@@ -733,6 +733,8 @@ class Expr(abc.ABC):
         return function(self)
 
     def __dir__(self) -> list[str]:
+        from pixeltable import func
+
         attrs = ['isin', 'astype', 'apply']
         attrs += [f.name for f in func.FunctionRegistry.get().get_type_methods(self.col_type.type_enum)]
         return attrs
@@ -1006,6 +1008,8 @@ class Expr(abc.ABC):
                 parameter.
             col_type: The pixeltable result type of the new `Function`.
         """
+        from pixeltable import func
+
         if col_type is not None:
             # col_type is specified explicitly
             fn_type = col_type

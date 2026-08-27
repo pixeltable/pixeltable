@@ -591,7 +591,7 @@ class Planner:
                     """
                 )
                 .strip()
-                .format(validation_error=iterator.validation_error),
+                .format(validation_error=iterator.validation_error.catalog_error_msg()),
             )
 
     @classmethod
