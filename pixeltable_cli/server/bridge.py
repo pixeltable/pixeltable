@@ -988,7 +988,7 @@ def service_list(target: PxtPath | None = None) -> list[service_types.ServiceIns
             state=i.state,
             pid=i.record.pid,
             process_started_at=i.record.process_started_at,
-            app_file=i.app_file,
+            app_module=i.app_module,
             spec=cast(service_types.ServiceSpec, i.spec),
         )
         for i in sorted(instances, key=lambda i: (i.base_path, i.service_name))

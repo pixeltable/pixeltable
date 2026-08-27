@@ -33,8 +33,8 @@ if TYPE_CHECKING:
     from pixeltable.serving import FastAPIRouter
 
 
-def load_app_module(file: str, *, subject: str) -> ModuleType:
-    """Import file under the module path relative to the project root."""
+def module_name(file: str, *, subject: str) -> str:
+    """The dotted import path of 'file', relative to the project root."""
     path = Path(file).resolve()
     if not path.is_file():
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{subject} not found: {file}')
@@ -44,7 +44,23 @@ def load_app_module(file: str, *, subject: str) -> ModuleType:
     root = Config.get().project_root
     if root is None or not path.is_relative_to(root):
         raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, _no_root_msg(path, subject, root))
-    module_name = _module_name(path, root, subject)
+    relative = path.relative_to(root).with_suffix('')
+    for part in relative.parts:
+        if not part.isidentifier() or keyword.iskeyword(part):
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_ARGUMENT,
+                f'{path}: {part!r} is not a module name, so this {subject} cannot be imported; rename it, or '
+                f'the directory holding it, to a Python identifier',
+            )
+    return '.'.join(relative.parts)
+
+
+def load_app_module(file: str, *, subject: str) -> ModuleType:
+    """Import file under the module path relative to the project root."""
+    path = Path(file).resolve()
+    name = module_name(file, subject=subject)
+    root = Config.get().project_root
+    assert root is not None  # module_name() refuses a file outside a project root
 
     # resolve the catalog first: initializing it writes, which freeze() would refuse
     catalog = get_runtime().catalog
@@ -53,7 +69,7 @@ def load_app_module(file: str, *, subject: str) -> ModuleType:
             _evict_project_modules(root)
             # a file written after this process started is invisible to a finder that cached its directory
             importlib.invalidate_caches()
-            return importlib.import_module(module_name)
+            return importlib.import_module(name)
     except ProhibitedWriteError as e:
         raise excs.RequestError(
             excs.ErrorCode.UNSUPPORTED_OPERATION, _prohibited_write_msg(str(path), subject, e)

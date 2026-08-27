@@ -12,10 +12,9 @@ if TYPE_CHECKING:
 
 
 class ServiceInstanceState(StrEnum):
-    DEPLOYING = 'DEPLOYING'
+    STARTING = 'STARTING'
     AVAILABLE = 'AVAILABLE'
     STOPPED = 'STOPPED'
-    UPDATING = 'UPDATING'
     FAILED = 'FAILED'
 
 
@@ -31,8 +30,8 @@ class ServiceInstanceRecord(pydantic.BaseModel):
 
     endpoint: str
 
-    # the file path
-    app_file: str
+    # the app file's module path, relative to the project root
+    app_module: str
 
     spec: ServiceSpec
 
@@ -71,8 +70,8 @@ class ServiceInstance:
         return self.record.endpoint
 
     @property
-    def app_file(self) -> str:
-        return self.record.app_file
+    def app_module(self) -> str:
+        return self.record.app_module
 
     @property
     def spec(self) -> ServiceSpec:

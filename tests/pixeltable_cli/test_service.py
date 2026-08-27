@@ -122,7 +122,7 @@ class TestService:
 
         cli('service', 'update', app, target, '-f')
         running = assert_serving(cli, app, target, 'ingest')
-        assert running['ingest']['app_file'] == app
+        assert running['ingest']['app_module'] == 'apps.basic'  # the app corpus sits at <project>/apps
         assert running['ingest']['base_path'] == target
         # list reports what each service serves, in Pixeltable's own terms
         routes = {r['path']: r for r in running['ingest']['spec']['routes']}

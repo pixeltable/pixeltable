@@ -34,6 +34,7 @@ from pixeltable import catalog, exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.serving._app import load_service_routers
+from pixeltable.utils.app_module import module_name
 from pixeltable.utils.process import is_pid, pid_alive, process_timestamp
 
 from .service_instance import ServiceInstance, ServiceInstanceRecord
@@ -159,7 +160,7 @@ class ServiceManager(ServiceManagerBase):
             endpoint=f'http://127.0.0.1:{port}',
             pid=os.getpid(),
             process_started_at=process_timestamp(os.getpid()),
-            app_file=str(Path(app_file).resolve()),
+            app_module=module_name(app_file, subject='application file'),
             spec=spec,
             otel=otel,
         )

@@ -143,7 +143,7 @@ class ServiceInstance(TypedDict):
     base_path: PxtPath  # the catalog directory the service's models are bound to
     endpoint: str
     state: str
-    app_file: str  # the file the service was served from
+    app_module: str  # dotted module path, relative to the project root
     spec: ServiceSpec  # what it serves
 
     pid: int | None  # the process serving the instance; set only for an instance running on this machine

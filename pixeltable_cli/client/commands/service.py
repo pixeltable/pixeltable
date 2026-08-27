@@ -445,7 +445,9 @@ def _list(target: str | None, *, as_json: bool) -> None:
     width = max(len(_address(d)) for d in running)
     for d in running:
         pid_or_state = f'pid {d["pid"]}' if d['pid'] is not None else d['state']
-        print(f'{_address(d):<{width}s}  {d["endpoint"]}  {pid_or_state}  {d["app_file"]}')
+        # shown as the file it names: a catalog path never carries a .py suffix
+        app_file = d['app_module'].replace('.', '/') + '.py'
+        print(f'{_address(d):<{width}s}  {d["endpoint"]}  {pid_or_state}  {app_file}')
         prefix = d['spec']['prefix']
         for route in d['spec']['routes']:
             served = ', '.join(route['outputs']) if len(route['outputs']) > 0 else '-'
