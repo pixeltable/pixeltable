@@ -381,8 +381,10 @@ class Env:
         self._console_logger = ConsoleLogger(pxt_logger)
 
         # configure pxt_logger to log to a file
-        self._logfilename = datetime.datetime.now().strftime('%Y%m%d_%H%M%S') + '.log'
-        fh = logging.FileHandler(self._log_dir / self._logfilename, mode='w')
+        # One file per day, appended: a process restart has to land in the same file, or a time-bounded
+        # search of the log silently stops at the restart.
+        self._logfilename = datetime.datetime.now().strftime('%Y%m%d') + '.log'
+        fh = logging.FileHandler(self._log_dir / self._logfilename, mode='a')
         fh.setFormatter(logging.Formatter(LOG_FMT_STR))
         pxt_logger.addHandler(fh)
         self._managed_logging_handlers.append((pxt_logger, fh))
@@ -396,7 +398,7 @@ class Env:
 
         # configure pyav logging
         av_logfilename = self._logfilename.replace('.log', '_av.log')
-        av_fh = logging.FileHandler(self._log_dir / av_logfilename, mode='w')
+        av_fh = logging.FileHandler(self._log_dir / av_logfilename, mode='a')
         av_fh.setFormatter(logging.Formatter(LOG_FMT_STR))
         av_logger = logging.getLogger('libav')
         av_logger.addHandler(av_fh)
@@ -405,7 +407,7 @@ class Env:
 
         # configure web-server logging
         http_logfilename = self._logfilename.replace('.log', '_http.log')
-        http_fh = logging.FileHandler(self._log_dir / http_logfilename, mode='w')
+        http_fh = logging.FileHandler(self._log_dir / http_logfilename, mode='a')
         http_fh.setFormatter(logging.Formatter(LOG_FMT_STR))
         _http_server_logger.addHandler(http_fh)
         self._managed_logging_handlers.append((_http_server_logger, http_fh))
