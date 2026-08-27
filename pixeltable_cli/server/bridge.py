@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from pixeltable import exprs
     from pixeltable.serving import FastAPIRouter
     from pixeltable.serving._diff import ServiceChangeOp
+    from pixeltable.serving.service_manager import ServiceManagerBase
 
 
 def _build_select(
@@ -548,7 +549,7 @@ def get_status() -> dict[str, Any]:
 
 
 def service_diff(app_file: str, target: PxtPath, *, otel: bool = False) -> service_types.ServicePlan:
-    """The changes that reconciling the services deployed at target with the ones app_file declares would make.
+    """The changes that reconciling the instances at target with the services app_file declares would make.
 
     Read-only: nothing is started, stopped or forgotten.
 
@@ -556,35 +557,44 @@ def service_diff(app_file: str, target: PxtPath, *, otel: bool = False) -> servi
         app_file: the application file declaring the services.
         target: the catalog directory the services' models bind against.
     """
+    # imported here rather than at module scope: pixeltable.serving pulls in fastapi, an optional dependency
+    from pixeltable.serving.service_manager import get_manager
+
+    manager = get_manager(target)
     services = load_services(app_file)
-    diffs = [_service_diff(name, service, app_file, target, otel) for name, service in sorted(services.items())]
-    return _plan_from_service_diffs(diffs, app_file, target)
+    diffs = [
+        _service_diff(manager, name, service, app_file, target, otel) for name, service in sorted(services.items())
+    ]
+    return _plan_from_service_diffs(manager, diffs, app_file, target)
 
 
 def _service_diff(
-    name: str, service: FastAPIRouter | fastapi.FastAPI, app_file: str, target: PxtPath, otel: bool = False
+    manager: ServiceManagerBase,
+    name: str,
+    service: FastAPIRouter | fastapi.FastAPI,
+    app_file: str,
+    target: PxtPath,
+    otel: bool = False,
 ) -> service_types.ServiceDiff:
-    """How the deployment of one declared service at target differs from its declaration."""
-    # imported here rather than at module scope: pixeltable.serving pulls in fastapi, an optional dependency
+    """How the instance of one declared service at target differs from its declaration."""
     from pixeltable.serving import FastAPIRouter
     from pixeltable.serving._diff import blocked_schema_op, compare_specs, otel_op
-    from pixeltable.serving.service_deployment import ServiceDeployment
 
-    deployment = ServiceDeployment.read(name, target)
+    running = manager.get(name, target)
     ops: list[service_types.ServiceChangeOp] = []
     route_detail: str | None = None
     if isinstance(service, FastAPIRouter):
         kind: Literal['declarative', 'custom'] = 'declarative'
-        if deployment is None:
+        if running is None:
             route_comparison: service_types.RouteComparison = 'unavailable'
-            route_detail = 'the service is not deployed at this target'
+            route_detail = 'the service is not running at this target'
         else:
             route_comparison = 'declarative'
-            ops += [_service_plan_op(op) for op in compare_specs(deployment.spec, service.service_spec(name))]
-            if deployment.otel != otel:
-                ops.append(_service_plan_op(otel_op(deployment.otel, otel)))
+            ops += [_service_plan_op(op) for op in compare_specs(running.spec, service.service_spec(name))]
+            if running.otel != otel:
+                ops.append(_service_plan_op(otel_op(running.otel, otel)))
         # the models the routes name have to describe the tables at the target, whether or not the service is
-        # deployed; _validate_model_routes() reports the discrepancy without binding anything
+        # running; _validate_model_routes() reports the discrepancy without binding anything
         try:
             service._validate_model_routes(target)
         except excs.Error as e:
@@ -599,9 +609,9 @@ def _service_diff(
     if kind == 'custom':
         resolution = 'unsupported'
     elif any(op['severity'] == 'blocked' for op in ops):
-        # the database has to change before this deployment can serve, whether it exists yet or not
+        # the database has to change before this service can serve, whether it is running yet or not
         resolution = 'blocked'
-    elif deployment is None:
+    elif running is None:
         resolution = 'create'
     elif any(op['destructive'] for op in ops):
         resolution = 'update_destructive'
@@ -612,10 +622,9 @@ def _service_diff(
 
     return {
         'name': name,
-        'exists': deployment is not None,
-        # a local deployment is running or it is not recorded at all
-        'state': None if deployment is None else 'AVAILABLE',
-        'endpoint': None if deployment is None else deployment.endpoint,
+        'exists': running is not None,
+        'state': None if running is None else running.state,
+        'endpoint': None if running is None else running.endpoint,
         'base_path': target,
         'kind': kind,
         'resolution': resolution,
@@ -623,18 +632,16 @@ def _service_diff(
         'route_detail': route_detail,
         'ops': ops,
         'destructive': any(op['destructive'] for op in ops),
-        'requires_restart': deployment is not None and any(op['requires_restart'] for op in ops),
+        'requires_restart': running is not None and any(op['requires_restart'] for op in ops),
     }
 
 
 def _plan_from_service_diffs(
-    diffs: list[service_types.ServiceDiff], app_file: str, target: PxtPath
+    manager: ServiceManagerBase, diffs: list[service_types.ServiceDiff], app_file: str, target: PxtPath
 ) -> service_types.ServicePlan:
     """The plan that the given per-service diffs describe."""
-    from pixeltable.serving.service_deployment import ServiceDeployment
-
     declared = {diff['name'] for diff in diffs}
-    extras = sorted(d.service_name for d in ServiceDeployment.list(target) if d.service_name not in declared)
+    extras = sorted(i.service_name for i in manager.list(target) if i.service_name not in declared)
     summary: service_types.ServicePlanSummary = {
         'up_to_date': sum(1 for d in diffs if d['resolution'] == 'up_to_date'),
         'create': sum(1 for d in diffs if d['resolution'] == 'create'),
@@ -650,7 +657,7 @@ def _plan_from_service_diffs(
     return {
         'app_file': app_file,
         'target': target,
-        # extras are excluded: update never removes a deployment, which is what prune is for
+        # extras are excluded: update never removes a service, which is what prune is for
         'in_agreement': all(d['resolution'] == 'up_to_date' for d in diffs),
         'services': diffs,
         'extras': extras,
@@ -668,7 +675,7 @@ def _service_plan_op(op: ServiceChangeOp) -> service_types.ServiceChangeOp:
         'description': op['description'],
         'details': op['details'],
         'destructive': op['severity'] == 'destructive',
-        # a blocked operation is never applied; every other one replaces what the deployment serves
+        # a blocked operation is never applied; every other one replaces what the service serves
         'requires_restart': op['severity'] != 'blocked',
     }
 
@@ -872,10 +879,10 @@ def schema_update(
 def service_update(
     app_file: str, target: PxtPath, *, allow_destructive: bool = False, otel: bool = False
 ) -> service_types.ServicePlan:
-    """Reconcile the deployments at target with the services app_file declares, and leave them running.
+    """Reconcile the services at target with the ones app_file declares, and leave them running.
 
-    Starts a service that is not deployed, and restarts one whose declaration changed, since a service binds
-    its models once per process. A deployment the file does not declare is left alone, which is what prune is
+    Starts a service that is not running, and restarts one whose declaration changed, since a service binds
+    its models once per process. A service the file does not declare is left alone, which is what prune is
     for.
 
     Returns the plan that was applied, each service annotated with its status: 'applied' for one that was
@@ -887,8 +894,9 @@ def service_update(
         target: the catalog directory the services' models bind against.
         allow_destructive: whether to apply changes that stop serving a route contract a caller may be using.
     """
-    from pixeltable.serving.service_deployment import ServiceDeployment
+    from pixeltable.serving.service_manager import get_manager
 
+    manager = get_manager(target)
     plan = service_diff(app_file, target)
     destructive = [d['name'] for d in plan['services'] if d['resolution'] == 'update_destructive']
     if len(destructive) > 0 and not allow_destructive:
@@ -908,13 +916,13 @@ def service_update(
             diff['status'] = 'skipped'
             continue
         if diff['exists']:
-            # the deployment serves the old declaration; binding happens once per process, so it is replaced
-            deployment = ServiceDeployment.read(diff['name'], target)
-            if deployment is not None:
-                deployment.stop()
-        started = ServiceDeployment.start(app_file, diff['name'], target, otel=otel)
+            # the running service serves the old declaration; binding happens once per process, so it is replaced
+            running = manager.get(diff['name'], target)
+            if running is not None:
+                running.stop()
+        started = manager.start(app_file, diff['name'], target, otel=otel)
         diff['status'] = 'applied'
-        diff['state'] = 'AVAILABLE'
+        diff['state'] = started.state
         diff['endpoint'] = started.endpoint
         diff['exists'] = True
         for op in diff['ops']:
@@ -923,61 +931,64 @@ def service_update(
 
 
 def service_prune(app_file: str, target: PxtPath) -> service_types.ServicePlan:
-    """Stop and forget the deployments at target that app_file does not declare.
+    """Stop and forget the services at target that app_file does not declare.
 
     A stopped service can be started again, so this is not destructive the way dropping a table is.
 
-    Returns the plan, with one drop operation per deployment stopped.
+    Returns the plan, with one drop operation per service stopped.
     """
-    from pixeltable.serving.service_deployment import ServiceDeployment
+    from pixeltable.serving.service_manager import get_manager
 
+    manager = get_manager(target)
     plan = service_diff(app_file, target)
     ops: list[service_types.ServiceChangeOp] = []
     for name in plan['extras']:
-        deployment = ServiceDeployment.read(name, target)
-        if deployment is None:
+        running = manager.get(name, target)
+        if running is None:
             # it stopped between the diff and here; nothing to stop, and it is already forgotten
             ops.append(service_types.delete_service_op(name, None, 'skipped'))
             continue
-        deployment.stop()
-        ops.append(service_types.delete_service_op(name, deployment.endpoint, 'applied'))
+        running.stop()
+        ops.append(service_types.delete_service_op(name, running.endpoint, 'applied'))
     plan['ops'] = ops
     return plan
 
 
 def service_stop(names: list[str], target: PxtPath) -> list[service_types.ServiceChangeOp]:
-    """Stop the named services deployed at target and forget them.
+    """Stop the instances of the named services at target and forget them.
 
-    A name that is not deployed there yields a 'skipped' operation rather than an error, so that stopping a
+    A name with no instance there yields a 'skipped' operation rather than an error, so that stopping a
     set of services is idempotent.
     """
-    from pixeltable.serving.service_deployment import ServiceDeployment
+    from pixeltable.serving.service_manager import get_manager
 
+    manager = get_manager(target)
     ops: list[service_types.ServiceChangeOp] = []
     for name in names:
-        deployment = ServiceDeployment.read(name, target)
-        if deployment is None:
+        running = manager.get(name, target)
+        if running is None:
             ops.append(service_types.delete_service_op(name, None, 'skipped'))
             continue
-        deployment.stop()
-        ops.append(service_types.delete_service_op(name, deployment.endpoint, 'applied'))
+        running.stop()
+        ops.append(service_types.delete_service_op(name, running.endpoint, 'applied'))
     return ops
 
 
-def service_list(target: PxtPath | None = None) -> list[service_types.ServiceDeployment]:
-    """The services running locally: those bound at target and below it, or all of them if target is None."""
-    from pixeltable.serving.service_deployment import ServiceDeployment
+def service_list(target: PxtPath | None = None) -> list[service_types.ServiceInstance]:
+    """The instances running locally: those serving target and below it, or all of them if target is None."""
+    from pixeltable.serving.service_manager import get_manager
 
-    deployments = ServiceDeployment.list('' if target is None else target, recursive=True)
+    base_path = '' if target is None else target
+    instances = get_manager(base_path).list(base_path, recursive=True)
     return [
-        service_types.ServiceDeployment(
-            name=d.service_name,
-            base_path=PxtPath(d.base_path),
-            endpoint=d.endpoint,
-            pid=d.pid,
-            process_started_at=d.process_started_at,
-            app_file=d.app_file,
-            spec=cast(service_types.ServiceSpec, d.spec),
+        service_types.ServiceInstance(
+            name=i.service_name,
+            base_path=PxtPath(i.base_path),
+            endpoint=i.endpoint,
+            pid=i.record.pid,
+            process_started_at=i.record.process_started_at,
+            app_file=i.app_file,
+            spec=cast(service_types.ServiceSpec, i.spec),
         )
-        for d in sorted(deployments, key=lambda d: (d.base_path, d.service_name))
+        for i in sorted(instances, key=lambda i: (i.base_path, i.service_name))
     ]

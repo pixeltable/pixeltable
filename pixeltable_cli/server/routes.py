@@ -57,7 +57,7 @@ _SCHEMA_PLAN = pydantic.TypeAdapter(schema_types.SchemaPlan)
 _CHECK_REPORT = pydantic.TypeAdapter(schema_types.CheckReport)
 _SERVICE_PLAN = pydantic.TypeAdapter(service_types.ServicePlan)
 _SERVICE_OPS = pydantic.TypeAdapter(list[service_types.ServiceChangeOp])
-_SERVICE_DEPLOYMENTS = pydantic.TypeAdapter(list[service_types.ServiceDeployment])
+_SERVICE_INSTANCES = pydantic.TypeAdapter(list[service_types.ServiceInstance])
 
 
 def _project_root() -> str | None:
@@ -553,11 +553,9 @@ def service_stop(req: Request) -> list[service_types.ServiceChangeOp]:
 
 
 @router.get('/api/localservice/list')
-def service_list(req: Request) -> list[service_types.ServiceDeployment]:
+def service_list(req: Request) -> list[service_types.ServiceInstance]:
     target = req.query_str('target')
-    return _SERVICE_DEPLOYMENTS.validate_python(
-        bridge.service_list(None if target is None else req.resolve_path(target))
-    )
+    return _SERVICE_INSTANCES.validate_python(bridge.service_list(None if target is None else req.resolve_path(target)))
 
 
 @router.get('/api/dashboard/search', checks_env=False)

@@ -460,7 +460,7 @@ class FastAPIRouter(fastapi.APIRouter):
         # merges this handler into the app's on_shutdown list, so it fires on app shutdown.
         self.add_event_handler('shutdown', self.__shutdown)
         # A router with unresolved model targets cannot serve. include_router() merges this into the app's
-        # on_startup list, so a deployment that forgot to bind fails to start instead of failing per request.
+        # on_startup list, so a service that forgot to bind fails to start instead of failing per request.
         self.add_event_handler('startup', self.__check_bound)
 
     @property

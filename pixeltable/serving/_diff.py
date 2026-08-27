@@ -1,4 +1,4 @@
-"""The operations that reconcile a service deployment with the definition an application file holds."""
+"""The operations that reconcile a running service with the definition an application file holds."""
 
 from __future__ import annotations
 
@@ -8,13 +8,13 @@ if TYPE_CHECKING:
     from ._spec import RouteSpec, ServiceSpec
 
 # Extends the severities a schema change uses with 'blocked': an operation that service update cannot carry
-# out because the database, not the deployment, has to satisfy it. The command that does so is in details.
+# out because the database, not the service, has to satisfy it. The command that does so is in details.
 # Mirrored by pixeltable_cli.service_types.Severity.
 Severity = Literal['additive', 'destructive', 'unsupported', 'blocked']
 
 
 class ServiceChangeOp(TypedDict):
-    """One operation reconciling a service deployment with the definition an application file holds.
+    """One operation reconciling a running service with the definition an application file holds.
 
     Mirrored by pixeltable_cli.service_types.ServiceChangeOp; adding, removing or retyping a field here means
     doing the same there.
@@ -136,14 +136,8 @@ def compare_specs(deployed: ServiceSpec, declared: ServiceSpec) -> list[ServiceC
 
 
 def _changed_fields(deployed: RouteSpec, declared: RouteSpec) -> list[str]:
-    """The fields in which two route declarations differ, including any either one alone has."""
-    # compared as plain dicts: a record written by another version of Pixeltable can carry fields this one
-    # does not declare, and dropping them from the comparison would report such a route as unchanged
+    """The fields in which two route declarations differ."""
+    # cast: mypy indexes a TypedDict by literal keys only
     deployed_fields = cast(dict[str, Any], deployed)
     declared_fields = cast(dict[str, Any], declared)
-    keys = set(deployed_fields) | set(declared_fields)
-    return sorted(
-        k
-        for k in keys
-        if k not in deployed_fields or k not in declared_fields or deployed_fields[k] != declared_fields[k]
-    )
+    return sorted(k for k in declared_fields if deployed_fields[k] != declared_fields[k])

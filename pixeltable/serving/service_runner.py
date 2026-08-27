@@ -13,11 +13,11 @@ from typing import Any
 from pixeltable.config import Config
 from pixeltable.serving._app import create_app_for_services, init_instrumentation, instrument_app, load_service_routers
 
-from .service_deployment import ServiceDeployment
+from .service_manager import ServiceManager
 
 
 def _serve(app_file: str, service_name: str, base_path: str, otel: bool) -> None:
-    """Service entrypoint: bind an ephemeral loopback port, record the deployment, and serve."""
+    """Service entrypoint: bind an ephemeral loopback port, record the service, and serve."""
     import uvicorn
 
     if otel:
@@ -34,7 +34,8 @@ def _serve(app_file: str, service_name: str, base_path: str, otel: bool) -> None
     sock.bind(('127.0.0.1', 0))
     port = sock.getsockname()[1]
 
-    deployment = ServiceDeployment.create(
+    manager = ServiceManager()
+    record = manager.create(
         service_name=service_name,
         base_path=base_path,
         port=port,
@@ -44,10 +45,10 @@ def _serve(app_file: str, service_name: str, base_path: str, otel: bool) -> None
     )
 
     def _cleanup(*_: Any) -> None:
-        deployment.remove()
+        manager.remove(record)
         sys.exit(0)
 
-    atexit.register(deployment.remove)
+    atexit.register(manager.remove, record)
     signal.signal(signal.SIGTERM, _cleanup)
 
     log_level = logging.getLogger('pixeltable').getEffectiveLevel()

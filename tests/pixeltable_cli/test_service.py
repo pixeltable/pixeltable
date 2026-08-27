@@ -52,11 +52,11 @@ def assert_serving(cli: PxtRunner, app: str, target: str, *names: str) -> dict[s
     assert sorted(running) == sorted(names), running
 
     for name in names:
-        deployment = running[name]
-        served = httpx.get(f'{deployment["endpoint"]}/openapi.json', timeout=_REQUEST_TIMEOUT)
+        service = running[name]
+        served = httpx.get(f'{service["endpoint"]}/openapi.json', timeout=_REQUEST_TIMEOUT)
         assert served.status_code == 200, served.text
-        prefix = deployment['spec']['prefix']
-        declared = {f'{prefix}{route["path"]}' for route in deployment['spec']['routes']}
+        prefix = service['spec']['prefix']
+        declared = {f'{prefix}{route["path"]}' for route in service['spec']['routes']}
         assert declared <= set(served.json()['paths']), (declared, sorted(served.json()['paths']))
     return running
 
@@ -95,7 +95,7 @@ class TestService:
         cli('schema', 'update', app, target)
         differing = {'OPENAI_API_KEY': 'sk-not-the-one-the-daemon-has'}
 
-        # the plan and the deployment are both refused, and the refusal names the variable and the remedy
+        # the plan and the service are both refused, and the refusal names the variable and the remedy
         for args in (('diff', app, target), ('update', app, target, '-f')):
             r = cli('service', *args, env_overrides=differing, check=False)
             assert r.returncode == 1, r.stdout
@@ -108,7 +108,7 @@ class TestService:
         assert_serving(cli, app, target, 'ingest')
 
     def test_basic(self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]) -> None:
-        """The first deployment: declare, see what is pending, apply it, use it, take it down."""
+        """The first service: declare, see what is pending, apply it, use it, take it down."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
         app, target = apps('basic.py'), make_catalog_path('app')
@@ -572,14 +572,14 @@ class TestService:
         r = cli('service', 'stop', 'nosuch', '--json')
         assert [(op['name'], op['status']) for op in r.json] == [('nosuch', 'skipped')]
 
-        # a local service serves the local catalog, so a target naming another one is refused
+        # a hosted target has no services yet, and every verb says so rather than acting on the local ones
         for verb in ('diff', 'update'):
             r = cli('service', verb, apps('basic.py'), 'pxt://acme:main/app', check=False)
             assert r.returncode != 0
-            assert 'binds its models to the local catalog' in r.stderr, r.stderr
+            assert 'not supported yet' in r.stderr, r.stderr
         r = cli('service', 'list', 'pxt://acme:main/app', check=False)
         assert r.returncode != 0
-        assert 'binds its models to the local catalog' in r.stderr, r.stderr
+        assert 'not supported yet' in r.stderr, r.stderr
 
     def test_example(self, cli: PxtRunner, make_catalog_path: Callable[[str], str], project_dir: pathlib.Path) -> None:
         """The file `example` writes declares both the tables and the services, and serves."""

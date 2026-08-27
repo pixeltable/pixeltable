@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-from ...service_types import ServiceChangeOp, ServiceDeployment, ServicePlan, ServiceResolution, delete_service_op
+from ...service_types import ServiceChangeOp, ServiceInstance, ServicePlan, ServiceResolution, delete_service_op
 from ...utils import PxtPath
 from ..confirm import confirm_or_exit
 from ..parser import Parser
@@ -76,8 +76,9 @@ Examples:
 
 Tracing:
   --otel emits OpenTelemetry traces from the services 'update' starts, and needs the instrumentation
-  package ('pip install pixeltable[otel]'). It is deployment state: a service already running without
-  it restarts when 'update' is given the flag, and 'diff' reports that as a pending change.
+  package ('pip install pixeltable[otel]'). The setting belongs to the running service, not to the file:
+  a service already running without it restarts when 'update' is given the flag, and 'diff' reports that
+  as a pending change.
 {_APP_FILE}"""
 
 UPDATE_EPILOG = f"""\
@@ -87,8 +88,9 @@ Examples:
   pxt service update app.py my_dir --otel                # emit OpenTelemetry traces from what it starts
 
 Tracing:
-  --otel needs the instrumentation package ('pip install pixeltable[otel]'). It is deployment state: a
-  service already running without it restarts to pick it up, and dropping the flag restarts it again.
+  --otel needs the instrumentation package ('pip install pixeltable[otel]'). The setting belongs to the
+  running service, not to the file: a service already running without it restarts to pick it up, and
+  dropping the flag restarts it again.
 {_APP_FILE}"""
 
 RUN_EPILOG = f"""\
@@ -226,7 +228,7 @@ def run(argv: list[str]) -> None:
         ap.add_argument('-f', '--force', action='store_true', help='skip confirmation')
         ap.add_argument('-n', '--dry-run', action='store_true', dest='dry_run')
     if verb == 'diff':
-        ap.add_argument('--otel', action='store_true', help='compare the deployments against tracing being on')
+        ap.add_argument('--otel', action='store_true', help='compare the running services against tracing being on')
     if verb == 'update':
         ap.add_argument('--otel', action='store_true', help='emit OpenTelemetry traces (requires `pixeltable[otel]`)')
         ap.add_argument(
@@ -342,8 +344,8 @@ def _run_foreground(
     """Serve one of the file's services from this process, on one port, until interrupted.
 
     One service per process, as `update` deploys them, so what runs here serves the same routes at the same
-    paths. Nothing is recorded and nothing is reconciled: the service here is not a deployment, and it runs
-    for as long as this process does. That is what makes it the mode for a container entrypoint or a dev loop.
+    paths. Nothing is recorded and nothing is reconciled: the service runs for as long as this process
+    does. That is what makes it the mode for a container entrypoint or a dev loop.
     """
     # this command runs the server itself, so unlike the rest of the client it needs pixeltable in-process
     import uvicorn
@@ -420,8 +422,8 @@ def _stop(names: list[str], *, as_json: bool) -> None:
             addresses = ', '.join(sorted(_address(d) for d in matches))
             print(f'pxt service stop: {name!r} is ambiguous; it names {addresses}', file=sys.stderr)
             sys.exit(EXIT_ERROR)
-        deployment = matches[0]
-        by_target.setdefault(deployment['base_path'], []).append(deployment['name'])
+        service = matches[0]
+        by_target.setdefault(service['base_path'], []).append(service['name'])
 
     for target, target_names in by_target.items():
         ops += post_request('/api/localservice/stop', {'names': target_names, 'target': target})
@@ -453,20 +455,20 @@ def _list(target: str | None, *, as_json: bool) -> None:
             )
 
 
-def _running(target: str | None = None) -> list[ServiceDeployment]:
+def _running(target: str | None = None) -> list[ServiceInstance]:
     params = {} if target is None else {'target': target}
-    deployments: list[ServiceDeployment] = get_request('/api/localservice/list', params)
-    return deployments
+    instances: list[ServiceInstance] = get_request('/api/localservice/list', params)
+    return instances
 
 
-def _address(deployment: ServiceDeployment) -> str:
+def _address(service: ServiceInstance) -> str:
     """The service's name qualified by the directory it is bound to, as 'stop' accepts it."""
-    base_path = deployment['base_path']
-    return deployment['name'] if base_path == '' else f'{base_path}/{deployment["name"]}'
+    base_path = service['base_path']
+    return service['name'] if base_path == '' else f'{base_path}/{service["name"]}'
 
 
-def _matching(running: list[ServiceDeployment], name: str) -> list[ServiceDeployment]:
-    """The deployments a name denotes: an address matches one, a bare name matches every target holding it."""
+def _matching(running: list[ServiceInstance], name: str) -> list[ServiceInstance]:
+    """The services a name denotes: an address matches one, a bare name matches every target holding it."""
     return [d for d in running if name in (_address(d), d['name'])]
 
 

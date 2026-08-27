@@ -124,9 +124,11 @@ After every code change, before reporting it done:
 
 1. `make format`: auto-formats code.
 2. `make check`: mypy + ruff static checks; both must pass.
-3. Review the diff (`git diff`, no pathspec: source and tests) and read every comment, docstring, and
-   string you added. A comment must describe only the code at hand (never a caller's intent or a called
-   function's internals) and must not state behavior you have not verified.
+3. `git add` any new source file, then review the whole change with `git diff HEAD` (no pathspec: source
+   and tests), reading every comment, docstring, and string you added. A diff narrowed to one file does not
+   count, and an unstaged new file does not appear in it. A comment must describe only the code at hand
+   (never a caller's intent or a called function's internals) and must not state behavior you have not
+   verified.
 4. Delete before rewording: cover each comment and read only the identifier, the signature, and the code
    below it. If those carry the same fact, delete the comment rather than improving it. A docstring that
    paraphrases the name, an "or None if ..." for a `| None` annotation, and a fact already stated elsewhere

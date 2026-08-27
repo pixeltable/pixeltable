@@ -7,24 +7,24 @@ from pixeltable_cli.schema_types import OpStatus, _Status
 from pixeltable_cli.utils import PxtPath
 
 # Extends the severities a schema plan uses (its three, plus 'blocked'). 'blocked' marks an operation that
-# 'service update' cannot carry out because the database, not the deployment, has to satisfy it; the command
+# 'service update' cannot carry out because the database, not the service, has to satisfy it; the command
 # that does so is in the operation's details.
 Severity = Literal['additive', 'destructive', 'unsupported', 'blocked']
 
-# Extends the resolutions a schema plan uses with 'blocked': the deployment cannot be reconciled until the
+# Extends the resolutions a schema plan uses with 'blocked': the service cannot be reconciled until the
 # database satisfies what one of its routes needs, and the command that does so is in the operation's details.
 ServiceResolution = Literal['up_to_date', 'create', 'update_additive', 'update_destructive', 'unsupported', 'blocked']
 
-# How the routes were compared. 'declarative' compares the route declarations a deployment was created
+# How the routes were compared. 'declarative' compares the route declarations the running service was started
 # from; 'openapi' compares the OpenAPI document generated from a custom application. 'unavailable' means the
 # comparison did not happen, which is not the same as happening and finding no differences.
 RouteComparison = Literal['declarative', 'openapi', 'unavailable']
 
 
 class ServiceChangeOp(_Status):
-    """One operation reconciling a service deployment with the service definition an application file holds."""
+    """One operation reconciling a running service with the service definition an application file holds."""
 
-    # 'secret' and 'runtime' are properties of the database a deployment depends on, not of the deployment
+    # 'secret' and 'runtime' are properties of the database a service depends on, not of the service
     # itself: operations against them are always 'blocked', never applied. There is no 'bundle' target; the
     # runtime image belongs to the database.
     target: Literal['service', 'base_path', 'route', 'resources', 'secret', 'runtime']
@@ -38,20 +38,20 @@ class ServiceChangeOp(_Status):
     description: str  # one sentence, ready to print
     details: dict[str, str]  # 'from' and 'to' for an alter, 'command' for a blocked operation
     destructive: bool  # the boolean form of severity
-    requires_restart: bool  # whether applying this interrupts the running deployment
+    requires_restart: bool  # whether applying this interrupts the running service
 
 
 class ServiceDiff(_Status):
-    """How one service deployment differs from the definition that declares it.
+    """How one running service differs from the definition that declares it.
 
     A service definition is location-independent: it names models, columns and queries, never catalog paths.
-    A deployment is that definition applied to a target, so name and kind describe the definition while
-    base_path, state and endpoint describe the deployment.
+    A running service is that definition applied to a target, so name and kind describe the definition
+    while base_path, state and endpoint describe the service.
     """
 
     name: str
     exists: bool
-    state: str | None  # the deployment's state, None when it does not exist
+    state: str | None  # the service's state, None when it does not exist
     endpoint: str | None
 
     # the catalog path the definition's models bind against
@@ -80,27 +80,27 @@ class ServicePlanSummary(TypedDict):
     update_destructive: int
     unsupported: int
     extras: int
-    blocked: int  # deployments whose reconciliation the database has to enable first
-    destructive: int  # operations, not deployments
+    blocked: int  # services whose reconciliation the database has to enable first
+    destructive: int  # operations, not services
     blocked_ops: int  # operations the database has to satisfy before the plan can be applied
-    restarts: int  # deployments that applying the plan would interrupt
+    restarts: int  # services that applying the plan would interrupt
 
 
 class _PlanOps(TypedDict, total=False):
-    ops: list[ServiceChangeOp]  # on whole deployments, unlike ServiceDiff.ops
+    ops: list[ServiceChangeOp]  # on whole services, unlike ServiceDiff.ops
 
 
 class ServicePlan(_PlanOps):
-    """Set of changes needed to reconcile the deployments at a target with the definitions a file holds."""
+    """Set of changes needed to reconcile the services at a target with the definitions a file holds."""
 
     app_file: str
 
-    # the database the deployments live in, and the catalog path their models bind against
+    # the database the services live in, and the catalog path their models bind against
     target: PxtPath
 
-    in_agreement: bool  # True if no deployment needs a create or an update; extras don't count
+    in_agreement: bool  # True if no service needs a create or an update; extras don't count
     services: list[ServiceDiff]
-    extras: list[str]  # deployments at the target that the file does not declare
+    extras: list[str]  # services at the target that the file does not declare
     summary: ServicePlanSummary
 
 
@@ -136,7 +136,7 @@ class ServiceSpec(TypedDict):
     routes: list[RouteSpec]
 
 
-class ServiceDeployment(TypedDict):
+class ServiceInstance(TypedDict):
     """A service running locally, as `pxt service list` reports it."""
 
     name: str
@@ -149,7 +149,7 @@ class ServiceDeployment(TypedDict):
 
 
 def delete_service_op(name: str, endpoint: str | None, status: OpStatus) -> ServiceChangeOp:
-    """The operation for deleting the named deployment, in the given status."""
+    """The operation for deleting the named service, in the given status."""
     served = '' if endpoint is None else f' at {endpoint}'
     return {
         'target': 'service',
@@ -169,8 +169,8 @@ __all__ = [
     'RouteComparison',
     'RouteSpec',
     'ServiceChangeOp',
-    'ServiceDeployment',
     'ServiceDiff',
+    'ServiceInstance',
     'ServicePlan',
     'ServicePlanSummary',
     'ServiceResolution',
