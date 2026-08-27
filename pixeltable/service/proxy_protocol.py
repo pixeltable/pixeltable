@@ -17,7 +17,7 @@ import pathlib
 import shutil
 import struct
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Iterable, TypeVar
 from uuid import UUID, uuid4
 
 import numpy as np
@@ -37,6 +37,9 @@ from pixeltable.query_clauses import SampleClause
 from pixeltable.row import RowBatch
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectStoreBase
+
+if TYPE_CHECKING:
+    from pixeltable._query import Query
 
 PROTOCOL_VERSION = 2
 
@@ -365,6 +368,13 @@ def _check_valid_expr(expr: exprs.Expr) -> exprs.Expr:
             'You can use `pxt db update` to deploy a new version of the UDF to the remote database.',
         )
     return expr
+
+
+def check_query(query: 'Query') -> 'Query':
+    """Raise if any of `query_exprs` references a UDF that could not be resolved in this process."""
+    for e in query._clause_exprs():
+        _check_valid_expr(e)
+    return query
 
 
 def _check_valid_gfc(gfc: func.GeneratingFunctionCall) -> func.GeneratingFunctionCall:

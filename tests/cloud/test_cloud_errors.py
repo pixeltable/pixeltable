@@ -32,7 +32,7 @@ if not os.environ.get('PIXELTABLE_PROXY_DAEMON') and not os.environ.get('PXTCLOU
 
 
 class TestCloudErrors:
-    @pytest.mark.parametrize('udf_usage_type', ['select', 'add_computed_column'])
+    @pytest.mark.parametrize('udf_usage_type', ['select', 'computed_column'])
     def test_udf_errors(self, udf_usage_type: str, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode):
         """Test that we get the right error message when UDF resolution fails on cloud."""
         if catalog_mode == 'local':
@@ -41,7 +41,11 @@ class TestCloudErrors:
         p = make_catalog_path
 
         t = pxt.create_table(p('test_udf_not_on_cloud'), {'n': pxt.Int})
-        accessor = getattr(t, udf_usage_type)
+        match udf_usage_type:
+            case 'select':
+                accessor = lambda **kwargs: t.select(**kwargs).collect()
+            case 'computed_column':
+                accessor = t.add_computed_column
 
         # Refer to a UDF that's not defined on cloud
         with pxt_raises(
