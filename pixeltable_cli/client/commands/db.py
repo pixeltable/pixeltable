@@ -28,7 +28,7 @@ from ..utils import get_request, post_request
 def _elapsed(seconds: float) -> str:
     if seconds < 1:
         return 'less than a second'
-    whole = int(round(seconds))
+    whole = round(seconds)
     return f'{whole}s' if whole < 60 else f'{whole // 60}m{whole % 60:02d}s'
 
 
@@ -350,7 +350,6 @@ def _update_runtime(args: argparse.Namespace) -> None:
     # "deploy failed" are different problems and only the stage separates them. A server that does not
     # report the pair still says whether the build worked, which is enough to name the outcome.
     status = result.get('update_runtime_status') or {}
-    stage = str(status.get('stage', '')).lower()
     state = str(status.get('state', '')).lower()
     last_build_state = result.get('last_build_state')
     build_failed = state == 'failed' or last_build_state == 'FAILED'
