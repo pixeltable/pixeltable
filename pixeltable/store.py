@@ -651,6 +651,126 @@ class StoreBase:
         # stmt_text = f'INSERT INTO {self.sa_tbl.name} ({col_names_str}) VALUES ({placeholders_str})'
         # conn.exec_driver_sql(stmt_text, table_rows)
 
+    @classmethod
+    def _update_bind_name(cls, store_col_name: str) -> str:
+        """Name of the bind parameter that update_rows() supplies the value of store_col_name in.
+
+        The prefix keeps these from colliding with the parameters SQLAlchemy generates itself, which it names
+        after the store columns.
+        """
+        return f'_{store_col_name}'
+
+    @classmethod
+    def _bind_param(cls, sa_col: sql.Column) -> sql.BindParameter:
+        col_type = sa_col.type
+        if isinstance(col_type, sql.dialects.postgresql.JSONB):
+            # a Python None must be stored as a SQL NULL, not as a JSON 'null'
+            col_type = sql.dialects.postgresql.JSONB(none_as_null=True)
+        return sql.bindparam(cls._update_bind_name(sa_col.name), type_=col_type)
+
+    def _create_update_stmt(self, set_col_names: list[str]) -> sql.Update:
+        pk_clause = sql.and_(*[c == self._bind_param(c) for c in self._pk_cols])
+        set_clause = {name: self._bind_param(self.sa_tbl.c[name]) for name in set_col_names}
+        return sql.update(self.sa_tbl).where(pk_clause).values(set_clause)
+
+    def update_rows(
+        self, exec_plan: ExecNode, set_cols: list[catalog.Column], return_rows: bool = False
+    ) -> tuple[set[int], RowCountStats, list[dict[str, Any]] | None]:
+        """Update rows of an operational table in place with the rows produced by exec_plan.
+
+        exec_plan produces one row per row to update, identified by its pk. Only the store columns of set_cols
+        are written; every other store column retains its current value.
+
+        Returns:
+            set of column ids that have exceptions, row count stats, updated rows (if return_rows)
+        """
+        assert not self.tbl_version.get().is_data_versioned
+        num_excs = 0
+        num_rows = 0
+        cols_with_excs: set[int] = set()
+        row_builder = exec_plan.row_builder
+
+        store_col_names = row_builder.store_column_names()
+        num_pk_cols = len(self._pk_cols)
+        assert store_col_names[:num_pk_cols] == [c.name for c in self._pk_cols]
+        set_col_names: set[str] = set()
+        for col in set_cols:
+            set_col_names.add(col.store_name())
+            if col.stores_cellmd:
+                set_col_names.add(col.cellmd_store_name())
+        set_col_idxs = [i for i, name in enumerate(store_col_names) if i >= num_pk_cols and name in set_col_names]
+        assert len(set_col_idxs) == len(set_col_names), (store_col_names, set_col_names)
+        param_idxs = [*range(num_pk_cols), *set_col_idxs]
+        bind_param_names = [self._update_bind_name(store_col_names[i]) for i in param_idxs]
+        stmt = self._create_update_stmt([store_col_names[i] for i in set_col_idxs])
+
+        table_rows: list[list[Any]] = []
+        bind_params: list[dict[str, Any]] = []
+        updated_rows: list[dict[str, Any]] = []
+
+        def flush() -> None:
+            nonlocal table_rows, bind_params
+            self.sql_update(stmt, bind_params)
+            if return_rows:
+                updated_rows.extend(row_builder.create_output_rows(table_rows=table_rows, has_pk=True))
+            table_rows = []
+            bind_params = []
+
+        def row_value_to_bind_param(val: Any) -> Any:
+            # TODO investigate if we can get rid of this
+            # a JSON null arrives as a SQL construct, which can't be a bind parameter value
+            if isinstance(val, sql.sql.elements.Null):
+                return None
+            return val
+
+        with exec_plan:
+            progress_reporter = exec_plan.ctx.add_progress_reporter(
+                f'Rows updated (table {self.tbl_version.get().name!r})', 'rows'
+            )
+
+            for row_batch in exec_plan:
+                num_rows += len(row_batch)
+                with telemetry.span('pixeltable.store.build_rows', level=telemetry.DEBUG, rows=len(row_batch)):
+                    for row in row_batch:
+                        assert len(row.pk) == num_pk_cols
+                        table_row, num_row_exc = row_builder.create_store_table_row(row, cols_with_excs, row.pk)
+                        num_excs += num_row_exc
+                        table_rows.append(table_row)
+                        bind_params.append(
+                            {
+                                bind_param: row_value_to_bind_param(table_row[param_idx])
+                                for bind_param, param_idx in zip(bind_param_names, param_idxs)
+                            }
+                        )
+
+                if len(table_rows) >= self.__INSERT_BATCH_SIZE:
+                    n = len(table_rows)
+                    flush()
+                    if progress_reporter is not None:
+                        progress_reporter.update(n)
+
+            if len(table_rows) > 0:
+                n = len(table_rows)
+                flush()
+                if progress_reporter is not None:
+                    progress_reporter.update(n)
+
+        row_counts = RowCountStats(upd_rows=num_rows, num_excs=num_excs)
+        return cols_with_excs, row_counts, (updated_rows if return_rows else None)
+
+    def sql_update(self, stmt: sql.Update, params: list[dict[str, Any]]) -> None:
+        assert len(params) > 0
+        conn = get_runtime().conn
+        try:
+            with telemetry.span('pixeltable.sa.update_rows'):
+                conn.execute(stmt, params)
+        except sql.exc.OperationalError as e:
+            if isinstance(e.orig, psycopg.errors.ProgramLimitExceeded):
+                idx_info = self._offending_idx(e.orig)
+                if idx_info is not None:
+                    raise self._index_row_size_error(idx_info) from e
+            raise
+
     def _offending_idx(self, e: Exception) -> catalog.TableVersion.IndexInfo | None:
         """Return the index named by the given Postgres error, or None if it doesn't name one of this table's."""
         tv = self.tbl_version.get()

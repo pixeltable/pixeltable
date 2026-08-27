@@ -598,7 +598,9 @@ class ColumnRef(Expr):
         stored_outputs = {col_ref.col.name: data_row[col_ref.slot_idx] for col_ref in self.iter_outputs}
         assert all(name is not None for name in stored_outputs)
         assert isinstance(self.iterator, func.PxtIterator)  # Otherwise we could not have an unstored column
-        self.iterator.seek(data_row.pk[self.pos_idx], **stored_outputs)
+        pos = data_row.pk[self.pos_idx]
+        assert isinstance(pos, int), pos
+        self.iterator.seek(pos, **stored_outputs)
         res = next(self.iterator)
         data_row[self.slot_idx] = res[col.name]
 

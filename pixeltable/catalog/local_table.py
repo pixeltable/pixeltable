@@ -1081,7 +1081,7 @@ class LocalTable(Table):
 
             # pseudo-column _rowid: contains the rowid of the row to update and can be used instead of the primary key
             has_rowid = _ROWID_COLUMN_NAME in rows[0]
-            rowids: list[tuple[int, ...]] = []
+            rowids: list[tuple[Any, ...]] = []
             if len(pk_col_names) == 0 and not has_rowid:
                 raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, 'Table must have primary key for batch update')
 

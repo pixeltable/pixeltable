@@ -1111,7 +1111,6 @@ class TableVersion:
         from pixeltable.plan import Planner
 
         assert self.is_mutable
-        assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
 
         update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True, allow_media=True)
         if where is not None:
@@ -1127,7 +1126,15 @@ class TableVersion:
                     excs.ErrorCode.UNSUPPORTED_OPERATION, f'Filter not expressible in SQL: {analysis_info.filter}'
                 )
 
-        plan, updated_cols, recomputed_cols = Planner.create_update_plan(self.path, update_spec, [], cascade)
+        if not self.is_data_versioned:
+            plan, updated_cols, _, set_cols = Planner.create_update_plan(
+                self.path, update_spec, [], cascade, where=where, include_identity_cols=return_rows
+            )
+            result = self._update_rows(plan, set_cols, return_rows=return_rows)
+            result += UpdateStatus(updated_cols=updated_cols)
+            return result
+
+        plan, updated_cols, recomputed_cols, _ = Planner.create_update_plan(self.path, update_spec, [], cascade)
 
         result = self.propagate_update(
             [plan],
@@ -1145,7 +1152,7 @@ class TableVersion:
     def batch_update(
         self,
         batch: list[dict[Column, exprs.Expr]],
-        rowids: list[tuple[int, ...]],
+        rowids: list[tuple[Any, ...]],
         insert_if_not_exists: bool,
         error_if_not_exists: bool,
         cascade: bool = True,
@@ -1161,21 +1168,25 @@ class TableVersion:
 
         # if we do lookups of rowids, we must have one for each row in the batch
         assert len(rowids) == 0 or len(rowids) == len(batch)
-        assert self.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
 
-        plan, row_update_node, delete_where_clause, updated_cols, recomputed_cols = Planner.create_batch_update_plan(
-            self.path, batch, rowids, cascade=cascade
+        plan, row_update_node, delete_where_clause, updated_cols, recomputed_cols, set_cols = (
+            Planner.create_batch_update_plan(
+                self.path, batch, rowids, cascade=cascade, include_identity_cols=return_rows or self.is_data_versioned
+            )
         )
-        result = self.propagate_update(
-            [plan],
-            delete_where_clause,
-            recomputed_cols,
-            modified_cols=updated_cols,
-            base_versions=[],
-            timestamp=time.time(),
-            cascade=cascade,
-            return_rows=return_rows,
-        )
+        if self.is_data_versioned:
+            result = self.propagate_update(
+                [plan],
+                delete_where_clause,
+                recomputed_cols,
+                modified_cols=updated_cols,
+                base_versions=[],
+                timestamp=time.time(),
+                cascade=cascade,
+                return_rows=return_rows,
+            )
+        else:
+            result = self._update_rows(plan, set_cols, return_rows=return_rows)
         result += UpdateStatus(updated_cols=[c.qualified_name for c in updated_cols])
 
         unmatched_rows = row_update_node.unmatched_rows()
@@ -1190,6 +1201,18 @@ class TableVersion:
                 )
                 result += insert_status.to_cascade()
         return result
+
+    def _update_rows(self, plan: 'exec.ExecNode', set_cols: list[Column], return_rows: bool) -> UpdateStatus:
+        assert not self.is_data_versioned
+        assert len(self.mutable_views) == 0, 'TODO: implement view propagation for operational tables [PXT-1101]'
+        get_runtime().catalog.mark_modified_tv(self.handle)
+        plan.ctx.title = self.display_str()
+        cols_with_excs, row_counts, rows = self.store_tbl.update_rows(plan, set_cols, return_rows=return_rows)
+        return UpdateStatus(
+            row_count_stats=row_counts,
+            cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs],
+            rows=rows,
+        )
 
     def _validate_update_spec(
         self, value_spec: dict[str, Any], allow_pk: bool, allow_exprs: bool, allow_media: bool
@@ -1209,9 +1232,12 @@ class TableVersion:
                         excs.ErrorCode.INTERNAL_ERROR,
                         f'Malformed _rowid: expected {num_rowid_cols} components, got {len(val)}',
                     )
-                if not all(isinstance(el, int) for el in val):
+                # an operational table's rowid is a UUID; the pos_i components are ints either way
+                rowid_type: type = int if self.is_data_versioned else UUID
+                if not isinstance(val[0], rowid_type) or not all(isinstance(el, int) for el in val[1:]):
                     raise excs.Error(
-                        excs.ErrorCode.INTERNAL_ERROR, f'Malformed _rowid: all components must be int, got {val!r}'
+                        excs.ErrorCode.INTERNAL_ERROR,
+                        f'Malformed _rowid: expected {rowid_type.__name__} followed by ints, got {val!r}',
                     )
                 continue
             col = self.path.get_column(col_name)
@@ -1291,7 +1317,7 @@ class TableVersion:
                 != None
             )
             where_clause = CompoundPredicate.make_conjunction([where_clause, errortype_pred])
-        plan, updated_cols, recomputed_cols = Planner.create_update_plan(
+        plan, updated_cols, recomputed_cols, _ = Planner.create_update_plan(
             self.path, update_targets={}, recompute_targets=target_columns, cascade=cascade
         )
 
