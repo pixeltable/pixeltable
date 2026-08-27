@@ -36,7 +36,7 @@ class TestConfig:
 
         p = make_catalog_path
         pxt.create_dir(p('test_config'))
-        t = pxt.create_table(p('test_config.items'), {'id': pxt.Int, 'name': pxt.String | None}, primary_key='id')
+        t = pxt.create_table(p('test_config/items'), {'id': pxt.Int, 'name': pxt.String | None}, primary_key='id')
         t.add_computed_column(name_upper=t.name.upper())
 
         # sqlite target for the export_sql route
@@ -149,7 +149,7 @@ class TestConfig:
 
         p = make_catalog_path
         pxt.create_dir(p('test_config'))
-        t = pxt.create_table(p('test_config.docs'), {'id': pxt.Int, 'text': pxt.String | None}, primary_key='id')
+        t = pxt.create_table(p('test_config/docs'), {'id': pxt.Int, 'text': pxt.String | None}, primary_key='id')
         t.insert([{'id': 1, 'text': 'hello'}, {'id': 2, 'text': 'world'}])
 
         # define a query function in a temporary module
@@ -162,7 +162,7 @@ class TestConfig:
             textwrap.dedent(f"""
                 import pixeltable as pxt
 
-                t = pxt.get_table({p('test_config.docs')!r})
+                t = pxt.get_table({p('test_config/docs')!r})
 
                 @pxt.query
                 def search(min_id: int) -> pxt.Query:

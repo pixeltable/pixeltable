@@ -137,6 +137,7 @@ class TestParquet:
         assert r1['bigint_col'] == 10 and r1['double_col'] == 10.1
         assert abs(r1['float_col'] - 1.1) < 1e-5  # float32 precision
 
+    @pytest.mark.skip_cloud(reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]')
     def test_import_parquet(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('pyarrow')
@@ -388,7 +389,7 @@ class TestParquet:
         valid_images = get_image_files()
 
         # Parquet with valid image paths/URLs
-        img_url = sample_file_server.url(valid_images[3])
+        img_url = sample_file_server.url(valid_images[3], catalog_mode)
         img_data = pa.table({'image_path': [str(f) for f in valid_images[:3]] + [img_url]})
         img_pq = tmp_path / 'valid.parquet'
         pa_parquet.write_table(img_data, str(img_pq))

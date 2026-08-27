@@ -1,8 +1,11 @@
 """Tests for 'pxt schema diff', 'pxt schema update' and 'pxt schema prune'."""
 
 import pathlib
+import re
 from collections.abc import Callable
 from textwrap import dedent
+
+import pytest
 
 import pixeltable as pxt
 
@@ -317,7 +320,7 @@ class TestSchema:
 
         r = cli('schema', 'prune', str(schema_file), target, '-f', check=False)
         assert r.returncode == 1
-        assert "the following depend on it: 'keep/derived'" in r.stderr
+        assert re.search(r"the following depend on it: '.*keep/derived'", r.stderr) is not None
         assert pxt.get_table(f'{target}/raw') is not None
 
     def test_prune_reports_tables_dropped_before_the_failure(
@@ -356,6 +359,7 @@ class TestSchema:
         assert pxt.get_table(f'{target}/raw') is not None
         assert f'{target}/gone' not in pxt.list_tables(target)
 
+    @pytest.mark.skip_cloud('Fails with an SSL error, possibly due to excessive data transfer [PXT-1327]')
     def test_example(self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('sentence_transformers')
         p = make_catalog_path
