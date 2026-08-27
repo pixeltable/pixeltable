@@ -1,9 +1,12 @@
 """`python -m pixeltable_cli.server.daemon` - pxt daemon entry point."""
 
+import argparse
 import atexit
 import os
+import pathlib
 import sys
 
+from pixeltable.config import Config
 from pixeltable_cli.client.utils import is_running
 from pixeltable_cli.server.http_server import bind, run
 from pixeltable_cli.utils import get_port, pidfile_path
@@ -33,7 +36,11 @@ def _remove_pidfile_if_ours() -> None:
         pass
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+    ap = argparse.ArgumentParser(prog='pxt daemon', description=__doc__)
+    ap.add_argument('--project-root', type=pathlib.Path, default=None)
+    args = ap.parse_args(argv)
+
     port = get_port()
     try:
         server = bind(port)
@@ -47,6 +54,7 @@ def main() -> None:
         sys.exit(1)
     _write_pidfile()
     atexit.register(_remove_pidfile_if_ours)
+    Config.init(reinit=True, project_root=args.project_root)
     run(server)
 
 

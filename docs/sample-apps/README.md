@@ -21,7 +21,7 @@ cd my-app && uv sync && python schema.py
 
 Templates live in the [Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/templates). Run `uvx pixeltable-new --list` to see all available options.
 
-The [local starter-kit copy](pixeltable-starter-kit/) is the reference for production patterns (FastAPI, batch, `pxt serve`, deployment configs).
+The [local starter-kit copy](pixeltable-starter-kit/) is the reference for production patterns (FastAPI, batch, `pxt service`, deployment configs).
 
 ## Showcase Apps
 

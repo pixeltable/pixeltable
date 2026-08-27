@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextvars
 import dataclasses
 import functools
 import logging
@@ -74,6 +75,9 @@ def _unpack_row(row: sql.engine.Row | None, entities: list[type[sql.orm.decl_api
 
     return result
 
+
+# if True, write transactions are prohibited
+_frozen: contextvars.ContextVar[bool] = contextvars.ContextVar('pxt_catalog_frozen', default=False)
 
 # -1: unlimited
 # for now, we don't limit the number of retries, because we haven't seen situations where the actual number of retries
@@ -176,6 +180,10 @@ def retrying_read(op: Callable[[], T], *, read_tvps: Collection[TableVersionPath
     if get_runtime().in_xact:
         return op()
     return retry_loop(for_write=False, read_tvps=read_tvps)(op)()
+
+
+class ProhibitedWriteError(Exception):
+    """Raised by begin_xact() when _frozen == True."""
 
 
 class PendingTableOpsError(Exception):
@@ -355,6 +363,18 @@ class Catalog(CatalogBase):
             self._tbl_md_read_allowed = False
 
     @contextmanager
+    def freeze(self) -> Iterator[None]:
+        """Prevent write transactions in this thread.
+
+        Unaffected: reads and writes from other threads.
+        """
+        token = _frozen.set(True)
+        try:
+            yield
+        finally:
+            _frozen.reset(token)
+
+    @contextmanager
     def begin_xact(
         self,
         *,
@@ -388,6 +408,8 @@ class Catalog(CatalogBase):
         If convert_db_excs == True, converts DBAPIErrors into excs.Errors if possible.
         """
         assert for_write or not (write_tvps or write_tbl_ids), 'for_write must be True when write targets are specified'
+        if for_write and _frozen.get():
+            raise ProhibitedWriteError()
         read_tvps = read_tvps or []
         write_tvps = write_tvps or []
         read_tbl_ids = read_tbl_ids or []

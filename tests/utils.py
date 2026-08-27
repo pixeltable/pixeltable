@@ -898,7 +898,7 @@ def reload_catalog(reload: bool = True) -> None:
 def reload_env() -> None:
     """Re-read the config file and rebuild the Env from it, keeping the configured database."""
     reset_runtime()
-    Config.init(reinit=True)
+    Config.init(reinit=True, project_root=Config.get().project_root)
     Env._init_env()
     FileCache.init()
 
