@@ -7,7 +7,6 @@ import inspect
 import json
 import sys
 import typing
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, NoReturn, Self, TypeVar, overload
 from uuid import UUID
 
