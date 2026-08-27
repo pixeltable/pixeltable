@@ -11,7 +11,7 @@ import sys
 import threading
 import urllib.parse
 import uuid
-from typing import Callable, Iterator
+from typing import Callable, Iterator, Literal
 
 import pytest
 import requests
@@ -39,6 +39,7 @@ from .utils import (
     IN_CI,
     TESTS_DIR,
     CatalogMode,
+    DatabaseRoot,
     ReloadTester,
     create_all_datatypes_tbl,
     create_img_tbl,
@@ -371,27 +372,14 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     if 'is_data_versioned' in metafunc.fixturenames:
         metafunc.parametrize('is_data_versioned', [True, False], ids=['data_versioned', 'operational'])
 
-    if 'catalog_mode' not in metafunc.fixturenames:
-        return
-    if metafunc.definition.get_closest_marker('local') is not None:
-        # local-only: don't fork the axis; catalog_mode defaults to 'local' and the nodeid stays unparametrized
-        return
-
-    params = ['local', 'proxy']
-    if metafunc.definition.get_closest_marker('skip_cloud') is None:
-        params.append('cloud')
-    metafunc.parametrize('catalog_mode', params, indirect=True)
-
-
-@pytest.fixture(scope='function')
-def catalog_mode(request: pytest.FixtureRequest) -> CatalogMode:
-    """The catalog backend under test: 'local', 'proxy' (local daemon), or 'cloud' (cloud proxy via NLB).
-
-    The axis is assigned by pytest_generate_tests(); a test marked @pytest.mark.local isn't
-    parametrized and gets 'local' here. Request this alongside make_catalog_path() to gate assertions that only
-    make sense in one mode (e.g. inspecting the client-side LocalStore, which is empty over proxy/cloud).
-    """
-    return getattr(request, 'param', 'local')
+    if 'db_root_id' in metafunc.fixturenames:
+        if metafunc.definition.get_closest_marker('local') is not None:
+            # local-only: don't fork the axis; catalog_mode defaults to 'local' and the nodeid stays unparametrized
+            return
+        params = ['local', 'proxy']
+        if metafunc.definition.get_closest_marker('skip_cloud') is None:
+            params.append('cloud')
+        metafunc.parametrize('db_root_id', params, indirect=True)
 
 
 @pytest.fixture
@@ -401,56 +389,43 @@ def served_project() -> pathlib.Path | None:
 
 
 @pytest.fixture(scope='function')
-def make_catalog_path(
-    init_env: None, catalog_mode: CatalogMode, served_project: pathlib.Path | None, request: pytest.FixtureRequest
-) -> Iterator[Callable[[str], str]]:
-    """Parameterized variant of uses_db: runs a test against both the in-process catalog and a delegated
-    (proxied) catalog served by a local daemon.
+def db_root(
+    init_env: None, db_root_id: Literal['local', 'proxy', 'cloud'], served_project: pathlib.Path | None, request: pytest.FixtureRequest
+) -> Iterator[DatabaseRoot]:
+    """
+    Parameterized variant of uses_db: runs a test against any or all of:
+    - the in-process catalog
+    - a local proxy daemon instance
+    - a cloud-hosted database (if PXTTEST_CLOUD_DB_URI is set)
 
     Yields a path-builder mapping a bare path to the active catalog: the identity for local, and the bare
     path prefixed with the daemon's pxt:// uri for proxy (with an empty path mapping to the catalog root).
     """
     _reset_catalog_state()
 
-    if catalog_mode == 'proxy':
-        # the daemon is handed the project Config holds when it starts, and never re-reads it
-        if served_project is not None and Config.get().project_root != served_project:
-            Config.init(reinit=True, project_root=served_project)
-        db = request.getfixturevalue('proxy_daemon_db')
-        # the daemon resolves udf module paths against the one project it was started with, and tests in
-        # different packages serve different projects; start() reuses a daemon serving this test's project and
-        # replaces one serving another, so a test never inherits the project of whichever test ran before it
-        proxy_daemon.start(db, test_mode=True)
-        proxy_daemon.reinitialize(db)
-        prefix = f'pxt://local:{db}'
+    match db_root_id:
+        case 'local':
+            yield DatabaseRoot('local', '')
 
-        def p(path: str) -> str:
-            return f'{prefix}/{path}' if path else prefix
+        case 'proxy':
+            # the daemon is handed the project Config holds when it starts, and never re-reads it
+            if served_project is not None and Config.get().project_root != served_project:
+                Config.init(reinit=True, project_root=served_project)
+            db = request.getfixturevalue('proxy_daemon_db')
+            # the daemon resolves udf module paths against the one project it was started with, and tests in
+            # different packages serve different projects; start() reuses a daemon serving this test's project and
+            # replaces one serving another, so a test never inherits the project of whichever test ran before it
+            proxy_daemon.start(db, test_mode=True)
+            proxy_daemon.reinitialize(db)
+            yield DatabaseRoot('proxy', f'pxt://local:{db}')
 
-    elif catalog_mode == 'cloud':
-        for required_cloud_env_var in ('PIXELTABLE_API_KEY', 'PIXELTABLE_API_URL', 'PIXELTABLE_CLOUD_HOST'):
-            if not os.environ.get(required_cloud_env_var):
-                pytest.skip(f'{required_cloud_env_var} is not set.')
-
-        cloud_db_base_uri = request.getfixturevalue('cloud_db_base_uri')
-        test_dir = uuid.uuid4().hex
-        prefix = f'{cloud_db_base_uri}/test_{test_dir}'
-        _logger.info('Creating test directory in cloud catalog: %s', prefix)
-        pxt.create_dir(prefix)
-
-        def p(path: str) -> str:
-            return f'{prefix}/{path}' if path else prefix
-
-    else:
-
-        def p(path: str) -> str:
-            return path
-
-    yield p
-
-    if catalog_mode == 'cloud':
-        _logger.info('Dropping test directory in cloud catalog: %s', prefix)
-        pxt.drop_dir(prefix, force=True, if_not_exists='ignore')
+        case 'cloud':
+            cloud_db_base_uri = request.getfixturevalue('cloud_db_base_uri')
+            test_dir = uuid.uuid4().hex
+            prefix = f'{cloud_db_base_uri}/test_{test_dir}'
+            _logger.info('Creating test directory in cloud catalog: %s', prefix)
+            pxt.create_dir(prefix)
+            yield DatabaseRoot('cloud', prefix)
 
     _validate_catalog_state()
 

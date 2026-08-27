@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import dataclass
 import datetime
 import gc
 import glob
@@ -52,9 +53,6 @@ if TYPE_CHECKING:
 
 TESTS_DIR = Path(os.path.dirname(__file__))
 
-# The catalog backend a test runs against: 'local' (in-process), 'proxy' (local daemon), or 'cloud' (NLB proxy).
-CatalogMode = Literal['local', 'proxy', 'cloud']
-
 
 _ERROR_GROUP_TO_CLS: dict[int, type[pxt.Error]] = {
     0: pxt.Error,
@@ -66,6 +64,16 @@ _ERROR_GROUP_TO_CLS: dict[int, type[pxt.Error]] = {
     6: pxt.ServiceUnavailableError,
     7: pxt.ConcurrencyError,
 }
+
+
+@dataclass
+class DatabaseRoot:
+    id: Literal['local', 'proxy', 'cloud']
+    prefix: str
+
+    def make_catalog_path(self, path: str) -> str:
+        """Return a catalog path for the given relative path, using this database root."""
+        return f'{self.prefix}/{path}'.strip('/')
 
 
 @contextmanager
