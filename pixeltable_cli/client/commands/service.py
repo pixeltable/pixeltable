@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from ...service_types import ServiceChangeOp, ServiceInstance, ServicePlan, ServiceResolution, delete_service_op
-from ...utils import PxtPath
+from ...utils import PxtPath, split_pxt_uri
 from ..confirm import confirm_or_exit
 from ..parser import Parser
 from ..utils import check_file, get_request, post_request
@@ -347,6 +347,14 @@ def _run_foreground(
     paths. Nothing is recorded and nothing is reconciled: the service runs for as long as this process
     does. That is what makes it the mode for a container entrypoint or a dev loop.
     """
+    if split_pxt_uri(target) is not None:
+        print(
+            f'pxt service run: {target!r} is hosted, and this command serves from this process.\n'
+            f"run it against a local directory, or start it in the database with 'pxt service update'",
+            file=sys.stderr,
+        )
+        sys.exit(EXIT_ERROR)
+
     # this command runs the server itself, so unlike the rest of the client it needs pixeltable in-process
     import uvicorn
 

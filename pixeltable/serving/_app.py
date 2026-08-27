@@ -36,6 +36,17 @@ def load_service_routers(app_file: str) -> dict[str, 'FastAPIRouter']:
     return routers
 
 
+def service_router(app_file: str, name: str) -> 'FastAPIRouter':
+    routers = load_service_routers(app_file)
+    if name not in routers:
+        declared = ', '.join(sorted(routers))
+        raise excs.NotFoundError(
+            excs.ErrorCode.SERVICE_NOT_FOUND,
+            f'{app_file} contains no FastAPIRouter named {name!r}; it declares: {declared}',
+        )
+    return routers[name]
+
+
 def create_app(app_file: str, *, base_path: str = '', service_name: str | None = None) -> 'fastapi.FastAPI':
     """Build the application that serves app_file's services, with their models bound against base_path.
 

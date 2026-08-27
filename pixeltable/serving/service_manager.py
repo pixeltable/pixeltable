@@ -33,7 +33,7 @@ import pydantic
 from pixeltable import catalog, exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.serving._app import load_service_routers
+from pixeltable.serving._app import service_router
 from pixeltable.utils.app_module import module_name
 from pixeltable.utils.process import is_pid, pid_alive, process_timestamp
 
@@ -80,9 +80,14 @@ def get_manager(target: str = '') -> ServiceManagerBase:
     path = catalog.Path.parse(target, allow_empty_path=True)
     if path.is_local:
         return ServiceManager()
-    raise excs.RequestError(
-        excs.ErrorCode.UNSUPPORTED_OPERATION, f'{target!r}: services in a hosted database are not supported yet.'
-    )
+    if path.db is None:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_PATH, f'{target!r} names no database; a service instance lives in one'
+        )
+    # imported here because ServiceManagerProxy's module imports this one
+    from .service_manager_proxy import ServiceManagerProxy
+
+    return ServiceManagerProxy(path.catalog_uri)
 
 
 class ServiceManager(ServiceManagerBase):
@@ -231,13 +236,7 @@ class ServiceManager(ServiceManagerBase):
 
         # fail here, in the caller's process, on everything that can be detected without serving: an app file
         # that does not declare the service is a request error, not a process that dies in the background
-        services = load_service_routers(app_file)
-        if name not in services:
-            declared = ', '.join(sorted(services))
-            raise excs.NotFoundError(
-                excs.ErrorCode.SERVICE_NOT_FOUND,
-                f'{app_file} contains no FastAPIRouter named {name!r}; it declares: {declared}',
-            )
+        service_router(app_file, name)
 
         log_path = self._log_path(name, base_path)
         log_path.parent.mkdir(parents=True, exist_ok=True)

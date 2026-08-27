@@ -49,6 +49,8 @@ from pixeltable.service.management_protocol import (
     UpdateDbRequest,
     UpdateRuntimeRequest,
 )
+from pixeltable.serving._app import service_router
+from pixeltable.serving.service_instance import ServiceInstanceState
 from pixeltable_cli import schema_types as wire, utils
 from pixeltable_cli.client import confirm, hosted, main as client_main, parser as client_parser, utils as client_utils
 from pixeltable_cli.client.commands import (
@@ -1835,6 +1837,129 @@ class TestServiceOtel:
         mock_otel_init.assert_called_once_with()
         mock_instrument_fastapi.assert_called_once_with(app)
         mock_run.assert_called_once()
+
+
+class TestHostedServiceManager:
+    """What ServiceManagerProxy asks the management API for, and what it makes of the answers."""
+
+    @pytest.fixture
+    def api(self, monkeypatch: pytest.MonkeyPatch) -> Any:
+        """A management API holding instances in a dict, recording every request it is sent."""
+
+        class Api:
+            instances: dict[str, dict[str, Any]]
+            sent: list[Any]
+
+            def __init__(self) -> None:
+                self.instances = {}
+                self.sent = []
+
+            def add(self, name: str, *, base_path: str = '', state: str = 'AVAILABLE', **fields: Any) -> None:
+                self.instances[name] = {
+                    'service_name': name,
+                    'base_path': base_path,
+                    'endpoint': f'https://acme-main.pixeltable.com/{name}',
+                    'app_module': 'apps.basic',
+                    'spec': {'name': name, 'prefix': '', 'routes': []},
+                    'state': state,
+                    **fields,
+                }
+
+            def __call__(self, request: Any) -> dict[str, Any]:
+                self.sent.append(request)
+                op = request.operation_type.value
+                if op == 'list_service_instances':
+                    return {'instances': list(self.instances.values())}
+                if op == 'create_service_instance':
+                    self.add(
+                        request.service_name,
+                        base_path=request.base_path,
+                        app_module=request.app_module,
+                        spec=request.spec,
+                    )
+                elif op == 'update_service_instance':
+                    self.instances[request.service_name].update(app_module=request.app_module, spec=request.spec)
+                elif op == 'start_service_instance':
+                    instance = self.instances[request.service_name]
+                    # an instance whose failure is recorded stays FAILED, as one that cannot be brought up does
+                    instance['state'] = 'FAILED' if instance.get('error') is not None else 'AVAILABLE'
+                elif op == 'stop_service_instance':
+                    self.instances[request.service_name]['state'] = 'STOPPED'
+                elif op == 'delete_service_instance':
+                    del self.instances[request.service_name]
+                return {'instance': self.instances.get(request.service_name, {})}
+
+        api = Api()
+        monkeypatch.setattr(management_client, 'api_call', api)
+        return api
+
+    def _manager(self) -> Any:
+        from pixeltable.serving.service_manager import get_manager
+
+        return get_manager('pxt://acme:main/app')
+
+    def test_start_creates_absent_instance(self, api: Any, apps: Callable[[str], str]) -> None:
+        instance = self._manager().start(apps('basic.py'), 'ingest', 'app')
+        assert [r.operation_type.value for r in api.sent] == [
+            'list_service_instances',
+            'create_service_instance',
+            'list_service_instances',
+        ]
+        created = api.sent[1]
+        assert (created.org, created.db, created.service_name, created.base_path) == ('acme', 'main', 'ingest', 'app')
+        assert created.app_module == 'apps.basic'
+        assert created.spec['name'] == 'ingest'
+        assert instance.state is ServiceInstanceState.AVAILABLE
+
+    def test_start_updates_changed_declaration(self, api: Any, apps: Callable[[str], str]) -> None:
+        api.add('ingest', base_path='app', spec={'name': 'ingest', 'prefix': '', 'routes': []})
+        self._manager().start(apps('basic.py'), 'ingest', 'app')
+        assert [r.operation_type.value for r in api.sent].count('update_service_instance') == 1
+
+    def test_start_starts_stopped_instance(self, api: Any, apps: Callable[[str], str]) -> None:
+        spec = service_router(apps('basic.py'), 'ingest').service_spec('ingest')
+        api.add('ingest', base_path='app', state='STOPPED', spec=spec)
+        instance = self._manager().start(apps('basic.py'), 'ingest', 'app')
+        assert 'start_service_instance' in [r.operation_type.value for r in api.sent]
+        assert instance.state is ServiceInstanceState.AVAILABLE
+
+    def test_start_leaves_agreeing_instance_alone(self, api: Any, apps: Callable[[str], str]) -> None:
+        spec = service_router(apps('basic.py'), 'ingest').service_spec('ingest')
+        api.add('ingest', base_path='app', spec=spec)
+        self._manager().start(apps('basic.py'), 'ingest', 'app')
+        assert [r.operation_type.value for r in api.sent] == ['list_service_instances']
+
+    def test_start_reports_failure(self, api: Any, apps: Callable[[str], str]) -> None:
+        api.add('ingest', base_path='app', state='FAILED', error='the image has no module apps.basic')
+        with pytest.raises(excs.Error, match=r'did not start; it is FAILED: the image has no module apps\.basic'):
+            self._manager().start(apps('basic.py'), 'ingest', 'app')
+
+    def test_list_reports_the_instances_serving_a_path(self, api: Any) -> None:
+        api.add('ingest', base_path='app')
+        api.add('search', base_path='app/sub')
+        api.add('other', base_path='elsewhere')
+        manager = self._manager()
+        assert [i.service_name for i in manager.list('app')] == ['ingest']
+        assert sorted(i.service_name for i in manager.list('app', recursive=True)) == ['ingest', 'search']
+        assert manager.get('search', 'app') is None
+        assert manager.get('search', 'app/sub') is not None
+
+    def test_stop_keeps_the_instance(self, api: Any) -> None:
+        api.add('ingest', base_path='app')
+        manager = self._manager()
+        instance = manager.get('ingest', 'app')
+        assert instance is not None
+        instance.stop()
+        assert api.instances['ingest']['state'] == 'STOPPED'
+        assert manager.get('ingest', 'app') is not None
+
+    def test_delete_forgets_the_instance(self, api: Any) -> None:
+        api.add('ingest', base_path='app')
+        manager = self._manager()
+        instance = manager.get('ingest', 'app')
+        assert instance is not None
+        instance.delete()
+        assert manager.get('ingest', 'app') is None
 
 
 class TestHostedUriHelpers:

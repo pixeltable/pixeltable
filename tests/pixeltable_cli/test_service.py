@@ -572,14 +572,15 @@ class TestService:
         r = cli('service', 'stop', 'nosuch', '--json')
         assert [(op['name'], op['status']) for op in r.json] == [('nosuch', 'skipped')]
 
-        # a hosted target has no services yet, and every verb says so rather than acting on the local ones
-        for verb in ('diff', 'update'):
-            r = cli('service', verb, apps('basic.py'), 'pxt://acme:main/app', check=False)
-            assert r.returncode != 0
-            assert 'not supported yet' in r.stderr, r.stderr
-        r = cli('service', 'list', 'pxt://acme:main/app', check=False)
+        # a hosted target requires a database
+        r = cli('service', 'list', 'pxt://acme', check=False)
         assert r.returncode != 0
-        assert 'not supported yet' in r.stderr, r.stderr
+        assert 'names no database' in r.stderr, r.stderr
+
+        # 'run' doesn't work for hosted uris
+        r = cli('service', 'run', apps('basic.py'), 'pxt://acme:main/app', check=False)
+        assert r.returncode != 0
+        assert 'serves from this process' in r.stderr, r.stderr
 
     def test_example(self, cli: PxtRunner, make_catalog_path: Callable[[str], str], project_dir: pathlib.Path) -> None:
         """The file `example` writes declares both the tables and the services, and serves."""
