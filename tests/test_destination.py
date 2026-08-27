@@ -291,7 +291,7 @@ class TestDestination:
         save_id = t._id
         pxt.drop_table(t)
 
-        check_media_store_count(t, 0, db_root.id, default_output_dest=True)
+        check_media_store_count(t, 0, db_root, default_output_dest=True)
         assert ObjectOps.count(save_id, dest=dest1_uri) == 0
         assert ObjectOps.count(save_id, dest=dest2_uri) == 0
 

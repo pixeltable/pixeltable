@@ -120,7 +120,7 @@ class TestImport:
     def test_insert_json(self, db_root: DatabaseRoot, sample_file_server: SampleFileServer) -> None:
         p = db_root.make_catalog_path
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
-        jeopardy = sample_file_server.url('tests/data/json/jeopardy.json', db_root.id)
+        jeopardy = sample_file_server.url('tests/data/json/jeopardy.json', db_root)
 
         # `example.json` has a variety of datatypes and tests both nullable and non-nullable columns
         t1 = pxt.io.import_json(p('example'), str(example))

@@ -79,7 +79,7 @@ class TestAudio:
         shipped_videos = len(video_filepaths) if db_root.id == 'proxy' else 0
         check_media_store_count(video_t, videos_with_audio + shipped_videos, db_root, default_output_dest=True)
         assert video_t.where(video_t.audio != None).count() == videos_with_audio
-        init_temp_store_count = get_temp_store_count(video_t, db_root.id)
+        init_temp_store_count = get_temp_store_count(video_t, db_root)
 
         video_t = pxt.get_table(p('videos'))
         assert video_t.where(video_t.audio != None).count() == videos_with_audio
@@ -87,9 +87,7 @@ class TestAudio:
         # test generating different formats and codecs
         paths = video_t.select(output=video_t.video.extract_audio(format='wav', codec='pcm_s16le')).collect()['output']
         # media files that are created as a part of a query end up in the tmp dir
-        check_temp_store_count(
-            video_t, init_temp_store_count + video_t.where(video_t.audio != None).count(), db_root.id
-        )
+        check_temp_store_count(video_t, init_temp_store_count + video_t.where(video_t.audio != None).count(), db_root)
         for path in [pth for pth in paths if pth is not None]:
             self.check_audio_params(path, format='wav', codec='pcm_s16le')
         # higher resolution

@@ -14,7 +14,6 @@ from .utils import DatabaseRoot, pxt_raises, reload_catalog, validate_update_sta
 class TestArrayType:
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_array_dtypes(self, do_reload_catalog: bool, init_env: None, db_root: DatabaseRoot) -> None:
-        p = db_root.make_catalog_path
         test_cases: list = [
             (np.bool, [np.bool, pxt.Bool]),
             (np.str_, [np.str_, pxt.String]),
@@ -36,7 +35,7 @@ class TestArrayType:
         ]
         for col_dtype, acceptable_dtypes in test_cases:
             try:
-                self._test_array_dtype(col_dtype, acceptable_dtypes, do_reload_catalog, p)
+                self._test_array_dtype(col_dtype, acceptable_dtypes, do_reload_catalog, db_root)
             except Exception as e:
                 raise type(e)(f'Failed for col_dtype={col_dtype}') from e
 
@@ -47,10 +46,11 @@ class TestArrayType:
         do_reload_catalog: bool,
         db_root: DatabaseRoot,
     ) -> None:
+        p = db_root.make_catalog_path
         schema = {'array_col_req': pxt.Array[col_dtype], 'array_col_opt': pxt.Array[col_dtype] | None}
-        pxt.create_table(db_root.make_catalog_path('test_numpy_dtypes'), schema, if_exists='replace')
+        pxt.create_table(p('test_numpy_dtypes'), schema, if_exists='replace')
         reload_catalog(do_reload_catalog)
-        t = pxt.get_table(db_root.make_catalog_path('test_numpy_dtypes'))
+        t = pxt.get_table(p('test_numpy_dtypes'))
 
         # Generate inserts for all dtypes that these columns should accept
         validate_update_status(

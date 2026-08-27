@@ -316,7 +316,7 @@ class TestHfDatasets:
     def test_import_images(self, streaming: bool, db_root: DatabaseRoot) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('datasets')
-        self._skip_streaming_over_proxy(streaming, db_root.id)
+        self._skip_streaming_over_proxy(streaming, db_root)
         import datasets
 
         p = db_root.make_catalog_path
@@ -339,7 +339,7 @@ class TestHfDatasets:
     @pytest.mark.very_expensive  # I/O intensive
     def test_import_arrays(self, streaming: bool, db_root: DatabaseRoot) -> None:
         skip_test_if_not_installed('datasets')
-        self._skip_streaming_over_proxy(streaming, db_root.id)
+        self._skip_streaming_over_proxy(streaming, db_root)
         import datasets
 
         p = db_root.make_catalog_path
@@ -361,7 +361,7 @@ class TestHfDatasets:
     def test_import_audio_small(self, streaming: bool, db_root: DatabaseRoot) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('datasets')
-        self._skip_streaming_over_proxy(streaming, db_root.id)
+        self._skip_streaming_over_proxy(streaming, db_root)
         import datasets
 
         p = db_root.make_catalog_path
@@ -383,7 +383,7 @@ class TestHfDatasets:
     def test_import_audio(self, streaming: bool, db_root: DatabaseRoot) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('datasets')
-        self._skip_streaming_over_proxy(streaming, db_root.id)
+        self._skip_streaming_over_proxy(streaming, db_root)
         import datasets
 
         p = db_root.make_catalog_path
@@ -407,7 +407,7 @@ class TestHfDatasets:
     @pytest.mark.very_expensive  # I/O intensive
     def test_import_list_of_dict(self, streaming: bool, db_root: DatabaseRoot) -> None:
         skip_test_if_not_installed('datasets')
-        self._skip_streaming_over_proxy(streaming, db_root.id)
+        self._skip_streaming_over_proxy(streaming, db_root)
         import datasets
 
         p = db_root.make_catalog_path
@@ -445,7 +445,7 @@ class TestHfDatasets:
     @pytest.mark.very_expensive  # I/O intensive
     def test_import_classlabel(self, streaming: bool, db_root: DatabaseRoot) -> None:
         skip_test_if_not_installed('datasets')
-        self._skip_streaming_over_proxy(streaming, db_root.id)
+        self._skip_streaming_over_proxy(streaming, db_root)
         import datasets
 
         p = db_root.make_catalog_path
@@ -468,7 +468,7 @@ class TestHfDatasets:
     @pytest.mark.very_expensive  # I/O intensive
     def test_import_sequence_of_float(self, streaming: bool, db_root: DatabaseRoot) -> None:
         skip_test_if_not_installed('datasets')
-        self._skip_streaming_over_proxy(streaming, db_root.id)
+        self._skip_streaming_over_proxy(streaming, db_root)
         import datasets
 
         p = db_root.make_catalog_path
@@ -494,7 +494,7 @@ class TestHfDatasets:
     @pytest.mark.very_expensive  # I/O intensive
     def test_import_sequence_of_dict(self, streaming: bool, db_root: DatabaseRoot) -> None:
         skip_test_if_not_installed('datasets')
-        self._skip_streaming_over_proxy(streaming, db_root.id)
+        self._skip_streaming_over_proxy(streaming, db_root)
         import datasets
 
         p = db_root.make_catalog_path
@@ -526,7 +526,7 @@ class TestHfDatasets:
         - context: Sequence({'title': string, 'sentences': Sequence(string)})
         """
         skip_test_if_not_installed('datasets')
-        self._skip_streaming_over_proxy(streaming, db_root.id)
+        self._skip_streaming_over_proxy(streaming, db_root)
         import datasets
 
         p = db_root.make_catalog_path
@@ -555,7 +555,7 @@ class TestHfDatasets:
     def test_import_arraynd(self, streaming: bool, db_root: DatabaseRoot) -> None:
         """Test dataset with Array2D and Array3D features."""
         skip_test_if_not_installed('datasets')
-        self._skip_streaming_over_proxy(streaming, db_root.id)
+        self._skip_streaming_over_proxy(streaming, db_root)
         import datasets
 
         p = db_root.make_catalog_path

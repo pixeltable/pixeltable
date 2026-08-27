@@ -1469,7 +1469,7 @@ class TestExprs:
         p = db_root.make_catalog_path
         t = pxt.create_table(p('img_test'), {'name': pxt.String, 'img': pxt.Image})
         images = [
-            (name, sample_file_server.url(f'docs/resources/images/{name}', db_root.id))
+            (name, sample_file_server.url(f'docs/resources/images/{name}', db_root))
             for name in (
                 '000000000030.jpg',
                 '000000000034.jpg',

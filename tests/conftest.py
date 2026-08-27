@@ -6,12 +6,11 @@ import os
 import pathlib
 import platform
 import shutil
-import subprocess
 import sys
 import threading
 import urllib.parse
 import uuid
-from typing import Callable, Iterator, Literal
+from typing import Callable, Iterator
 
 import pytest
 import requests
@@ -341,14 +340,14 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
             params = db_roots_marker.args
             if not set(params) <= {'local', 'proxy', 'cloud'}:
                 raise pytest.UsageError(
-                    f'Invalid db_roots marker args. Must be a nonempty subset of'
+                    'Invalid db_roots marker args. Must be a nonempty subset of'
                     f"('local', 'proxy', 'cloud'); got: {params!r}"
                 )
             if (
                 not isinstance(db_roots_marker.kwargs.get('reason'), str)
                 or not db_roots_marker.kwargs['reason'].strip()
             ):
-                raise pytest.UsageError(f"db_roots marker must include a nonempty 'reason' kwarg")
+                raise pytest.UsageError("db_roots marker must include a nonempty 'reason' kwarg")
 
         else:
             params = ('local', 'proxy', 'cloud')  # Default is all three targets
@@ -559,14 +558,14 @@ class SampleFileServer:
     def __init__(self, base_url: str) -> None:
         self.base_url = base_url
 
-    def url(self, path: str | pathlib.Path, db_root: DatabaseRoot = 'local') -> str:
+    def url(self, path: str | pathlib.Path, db_root: DatabaseRoot | None = None) -> str:
         """Return the http:// URL of `path`, given either as an absolute path in the repo or relative to its root."""
         rel_path = pathlib.Path(path)
         if rel_path.is_absolute():
             assert rel_path.is_relative_to(_SERVED_DIR)
             rel_path = rel_path.relative_to(_SERVED_DIR)
 
-        if db_root.id == 'cloud':
+        if db_root is not None and db_root.id == 'cloud':
             # For cloud tests, we need to send an actual URL; Pixeltable cloud obviously can't see 127.0.0.1
             base_url = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/'
         else:

@@ -449,7 +449,8 @@ class TestIterator:
     # process, which the proxy daemon (a separate process resolving its own module state) would never observe.
     @pytest.mark.db_roots(
         'local',
-        reason='monkey-patches the module-global evolving_iterator in this process, which the daemon would never observe',
+        reason='monkey-patches the module-global evolving_iterator in this process, '
+        'which the daemon would never observe',
     )
     @pytest.mark.parametrize('as_kwarg', [False, True])
     def test_evolving_iterator(self, as_kwarg: bool, uses_db: None) -> None:
