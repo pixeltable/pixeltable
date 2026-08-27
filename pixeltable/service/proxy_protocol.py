@@ -348,7 +348,7 @@ def _serialize(obj: Any, sink: PartSink) -> Any:
 
 def _check_valid_fn(fn: func.Function) -> func.Function:
     if isinstance(fn, func.InvalidFunction):
-        raise excs.RequestError(
+        raise excs.NotFoundError(
             excs.ErrorCode.FUNCTION_NOT_FOUND,
             f'The request references the UDF `{fn.self_path}`, '
             'but that UDF is not defined in the remote database.\n'
@@ -359,7 +359,7 @@ def _check_valid_fn(fn: func.Function) -> func.Function:
 
 def _check_valid_expr(expr: exprs.Expr) -> exprs.Expr:
     if not expr.is_valid:
-        raise excs.RequestError(
+        raise excs.NotFoundError(
             excs.ErrorCode.FUNCTION_NOT_FOUND,
             f'{expr.validation_error.protocol_error_msg()}\n'
             'You can use `pxt db update` to deploy a new version of the UDF to the remote database.',

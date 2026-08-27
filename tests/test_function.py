@@ -1561,16 +1561,16 @@ class TestFunction:
         # Make the function into a non-UDF
         tests.test_function.evolving_udf = lambda x: x  # type: ignore[assignment]
         validation_error = (
-            "The UDF `tests.test_function.evolving_udf` cannot be located, because\n"
-            "the symbol `tests.test_function.evolving_udf` is no longer a UDF. (Was the `@pxt.udf` decorator removed?)"
+            'The UDF `tests.test_function.evolving_udf` cannot be located, because\n'
+            'the symbol `tests.test_function.evolving_udf` is no longer a UDF. (Was the `@pxt.udf` decorator removed?)'
         )
         reload_and_validate_table(validation_error=validation_error)
 
         # Remove the function entirely
         del tests.test_function.evolving_udf
         validation_error = (
-            "The UDF `tests.test_function.evolving_udf` cannot be located, because\n"
-            "the symbol `tests.test_function.evolving_udf` no longer exists. (Was the UDF moved or renamed?)"
+            'The UDF `tests.test_function.evolving_udf` cannot be located, because\n'
+            'the symbol `tests.test_function.evolving_udf` no longer exists. (Was the UDF moved or renamed?)'
         )
         reload_and_validate_table(validation_error=validation_error)
 

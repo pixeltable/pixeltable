@@ -175,6 +175,7 @@ def start(db: str, test_mode: bool = False) -> str:
         'PIXELTABLE_HOME': str(proxy_home(db)),  # own media/tmp + port.lock
         'PIXELTABLE_PGDATA': pgdata,  # shared postmaster
         'PIXELTABLE_DB': db,  # own database
+        'PIXELTABLE_PROXY_DAEMON': '1',  # mark this process as a proxy daemon instance
     }
     # The daemon outlives this call, so it must not inherit our stdio: leaving the child's stdout/stderr
     # attached to a pipe blocks the reader on EOF forever, and attached to a terminal it would spew daemon

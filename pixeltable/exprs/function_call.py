@@ -40,6 +40,12 @@ class FunctionValidationError(ValidationError):
             .format(error_msg=self.error_msg)
         )
 
+    def protocol_error_msg(self) -> str:
+        return (
+            f'The request references the UDF `{self.function_path}`, '
+            'but that UDF is not defined in the remote database.'
+        )
+
 
 @dataclass
 class SignatureValidationError(ValidationError):
@@ -72,6 +78,7 @@ class SignatureValidationError(ValidationError):
             {self.signature_type.capitalize()} of the remote UDF: {self.code_signature}
             """
         ).strip()
+
 
 @dataclass
 class ImportValidationError(ValidationError):
