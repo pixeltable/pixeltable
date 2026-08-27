@@ -119,7 +119,7 @@ class TestImport:
         assert tab._get_schema() == EXPECTED_SCHEMA
 
     def test_insert_json(
-        self, db_root: DatabaseRoot, db_root: DatabaseRoot, sample_file_server: SampleFileServer
+        self, db_root: DatabaseRoot, sample_file_server: SampleFileServer
     ) -> None:
         p = make_catalog_path
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'

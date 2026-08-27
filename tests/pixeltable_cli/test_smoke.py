@@ -191,7 +191,7 @@ class TestCwd:
             cli('cd')  # never leak the working directory into other tests sharing this session
 
     def test_listings_honor_wd(
-        self, cli: PxtRunner, db_root: DatabaseRoot, db_root: DatabaseRoot
+        self, cli: PxtRunner, db_root: DatabaseRoot
     ) -> None:
         """'columns' and 'idxs' with no path cover the working directory, not the whole catalog."""
         p = make_catalog_path
@@ -376,7 +376,7 @@ class TestDescribe:
 
 
 class TestColumns:
-    def test_lists(self, cli: PxtRunner, db_root: DatabaseRoot, db_root: DatabaseRoot) -> None:
+    def test_lists(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """columns lists a single table, walks a directory recursively, or (no path) the whole catalog;
         `computed` is an alias for `columns --computed`."""
         p = make_catalog_path
@@ -422,7 +422,7 @@ class TestColumns:
 
 
 class TestIdxs:
-    def test_lists(self, cli: PxtRunner, db_root: DatabaseRoot, db_root: DatabaseRoot) -> None:
+    def test_lists(self, cli: PxtRunner, db_root: DatabaseRoot) -> None:
         """idxs runs against one table, a directory (recursively), or the whole catalog."""
         p = make_catalog_path
         pxt.create_dir(p('cli_idx'), if_exists='ignore')

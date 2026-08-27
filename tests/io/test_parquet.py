@@ -208,7 +208,7 @@ class TestParquet:
         assert tab.count() == len1 * 2
 
     def test_insert_empty_dir(
-        self, db_root: DatabaseRoot, db_root: DatabaseRoot, tmp_path: pathlib.Path
+        self, db_root: DatabaseRoot, tmp_path: pathlib.Path
     ) -> None:
         if catalog_mode != 'proxy':
             pytest.skip('rejecting an empty directory is specific to the hosted insert path')

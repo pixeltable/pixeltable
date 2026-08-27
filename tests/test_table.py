@@ -1046,7 +1046,7 @@ class TestTable:
         reload_tester.run_reload_test()
 
     def test_validate_on_read_with_computed_col(
-        self, db_root: DatabaseRoot, db_root: DatabaseRoot
+        self, db_root: DatabaseRoot
     ) -> None:
         p = make_catalog_path
         files = get_video_files(include_bad_video=True)
@@ -1995,7 +1995,7 @@ class TestTable:
         assert table_list == pxt.list_tables(p(''))
 
     def test_image_table(
-        self, db_root: DatabaseRoot, db_root: DatabaseRoot, is_data_versioned: bool
+        self, db_root: DatabaseRoot, is_data_versioned: bool
     ) -> None:
         p = make_catalog_path
         n_sample_rows = 20
@@ -2248,19 +2248,19 @@ class TestTable:
         rows = [{'media': r['img'], 'is_bad_media': r['is_bad_image']} for r in rows]
         self.check_bad_media(p, rows, pxt.Image, validate_local_path=False)
 
-    def test_validate_video(self, db_root: DatabaseRoot, db_root: DatabaseRoot) -> None:
+    def test_validate_video(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         files = get_video_files(include_bad_video=True)
         rows = [{'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for f in files]
         self.check_bad_media(p, rows, pxt.Video, validate_local_path=catalog_mode == 'local')
 
-    def test_validate_audio(self, db_root: DatabaseRoot, db_root: DatabaseRoot) -> None:
+    def test_validate_audio(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         files = get_audio_files(include_bad_audio=True)
         rows = [{'media': f, 'is_bad_media': f.endswith('bad_audio.mp3')} for f in files]
         self.check_bad_media(p, rows, pxt.Audio, validate_local_path=catalog_mode == 'local')
 
-    def test_validate_docs(self, db_root: DatabaseRoot, db_root: DatabaseRoot) -> None:
+    def test_validate_docs(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('markitdown', 'mistune')
 
@@ -2272,7 +2272,7 @@ class TestTable:
         self.check_bad_media(p, rows, pxt.Document, validate_local_path=catalog_mode == 'local')
 
     @rerun_on_network_error()
-    def test_validate_external_url(self, db_root: DatabaseRoot, db_root: DatabaseRoot) -> None:
+    def test_validate_external_url(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('boto3')
         rows = [
@@ -2406,7 +2406,7 @@ class TestTable:
 
     @rerun_on_network_error()
     @pytest.mark.skip_cloud(reason='Cloud service hangs on first insert [PXT-1320]')
-    def test_create_video_table(self, db_root: DatabaseRoot, db_root: DatabaseRoot) -> None:
+    def test_create_video_table(self, db_root: DatabaseRoot) -> None:
         if Env.get().is_using_cockroachdb:
             # TODO(PXT-921): fix this on CockroachDB
             pytest.skip(
@@ -3295,7 +3295,7 @@ class TestTable:
         raise RuntimeError
 
     @pytest.mark.skip_cloud(reason='Cloud service hangs on first insert [PXT-1320]')
-    def test_computed_img_cols(self, db_root: DatabaseRoot, db_root: DatabaseRoot) -> None:
+    def test_computed_img_cols(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         schema: dict[str, Any] = {'img': pxt.Image | None}
         t = pxt.create_table(p('test'), schema)
@@ -4211,7 +4211,7 @@ class TestTable:
         _ = tbl.select(tbl.id, tbl.name, tbl.version, tbl.comment).collect()
 
     def test_table_api_on_dropped_table(
-        self, db_root: DatabaseRoot, db_root: DatabaseRoot, local_embed: pxt.Function
+        self, db_root: DatabaseRoot, local_embed: pxt.Function
     ) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('test'), {'c1': pxt.Int | None, 'c2': pxt.String | None})

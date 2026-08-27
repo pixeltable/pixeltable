@@ -1465,7 +1465,7 @@ class TestExprs:
         _ = result._repr_html_()
 
     def test_ext_imgs(
-        self, db_root: DatabaseRoot, db_root: DatabaseRoot, sample_file_server: SampleFileServer
+        self, db_root: DatabaseRoot, sample_file_server: SampleFileServer
     ) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('img_test'), {'name': pxt.String, 'img': pxt.Image})

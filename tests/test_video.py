@@ -88,7 +88,7 @@ class TestVideo:
         reason='PXT-1295: TestVideo.test_basic[proxy] consistently fails on Windows in CI',
         strict=False,
     )
-    def test_basic(self, db_root: DatabaseRoot, db_root: DatabaseRoot) -> None:
+    def test_basic(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         video_filepaths = get_video_files()
 

@@ -123,7 +123,7 @@ class TestComponentView:
         assert res['live'] == [90, 91, 92]
         assert res['pinned'] == [50, 51, 52]
 
-    def test_basic(self, db_root: DatabaseRoot, db_root: DatabaseRoot) -> None:
+    def test_basic(self, db_root: DatabaseRoot) -> None:
         # create video table
         p = make_catalog_path
         schema: dict[str, Any] = {'video': pxt.Video | None, 'angle': pxt.Int | None, 'other_angle': pxt.Int | None}
@@ -350,7 +350,7 @@ class TestComponentView:
         pxt.drop_table(view_path)
         pxt.drop_table(base_path)
 
-    def test_chained_views(self, db_root: DatabaseRoot, db_root: DatabaseRoot) -> None:
+    def test_chained_views(self, db_root: DatabaseRoot) -> None:
         """Component view followed by a standard view"""
         # create video table
         p = make_catalog_path

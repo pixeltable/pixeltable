@@ -58,7 +58,7 @@ class TestAudio:
         paths = audio_t.select(output=audio_t.audio_file.localpath).collect()['output']
         assert set(paths) == set(audio_filepaths)
 
-    def test_extract(self, db_root: DatabaseRoot, db_root: DatabaseRoot) -> None:
+    def test_extract(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         video_filepaths = get_video_files()
         video_t = pxt.create_table(p('videos'), {'video': pxt.Video | None})

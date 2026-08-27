@@ -202,13 +202,13 @@ class TestSql:
         assert self._row_count(engine, 'fresh_table') == 5
 
     def test_export_sqlite(
-        self, db_root: DatabaseRoot, db_root: DatabaseRoot, tmp_path: pathlib.Path
+        self, db_root: DatabaseRoot, tmp_path: pathlib.Path
     ) -> None:
         self._run_export_suite(self._sqlite_spec(), tmp_path, make_catalog_path, catalog_mode)
 
     @pytest.mark.skip_cloud(reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]')
     def test_export_postgresql(
-        self, db_root: DatabaseRoot, db_root: DatabaseRoot, tmp_path: pathlib.Path
+        self, db_root: DatabaseRoot, tmp_path: pathlib.Path
     ) -> None:
         self._run_export_suite(self._postgresql_spec(), tmp_path, make_catalog_path, catalog_mode)
 

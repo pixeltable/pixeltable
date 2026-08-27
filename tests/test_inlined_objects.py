@@ -44,7 +44,7 @@ class TestInlinedObjects:
         assert all(row['i'] % 2 == 0 for row in res)
 
     @pytest.mark.skip_cloud(reason='Fails, possibly due to bytes/ndarray being inlined [PXT-1318]')
-    def test_insert_arrays(self, db_root: DatabaseRoot, db_root: DatabaseRoot) -> None:
+    def test_insert_arrays(self, db_root: DatabaseRoot) -> None:
         """Test storing arrays of various sizes and dtypes."""
         p = make_catalog_path
         reload_tester = ReloadTester()
@@ -101,7 +101,7 @@ class TestInlinedObjects:
         if catalog_mode == 'local':
             assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
-    def test_insert_binary(self, db_root: DatabaseRoot, db_root: DatabaseRoot) -> None:
+    def test_insert_binary(self, db_root: DatabaseRoot) -> None:
         """Test storing binary data of various sizes."""
         p = make_catalog_path
         reload_tester = ReloadTester()
@@ -124,7 +124,7 @@ class TestInlinedObjects:
             assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
     @pytest.mark.skip_cloud(reason='Fails, possibly due to bytes/ndarray being inlined [PXT-1318]')
-    def test_insert_inlined_objects(self, db_root: DatabaseRoot, db_root: DatabaseRoot) -> None:
+    def test_insert_inlined_objects(self, db_root: DatabaseRoot) -> None:
         """Test storing lists and dicts with arrays of various sizes and dtypes."""
         p = make_catalog_path
         skip_test_if_not_installed('imagehash')
@@ -202,7 +202,7 @@ class TestInlinedObjects:
 
     @pytest.mark.skip_cloud(reason='Fails, possibly due to bytes/ndarray being inlined [PXT-1318]')
     def test_nonstandard_json_construction(
-        self, db_root: DatabaseRoot, db_root: DatabaseRoot
+        self, db_root: DatabaseRoot
     ) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('imagehash')

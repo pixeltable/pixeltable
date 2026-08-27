@@ -73,7 +73,7 @@ class TestDestination:
                 pytest.skip(f'Destination {str(dest_id)!r} not reachable or not configured properly: {exc}')
             return None
 
-    def test_dest_errors(self, db_root: DatabaseRoot, db_root: DatabaseRoot) -> None:
+    def test_dest_errors(self, db_root: DatabaseRoot) -> None:
         p = make_catalog_path
         t = pxt.create_table(p('test_dest_errors'), schema={'img': pxt.Image | None})
 

@@ -55,7 +55,7 @@ def _make_hf_dataset(num_rows: int) -> 'datasets.Dataset':
 class TestHfDatasetsBasic:
     """Network-free dual-mode (local + proxy) coverage of the HuggingFace import path."""
 
-    def test_import_basic(self, db_root: DatabaseRoot, db_root: DatabaseRoot) -> None:
+    def test_import_basic(self, db_root: DatabaseRoot) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
@@ -314,7 +314,7 @@ class TestHfDatasets:
 
     @pytest.mark.parametrize('streaming', [False, True])
     def test_import_images(
-        self, streaming: bool, db_root: DatabaseRoot, db_root: DatabaseRoot
+        self, streaming: bool, db_root: DatabaseRoot
     ) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('datasets')
@@ -340,7 +340,7 @@ class TestHfDatasets:
     @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.very_expensive  # I/O intensive
     def test_import_arrays(
-        self, streaming: bool, db_root: DatabaseRoot, db_root: DatabaseRoot
+        self, streaming: bool, db_root: DatabaseRoot
     ) -> None:
         skip_test_if_not_installed('datasets')
         self._skip_streaming_over_proxy(streaming, catalog_mode)
@@ -363,7 +363,7 @@ class TestHfDatasets:
 
     @pytest.mark.parametrize('streaming', [False, True])
     def test_import_audio_small(
-        self, streaming: bool, db_root: DatabaseRoot, db_root: DatabaseRoot
+        self, streaming: bool, db_root: DatabaseRoot
     ) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('datasets')
@@ -387,7 +387,7 @@ class TestHfDatasets:
     # TODO: find dataset containing Audio that is not gigantic
     @pytest.mark.parametrize('streaming', [True])
     def test_import_audio(
-        self, streaming: bool, db_root: DatabaseRoot, db_root: DatabaseRoot
+        self, streaming: bool, db_root: DatabaseRoot
     ) -> None:
         skip_test_if_no_config('token', 'hf')
         skip_test_if_not_installed('datasets')
@@ -414,7 +414,7 @@ class TestHfDatasets:
     @pytest.mark.parametrize('streaming', [False])
     @pytest.mark.very_expensive  # I/O intensive
     def test_import_list_of_dict(
-        self, streaming: bool, db_root: DatabaseRoot, db_root: DatabaseRoot
+        self, streaming: bool, db_root: DatabaseRoot
     ) -> None:
         skip_test_if_not_installed('datasets')
         self._skip_streaming_over_proxy(streaming, catalog_mode)
@@ -454,7 +454,7 @@ class TestHfDatasets:
     @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.very_expensive  # I/O intensive
     def test_import_classlabel(
-        self, streaming: bool, db_root: DatabaseRoot, db_root: DatabaseRoot
+        self, streaming: bool, db_root: DatabaseRoot
     ) -> None:
         skip_test_if_not_installed('datasets')
         self._skip_streaming_over_proxy(streaming, catalog_mode)
@@ -479,7 +479,7 @@ class TestHfDatasets:
     @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.very_expensive  # I/O intensive
     def test_import_sequence_of_float(
-        self, streaming: bool, db_root: DatabaseRoot, db_root: DatabaseRoot
+        self, streaming: bool, db_root: DatabaseRoot
     ) -> None:
         skip_test_if_not_installed('datasets')
         self._skip_streaming_over_proxy(streaming, catalog_mode)
@@ -507,7 +507,7 @@ class TestHfDatasets:
     @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.very_expensive  # I/O intensive
     def test_import_sequence_of_dict(
-        self, streaming: bool, db_root: DatabaseRoot, db_root: DatabaseRoot
+        self, streaming: bool, db_root: DatabaseRoot
     ) -> None:
         skip_test_if_not_installed('datasets')
         self._skip_streaming_over_proxy(streaming, catalog_mode)
@@ -536,7 +536,7 @@ class TestHfDatasets:
     @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.very_expensive  # I/O intensive
     def test_import_nested_struct(
-        self, streaming: bool, db_root: DatabaseRoot, db_root: DatabaseRoot
+        self, streaming: bool, db_root: DatabaseRoot
     ) -> None:
         """
         Test importing dataset with nested structures:
@@ -571,7 +571,7 @@ class TestHfDatasets:
     @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.very_expensive  # I/O intensive
     def test_import_arraynd(
-        self, streaming: bool, db_root: DatabaseRoot, db_root: DatabaseRoot
+        self, streaming: bool, db_root: DatabaseRoot
     ) -> None:
         """Test dataset with Array2D and Array3D features."""
         skip_test_if_not_installed('datasets')

@@ -1350,7 +1350,7 @@ class TestFastAPI:
         assert scalar_schema.get('type') != 'array'
         assert 'rows' not in str(scalar_schema)
 
-    def test_add_query_route_image(self, db_root: DatabaseRoot, db_root: DatabaseRoot) -> None:
+    def test_add_query_route_image(self, db_root: DatabaseRoot) -> None:
         """Image query route: JSON response, return_fileresponse (happy/404/500), and background."""
         skip_test_if_not_installed('fastapi')
         from pixeltable.serving import FastAPIRouter
