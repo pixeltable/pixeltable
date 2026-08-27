@@ -321,39 +321,6 @@ def proxy_daemon_db(init_env: None, worker_id: str) -> Iterator[str]:
         proxy_daemon.stop(db)
 
 
-@pytest.fixture(scope='session')
-def cloud_db_base_uri(init_env: None) -> Iterator[str]:
-    uri = os.environ.get('PXTTEST_CLOUD_DB_URI')
-
-    use_temporary_db = not uri
-    if use_temporary_db:
-        uri = f'pxt://pixeltable:pxttest-{uuid.uuid4().hex[:21]}'
-
-    try:
-        if use_temporary_db:
-            _logger.info('Creating temporary cloud test db: %s', uri)
-            subprocess.run(('pxt', 'db', 'create', uri), text=True, timeout=900, check=True)
-            _logger.info('Updating runtime on test db: %s', uri)
-            subprocess.run(('pxt', 'db', 'update-runtime', uri), text=True, timeout=1800, check=True)
-
-        _logger.info('Checking cloud db status: %s', uri)
-        proc = subprocess.run(
-            ('pxt', 'db', 'status', uri, '--json'), capture_output=True, text=True, timeout=60, check=True
-        )
-        _logger.info(proc.stdout.strip())
-        res = json.loads(proc.stdout)
-        assert res['state'] == 'AVAILABLE', f'Cloud db is not ready: {uri}'
-
-        yield uri
-
-    finally:
-        if use_temporary_db:
-            _logger.info('Deleting temporary cloud test db: %s', uri)
-            proc = subprocess.run(('pxt', 'db', 'delete', uri), text=True, timeout=900, check=False)
-            if proc.returncode != 0:
-                _logger.warning('Failed to delete cloud test db: %s', uri)
-
-
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """Drive the catalog-backend and data-versioning axes.
 
@@ -369,14 +336,14 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     if 'is_data_versioned' in metafunc.fixturenames:
         metafunc.parametrize('is_data_versioned', [True, False], ids=['data_versioned', 'operational'])
 
-    if 'db_root_id' in metafunc.fixturenames:
+    if 'db_root' in metafunc.fixturenames:
         if metafunc.definition.get_closest_marker('local') is not None:
-            # local-only: don't fork the axis; db_root.id defaults to 'local' and the nodeid stays unparametrized
+            # local-only: don't fork the axis; db_root_id defaults to 'local' and the nodeid stays unparametrized
             return
         params = ['local', 'proxy']
-        if metafunc.definition.get_closest_marker('skip_cloud') is None:
+        if os.environ.get('PXTTEST_CLOUD_DB_URI') and metafunc.definition.get_closest_marker('skip_cloud') is None:
             params.append('cloud')
-        metafunc.parametrize('db_root_id', params, indirect=True)
+        metafunc.parametrize('db_root', params, indirect=True)
 
 
 @pytest.fixture
@@ -386,13 +353,8 @@ def served_project() -> pathlib.Path | None:
 
 
 @pytest.fixture(scope='function')
-def db_root_id(request: pytest.FixtureRequest) -> Literal['local', 'proxy', 'cloud']:
-    return getattr(request, 'param', 'local')
-
-
-@pytest.fixture(scope='function')
 def db_root(
-    init_env: None, db_root_id: Literal['local', 'proxy', 'cloud'], served_project: pathlib.Path | None, request: pytest.FixtureRequest
+    init_env: None, served_project: pathlib.Path | None, request: pytest.FixtureRequest
 ) -> Iterator[DatabaseRoot]:
     """
     Parameterized variant of uses_db: runs a test against any or all of:
@@ -404,6 +366,8 @@ def db_root(
     path prefixed with the daemon's pxt:// uri for proxy (with an empty path mapping to the catalog root).
     """
     _reset_catalog_state()
+
+    db_root_id = getattr(request, 'param', 'local')
 
     match db_root_id:
         case 'local':
@@ -422,10 +386,10 @@ def db_root(
             yield DatabaseRoot('proxy', f'pxt://local:{db}')
 
         case 'cloud':
-            assert os.environ.get('PXTTEST_CLOUD_DB_URI')
-            cloud_db_base_uri = request.getfixturevalue('cloud_db_base_uri')
+            base_uri = os.environ.get('PXTTEST_CLOUD_DB_URI')
+            assert base_uri, 'This should have been intercepted in pytest_generate_tests().'
             test_dir = uuid.uuid4().hex
-            prefix = f'{cloud_db_base_uri}/test_{test_dir}'
+            prefix = f'{base_uri}/test_{test_dir}'
             _logger.info('Creating test directory in cloud catalog: %s', prefix)
             pxt.create_dir(prefix)
             yield DatabaseRoot('cloud', prefix)

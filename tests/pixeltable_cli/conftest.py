@@ -23,6 +23,8 @@ import pytest
 
 from pixeltable.config import Config
 
+from ..utils import DatabaseRoot
+
 
 def _pick_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
