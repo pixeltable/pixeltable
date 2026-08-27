@@ -253,15 +253,15 @@ class TestDestination:
         # img is inserted from local file paths: referenced in place locally, but over the proxy each insert ships
         # the file and persists it in the daemon's default store, so the default store also holds one img per row.
         shipped_per_insert = 1 if db_root.id == 'proxy' else 0
-        check_media_store_count(t, 2 + 2 * shipped_per_insert, db_root.id, default_output_dest=True)
+        check_media_store_count(t, 2 + 2 * shipped_per_insert, db_root, default_output_dest=True)
         assert ObjectOps.count(t._id, dest=dest1_uri) == 2
         assert ObjectOps.count(t._id, dest=dest2_uri) == 2
 
-        check_media_store_count(t, 1, db_root.id, tbl_version=2, default_output_dest=True)
+        check_media_store_count(t, 1, db_root, tbl_version=2, default_output_dest=True)
         assert ObjectOps.count(t._id, 3, dest=dest1_uri) == 1
         assert ObjectOps.count(t._id, 4, dest=dest2_uri) == 1
 
-        check_media_store_count(t, 1 + shipped_per_insert, db_root.id, tbl_version=5, default_output_dest=True)
+        check_media_store_count(t, 1 + shipped_per_insert, db_root, tbl_version=5, default_output_dest=True)
         assert ObjectOps.count(t._id, 5, dest=dest1_uri) == 1
         assert ObjectOps.count(t._id, 5, dest=dest2_uri) == 1
 
@@ -331,7 +331,7 @@ class TestDestination:
         # img_rot1 (destination=None) goes to the default store, one per row; over the proxy that store also holds
         # each input img, shipped and persisted there (local references the source files in place)
         shipped_imgs = len(r) if db_root.id == 'proxy' else 0
-        check_media_store_count(t, len(r) + shipped_imgs, db_root.id, default_output_dest=True)
+        check_media_store_count(t, len(r) + shipped_imgs, db_root, default_output_dest=True)
         assert len(r) == ObjectOps.count(t._id, dest=dest1_uri)
 
         # The outcome of this test is unusual:

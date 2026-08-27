@@ -2006,7 +2006,7 @@ class TestTable:
             'img_literal': pxt.Image | None,
         }
         tbl = pxt.create_table(p('test'), schema, _is_data_versioned=is_data_versioned)
-        check_media_store_count(tbl, 0, db_root.id, default_input_dest=True)
+        check_media_store_count(tbl, 0, db_root, default_input_dest=True)
 
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         sample_rows = random.sample(rows, n_sample_rows)
@@ -2022,7 +2022,7 @@ class TestTable:
         shipped_img = n_sample_rows if db_root.id == 'proxy' else 0
 
         tbl.insert(sample_rows)
-        check_media_store_count(tbl, n_sample_rows + shipped_img, db_root.id, default_input_dest=True)
+        check_media_store_count(tbl, n_sample_rows + shipped_img, db_root, default_input_dest=True)
 
         # compare img and img_literal
         # TODO: make tbl.select(tbl.img == tbl.img_literal) work
@@ -2034,16 +2034,16 @@ class TestTable:
         # Test adding stored image transformation
         tbl.add_computed_column(rotated=tbl.img.rotate(30), stored=True)
         if Env.get().default_input_media_dest == Env.get().default_output_media_dest:
-            check_media_store_count(tbl, 2 * n_sample_rows + shipped_img, db_root.id, default_input_dest=True)
+            check_media_store_count(tbl, 2 * n_sample_rows + shipped_img, db_root, default_input_dest=True)
 
         if is_data_versioned:
             # Test that version-specific images are cleared when table is reverted
             tbl.revert()
-            check_media_store_count(tbl, n_sample_rows + shipped_img, db_root.id, default_input_dest=True)
+            check_media_store_count(tbl, n_sample_rows + shipped_img, db_root, default_input_dest=True)
 
         # Test that all stored images are cleared when table is dropped
         pxt.drop_table(p('test'))
-        check_media_store_count(tbl, 0, db_root.id, default_input_dest=True)
+        check_media_store_count(tbl, 0, db_root, default_input_dest=True)
 
     def test_schema_spec(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
@@ -2436,10 +2436,10 @@ class TestTable:
         status = tbl.insert(payload=1, video=url)
         assert status.num_excs == 0
         # * 2: we have 2 stored img cols
-        check_media_store_count(view, view.count() * 2, db_root.id, default_output_dest=True)
+        check_media_store_count(view, view.count() * 2, db_root, default_output_dest=True)
         # also insert a local file
         tbl.insert(payload=1, video=get_video_files()[0])
-        check_media_store_count(view, view.count() * 2, db_root.id, default_output_dest=True)
+        check_media_store_count(view, view.count() * 2, db_root, default_output_dest=True)
 
         # TODO: test inserting Nulls
         # status = tbl.insert(payload=1, video=None)
@@ -2448,7 +2448,7 @@ class TestTable:
         # revert() clears stored images
         tbl.revert()
         tbl.revert()
-        check_media_store_count(view, 0, db_root.id, default_output_dest=True)
+        check_media_store_count(view, 0, db_root, default_output_dest=True)
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'because the following columns depend on it:\nc1'):
             view.drop_column('frame')
@@ -2461,7 +2461,7 @@ class TestTable:
             pxt.drop_table(p('test_tbl'))
         pxt.drop_table(p('test_view'))
         pxt.drop_table(p('test_tbl'))
-        check_media_store_count(view, 0, db_root.id, default_output_dest=True)
+        check_media_store_count(view, 0, db_root, default_output_dest=True)
 
     @rerun_on_network_error()
     def test_video_urls(self, db_root: DatabaseRoot) -> None:
@@ -3268,7 +3268,7 @@ class TestTable:
         assert status.num_rows == 20
         _ = t.count()
         _ = t.show()
-        check_media_store_count(t, expected(t), db_root.id, default_output_dest=True)
+        check_media_store_count(t, expected(t), db_root, default_output_dest=True)
 
         # test loading from store
         reload_catalog()
@@ -3281,13 +3281,13 @@ class TestTable:
 
         # make sure we can still insert data and that computed cols are still set correctly
         t2.insert(rows)
-        check_media_store_count(t2, expected(t2), db_root.id, default_output_dest=True)
+        check_media_store_count(t2, expected(t2), db_root, default_output_dest=True)
         _ = t2.collect()
         _ = t2.collect().to_pandas()
 
         # revert also removes computed images
         t2.revert()
-        check_media_store_count(t2, expected(t2), db_root.id, default_output_dest=True)
+        check_media_store_count(t2, expected(t2), db_root, default_output_dest=True)
 
     @staticmethod
     @pxt.udf

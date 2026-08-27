@@ -94,16 +94,16 @@ class TestVideo:
 
         # computed images are not stored
         _, view = self.create_and_insert(False, video_filepaths, p=p)
-        check_media_store_count(view, 0, db_root.id, default_output_dest=True)
+        check_media_store_count(view, 0, db_root, default_output_dest=True)
 
         # computed images are stored
         tbl, view = self.create_and_insert(True, video_filepaths, p=p)
-        check_media_store_count(view, view.count(), db_root.id, default_output_dest=True)
+        check_media_store_count(view, view.count(), db_root, default_output_dest=True)
 
         # revert() also removes computed images
         tbl.insert({'video': path} for path in video_filepaths)
         tbl.revert()
-        check_media_store_count(view, view.count(), db_root.id, default_output_dest=True)
+        check_media_store_count(view, view.count(), db_root, default_output_dest=True)
 
     @pytest.mark.local('TODO: convert; frame-iterator view')
     @rerun_on_network_error()
