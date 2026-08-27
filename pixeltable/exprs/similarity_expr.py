@@ -12,7 +12,7 @@ import pixeltable.type_system as ts
 
 from ..runtime import get_runtime
 from .data_row import DataRow
-from .expr import Expr, GeneralValidationError
+from .expr import Expr
 from .literal import Literal
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
@@ -85,19 +85,6 @@ class SimilarityExpr(Expr):
                 catalog.QColumnId(tbl_id=UUID(expr_dict['qcol_id']['tbl_id']), col_id=expr_dict['qcol_id']['col_id'])
             )
         return result
-
-    @property
-    def validation_error(self) -> GeneralValidationError | None:
-        from pixeltable.index import EmbeddingIndex
-
-        if self.table_version_key.effective_version is not None:
-            # a snapshot/pinned version doesn't support indices, so there is nothing to validate
-            return None
-        try:
-            self._tbl_path().get_idx_md(self.qcol_id, self.idx_name, EmbeddingIndex)
-            return None
-        except excs.Error as e:
-            return GeneralValidationError(str(e))
 
     def is_bound_by(self, tbls: list[catalog.TablePath], siblings: list[catalog.Column] | None = None) -> bool:
         # qcol_id identifies the indexed column; a column dropped from every path resolves to no match.

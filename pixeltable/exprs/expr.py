@@ -37,17 +37,6 @@ class ValidationError:
         """The error to display if this invalid Expr was deserialized from a proxy server request."""
 
 
-@dataclass
-class GeneralValidationError(ValidationError):
-    msg: str
-
-    def catalog_error_msg(self) -> str:
-        return self.msg
-
-    def protocol_error_msg(self) -> str:
-        return self.msg
-
-
 class ExprScope:
     """
     Representation of the scope in which an Expr needs to be evaluated. Used to determine nesting of scopes.
