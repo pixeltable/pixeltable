@@ -7,7 +7,7 @@ import contextlib
 import json
 import sys
 import time
-from collections.abc import Iterator
+from typing import Iterator
 from typing import Any
 
 from pixeltable_cli import models

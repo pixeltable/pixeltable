@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-from collections.abc import Collection
+from typing import Collection
 from typing import Any, Callable
 
 from opentelemetry import context as otel_context, metrics as otel_metrics, trace

@@ -8,7 +8,7 @@ import os
 import pathlib
 import subprocess
 import time
-from collections.abc import Iterator
+from typing import Iterator
 from textwrap import dedent
 from typing import Any
 

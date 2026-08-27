@@ -8,7 +8,7 @@ import random
 import time
 import warnings
 from collections import OrderedDict, defaultdict
-from collections.abc import Collection, Sequence
+from typing import Collection, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Mapping, TypeVar
 from uuid import UUID, uuid4

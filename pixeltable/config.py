@@ -10,7 +10,7 @@ import sys
 import threading
 import typing
 import warnings
-from collections.abc import Mapping
+from typing import Mapping
 from pathlib import Path
 from typing import Any, ClassVar, Generic, Literal, NamedTuple, TypeVar
 

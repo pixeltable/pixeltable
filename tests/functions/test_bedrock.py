@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from typing import Iterator
 from pathlib import Path
 
 import PIL.Image

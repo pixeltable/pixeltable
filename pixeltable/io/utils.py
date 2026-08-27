@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import os
 import tempfile
-from collections.abc import Iterator
+from typing import Iterator
 from contextlib import contextmanager
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path

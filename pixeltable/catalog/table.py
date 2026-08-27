@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import abc
-from collections.abc import Sequence
+from typing import Sequence
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, overload
 
 import pandas as pd

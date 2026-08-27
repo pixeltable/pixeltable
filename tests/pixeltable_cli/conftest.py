@@ -15,7 +15,7 @@ import socket
 import subprocess
 import sys
 import time
-from collections.abc import Callable, Iterator
+from typing import Callable, Iterator
 from dataclasses import dataclass
 from typing import Any
 

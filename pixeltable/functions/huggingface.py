@@ -9,7 +9,7 @@ UDFs).
 
 import itertools
 import threading
-from collections.abc import Iterator
+from typing import Iterator
 from typing import Any, Callable, Literal, TypedDict, TypeVar
 
 import av

@@ -13,7 +13,7 @@ import logging
 import socket
 import ssl
 import threading
-from collections.abc import Callable, Iterator
+from typing import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
