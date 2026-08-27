@@ -7,7 +7,6 @@ from uuid import UUID
 import sqlalchemy as sql
 
 from pixeltable import catalog, type_system as ts
-from pixeltable.catalog.table_version import TableVersionKey
 from pixeltable.runtime import get_runtime
 
 from .data_row import DataRow
@@ -90,7 +89,7 @@ class RowidRef(Expr):
         tbl = (
             self.tbl.get()
             if self.tbl is not None
-            else get_runtime().catalog.get_tbl_version(TableVersionKey(self.tbl_id, None))
+            else get_runtime().catalog.get_tbl_version(catalog.TableVersionKey(self.tbl_id, None))
         )
         if (
             tbl.is_component_view
@@ -121,7 +120,7 @@ class RowidRef(Expr):
         tbl = (
             self.tbl.get()
             if self.tbl is not None
-            else get_runtime().catalog.get_tbl_version(TableVersionKey(self.tbl_id, None))
+            else get_runtime().catalog.get_tbl_version(catalog.TableVersionKey(self.tbl_id, None))
         )
         assert tbl.is_validated
         rowid_cols = tbl.store_tbl.rowid_columns()

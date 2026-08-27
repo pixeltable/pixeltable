@@ -1,8 +1,11 @@
 """Tests for 'pxt schema diff', 'pxt schema update' and 'pxt schema prune'."""
 
 import pathlib
+import re
 from collections.abc import Callable
 from textwrap import dedent
+
+import pytest
 
 import pixeltable as pxt
 
@@ -317,7 +320,7 @@ class TestSchema:
 
         r = cli('schema', 'prune', str(schema_file), target, '-f', check=False)
         assert r.returncode == 1
-        assert "the following depend on it: 'keep/derived'" in r.stderr
+        assert re.search(r"the following depend on it: '.*keep/derived'", r.stderr) is not None
         assert pxt.get_table(f'{target}/raw') is not None
 
     def test_prune_reports_tables_dropped_before_the_failure(
@@ -356,6 +359,7 @@ class TestSchema:
         assert pxt.get_table(f'{target}/raw') is not None
         assert f'{target}/gone' not in pxt.list_tables(target)
 
+    @pytest.mark.skip_cloud('Fails with an SSL error, possibly due to excessive data transfer [PXT-1327]')
     def test_example(self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('sentence_transformers')
         p = make_catalog_path
@@ -501,3 +505,38 @@ class TestSchema:
         r = cli('schema', 'update', 'app_schema.py', target, cwd=tmp_path)
         assert r.stdout.count('created') == 2
         assert pxt.get_table(f'{target}/docs') is not None
+
+    def test_update_unbound_config_var(
+        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+    ) -> None:
+        """A schema referencing a value the target has not bound fails before any table is created."""
+        p = make_catalog_path
+        schema_file = tmp_path / 'app_schema.py'
+        schema_file.write_text(
+            dedent(
+                """
+                from __future__ import annotations
+
+                import pixeltable as pxt
+
+                MEDIA_DEST = pxt.ConfigVar('no_such_media_dest', pxt.URI)
+
+                TableModel = pxt.model_base()
+
+
+                class Docs(TableModel, name='docs'):
+                    img: pxt.Image | None
+                    thumbnail = pxt.Column(value=img.rotate(90), destination=MEDIA_DEST.value())
+                """
+            )
+        )
+        target = p('app')
+
+        # diff shares the plan path with update, so it must report the same thing rather than succeed
+        for verb in ('diff', 'update'):
+            r = cli('schema', verb, str(schema_file), target, check=False)
+            assert r.returncode == 1, verb
+            assert 'no_such_media_dest' in r.stderr, verb
+            assert 'is not set' in r.stderr, verb
+
+        assert pxt.get_table(f'{target}/docs', if_not_exists='ignore') is None

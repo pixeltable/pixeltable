@@ -20,6 +20,8 @@ if ! nvidia-smi > /dev/null 2>&1; then
 fi
 
 # Notebooks that are skipped unless --include-very-expensive is passed
+# Almost all notebooks that use external services should be on this list. OpenAI integration is a notable exception as
+# it tends to be more reliable than others.
 VERY_EXPENSIVE_NOTEBOOKS=(
     img-detection-vs-segmentation   # Resource intensive
     img-image-to-image              # Resource intensive
@@ -29,6 +31,16 @@ VERY_EXPENSIVE_NOTEBOOKS=(
     working-with-fal                # [PXT-1233] fal.ai integration failing on CI
     working-with-together           # Poor reliability
     working-with-replicate          # Unreliable
+    working-with-anthropic
+    working-with-bedrock
+    working-with-deepseek
+    working-with-fireworks
+    working-with-groq
+    working-with-jina
+    working-with-mistralai
+    working-with-nebius
+    working-with-openrouter
+    working-with-voyageai
 )
 
 # Notebooks that are skipped unless --include-expensive is passed: all notebooks that use HF models.

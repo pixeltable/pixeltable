@@ -19,7 +19,6 @@ from sqlalchemy.dialects.postgresql import array as pg_array
 
 import pixeltable.index as index
 from pixeltable import exceptions as excs, exprs, func, telemetry
-from pixeltable.catalog import model
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
@@ -31,15 +30,17 @@ from pixeltable.utils.fault_injection import FaultLocation
 from .catalog_base import CatalogBase
 from .column import Column
 from .dir import Dir
-from .globals import DirEntry, IfExistsParam, IfNotExistsParam, IndexSpec, MediaValidation, QColumnId
+from .globals import DirEntry, IfExistsParam, IfNotExistsParam, IndexSpec, MediaValidation
 from .insertable_table import InsertableTable
 from .local_table import LocalTable
+from .model import IndexDeclaration, TableSchemaChangeSet, prepare_model, prepare_model_updates
 from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
 from .table_path import TablePath, TableVersionPath
-from .table_version import TableVersion, TableVersionKey, TableVersionMd
+from .table_version import TableVersion
 from .table_version_handle import TableVersionHandle
 from .tbl_ops import DeleteTableMdOp, OpStatus, TableOp
+from .types import QColumnId, TableVersionKey, TableVersionMd
 from .update_status import UpdateStatus
 from .view import View
 
@@ -1523,7 +1524,6 @@ class Catalog(CatalogBase):
         path: Path,
         schema: dict[str, ColumnSpec],
         if_exists: IfExistsParam,
-        primary_key: list[str] | None,
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
@@ -1541,15 +1541,7 @@ class Catalog(CatalogBase):
         columns = [Column.create(name, spec) for name, spec in schema.items()]
 
         return self._create_table(
-            path,
-            columns,
-            if_exists,
-            primary_key,
-            comment,
-            custom_metadata,
-            media_validation,
-            has_default_idxs,
-            is_data_versioned,
+            path, columns, if_exists, comment, custom_metadata, media_validation, has_default_idxs, is_data_versioned
         )
 
     def _create_table(
@@ -1557,7 +1549,6 @@ class Catalog(CatalogBase):
         path: Path,
         columns: list[Column],
         if_exists: IfExistsParam,
-        primary_key: list[str] | None,
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
@@ -1572,8 +1563,6 @@ class Catalog(CatalogBase):
         # Therefore IfExistsParam.IGNORE is incompatible with explicit_tbl_id.
         assert explicit_tbl_id is None or if_exists != IfExistsParam.IGNORE
 
-        if primary_key is None:
-            primary_key = []
         if additional_idxs is None:
             additional_idxs = []
 
@@ -1594,7 +1583,6 @@ class Catalog(CatalogBase):
                 tbl_id,
                 path.name,
                 columns,
-                primary_key=primary_key,
                 comment=comment,
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,
@@ -1750,7 +1738,8 @@ class Catalog(CatalogBase):
         custom_metadata: Any,
         iterator: func.GeneratingFunctionCall | None,
         base: 'pxt.Query | None',
-        idxs: list[model.IndexDeclaration],
+        idxs: list[IndexDeclaration],
+        is_data_versioned: bool,
     ) -> tuple[LocalTable, bool]:
         """Create a table or view from a declarative model.
 
@@ -1767,8 +1756,8 @@ class Catalog(CatalogBase):
         tbl_id = uuid4()
         tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None))
 
-        iterator, additional_cols, resolved_idxs = model.prepare_model(
-            tbl_handle, columns, display_name, iterator, base, idxs
+        iterator, additional_cols, resolved_idxs = prepare_model(
+            tbl_handle, columns, display_name, iterator, base, idxs, is_data_versioned
         )
 
         # If the table already exists, rebind to it and report that nothing was created.
@@ -1781,17 +1770,17 @@ class Catalog(CatalogBase):
                 path=path,
                 columns=additional_cols,
                 if_exists=IfExistsParam.ERROR,
-                primary_key=None,
                 comment=comment,
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,
                 has_default_idxs=has_default_idxs,
-                is_data_versioned=True,
+                is_data_versioned=is_data_versioned,
                 additional_idxs=resolved_idxs,
                 explicit_tbl_id=tbl_id,
             )
 
         else:
+            assert is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
             return self._create_view(
                 path=path,
                 base=base._first_tbl,
@@ -1810,7 +1799,7 @@ class Catalog(CatalogBase):
                 explicit_tbl_id=tbl_id,
             )
 
-    def update_from_model(self, change_sets: list[model.TableSchemaChangeSet]) -> None:
+    def update_from_model(self, change_sets: list[TableSchemaChangeSet]) -> None:
         """Update tables/views from declarative models.
 
         If the table does not exist, raises NotFoundError. If the model is incompatible with the existing table,
@@ -1942,7 +1931,7 @@ class Catalog(CatalogBase):
                 pending_ancestor_ids = (set(tvp.tbl_ids[1:]) & updated_tbl_ids) - applied_tbl_ids
                 assert len(pending_ancestor_ids) == 0, f'{tv.name}: bases not yet applied: {pending_ancestor_ids}'
 
-                added_cols, added_idxs = model.prepare_model_updates(
+                added_cols, added_idxs = prepare_model_updates(
                     tvp, tv.display_str(), change_set['new_columns'], change_set['new_idxs']
                 )
                 dropped_cols = [tv.cols_by_name[name] for name in change_set['dropped_columns']]

@@ -3,11 +3,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Mapping
 from uuid import UUID
 
-from pixeltable.catalog import model
 from pixeltable.env import Env
 
 from .catalog_base import CatalogBase
 from .insertable_table_proxy import InsertableTableProxy
+from .model import TableSchemaChangeSet
 from .table_path import TableMdPath
 from .view_proxy import ViewProxy
 
@@ -19,11 +19,12 @@ if TYPE_CHECKING:
     from pixeltable.types import ColumnSpec
 
     from .dir import Dir
-    from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation, TableVersionMd
+    from .globals import DirEntry, IfExistsParam, IfNotExistsParam, MediaValidation
     from .model import IndexDeclaration
     from .path import Path
     from .table import Table
     from .table_path import TablePath
+    from .types import TableVersionMd
 
 
 class CatalogProxy(CatalogBase):
@@ -54,7 +55,6 @@ class CatalogProxy(CatalogBase):
         path: Path,
         schema: dict[str, ColumnSpec],
         if_exists: IfExistsParam,
-        primary_key: list[str] | None,
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
@@ -65,7 +65,6 @@ class CatalogProxy(CatalogBase):
             'path': path,
             'schema': schema,
             'if_exists': if_exists,
-            'primary_key': primary_key,
             'comment': comment,
             'custom_metadata': custom_metadata,
             'media_validation': media_validation,
@@ -122,6 +121,7 @@ class CatalogProxy(CatalogBase):
         iterator: func.GeneratingFunctionCall | None,
         base: 'Query | None',
         idxs: list['IndexDeclaration'],
+        is_data_versioned: bool,
     ) -> tuple[Table, bool]:
         args = {
             'path': path,
@@ -134,11 +134,12 @@ class CatalogProxy(CatalogBase):
             'iterator': iterator,
             'base': base.as_dict() if base is not None else None,
             'idxs': idxs,
+            'is_data_versioned': is_data_versioned,
         }
         md, was_created = self.client.send_request('CatalogBase', 'create_from_model', args)
         return self._make_table(md, is_anon_snapshot=False), was_created
 
-    def update_from_model(self, updates: list[model.TableSchemaChangeSet]) -> None:
+    def update_from_model(self, updates: list[TableSchemaChangeSet]) -> None:
         self.client.send_request('CatalogBase', 'update_from_model', {'updates': updates})
 
     def get_table(self, path: Path, if_not_exists: IfNotExistsParam) -> Table | None:

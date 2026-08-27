@@ -8,7 +8,8 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 
-from ..utils import ensure_s3_pytest_resources_access, get_image_files, pxt_raises, rerun_on_network_error
+from ..conftest import SampleFileServer
+from ..utils import CatalogMode, ensure_s3_pytest_resources_access, get_image_files, pxt_raises, rerun_on_network_error
 
 EXPECTED_SCHEMA = {
     'name': ts.StringType(nullable=True),
@@ -87,11 +88,10 @@ class TestImport:
         t2.insert(data)
         assert t2.count() == 8
 
-    @rerun_on_network_error()
-    def test_import_json(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_import_json(self, make_catalog_path: Callable[[str], str], sample_file_server: SampleFileServer) -> None:
         p = make_catalog_path
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
-        jeopardy = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/json/jeopardy.json'
+        jeopardy = sample_file_server.url('tests/data/json/jeopardy.json')
 
         # `example.json` has a variety of datatypes and tests both nullable and non-nullable columns
         t1 = pxt.io.import_json(p('example'), str(example))
@@ -118,11 +118,12 @@ class TestImport:
         assert tab.count() == 4
         assert tab._get_schema() == EXPECTED_SCHEMA
 
-    @rerun_on_network_error()
-    def test_insert_json(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_insert_json(
+        self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, sample_file_server: SampleFileServer
+    ) -> None:
         p = make_catalog_path
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
-        jeopardy = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/json/jeopardy.json'
+        jeopardy = sample_file_server.url('tests/data/json/jeopardy.json', catalog_mode)
 
         # `example.json` has a variety of datatypes and tests both nullable and non-nullable columns
         t1 = pxt.io.import_json(p('example'), str(example))

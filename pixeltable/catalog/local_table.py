@@ -37,12 +37,12 @@ from .globals import (
     IfNotExistsParam,
     MediaValidation,
     OnErrorParam,
-    QColumnId,
     is_valid_identifier,
 )
 from .table import Table
 from .table_path import TableVersionPath
 from .table_version_handle import TableVersionHandle
+from .types import QColumnId
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
@@ -139,7 +139,7 @@ class LocalTable(Table):
                 comment=col.comment,
                 custom_metadata=col.custom_metadata,
                 is_iterator_col=False,
-                destination=col._explicit_destination,
+                destination=col.display_destination,
             )
 
         indices = tv.idxs_by_name.values()
@@ -198,11 +198,8 @@ class LocalTable(Table):
             iterator_call=None,
         )
 
-    def _get_version(self) -> int | None:
-        """Return the version of this table or None if not data-versioned.
-
-        Used by tests to ascertain version changes.
-        """
+    def _get_version(self) -> int:
+        """Return the current version of this table."""
         return self._tbl_version_path.version()
 
     def __hash__(self) -> int:
@@ -242,7 +239,8 @@ class LocalTable(Table):
         if mutable_only:
             views = [t for t in views if t._tbl_version_path.is_mutable()]
         if recursive:
-            views.extend(t for view in views for t in view._get_views(recursive=True, mutable_only=mutable_only))
+            descendants = [t for view in views for t in view._get_views(recursive=True, mutable_only=mutable_only)]
+            views.extend(descendants)
         return views
 
     def columns(self) -> list[str]:
@@ -681,7 +679,7 @@ class LocalTable(Table):
 
             if len(dependent_views) > 0:
                 dependent_views_str = '\n'.join(
-                    f'view: {view._path()}, predicate: {predicate}' for view, predicate in dependent_views
+                    sorted(f'view: {view._path()}, predicate: {predicate}' for view, predicate in dependent_views)
                 )
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
@@ -856,7 +854,7 @@ class LocalTable(Table):
                 document_embed=document_embed,
                 column=col,  # Pass column for shape validation
             )
-            _ = idx.create_value_expr(col)  # validation only; result discarded
+            _ = idx.create_value_expr(col.column_version_md())  # validation only; result discarded
 
             if idx_name is None:
                 # Unnamed index: duplicate detection is by index definition on this column.
@@ -1210,7 +1208,6 @@ class LocalTable(Table):
         tbl_id = self._id
         # Collect an extra version, if available, to allow for computation of the first version's schema change
         vers_list = get_runtime().catalog.collect_tbl_history(tbl_id, n + 1)
-        assert vers_list[0].tbl_md.is_data_versioned, 'TODO: implement for operational tables [PXT-1101]'
 
         # Construct the metadata change description dictionary
         md_list = [(vers_md.version_md.version, vers_md.schema_version_md.columns) for vers_md in vers_list]

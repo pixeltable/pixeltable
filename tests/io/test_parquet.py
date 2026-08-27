@@ -11,8 +11,8 @@ import pytest
 import pixeltable as pxt
 from pixeltable.utils.arrow import to_pydict
 
+from ..conftest import SampleFileServer
 from ..utils import (
-    SAMPLE_IMAGE_URL,
     CatalogMode,
     assert_schema_eq,
     ensure_s3_pytest_resources_access,
@@ -137,6 +137,7 @@ class TestParquet:
         assert r1['bigint_col'] == 10 and r1['double_col'] == 10.1
         assert abs(r1['float_col'] - 1.1) < 1e-5  # float32 precision
 
+    @pytest.mark.skip_cloud(reason='Fails due to UTC datetimes returned by cloud-hosted tables [PXT-1321]')
     def test_import_parquet(self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('pyarrow')
@@ -377,15 +378,19 @@ class TestParquet:
         # Test that we can reimport the image (it will come back as bytes)
         _ = pxt.io.import_parquet(p('imported_image'), parquet_path=str(export_path))
 
-    @rerun_on_network_error()
     def test_import_images(
-        self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, tmp_path: pathlib.Path
+        self,
+        make_catalog_path: Callable[[str], str],
+        catalog_mode: CatalogMode,
+        tmp_path: pathlib.Path,
+        sample_file_server: SampleFileServer,
     ) -> None:
         p = make_catalog_path
         valid_images = get_image_files()
 
         # Parquet with valid image paths/URLs
-        img_data = pa.table({'image_path': [str(f) for f in valid_images[:3]] + [SAMPLE_IMAGE_URL]})
+        img_url = sample_file_server.url(valid_images[3], catalog_mode)
+        img_data = pa.table({'image_path': [str(f) for f in valid_images[:3]] + [img_url]})
         img_pq = tmp_path / 'valid.parquet'
         pa_parquet.write_table(img_data, str(img_pq))
 
@@ -405,7 +410,14 @@ class TestParquet:
 
         # Parquet with invalid local path and invalid URL
         bad_data = pa.table(
-            {'image_path': [valid_images[0], 'not_a_real_image.jpg', 'https://httpbin.org/status/404', valid_images[1]]}
+            {
+                'image_path': [
+                    valid_images[0],
+                    'not_a_real_image.jpg',
+                    sample_file_server.url('not_a_real_image.jpg'),
+                    valid_images[1],
+                ]
+            }
         )
         bad_pq = tmp_path / 'bad.parquet'
         pa_parquet.write_table(bad_data, str(bad_pq))

@@ -2,7 +2,6 @@ import datetime
 import random
 import string
 import sys
-from pathlib import Path
 from typing import Any, Callable, Literal
 
 import numpy as np
@@ -16,6 +15,7 @@ import pixeltable.type_system as ts
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip
 
+from .conftest import SampleFileServer
 from .utils import (
     CatalogMode,
     ReloadTester,
@@ -91,6 +91,7 @@ class TestIndex:
         clip_or_local: tuple[pxt.Function, bool],
         reload_tester: ReloadTester,
         catalog_mode: CatalogMode,
+        sample_file_server: SampleFileServer,
     ) -> None:
         embed, is_dummy_model = clip_or_local
         skip_test_if_not_installed('imagehash')
@@ -102,13 +103,12 @@ class TestIndex:
         sample_img_localpath = res[0, 'img_localpath']
         sample_img_file_url = res[0, 'img_fileurl']
         # A PIL image is a self-contained similarity input that works in both modes. A local path, file:// URL, or
-        # an http URL rebuilt from the original filename only identifies the same image against a collocated store:
+        # an http URL rebuilt from the original path only identifies the same image against a collocated store:
         # over the proxy .localpath is a fetched cache copy (hashed name) and .fileurl is a fetchable daemon URL.
         img_inputs: list[Any] = [sample_img]
         if catalog_mode == 'local':
             assert 'file:/' in sample_img_file_url
-            sample_img_filename = Path(sample_img_localpath).name
-            sample_img_http_url = f'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/imagenette2-160/{sample_img_filename}'
+            sample_img_http_url = sample_file_server.url(sample_img_localpath)
             img_inputs += [sample_img_localpath, sample_img_file_url, sample_img_http_url]
 
         for metric, is_asc in [('cosine', False), ('ip', False), ('l2', True)]:
@@ -198,17 +198,23 @@ class TestIndex:
 
         t.drop_embedding_index(column='img')
 
-    def test_query(self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> None:
+    def test_query(
+        self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function, is_data_versioned: bool
+    ) -> None:
         # def test_query(self, uses_db: None, local_embed: pxt.Function) -> None:
         p = make_catalog_path
-        queries = pxt.create_table(p('queries'), {'query_text': pxt.String | None})
+        queries = pxt.create_table(
+            p('queries'), {'query_text': pxt.String | None}, _is_data_versioned=is_data_versioned
+        )
         query_rows = [
             {'query_text': 'how much is the stock of AI companies up?'},
             {'query_text': 'what happened to the term machine learning?'},
         ]
         validate_update_status(queries.insert(query_rows))
 
-        chunks = pxt.create_table(p('test_doc_chunks'), {'text': pxt.String | None})
+        chunks = pxt.create_table(
+            p('test_doc_chunks'), {'text': pxt.String | None}, _is_data_versioned=is_data_versioned
+        )
         chunks.insert(
             [
                 {'text': 'the stock of artificial intelligence companies is up 1000%'},
@@ -345,7 +351,11 @@ class TestIndex:
         assert 'does not have an image embedding' in str(exc_info.value).lower()
 
     def test_add_index_after_drop(
-        self, small_img_tbl: pxt.Table, make_catalog_path: Callable[[str], str], local_embed: pxt.Function
+        self,
+        small_img_tbl: pxt.Table,
+        make_catalog_path: Callable[[str], str],
+        local_embed: pxt.Function,
+        is_data_versioned: bool,
     ) -> None:
         """Test that an index with the same name can be added after the previous one is dropped"""
         p = make_catalog_path
@@ -358,28 +368,30 @@ class TestIndex:
             .limit(3)
             .collect()
         )
-        t.revert()
-        # creating an index with the same name again after a revert should be successful
-        t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed)
-        res = (
-            t.select(t.img.localpath)
-            .order_by(t.img.similarity(image=sample_img, idx='clip_idx'), asc=False)
-            .limit(3)
-            .collect()
-        )
-        assert_resultset_eq(orig_res, res, True)
-        t.revert()
-        # should be true even after reloading from persistence
-        reload_catalog()
-        t = pxt.get_table(p('small_img_tbl'))
-        t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed)
-        res = (
-            t.select(t.img.localpath)
-            .order_by(t.img.similarity(image=sample_img, idx='clip_idx'), asc=False)
-            .limit(3)
-            .collect()
-        )
-        assert_resultset_eq(orig_res, res, True)
+
+        if is_data_versioned:
+            t.revert()
+            # creating an index with the same name again after a revert should be successful
+            t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed)
+            res = (
+                t.select(t.img.localpath)
+                .order_by(t.img.similarity(image=sample_img, idx='clip_idx'), asc=False)
+                .limit(3)
+                .collect()
+            )
+            assert_resultset_eq(orig_res, res, True)
+            t.revert()
+            # should be true even after reloading from persistence
+            reload_catalog()
+            t = pxt.get_table(p('small_img_tbl'))
+            t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed)
+            res = (
+                t.select(t.img.localpath)
+                .order_by(t.img.similarity(image=sample_img, idx='clip_idx'), asc=False)
+                .limit(3)
+                .collect()
+            )
+            assert_resultset_eq(orig_res, res, True)
 
         # same should hold after a drop.
         t.drop_embedding_index(column='img')
@@ -526,6 +538,7 @@ class TestIndex:
         with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='identical embedding index'):
             t.add_embedding_index('category', string_embed=local_embed)
 
+    @pytest.mark.skip_cloud(reason='Fails due to inaccessible .fileurl [PXT-1323]')
     def test_update_img(
         self,
         img_tbl: pxt.Table,
@@ -585,8 +598,13 @@ class TestIndex:
             img_t.batch_update([repl_row], cascade=True)
         print(img_t.select(img_t.pkey, img_t.img).collect())
 
+    @pytest.mark.skip_cloud(reason='Fails due to inaccessible .fileurl [PXT-1323]')
     def test_embedding_access(
-        self, img_tbl: pxt.Table, make_catalog_path: Callable[[str], str], local_embed: pxt.Function
+        self,
+        img_tbl: pxt.Table,
+        make_catalog_path: Callable[[str], str],
+        local_embed: pxt.Function,
+        is_data_versioned: bool,
     ) -> None:
         p = make_catalog_path
         img_t = img_tbl
@@ -594,7 +612,7 @@ class TestIndex:
         # create table with fewer rows to speed up testing
         schema: dict[str, Any] = {'img': pxt.Image | None, 'category': pxt.String | None, 'split': pxt.String | None}
         tbl_name = p('access_test')
-        img_t = pxt.create_table(tbl_name, schema)
+        img_t = pxt.create_table(tbl_name, schema, _is_data_versioned=is_data_versioned)
         img_t.insert(rows[:5])
 
         # Add computed column based on the other_idx embedding index
@@ -617,12 +635,14 @@ class TestIndex:
         img_t.drop_column('ebd_copy')
         img_t.drop_embedding_index(column=img_t.category)
 
+    @pytest.mark.skip_cloud(reason='Fails due to inaccessible .fileurl [PXT-1323]')
     def test_embedding_basic(
         self,
         img_tbl: pxt.Table,
         make_catalog_path: Callable[[str], str],
         local_embed: pxt.Function,
         reload_tester: ReloadTester,
+        is_data_versioned: bool,
     ) -> None:
         p = make_catalog_path
         skip_test_if_not_installed('imagehash')
@@ -632,7 +652,7 @@ class TestIndex:
         # create table with fewer rows to speed up testing
         schema: dict[str, Any] = {'img': pxt.Image | None, 'category': pxt.String | None, 'split': pxt.String | None}
         tbl_name = p('index_test')
-        img_t = pxt.create_table(tbl_name, schema)
+        img_t = pxt.create_table(tbl_name, schema, _is_data_versioned=is_data_versioned)
         img_t.insert(rows[:30])
         img_t.add_btree_index(img_t.img, idx_name='img_btree')
         dummy_img_t = pxt.create_table(p('dummy'), schema)
@@ -666,47 +686,54 @@ class TestIndex:
             img_t.add_embedding_index(img_t.img, idx_name='img_emb_idx', image_embed=local_embed)
         assert 'duplicate index name' in str(exc_info.value).lower()
 
-        img_t.add_embedding_index(img_t.category, idx_name='cat_idx', string_embed=local_embed)
+        if is_data_versioned:
+            img_t.add_embedding_index(img_t.category, idx_name='cat_idx', string_embed=local_embed)
 
-        # revert() removes the index
-        img_t.revert()
-        with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND) as exc_info:
-            img_t.drop_embedding_index(column='category')
-        assert 'does not have an index' in str(exc_info.value).lower()
-        with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND) as exc_info:
-            img_t.drop_embedding_index(column=img_t.category)
-        assert 'does not have an index' in str(exc_info.value).lower()
+            # revert() removes the index
+            img_t.revert()
+            with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND) as exc_info:
+                img_t.drop_embedding_index(column='category')
+            assert 'does not have an index' in str(exc_info.value).lower()
+            with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND) as exc_info:
+                img_t.drop_embedding_index(column=img_t.category)
+            assert 'does not have an index' in str(exc_info.value).lower()
 
-        rows = list(img_t.collect())
-        status = img_t.update({'split': 'other'}, where=img_t.split == 'test')
-        assert status.num_excs == 0
+        # update() is not implemented for operational tables yet [PXT-1101]
+        if is_data_versioned:
+            rows = list(img_t.collect())
+            status = img_t.update({'split': 'other'}, where=img_t.split == 'test')
+            assert status.num_excs == 0
 
-        status = img_t.delete()
-        assert status.num_excs == 0
+            status = img_t.delete()
+            assert status.num_excs == 0
 
-        # revert delete()
-        img_t.revert()
-        # revert update()
-        img_t.revert()
+            # revert delete()
+            img_t.revert()
+            # revert update()
+            img_t.revert()
 
         # make sure we can still do DML after reloading the metadata
         query = img_t.select().order_by(img_t.img)
         _ = reload_tester.run_query(query)
         reload_tester.run_reload_test(clear=True)
         img_t = pxt.get_table(tbl_name)
-        status = img_t.insert(rows)
-        assert status.num_excs == 0
 
-        status = img_t.update({'split': 'other'}, where=img_t.split == 'test')
-        assert status.num_excs == 0
+        # update() is not implemented for operational tables yet [PXT-1101]
+        if is_data_versioned:
+            status = img_t.insert(rows)
+            assert status.num_excs == 0
 
-        status = img_t.delete()
-        assert status.num_excs == 0
+            status = img_t.update({'split': 'other'}, where=img_t.split == 'test')
+            assert status.num_excs == 0
 
-        # revert delete()
-        img_t.revert()
-        # revert update()
-        img_t.revert()
+            status = img_t.delete()
+            assert status.num_excs == 0
+
+            # revert delete()
+            img_t.revert()
+            # revert update()
+            img_t.revert()
+            img_t = pxt.get_table(tbl_name)
 
         # multiple indices
         img_t.add_embedding_index(img_t.img, idx_name='other_idx', embedding=local_embed)
@@ -933,8 +960,10 @@ class TestIndex:
         ):
             test_tbl.add_embedding_index(test_tbl.c1, embedding=local_embedding.using(dim=0), precision='fp16')
 
-    def run_btree_test(self, p: Callable[[str], str], data: list, data_type: type) -> pxt.Table:
-        t = pxt.create_table(p('btree_test'), {'data': data_type})
+    def run_btree_test(
+        self, p: Callable[[str], str], data: list, data_type: type, is_data_versioned: bool
+    ) -> pxt.Table:
+        t = pxt.create_table(p('btree_test'), {'data': data_type}, _is_data_versioned=is_data_versioned)
         t.add_btree_index('data')
         num_rows = len(data)
         rows = [{'data': value} for value in data]
@@ -951,19 +980,20 @@ class TestIndex:
 
     BTREE_TEST_NUM_ROWS = 10001  # ~10k rows: incentivize Postgres to use the index
 
-    def test_int_btree(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_int_btree(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
         random.seed(1)
         data = [random.randint(0, 2**63 - 1) for _ in range(self.BTREE_TEST_NUM_ROWS)]
-        self.run_btree_test(p, data, pxt.Int)
+        self.run_btree_test(p, data, pxt.Int, is_data_versioned)
 
-    def test_float_btree(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_float_btree(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
         random.seed(1)
         data = [random.uniform(0, sys.float_info.max) for _ in range(self.BTREE_TEST_NUM_ROWS)]
-        self.run_btree_test(p, data, pxt.Float)
+        self.run_btree_test(p, data, pxt.Float, is_data_versioned)
 
-    def test_string_btree(self, make_catalog_path: Callable[[str], str]) -> None:
+    @pytest.mark.skip_cloud(reason='Fails due to case-insensitive string comparison on cloud [PXT-1316]')
+    def test_string_btree(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
 
         def create_random_str(n: int) -> str:
@@ -973,7 +1003,7 @@ class TestIndex:
         random.seed(1)
         # create random strings of length 200-300 characters
         data = [create_random_str(200 + i % 100) for i in range(self.BTREE_TEST_NUM_ROWS)]
-        t = self.run_btree_test(p, data, pxt.String)
+        t = self.run_btree_test(p, data, pxt.String, is_data_versioned)
 
         # edge cases: strings that are at and above the max length
         sorted_data = sorted(data)
@@ -994,14 +1024,15 @@ class TestIndex:
         assert t.where(t.data == data[56][:-1]).count() == 0
 
         # test that Comparison uses BtreeIndex.MAX_STRING_LEN
-        t = pxt.create_table(p('test_max_str_len'), {'data': pxt.String | None})
+        t = pxt.create_table(p('test_max_str_len'), {'data': pxt.String | None}, _is_data_versioned=is_data_versioned)
         t.add_btree_index('data')
         rows = [{'data': s}, {'data': s + 'a'}]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
         assert t.where(t.data >= s).count() == 2
         assert t.where(t.data > s).count() == 1
 
-    def test_timestamp_btree(self, make_catalog_path: Callable[[str], str]) -> None:
+    @pytest.mark.skip_cloud(reason='Fails due to exact timestamp match not working on cloud [PXT-1317]')
+    def test_timestamp_btree(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
         random.seed(1)
         start = datetime.datetime(2000, 1, 1)
@@ -1012,9 +1043,9 @@ class TestIndex:
             start + datetime.timedelta(seconds=random.randint(0, int(delta_secs)))
             for _ in range(self.BTREE_TEST_NUM_ROWS)
         ]
-        self.run_btree_test(p, data, pxt.Timestamp)
+        self.run_btree_test(p, data, pxt.Timestamp, is_data_versioned)
 
-    def test_date_btree(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_date_btree(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
         random.seed(1)
         start = datetime.date(2000, 1, 1)
@@ -1025,13 +1056,16 @@ class TestIndex:
         data = [
             start + datetime.timedelta(days=random.randint(0, int(delta_days))) for _ in range(self.BTREE_TEST_NUM_ROWS)
         ]
-        self.run_btree_test(p, data, pxt.Date)
+        self.run_btree_test(p, data, pxt.Date, is_data_versioned)
 
-    def test_add_btree_index(self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> None:
+    def test_add_btree_index(
+        self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function, is_data_versioned: bool
+    ) -> None:
         p = make_catalog_path
         t = pxt.create_table(
             p('add_index_test'),
             {'id': pxt.Int | None, 'name': pxt.String | None, 'data': pxt.Json | None, 'extra': pxt.String | None},
+            _is_data_versioned=is_data_versioned,
         )
         t.insert([{'id': i, 'name': f'n{i}', 'data': {'k': i}, 'extra': f'e{i}'} for i in range(10)])
 
@@ -1048,9 +1082,11 @@ class TestIndex:
         assert t.where(t.name == 'n5').collect()['id'] == [5]
         assert btree_idxs(t).keys() == {id_idx_name, 'name_idx'}
 
-        # revert add_btree_index
-        t.revert()
-        assert btree_idxs(t).keys() == {id_idx_name}
+        if is_data_versioned:
+            t.revert()
+            assert btree_idxs(t).keys() == {id_idx_name}
+        else:
+            t.drop_index(idx_name='name_idx')
 
         # add the index back with a different name
         t.add_btree_index(t.name, idx_name='name_idx2')
@@ -1145,11 +1181,13 @@ class TestIndex:
         v.add_btree_index('segment_start')
         assert set(btree_idxs(v).values()) == {'segment_start'}
 
-    def test_default_idxs(self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> None:
+    def test_default_idxs(
+        self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function, is_data_versioned: bool
+    ) -> None:
         p = make_catalog_path
 
         # a table created without default indexes doesn't index columns added later
-        t = pxt.create_table(p('no_default_idxs'), {'id': pxt.Int | None})
+        t = pxt.create_table(p('no_default_idxs'), {'id': pxt.Int | None}, _is_data_versioned=is_data_versioned)
         t.insert([{'id': i} for i in range(3)])
         assert len(btree_idxs(t)) == 0
         t.add_columns({'a': pxt.Int | None})
@@ -1158,7 +1196,9 @@ class TestIndex:
         assert len(btree_idxs(t)) == 0
 
         # a table created with default indexes indexes every eligible column added later
-        t2 = pxt.create_table(p('default_idxs'), {'id': pxt.Int | None}, has_default_idxs=True)
+        t2 = pxt.create_table(
+            p('default_idxs'), {'id': pxt.Int | None}, has_default_idxs=True, _is_data_versioned=is_data_versioned
+        )
         t2.insert([{'id': i} for i in range(3)])
         assert set(btree_idxs(t2).values()) == {'id'}
         t2.add_columns({'a': pxt.Int | None})
@@ -1370,12 +1410,16 @@ class TestIndex:
         make_catalog_path: Callable[[str], str],
         catalog_mode: CatalogMode,
         request: pytest.FixtureRequest,
+        is_data_versioned: bool,
     ) -> None:
         """Test that indices (B-tree and embedding) are properly dropped, observed through get_metadata(); the
         physical removal from the local Postgres store is additionally checked in local mode."""
         p = make_catalog_path
         t = pxt.create_table(
-            p('index_drop_test'), {'id': pxt.Int | None, 'text': pxt.String | None}, if_exists='replace'
+            p('index_drop_test'),
+            {'id': pxt.Int | None, 'text': pxt.String | None},
+            if_exists='replace',
+            _is_data_versioned=is_data_versioned,
         )
         t.insert([{'id': 1, 'text': 'hello world'}, {'id': 2, 'text': 'goodbye'}])
 
@@ -1409,11 +1453,13 @@ class TestIndex:
         assert idx_name not in t.get_metadata()['indexes']
 
     def test_similarity_index_lifecycle(
-        self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function
+        self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function, is_data_versioned: bool
     ) -> None:
         """Test similarity when index is dropped, recreated, and column is dropped."""
         p = make_catalog_path
-        t = pxt.create_table(p('lifecycle_test'), {'id': pxt.Int | None, 'text': pxt.String | None})
+        t = pxt.create_table(
+            p('lifecycle_test'), {'id': pxt.Int | None, 'text': pxt.String | None}, _is_data_versioned=is_data_versioned
+        )
         texts = ['a dog playing in the park', 'a cat sitting on a mat', 'a bird flying in the sky']
         validate_update_status(t.insert([{'id': i, 'text': s} for i, s in enumerate(texts)]), expected_rows=3)
         t.add_embedding_index('text', idx_name='emb_idx', string_embed=local_embed)
@@ -1429,10 +1475,32 @@ class TestIndex:
         res = query.collect()
         assert res[0]['text'] == 'a cat sitting on a mat'
 
+        # the index is maintained correctly when a row is updated
+        # update() isn't supported for operational tables yet (PXT-1101)
+        if is_data_versioned:
+            validate_update_status(
+                t.update({'text': 'a helicopter hovering above the canyon'}, where=t.id == 0), expected_rows=1
+            )
+            sim = t.text.similarity(string='a helicopter', idx='emb_idx')
+            assert t.select(t.id).order_by(sim, asc=False).limit(1).collect()['id'] == [0]
+
+        # the index is maintained correctly when a new row is inserted
+        validate_update_status(t.insert([{'id': 3, 'text': 'the submarine surfaced near the reef'}]), expected_rows=1)
+        sim = t.text.similarity(string='a submarine', idx='emb_idx')
+        assert t.select(t.id).order_by(sim, asc=False).limit(1).collect()['id'] == [3]
+
+        # same when a row is deleted
+        validate_update_status(t.delete(where=t.id == 3), expected_rows=1)
+        assert 3 not in t.select(t.id).order_by(sim, asc=False).collect()['id']
+
         # drop index: query should fail with a clear error
         t.drop_embedding_index(idx_name='emb_idx')
         with pxt_raises(pxt.ErrorCode.INDEX_NOT_FOUND, match=r"(?i).*No embedding index found for column 'text'.*"):
             query.collect()
+
+        # the column is still writable with its index gone
+        validate_update_status(t.insert([{'id': 4, 'text': 'a lighthouse blinking through the fog'}]), expected_rows=1)
+        validate_update_status(t.delete(where=t.id == 4), expected_rows=1)
 
         # recreate index under same name: query should work again
         t.add_embedding_index('text', idx_name='emb_idx', string_embed=local_embed)
@@ -1445,10 +1513,14 @@ class TestIndex:
         res = query.collect()
         assert res[0]['text'] == 'a cat sitting on a mat'
 
-        # drop the column: query should fail
+        # drop the column: query should fail, and the index should go away
         t.drop_column('text')
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match=r'(?i).*column was dropped.*'):
             query.collect()
+        assert 'emb_idx' not in t.get_metadata()['indexes']
+        reload_catalog()
+        t = pxt.get_table(p('lifecycle_test'))
+        assert 'emb_idx' not in t.get_metadata()['indexes']
 
     @pytest.mark.parametrize('reload', [True, False], ids=['reload', 'noreload'])
     def test_similarity_column_snapshot(
@@ -1521,3 +1593,24 @@ class TestIndex:
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='Snapshot does not support indices'):
             snap.select(snap.text).order_by(snap.sim_unstored, asc=False).collect()
+
+    def test_oversized_index_key(self, make_catalog_path: Callable[[str], str]) -> None:
+        """On an operational table, an indexed string value exceeds the B-tree limit imposed by Postgresql."""
+        # Note: the value has to be incompressible to exceed the limit
+        rng = random.Random(0)
+        long_str = ''.join(rng.choices(string.ascii_letters + string.digits, k=4000))
+
+        tbl = pxt.create_table(make_catalog_path('test'), {'c_str': pxt.String}, _is_data_versioned=False)
+        tbl.add_btree_index('c_str')
+        with pxt_raises(
+            pxt.ErrorCode.CONSTRAINT_VIOLATION, match="Value too large for the btree index on column 'c_str'"
+        ):
+            tbl.insert([{'c_str': long_str}])
+
+        # the same limit applies when the index is built over existing rows
+        tbl.drop_index(column='c_str')
+        validate_update_status(tbl.insert([{'c_str': long_str}]), 1)
+        with pxt_raises(
+            pxt.ErrorCode.CONSTRAINT_VIOLATION, match="Value too large for the btree index on column 'c_str'"
+        ):
+            tbl.add_btree_index('c_str')

@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import os
+import pathlib
 import textwrap
 from typing import Callable
 
@@ -14,6 +16,7 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import exceptions as excs
 from pixeltable.catalog.model import BtreeIndex, Column, EmbeddingIndex
+from pixeltable.config import Config
 
 from .utils import (
     assert_resultset_eq,
@@ -23,19 +26,76 @@ from .utils import (
     dummy_embedding,
     get_image_files,
     pxt_raises,
+    reload_catalog,
+    reload_env,
     schema_from_tbl_md,
     skip_test_if_not_installed,
     validate_update_status,
 )
 
 
+@pxt.udf
+def tag(s: str, label: str) -> str:
+    return f'{label}: {s}'
+
+
 class TestTableModel:
+    def test_table_path(self, make_catalog_path: Callable[[str], str]) -> None:
+        """A model describes its shape before the table exists, and the description matches what gets created."""
+        p = make_catalog_path
+        from pixeltable.functions.video import frame_iterator
+
+        TableModel = pxt.model_base()
+
+        class Base(TableModel, name='base'):
+            vid: pxt.Video | None
+            val: pxt.Int
+
+        class Plain(TableModel, name='plain', base=Base):
+            doubled = Base.val * 2
+
+        class Filtered(TableModel, name='filtered', base=Base.where(Base.val > 10)):
+            tripled = Base.val * 3
+
+        class Projected(TableModel, name='projected', base=Base.select(v=Base.val)):
+            plus = v + 1  # type: ignore[name-defined]  # the select() alias, referenceable in the body
+
+        class Frames(TableModel, name='frames', base=Base, iterator=frame_iterator(video=Base.vid, fps=1)):
+            pass
+
+        models = [Base, Plain, Filtered, Projected, Frames]
+        declared = {m: m.table_path() for m in models}
+
+        assert not declared[Base].is_view()
+        assert all(declared[m].is_view() for m in (Plain, Filtered, Projected, Frames))
+        assert declared[Frames].has_iterator()
+        assert not any(declared[m].has_iterator() for m in (Plain, Filtered, Projected))
+        # a select() view projects the base rather than inheriting it
+        assert [c.name for c in declared[Projected].column_md()] == ['v', 'plus']
+        assert [c.name for c in declared[Plain].column_md()] == ['doubled', 'vid', 'val']
+
+        TableModel.create_all(p(''))
+
+        for m in models:
+            actual = m.table._tbl_path
+            assert [c.name for c in declared[m].column_md()] == [c.name for c in actual.column_md()], m.__name__
+            assert [c.col_type for c in declared[m].column_md()] == [c.col_type for c in actual.column_md()], m.__name__
+            assert declared[m].is_view() == actual.is_view(), m.__name__
+            assert declared[m].has_iterator() == actual.has_iterator(), m.__name__
+            # the ids are synthesized, so the description is of a shape and not of anything in the catalog
+            assert declared[m].tbl_id != actual.tbl_id, m.__name__
+
+        # inspecting a model leaves its declaration alone: the same shape is reported after the tables exist
+        assert all(m.table_path() is declared[m] for m in models)
+
     @pytest.mark.parametrize('root', ['', 'dir/subdir'])
-    def test_table_model_basic(self, root: str, make_catalog_path: Callable[[str], str]) -> None:
+    def test_table_model_basic(
+        self, root: str, make_catalog_path: Callable[[str], str], is_data_versioned: bool
+    ) -> None:
         p = make_catalog_path
         TableModel = pxt.model_base()
 
-        class ExampleTableModel(TableModel, name='test_table'):
+        class ExampleTableModel(TableModel, name='test_table', _is_data_versioned=is_data_versioned):
             id: pxt.Int
             name: pxt.String | None
             value: pxt.Float | None
@@ -50,14 +110,16 @@ class TestTableModel:
                 custom_metadata={'chicken': 'eggs'},
                 comment='This is a column with special properties',
             )
-            computed_with_special_props = Column(value=(value / 3), stored=False)
-            computed_with_special_props_2 = Column(value=img.rotate(90))
+            computed_with_special_props = pxt.Column(value=(value / 3), stored=False)
+            computed_with_special_props_2 = pxt.Column(value=img.rotate(90))
 
             __indexes__ = [
                 BtreeIndex(id),
                 EmbeddingIndex(descr, embedding=dummy_embedding.using(n=512)),
                 EmbeddingIndex(img, embedding=dummy_embedding.using(n=768), name='clip_idx'),
             ]
+
+        assert ExampleTableModel.table_path().is_data_versioned() == is_data_versioned
 
         expected_path = f'{p(root)}/test_table'.lstrip('/')
         if root != '':
@@ -77,6 +139,7 @@ class TestTableModel:
         tbl2 = pxt.create_table(
             f'{expected_path}_2',
             {'id': pxt.Int, 'name': pxt.String | None, 'value': pxt.Float | None, 'img': pxt.Image | None},
+            _is_data_versioned=is_data_versioned,
         )
         tbl2.add_computed_column(incr=tbl2.value + 1)
         tbl2.add_computed_column(descr=pxtf.string.format('Name: {name}', name=tbl2.name))
@@ -293,11 +356,12 @@ class TestTableModel:
                         },
                     },
                 },
-                'is_data_versioned': True,
+                'is_data_versioned': is_data_versioned,
                 'has_default_idxs': False,
                 'is_view': False,
                 'is_snapshot': False,
-                'version': 1,
+                # an insert advances the version on a data-versioned table only
+                'version': 1 if is_data_versioned else 0,
                 'schema_version': 0,
                 'comment': None,
                 'custom_metadata': None,
@@ -410,6 +474,85 @@ class TestTableModel:
         ):
             TableModelV3.diff_all(root)
 
+    def test_operational_table_model_diff(self, make_catalog_path: Callable[[str], str]) -> None:
+        """There is no conversion between the two table kinds, so a mismatched model is unsupported."""
+        p = make_catalog_path
+        root = p('')
+        TableModel = pxt.model_base()
+
+        class Versioned(TableModel, name='versioned'):
+            id: pxt.Int
+
+        class Operational(TableModel, name='operational', _is_data_versioned=False):
+            id: pxt.Int
+
+        TableModel.create_all(root)
+        assert Versioned.table.get_metadata()['is_data_versioned'] is True
+        assert Operational.table.get_metadata()['is_data_versioned'] is False
+
+        # flip both declarations
+        TableModelV2 = pxt.model_base()
+
+        class VersionedV2(TableModelV2, name='versioned', _is_data_versioned=False):
+            id: pxt.Int
+
+        class OperationalV2(TableModelV2, name='operational'):
+            id: pxt.Int
+
+        diff = TableModelV2.get_model_diff(root)
+        assert diff['versioned']['resolution'] == 'unsupported'
+        assert diff['operational']['resolution'] == 'unsupported'
+        with capture_console_output(
+            match=r'the following table properties have changed \(FATAL\):\n'
+            r'\s*is_data_versioned: model=False, existing=True'
+        ):
+            TableModelV2.diff_all(root)
+
+    def test_primary_key_model(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
+        """A model-declared primary key is enforced, and survives the schema change that `update_all()` applies."""
+        p = make_catalog_path
+        root = p('')
+        TableModel = pxt.model_base()
+
+        class Notes(TableModel, name='notes', _is_data_versioned=is_data_versioned):
+            note_id = Column(type=pxt.Int, primary_key=True)
+            val: pxt.Int | None
+            obsolete: pxt.String | None
+
+        TableModel.create_all(root)
+        t = Notes.table
+        assert t.get_metadata()['columns']['note_id']['is_primary_key']
+        validate_update_status(t.insert([{'note_id': 1, 'val': 1}, {'note_id': 2, 'val': 2}]), expected_rows=2)
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='Duplicate primary key'):
+            t.insert([{'note_id': 1, 'val': 3}])
+
+        # one change set that both adds and drops a column
+        TableModelV2 = pxt.model_base()
+
+        class NotesV2(TableModelV2, name='notes', _is_data_versioned=is_data_versioned):
+            note_id = Column(type=pxt.Int, primary_key=True)
+            val: pxt.Int | None
+            extra: pxt.String | None
+
+        TableModelV2.update_all(root, allow_destructive=True)
+        t = NotesV2.table
+        assert list(t.get_metadata()['columns']) == ['note_id', 'val', 'extra']
+        assert t.get_metadata()['columns']['note_id']['is_primary_key']
+
+        # the key is still enforced afterwards, and the rows that were already there are intact
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='Duplicate primary key'):
+            t.insert([{'note_id': 1, 'extra': 'dupe'}])
+        validate_update_status(t.insert([{'note_id': 3, 'extra': 'e3'}]), expected_rows=1)
+        assert t.order_by(t.note_id).collect()['val'] == [1, 2, None]
+
+        # the same holds after a catalog reload
+        tbl_path = t.get_metadata()['path']
+        reload_catalog()
+        t = pxt.get_table(tbl_path)
+        assert t.get_metadata()['columns']['note_id']['is_primary_key']
+        with pxt_raises(pxt.ErrorCode.CONSTRAINT_VIOLATION, match='Duplicate primary key'):
+            t.insert([{'note_id': 1}])
+
     def test_btree_index_validation(self, make_catalog_path: Callable[[str], str]) -> None:
         """`update_all()` and `create_all()` enforce the same B-tree eligibility rules as `Table.add_btree_index()`."""
         root = make_catalog_path('')
@@ -505,11 +648,11 @@ class TestTableModel:
 
         assert btree_idxs(Defaults.table) == {'idx0': 'txt'}
 
-    def test_all_table_exprs(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_all_table_exprs(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
         TableModel = pxt.model_base()
 
-        class AllExprsTableModel(TableModel, name='all_exprs_table'):
+        class AllExprsTableModel(TableModel, name='all_exprs_table', _is_data_versioned=is_data_versioned):
             id: pxt.Int | None
             name: pxt.String | None
             value: pxt.Float | None
@@ -553,6 +696,7 @@ class TestTableModel:
                 'arr': pxt.Array | None,
                 'img': pxt.Image | None,
             },
+            _is_data_versioned=is_data_versioned,
         )
         tbl2.add_computed_column(arith_add=tbl2.value + 1)
         tbl2.add_computed_column(arith_radd=1 + tbl2.value)
@@ -991,7 +1135,7 @@ class TestTableModel:
             name='test_query_view',
             base=ExampleTable.select(ExampleTable.id, id_copy=ExampleTable.id, plusone=(ExampleTable.value + 1))
             .where(ExampleTable.id > 0)
-            .sample(n=10, seed=1),
+            .sample(fraction=0.5, seed=1),
         ):
             fc1 = ExampleTable.id + 1
 
@@ -1048,9 +1192,9 @@ class TestTableModel:
             name='test_query_view',
             base=ExampleTableV2.select(ExampleTableV2.id, ExampleTableV2.extra1, plustwo=(ExampleTableV2.id + 2))
             .where(ExampleTableV2.id > 5)
-            .sample(n=20, seed=2),
+            .sample(fraction=0.25, seed=2),
         ):
-            id_copy = Column(value=ExampleTableV2.id, stored=False)
+            id_copy = pxt.Column(value=ExampleTableV2.id, stored=False)
             fc1 = ExampleTableV2.id + 1
 
         # Redeclares 'test_kind' (created above as a view) as a table, with the same columns; only the kind differs.
@@ -1106,8 +1250,8 @@ class TestTableModel:
                 model filter   : id > 5
                 existing filter: id > 0
               sample mismatch (FATAL):
-                model sample   : sample(n=20, n_per_stratum=None, fraction=None, seed=2, [])
-                existing sample: sample(n=10, n_per_stratum=None, fraction=None, seed=1, [])
+                model sample   : sample(n=None, n_per_stratum=None, fraction=0.25, seed=2, [])
+                existing sample: sample(n=None, n_per_stratum=None, fraction=0.5, seed=1, [])
               the following columns are new to the model, and will be ADDED:
                 'extra1' = {'value': extra1, 'stored': False}
                 'plustwo' = {'value': id + 2, 'stored': True}
@@ -1377,11 +1521,11 @@ class TestTableModel:
                         'name': 'view_sample',
                         'op': 'alter',
                         'severity': 'unsupported',
-                        'model': 'sample(n=20, n_per_stratum=None, fraction=None, seed=2, [])',
-                        'existing': 'sample(n=10, n_per_stratum=None, fraction=None, seed=1, [])',
+                        'model': 'sample(n=None, n_per_stratum=None, fraction=0.25, seed=2, [])',
+                        'existing': 'sample(n=None, n_per_stratum=None, fraction=0.5, seed=1, [])',
                         'description': 'view_sample mismatch: '
-                        "model='sample(n=20, n_per_stratum=None, fraction=None, seed=2, [])', "
-                        "existing='sample(n=10, n_per_stratum=None, fraction=None, seed=1, [])'",
+                        "model='sample(n=None, n_per_stratum=None, fraction=0.25, seed=2, [])', "
+                        "existing='sample(n=None, n_per_stratum=None, fraction=0.5, seed=1, [])'",
                         'details': {},
                     },
                     {
@@ -1492,7 +1636,7 @@ class TestTableModel:
         ):
             TableModelV2.update_all(root)
 
-    def test_update_all(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_update_all(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         """`update_all()` applies purely additive changes (new columns and indexes) to existing tables."""
         skip_test_if_not_installed('imagehash')
 
@@ -1501,24 +1645,28 @@ class TestTableModel:
 
         TableModel = pxt.model_base()
 
-        class ExampleTable(TableModel, name='test_table'):
+        class ExampleTable(TableModel, name='test_table', _is_data_versioned=is_data_versioned):
             id: pxt.Int
             value: pxt.Float | None
             image: pxt.Image | None
 
             __indexes__ = [EmbeddingIndex(image, embedding=dummy_embedding.using(n=768), name='embed_a')]
 
-        class ExampleView(TableModel, name='test_view', base=ExampleTable):
-            vc1 = ExampleTable.value + 1
+        if is_data_versioned:
 
-        class ExampleQueryView(
-            TableModel,
-            name='test_query_view',
-            base=ExampleTable.select(ExampleTable.id, ExampleTable.value, plusone=(ExampleTable.value + 1))
-            .where(ExampleTable.value > 0.5)
-            .sample(n=10, seed=1),
-        ):
-            fc1 = ExampleTable.id + 1
+            class ExampleView(TableModel, name='test_view', base=ExampleTable):
+                vc1 = ExampleTable.value + 1
+
+            class ExampleQueryView(
+                TableModel,
+                name='test_query_view',
+                base=ExampleTable.select(ExampleTable.id, ExampleTable.value, plusone=(ExampleTable.value + 1))
+                .where(ExampleTable.value > 0.5)
+                # a sample that selects every row: the view is defined by a sample clause, yet its contents
+                # remain exactly the rows the where clause admits
+                .sample(fraction=1.0, seed=1),
+            ):
+                fc1 = ExampleTable.id + 1
 
         TableModel.create_all(root)
 
@@ -1529,7 +1677,7 @@ class TestTableModel:
         # embedding/b-tree indexes on the table, new columns on the views. No drops, no kind/iterator mismatch.
         TableModelV2 = pxt.model_base()
 
-        class ExampleTableV2(TableModelV2, name='test_table'):
+        class ExampleTableV2(TableModelV2, name='test_table', _is_data_versioned=is_data_versioned):
             id: pxt.Int
             value: pxt.Float | None
             image: pxt.Image | None
@@ -1546,25 +1694,27 @@ class TestTableModel:
                 BtreeIndex(id),  # new
             ]
 
-        class ExampleViewV2(TableModelV2, name='test_view', base=ExampleTableV2):
-            vc1 = ExampleTableV2.value + 1
-            vc2 = ExampleTableV2.value + 2  # new column
-            plus_twenty = ExampleTableV2.plus_ten + 10  # new column that depends on a new column of the base table
+        if is_data_versioned:
 
-        class ExampleQueryViewV2(
-            TableModelV2,
-            name='test_query_view',
-            base=ExampleTableV2.select(
-                ExampleTableV2.id,
-                ExampleTableV2.value,
-                ExampleTableV2.note,
-                plusone=(ExampleTableV2.value + 1),
-                plustwo=(ExampleTableV2.value + 2),
-            )
-            .where(ExampleTableV2.value > 0.5)
-            .sample(n=10, seed=1),
-        ):
-            fc1 = ExampleTableV2.id + 1
+            class ExampleViewV2(TableModelV2, name='test_view', base=ExampleTableV2):
+                vc1 = ExampleTableV2.value + 1
+                vc2 = ExampleTableV2.value + 2  # new column
+                plus_twenty = ExampleTableV2.plus_ten + 10  # new column depending on a new base-table column
+
+            class ExampleQueryViewV2(
+                TableModelV2,
+                name='test_query_view',
+                base=ExampleTableV2.select(
+                    ExampleTableV2.id,
+                    ExampleTableV2.value,
+                    ExampleTableV2.note,
+                    plusone=(ExampleTableV2.value + 1),
+                    plustwo=(ExampleTableV2.value + 2),
+                )
+                .where(ExampleTableV2.value > 0.5)
+                .sample(fraction=1.0, seed=1),
+            ):
+                fc1 = ExampleTableV2.id + 1
 
         # Purely additive, so no `allow_destructive` needed.
         TableModelV2.update_all(root)
@@ -1576,7 +1726,8 @@ class TestTableModel:
         assert set(tbl_md['indexes'].keys()) == {'embed_a', 'embed_b', 'embed_c', 'idx0'}
         assert tbl_md['indexes']['idx0']['index_type'] == 'btree'
         assert tbl_md['indexes']['idx0']['columns'] == ['id']
-        assert 'vc2' in ExampleViewV2.get_metadata()['columns']
+        if is_data_versioned:
+            assert 'vc2' in ExampleViewV2.get_metadata()['columns']
 
         # The new computed column is backfilled for the existing rows.
         tbl = ExampleTableV2.table
@@ -1587,7 +1738,7 @@ class TestTableModel:
         # (`plus_*`, `note`, `vc1`) have no dependents, so the only obstacle is that dropping is destructive.
         TableModelV3 = pxt.model_base()
 
-        class ExampleTableV3(TableModelV3, name='test_table'):
+        class ExampleTableV3(TableModelV3, name='test_table', _is_data_versioned=is_data_versioned):
             id: pxt.Int
             value: pxt.Float | None
             image: pxt.Image | None
@@ -1598,20 +1749,22 @@ class TestTableModel:
             __indexes__ = [EmbeddingIndex(image, embedding=dummy_embedding.using(n=512), name='embed_b')]
             # embed_a, embed_c, and idx0 are dropped
 
-        class ExampleViewV3(TableModelV3, name='test_view', base=ExampleTableV3):
-            vc2 = ExampleTableV3.value + 2  # kept
-            vc3 = ExampleTableV3.value + 3  # added
-            # 'vc1' dropped
+        if is_data_versioned:
 
-        class ExampleQueryViewV3(
-            TableModelV3,
-            name='test_query_view',
-            # 'note' and 'plusone' dropped from the query
-            base=ExampleTableV3.select(ExampleTableV3.id, ExampleTableV3.value, plustwo=(ExampleTableV3.value + 2))
-            .where(ExampleTableV3.value > 0.5)
-            .sample(n=10, seed=1),
-        ):
-            fc1 = ExampleTableV3.id + 1
+            class ExampleViewV3(TableModelV3, name='test_view', base=ExampleTableV3):
+                vc2 = ExampleTableV3.value + 2  # kept
+                vc3 = ExampleTableV3.value + 3  # added
+                # 'vc1' dropped
+
+            class ExampleQueryViewV3(
+                TableModelV3,
+                name='test_query_view',
+                # 'note' and 'plusone' dropped from the query
+                base=ExampleTableV3.select(ExampleTableV3.id, ExampleTableV3.value, plustwo=(ExampleTableV3.value + 2))
+                .where(ExampleTableV3.value > 0.5)
+                .sample(fraction=1.0, seed=1),
+            ):
+                fc1 = ExampleTableV3.id + 1
 
         # Refuses without opt-in, since columns are being dropped.
         with pxt_raises(excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE, match='destructive'):
@@ -1624,8 +1777,9 @@ class TestTableModel:
         assert {'doubled', 'label'} <= set(tbl_md['columns'].keys())
         assert not ({'plus_ten', 'note'} & set(tbl_md['columns'].keys()))
         assert set(tbl_md['indexes'].keys()) == {'embed_b'}
-        view_md = ExampleViewV3.get_metadata()
-        assert 'vc3' in view_md['columns'] and 'vc1' not in view_md['columns']
+        if is_data_versioned:
+            view_md = ExampleViewV3.get_metadata()
+            assert 'vc3' in view_md['columns'] and 'vc1' not in view_md['columns']
 
         # Try inserting something at the end of all the updates.
         images = get_image_files()
@@ -1635,10 +1789,27 @@ class TestTableModel:
         ]
         ExampleTableV3.insert(rows)
 
-        # the sample view guarantees no row order, so order the query rather than the result
-        v = ExampleQueryViewV3
-        res = v.order_by(v.plustwo).collect()
-        assert res['plustwo'] == [3.0, 4.0, 5.0, 6.0]
+        if is_data_versioned:
+            # the sample view guarantees no row order, so order the query rather than the result
+            v = ExampleQueryViewV3
+            res = v.order_by(v.plustwo).collect()
+            assert res['plustwo'] == [3.0, 4.0, 5.0, 6.0]
+
+        tbl = ExampleTableV3.table
+        res = tbl.order_by(tbl.id).select(tbl.id, tbl.doubled).collect()
+        assert res['doubled'] == [2.0, 4.0, 6.0, 8.0]
+
+        # The schema and data survive a catalog reload, and the table stays writable.
+        reload_catalog()
+        tbl = pxt.get_table(p('test_table'))
+        assert tbl.get_metadata()['is_data_versioned'] == is_data_versioned
+        assert {'doubled', 'label'} <= set(tbl.get_metadata()['columns'].keys())
+        # a data-versioned insert also cascades into the two views
+        expected_rows = 3 if is_data_versioned else 1
+        validate_update_status(
+            tbl.insert([{'id': 5, 'value': 5.0, 'image': images[0], 'label': 'five'}]), expected_rows
+        )
+        assert tbl.where(tbl.id == 5).collect()['doubled'] == [10.0]
 
     def test_update_all_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """`update_all()` raises an error if a model's schema is inconsistent with the existing table."""
@@ -1847,6 +2018,12 @@ class TestTableModel:
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"references columns that are not in the model's scope"):
             RefsOutOfScope._create(p(''))
 
+        class NullablePk(TableModel, name='nullable_pk'):
+            note_id = Column(type=pxt.Int | None, primary_key=True)
+
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r"Primary key column 'note_id' cannot be nullable"):
+            NullablePk._create(p(''))
+
         # rejected by the class definition itself, before _create() is ever reached
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'cannot combine `has_default_idxs=True`'):
 
@@ -1997,14 +2174,94 @@ class TestTableModel:
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`where\(\)` clause already specified'):
             ValidTableModel.where(ValidTableModel.id > 0).where(ValidTableModel.id > 0)  # type: ignore[arg-type]
 
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`group_by\(\)` clause already specified'):
-            ValidTableModel.group_by(ValidTableModel.id).group_by(ValidTableModel.id)  # type: ignore[call-overload]
-
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`limit\(\)` clause already specified'):
-            ValidTableModel.limit(10).limit(5)
-
         with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`sample\(\)` clause already specified'):
             ValidTableModel.sample(n=10).sample(n=5)
+
+        # a base query cannot contain the clauses a view cannot be defined by
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r'model `GroupedBase`: The following clauses cannot be used in a view definition: group_by\(\)',
+        ):
+
+            class GroupedBase(TableModel, name='grouped_base', base=ValidTableModel.group_by(ValidTableModel.id)):
+                pass
+
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r'model `OrderedBase`: The following clauses cannot be used in a view definition: order_by\(\)',
+        ):
+
+            class OrderedBase(TableModel, name='ordered_base', base=ValidTableModel.order_by(ValidTableModel.id)):
+                pass
+
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r'model `LimitedBase`: The following clauses cannot be used in a view definition: limit\(\)',
+        ):
+
+            class LimitedBase(TableModel, name='limited_base', base=ValidTableModel.limit(10)):
+                pass
+
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r'model `JoinedBase`: The following clauses cannot be used in a view definition: join\(\)',
+        ):
+
+            class JoinedBase(
+                TableModel,
+                name='joined_base',
+                base=ValidTableModel.join(OtherModel, on=ValidTableModel.id == OtherModel.x),
+            ):
+                pass
+
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r'model `DistinctBase`: The following clauses cannot be used in a view definition: distinct\(\)',
+        ):
+
+            class DistinctBase(TableModel, name='distinct_base', base=ValidTableModel.distinct()):
+                pass
+
+        # every prohibited clause is reported, in the order it was specified
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION,
+            match=r'model `MultiBase`: The following clauses cannot be used in a view definition: '
+            r'order_by\(\), join\(\), limit\(\)',
+        ):
+
+            class MultiBase(
+                TableModel,
+                name='multi_base',
+                base=ValidTableModel.order_by(ValidTableModel.id).join(OtherModel).limit(10),
+            ):
+                pass
+
+    def test_aggregation_rejected(self) -> None:
+        """A view is maintained one base row at a time, so nothing in a model may aggregate."""
+        TableModel = pxt.model_base()
+
+        class Base(TableModel, name='base'):
+            grp: pxt.String | None
+            val: pxt.Int
+
+        with pxt_raises(
+            excs.ErrorCode.UNSUPPORTED_OPERATION, match=r"`select\(\)` item 'total' aggregates over the base table"
+        ):
+
+            class AggBase(TableModel, name='agg_base', base=Base.select(total=pxtf.sum(Base.val))):
+                pass
+
+        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r"Column 'total' aggregates over the table"):
+
+            class AggCol(TableModel, name='agg_col'):
+                val: pxt.Int
+                total = pxtf.sum(val)
+
+        # the same shapes without an aggregate are unaffected
+        class Projected(TableModel, name='projected', base=Base.select(v=Base.val)):
+            plus = v + 1  # type: ignore[name-defined]
+
+        assert [c.name for c in Projected.table_path().column_md()] == ['v', 'plus']
 
     def test_table_model_validation_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """Errors that arise from a schema mismatch between a model and an existing table."""
@@ -2084,3 +2341,98 @@ class TestTableModel:
         # `create_all()` only creates; it refuses to run when any existing table differs from its model.
         with pxt_raises(excs.ErrorCode.SCHEMA_MISMATCH, match=r'Call `update_all\(\)` instead'):
             TableModel.create_all(p(''))
+
+    @pytest.mark.local('a local filesystem destination is rejected for a hosted table')
+    def test_config_var_destination(
+        self, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A column destination is resolved when a file is written, not when the column is declared.
+
+        A pxt.ConfigVar destination follows whatever the target binds it to, and a default destination the
+        instance configures belongs to no column's schema.
+        """
+        p = make_catalog_path
+        media_dir = tmp_path / 'media'
+        media_dir.mkdir()
+        other_dir = tmp_path / 'other'
+        other_dir.mkdir()
+        default_dir = tmp_path / 'default'
+        default_dir.mkdir()
+        config_file = tmp_path / 'config.toml'
+
+        def write_config(media_dest: str) -> None:
+            config_file.write_text(
+                f'[pixeltable]\nfile_cache_size_g = 10\noutput_media_dest = "{default_dir.as_posix()}"\n'
+                f'[pixeltable.clouddb.vars]\nmedia_dest = "{media_dest}"\n'
+            )
+
+        write_config(media_dir.as_posix())
+
+        MEDIA_DEST = pxt.ConfigVar('media_dest', pxt.URI)
+        MISSING = pxt.ConfigVar('no_such_var', pxt.URI)
+
+        # this test's config file needs to be the only source of a media destination, so drop any the environment sets
+        monkeypatch.delenv('PIXELTABLE_OUTPUT_MEDIA_DEST', raising=False)
+        monkeypatch.delenv('PIXELTABLE_INPUT_MEDIA_DEST', raising=False)
+        original_config = os.environ.get('PIXELTABLE_CONFIG')
+        os.environ['PIXELTABLE_CONFIG'] = str(config_file)
+        # not Config.init(): output_media_dest is read when the Env is created
+        reload_env()
+        try:
+            TableModel = pxt.model_base()
+
+            class Docs(TableModel, name='docs'):
+                img: pxt.Image | None
+                thumbnail = pxt.Column(value=img.rotate(90), destination=MEDIA_DEST)
+                fixed = pxt.Column(value=img.rotate(180), destination=str(other_dir))
+                plain = img.rotate(270)
+
+            TableModel.create_all(p(''))
+
+            # metadata reports the variable, not the location it happens to point at
+            md = pxt.get_table(p('docs')).get_metadata()
+            assert md['columns']['thumbnail']['destination'] == '$media_dest'
+            assert md['columns']['fixed']['destination'] == str(other_dir)
+            # output_media_dest is configuration, so a column that declares no destination reports none
+            assert md['columns']['plain']['destination'] is None
+
+            # reading the table back from stored metadata reconstitutes the reference, and files still land
+            # where it is bound
+            reload_catalog()
+            tbl = pxt.get_table(p('docs'))
+            assert tbl.get_metadata()['columns']['thumbnail']['destination'] == '$media_dest'
+            tbl.insert(img=get_image_files()[0])
+            row = tbl.select(bound=tbl.thumbnail.fileurl, unbound=tbl.plain.fileurl).collect()[0]
+            assert media_dir.as_uri() in row['bound']
+            assert default_dir.as_uri() in row['unbound']
+
+            # neither rebinding the variable nor the configured default is a schema change
+            write_config(other_dir.as_posix())
+            Config.init(reinit=True)
+            reload_catalog()
+            diffs = TableModel.get_model_diff(p(''))
+            assert [d['resolution'] for d in diffs.values()] == ['up_to_date']
+
+            # a name the target has no binding for reports itself
+            with pxt_raises(excs.ErrorCode.MISSING_REQUIRED, match=r"'no_such_var' is not set"):
+                MISSING.value()
+
+            # the declared type validates the binding: a value that is not a storage address is rejected
+            write_config('s4://typo/bucket')
+            Config.init(reinit=True)
+            with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='media_dest'):
+                MEDIA_DEST.value()
+
+            # an expression is evaluated per row, so a config var cannot appear in one
+            with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match='ConfigVars cannot be used in an expression'):
+
+                class Bad(TableModel, name='bad'):
+                    title: pxt.String | None
+                    tagged = tag(title, MEDIA_DEST)
+        finally:
+            if original_config is None:
+                os.environ.pop('PIXELTABLE_CONFIG', None)
+            else:
+                os.environ['PIXELTABLE_CONFIG'] = original_config
+            reload_env()
+            reload_catalog()

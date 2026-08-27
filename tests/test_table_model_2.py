@@ -40,8 +40,8 @@ class TestTableModel2:
                 custom_metadata={'chicken': 'eggs'},
                 comment='This is a column with special properties',
             )
-            computed_with_special_props = Column(value=(value / 3), stored=False)
-            computed_with_special_props_2 = Column(value=img.rotate(90))
+            computed_with_special_props = pxt.Column(value=(value / 3), stored=False)
+            computed_with_special_props_2 = pxt.Column(value=img.rotate(90))
 
             __indexes__ = [EmbeddingIndex(img, embedding=dummy_embedding.using(n=768), name='clip_idx')]  # noqa: RUF012
 
