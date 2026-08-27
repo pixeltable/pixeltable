@@ -63,6 +63,15 @@ class SignatureValidationError(ValidationError):
             """
         ).strip()
 
+    def protocol_error_msg(self) -> str:
+        return dedent(
+            f"""
+            The request references the UDF `{self.function_path}`, but the {self.signature_type} of the UDF
+            in the remote database does not match its local definition.
+            {self.signature_type.capitalize()} of the local UDF: {self.expr_signature}
+            {self.signature_type.capitalize()} of the remote UDF: {self.code_signature}
+            """
+        ).strip()
 
 @dataclass
 class ImportValidationError(ValidationError):
@@ -77,6 +86,15 @@ class ImportValidationError(ValidationError):
             {self.import_error_msg}
             """
         ).strip()
+
+    def protocol_error_msg(self) -> str:
+        return dedent(
+            f"""
+            A UDF call to `{self.function_path}` could not be resolved because there are missing
+            dependencies in the remote database:
+            {self.import_error_msg}
+            """
+        )
 
 
 class FunctionCall(Expr):

@@ -352,18 +352,18 @@ def _check_valid_fn(fn: func.Function) -> func.Function:
             excs.ErrorCode.FUNCTION_NOT_FOUND,
             f'The request references the UDF `{fn.self_path}`, '
             'but that UDF is not defined in the remote database.\n'
-            'You can deploy new code to the remote database with `pxt db update`.',
+            'You can use `pxt db update` to deploy a new version of the UDF to the remote database.',
         )
     return fn
 
 
 def _check_valid_expr(expr: exprs.Expr) -> exprs.Expr:
     if not expr.is_valid:
-        invalid_fn_calls = expr.subexprs(exprs.FunctionCall, lambda fc: fc.validation_error is not None)
-        first_invalid_fn_call = next(invalid_fn_calls, None)
-        assert first_invalid_fn_call is not None  # this is the only way an expression can be invalid
-
-        _check_valid_fn(first_invalid_fn_call.nested_invalid_fn)
+        raise excs.RequestError(
+            excs.ErrorCode.FUNCTION_NOT_FOUND,
+            f'{expr.validation_error.protocol_error_msg()}\n'
+            'You can use `pxt db update` to deploy a new version of the UDF to the remote database.',
+        )
     return expr
 
 
