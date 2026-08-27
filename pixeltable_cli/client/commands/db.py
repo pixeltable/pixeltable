@@ -241,19 +241,23 @@ def _update_runtime(args: argparse.Namespace) -> None:
 
     post_request('/api/db/update-runtime', {'org': org, 'db': db, 'bundle_s3_key': bundle_s3_key})
 
-    label = None if args.json_output else 'Waiting for runtime build...'
+    label = None if args.json_output else 'Building image and rolling out...'
     result = poll_state(
         '/api/db', {'org': org, 'db': db}, 'database', {'UPDATING'}, RUNTIME_POLL_INTERVAL, RUNTIME_POLL_TIMEOUT, label
     )
 
+    # last_build_state covers the whole update, image build through rollout, so it cannot be reported as
+    # a build failure: the image usually built fine and the new pods are what did not come up.
     build_failed = result.get('last_build_state') == 'FAILED'
     build_error = result.get('last_build_error') or ''
     if not args.json_output:
         final_state = result.get('state', '')
         if build_failed:
-            print(f'Runtime build failed: {build_error}', file=sys.stderr)
+            print(f'DB update runtime failed: {build_error}', file=sys.stderr)
+        elif final_state == 'AVAILABLE':
+            print('DB update runtime complete.')
         elif final_state:
-            print(f'Runtime build {final_state.lower()}.')
+            print(f'DB update runtime ended in state {final_state}.')
 
     if args.json_output:
         print(json.dumps(result))
