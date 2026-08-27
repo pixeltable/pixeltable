@@ -54,6 +54,7 @@ def _print_stages(stages: list[tuple[str, str, float, str]]) -> None:
         for name, state, seconds, detail in stages:
             progress.add_task(name, total=None, state=state, took=_elapsed(seconds), detail=detail)
 
+
 EPILOG = """\
 Examples:
   pxt db create pxt://org:db

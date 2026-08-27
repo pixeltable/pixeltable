@@ -380,9 +380,7 @@ class Env:
         self._managed_logging_handlers.append((pxt_logger, stdout_handler))
         self._console_logger = ConsoleLogger(pxt_logger)
 
-        # configure pxt_logger to log to a file
-        # One file per day, appended: a process restart has to land in the same file, or a time-bounded
-        # search of the log silently stops at the restart.
+        # configure pxt_logger to log to a file, one file per day
         self._logfilename = datetime.datetime.now().strftime('%Y%m%d') + '.log'
         fh = logging.FileHandler(self._log_dir / self._logfilename, mode='a')
         fh.setFormatter(logging.Formatter(LOG_FMT_STR))
