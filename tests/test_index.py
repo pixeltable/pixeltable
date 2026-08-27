@@ -538,6 +538,7 @@ class TestIndex:
         with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='identical embedding index'):
             t.add_embedding_index('category', string_embed=local_embed)
 
+    @pytest.mark.skip_cloud(reason='Fails due to inaccessible .fileurl [PXT-1323]')
     def test_update_img(
         self,
         img_tbl: pxt.Table,
@@ -597,6 +598,7 @@ class TestIndex:
             img_t.batch_update([repl_row], cascade=True)
         print(img_t.select(img_t.pkey, img_t.img).collect())
 
+    @pytest.mark.skip_cloud(reason='Fails due to inaccessible .fileurl [PXT-1323]')
     def test_embedding_access(
         self,
         img_tbl: pxt.Table,
@@ -633,6 +635,7 @@ class TestIndex:
         img_t.drop_column('ebd_copy')
         img_t.drop_embedding_index(column=img_t.category)
 
+    @pytest.mark.skip_cloud(reason='Fails due to inaccessible .fileurl [PXT-1323]')
     def test_embedding_basic(
         self,
         img_tbl: pxt.Table,
@@ -989,12 +992,8 @@ class TestIndex:
         data = [random.uniform(0, sys.float_info.max) for _ in range(self.BTREE_TEST_NUM_ROWS)]
         self.run_btree_test(p, data, pxt.Float, is_data_versioned)
 
-    def test_string_btree(
-        self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, is_data_versioned: bool
-    ) -> None:
-        if catalog_mode == 'cloud':
-            pytest.skip('Fails due to case-insensitive string comparison on cloud [PXT-1312]')
-
+    @pytest.mark.skip_cloud(reason='Fails due to case-insensitive string comparison on cloud [PXT-1316]')
+    def test_string_btree(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
 
         def create_random_str(n: int) -> str:
@@ -1032,12 +1031,8 @@ class TestIndex:
         assert t.where(t.data >= s).count() == 2
         assert t.where(t.data > s).count() == 1
 
-    def test_timestamp_btree(
-        self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, is_data_versioned: bool
-    ) -> None:
-        if catalog_mode == 'cloud':
-            pytest.skip('Fails due to exact timestamp match not working on cloud [PXT-1312]')
-
+    @pytest.mark.skip_cloud(reason='Fails due to exact timestamp match not working on cloud [PXT-1317]')
+    def test_timestamp_btree(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
         p = make_catalog_path
         random.seed(1)
         start = datetime.datetime(2000, 1, 1)

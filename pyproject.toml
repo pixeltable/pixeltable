@@ -188,7 +188,7 @@ dev = [
     # whisperx is disabled because it hard-pins torch 2.8 (four full versions behind at the time of this writing).
     # "whisperx>=3.8.5 ; python_version < '3.14'",
     "ollama>=0.6",
-    "llama-cpp-python>=0.3.18 ; sys_platform == 'linux'",
+    # "llama-cpp-python>=0.3.18 ; sys_platform == 'linux'",
     "mcp>=1.27.2",
     "pixeltable-yolox==0.4.2 ; python_version < '3.13' or sys_platform != 'win32'",
     # fiftyone is commented out, because even the most recent versions hardcode a dependency on an insecure version
@@ -295,6 +295,7 @@ warn_unused_ignores = true
 # we need the repo for the uv-dynamic-versioning install, and pixeltable/_version.py in order for the
 # package to function. Both are ignored by default
 include = ['.git/**', 'pixeltable/_version.py']
+system_dependencies = ["libiconv", "ffmpeg==6.1.1=gpl*"]
 
 [tool.pyright]
 typeCheckingMode = "off"
@@ -312,7 +313,8 @@ markers = [
     "very_expensive: marks tests as very expensive to run, or as depending on an unreliable external service",
     "remote_api: marks tests as calling a remote API (such as OpenAI)",
     "benchmark: marks tests as benchmark tests (excluded from regular test runs)",
-    "local: test runs only against the in-process catalog, not the proxy (arg: reason)",
+    "local: test runs only against the in-process catalog, not the proxy or cloud-hosted tables (arg: reason)",
+    "skip_cloud: test does not run against cloud-hosted tables (arg: reason)",
     "cloud_e2e: marks tests as cloud end-to-end tests requiring PIXELTABLE_API_KEY",
     "otel: marks tests as requiring the otel extra (run on the otel CI leg)",
 ]
