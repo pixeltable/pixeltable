@@ -17,7 +17,7 @@ import pathlib
 import shutil
 import struct
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Any, Generic, Iterable, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 from uuid import UUID, uuid4
 
 import numpy as np
@@ -370,20 +370,20 @@ def _check_valid_expr(expr: exprs.Expr) -> exprs.Expr:
     return expr
 
 
+def _check_valid_gfc(gfc: func.GeneratingFunctionCall) -> func.GeneratingFunctionCall:
+    if not gfc.is_valid:
+        raise excs.NotFoundError(
+            excs.ErrorCode.FUNCTION_NOT_FOUND,
+            f'{gfc.validation_error}\n'
+            'You can use `pxt db update` to deploy a new version of the UDF to the remote database.',
+        )
+    return gfc
+
+
 def check_query(query: 'Query') -> 'Query':
-    """Raise if any of `query_exprs` references a UDF that could not be resolved in this process."""
     for e in query._clause_exprs():
         _check_valid_expr(e)
     return query
-
-
-def _check_valid_gfc(gfc: func.GeneratingFunctionCall) -> func.GeneratingFunctionCall:
-    if not gfc.is_valid:
-        invalid_fn_calls = gfc.subexprs(exprs.FunctionCall, lambda fc: fc.nested_invalid_fn is not None)
-        first_invalid_fn_call = next(invalid_fn_calls, None)
-        assert first_invalid_fn_call is not None
-        _check_valid_fn(first_invalid_fn_call.nested_invalid_fn)
-    return gfc
 
 
 def _deserialize(

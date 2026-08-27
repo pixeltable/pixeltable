@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import inspect
 import sys
-from abc import abstractmethod
 from dataclasses import dataclass
 from textwrap import dedent
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING, Any, Literal as TypingLiteral, Sequence
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -49,7 +48,7 @@ class FunctionValidationError(ValidationError):
 
 @dataclass
 class SignatureValidationError(ValidationError):
-    signature_type: Literal['signature', 'return type']
+    signature_type: TypingLiteral['signature', 'return type']
     function_path: str
     is_polymorphic: bool
     expr_signature: str
@@ -588,13 +587,12 @@ class FunctionCall(Expr):
         # serialized.
 
         resolved_fn: func.Function = fn
-        validation_error = None
+        validation_error: ValidationError | None = None
 
         try:
             # Bind args and kwargs to the function signature in the current codebase.
             resolved_fn, bound_args = fn._bind_to_matching_signature(args, kwargs)
         except (TypeError, excs.Error):
-            signature_note_str = 'any of its signatures' if fn.is_polymorphic else 'its signature'
             args_str = [f'pxt.{arg.col_type}' for arg in args]
             args_str.extend(f'{name}: pxt.{arg.col_type}' for name, arg in kwargs.items())
             expr_signature = f'({", ".join(args_str)}) -> pxt.{return_type}'

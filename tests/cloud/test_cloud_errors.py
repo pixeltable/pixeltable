@@ -15,8 +15,8 @@ def evolving_udf(n: int) -> int:
     return n + 1
 
 
-# These UDFs are defined only locally. By omitting them from both cloud runtimes and the proxy daemon, we enable local
-# testing of error resultion via the 'proxy' tests.
+# These UDFs are defined only locally. By omitting them from both the cloud runtime and the proxy daemon, we enable
+# local testing of error resolution via the 'proxy' tests.
 if not os.environ.get('PIXELTABLE_PROXY_DAEMON') and not os.environ.get('PXTCLOUD_DB'):
 
     @pxt.udf
@@ -41,14 +41,16 @@ def udf_with_import_error_on_cloud(cfg: str, n: int) -> int:
 @udf_with_import_error_on_cloud.conditional_return_type
 def _(cfg: str) -> ts.ColumnType:
     if os.environ.get('PIXELTABLE_PROXY_DAEMON') or os.environ.get('PXTCLOUD_DB'):
-        import jabberwocky  # noqa: F401
+        import jabberwocky  # type: ignore[import-not-found]  # noqa: F401
 
     return ts.IntType()
 
 
 class TestCloudErrors:
     @pytest.mark.parametrize('udf_usage_type', ['select', 'computed_column'])
-    def test_udf_errors(self, udf_usage_type: str, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode):
+    def test_udf_errors(
+        self, udf_usage_type: str, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode
+    ) -> None:
         """Test that we get the right error message when UDF resolution fails on cloud."""
         import tests.cloud.test_cloud_errors  # noqa: PLW0406
 
@@ -58,9 +60,10 @@ class TestCloudErrors:
         p = make_catalog_path
 
         t = pxt.create_table(p('test_udf_not_on_cloud'), {'n': pxt.Int, 'a': pxt.String})
+        accessor: Callable
         match udf_usage_type:
             case 'select':
-                accessor = lambda **kwargs: t.select(**kwargs).collect()
+                accessor = lambda **kwargs: t.select(**kwargs).collect()  # noqa: E731
             case 'computed_column':
                 accessor = t.add_computed_column
 
