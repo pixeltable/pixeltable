@@ -126,8 +126,7 @@ class IfNotExistsParam(enum.Enum):
 def fold_identifier(name: str) -> str:
     """Fold an identifier to its stored form.
 
-    Note: Pixeltable only allows ASCII characters in identifiers, so we don't need to worry about any exotic characters
-    here.
+    Pixeltable only allows ASCII characters in identifiers, so we don't need to worry about any exotic characters here.
     """
     return name.lower()
 
