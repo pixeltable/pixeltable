@@ -210,8 +210,7 @@ def poll_state(
     """Poll a daemon route until the resource's 'state' leaves pending_states, or timeout seconds elapse.
 
     Returns the last response read, or an empty dict if none succeeded. A failed read is retried until the
-    deadline, so a resource that is briefly unreachable mid-transition doesn't abort the wait. on_poll sees every
-    reading, so a caller can watch a long operation move between its stages.
+    deadline, so a resource that is briefly unreachable mid-transition doesn't abort the wait.
     """
     result: dict[str, Any] = {}
     deadline = time.monotonic() + timeout
