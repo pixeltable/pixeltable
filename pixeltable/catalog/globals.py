@@ -163,7 +163,7 @@ def is_system_column_name(name: str) -> bool:
     global _PREDEF_SYMBOLS  # noqa: PLW0603
     if _PREDEF_SYMBOLS is None:
         _PREDEF_SYMBOLS = {fold_identifier(s) for s in itertools.chain(dir(InsertableTable), dir(View))}
-    return name in _PREDEF_SYMBOLS
+    return fold_identifier(name) in _PREDEF_SYMBOLS
 
 
 def col_type_from_spec(column_spec: ColumnSpec) -> ts.ColumnType:

@@ -635,8 +635,7 @@ class LocalTable(Table):
             if_not_exists_ = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
 
             if isinstance(column, str):
-                col_name = fold_identifier(column)
-                col = self._tbl_version_path.get_column(col_name)
+                col = self._tbl_version_path.get_column(column)
                 if col is None:
                     if if_not_exists_ == IfNotExistsParam.ERROR:
                         raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {column}')
@@ -646,7 +645,7 @@ class LocalTable(Table):
                     raise excs.RequestError(
                         excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot drop base table column {col.name!r}'
                     )
-                col = self._tbl_version.get().cols_by_name[col_name]
+                col = self._tbl_version.get().cols_by_name[col.name]
             else:
                 exists = self._tbl_version_path.has_column(column.col_md.qcolid)
                 if not exists:
@@ -708,7 +707,7 @@ class LocalTable(Table):
             for_write=True, write_tvps=[self._tbl_version_path], lock_mutable_tree=False
         ):
             self._check_mutable('rename columns of')
-            self._tbl_version.get().rename_column(fold_identifier(old_name), fold_identifier(new_name))
+            self._tbl_version.get().rename_column(old_name, new_name)
 
     def alter_column(self, column: str | ColumnRef, *, type_: TypeForm) -> None:
         from pixeltable.catalog import retry_loop
@@ -770,7 +769,6 @@ class LocalTable(Table):
 
         if idx_name is not None:
             # Index name must be a valid pixeltable column name
-            idx_name = fold_identifier(idx_name)
             Column.validate_name(idx_name)
 
         with get_runtime().catalog.begin_xact(
@@ -825,18 +823,18 @@ class LocalTable(Table):
 
             # idx_name must be a valid pixeltable column name
             if idx_name is not None:
-                idx_name = fold_identifier(idx_name)
                 Column.validate_name(idx_name)
                 # Named index: duplicate detection is by name. Handle a name collision before constructing the new
                 # index, so that if_exists='ignore' remains a true no-op and never surfaces validation errors.
-                if idx_name in self._tbl_version.get().idxs_by_name:
+                existing_idx = self._tbl_version.get().get_idx_by_name(idx_name)
+                if existing_idx is not None:
                     if_exists_ = IfExistsParam.validated(if_exists, 'if_exists')
                     # An index with the same name already exists. Handle it according to if_exists.
                     if if_exists_ == IfExistsParam.ERROR:
                         raise excs.AlreadyExistsError(
                             excs.ErrorCode.INDEX_ALREADY_EXISTS, f'Duplicate index name: {idx_name}'
                         )
-                    if not isinstance(self._tbl_version.get().idxs_by_name[idx_name].idx, index.EmbeddingIndex):
+                    if not isinstance(existing_idx.idx, index.EmbeddingIndex):
                         raise excs.RequestError(
                             excs.ErrorCode.UNSUPPORTED_OPERATION,
                             f'Index {idx_name!r} is not an embedding index. Cannot {if_exists_.name.lower()} it.',
@@ -969,14 +967,13 @@ class LocalTable(Table):
         assert (col is None) != (idx_name is None)
 
         if idx_name is not None:
-            idx_name = fold_identifier(idx_name)
             if_not_exists_ = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-            if idx_name not in self._tbl_version.get().idxs_by_name:
+            idx_info = self._tbl_version.get().get_idx_by_name(idx_name)
+            if idx_info is None:
                 if if_not_exists_ == IfNotExistsParam.ERROR:
                     raise excs.NotFoundError(excs.ErrorCode.INDEX_NOT_FOUND, f'Index {idx_name!r} does not exist')
                 assert if_not_exists_ == IfNotExistsParam.IGNORE
                 return
-            idx_info = self._tbl_version.get().idxs_by_name[idx_name]
         else:
             if col.get_tbl().id != self._tbl_version.id:
                 raise excs.RequestError(
@@ -1151,10 +1148,10 @@ class LocalTable(Table):
                 col_name: str
                 col: Column
                 if isinstance(column, str):
-                    col_name = fold_identifier(column)
-                    col = self._tbl_version_path.get_column(col_name)
+                    col = self._tbl_version_path.get_column(column)
                     if col is None:
                         raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {column}')
+                    col_name = col.name
                 else:
                     assert isinstance(column, ColumnRef)
                     col = column.col

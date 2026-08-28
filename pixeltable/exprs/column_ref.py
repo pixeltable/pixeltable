@@ -12,7 +12,6 @@ import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import func
-from pixeltable.catalog.globals import fold_identifier
 from pixeltable.runtime import get_runtime
 
 from ..utils.description_helper import DescriptionHelper
@@ -445,7 +444,6 @@ class ColumnRef(Expr):
             assert tbl is not None
             _tbl_path = tbl._tbl_path
         # get_idx_md() resolves the concrete index, raising if idx is ambiguous or doesn't exist.
-        idx = fold_identifier(idx) if idx is not None else None
         idx_md = _tbl_path.get_idx_md(self.col_md.qcolid, idx, EmbeddingIndex)
 
         # init_args carries one '<modality>_embed' entry per supported modality (see EmbeddingIndex.as_dict()).
@@ -510,9 +508,7 @@ class ColumnRef(Expr):
 
         tbl = get_runtime().get_table_by_id(self.col_md.tbl_id, version=self.col_md.effective_version)
         assert tbl is not None
-        idx_md = tbl._tbl_path.get_idx_md(
-            self.col_md.qcolid, None if idx is None else fold_identifier(idx), EmbeddingIndex
-        )
+        idx_md = tbl._tbl_path.get_idx_md(self.col_md.qcolid, idx, EmbeddingIndex)
         val_qcolid = catalog.QColumnId(UUID(idx_md.indexed_col_tbl_id), idx_md.index_val_col_id)
         return ColumnRef(tbl._tbl_path.get_column_md(val_qcolid))
 

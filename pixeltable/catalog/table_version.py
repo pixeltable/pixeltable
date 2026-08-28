@@ -25,7 +25,14 @@ from pixeltable.runtime import get_runtime
 from pixeltable.utils.object_stores import ObjectOps
 
 from .column import Column
-from .globals import _ROWID_COLUMN_NAME, IndexSpec, MediaValidation, fold_mapping_keys, is_valid_identifier
+from .globals import (
+    _ROWID_COLUMN_NAME,
+    IndexSpec,
+    MediaValidation,
+    fold_identifier,
+    fold_mapping_keys,
+    is_valid_identifier,
+)
 from .tbl_ops import (
     CreateColumnMdOp,
     CreateStoreColumnsOp,
@@ -449,6 +456,7 @@ class TableVersion:
         return f'idx_{self.id.hex}_{idx_id}'
 
     def add_index(self, col: Column, idx_name: str | None, idx: index.IndexBase) -> UpdateStatus:
+        idx_name = None if idx_name is None else fold_identifier(idx_name)
         validate_idxs(self.id, [IndexSpec(col, idx_name, idx)], self.has_default_idxs, self.idxs.values())
         # we're creating a new schema version
         self.bump_version(bump_schema_version=True)
@@ -937,6 +945,8 @@ class TableVersion:
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column."""
+        old_name = fold_identifier(old_name)
+        new_name = fold_identifier(new_name)
         if not self.is_mutable:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION, f'Cannot rename column for immutable table {self.name!r}'
@@ -1814,6 +1824,7 @@ class TableVersion:
         return {info.val_col for info in self.idxs.values() if info.col.id in col_ids and info.val_col is not None}
 
     def get_idx(self, col: Column, idx_name: str | None, idx_cls: type[index.IndexBase]) -> TableVersion.IndexInfo:
+        idx_name = None if idx_name is None else fold_identifier(idx_name)
         if not self.supports_idxs:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Snapshot does not support indices')
         candidates = [info for info in self.idxs_by_col.get(col.qid, []) if isinstance(info.idx, idx_cls)]
@@ -1831,6 +1842,10 @@ class TableVersion:
                 excs.ErrorCode.INDEX_NOT_FOUND, f'Index {idx_name!r} not found for column {col.name!r}'
             )
         return candidates[0] if idx_name is None else next(info for info in candidates if info.name == idx_name)
+
+    def get_idx_by_name(self, name: str) -> TableVersion.IndexInfo | None:
+        """Return the index with the given name, or None if there is none."""
+        return self.idxs_by_name.get(fold_identifier(name))
 
     def find_btree_index(self, col: Column) -> TableVersion.IndexInfo | None:
         """Return the B-tree index on col, or None if it doesn't have one."""

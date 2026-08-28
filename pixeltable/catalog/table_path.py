@@ -460,6 +460,7 @@ class TableVersionPath(TablePath):
         return col_md
 
     def get_idx_md(self, qcolid: QColumnId, name: str | None, idx_class: type[IndexBase]) -> schema.IndexMd:
+        name = None if name is None else fold_identifier(name)
         tv = self._cached_tv()
         # lookup_column() searches the whole path, so the index always resolves on this (path-context) tv:
         # an index on a base column accessed through a view is registered on the view's tv keyed by the base
@@ -659,6 +660,7 @@ class TableMdPath(TablePath):
         return result
 
     def get_idx_md(self, qcolid: QColumnId, name: str | None, idx_class: type[IndexBase]) -> schema.IndexMd:
+        name = None if name is None else fold_identifier(name)
         # a pinned version (snapshot or historical version) does not support indices
         if self.effective_version() is not None:
             raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, 'Snapshot does not support indices')
