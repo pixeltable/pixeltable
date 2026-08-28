@@ -649,6 +649,22 @@ A router not included in `app` would never be served, and in that situation `pxt
 The routes of an included `FastAPIRouter` are diffed by their declarations (i.e., they take the data types of path
 parameters into account); the paths the application serves itself are simply diffed as path strings.
 
+### Hosted targets
+
+`TARGET` may be a `pxt://org:db` uri, and the services then run in that database rather than on this
+machine. The database has to hold the project's code and its tables first, so the order is:
+
+```bash
+pxt db update-runtime pxt://acme:main     # build the runtime from this project
+pxt schema update app.py pxt://acme:main  # create the tables the models declare
+pxt service update app.py pxt://acme:main # start the services there
+```
+
+`diff`, `update`, `prune`, `stop` and `list` all accept a hosted target. `run` does not: it serves from the
+calling process, so it is local by definition. Two verbs differ in meaning against a hosted database, where
+a stopped service keeps its registration: `stop` stops it and leaves it there to be started again, while
+`prune` forgets it.
+
 ### `pxt service` verbs
 
 | Command | Description |

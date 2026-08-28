@@ -61,6 +61,13 @@ ingest.add_insert_route(
 ingest.add_compute_route(Docs, path='/titles', inputs=[Docs.title], outputs=[Docs.title_upper])
 '''
 
+_HOSTED = """
+Hosted databases:
+  TARGET may be a pxt:// uri, and the services then run in that database rather than on this machine.
+  'pxt db update-runtime' ships the project's code there first, and 'pxt schema update' creates the
+  tables; 'run' is local only, since it serves from the calling process.
+"""
+
 _OWN_APP = """
 Your own application:
   A file may supply its own fastapi.FastAPI object rather than leave Pixeltable to build one, in which case it
@@ -81,25 +88,27 @@ Examples:
   pxt service diff app.py my_dir          # what update would change; exit 2 if anything is pending
   pxt service diff app.py my_dir --json
   pxt service diff app.py my_dir --otel     # also report tracing that is off but was asked for
+  pxt service diff app.py pxt://acme:main   # against a hosted database
 
 Tracing:
   --otel emits OpenTelemetry traces from the services 'update' starts, and needs the instrumentation
   package ('pip install pixeltable[otel]'). The setting belongs to the running service, not to the file:
   a service already running without it restarts when 'update' is given the flag, and 'diff' reports that
   as a pending change.
-{_OWN_APP}{_APP_FILE}"""
+{_OWN_APP}{_HOSTED}{_APP_FILE}"""
 
 UPDATE_EPILOG = f"""\
 Examples:
   pxt service update app.py my_dir                       # start what is declared, restart what changed
   pxt service update app.py my_dir --allow-destructive   # also stop serving routes that changed or went away
   pxt service update app.py my_dir --otel                # emit OpenTelemetry traces from what it starts
+  pxt service update app.py pxt://acme:main              # start them in a hosted database
 
 Tracing:
   --otel needs the instrumentation package ('pip install pixeltable[otel]'). The setting belongs to the
   running service, not to the file: a service already running without it restarts to pick it up, and
   dropping the flag restarts it again.
-{_OWN_APP}{_APP_FILE}"""
+{_OWN_APP}{_HOSTED}{_APP_FILE}"""
 
 RUN_EPILOG = f"""\
 Examples:
@@ -110,14 +119,14 @@ Examples:
 
 One service per process, as 'update' deploys them. Nothing is recorded: it runs for as long as this process
 does. Use 'update' to run it in the background, where 'list' and 'stop' can find it again.
-{_OWN_APP}{_APP_FILE}"""
+{_OWN_APP}{_HOSTED}{_APP_FILE}"""
 
 PRUNE_EPILOG = f"""\
 Examples:
   pxt service prune app.py my_dir     # stop and forget the services the file does not declare
 
 A stopped service can be started again with 'pxt service update'.
-{_OWN_APP}{_APP_FILE}"""
+{_OWN_APP}{_HOSTED}{_APP_FILE}"""
 
 STOP_EPILOG = """\
 Examples:
@@ -130,6 +139,7 @@ LIST_EPILOG = """\
 Examples:
   pxt service list                    # every service running locally
   pxt service list my_dir             # those bound at my_dir and below it
+  pxt service list pxt://acme:main    # those in a hosted database
 """
 
 CHECK_EPILOG = f"""\
@@ -146,7 +156,7 @@ Notes:
   service and a model base, and every udf its columns call is named by a module path another
   process resolves. Takes no TARGET, so it says nothing about what a target can serve;
   'pxt service diff' answers that.
-{_OWN_APP}{_APP_FILE}"""
+{_OWN_APP}{_HOSTED}{_APP_FILE}"""
 
 VERBS = ('diff', 'update', 'run', 'prune', 'stop', 'list', 'check', 'example')
 
@@ -458,6 +468,8 @@ def _list(target: str | None, *, as_json: bool) -> None:
         # shown as the file it names: a catalog path never carries a .py suffix
         app_file = d['app_module'].replace('.', '/') + '.py'
         print(f'{_address(d):<{width}s}  {d["endpoint"]}  {pid_or_state}  {app_file}')
+        if d['error'] is not None:
+            print(f'    {d["error"]}')
         for route in d['spec']['routes']:
             served = ', '.join(route['outputs']) if len(route['outputs']) > 0 else '-'
             accepted = ', '.join([*route['inputs'], *(f'{n} (file)' for n in route['uploadfile_inputs'])])

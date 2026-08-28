@@ -144,6 +144,7 @@ class ServiceInstance(TypedDict):
     base_path: PxtPath  # the catalog directory the service's models are bound to
     endpoint: str
     state: str
+    error: str | None  # why a FAILED instance failed, when its manager reports a reason
     app_module: str  # dotted module path, relative to the project root
     spec: ServiceSpec  # what it serves
 

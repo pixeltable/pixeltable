@@ -993,6 +993,7 @@ def service_list(target: PxtPath | None = None) -> list[service_types.ServiceIns
             base_path=PxtPath(i.base_path),
             endpoint=i.endpoint,
             state=i.state,
+            error=i.record.error,
             pid=i.record.pid,
             process_started_at=i.record.process_started_at,
             app_module=i.app_module,
