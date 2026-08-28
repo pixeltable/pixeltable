@@ -231,6 +231,43 @@ class TestService:
         upper = httpx.get(f'{after["endpoint"]}/notes/upper', timeout=_REQUEST_TIMEOUT)
         assert upper.json() == {'upper': ['HELLO']}, upper.text
 
+    def test_source_change_restarts(
+        self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
+    ) -> None:
+        """An edited udf body restarts the service and the plan names the file; an unimported file does not."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        target = make_catalog_path('app')
+        app_file = pathlib.Path(apps('basic.py')).with_name('source_change_app.py')
+        shutil.copy(apps('basic.py'), app_file)
+        deploy(cli, str(app_file), target)
+        before = assert_serving(cli, str(app_file), target, 'ingest')['ingest']
+
+        # a file the application does not import leaves it up to date
+        app_file.with_name('unimported_module.py').write_text('unused = 1\n', encoding='utf-8')
+        assert cli('service', 'diff', str(app_file), target, '--json').json['in_agreement']
+
+        # change the udf a computed column calls; no route declaration changes with it
+        app_file.write_text(
+            app_file.read_text(encoding='utf-8').replace(
+                "return text if len(text) <= n else f'{text[:n]}...'", 'return text.upper()'
+            ),
+            encoding='utf-8',
+        )
+        r = cli('service', 'diff', str(app_file), target, '--json', check=False)
+        assert r.returncode == 2
+        assert [s['resolution'] for s in r.json['services']] == ['update_additive']
+        ops = [op for s in r.json['services'] for op in s['ops']]
+        assert [(op['target'], op['op'], op['severity']) for op in ops] == [('project', 'alter', 'additive')]
+        assert 'apps/source_change_app.py changed' in ops[0]['description'], ops[0]['description']
+
+        cli('service', 'update', str(app_file), target, '-f')
+        after = assert_serving(cli, str(app_file), target, 'ingest')['ingest']
+        assert after['pid'] != before['pid'], 'the new source is served by a new process'
+        assert _post(after['endpoint'], '/preview', doc_id=1, title='hello', published=True).json() == {
+            'summary': 'HELLO'
+        }
+
     def test_prune(self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]) -> None:
         """A service the file stopped declaring is stopped and forgotten, and can be started again."""
         skip_test_if_not_installed('fastapi')

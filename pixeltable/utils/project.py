@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 
 import pydantic
@@ -168,11 +169,36 @@ def _changed_keys(now: dict[str, str], was: dict[str, str]) -> list[str]:
 
 
 def project_fingerprint(project_root: Path, config: DatabaseConfig | None) -> ProjectFingerprint:
-    """Fingerprint the project at project_root, given the specific config."""
-    files = {
-        path.relative_to(project_root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
-        for path in selected_files(project_root, config)
+    """Fingerprint every file an image built from project_root would hold.
+
+    This decides whether an image is out of date, since an image holds the whole project.
+    """
+    return _fingerprint(selected_files(project_root, config), project_root, config)
+
+
+def loaded_fingerprint(project_root: Path, config: DatabaseConfig | None) -> ProjectFingerprint:
+    """Fingerprint the files the loaded application reached under project_root, plus the lockfile.
+
+    This decides whether a running service is out of date, so that a service restarts for a file it imports
+    and not for one its neighbour in the same project imports.
+
+    Call it after load_app_module(), which evicts the project's modules before importing: what is loaded from
+    the project afterwards is what this application reached. A module imported inside a function body is
+    never reached, which is the limitation Modal's mounted-source rule has too, and the reason
+    'pxt service update --restart' exists.
+    """
+    loaded = {
+        Path(file).resolve()
+        for file in (getattr(module, '__file__', None) for module in list(sys.modules.values()))
+        if file is not None
     }
+    files = [path for path in loaded if path.is_relative_to(project_root) and path.is_file()]
+    files += [project_root / name for name in _LOCK_FILES if (project_root / name).is_file()]
+    return _fingerprint(files, project_root, config)
+
+
+def _fingerprint(files: Iterable[Path], project_root: Path, config: DatabaseConfig | None) -> ProjectFingerprint:
+    files = {path.relative_to(project_root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest() for path in files}
     declared_python = config.python_version if config is not None else None
     return ProjectFingerprint(
         files=files,

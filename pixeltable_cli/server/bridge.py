@@ -35,6 +35,7 @@ from pixeltable.utils.app_module import (
     shadowed_project_modules,
     visible_models,
 )
+from pixeltable.utils.project import ProjectFingerprint, loaded_fingerprint
 from pixeltable_cli import schema_types, service_types
 from pixeltable_cli.utils import PxtPath
 
@@ -562,6 +563,7 @@ def service_diff(app_file: str, target: PxtPath, *, otel: bool = False) -> servi
         target: the catalog directory the services' models bind against.
     """
     # imported here rather than at module scope: pixeltable.serving pulls in fastapi, an optional dependency
+    from pixeltable.serving._config import database_config_for
     from pixeltable.serving.service_manager import get_manager
 
     manager = get_manager(target)
@@ -573,8 +575,13 @@ def service_diff(app_file: str, target: PxtPath, *, otel: bool = False) -> servi
     for router in routers:
         needed.update(router.route_models())
     mismatch = model_mismatch_error_str(needed, target)
+    project_root = Config.get().project_root
+    assert project_root is not None  # load_app_module() refuses a file outside a project root
+    fingerprint = loaded_fingerprint(project_root, database_config_for(target))
     diffs = [
-        _service_diff(manager, name, service, service_spec(name, service, routers), mismatch, app_file, target, otel)
+        _service_diff(
+            manager, name, service, service_spec(name, service, routers), mismatch, fingerprint, app_file, target, otel
+        )
         for name, service in sorted(services_by_name(module, app_file).items())
     ]
     return _plan_from_service_diffs(manager, diffs, app_file, target)
@@ -586,13 +593,14 @@ def _service_diff(
     service: FastAPIRouter | fastapi.FastAPI,
     declared_spec: service_types.ServiceSpec,
     model_mismatch_reason: str | None,
+    fingerprint: ProjectFingerprint,
     app_file: str,
     target: PxtPath,
     otel: bool = False,
 ) -> service_types.ServiceDiff:
     """How the instance of one declared service at target differs from its declaration."""
     from pixeltable.serving import FastAPIRouter
-    from pixeltable.serving._diff import blocked_schema_op, compare_specs, otel_op
+    from pixeltable.serving._diff import blocked_schema_op, compare_specs, otel_op, project_op
 
     running = manager.get(name, target)
     ops: list[service_types.ServiceChangeOp] = []
@@ -610,6 +618,11 @@ def _service_diff(
         ops += [_service_plan_op(op) for op in compare_specs(running.spec, declared_spec)]
         if running.otel != otel:
             ops.append(_service_plan_op(otel_op(running.otel, otel)))
+
+    recorded = None if running is None else running.record.fingerprint
+    if len(ops) == 0 and recorded is not None and fingerprint.restart_needed(recorded):
+        # the contract is unchanged, so the project is the only thing left to report
+        ops.append(_service_plan_op(project_op(fingerprint.changes(recorded))))
 
     if model_mismatch_reason is not None:
         command = f'pxt schema update {app_file}' + ('' if target == '' else f' {target}')

@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING
 
 import pydantic
 
+from pixeltable.utils.project import ProjectFingerprint
+
 from ._spec import ServiceSpec
 
 if TYPE_CHECKING:
@@ -53,6 +55,9 @@ class ServiceInstanceRecord(pydantic.BaseModel):
 
     # creation time of pid, None where the platform does not report one
     process_started_at: float | None = None
+
+    # the project state the instance is running; None in a record written before this field existed
+    fingerprint: ProjectFingerprint | None = None
 
 
 class ServiceInstance:

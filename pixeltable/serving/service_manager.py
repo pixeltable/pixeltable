@@ -35,6 +35,7 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.utils.app_module import load_app_module, module_name, services_by_name
 from pixeltable.utils.process import is_pid, pid_alive, process_timestamp
+from pixeltable.utils.project import ProjectFingerprint
 
 from .service_instance import ServiceInstance, ServiceInstanceRecord
 
@@ -163,7 +164,14 @@ class ServiceManager(ServiceManagerBase):
         self.remove(record)
 
     def create(
-        self, service_name: str, base_path: str, port: int, app_file: str, spec: ServiceSpec, otel: bool = False
+        self,
+        service_name: str,
+        base_path: str,
+        port: int,
+        app_file: str,
+        spec: ServiceSpec,
+        otel: bool = False,
+        fingerprint: ProjectFingerprint | None = None,
     ) -> ServiceInstanceRecord:
         """Write the record of the instance this process serves."""
         record = ServiceInstanceRecord(
@@ -176,6 +184,7 @@ class ServiceManager(ServiceManagerBase):
             spec=spec,
             otel=otel,
             created_at=time.time(),
+            fingerprint=fingerprint,
         )
 
         path = self._record_file(record.service_name, record.base_path)

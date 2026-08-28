@@ -27,7 +27,7 @@ class ServiceChangeOp(_Status):
     # 'secret' and 'runtime' are properties of the database a service depends on, not of the service
     # itself: operations against them are always 'blocked', never applied. There is no 'bundle' target; the
     # runtime image belongs to the database.
-    target: Literal['service', 'base_path', 'route', 'resources', 'secret', 'runtime']
+    target: Literal['service', 'base_path', 'route', 'resources', 'secret', 'project']
 
     # route: the method and path, eg 'POST /v1/ingest'; resources: the field, eg 'workers'; secret: the key;
     # base_path and service: the value or the service name

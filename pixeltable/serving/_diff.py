@@ -20,7 +20,7 @@ class ServiceChangeOp(TypedDict):
     doing the same there.
     """
 
-    target: Literal['service', 'base_path', 'route', 'resources', 'secret', 'runtime']
+    target: Literal['service', 'base_path', 'route', 'resources', 'secret', 'project']
 
     # route: the method and path, eg 'POST /v1/ingest'; resources: the field; secret: the key
     name: str
@@ -40,6 +40,34 @@ def otel_op(current: bool, requested: bool) -> ServiceChangeOp:
         'severity': 'additive',  # the routes are unchanged; the service restarts to pick up the new setting
         'description': f'tracing will be turned {state[requested]}, which restarts the service',
         'details': {'from': state[current], 'to': state[requested]},
+    }
+
+
+def project_op(changes: list[str], command: str | None = None) -> ServiceChangeOp:
+    """The operation for a project that moved on since the instance started.
+
+    changes are the causes, from ProjectFingerprint.changes(). With a command, the instance cannot be brought
+    up to date by restarting it -- a hosted image has to be rebuilt first -- so the operation is blocked.
+    """
+    summary = '; '.join(changes[:3])
+    if len(changes) > 3:
+        summary += f' and {len(changes) - 3} more'
+    if command is None:
+        return {
+            'target': 'project',
+            'name': 'project',
+            'op': 'alter',
+            'severity': 'additive',  # what the service serves is unchanged; it restarts to run the new code
+            'description': f'{summary}, which restarts the service',
+            'details': {'changes': '; '.join(changes)},
+        }
+    return {
+        'target': 'project',
+        'name': 'project',
+        'op': 'alter',
+        'severity': 'blocked',
+        'description': f'{summary}, which the image this service runs predates',
+        'details': {'changes': '; '.join(changes), 'command': command},
     }
 
 

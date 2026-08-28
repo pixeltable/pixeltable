@@ -12,6 +12,8 @@ from typing import Any
 
 from pixeltable.config import Config
 from pixeltable.serving._app import create_app, init_instrumentation, instrument_app
+from pixeltable.serving._config import database_config_for
+from pixeltable.utils.project import loaded_fingerprint
 
 from .service_manager import ServiceManager
 
@@ -32,6 +34,8 @@ def _serve(app_file: str, service_name: str, base_path: str, otel: bool) -> None
     sock.bind(('127.0.0.1', 0))
     port = sock.getsockname()[1]
 
+    project_root = Config.get().project_root
+    assert project_root is not None  # the app file was loaded from that root
     manager = ServiceManager()
     record = manager.create(
         service_name=service_name,
@@ -40,6 +44,7 @@ def _serve(app_file: str, service_name: str, base_path: str, otel: bool) -> None
         app_file=str(Path(app_file).resolve()),
         spec=spec,
         otel=otel,
+        fingerprint=loaded_fingerprint(project_root, database_config_for(base_path)),
     )
 
     def _cleanup(*_: Any) -> None:
