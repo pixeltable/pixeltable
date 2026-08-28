@@ -22,10 +22,9 @@ import subprocess
 import sys
 import typing
 import urllib.error
-from collections.abc import Callable, Iterator
 from email.message import Message
 from types import ModuleType, SimpleNamespace
-from typing import Any, ClassVar, Self
+from typing import Any, Callable, ClassVar, Iterator, Self
 from unittest.mock import patch
 
 import pydantic

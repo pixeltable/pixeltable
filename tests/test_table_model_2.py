@@ -2,7 +2,6 @@
 # ruff: noqa: N806
 
 import sys
-from typing import Callable
 
 import pytest
 
@@ -10,7 +9,7 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.catalog.model import Column, EmbeddingIndex
 
-from .utils import assert_resultset_eq, capture_console_output, dummy_embedding, schema_from_tbl_md
+from .utils import DatabaseRoot, assert_resultset_eq, capture_console_output, dummy_embedding, schema_from_tbl_md
 
 # Separate model tests, in a different file from test_table_model.py that is declared without
 # `from __future__ import annotations`
@@ -21,8 +20,8 @@ class TestTableModel2:
         sys.version_info >= (3, 14),
         reason='Fails on Python 3.14 without `from __future__ import annotations` (PEP 649)',
     )
-    def test_table_model_no_from_future(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_table_model_no_from_future(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         TableModel = pxt.model_base()
 
         class ExampleTableModel(TableModel, name='test_table'):

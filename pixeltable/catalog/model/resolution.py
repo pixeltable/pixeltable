@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Literal, TypedDict
+from typing import TYPE_CHECKING, Literal, Mapping, TypedDict
 from uuid import UUID
 
 from pixeltable import catalog, exceptions as excs, exprs, func, index

@@ -11,7 +11,7 @@ import pixeltable as pxt
 
 from ..utils import rerun_on_network_error, skip_test_if_not_installed, validate_update_status
 
-pytestmark = pytest.mark.local('UDF/integration test')
+pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
 def _skip_if_not_fabric() -> None:

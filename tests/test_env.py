@@ -14,7 +14,7 @@ from pixeltable.utils.filecache import FileCache
 
 from .utils import pxt_raises, skip_test_if_not_local
 
-pytestmark = pytest.mark.local('exercises process-global Env/Config and runtime reset')
+pytestmark = pytest.mark.db_roots('local', reason='exercises process-global Env/Config and runtime reset')
 
 
 def _reset_env(reinit: bool, db_name: str | None) -> None:

@@ -18,7 +18,7 @@ from pixeltable.serving.deploy import build_db_runtime_bundle
 
 from ..utils import pxt_raises
 
-pytestmark = pytest.mark.local('runtime bundle packaging')
+pytestmark = pytest.mark.db_roots('local', reason='runtime bundle packaging')
 
 
 class TestDbRuntimeBundle:

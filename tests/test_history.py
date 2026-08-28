@@ -1,10 +1,11 @@
 import datetime
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 import pytest
 
 import pixeltable as pxt
-from tests.utils import assert_version_metadata_eq, pxt_raises
+
+from .utils import DatabaseRoot, assert_version_metadata_eq, pxt_raises
 
 
 class TestHistory:
@@ -21,10 +22,8 @@ class TestHistory:
         print('============================================================')
 
     @pytest.mark.parametrize('variant', ['get_versions', 'history'])
-    def test_history(
-        self, variant: Literal['get_versions', 'history'], make_catalog_path: Callable[[str], str]
-    ) -> None:
-        p = make_catalog_path
+    def test_history(self, variant: Literal['get_versions', 'history'], db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
 
         def fn(tbl: pxt.Table, n: int | None = None) -> Any:
             return tbl.get_versions(n) if variant == 'get_versions' else tbl.history(n)

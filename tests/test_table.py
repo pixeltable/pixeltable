@@ -26,7 +26,7 @@ from pixeltable.utils.filecache import FileCache
 
 from .utils import (
     TESTS_DIR,
-    CatalogMode,
+    DatabaseRoot,
     DummyIterator,
     DummyIterator2,
     ReloadTester,
@@ -113,10 +113,8 @@ class TestTable:
         def value(self) -> int:
             return 1
 
-    def test_create(
-        self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester, is_data_versioned: bool
-    ) -> None:
-        p = make_catalog_path
+    def test_create(self, db_root: DatabaseRoot, reload_tester: ReloadTester, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
         pxt.create_dir(p('dir1'))
         schema: dict[str, Any] = {
             'c1': pxt.String | None,
@@ -180,9 +178,9 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match="'insert' is a reserved name in Pixeltable"):
             pxt.create_table(p('test'), {'insert': pxt.Int | None})
 
-    def test_create_if_exists(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
+    def test_create_if_exists(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
         """Test the if_exists parameter of create_table API"""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         schema: dict[str, Any] = {
             'c1': pxt.String | None,
             'c2': pxt.Int | None,
@@ -273,8 +271,8 @@ class TestTable:
         tbl = pxt.get_table(p('test'))
         assert tbl._id == id_before
 
-    def test_move(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_move(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         pxt.create_table(p('tbl1'), {'c1': pxt.Int | None})
         assert pxt.list_tables(p('')) == [p('tbl1')]
         pxt.move(p('tbl1'), p('tbl2'))
@@ -307,8 +305,8 @@ class TestTable:
             pxt.move(p('tbl2'), p('TBL2'))
         assert sorted(pxt.list_tables(p(''))) == sorted([p('tbl2'), p('tbl3')])
 
-    def test_columns(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
-        p = make_catalog_path
+    def test_columns(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
         schema: dict[str, Any] = {
             'c1': pxt.String | None,
             'c2': pxt.Int | None,
@@ -318,8 +316,8 @@ class TestTable:
         t = pxt.create_table(p('test'), schema, _is_data_versioned=is_data_versioned)
         assert t.columns() == ['c1', 'c2', 'c3', 'c4']
 
-    def test_table_metadata(self, make_catalog_path: Callable[[str], str], local_embed: pxt.Function) -> None:
-        p = make_catalog_path
+    def test_table_metadata(self, db_root: DatabaseRoot, local_embed: pxt.Function) -> None:
+        p = db_root.make_catalog_path
         pxt.create_dir(p('dir'))
         pxt.create_dir(p('dir/subdir'))
         for rel_tbl_path, media_val in (('test', 'on_read'), ('dir/test', 'on_write'), ('dir/subdir/test', 'on_read')):
@@ -548,9 +546,9 @@ class TestTable:
                 snap.get_metadata(),
             )
 
-    def test_column_metadata(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_column_metadata(self, db_root: DatabaseRoot) -> None:
         """Test all ColumnMetadata fields across tables and views with various column types."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         tbl_path = p('test')
         t = pxt.create_table(
             tbl_path, {'c1': pxt.Int | None, 'c2': pxt.Int | None, 'img': pxt.Image | None}, has_default_idxs=True
@@ -855,8 +853,8 @@ class TestTable:
             vmd,
         )
 
-    def test_iterator_view_metadata(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_iterator_view_metadata(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         tbl_path = p('test')
         t = pxt.create_table(tbl_path, {'n': pxt.Int | None})
         t.insert(n=3)
@@ -978,8 +976,8 @@ class TestTable:
             iv.get_metadata(),
         )
 
-    def test_media_validation(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_media_validation(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         tbl_schema: dict[str, Any] = {
             'img': {'type': pxt.Image | None, 'media_validation': 'on_write'},
             'video': pxt.Video | None,
@@ -1016,10 +1014,8 @@ class TestTable:
             )
         assert "media_validation must be one of: ['on_read', 'on_write']" in str(exc_info.value)
 
-    def test_validate_on_read(
-        self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester, catalog_mode: CatalogMode
-    ) -> None:
-        p = make_catalog_path
+    def test_validate_on_read(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
+        p = db_root.make_catalog_path
         files = get_video_files(include_bad_video=True)
         rows = [{'id': i, 'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for i, f in enumerate(files)]
         schema: dict[str, Any] = {'id': pxt.Int | None, 'media': pxt.Video | None, 'is_bad_media': pxt.Bool | None}
@@ -1029,7 +1025,7 @@ class TestTable:
         # the media column is compared by content; columns that quote the stored file path (the localpath, and the
         # bad video's error message) are compared only over a collocated store, where the two tables share the
         # source file rather than each holding a distinct shipped copy
-        on_read_path_cols = [on_read_tbl.media.localpath, on_read_tbl.media.errormsg] if catalog_mode == 'local' else []
+        on_read_path_cols = [on_read_tbl.media.localpath, on_read_tbl.media.errormsg] if db_root.id == 'local' else []
         on_read_res = reload_tester.run_query(
             on_read_tbl.select(
                 on_read_tbl.media, *on_read_path_cols, on_read_tbl.media.errortype, on_read_tbl.is_bad_media
@@ -1040,7 +1036,7 @@ class TestTable:
         status = on_write_tbl.insert(rows, on_error='ignore')
         assert status.num_excs == 1
         on_write_path_cols = (
-            [on_write_tbl.media.localpath, on_write_tbl.media.errormsg] if catalog_mode == 'local' else []
+            [on_write_tbl.media.localpath, on_write_tbl.media.errormsg] if db_root.id == 'local' else []
         )
         on_write_res = reload_tester.run_query(
             on_write_tbl.select(
@@ -1051,10 +1047,8 @@ class TestTable:
 
         reload_tester.run_reload_test()
 
-    def test_validate_on_read_with_computed_col(
-        self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode
-    ) -> None:
-        p = make_catalog_path
+    def test_validate_on_read_with_computed_col(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         files = get_video_files(include_bad_video=True)
         rows = [{'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for f in files]
         schema: dict[str, Any] = {'media': pxt.Video | None, 'is_bad_media': pxt.Bool | None, 'stage': pxt.Int}
@@ -1066,7 +1060,7 @@ class TestTable:
         # the media column is compared by content, so it stays consistent across the two inserts; columns that
         # quote the stored file path (the localpath, and the bad video's error message) are compared only over a
         # collocated store, where the path is the shared source file rather than a distinct per-insert copy
-        path_cols = [on_read_tbl.media.localpath, on_read_tbl.media.errormsg] if catalog_mode == 'local' else []
+        path_cols = [on_read_tbl.media.localpath, on_read_tbl.media.errormsg] if db_root.id == 'local' else []
         status = on_read_tbl.insert(({**r, 'stage': 0} for r in rows), on_error='ignore')
         assert status.num_excs == 1
         on_read_res_1 = (
@@ -1092,8 +1086,8 @@ class TestTable:
         )
         assert_resultset_eq(on_read_res_1, on_read_res_2)
 
-    def test_create_from_query(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_create_from_query(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = test_tbl
         query1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
         t1 = pxt.create_table(p('test1'), source=query1)
@@ -1114,8 +1108,8 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be a non-empty dictionary'):
             _ = pxt.create_table(p('test3'), ['I am a string.'])  # type: ignore[arg-type]
 
-    def test_create_from_rows(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_create_from_rows(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         rows = [{'c1': i, 'c2': i * 1.5} for i in range(10)]
 
         # list source: schema is inferred from the rows and the same rows are then inserted
@@ -1131,8 +1125,8 @@ class TestTable:
         assert res2['c1'] == [r['c1'] for r in rows]
         assert res2['c2'] == [r['c2'] for r in rows]
 
-    def test_insert_query(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_insert_query(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = test_tbl
         query1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
         t1 = pxt.create_table(p('test1'), source=query1)
@@ -1225,8 +1219,8 @@ class TestTable:
 
         return t, TestModel1, rows1, TestModel2, rows2
 
-    def test_insert_pydantic_scalars(self, make_catalog_path: Callable[[str], str]) -> None:
-        t, TestModel1, rows1, TestModel2, rows2 = self._setup_pydantic_scalars(make_catalog_path)  # noqa: N806
+    def test_insert_pydantic_scalars(self, db_root: DatabaseRoot) -> None:
+        t, TestModel1, rows1, TestModel2, rows2 = self._setup_pydantic_scalars(db_root.make_catalog_path)  # noqa: N806
 
         # return_rows reports the stored rows; they reconstruct exactly to the input models (same as compute())
         status = t.insert(rows1, return_rows=True)
@@ -1253,8 +1247,8 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='Expected an instance of `TestModel1`; got `TestModel2`'):
             _ = t.insert(cast(list[pydantic.BaseModel], rows1 + rows2))
 
-    def test_compute_with_errors(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_compute_with_errors(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test_null_handling'), {'id': pxt.Int | None, 'data': pxt.Json | None})
         t.add_computed_column(inv=1 / t.id)
         # unstored computed col: no persisted cellmd slot, but compute() must still report the error
@@ -1282,9 +1276,9 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='ZeroDivisionError'):
             t.compute([{'id': 0, 'data': None}], on_error='abort')
 
-    def test_compute_media_errors(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_compute_media_errors(self, db_root: DatabaseRoot) -> None:
         """compute() with a computed column on a media input, exercising media validation errors."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         files = get_video_files(include_bad_video=True)
         rows = [{'media': f} for f in files]
         t = pxt.create_table(p('test_compute_media_errors'), {'media': pxt.Video | None}, media_validation='on_write')
@@ -1305,8 +1299,8 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.INVALID_DATA_FORMAT, match='bad_video'):
             t.compute(rows, on_error='abort')
 
-    def test_compute_input_errors(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_compute_input_errors(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test_compute_input_errors'), {'id': pxt.Int | None})
         t.add_computed_column(plus1=t.id + 1)
 
@@ -1328,10 +1322,10 @@ class TestTable:
         out = t.compute(({'id': 1}, {'id': 2}))
         assert out == [{'id': 1, 'plus1': 2}, {'id': 2, 'plus1': 3}]
 
-    def test_array_and_media_columns(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
+    def test_array_and_media_columns(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         # arrays and in-memory images cross the wire inlined; a file-backed media path is read directly (the
         # daemon shares this client's filesystem and media store)
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(
             p('array_media'),
             {'id': pxt.Int | None, 'a': pxt.Array | None, 'img': pxt.Image | None},
@@ -1354,8 +1348,8 @@ class TestTable:
         assert np.array_equal(out['a'], arr * 2)
         assert isinstance(out['rotated'], PIL.Image.Image)
 
-    def test_compute_with_idx(self, make_catalog_path: Callable[[str], str], clip_embed: pxt.Function) -> None:
-        p = make_catalog_path
+    def test_compute_with_idx(self, db_root: DatabaseRoot, clip_embed: pxt.Function) -> None:
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('transformers')
         t = pxt.create_table(p('test_compute_with_idx'), {'img': pxt.Image | None})
         t.add_computed_column(rotated=t.img.rotate(90), stored=False)
@@ -1385,8 +1379,8 @@ class TestTable:
         assert view_out.column_names == ['img', 'rotated', 'md']
         assert all(row.index_values == {} for row in view_out)
 
-    def test_compute_view(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_compute_view(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test_compute_view_base'), {'id': pxt.Int | None, 's': pxt.String | None})
         t.add_computed_column(plus1=t.id + 1)
         v = pxt.create_view(
@@ -1462,8 +1456,8 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='sample clause'):
             sv.compute([{'id': 1, 's': 'a'}])
 
-    def test_compute_component_view(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_compute_component_view(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test_compute_cv_base'), {'id': pxt.Int | None})
         t.add_computed_column(plus1=t.id + 1)
         v = pxt.create_view(p('test_compute_cv'), t, iterator=DummyIterator(limit=t.id))
@@ -1509,10 +1503,8 @@ class TestTable:
         assert len(out) == 0
         assert out.column_names == ['id', 'plus1', 'out2', 'o2x2', 'pos', 'out1', 'out3']
 
-    def test_insert_return_rows_with_idx(
-        self, make_catalog_path: Callable[[str], str], is_data_versioned: bool
-    ) -> None:
-        p = make_catalog_path
+    def test_insert_return_rows_with_idx(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(
             p('test_insert_return_rows_with_idx'),
             {'id': pxt.Int | None, 'name': pxt.String | None, 'ts': pxt.Timestamp | None},
@@ -1530,8 +1522,8 @@ class TestTable:
         stored = {row['id']: row['ts'] for row in t.select(t.id, t.ts).collect()}
         assert all(r['ts'] == stored[r['id']] for r in rows)
 
-    def test_compute_pydantic_scalars(self, make_catalog_path: Callable[[str], str]) -> None:
-        t, TestModel1, rows1, TestModel2, rows2 = self._setup_pydantic_scalars(make_catalog_path)  # noqa: N806
+    def test_compute_pydantic_scalars(self, db_root: DatabaseRoot) -> None:
+        t, TestModel1, rows1, TestModel2, rows2 = self._setup_pydantic_scalars(db_root.make_catalog_path)  # noqa: N806
 
         output = t.compute(rows1)
         assert all(out['c1'] == out['i'] + 1 for out in output)
@@ -1554,8 +1546,8 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.TYPE_MISMATCH, match='Expected an instance of `TestModel1`; got `TestModel2`'):
             _ = t.compute(cast(list[pydantic.BaseModel], rows1 + rows2))
 
-    def test_pydantic_errors(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_pydantic_errors(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         # value provided for computed column
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='has fields for computed columns: c1'):
             t = pxt.create_table(p('bad1'), {'i': pxt.Int | None})
@@ -1661,8 +1653,8 @@ class TestTable:
 
             _ = t.insert([BadModel8(t='0')])
 
-    def test_insert_nested_pydantic(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_insert_nested_pydantic(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         schema: dict[str, Any] = {'s': pxt.String, 'j': pxt.Json}
         t = pxt.create_table(p('test_nested_pydantic'), schema)
 
@@ -1744,8 +1736,8 @@ class TestTable:
 
             _ = t.insert([BadModel2(s='str_0', j=N4(s='str_0', n=N3(s={1, 2, 3})))])
 
-    def test_pydantic_media(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_pydantic_media(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         schema: dict[str, Any] = {'img': pxt.Image}
         t = pxt.create_table(p('test_pydantic_media'), schema)
 
@@ -1777,8 +1769,8 @@ class TestTable:
 
     # Test the various combinations of type hints available in schema definitions and validate that they map to the
     # correct ColumnType instances.
-    def test_schema_types(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
-        p = make_catalog_path
+    def test_schema_types(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
         test_columns: dict[str, Any] = {
             'str_col': pxt.String | None,
             'req_str_col': pxt.String,
@@ -1866,13 +1858,13 @@ class TestTable:
         actual_by_name = {name: col['type_'] for name, col in t.get_metadata()['columns'].items()}
         assert actual_by_name == expected_by_name
 
-    def test_empty_table(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_empty_table(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         with pxt_raises(pxt.ErrorCode.INVALID_ARGUMENT, match='must be a non-empty dictionary'):
             pxt.create_table(p('empty_table'), {})
 
-    def test_drop_table(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_drop_table(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test1'), {'c1': pxt.String | None})
         pxt.drop_table(p('test1'))
         with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
@@ -1907,8 +1899,8 @@ class TestTable:
         _ = pxt.get_table(p('test3'))
         pxt.drop_table(p('test3'))
 
-    def test_drop_table_via_handle(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_drop_table_via_handle(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test1'), {'c1': pxt.String | None})
         pxt.drop_table(t)
         with pxt_raises(pxt.ErrorCode.PATH_NOT_FOUND, match='does not exist'):
@@ -1944,8 +1936,8 @@ class TestTable:
         _ = pxt.get_table(p('test3'))
         pxt.drop_table(t)
 
-    def test_drop_table_force(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_drop_table_force(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = pxt.get_table(p('test_tbl'))
         v1 = pxt.create_view(p('v1'), t)
         v2 = pxt.create_view(p('v2'), t)
@@ -1958,8 +1950,8 @@ class TestTable:
         pxt.drop_table(p('test_tbl'), force=True)  # Drops everything else
         assert len(pxt.list_tables(p(''))) == 0
 
-    def test_drop_table_force_via_handle(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_drop_table_force_via_handle(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = pxt.get_table(p('test_tbl'))
         v1 = pxt.create_view(p('v1'), t)
         v2 = pxt.create_view(p('v2'), t)
@@ -1974,9 +1966,9 @@ class TestTable:
         pxt.drop_table(t, force=True)  # Drops everything else
         assert len(pxt.list_tables(p(''))) == 0
 
-    def test_drop_table_if_not_exists(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_drop_table_if_not_exists(self, db_root: DatabaseRoot) -> None:
         """Test the if_not_exists parameter of drop_table API"""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         non_existing_t = 'non_existing_table'
         table_list = pxt.list_tables(p(''))
         assert p(non_existing_t) not in table_list
@@ -2000,10 +1992,8 @@ class TestTable:
         pxt.drop_table(p('not_a_parent_dir/non_existing_table'), force=True)
         assert table_list == pxt.list_tables(p(''))
 
-    def test_image_table(
-        self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, is_data_versioned: bool
-    ) -> None:
-        p = make_catalog_path
+    def test_image_table(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
         n_sample_rows = 20
         schema: dict[str, Any] = {
             'img': pxt.Image | None,
@@ -2012,7 +2002,7 @@ class TestTable:
             'img_literal': pxt.Image | None,
         }
         tbl = pxt.create_table(p('test'), schema, _is_data_versioned=is_data_versioned)
-        check_media_store_count(tbl, 0, catalog_mode, default_input_dest=True)
+        check_media_store_count(tbl, 0, db_root, default_input_dest=True)
 
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         sample_rows = random.sample(rows, n_sample_rows)
@@ -2025,10 +2015,10 @@ class TestTable:
         # img is inserted from local file paths: stored in place (counted as 0) for a local catalog, but shipped
         # to and persisted in the daemon's media store over the proxy; img_literal is inline bytes, persisted in
         # both. So the proxy media store additionally holds one img file per row.
-        shipped_img = n_sample_rows if catalog_mode == 'proxy' else 0
+        shipped_img = n_sample_rows if db_root.id == 'proxy' else 0
 
         tbl.insert(sample_rows)
-        check_media_store_count(tbl, n_sample_rows + shipped_img, catalog_mode, default_input_dest=True)
+        check_media_store_count(tbl, n_sample_rows + shipped_img, db_root, default_input_dest=True)
 
         # compare img and img_literal
         # TODO: make tbl.select(tbl.img == tbl.img_literal) work
@@ -2040,19 +2030,19 @@ class TestTable:
         # Test adding stored image transformation
         tbl.add_computed_column(rotated=tbl.img.rotate(30), stored=True)
         if Env.get().default_input_media_dest == Env.get().default_output_media_dest:
-            check_media_store_count(tbl, 2 * n_sample_rows + shipped_img, catalog_mode, default_input_dest=True)
+            check_media_store_count(tbl, 2 * n_sample_rows + shipped_img, db_root, default_input_dest=True)
 
         if is_data_versioned:
             # Test that version-specific images are cleared when table is reverted
             tbl.revert()
-            check_media_store_count(tbl, n_sample_rows + shipped_img, catalog_mode, default_input_dest=True)
+            check_media_store_count(tbl, n_sample_rows + shipped_img, db_root, default_input_dest=True)
 
         # Test that all stored images are cleared when table is dropped
         pxt.drop_table(p('test'))
-        check_media_store_count(tbl, 0, catalog_mode, default_input_dest=True)
+        check_media_store_count(tbl, 0, db_root, default_input_dest=True)
 
-    def test_schema_spec(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_schema_spec(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME) as exc_info:
             pxt.create_table(p('test'), {'c 1': pxt.Int | None})
         assert 'invalid column name' in str(exc_info.value).lower()
@@ -2175,8 +2165,8 @@ class TestTable:
             for path in paths:
                 assert os.path.exists(path) and os.path.isfile(path)
 
-    def test_validate_json(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_validate_json(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
 
         class MySchema(TypedDict):
             a: str
@@ -2248,26 +2238,26 @@ class TestTable:
         ):
             t.update({'json_col_2': {'a': 15}})  # Validation error on update
 
-    def test_validate_image(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_validate_image(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         rows = read_data_file('imagenette2-160', 'manifest_bad.csv', ['img'])
         rows = [{'media': r['img'], 'is_bad_media': r['is_bad_image']} for r in rows]
         self.check_bad_media(p, rows, pxt.Image, validate_local_path=False)
 
-    def test_validate_video(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
-        p = make_catalog_path
+    def test_validate_video(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         files = get_video_files(include_bad_video=True)
         rows = [{'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for f in files]
-        self.check_bad_media(p, rows, pxt.Video, validate_local_path=catalog_mode == 'local')
+        self.check_bad_media(p, rows, pxt.Video, validate_local_path=db_root.id == 'local')
 
-    def test_validate_audio(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
-        p = make_catalog_path
+    def test_validate_audio(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         files = get_audio_files(include_bad_audio=True)
         rows = [{'media': f, 'is_bad_media': f.endswith('bad_audio.mp3')} for f in files]
-        self.check_bad_media(p, rows, pxt.Audio, validate_local_path=catalog_mode == 'local')
+        self.check_bad_media(p, rows, pxt.Audio, validate_local_path=db_root.id == 'local')
 
-    def test_validate_docs(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
-        p = make_catalog_path
+    def test_validate_docs(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('markitdown', 'mistune')
 
         valid_doc_paths = get_documents()
@@ -2275,11 +2265,11 @@ class TestTable:
         doc_paths = valid_doc_paths + invalid_doc_paths
         is_valid = [True] * len(valid_doc_paths) + [False] * len(invalid_doc_paths)
         rows = [{'media': f, 'is_bad_media': not is_valid} for f, is_valid in zip(doc_paths, is_valid)]
-        self.check_bad_media(p, rows, pxt.Document, validate_local_path=catalog_mode == 'local')
+        self.check_bad_media(p, rows, pxt.Document, validate_local_path=db_root.id == 'local')
 
     @rerun_on_network_error()
-    def test_validate_external_url(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
-        p = make_catalog_path
+    def test_validate_external_url(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('boto3')
         rows = [
             {'media': 's3://open-images-dataset/validation/doesnotexist.jpg', 'is_bad_media': True},
@@ -2296,12 +2286,10 @@ class TestTable:
                 'is_bad_media': False,
             },
         ]
-        self.check_bad_media(p, rows, pxt.Video, validate_local_path=catalog_mode == 'local')
+        self.check_bad_media(p, rows, pxt.Video, validate_local_path=db_root.id == 'local')
 
-    def test_file_paths(
-        self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester, catalog_mode: CatalogMode
-    ) -> None:
-        p = make_catalog_path
+    def test_file_paths(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test'), {'img': pxt.Image | None})
 
         # the localpath points to a loadable copy of the image: the original file locally, a fetched copy over
@@ -2311,7 +2299,7 @@ class TestTable:
         validate_update_status(t.insert(img=str(path)), 1)
         # Run a query that selects both the image and its path, to ensure it's loadable
         res = reload_tester.run_query(t.select(t.img, path=t.img.localpath))
-        if catalog_mode == 'local':
+        if db_root.id == 'local':
             assert res[0]['path'] == str(path)
         else:
             assert PIL.Image.open(res[0]['path']).size == res[0]['img'].size
@@ -2319,7 +2307,7 @@ class TestTable:
         # File path is a relative path
         validate_update_status(t.insert(img='tests/data/images/#_strange_file name!@$.jpg'), 1)
         res = reload_tester.run_query(t.select(t.img, path=t.img.localpath))
-        if catalog_mode == 'local':
+        if db_root.id == 'local':
             assert res[1]['path'] == str(Path('tests/data/images/#_strange_file name!@$.jpg').absolute())
         else:
             assert PIL.Image.open(res[1]['path']).size == res[1]['img'].size
@@ -2329,7 +2317,7 @@ class TestTable:
         reason='Specifying a default media destination disrupts the file cache counts',
     )
     # TODO: cannot be converted because it inspects the local file cache via FileCache and tbl._id
-    @pytest.mark.local('inspects the local file cache via FileCache and tbl._id')
+    @pytest.mark.db_roots('local', reason='inspects the local file cache via FileCache and tbl._id')
     @rerun_on_network_error()
     def test_create_s3_image_table(self, uses_db: None) -> None:
         skip_test_if_not_installed('boto3')
@@ -2386,8 +2374,8 @@ class TestTable:
         cache_stats = FileCache.get().stats()
         assert cache_stats.total_size == 0
 
-    def test_image_formats(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_image_formats(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         tbl = pxt.create_table(p('test'), {'img': pxt.Image | None})
         files = [
             'sewing-threads.heic'  # HEIC format
@@ -2395,8 +2383,8 @@ class TestTable:
         tbl.insert({'img': f'{TESTS_DIR}/data/images/{file}'} for file in files)
 
     @rerun_on_network_error()
-    def test_video_url(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_video_url(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('boto3')
         schema: dict[str, Any] = {'payload': pxt.Int | None, 'video': pxt.Video | None}
         tbl = pxt.create_table(p('test'), schema)
@@ -2411,8 +2399,8 @@ class TestTable:
             assert container.streams.video[0].codec_context.name == 'h264'
 
     @rerun_on_network_error()
-    @pytest.mark.skip_cloud(reason='Cloud service hangs on first insert [PXT-1320]')
-    def test_create_video_table(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
+    @pytest.mark.db_roots('local', 'proxy', reason='Cloud service hangs on first insert [PXT-1320]')
+    def test_create_video_table(self, db_root: DatabaseRoot) -> None:
         if Env.get().is_using_cockroachdb:
             # TODO(PXT-921): fix this on CockroachDB
             pytest.skip(
@@ -2421,7 +2409,7 @@ class TestTable:
             )
         skip_test_if_not_installed('boto3')
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         tbl = pxt.create_table(p('test_tbl'), {'payload': pxt.Int | None, 'video': pxt.Video | None})
         view = pxt.create_view(p('test_view'), tbl, iterator=legacy_frame_iterator(tbl.video))
         view.add_computed_column(c1=view.frame.rotate(30), stored=True)
@@ -2442,10 +2430,10 @@ class TestTable:
         status = tbl.insert(payload=1, video=url)
         assert status.num_excs == 0
         # * 2: we have 2 stored img cols
-        check_media_store_count(view, view.count() * 2, catalog_mode, default_output_dest=True)
+        check_media_store_count(view, view.count() * 2, db_root, default_output_dest=True)
         # also insert a local file
         tbl.insert(payload=1, video=get_video_files()[0])
-        check_media_store_count(view, view.count() * 2, catalog_mode, default_output_dest=True)
+        check_media_store_count(view, view.count() * 2, db_root, default_output_dest=True)
 
         # TODO: test inserting Nulls
         # status = tbl.insert(payload=1, video=None)
@@ -2454,7 +2442,7 @@ class TestTable:
         # revert() clears stored images
         tbl.revert()
         tbl.revert()
-        check_media_store_count(view, 0, catalog_mode, default_output_dest=True)
+        check_media_store_count(view, 0, db_root, default_output_dest=True)
 
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'because the following columns depend on it:\nc1'):
             view.drop_column('frame')
@@ -2467,11 +2455,11 @@ class TestTable:
             pxt.drop_table(p('test_tbl'))
         pxt.drop_table(p('test_view'))
         pxt.drop_table(p('test_tbl'))
-        check_media_store_count(view, 0, catalog_mode, default_output_dest=True)
+        check_media_store_count(view, 0, db_root, default_output_dest=True)
 
     @rerun_on_network_error()
-    def test_video_urls(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_video_urls(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('boto3')
         tbl = pxt.create_table(p('test'), {'video': pxt.Video | None})
 
@@ -2493,8 +2481,8 @@ class TestTable:
         with av.open(local_path) as container:
             assert container.streams.video[0].codec_context.name == 'h264'
 
-    def test_insert_nulls(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
-        p = make_catalog_path
+    def test_insert_nulls(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
         schema: dict[str, Any] = {
             'c1': pxt.String | None,
             'c2': pxt.Int | None,
@@ -2510,8 +2498,8 @@ class TestTable:
         assert status.num_rows == 1
         assert status.num_excs == 0
 
-    def test_insert(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
-        p = make_catalog_path
+    def test_insert(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
         schema: dict[str, Any] = {
             'c1': pxt.String,
             'c2': pxt.Int,
@@ -2619,8 +2607,8 @@ class TestTable:
         t.insert(str_col='Hello there.')  # Succeeds because column 'bad' is dropped
         pxt.drop_table(p('test'))
 
-    def test_insert_string_with_null(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
-        p = make_catalog_path
+    def test_insert_string_with_null(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test'), {'c1': pxt.String | None}, _is_data_versioned=is_data_versioned)
 
         t.insert([{'c1': 'this is a python\x00string'}])
@@ -2628,8 +2616,8 @@ class TestTable:
         for tup in t.collect():
             assert tup['c1'] == 'this is a python string'
 
-    def test_query(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
-        p = make_catalog_path
+    def test_query(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
         skip_test_if_not_installed('boto3')
         col_names = ['c1', 'c2', 'c3', 'c4', 'c5']
         t = make_tbl(p('test'), col_names, is_data_versioned=is_data_versioned)
@@ -2642,8 +2630,8 @@ class TestTable:
         t2 = pxt.get_table(p('test'))
         _ = t2.show(n=0)
 
-    def test_batch_update(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_batch_update(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = test_tbl
         num_rows = t.count()
         # update existing rows
@@ -2743,9 +2731,7 @@ class TestTable:
         assert res[0].items() >= {'id': 1, 'val_upper': 'UPDATED', 'num_x2': 20.0}.items()
         assert res[1].items() >= {'id': 2, 'val_upper': 'CHANGED', 'num_x2': 40.0}.items()
 
-    def test_update(
-        self, test_tbl: pxt.Table, small_img_tbl: pxt.Table, make_catalog_path: Callable[[str], str]
-    ) -> None:
+    def test_update(self, test_tbl: pxt.Table, small_img_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
         t = test_tbl
         # update every type with a literal
         test_cases = [
@@ -2859,7 +2845,7 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='not expressible'):
             img_t.update({'split': 'train'}, where=img_t.img.width > 100)
 
-    def test_batch_update_return_rows(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_batch_update_return_rows(self, db_root: DatabaseRoot) -> None:
         """Coverage for the `return_rows` parameter on Table.batch_update().
 
         Note: at the time of writing, `Table.batch_update()` does not actually cascade to
@@ -2868,7 +2854,7 @@ class TestTable:
         table has no computed columns. If batch_update's cascade behavior is fixed later, add a
         cascade-with-computed-columns case here mirroring `test_update_return_rows`.
         """
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(
             p('test_batch_update_return_rows'),
             {'id': pxt.Int, 'val': pxt.Int, 'name': pxt.String | None},
@@ -2922,9 +2908,9 @@ class TestTable:
         assert status.rows is None  # default return_rows=False
         assert status.num_rows == 1
 
-    def test_update_return_rows(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_update_return_rows(self, db_root: DatabaseRoot) -> None:
         """Coverage for the `return_rows` parameter on Table.update()."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test_update_return_rows'), {'id': pxt.Int, 'val': pxt.Int, 'name': pxt.String | None})
         t.insert(
             [{'id': 1, 'val': 10, 'name': 'a'}, {'id': 2, 'val': 20, 'name': 'b'}, {'id': 3, 'val': 30, 'name': 'c'}]
@@ -2991,11 +2977,7 @@ class TestTable:
         assert_resultset_eq(r1, r2)
 
     def test_delete(
-        self,
-        test_tbl: pxt.Table,
-        small_img_tbl: pxt.Table,
-        make_catalog_path: Callable[[str], str],
-        is_data_versioned: bool,
+        self, test_tbl: pxt.Table, small_img_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool
     ) -> None:
         t = test_tbl
 
@@ -3033,9 +3015,9 @@ class TestTable:
             img_t.delete(where=img_t.img.width > 100)
         assert 'not expressible' in str(excinfo.value)
 
-    def test_add_drop_column(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
+    def test_add_drop_column(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         """Add and drop columns on a populated table. Validates values, dependencies, and persistence."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(
             p('add_drop'), {'c_int': pxt.Int, 'c_str': pxt.String}, _is_data_versioned=is_data_versioned
         )
@@ -3077,8 +3059,8 @@ class TestTable:
         assert list(t.get_metadata()['columns']) == ['c_int', 'c_str', 'c_double']
         assert t.order_by(t.c_int).collect()['c_double'] == [None] * 4
 
-    def test_computed_cols(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
-        p = make_catalog_path
+    def test_computed_cols(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
         schema: dict[str, Any] = {'c1': pxt.Int | None, 'c2': pxt.Float | None, 'c3': pxt.Json | None}
         t: pxt.Table = pxt.create_table(p('test'), schema, _is_data_versioned=is_data_versioned)
         status = t.add_computed_column(c4=t.c1 + 1)
@@ -3135,9 +3117,9 @@ class TestTable:
         # now it works
         t.drop_column('c4')
 
-    def test_computed_col_apply(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_computed_col_apply(self, db_root: DatabaseRoot) -> None:
         # apply() produces a function without a fully-qualified path, which can't be persisted into a computed column
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test'), {'c2': pxt.Float | None})
         with pxt_raises(
             pxt.ErrorCode.UNSUPPORTED_OPERATION,
@@ -3149,7 +3131,7 @@ class TestTable:
         assert sorted(t.select(r=t.c2.apply(math.sqrt, col_type=pxt.Float)).collect()['r']) == [2.0, 3.0]
 
     # TODO: cannot be converted because the UDF reads a client-process-local module global the daemon cannot see
-    @pytest.mark.local('UDF reads a client-process-local module global the daemon cannot see')
+    @pytest.mark.db_roots('local', reason='UDF reads a client-process-local module global the daemon cannot see')
     def test_unstored_computed_cols(self, uses_db: None) -> None:
         schema: dict[str, Any] = {'c1': pxt.Int | None, 'c2': pxt.Float | None}
         t = pxt.create_table('test', schema)
@@ -3171,8 +3153,8 @@ class TestTable:
         for row in t_res:
             assert row['c3'] + 1000 == row['c4']
 
-    def test_expr_udf_computed_cols(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
-        p = make_catalog_path
+    def test_expr_udf_computed_cols(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test'), {'c1': pxt.Int | None}, _is_data_versioned=is_data_versioned)
         rows = [{'c1': i} for i in range(100)]
         status = t.insert(rows)
@@ -3206,10 +3188,8 @@ class TestTable:
         assert status.num_excs == 0
         check(t)
 
-    def test_computed_col_exceptions(
-        self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str], is_data_versioned: bool
-    ) -> None:
-        p = make_catalog_path
+    def test_computed_col_exceptions(self, test_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
         if Env.get().is_using_cockroachdb:
             # TODO Fix this on CockroachDB; it's a problem!
             pytest.skip('Skipped on CockroachDB due to columns still being created when add_computed_column() fails.')
@@ -3248,7 +3228,9 @@ class TestTable:
         assert sum('division by zero' in msg for msg in msgs if msg is not None) == 10
 
     # TODO: cannot be converted: KeyboardInterrupt injection is client-process-local and does not reach the daemon
-    @pytest.mark.local('KeyboardInterrupt injection is client-process-local and does not reach the daemon')
+    @pytest.mark.db_roots(
+        'local', reason='KeyboardInterrupt injection is client-process-local and does not reach the daemon'
+    )
     def test_computed_col_with_interrupts(self, uses_db: None) -> None:
         schema: dict[str, Any] = {'c1': pxt.Int | None}
         t = pxt.create_table('test_interrupt', schema)
@@ -3262,11 +3244,11 @@ class TestTable:
         assert len(results.schema) == 1
         assert results.schema.get('cc1') is None
 
-    def _test_computed_img_cols(self, t: pxt.Table, stores_img_col: bool, catalog_mode: CatalogMode) -> None:
+    def _test_computed_img_cols(self, t: pxt.Table, stores_img_col: bool, db_root: DatabaseRoot) -> None:
         # over the proxy, img (inserted from local file paths) is shipped and persisted in the daemon media store,
         # which the default config shares with the output dest, so each row also contributes one stored input image
         def expected(tbl: pxt.Table) -> int:
-            return tbl.count() * stores_img_col + (tbl.count() if catalog_mode == 'proxy' else 0)
+            return tbl.count() * stores_img_col + (tbl.count() if db_root.id == 'proxy' else 0)
 
         rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
         rows = [{'img': r['img']} for r in rows[:20]]
@@ -3274,7 +3256,7 @@ class TestTable:
         assert status.num_rows == 20
         _ = t.count()
         _ = t.show()
-        check_media_store_count(t, expected(t), catalog_mode, default_output_dest=True)
+        check_media_store_count(t, expected(t), db_root, default_output_dest=True)
 
         # test loading from store
         reload_catalog()
@@ -3287,35 +3269,35 @@ class TestTable:
 
         # make sure we can still insert data and that computed cols are still set correctly
         t2.insert(rows)
-        check_media_store_count(t2, expected(t2), catalog_mode, default_output_dest=True)
+        check_media_store_count(t2, expected(t2), db_root, default_output_dest=True)
         _ = t2.collect()
         _ = t2.collect().to_pandas()
 
         # revert also removes computed images
         t2.revert()
-        check_media_store_count(t2, expected(t2), catalog_mode, default_output_dest=True)
+        check_media_store_count(t2, expected(t2), db_root, default_output_dest=True)
 
     @staticmethod
     @pxt.udf
     def img_fn_with_exc(img: PIL.Image.Image) -> PIL.Image.Image:
         raise RuntimeError
 
-    @pytest.mark.skip_cloud(reason='Cloud service hangs on first insert [PXT-1320]')
-    def test_computed_img_cols(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
-        p = make_catalog_path
+    @pytest.mark.db_roots('local', 'proxy', reason='Cloud service hangs on first insert [PXT-1320]')
+    def test_computed_img_cols(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         schema: dict[str, Any] = {'img': pxt.Image | None}
         t = pxt.create_table(p('test'), schema)
         t.add_computed_column(c2=t.img.width)
         # c3 is not stored by default
         t.add_computed_column(c3=t.img.rotate(90), stored=False)
-        self._test_computed_img_cols(t, stores_img_col=False, catalog_mode=catalog_mode)
+        self._test_computed_img_cols(t, stores_img_col=False, db_root=db_root)
 
         t = pxt.create_table(p('test2'), schema)
         # c3 is now stored
         t.add_computed_column(c3=t.img.rotate(90))
-        self._test_computed_img_cols(t, stores_img_col=True, catalog_mode=catalog_mode)
+        self._test_computed_img_cols(t, stores_img_col=True, db_root=db_root)
         _ = t.select(t.c3).collect()
-        self._test_computed_img_cols(t, stores_img_col=True, catalog_mode=catalog_mode)
+        self._test_computed_img_cols(t, stores_img_col=True, db_root=db_root)
         _ = t.select(t.c3.errortype).collect()
 
         # computed img col with exceptions
@@ -3326,10 +3308,8 @@ class TestTable:
         t.insert(rows, on_error='ignore')
         _ = t.select(t.c3.errortype).collect()
 
-    def test_computed_window_fn(
-        self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str], is_data_versioned: bool
-    ) -> None:
-        p = make_catalog_path
+    def test_computed_window_fn(self, test_tbl: pxt.Table, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
         t = test_tbl
         # backfill
         t.add_computed_column(c9=pxtf.sum(t.c2, group_by=t.c4, order_by=t.c3))
@@ -3342,8 +3322,8 @@ class TestTable:
         new_t.insert(rows)
         _ = new_t.collect()
 
-    def test_revert(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_revert(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t1 = make_tbl(p('test1'), ['c1', 'c2'])
         assert t1._get_version() == 0
         rows1 = create_table_data(t1)
@@ -3368,7 +3348,7 @@ class TestTable:
             t1.revert()
         assert 'version 0' in str(excinfo.value)
 
-    def test_add_column(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
+    def test_add_column(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
         t = test_tbl
         orig_cols = set(t.columns())
         t.add_column(add1=pxt.Int | None)
@@ -3434,8 +3414,8 @@ class TestTable:
         t = pxt.get_table(t.get_metadata()['path'])
         assert set(t.columns()) == orig_cols
 
-    def test_bool_column(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
-        p = make_catalog_path
+    def test_bool_column(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
+        p = db_root.make_catalog_path
         # test adding a bool column with constant value
         t1 = pxt.create_table(p('test1'), {'c1': pxt.Int | None})
         t1.insert([{'c1': 1}, {'c1': 2}])
@@ -3649,7 +3629,7 @@ class TestTable:
         return str(i + TestTable.recompute_udf_increment)
 
     # TODO: cannot be converted because the UDF reads client-process-local class attributes the daemon cannot see
-    @pytest.mark.local('UDF reads client-process-local class attributes the daemon cannot see')
+    @pytest.mark.db_roots('local', reason='UDF reads client-process-local class attributes the daemon cannot see')
     def test_recompute_column(self, uses_db: None) -> None:
         t = pxt.create_table('recompute_test', schema={'i': pxt.Int | None, 's': pxt.String | None})
         status = t.add_computed_column(i1=self.recompute_int_udf(t.i))
@@ -3773,8 +3753,8 @@ class TestTable:
         # if_not_exists='ignore' does nothing if the column does not exist
         t.drop_column(non_existing_col, if_not_exists='ignore')
 
-    def test_drop_column(self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_drop_column(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = test_tbl
         dummy_t = pxt.create_table(p('dummy'), {'dummy_col': pxt.Int | None})
         num_orig_cols = len(t.columns())
@@ -3845,8 +3825,8 @@ class TestTable:
             s1.drop_column('s1')
         assert 's1' in s1.columns()
 
-    def test_drop_column_via_reference(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_drop_column_via_reference(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t1 = pxt.create_table(p('test1'), {'c1': pxt.String | None, 'c2': pxt.String | None})
         t1.insert([{'c1': 'a1', 'c2': 'b1'}, {'c1': 'a2', 'c2': 'b2'}])
         t2 = pxt.create_table(p('test2'), {'c1': pxt.String | None, 'c2': pxt.String | None})
@@ -3869,8 +3849,8 @@ class TestTable:
         pxt.drop_table(t1)
         pxt.drop_table(t2)
 
-    def test_rename_column(self, make_catalog_path: Callable[[str], str], is_data_versioned: bool) -> None:
-        p = make_catalog_path
+    def test_rename_column(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
+        p = db_root.make_catalog_path
         t = create_test_tbl(p('test_tbl'), is_data_versioned=is_data_versioned)
         num_orig_cols = len(t.columns())
         t.rename_column('c1', 'c1_renamed')
@@ -3910,10 +3890,8 @@ class TestTable:
             t = pxt.get_table(p('test_tbl'))
             check_rename(t, 'c1', 'c1_renamed')
 
-    def test_add_computed_column(
-        self, test_tbl: pxt.Table, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester
-    ) -> None:
-        p = make_catalog_path
+    def test_add_computed_column(self, test_tbl: pxt.Table, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
+        p = db_root.make_catalog_path
         t = test_tbl
         status = t.add_computed_column(add1=t.c2 + 10)
         assert status.num_excs == 0
@@ -3950,8 +3928,8 @@ class TestTable:
 
         reload_tester.run_reload_test()
 
-    def test_computed_column_types(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_computed_column_types(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(
             p('test'), {'c1': pxt.Int | None, 'c1_r': pxt.Int, 'c2': pxt.String | None, 'c2_r': pxt.String}
         )
@@ -3976,14 +3954,8 @@ class TestTable:
         actual_schema = {col: val['type_'] for col, val in metadata['columns'].items()}
         assert expected_schema == actual_schema
 
-    def test_repr(
-        self,
-        make_catalog_path: Callable[[str], str],
-        test_tbl: pxt.Table,
-        local_embed: pxt.Function,
-        catalog_mode: CatalogMode,
-    ) -> None:
-        p = make_catalog_path
+    def test_repr(self, db_root: DatabaseRoot, test_tbl: pxt.Table, local_embed: pxt.Function) -> None:
+        p = db_root.make_catalog_path
 
         def loc(path: str) -> str:
             """Localized version of p(path), without the pxt://org:db/ prefix"""
@@ -4128,7 +4100,7 @@ class TestTable:
         # - ColumnRef.__repr__ renders its owner table client-side via the local catalog plus the
         #   LocalTable-only _col_descriptor/_index_descriptor, neither of which a proxy column's table satisfies
         # - the iterator view over a snapshot-of-a-view renders an ancestor chain the proxy md export doesn't carry
-        if catalog_mode != 'local':
+        if db_root.id != 'local':
             return
 
         validate_repr(
@@ -4203,9 +4175,9 @@ class TestTable:
                                  c8  Array[(2, 3), int64]         test_tbl              [[1, 2, 3], [4, 5, 6]]""",  # noqa: E501
         )
 
-    def test_common_col_names(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_common_col_names(self, db_root: DatabaseRoot) -> None:
         """Make sure that commonly used column names don't collide with Table member vars"""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         names = ['id', 'name', 'version', 'comment']
         schema = dict.fromkeys(names, pxt.Int)
         tbl = pxt.create_table(p('test'), schema)
@@ -4216,10 +4188,8 @@ class TestTable:
         # we can create references to those column via __getattr__
         _ = tbl.select(tbl.id, tbl.name, tbl.version, tbl.comment).collect()
 
-    def test_table_api_on_dropped_table(
-        self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, local_embed: pxt.Function
-    ) -> None:
-        p = make_catalog_path
+    def test_table_api_on_dropped_table(self, db_root: DatabaseRoot, local_embed: pxt.Function) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test'), {'c1': pxt.Int | None, 'c2': pxt.String | None})
         pxt.drop_table(p('test'))
         unknown_tbl_msg = 'Table was dropped'
@@ -4293,7 +4263,7 @@ class TestTable:
             _ = t._repr_html_()
 
         # dataset exports are not implemented over proxy
-        if catalog_mode == 'local':
+        if db_root.id == 'local':
             with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
                 _ = t.to_coco_dataset()
             with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
@@ -4302,10 +4272,8 @@ class TestTable:
         with pxt_raises(pxt.ErrorCode.TABLE_NOT_FOUND, match=unknown_tbl_msg):
             t.revert()
 
-    def test_drop_column_in_view_predicate(
-        self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester
-    ) -> None:
-        p = make_catalog_path
+    def test_drop_column_in_view_predicate(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl'), {'c1': pxt.Int | None, 'c2': pxt.Int | None})
         v1 = pxt.create_view(p('view1'), t.where(t.c1 % 2 == 0), additional_columns={'vc1': pxt.Int | None})
         v2 = pxt.create_view(p('view2'), v1.where((t.c1 + v1.vc1) % 2 == 0), additional_columns={'vc2': pxt.Int | None})
@@ -4341,8 +4309,8 @@ class TestTable:
         ):
             v1.drop_column('vc1')
 
-    def test_drop_last_column(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
-        p = make_catalog_path
+    def test_drop_last_column(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl'), {'c1': pxt.Int | None, 'c2': pxt.Int | None})
         # drop the first column
         t.drop_column('c1')
@@ -4357,9 +4325,9 @@ class TestTable:
             t.drop_column('c2')
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_add_column_with_metadata(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
+    def test_add_column_with_metadata(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
         """Combined test for t.add_column() and t.add_columns()"""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl'), {'c1': pxt.Int | None, 'c2': pxt.String | None})
 
         # invalid metadata parameters are rejected
@@ -4400,8 +4368,8 @@ class TestTable:
         assert t.get_metadata()['columns']['c5']['is_stored']
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_table_comment(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
-        p = make_catalog_path
+    def test_table_comment(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl'), {'c': pxt.Int | None}, comment='This is a test table.')
         assert t.get_metadata()['comment'] == 'This is a test table.'
 
@@ -4414,8 +4382,8 @@ class TestTable:
             pxt.create_table(p('tbl_invalid'), {'c': pxt.Int | None}, comment={'comment': 'This is a test table.'})  # type: ignore[arg-type]
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_table_custom_metadata(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
-        p = make_catalog_path
+    def test_table_custom_metadata(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
+        p = db_root.make_catalog_path
         custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
         t = pxt.create_table(p('tbl'), {'c': pxt.Int | None}, custom_metadata=custom_metadata)
         assert t.get_metadata()['custom_metadata'] == custom_metadata
@@ -4429,8 +4397,8 @@ class TestTable:
             pxt.create_table(p('tbl_invalid'), {'c': pxt.Int | None}, custom_metadata={'key': set})
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_column_custom_metadata(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
-        p = make_catalog_path
+    def test_column_custom_metadata(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
+        p = db_root.make_catalog_path
         custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
         t = pxt.create_table(p('tbl'), {'c': {'type': pxt.Int | None, 'custom_metadata': custom_metadata}})
         assert t.get_metadata()['columns']['c']['custom_metadata'] == custom_metadata
@@ -4451,8 +4419,8 @@ class TestTable:
             pxt.create_table(p('tbl_invalid'), {'c': {'type': pxt.Int | None, 'custom_metadata': {'key': set}}})
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_column_comment(self, make_catalog_path: Callable[[str], str], do_reload_catalog: bool) -> None:
-        p = make_catalog_path
+    def test_column_comment(self, db_root: DatabaseRoot, do_reload_catalog: bool) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl'), {'c': {'type': pxt.Int | None, 'comment': 'This is a test column.'}})
         assert t.get_metadata()['columns']['c']['comment'] == 'This is a test column.'
 
@@ -4474,9 +4442,9 @@ class TestTable:
                 {'c': {'type': pxt.Int | None, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
             )
 
-    def test_case_insensitive_columns(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_case_insensitive_columns(self, db_root: DatabaseRoot) -> None:
         """Column names are matched case-insensitively, and the folded spelling is what gets stored."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('T'), {'MyCol': pxt.Int | None, 'Other': pxt.String}, primary_key=['OTHER'])
 
         # stored and displayed folded
@@ -4518,9 +4486,9 @@ class TestTable:
         t2.alter_column('NUM', type_=pxt.Int | None)
         validate_update_status(t2.insert([{'num': None}]), 1)
 
-    def test_case_insensitive_column_name_resolution(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_case_insensitive_column_name_resolution(self, db_root: DatabaseRoot) -> None:
         """Names that fold onto each other, or onto a reserved name, are rejected."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
 
         with pxt_raises(pxt.ErrorCode.INVALID_SCHEMA, match=r'Column names are case-insensitive'):
             pxt.create_table(p('bad'), {'a': pxt.Int | None, 'A': pxt.String | None})
@@ -4557,7 +4525,7 @@ class TestTable:
             t.rename_column('c', 'Count')
         assert 'c' in t.columns()
 
-    @pytest.mark.local("Operational table feature, doesn't need to run with proxy")
+    @pytest.mark.db_roots('local', reason="Operational table feature, doesn't need to run with proxy")
     def test_unsupported_operational_tbl_ops(self, uses_db: None) -> None:
         operational_tbl = pxt.create_table('t0', {'n': pxt.Int | None}, _is_data_versioned=False)
         data_versioned_tbl = pxt.create_table('t1', {'n': pxt.Int | None}, _is_data_versioned=True)

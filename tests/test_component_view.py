@@ -9,10 +9,10 @@ import pytest
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.functions.video import frame_iterator, legacy_frame_iterator
-from tests.test_iterator import simple_iterator
 
+from .test_iterator import simple_iterator
 from .utils import (
-    CatalogMode,
+    DatabaseRoot,
     assert_resultset_eq,
     get_test_video_files,
     pxt_raises,
@@ -151,12 +151,12 @@ class colliding_iterator(pxt.PxtIterator):
 
 class TestComponentView:
     @pytest.mark.skip(reason='surfaces a bug (DuplicateAlias)')
-    def test_same_base_join(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_same_base_join(self, db_root: DatabaseRoot) -> None:
         # Two distinct component views over the same base, one live and one snapshotted, joined with both unstored
         # iterator columns selected: the base table appears at two versions in one plan. Per-view iterator-arg
         # retargeting binds each view to its own base version, but join SQL generation currently gives the shared
         # base store table the same alias in both branches.
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('join_base'), {'k': pxt.Int | None, 'n': pxt.Int | None})
         validate_update_status(t.insert([{'k': 0, 'n': 5}]), expected_rows=1)
         view_a = pxt.create_view(p('join_view_a'), t, iterator=scaled_iterator(t.n))
@@ -173,9 +173,9 @@ class TestComponentView:
         assert res['live'] == [90, 91, 92]
         assert res['pinned'] == [50, 51, 52]
 
-    def test_basic(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
+    def test_basic(self, db_root: DatabaseRoot) -> None:
         # create video table
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         schema: dict[str, Any] = {'video': pxt.Video | None, 'angle': pxt.Int | None, 'other_angle': pxt.Int | None}
         video_t = pxt.create_table(p('video_tbl'), schema)
         video_filepaths = get_test_video_files()
@@ -210,7 +210,7 @@ class TestComponentView:
         # matching a media column against its own .fileurl in a filter only works when the value the query
         # returns is the same one stored server-side; over the proxy .fileurl yields a fetchable daemon URL, not
         # the daemon's stored file:// path, so this round-trip is exercised in local mode only
-        if catalog_mode == 'local':
+        if db_root.id == 'local':
             video_url = video_t.select(video_t.video.fileurl).collect()[0, 0]
             result = (
                 view_t.where(view_t.video == video_url)
@@ -222,9 +222,9 @@ class TestComponentView:
             assert len(result) > 0
             assert np.all(result['frame_idx'] == pd.Series(range(len(result))))
 
-    def test_add_column(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_add_column(self, db_root: DatabaseRoot) -> None:
         # create video table
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         video_t = pxt.create_table(p('video_tbl'), {'video': pxt.Video | None})
         video_filepaths = get_test_video_files()
         # create frame view
@@ -242,9 +242,9 @@ class TestComponentView:
         with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match='Duplicate column name: annotation'):
             view_t.add_column(annotation=pxt.Json)
 
-    def test_nondeterministic(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_nondeterministic(self, db_root: DatabaseRoot) -> None:
         """Test that a nondeterministic expr in a view column is recomputed for each row"""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         video_t = pxt.create_table(p('video_tbl'), {'video': pxt.Video | None})
         video_filepaths = get_test_video_files()
         # Scenario 1: additional_columns
@@ -271,9 +271,9 @@ class TestComponentView:
         res = view_t.select(view_t.id).collect()
         assert len(res) > 0 and len(set(res['id'])) == len(res)
 
-    def test_update(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_update(self, db_root: DatabaseRoot) -> None:
         # create video table
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         video_t = pxt.create_table(p('video_tbl'), {'video': pxt.Video | None})
         # create frame view with manually updated column
         view_t = pxt.create_view(
@@ -315,10 +315,12 @@ class TestComponentView:
         assert 'must be nullable' in str(excinfo.value)
 
     @pytest.mark.parametrize('has_column,has_filter', [(False, False), (True, False), (False, True), (True, True)])
-    def test_snapshot(self, has_column: bool, has_filter: bool, make_catalog_path: Callable[[str], str]) -> None:
+    def test_snapshot(self, has_column: bool, has_filter: bool, db_root: DatabaseRoot) -> None:
         for reload_md in [False, True]:
             reload_catalog()
-            self.run_snapshot_test(make_catalog_path, has_column=has_column, has_filter=has_filter, reload_md=reload_md)
+            self.run_snapshot_test(
+                db_root.make_catalog_path, has_column=has_column, has_filter=has_filter, reload_md=reload_md
+            )
 
     def run_snapshot_test(self, p: Callable[[str], str], has_column: bool, has_filter: bool, reload_md: bool) -> None:
         base_path = p('video_tbl')
@@ -400,10 +402,10 @@ class TestComponentView:
         pxt.drop_table(view_path)
         pxt.drop_table(base_path)
 
-    def test_chained_views(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
+    def test_chained_views(self, db_root: DatabaseRoot) -> None:
         """Component view followed by a standard view"""
         # create video table
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         schema: dict[str, Any] = {'video': pxt.Video | None, 'int1': pxt.Int | None, 'int2': pxt.Int | None}
         video_t = pxt.create_table(p('video_tbl'), schema)
         video_filepaths = get_test_video_files()
@@ -493,7 +495,7 @@ class TestComponentView:
         # the where clause matches the video column against a source-file URL, which only identifies the stored
         # row when the value isn't reshipped server-side; over the proxy the daemon stores its own copy, so the
         # update-propagation scenario runs in local mode only
-        if catalog_mode == 'local':
+        if db_root.id == 'local':
             video_url = Path(video_filepaths[0]).as_uri()
             status = video_t.update({'int1': video_t.int1 + 1}, where=video_t.video == video_url)
             assert (
@@ -515,8 +517,8 @@ class TestComponentView:
             assert sorted(str.split('.')[1] for str in status.updated_cols) == ['img4', 'int2', 'int6', 'int7']
             check_view()
 
-    def test_create_view_error(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_create_view_error(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test'), {'i': pxt.Int | None})
         status = t.insert({'i': i} for i in range(100))
         assert status.num_excs == 0
@@ -533,9 +535,9 @@ class TestComponentView:
         # the second attempt succeeds
         _ = pxt.create_view(p('view'), t, iterator=error_iterator(t.i, 100))
 
-    def test_update_iterator_param(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_update_iterator_param(self, db_root: DatabaseRoot) -> None:
         """Updating a base table column used as an iterator parameter re-evaluates the iterator."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl'), {'n': pxt.Int | None})
         v = pxt.create_view(p('view'), t, iterator=simple_iterator(t.n, str_text='t'))
         t.insert([{'n': 5}])
@@ -551,9 +553,9 @@ class TestComponentView:
         scol_values = [row['scol'] for row in rows]
         assert scol_values == ['t 0', 't 1', 't 2', 't 3', 't 4', 't 5']
 
-    def test_update_changes_view_membership(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_update_changes_view_membership(self, db_root: DatabaseRoot) -> None:
         """A base update that changes whether a row satisfies a component view's filter updates its component rows."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl'), {'n': pxt.Int | None})
         t.insert([{'n': 2}, {'n': 3}])
         v = pxt.create_view(p('view'), t.where(t.n > 2), iterator=simple_iterator(t.n))
@@ -568,9 +570,9 @@ class TestComponentView:
         t.update({'n': 1}, where=t.n == 3)
         assert len(v.collect()) == 4
 
-    def test_update_iterator_param_with_dependent_view(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_update_iterator_param_with_dependent_view(self, db_root: DatabaseRoot) -> None:
         """A view on an iterator view also updates when the base iterator param changes."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('tbl'), {'n': pxt.Int | None})
         v = pxt.create_view(p('iter_view'), t, iterator=simple_iterator(t.n, str_text='t'))
         # non-iterator child view: additional column references the parent iterator's scol output
@@ -613,9 +615,9 @@ class TestComponentView:
         assert [r['scol'] for r in v3_rows] == ['s 0']
         assert [r['derived'] for r in v3_rows] == ['t 1_suffix']
 
-    def test_case_insensitive_iterator_outputs(self, make_catalog_path: Callable[[str], str]) -> None:
+    def test_case_insensitive_iterator_outputs(self, db_root: DatabaseRoot) -> None:
         """Iterator output names become view columns and fold."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('base'), {'n': pxt.Int})
         t.insert([{'n': 3}])
         v = pxt.create_view(p('v'), t, iterator=mixed_case_iterator(n=t.n))
