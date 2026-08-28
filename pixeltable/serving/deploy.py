@@ -11,104 +11,15 @@ import tempfile
 from pathlib import Path
 
 import toml
-from pathspec import PathSpec
 from tqdm import tqdm
 
 from pixeltable import exceptions as excs, metadata
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.serving._config import DatabaseConfig
+from pixeltable.utils.project import _LOCK_FILES, selected_files
 
 _logger = logging.getLogger(__name__)
-
-
-def _resolve_patterns(project_dir: Path, patterns: list[str]) -> set[Path]:
-    """Files under project_dir matching patterns, which use git wildmatch syntax (`*`, `**`, `!`, `dir/`)."""
-    # 'gitignore' names the pattern dialect to parse `patterns` with; no .gitignore file is read here
-    spec = PathSpec.from_lines('gitignore', patterns)
-    return {p for p in project_dir.rglob('*') if p.is_file() and spec.match_file(p.relative_to(project_dir))}
-
-
-def _gitignore_spec(dir_path: Path) -> PathSpec | None:
-    """The PathSpec for dir_path's own .gitignore, or None if it has none."""
-    gitignore = dir_path / '.gitignore'
-    if not gitignore.is_file():
-        return None
-    return PathSpec.from_lines('gitignore', gitignore.read_text().splitlines())
-
-
-def _is_gitignored(path: Path, is_dir: bool, specs: list[tuple[Path, PathSpec]]) -> bool:
-    """Whether path is ignored by specs, a list of (directory, its .gitignore) ordered outermost first.
-
-    The innermost .gitignore that has anything to say about path decides, since git lets a nested
-    .gitignore override the directories above it. Patterns are matched relative to the directory the
-    .gitignore lives in, and a trailing slash is what makes a directory-only pattern (`build/`) match.
-    """
-    for base, spec in reversed(specs):
-        rel = path.relative_to(base).as_posix() + ('/' if is_dir else '')
-        include = spec.check_file(rel).include
-        if include is not None:
-            return include
-    return False
-
-
-def _collect_unignored_files(project_dir: Path) -> set[Path]:
-    """All files under project_dir that git would not ignore.
-
-    Honors the .gitignore at every level of the tree, not just project_dir's: tools such as ruff, mypy and
-    pytest keep their caches out of git by writing a `.gitignore` containing `*` into the cache directory
-    itself, so a root-only scan bundles those caches even though `git status` reports a clean tree.
-
-    An ignored directory is not descended into, matching git's rule that a nested negation cannot
-    re-include a file whose parent directory is excluded. Directory symlinks are not followed (git stores
-    them as symlinks rather than recursing).
-
-    .git is skipped here, as git itself does, but only by default: an `include` pattern of `.git/**` still
-    reaches it, which a project that derives its version from VCS metadata needs.
-    """
-    files: set[Path] = set()
-
-    def visit(dir_path: Path, specs: list[tuple[Path, PathSpec]]) -> None:
-        spec = _gitignore_spec(dir_path)
-        if spec is not None:
-            specs = [*specs, (dir_path, spec)]
-        for entry in dir_path.iterdir():
-            if entry.name == '.git':
-                continue
-            is_dir = entry.is_dir() and not entry.is_symlink()
-            if _is_gitignored(entry, is_dir, specs):
-                continue
-            if is_dir:
-                visit(entry, specs)
-            elif entry.is_file():
-                files.add(entry)
-
-    visit(project_dir, [])
-    return files
-
-
-def _collect_project_files(
-    project_dir: Path, exclude: list[str] | None, include: list[str] | None, include_only: list[str] | None
-) -> list[Path]:
-    if include_only is not None:
-        if include is not None or exclude is not None:
-            raise excs.RequestError(
-                excs.ErrorCode.INVALID_CONFIGURATION,
-                'Cannot specify both include_only and include/exclude in a [[pixeltable.database]] entry',
-            )
-        files = _resolve_patterns(project_dir, include_only)
-
-    else:
-        # Apply .gitignore excludes, at every level of the tree
-        files = _collect_unignored_files(project_dir)
-        # Apply explicit excludes
-        if exclude is not None:
-            files -= _resolve_patterns(project_dir, exclude)
-        # Apply explicit includes (which override excludes)
-        if include is not None:
-            files |= _resolve_patterns(project_dir, include)
-
-    return sorted(files)
 
 
 def _conda_exe() -> str | None:
@@ -263,9 +174,6 @@ def build_db_runtime_bundle(
         raise FileNotFoundError(f'Project directory does not exist: {project_dir}')
 
     runtime_cfg = _load_database_config(project_dir, db_name)
-    exclude = runtime_cfg.exclude if runtime_cfg else None
-    include = runtime_cfg.include if runtime_cfg else None
-    include_only = runtime_cfg.include_only if runtime_cfg else None
     system_dependencies: list[str] = (runtime_cfg.system_dependencies or []) if runtime_cfg else []
 
     # Config override wins; otherwise use the deploy environment's version.
@@ -273,15 +181,8 @@ def build_db_runtime_bundle(
         f'{sys.version_info.major}.{sys.version_info.minor}'
     )
 
-    files_set = set(_collect_project_files(project_dir, exclude, include, include_only))
-    # Lock files are always bundled regardless of .gitignore — they control reproducible installs.
-    has_lockfile = False
-    for lock_name in ('uv.lock', 'poetry.lock', 'requirements.txt'):
-        lock_path = project_dir / lock_name
-        if lock_path.is_file():
-            files_set.add(lock_path)
-            has_lockfile = True
-    files = sorted(files_set)
+    files = selected_files(project_dir, runtime_cfg)
+    has_lockfile = any(file.parent == project_dir and file.name in _LOCK_FILES for file in files)
 
     print(f'A runtime bundle will be built containing {len(files)} files from {project_dir}.')
     print(
