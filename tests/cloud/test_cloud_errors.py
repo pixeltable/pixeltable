@@ -6,7 +6,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable import func, type_system as ts
 
-from ..utils import CatalogMode, pxt_raises
+from ..utils import DatabaseRoot, pxt_raises
 
 
 @pxt.udf
@@ -88,16 +88,14 @@ def _(cfg: str) -> ts.ColumnType:
 
 class TestCloudErrors:
     @pytest.mark.parametrize('udf_usage_type', ['select', 'computed_column'])
-    def test_udf_errors(
-        self, udf_usage_type: str, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode
-    ) -> None:
+    @pytest.mark.db_roots(
+        'proxy', 'cloud', reason='Test is specifically intended to isolate mismatches between local and proxy/cloud.'
+    )
+    def test_udf_errors(self, udf_usage_type: str, db_root: DatabaseRoot) -> None:
         """Test that we get the right error message when UDF resolution fails on cloud."""
         import tests.cloud.test_cloud_errors  # noqa: PLW0406
 
-        if catalog_mode == 'local':
-            pytest.skip("Does not run against 'local'.")
-
-        p = make_catalog_path
+        p = db_root.make_catalog_path
 
         t = pxt.create_table(p('test_udf_not_on_cloud'), {'n': pxt.Int, 'a': pxt.String})
         accessor: Callable
@@ -153,14 +151,14 @@ class TestCloudErrors:
         ):
             accessor(n_plus_1=udf_with_import_error_on_cloud('a_constant', t.n))
 
-    def test_iterator_errors(self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode) -> None:
+    @pytest.mark.db_roots(
+        'proxy', 'cloud', reason='Test is specifically intended to isolate mismatches between local and proxy/cloud.'
+    )
+    def test_iterator_errors(self, db_root: DatabaseRoot) -> None:
         """Test that we get the right error message when iterator resolution fails on cloud."""
         import tests.cloud.test_cloud_errors  # noqa: PLW0406
 
-        if catalog_mode == 'local':
-            pytest.skip("Does not run against 'local'.")
-
-        p = make_catalog_path
+        p = db_root.make_catalog_path
 
         t = pxt.create_table(p('test_iterator_not_on_cloud'), {'n': pxt.Int, 'a': pxt.String})
 
