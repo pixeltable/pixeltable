@@ -127,7 +127,7 @@ def _column_conflicts(conn: sql.Connection) -> list[str]:
                 by_folded.setdefault(_fold(name), []).append(name)
         for folded, names in by_folded.items():
             if len(names) > 1:
-                spellings = ', '.join(repr(n) for n in sorted(names))
+                spellings = ', '.join(repr(name) for name in sorted(names))
                 problems.append(
                     f'table id={tbl_id}, schema version {schema_version} has columns {spellings}, which all become '
                     f'{folded!r}; a conflict in a historical version can only be resolved by dropping the table, '
@@ -149,7 +149,7 @@ def _index_conflicts(conn: sql.Connection) -> list[str]:
             by_folded.setdefault(_fold(idx_md['name']), []).append(idx_md['name'])
         for folded, names in by_folded.items():
             if len(names) > 1:
-                spellings = ', '.join(repr(n) for n in sorted(names))
+                spellings = ', '.join(repr(name) for name in sorted(names))
                 problems.append(f'table id={tbl_id} has indexes {spellings}, which all become {folded!r}')
     return problems
 

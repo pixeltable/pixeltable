@@ -131,13 +131,13 @@ def fold_identifier(name: str) -> str:
     return name.lower()
 
 
-def fold_mapping_keys(m: Mapping[str, _T]) -> dict[str, _T]:
+def fold_mapping_keys(map: Mapping[str, _T]) -> dict[str, _T]:
     """Fold the keys of a user-supplied column mapping, raising INVALID_SCHEMA if keys collide once folded."""
     result: dict[str, _T] = {}
-    for name, spec in m.items():
+    for name, spec in map.items():
         folded_name = fold_identifier(name)
         if folded_name in result:
-            spellings = ', '.join(repr(n) for n in m if fold_identifier(n) == folded_name)
+            spellings = ', '.join(repr(name_) for name_ in map if fold_identifier(name_) == folded_name)
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA, f'Column names are case-insensitive, but {spellings} were specified'
             )
