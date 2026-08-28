@@ -118,7 +118,7 @@ class TestSnapshot:
         tbl = create_test_tbl(name=tbl_path)
         assert 'c1' in tbl.columns()
         with pxt_raises(
-            pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=re.escape("Columns ('c1') already exist in the base table")
+            pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=re.escape("Column 'c1' already exists in the base table")
         ):
             pxt.create_snapshot(p('snap2'), tbl, additional_columns={'c1': pxt.Int | None})
 

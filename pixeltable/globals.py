@@ -410,12 +410,11 @@ def create_view(
     additional_columns = catalog.normalize_schema(additional_columns or {})
     # additional columns should not be in the base table
     base_col_names = {col_md.name for col_md in tbl_path.column_md()}
-    shadowed = [name for name in additional_columns if name in base_col_names]
-    if len(shadowed) > 0:
+    shadowed = next((name for name in additional_columns if name in base_col_names), None)
+    if shadowed is not None:
         raise excs.AlreadyExistsError(
             excs.ErrorCode.COLUMN_ALREADY_EXISTS,
-            f'Columns ({", ".join(repr(name) for name in shadowed)}) already exist in the base table '
-            f'{tbl_path.tbl_name()!r}.',
+            f'Column {shadowed!r} already exists in the base table {tbl_path.tbl_name()!r}.',
         )
 
     if iterator is not None and not isinstance(iterator, func.GeneratingFunctionCall):

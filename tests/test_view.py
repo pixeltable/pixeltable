@@ -332,7 +332,7 @@ class TestView:
         # the time of creating a view will raise an error now.
         for col_name in ('c1', 'C1'):
             with pxt_raises(
-                pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=re.escape("Columns ('c1') already exist in the base table")
+                pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=re.escape("Column 'c1' already exists in the base table")
             ):
                 pxt.create_view(p('test_view'), t, additional_columns={col_name: pxt.Int | None})
 
