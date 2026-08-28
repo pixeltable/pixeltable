@@ -6,8 +6,6 @@ in the same file is compared as usual. Serving this case is deferred -- see the 
 
 # ruff: noqa: F821  # a model body refers to its own columns by bare name
 
-from __future__ import annotations
-
 import fastapi
 
 import pixeltable as pxt

@@ -8,6 +8,7 @@ import __future__
 import dataclasses
 import sys
 from pathlib import Path
+from types import FrameType
 from typing import TYPE_CHECKING, Any, Literal, MutableMapping, Sequence, TypedDict, cast
 from uuid import UUID, uuid4
 
@@ -243,18 +244,27 @@ class _ModelNamespace(dict):
     reserved_cols: dict[str, Literal['base query', 'iterator']]
 
     # The scope in which the class body is defined; used to evaluate stringized type annotations (see
-    # set_col_type). Populated from the defining frame in TableModelMeta.__prepare__.
-    eval_globals: dict[str, Any]
-    eval_locals: dict[str, Any]
+    # set_col_type()) and prebind annotations.
+    caller: FrameType
 
-    def __init__(self, table_spec: TableSpec, eval_globals: dict[str, Any], eval_locals: dict[str, Any]) -> None:
+    # The next two are populated only by prebind_annotations().
+
+    # Annotation types for names that are also assigned in the body, applied after the assignment so that
+    # the type check happens in the order it would under eager annotations.
+    pending_ann_types: dict[str, Any]
+
+    # Column names in source-declaration order; None on the eager path, where the body itself orders them.
+    decl_order: list[str] | None
+
+    def __init__(self, table_spec: TableSpec, caller: FrameType) -> None:
         super().__init__()
 
         self.table_spec = table_spec
         self.known_cols = {}
         self.reserved_cols = {}
-        self.eval_globals = eval_globals
-        self.eval_locals = eval_locals
+        self.caller = caller
+        self.pending_ann_types = {}
+        self.decl_order = None
 
         # Pre-seed __annotations__ so the compiler routes bare annotations through
         # our recorder rather than a plain dict it would otherwise create.
@@ -268,6 +278,10 @@ class _ModelNamespace(dict):
             raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, f'Invalid column name: {key!r}')
         else:
             self.set_col_value(key, value)
+            if key in self.pending_ann_types:
+                # An annotated assignment (`col: SomeType = Column(...)`). Under eager annotations the
+                # annotation is recorded right after the value, so apply it here to get the same check.
+                self.set_col_type(key, self.pending_ann_types.pop(key))
 
     def add_reserved_column_ref(
         self, name: str, col_type: ts.ColumnType, kind: Literal['base query', 'iterator']
@@ -319,11 +333,10 @@ class _ModelNamespace(dict):
     def set_col_type(self, name: str, type_: Any) -> None:
         self._check_reserved(name)
         if isinstance(type_, str):
-            # Under from __future__ import annotations (PEP 563) -- and mandatory on Python 3.14+, where
-            # PEP 649 otherwise defers annotation evaluation entirely -- annotations arrive as strings. Evaluate
+            # Under from __future__ import annotations (PEP 563), annotations arrive as strings. Evaluate
             # the string in the scope where the model class is defined to recover the actual type.
             try:
-                type_ = eval(type_, self.eval_globals, self.eval_locals)
+                type_ = eval(type_, self.caller.f_globals, self.caller.f_locals)
             except Exception as exc:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
@@ -340,6 +353,69 @@ class _ModelNamespace(dict):
         # Bare annotation (col: SomeType): record the spec and make the name referenceable in the body.
         self.known_cols[name] = {'type': type_}  # type: ignore[typeddict-item]
         super().__setitem__(name, exprs.ColumnRefByName(name, type_))
+
+    def prebind_annotations(self, cls_name: str, display_name: str) -> None:
+        """
+        Register the class body's annotations before the body runs, for the PEP 649 deferred-annotation
+        path where they produce no namespace operations of their own.
+
+        Bare annotations are registered immediately, so that the names resolve as typed column references
+        in the statements that follow. Names that are also assigned in the body are deferred to
+        `__setitem__`, which applies them once the assignment has been processed.
+        """
+        from . import _code_frame_utils  # inline import, since we only need this on Python 3.14+
+
+        body_code = _code_frame_utils.find_class_body_code(self.caller, cls_name)
+        if body_code is None:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'{display_name}: could not resolve column type annotations; try adding '
+                '`from __future__ import annotations` to your module.',
+            )
+
+        try:
+            annotation_types = _code_frame_utils.evaluate_annotations(body_code, self, self.caller.f_globals)
+        except Exception as exc:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'{display_name}: could not resolve column type annotations; try adding '
+                '`from __future__ import annotations` to your module.',
+            ) from exc
+
+        annotations = _code_frame_utils.annotation_lines(body_code)
+        assign_lines = _code_frame_utils.assignment_lines(body_code)
+
+        # `annotation_types` is the authoritative set of annotations; the recovered lines only order them. Ignore
+        # any name the two don't agree on, and fall back to appending annotations the line scan missed.
+        ordered_anns = [(col_name, line) for col_name, line in annotations if col_name in annotation_types]
+        found = {col_name for col_name, _line in ordered_anns}
+        ordered_anns.extend((col_name, sys.maxsize) for col_name in annotation_types if col_name not in found)
+
+        # Declaration order is the source order of annotations and assignments interleaved. A name that is
+        # both annotated and assigned occupies a single position, contributed by whichever comes first.
+        by_line = sorted(ordered_anns + assign_lines, key=lambda entry: entry[1])
+        decl_order: list[str] = []
+        for col_name, _line in by_line:
+            if col_name not in decl_order:
+                decl_order.append(col_name)
+        self.decl_order = decl_order
+
+        assigned = {col_name for col_name, _line in assign_lines}
+        for col_name, _line in ordered_anns:
+            if col_name.startswith('_'):
+                continue  # not a column, matching the eager path
+            if col_name in assigned:
+                self.pending_ann_types[col_name] = annotation_types[col_name]
+            else:
+                self.set_col_type(col_name, annotation_types[col_name])
+
+    def apply_decl_order(self) -> None:
+        """Reorder `known_cols` into source-declaration order, if it is known independently of the body."""
+        if self.decl_order is None:
+            return
+        ordered = {name: self.known_cols[name] for name in self.decl_order if name in self.known_cols}
+        ordered.update({name: spec for name, spec in self.known_cols.items() if name not in ordered})
+        self.known_cols = ordered
 
 
 def _bind_query_templates(e: exprs.Expr, catalog_dir: str) -> exprs.Expr:
@@ -481,21 +557,11 @@ class TableModelMeta(type):
             media_validation_ = MediaValidation.validated(media_validation, '`media_validation`')
 
             # Capture the scope in which the class body is being defined, so that stringized type annotations
-            # (see _ModelNamespace.set_col_type) can be evaluated. sys._getframe(1) is the frame executing
-            # the class ...: statement (__build_class__ is a C function and creates no frame).
+            # (see _ModelNamespace.set_col_type) can be evaluated, and so that deferred annotations can be
+            # bound promptly on Python 3.14+.
+            # sys._getframe(1) is the frame executing the class ...: statement
+            # (__build_class__ is a C function and creates no frame).
             caller = sys._getframe(1)
-
-            # On Python 3.14+, annotations are not evaluated eagerly (PEP 649), so the model's column annotations
-            # would be dropped and body references to them would raise NameError *before* we ever reach
-            # __new__. from __future__ import annotations restores the eager (stringized) behavior the model
-            # relies on. Detect its absence here -- before the body runs -- and fail with an actionable message.
-            future_annotations = bool(caller.f_code.co_flags & __future__.annotations.compiler_flag)
-            if sys.version_info >= (3, 14) and not future_annotations:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA,
-                    f'{display_name}: On Python 3.14+, you must use `from __future__ import annotations` '
-                    'in your module in order to declare a TableModel.',
-                )
 
             namespace = _ModelNamespace(
                 {
@@ -509,8 +575,7 @@ class TableModelMeta(type):
                     'custom_metadata': custom_metadata,
                     'is_data_versioned': _is_data_versioned,
                 },
-                eval_globals=caller.f_globals,
-                eval_locals=caller.f_locals,
+                caller=caller,
             )
 
             if base is not None and base.select_list is not None:
@@ -526,6 +591,14 @@ class TableModelMeta(type):
                 for col_name, output in iterator.outputs.items():
                     assert is_valid_identifier(col_name)
                     namespace.add_reserved_column_ref(col_name, output.col_type, 'iterator')
+
+            has_future_annotations = bool(caller.f_code.co_flags & __future__.annotations.compiler_flag)
+            if sys.version_info >= (3, 14) and not has_future_annotations:
+                # On Python 3.14+ without `from __future__ import annotations`, annotations are not evaluated eagerly
+                # (PEP 649), so the model's column annotations produce no namespace operations and body references to
+                # them would raise `NameError` before we ever reach `__new__`. In this situation we recover the
+                # annotations from the class body's code object instead and make them available promptly.
+                namespace.prebind_annotations(cls_name, display_name)
 
             return namespace
 
@@ -584,6 +657,7 @@ class TableModelMeta(type):
             return super().__new__(mcs, cls_name, bases, namespace)
 
         assert isinstance(namespace, _ModelNamespace)
+        namespace.apply_decl_order()
 
         if len(namespace.known_cols) == 0 and namespace.table_spec['base'] is None:
             raise excs.RequestError(excs.ErrorCode.INVALID_SCHEMA, 'Empty table schema not allowed.')

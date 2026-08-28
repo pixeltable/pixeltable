@@ -6,8 +6,6 @@ A corpus file the schema and service CLI tests share: `pxt schema update` create
 
 # ruff: noqa: F821  # a model body refers to its own columns by bare name
 
-from __future__ import annotations
-
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.serving import FastAPIRouter
