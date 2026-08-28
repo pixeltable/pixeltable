@@ -2,16 +2,16 @@
 
 Case sensitivity
 ----------------
-A class body is Python; the catalog is Pixeltable. Names follow the rules of the domain they are in, and fold
-where they cross -- in resolution.prepare_model() and diff.user_columns()/base_query_columns(), not here.
+A class body is Python; the catalog is Pixeltable. Names follow the rules of their own domain, and fold where they
+cross -- in resolution.prepare_model() and diff.user_columns()/base_query_columns(), not here.
 
-A name that is a Python *binding* (columns, base-query select() kwargs, iterator outputs) keeps its spelling until
-the crossing: __columns__ is keyed as written, a re-cased class-body reference is a NameError, and M.MYCOL raises while
-M.table.MYCOL resolves. A name that is only a string denoting a Pixeltable identifier (name=, EmbeddingIndex(name=...))
-folds on arrival. Reserved names are Pixeltable-domain, so _check_reserved() compares them folded.
+A column the model declares is a Python *binding* and keeps its spelling until the crossing: __columns__ is keyed as
+written, and a re-cased class-body reference is a NameError. Once the class is bound, M.MyCol and M.mycol are the same
+attribute, but M.MYCOL raises while M.table.MYCOL resolves. A name that is only a string denoting a Pixeltable
+identifier (name=, EmbeddingIndex(name=...)) folds on arrival.
 
-The namespace deliberately binds each as-written key to a ColumnRefByName carrying the *folded* name: the binding is
-Python, the reference is Pixeltable, so _bind() needs no side table.
+The namespace deliberately binds each key to a ColumnRefByName carrying the *folded* name: the binding is Python, the
+reference is Pixeltable, so _bind() needs no side table.
 
 Hence declaring one spelling twice fails here, while Foo and foo -- two good Python names -- collide only at
 the crossing, in create_all() and the update_all() diff.
@@ -298,10 +298,9 @@ class _ModelNamespace(dict):
         """Add `name` as a reserved column (it is resolvable in the class body, and its symbol cannot be reused,
         but it does not have a ColumnSpec and will not be included in the list of columns for the view to create).
         """
-        folded_name = fold_identifier(name)
-        self.reserved_cols[folded_name] = kind
-        # the dict key stays as written -- it is a Python name in the class body -- but the column it denotes is folded
-        super().__setitem__(name, ColumnRefByName(folded_name, col_type))
+        assert name == fold_identifier(name)
+        self.reserved_cols[name] = kind
+        super().__setitem__(name, ColumnRefByName(name, col_type))
 
     def _check_reserved(self, name: str) -> None:
         """Reject `name` if it is already produced by the base query or the iterator."""
