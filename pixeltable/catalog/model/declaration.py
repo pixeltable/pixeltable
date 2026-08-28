@@ -244,9 +244,8 @@ class _ModelNamespace(dict):
     reserved_cols: dict[str, Literal['base query', 'iterator']]
 
     # The scope in which the class body is defined; used to evaluate stringized type annotations (see
-    # set_col_type). Populated from the defining frame in TableModelMeta.__prepare__.
-    eval_globals: dict[str, Any]
-    eval_locals: dict[str, Any]
+    # set_col_type) and prebind annotations.
+    caller: FrameType
 
     # Populated only on the deferred-annotation path (Python 3.14+ without `from __future__ import
     # annotations`), where annotations are recovered up front rather than as the body runs; see
@@ -261,14 +260,13 @@ class _ModelNamespace(dict):
     # Column names in source-declaration order, or None when order is established by the body itself.
     decl_order: list[str] | None
 
-    def __init__(self, table_spec: TableSpec, eval_globals: dict[str, Any], eval_locals: dict[str, Any]) -> None:
+    def __init__(self, table_spec: TableSpec, caller: FrameType) -> None:
         super().__init__()
 
         self.table_spec = table_spec
         self.known_cols = {}
         self.reserved_cols = {}
-        self.eval_globals = eval_globals
-        self.eval_locals = eval_locals
+        self.caller = caller
         self.pending_ann_types = {}
         self.decl_order = None
 
@@ -343,7 +341,7 @@ class _ModelNamespace(dict):
             # PEP 649 otherwise defers annotation evaluation entirely -- annotations arrive as strings. Evaluate
             # the string in the scope where the model class is defined to recover the actual type.
             try:
-                type_ = eval(type_, self.eval_globals, self.eval_locals)
+                type_ = eval(type_, self.caller.f_globals, self.caller.f_locals)
             except Exception as exc:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
@@ -361,7 +359,7 @@ class _ModelNamespace(dict):
         self.known_cols[name] = {'type': type_}  # type: ignore[typeddict-item]
         super().__setitem__(name, exprs.ColumnRefByName(name, type_))
 
-    def prebind_annotations(self, caller: FrameType, cls_name: str, display_name: str) -> None:
+    def prebind_annotations(self, cls_name: str, display_name: str) -> None:
         """
         Register the class body's annotations before the body runs, for the PEP 649 deferred-annotation
         path where they produce no namespace operations of their own.
@@ -372,7 +370,7 @@ class _ModelNamespace(dict):
         """
         from . import _code_frame_utils  # inline import, since we only need this on Python 3.14+
 
-        body_code = _code_frame_utils.find_class_body_code(caller, cls_name)
+        body_code = _code_frame_utils.find_class_body_code(self.caller, cls_name)
         if body_code is None:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA,
@@ -381,7 +379,7 @@ class _ModelNamespace(dict):
             )
 
         try:
-            annotation_types = _code_frame_utils.evaluate_annotations(body_code, self, self.eval_globals)
+            annotation_types = _code_frame_utils.evaluate_annotations(body_code, self, self.caller.f_globals)
         except Exception as exc:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA,
@@ -564,8 +562,10 @@ class TableModelMeta(type):
             media_validation_ = MediaValidation.validated(media_validation, '`media_validation`')
 
             # Capture the scope in which the class body is being defined, so that stringized type annotations
-            # (see _ModelNamespace.set_col_type) can be evaluated. sys._getframe(1) is the frame executing
-            # the class ...: statement (__build_class__ is a C function and creates no frame).
+            # (see _ModelNamespace.set_col_type) can be evaluated, and so that deferred annotations can be
+            # bound promptly on Python 3.14+.
+            # sys._getframe(1) is the frame executing the class ...: statement
+            # (__build_class__ is a C function and creates no frame).
             caller = sys._getframe(1)
 
             namespace = _ModelNamespace(
@@ -580,8 +580,7 @@ class TableModelMeta(type):
                     'custom_metadata': custom_metadata,
                     'is_data_versioned': _is_data_versioned,
                 },
-                eval_globals=caller.f_globals,
-                eval_locals=caller.f_locals,
+                caller=caller
             )
 
             if base is not None and base.select_list is not None:
@@ -605,7 +604,7 @@ class TableModelMeta(type):
                 # (PEP 649), so the model's column annotations produce no namespace operations and body references to
                 # them would raise `NameError` before we ever reach `__new__`. In this situation we recover the
                 # annotations from the class body's code object instead and make them available promptly.
-                namespace.prebind_annotations(caller, cls_name, display_name)
+                namespace.prebind_annotations(cls_name, display_name)
 
             return namespace
 
