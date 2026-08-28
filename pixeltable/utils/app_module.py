@@ -158,6 +158,44 @@ def get_model_bases(module: ModuleType) -> list[model.TableModelMeta]:
     return bases
 
 
+def visible_models(module: ModuleType) -> dict[str, model.TableModelMeta]:
+    """Every model the module reaches by name, keyed by the table name each declares."""
+    models: dict[str, model.TableModelMeta] = {}
+    for value in vars(module).values():
+        if not isinstance(value, model.TableModelMeta):
+            continue
+        # a model base carries __registered_models__ as its own class attribute
+        if '__registered_models__' in value.__dict__:
+            models.update({declared.__table_spec__['name']: declared for declared in value.declared_models()})
+        else:
+            models[value.__table_spec__['name']] = value
+    return models
+
+
+def model_mismatch_error_str(models: dict[str, model.TableModelMeta], base_path: str) -> str | None:
+    """Return an error string explaining a mismatch between the models and their corresponding tables in base_path, or
+    None if there is no mismatch."""
+    diffs = model.validate_models(models, base_path)
+    mismatched = {name: diff for name, diff in diffs.items() if diff['resolution'] != 'up_to_date'}
+    if len(mismatched) == 0:
+        return None
+
+    detail = '\n'.join(line for name, diff in mismatched.items() for line in model.format_diff(name, diff))
+    target = '' if base_path == '' else f' {base_path}'
+    unsupported = sorted(name for name, diff in mismatched.items() if diff['resolution'] == 'unsupported')
+    if len(unsupported) == 0:
+        hint = f'Run `pxt schema update <app file>{target}` first.'
+    else:
+        hint = (
+            f'No schema update can reconcile {", ".join(repr(name) for name in unsupported)}: adjust the '
+            'existing table(s) manually, or adjust the models to be consistent with the catalog.'
+        )
+        if len(unsupported) < len(mismatched):
+            hint += f'\nRun `pxt schema update <app file>{target}` for the rest.'
+    names = ', '.join(repr(name) for name in sorted(mismatched))
+    return f'Cannot serve {names}:\n{detail}\n{hint}'
+
+
 def check_udf_references(bases: list[model.TableModelMeta]) -> list[str]:
     """Returns error strings for udf references in 'bases' that cannot be resolved."""
     project_root = Config.get().project_root
@@ -340,6 +378,8 @@ def _app_paths(app: fastapi.FastAPI, routers: list[FastAPIRouter]) -> list[str]:
     for route in app.routes:
         path = getattr(route, 'path', None)
         if path is not None and id(getattr(route, 'endpoint', None)) in from_routers:
+            # a route spells a path parameter with its converter, '/media/{path:path}', where the document
+            # names it '/media/{path}'
             included.add(re.sub(r'{([^}:]+):[^}]+}', r'{\1}', path))
     return sorted(set(app.openapi()['paths']) - included)
 

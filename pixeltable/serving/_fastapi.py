@@ -49,6 +49,7 @@ from pixeltable.serving import SqlExport
 from pixeltable.serving._spec import RouteSpec, ServiceSpec
 from pixeltable.serving.globals import SqlExporter
 from pixeltable.utils import image as image_utils
+from pixeltable.utils.app_module import model_mismatch_error_str
 from pixeltable.utils.http import fetch_url
 from pixeltable.utils.local_store import LocalStore, TempStore
 
@@ -468,39 +469,22 @@ class FastAPIRouter(fastapi.APIRouter):
         """The service name given to the constructor, or None if it was omitted."""
         return self._name
 
-    def _validate_model_routes(self, base_path: str = '') -> None:
-        """Check that every model a route references describes the table it names under `base_path`."""
-        referenced: dict[str, model.TableModelMeta] = {
+    def route_models(self) -> dict[str, model.TableModelMeta]:
+        """The models referenced by routes, keyed by their table names."""
+        return {
             route.model_cls.__table_spec__['name']: route.model_cls
             for route in self._routes
             if route.model_cls is not None
         }
+
+    def _validate_model_routes(self, base_path: str = '') -> None:
+        """Check that every model a route references describes the table it names under `base_path`."""
+        referenced = self.route_models()
         if len(referenced) == 0:
             return  # every route is already resolved to the table it serves
-
-        diffs = model.validate_models(referenced, base_path)
-        mismatched = {name: diff for name, diff in diffs.items() if diff['resolution'] != 'up_to_date'}
-        if len(mismatched) == 0:
-            return
-
-        # report every mismatch, so that one schema update settles all of them
-        detail = '\n'.join(line for name, diff in mismatched.items() for line in model.format_diff(name, diff))
-        target = '' if base_path == '' else f' {base_path}'
-        unsupported = sorted(name for name, diff in mismatched.items() if diff['resolution'] == 'unsupported')
-        if len(unsupported) == 0:
-            hint = f'Run `pxt schema update <app file>{target}` first.'
-        else:
-            hint = (
-                f'No schema update can reconcile {", ".join(repr(name) for name in unsupported)}: adjust the '
-                'existing table(s) manually, or adjust the models to be consistent with the catalog.'
-            )
-            if len(unsupported) < len(mismatched):
-                hint += f'\nRun `pxt schema update <app file>{target}` for the rest.'
-        raise excs.RequestError(
-            excs.ErrorCode.SCHEMA_MISMATCH,
-            f'Cannot serve the routes declared against '
-            f'{", ".join(repr(name) for name in sorted(mismatched))}:\n{detail}\n{hint}',
-        )
+        reason = model_mismatch_error_str(referenced, base_path)
+        if reason is not None:
+            raise excs.RequestError(excs.ErrorCode.SCHEMA_MISMATCH, reason)
 
     def service_spec(self, name: str | None = None) -> ServiceSpec:
         """The service this router declares, as a record that can be serialized, stored and compared.

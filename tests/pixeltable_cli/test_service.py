@@ -314,6 +314,31 @@ class TestService:
         cli('service', 'update', app, target, '-f')
         assert_serving(cli, app, target, 'ingest')
 
+    def test_custom_endpoint_model_reference(
+        self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
+    ) -> None:
+        """A model an application reaches from a handler blocks the service until its table exists."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        # served_app.py declares no route against its model: its handlers reach the table through the model
+        app, target = apps('served_app.py'), make_catalog_path('app')
+
+        r = cli('service', 'diff', app, target, '--json', check=False)
+        assert r.returncode == 2
+        assert [s['resolution'] for s in r.json['services']] == ['blocked']
+        blocked = [op for s in r.json['services'] for op in s['ops'] if op['severity'] == 'blocked']
+        assert [op['details']['command'] for op in blocked] == [f'pxt schema update {app} {target}']
+        assert "'notes'" in blocked[0]['description'], blocked[0]['description']
+
+        r = cli('service', 'update', app, target, '-f', '--json')
+        assert [s['status'] for s in r.json['services']] == ['refused']
+        assert services(cli) == {}
+
+        # applying the schema unblocks it
+        cli('schema', 'update', app, target)
+        r = cli('service', 'diff', app, target, '--json', check=False)
+        assert [s['resolution'] for s in r.json['services']] == ['create']
+
     def test_inspection(
         self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
     ) -> None:
