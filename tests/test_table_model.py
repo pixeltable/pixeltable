@@ -2,8 +2,6 @@
 # ruff: noqa: N806
 # ruff: noqa: RUF012
 
-from __future__ import annotations
-
 import os
 import pathlib
 import textwrap
@@ -2480,6 +2478,63 @@ class TestTableModel:
         # `create_all()` only creates; it refuses to run when any existing table differs from its model.
         with pxt_raises(excs.ErrorCode.SCHEMA_MISMATCH, match=r'Call `update_all\(\)` instead'):
             TableModel.create_all(p(''))
+
+    def test_ambiguous_class_name(self, db_root: DatabaseRoot) -> None:
+        """Models that share a Python class name in one scope each declare their own table.
+
+        This module omits `from __future__ import annotations`, so on Python 3.14+ the class body is
+        located by its code object; a repeated class name is the case that makes that lookup ambiguous.
+        """
+        p = db_root.make_catalog_path
+        TableModel = pxt.model_base()
+
+        class Dup(TableModel, name='dup_one'):
+            a: pxt.Int
+            b = a + 1
+
+        first = Dup
+
+        class Dup(TableModel, name='dup_two'):  # type: ignore[no-redef]
+            c: pxt.String
+            d = c.upper()
+
+        for i in range(3):
+
+            class Looped(TableModel, name=f'looped_{i}'):
+                e: pxt.Int
+                f = e + i
+
+        TableModel.create_all(p(''))
+
+        one = first.table
+        assert one.columns() == ['a', 'b']
+        one.insert([{'a': 1}])
+        assert one.collect()['b'] == [2]
+
+        two = Dup.table
+        assert two.columns() == ['c', 'd']
+        two.insert([{'c': 'x'}])
+        assert two.collect()['d'] == ['X']
+
+        for i in range(3):
+            looped = pxt.get_table(p(f'looped_{i}'))
+            assert looped.columns() == ['e', 'f']
+            looped.insert([{'e': 10 * i}])
+            assert looped.collect()['f'] == [11 * i]
+
+    def test_model_without_source(self, db_root: DatabaseRoot) -> None:
+        """A schema declared where no Python source is retrievable still creates its table."""
+        p = db_root.make_catalog_path
+        TableModel = pxt.model_base()
+        src = 'class Exec(TableModel, name="from_exec"):\n a: pxt.Int\n b = a + 1\n c: pxt.String\n'
+        exec(compile(src, '<no-source>', 'exec'), {'TableModel': TableModel, 'pxt': pxt})
+
+        TableModel.create_all(p(''))
+
+        tbl = pxt.get_table(p('from_exec'))
+        assert tbl.columns() == ['a', 'b', 'c']
+        tbl.insert([{'a': 1, 'c': 'x'}])
+        assert tbl.collect()['b'] == [2]
 
     @pytest.mark.db_roots('local', reason='a local filesystem destination is rejected for a hosted table')
     def test_config_var_destination(

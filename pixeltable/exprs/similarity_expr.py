@@ -86,19 +86,6 @@ class SimilarityExpr(Expr):
             )
         return result
 
-    @property
-    def validation_error(self) -> str | None:
-        from pixeltable.index import EmbeddingIndex
-
-        if self.table_version_key.effective_version is not None:
-            # a snapshot/pinned version doesn't support indices, so there is nothing to validate
-            return None
-        try:
-            self._tbl_path().get_idx_md(self.qcol_id, self.idx_name, EmbeddingIndex)
-            return None
-        except excs.Error as e:
-            return str(e)
-
     def is_bound_by(self, tbls: list[catalog.TablePath], siblings: list[catalog.Column] | None = None) -> bool:
         # qcol_id identifies the indexed column; a column dropped from every path resolves to no match.
         return any(tbl.has_column(self.qcol_id) for tbl in tbls) or any(

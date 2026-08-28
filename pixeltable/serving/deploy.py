@@ -9,7 +9,6 @@ import sys
 import tarfile
 import tempfile
 from pathlib import Path
-from typing import Literal
 
 import toml
 from pathspec import PathSpec
@@ -277,7 +276,7 @@ def build_db_runtime_bundle(
         _collect_project_files(project_dir, runtime_cfg.exclude, runtime_cfg.include, runtime_cfg.include_only)
     )
     # Lock files are always bundled regardless of .gitignore — they control reproducible installs.
-    deps_type: Literal['uv', 'poetry', 'pip', 'none'] = 'none'
+    deps_type = 'none'
     for d, lock_name in (('uv', 'uv.lock'), ('poetry', 'poetry.lock'), ('pip', 'requirements.txt')):
         lock_path = project_dir / lock_name
         if lock_path.is_file():

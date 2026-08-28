@@ -3,8 +3,6 @@
 # ruff: noqa: F821  # a model body refers to its own columns, and an iterator's, by bare name
 # ruff: noqa: RUF012  # __indexes__ is the declaration syntax, not a mutable class attribute
 
-from __future__ import annotations
-
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import EmbeddingIndex
