@@ -247,17 +247,13 @@ class _ModelNamespace(dict):
     # set_col_type) and prebind annotations.
     caller: FrameType
 
-    # Populated only on the deferred-annotation path (Python 3.14+ without `from __future__ import
-    # annotations`), where annotations are recovered up front rather than as the body runs; see
-    # prebind_deferred_annotations.
+    # The next two are populated only by prebind_annotations().
 
-    # On Python 3.14+ without `from __future__ import annotations`, the class body's bare annotations
-    # produce no namespace operations, so we recover them from the code object instead. We store them here
-    # Annotation types for names that are also assigned in the body; applied after the assignment so that
-    # the type check happens in the same order it would under eager annotations.
+    # Annotation types for names that are also assigned in the body, applied after the assignment so that
+    # the type check happens in the order it would under eager annotations.
     pending_ann_types: dict[str, Any]
 
-    # Column names in source-declaration order, or None when order is established by the body itself.
+    # Column names in source-declaration order; None on the eager path, where the body itself orders them.
     decl_order: list[str] | None
 
     def __init__(self, table_spec: TableSpec, caller: FrameType) -> None:
@@ -375,7 +371,7 @@ class _ModelNamespace(dict):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA,
                 f'{display_name}: could not resolve column type annotations; try adding '
-                '`from __future__ import annotations` to your module.'
+                '`from __future__ import annotations` to your module.',
             )
 
         try:
@@ -384,7 +380,7 @@ class _ModelNamespace(dict):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_SCHEMA,
                 f'{display_name}: could not resolve column type annotations; try adding '
-                '`from __future__ import annotations` to your module.'
+                '`from __future__ import annotations` to your module.',
             ) from exc
 
         annotations = _code_frame_utils.annotation_lines(body_code)
@@ -580,7 +576,7 @@ class TableModelMeta(type):
                     'custom_metadata': custom_metadata,
                     'is_data_versioned': _is_data_versioned,
                 },
-                caller=caller
+                caller=caller,
             )
 
             if base is not None and base.select_list is not None:
@@ -596,7 +592,6 @@ class TableModelMeta(type):
                 for col_name, output in iterator.outputs.items():
                     assert is_valid_identifier(col_name)
                     namespace.add_reserved_column_ref(col_name, output.col_type, 'iterator')
-
 
             has_future_annotations = bool(caller.f_code.co_flags & __future__.annotations.compiler_flag)
             if sys.version_info >= (3, 14) and not has_future_annotations:
