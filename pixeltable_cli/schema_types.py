@@ -96,3 +96,12 @@ def drop_table_op(pxt_path: PxtPath, status: OpStatus) -> SchemaChangeOp:
         'destructive': True,
         'status': status,
     }
+
+
+class CheckReport(TypedDict):
+    """What checking a file reports: whether it is valid, and what to fix or to know about."""
+
+    file: str
+    valid: bool  # False when errors is non-empty
+    errors: list[str]
+    warnings: list[str]

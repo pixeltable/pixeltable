@@ -6,12 +6,13 @@ import logging
 import os
 import re
 import shutil
+import sys
 import threading
 import typing
 import warnings
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Annotated, Any, ClassVar, Generic, Literal, NamedTuple, TypeVar
+from typing import Any, ClassVar, Generic, Literal, NamedTuple, TypeVar
 
 import pydantic
 import toml
@@ -25,128 +26,94 @@ T = TypeVar('T')
 ConfVarT = TypeVar('ConfVarT', bound=str)
 
 
-# Pydantic models for service and deployment configuration.
+# Pydantic models for deployment configuration.
 
 
-class SqlExport(pydantic.BaseModel):
-    """
-    Specification of an external RDBMS target for SQL export.
-
-    Attributes:
-        db_connect: SQLAlchemy connection string for the target database (e.g.
-            `'postgresql+psycopg://user:pw@host/db'`, `'sqlite:///path/to.db'`).
-        table: Name of the target table. It must already exist; resolution fails
-            if the table is missing.
-        db_schema: Optional database schema qualifier (e.g. `'analytics'`); leave `None` to
-            use the connection's default schema.
-        method: How to write each row into the target table.
-
-            - `'insert'`: append the row via `INSERT ... VALUES`.
-            - `'update'`: update the row by primary-key match
-              (`UPDATE ... SET ... WHERE pk=...`). Requires that the target table has a
-              primary key whose metadata is exposed by the dialect. The exported columns
-              must include all primary-key columns of the target plus at least one non-PK
-              column to set. This is a strict update, **not** an upsert: if the WHERE
-              clause matches zero rows, the export fails. Useful when the source is
-              append-only but the target is a deduplicated current-state view.
-            - `'merge'`: upsert via the target table's primary key.
-              **Currently not supported.**
-    """
+class DatabaseConfig(pydantic.BaseModel):
+    """One [[pixeltable.database]] entry: what a project supplies for one of the databases it uses."""
 
     model_config = pydantic.ConfigDict(extra='forbid')
 
-    db_connect: str
-    table: str
-    db_schema: str | None = None
-    method: Literal['insert', 'update', 'merge'] = 'insert'
+    # the database this entry configures: 'local', or the pxt://org:db uri of a hosted one
+    name: str = 'local'
 
+    # bindings for the config vars and secrets a schema declares
+    vars: dict[str, str] | None = None
+    secrets: dict[str, str] | None = None
 
-class RouteConfigBase(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra='forbid')
+    # the rest applies to a hosted database, whose runtime image is built from the project
+    exclude: list[str] | None = None  # glob patterns to exclude from the bundle
+    include: list[str] | None = None  # glob patterns to explicitly include (overrides exclude or .gitignore)
+    include_only: list[str] | None = None  # glob patterns to include as the *only* files in the bundle
+    # (must be used independently of exclude/include)
+    system_dependencies: list[str] | None = None
+    # Override the runtime Python version.
+    python_version: str | None = None
 
-    path: str
-    background: bool = False
-
-    @pydantic.field_validator('path')
+    @pydantic.field_validator('system_dependencies')
     @classmethod
-    def _validate_path(cls, v: str) -> str:
-        if not v.startswith('/'):
-            raise ValueError(f"path must start with '/' (got {v!r})")
+    def _check_system_dependencies(cls, v: list[str] | None) -> list[str] | None:
+        # Each entry is a conda/micromamba MatchSpec installed from conda-forge. Resolvability can only be
+        # checked by conda at build time, so validate just the obvious mistakes here - before the bundle is
+        # built and shipped - leaving version-constraint operators (<,>,,) alone as they're valid MatchSpec.
+        for spec in v or []:
+            if not spec.strip():
+                raise ValueError('`system_dependencies` entries must be non-empty conda package specs')
+            if any(c in spec for c in ';&$`\n\\'):
+                raise ValueError(f'invalid character in system dependency spec {spec!r}')
+        return v
+
+    @pydantic.field_validator('python_version')
+    @classmethod
+    def _check_python_version(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        v = v.strip()
+        if not re.fullmatch(r'\d+\.\d+(\.\d+)?', v):
+            raise ValueError(f"`python_version` must be a version like '3.12' or '3.12.8', got {v!r}")
         return v
 
 
-# Right now, 'compute' simply functions as an alias for 'insert' (that is permitted by `pxt deploy`).
-# TODO: Implement a separate 'compute' operation (possibly still reusing `InsertRouteConfig`) once
-#     `Table.compute()` has been implemented.
-class InsertRouteConfig(RouteConfigBase):
-    type: Literal['compute', 'insert']
-    table: str
-    inputs: list[str] | None = None
-    uploadfile_inputs: list[str] | None = None
-    outputs: list[str] | None = None
-    return_fileresponse: bool = False
-    export_sql: SqlExport | None = None
+# the entry in [[pixeltable.database]] that configures the local database
+LOCAL_DATABASE = 'local'
 
 
-class UpdateRouteConfig(RouteConfigBase):
-    type: Literal['update']
-    table: str
-    inputs: list[str] | None = None
-    outputs: list[str] | None = None
-    return_fileresponse: bool = False
-    export_sql: SqlExport | None = None
+class _Unspecified:
+    """Distinguishes "no project root was given" from a given root of None, which means no project."""
 
 
-class DeleteRouteConfig(RouteConfigBase):
-    type: Literal['delete']
-    table: str
-    match_columns: list[str] | None = None
+_UNSPECIFIED = _Unspecified()
+
+# the recognized config files
+PROJECT_CONFIG_FILE = 'pixeltable.toml'
+_PYPROJECT = 'pyproject.toml'  # with a [tool.pixeltable] section
 
 
-class QueryRouteConfig(RouteConfigBase):
-    type: Literal['query']
-    query: str  # module:attr path to a @pxt.query or retrieval_udf
-    inputs: list[str] | None = None
-    uploadfile_inputs: list[str] | None = None
-    one_row: bool = False
-    return_fileresponse: bool = False
-    method: Literal['get', 'post'] = 'post'
-
-
-RouteConfig = Annotated[
-    InsertRouteConfig | UpdateRouteConfig | DeleteRouteConfig | QueryRouteConfig, pydantic.Field(discriminator='type')
-]
-
-
-class ServiceConfig(pydantic.BaseModel):
-    model_config = pydantic.ConfigDict(extra='forbid')
-
-    name: str
-    prefix: str = ''
-    host: str = '0.0.0.0'
-    port: int = 8000
-    routes: list[RouteConfig] = pydantic.Field(default_factory=list)
-
-    @pydantic.field_validator('name')
-    @classmethod
-    def _validate_name(cls, v: str) -> str:
-        from pixeltable.catalog import is_valid_identifier
-
-        if not is_valid_identifier(v, allow_hyphens=True):
-            raise ValueError(f'{v!r} is not a valid Pixeltable identifier')
-        return v
-
-    @pydantic.field_validator('prefix')
-    @classmethod
-    def _validate_prefix(cls, v: str) -> str:
-        if v and not v.startswith('/'):
-            raise ValueError(f"prefix must be empty or start with '/' (got {v!r})")
-        return v
+def _find_project_root(start: Path) -> Path | None:
+    """Find the nearest directory holding one of the recognized project config files."""
+    start = start.resolve()
+    for dir in (start, *start.parents):
+        if (dir / PROJECT_CONFIG_FILE).is_file():
+            # pixeltable.toml takes precedence over pyproject.toml
+            return dir
+        pyproject = dir / _PYPROJECT
+        if pyproject.is_file():
+            try:
+                parsed = toml.load(pyproject)
+            except Exception as e:
+                # fail early
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_CONFIGURATION, f'{pyproject} cannot be parsed: {e}'
+                ) from e
+            tool = parsed.get('tool')
+            if isinstance(tool, dict) and 'pixeltable' in tool:
+                return dir
+    return None
 
 
 # config section names for database variables and secrets
-VAR_SECTION = 'pixeltable.clouddb.vars'
-SECRET_SECTION = 'pixeltable.clouddb.secrets'
+VAR_SECTION = 'pixeltable.database.vars'
+SECRET_SECTION = 'pixeltable.database.secrets'
 
 # environment variable prefixes for the two sections above; the general section_key rule produces a name that's not
 # shell-compatible (contains '.')
@@ -164,7 +131,7 @@ _CONFIG_VAR_NAME_RE = r'[a-z_][a-z0-9_]*'
 
 def is_env_key(ck: ConfigKey) -> bool:
     """True if this config setting can be set via an environment variable."""
-    return not (ck.section == 'pixeltable' and ck.key in _CONFIG_ONLY_KEYS)
+    return not (ck.section == 'pixeltable' and ck.key in _FILE_ONLY_KEYS)
 
 
 def env_var_name(section: str, key: str) -> str:
@@ -316,8 +283,8 @@ class ConfigKey(NamedTuple):
     description: str
     # human-readable summary for help output
     expected_type: Any
-    # type get_value() should coerce to; defaults to str. May be a parameterized generic
-    # (eg list[ServiceConfig]) rather than a plain type, so we widen to Any.
+    # type get_value() should coerce to; defaults to str. May be a parameterized generic (eg list[str])
+    # rather than a plain type, so we widen to Any.
 
 
 class Config:
@@ -336,18 +303,31 @@ class Config:
     # env vars already reported as ignored, so the warning is issued once per process
     __reported_env_vars: set[str]
 
-    # modification time and size of the config file when it was last read, needed for reload_if_changed()
-    __stamp: tuple[float, int] | None
+    __project_config_file: Path | None
+
+    # what each file supplied; __config_dict records one source per option, too coarse to name the file
+    # a single database binding came from
+    __home_config: dict[str, dict[str, tuple[Any, Path | None]]]
+    __project_config: dict[str, dict[str, tuple[Any, Path | None]]]
+
+    # modification time and size of the config files that were read, needed for reload_if_changed()
+    __stamp: tuple[tuple[float, int] | None, ...]
 
     # section -> key -> (value, source_path); source_path is None for settings that don't come from a file
     __config_dict: dict[str, dict[str, tuple[Any, Path | None]]]
 
-    def __init__(self, config_overrides: dict[str, Any]) -> None:
+    # the directory holding the project config file, or None when there is no project
+    __project_root: Path | None
+
+    def __init__(
+        self, config_overrides: dict[str, Any], project_root: Path | _Unspecified | None = _UNSPECIFIED
+    ) -> None:
         assert self.__instance is None, 'Config is a singleton; use Config.get() to access the instance'
+        self.__project_root = self.__resolve_project_root(project_root)
 
         for var in config_overrides:
             section, _, key = var.rpartition('.')
-            if section == 'pixeltable' and key in _CONFIG_ONLY_KEYS:
+            if section == 'pixeltable' and key in _FILE_ONLY_KEYS:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_CONFIGURATION,
                     f'Cannot override {var}: it can only be set via the config file.',
@@ -367,6 +347,7 @@ class Config:
 
         self.__reported_env_vars = set()
         self.__config_file = Path(self.lookup_env('pixeltable', 'config', str(self.__home / 'config.toml')))
+        self.__project_config_file = self.__resolve_project_config_file()
         self.__config_dict = self.__load_user_config()
         self.__stamp = self.__file_stamp()
         self.__warn_about_miscased_env_vars()
@@ -379,6 +360,10 @@ class Config:
     def config_file(self) -> Path:
         return self.__config_file
 
+    @property
+    def project_config_file(self) -> Path | None:
+        return self.__project_config_file
+
     @classmethod
     def get(cls) -> Config:
         if cls.__instance is not None:
@@ -387,19 +372,45 @@ class Config:
         return cls.__instance
 
     @classmethod
-    def init(cls, config_overrides: dict[str, Any] | None = None, reinit: bool = False) -> None:
+    def init(
+        cls,
+        config_overrides: dict[str, Any] | None = None,
+        reinit: bool = False,
+        project_root: Path | _Unspecified | None = _UNSPECIFIED,
+    ) -> None:
         if config_overrides is None:
             config_overrides = {}
         with cls.__init_lock:
             if reinit:
                 cls.__instance = None
             if cls.__instance is None:
-                cls.__instance = cls(config_overrides)
-            elif len(config_overrides) > 0:
+                cls.__instance = cls(config_overrides, project_root)
+            elif len(config_overrides) > 0 or not isinstance(project_root, _Unspecified):
+                # ignoring either one would leave the caller believing a setting took effect
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_STATE,
                     'Pixeltable has already been initialized; cannot specify new config values in the same session',
                 )
+
+    @property
+    def project_root(self) -> Path | None:
+        return self.__project_root
+
+    def __resolve_project_root(self, root: Path | _Unspecified | None) -> Path | None:
+        """Set the project root and put it on sys.path."""
+        if isinstance(root, _Unspecified):
+            resolved = _find_project_root(Path.cwd())
+        elif root is None:
+            return None
+        else:
+            resolved = Path(root).expanduser().resolve()
+        if resolved is None:
+            return None
+        assert resolved.is_dir(), f'not a directory: {resolved}'
+        # append(): we want an installed module to take precedence over a project module of the same name
+        if str(resolved) not in sys.path:
+            sys.path.append(str(resolved))
+        return resolved
 
     @classmethod
     def reload_if_changed(cls) -> bool:
@@ -413,17 +424,25 @@ class Config:
             if cls.__instance.__file_stamp() == cls.__instance.__stamp:
                 return False
             config_overrides = cls.__instance.__config_overrides
+            # carried forward: the working directory may have moved
+            project_root = cls.__instance.__project_root
             cls.__instance = None
-            cls.__instance = cls(config_overrides)
+            cls.__instance = cls(config_overrides, project_root)
             return True
 
-    def __file_stamp(self) -> tuple[float, int] | None:
-        """Modification time and size of the config file, or None if it is absent."""
-        try:
-            st = self.__config_file.stat()
-        except OSError:
-            return None
-        return (st.st_mtime, st.st_size)
+    def __file_stamp(self) -> tuple[tuple[float, int] | None, ...]:
+        """What reload_if_changed() compares to notice an edit."""
+
+        def stamp(path: Path | None) -> tuple[float, int] | None:
+            if path is None:
+                return None
+            try:
+                st = path.stat()
+            except OSError:
+                return None
+            return (st.st_mtime, st.st_size)
+
+        return (stamp(self.__config_file), stamp(self.__project_config_file))
 
     @classmethod
     def __create_default_config(cls, config_path: Path) -> dict[str, Any]:
@@ -455,8 +474,77 @@ class Config:
             if isinstance(section_dict, dict)
         }
 
+    def __resolve_project_config_file(self) -> Path | None:
+        """A pixeltable.toml takes precedence over a pyproject.toml in the same directory."""
+        root = self.__project_root
+        if root is None:
+            return None
+        pixeltable_toml = root / PROJECT_CONFIG_FILE
+        return pixeltable_toml if pixeltable_toml.is_file() else root / _PYPROJECT
+
+    def __load_project_config(self) -> dict[str, dict[str, tuple[Any, Path]]]:
+        """Load the project's settings, keyed like the home config's.
+
+        A pyproject.toml holds them under [tool.pixeltable]; a pixeltable.toml holds them at the top level.
+        """
+        if self.__project_config_file is None or not self.__project_config_file.exists():
+            return {}
+        parsed = self.__read_toml_file(self.__project_config_file)
+        if self.__project_config_file.name == _PYPROJECT:
+            parsed = parsed.get('tool', {}).get('pixeltable', {})
+            # in a pyproject.toml, tool.pixeltable holds the contents of the 'pixeltable' section
+            parsed = {'pixeltable': parsed} if not isinstance(parsed.get('pixeltable'), dict) else parsed
+        self.__validate_config(parsed, self.__project_config_file)
+        for section, options in parsed.items():
+            for key in options:
+                if section == 'pixeltable' and key in _INSTALLATION_KEYS:
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_CONFIGURATION,
+                        f"Cannot set 'pixeltable.{key}' in {self.__project_config_file}: it configures this "
+                        f'Pixeltable installation, not one project. Set it in {self.__config_file} instead.',
+                    )
+        return self.__add_path(parsed, self.__project_config_file)
+
     def __load_user_config(self) -> dict[str, dict[str, tuple[Any, Path]]]:
-        """Load the user's config file, creating a default one if it does not exist."""
+        """Load the home config and the project's settings, creating a default home config if absent.
+
+        A setting the project supplies wins over the same setting in the home config, which every process on
+        this installation shares.
+        """
+        self.__home_config = self.__load_home_config()
+        self.__project_config = self.__load_project_config()
+        merged = {section: dict(options) for section, options in self.__home_config.items()}
+        for section, options in self.__project_config.items():
+            for key, (supplied, source) in options.items():
+                combines = section == 'pixeltable' and key == 'database' and key in merged.get(section, {})
+                value = self.__merged_databases(merged[section][key][0], supplied) if combines else supplied
+                merged.setdefault(section, {})[key] = (value, source)
+        return merged
+
+    @classmethod
+    def __merged_databases(cls, home: list[DatabaseConfig], project: list[DatabaseConfig]) -> list[DatabaseConfig]:
+        """Combine the database entries of the home config with the project's, entry by entry.
+
+        Entries are matched by name, and a field the project sets wins, so a project adding a var keeps the
+        secrets the home config binds for the same database.
+        """
+        by_name = {db.name: db for db in home}
+        for entry in project:
+            existing = by_name.get(entry.name)
+            if existing is None:
+                by_name[entry.name] = entry
+                continue
+            fields = existing.model_dump()
+            for name, value in entry.model_dump(exclude_none=True).items():
+                if isinstance(value, dict) and isinstance(fields.get(name), dict):
+                    fields[name] = {**fields[name], **value}  # vars and secrets combine per name
+                else:
+                    fields[name] = value
+            by_name[entry.name] = DatabaseConfig.model_validate(fields)
+        return list(by_name.values())
+
+    def __load_home_config(self) -> dict[str, dict[str, tuple[Any, Path]]]:
+        """Load the installation's config file, creating a default one if it does not exist."""
         if self.__config_file.exists():
             config_dict = self.__read_toml_file(self.__config_file)
             self.__validate_config(config_dict, self.__config_file)
@@ -502,6 +590,9 @@ class Config:
                 info = KNOWN_CONFIG_OPTIONS[section][key]
                 if isinstance(info, tuple):
                     _, expected_type = info
+                    if typing.get_origin(expected_type) is list and isinstance(section_dict[key], dict):
+                        # a single table where an array of them is expected: one entry, written [section.key]
+                        section_dict[key] = [section_dict[key]]
                     section_dict[key] = cls.__validate_config_value(
                         section, key, section_dict[key], expected_type, source
                     )
@@ -555,7 +646,7 @@ class Config:
         env_var = env_var_name(section, key)
         if env_var not in os.environ or len(os.environ[env_var]) == 0:
             return default
-        if section == 'pixeltable' and key in _CONFIG_ONLY_KEYS:
+        if section == 'pixeltable' and key in _FILE_ONLY_KEYS:
             if env_var not in self.__reported_env_vars:
                 self.__reported_env_vars.add(env_var)
                 warnings.warn(
@@ -566,8 +657,32 @@ class Config:
             return default
         return os.environ[env_var]
 
+    def __database_bindings(self, section: str) -> dict[str, tuple[str, Path | None]]:
+        """Return the local database's vars or secrets, each with the file that supplied it.
+
+        [[pixeltable.database]] is an array, which the section path of a var or a secret does not address;
+        both name the entry for the local database, which is the one a process reads them from. A binding the
+        project supplies wins over one of the same name in the home config.
+        """
+        result: dict[str, tuple[str, Path | None]] = {}
+        for config, source in (
+            (self.__home_config, self.__config_file),
+            (self.__project_config, self.__project_config_file),
+        ):
+            entry = config.get('pixeltable', {}).get('database')
+            if entry is None or not isinstance(entry[0], list):
+                continue
+            local = next((db for db in entry[0] if db.name == LOCAL_DATABASE), None)
+            if local is None:
+                continue
+            bindings = local.secrets if section == SECRET_SECTION else local.vars
+            result.update({name: (value, source) for name, value in (bindings or {}).items()})
+        return result
+
     def __lookup_config_entry(self, section: str, key: str) -> tuple[Any, Path | None] | None:
         """Find key under section in __config_dict. Returns (value, source_path) or None."""
+        if section in (VAR_SECTION, SECRET_SECTION):
+            return self.__database_bindings(section).get(key)
         parts = section.split('.')
         # explicit type decl for readability
         top_section: dict[str, tuple[Any, Path | None]] | None = self.__config_dict.get(parts[0])
@@ -701,6 +816,8 @@ class Config:
 
     def __section_keys(self, section: str) -> list[str]:
         """The keys defined in section."""
+        if section in (VAR_SECTION, SECRET_SECTION):
+            return list(self.__database_bindings(section))
         parts = section.split('.')
         node: Any = self.__config_dict.get(parts[0])
         for p in parts[1:]:
@@ -758,8 +875,11 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
         's3_profile': 'AWS config profile name used to access S3 storage',
         'b2_profile': 'AWS config profile name used to access Backblaze B2 storage',
         'tigris_profile': 'AWS config profile name used to access Tigris object storage',
-        'service': ('Service configurations', list[ServiceConfig]),
-        'clouddb': 'Cloud database configuration: runtime image and variable/secret bindings',
+        'database': (
+            'One entry per database the project uses: variable and secret bindings, and for a hosted '
+            'database the contents of its runtime image',
+            list[DatabaseConfig],
+        ),
         'daemon_host': 'Listen address for the proxy daemon in fixed-address mode (e.g. 0.0.0.0)',
         'daemon_port': ('Listen port for the proxy daemon in fixed-address mode (e.g. 8000)', int),
         'db_uri': 'Base pxt:// URI for remote catalog access (e.g. pxt://myorg:mydb)',
@@ -833,12 +953,18 @@ KNOWN_CONFIG_OPTIONS: dict[str, dict[str, Any]] = {
 
 
 # settings that govern the file cache the whole instance shares, and so can only be set in the config file
-_CONFIG_ONLY_KEYS = frozenset({'file_cache_size_g', 'file_cache_lease_s'})
+# settings only a config file may set; an environment variable or a pxt.init() override is ignored
+_FILE_ONLY_KEYS = frozenset({'file_cache_size_g', 'file_cache_lease_s'})
+
+# settings that configure the installation rather than one project, so a project config file may not set them
+_INSTALLATION_KEYS = frozenset(
+    {'home', 'config', 'pgdata', 'db', 'file_cache_size_g', 'file_cache_lease_s', 'daemon_host', 'daemon_port'}
+)
 
 # the settings pxt.init() accepts, ie. the ones a single process may set
 KNOWN_CONFIG_OVERRIDES = {
     f'{section}.{key}': info
     for section, section_dict in KNOWN_CONFIG_OPTIONS.items()
     for key, info in section_dict.items()
-    if not (section == 'pixeltable' and key in _CONFIG_ONLY_KEYS)
+    if not (section == 'pixeltable' and key in _FILE_ONLY_KEYS)
 }

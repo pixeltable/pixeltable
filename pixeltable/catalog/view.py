@@ -24,7 +24,7 @@ from .update_status import UpdateStatus
 from .utils import create_table_version_md
 
 if TYPE_CHECKING:
-    from pixeltable._query import Query
+    from pixeltable._query_base import QueryBase
     from pixeltable.globals import TableDataSource
     from pixeltable.plan import SampleClause
 
@@ -58,7 +58,7 @@ class View(LocalTable):
         return 'table'
 
     @classmethod
-    def validate_view_query(cls, query: Query, *, is_snapshot: bool = False) -> None:
+    def validate_view_query(cls, query: QueryBase, *, is_snapshot: bool = False, error_prefix: str = '') -> None:
         """Verify that a view can be defined by query."""
         for clause_name, is_present in (
             ('group_by', query.group_by_clause is not None or query.grouping_tbl_key is not None),
@@ -68,23 +68,30 @@ class View(LocalTable):
         ):
             if is_present:
                 raise excs.RequestError(
-                    excs.ErrorCode.UNSUPPORTED_OPERATION, f'`{clause_name}` cannot be used in a view definition.'
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{error_prefix}`{clause_name}` cannot be used in a view definition.',
                 )
 
+        aggregate_checks: list[tuple[str, exprs.Expr]] = []
         if query.select_list is not None:
             for expr, name in query.select_list:
-                if expr.contains_(cls=exprs.FunctionCall, filter=lambda e: cast(exprs.FunctionCall, e).is_agg_fn_call):
-                    item = 'the `select()` list' if name is None else f'`select()` item {name!r}'
-                    raise excs.RequestError(
-                        excs.ErrorCode.UNSUPPORTED_OPERATION,
-                        f'{item} aggregates over the base table: {expr}\n'
-                        'Aggregates are not allowed in a view definition.',
-                    )
+                item = 'the `select()` list' if name is None else f'`select()` item {name!r}'
+                aggregate_checks.append((item, expr))
+        if query.where_clause is not None:
+            aggregate_checks.append(('the `where()` clause', query.where_clause))
+        for item, expr in aggregate_checks:
+            if expr.contains_(cls=exprs.FunctionCall, filter=lambda e: cast(exprs.FunctionCall, e).is_agg_fn_call):
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{error_prefix}{item} aggregates over the base table: {expr}\n'
+                    'Aggregates are not allowed in a view definition.',
+                )
 
         if query.sample_clause is not None and not is_snapshot and not query.sample_clause.is_repeatable:
             raise excs.RequestError(
                 excs.ErrorCode.UNSUPPORTED_OPERATION,
-                'A view that is not a snapshot can only be defined by fractional, unstratified sampling.',
+                f'{error_prefix}A view that is not a snapshot can only be defined by fractional, '
+                'unstratified sampling.',
             )
 
     @classmethod
@@ -100,7 +107,7 @@ class View(LocalTable):
         r: dict[str, ColumnSpec] = {}
         exps, names = Query._normalize_select_list([], select_list)
         for expr, name in zip(exps, names):
-            stored = not isinstance(expr, exprs.ColumnRef)
+            stored = not expr.is_column_ref
             r[name] = {'value': expr, 'stored': stored}
         return r
 

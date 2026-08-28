@@ -124,9 +124,18 @@ After every code change, before reporting it done:
 
 1. `make format`: auto-formats code.
 2. `make check`: mypy + ruff static checks; both must pass.
-3. Review the diff (`git diff`) and read every comment, docstring, and string you added. A comment must
-   describe only the code at hand (never a caller's intent or a called function's internals) and must not
-   state behavior you have not verified. Fix violations before proceeding.
+3. Review the diff (`git diff`, no pathspec: source and tests) and read every comment, docstring, and
+   string you added. A comment must describe only the code at hand (never a caller's intent or a called
+   function's internals) and must not state behavior you have not verified.
+4. Delete before rewording: cover each comment and read only the identifier, the signature, and the code
+   below it. If those carry the same fact, delete the comment rather than improving it. A docstring that
+   paraphrases the name, an "or None if ..." for a `| None` annotation, and a fact already stated elsewhere
+   all go. Keep what the reader cannot recover: a constraint a callee imposes, the reason for a surprising
+   choice, an invariant that would silently break.
+5. Check the prose that survived for straight word order, per `feedback_simple_direct_prose.md`: no
+   preposition stranded at the end of a clause, no noun-phrase pileup ("the X a Y is Z to"), no fused
+   emphatic ("X is what makes Y work" -> "X makes Y work"). Where a plainer phrase says the same thing, use
+   it. Fix every violation from steps 3 to 5 before proceeding.
 
 Skip only if explicitly directed or if the environment makes it impossible.
 

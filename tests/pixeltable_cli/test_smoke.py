@@ -7,6 +7,7 @@ table can serve multiple assertions (JSON + text + flag variants) without re-cre
 import importlib.metadata
 import json
 import os
+import pathlib
 import subprocess
 import sys
 import urllib.error
@@ -289,16 +290,24 @@ class TestCwd:
 
     @pytest.mark.local('prompt renders the working directory in the CLI absolute convention')
     def test_shell_prompt_shows_working_directory(
-        self, cli: PxtRunner, pxt_daemon: int, make_catalog_path: Callable[[str], str]
+        self, cli: PxtRunner, pxt_daemon: int, make_catalog_path: Callable[[str], str], session_project: pathlib.Path
     ) -> None:
         p = make_catalog_path
         pxt.create_dir(p('cli_cwd_shell'), if_exists='ignore')
         env = {**os.environ, 'PXT_PORT': str(pxt_daemon)}
 
         def shell_prompt() -> str:
-            # feed 'exit' so the REPL prints one prompt (to stdout) and returns
+            # feed 'exit' so the REPL prints one prompt (to stdout) and returns; run in the session's project,
+            # because a shell standing anywhere else restarts the daemon and takes the working directory with it
             r = subprocess.run(
-                ['pxt', 'shell'], input='exit\n', capture_output=True, text=True, env=env, timeout=30, check=False
+                ['pxt', 'shell'],
+                input='exit\n',
+                capture_output=True,
+                text=True,
+                env=env,
+                cwd=session_project,
+                timeout=30,
+                check=False,
             )
             assert r.returncode == 0, r.stderr
             return r.stdout

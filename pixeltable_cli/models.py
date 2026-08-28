@@ -43,6 +43,7 @@ class HealthResponse(BaseModel):
     pixeltable_home: str
     pixeltable_pgdata: str
     pixeltable_config_file: str
+    project_root: str | None = None
 
     # requests being served right now, oldest first
     in_flight: list[InFlightRequest] = Field(default_factory=list)
@@ -123,6 +124,7 @@ class StatusResponse(BaseModel):
     pid: int
     started_at: str
     home: str | None
+    project_root: str | None = Field(default=None, description='Project root of the daemon, if any.')
     db_url: str | None = Field(default=None, description='Database URL with credentials redacted.')
     media_dir: str | None
     file_cache_dir: str | None
@@ -200,6 +202,14 @@ class RevertResponse(BaseModel):
     to_version: int
 
 
+class SchemaCheckBody(BaseModel):
+    schema_file: str  # absolute filesystem path to the schema file on the daemon host
+
+
+class ServiceCheckBody(BaseModel):
+    app_file: str  # absolute filesystem path to the application file on the daemon host
+
+
 class SchemaDiffBody(BaseModel):
     schema_file: str  # absolute filesystem path to the schema file on the daemon host
     catalog_dir: PxtPath
@@ -214,6 +224,29 @@ class SchemaUpdateBody(BaseModel):
     schema_file: str  # absolute filesystem path to the schema file on the daemon host
     catalog_dir: PxtPath
     allow_destructive: bool = False
+
+
+class ServiceDiffBody(BaseModel):
+    app_file: str  # absolute filesystem path to the application file on the daemon host
+    target: PxtPath  # the catalog directory the services' models bind against
+    otel: bool = False  # the tracing setting to compare the deployments against
+
+
+class ServicePruneBody(BaseModel):
+    app_file: str  # absolute filesystem path to the application file on the daemon host
+    target: PxtPath
+
+
+class ServiceUpdateBody(BaseModel):
+    app_file: str  # absolute filesystem path to the application file on the daemon host
+    target: PxtPath
+    allow_destructive: bool = False
+    otel: bool = False
+
+
+class ServiceStopBody(BaseModel):
+    names: list[str]
+    target: PxtPath
 
 
 class CwdBody(BaseModel):
