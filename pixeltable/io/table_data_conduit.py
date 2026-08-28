@@ -169,8 +169,7 @@ class TableDataConduit:
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_SCHEMA,
                     f'Pixeltable column names are case-insensitive; columns '
-                    f'{mapped_col_to_original_col[mapped_col_name]!r} and {col_name!r} both denote column '
-                    f'{mapped_col_name!r}',
+                    f'{mapped_col_to_original_col[mapped_col_name]!r} and {col_name!r} are the same',
                 )
             mapped_col_to_original_col[mapped_col_name] = col_name
             if mapped_col_name not in self.pxt_schema:

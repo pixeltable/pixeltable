@@ -142,7 +142,7 @@ class ResultSet:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,
                     f'Result column names are case-insensitive, but model {model.__name__} has fields '
-                    f'{folded_field_name_to_original[folded]!r} and {name!r} which both denote {folded!r}',
+                    f'{folded_field_name_to_original[folded]!r} and {name!r} which are the same',
                 )
             folded_field_name_to_original[folded] = name
         required_fields = {fold_identifier(name) for name, field in model_fields.items() if field.is_required()}

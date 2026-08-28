@@ -1180,8 +1180,7 @@ class TestQuery:
             val: int = -1
 
         with pxt_raises(
-            pxt.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r"CollidingModel has fields 'Val' and 'val' which both denote 'val'",
+            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r"CollidingModel has fields 'Val' and 'val' which are the same"
         ):
             _ = list(t.select(val=t.i).collect().to_pydantic(CollidingModel))
 
