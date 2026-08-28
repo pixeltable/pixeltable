@@ -255,6 +255,8 @@ class _ModelNamespace(dict):
     # annotations`), where annotations are recovered up front rather than as the body runs; see
     # prebind_deferred_annotations.
 
+    # On Python 3.14+ without `from __future__ import annotations`, the class body's bare annotations
+    # produce no namespace operations, so we recover them from the code object instead. We store them here
     # Annotation types for names that are also assigned in the body; applied after the assignment so that
     # the type check happens in the same order it would under eager annotations.
     pending_ann_types: dict[str, Any]
@@ -556,22 +558,6 @@ class TableModelMeta(type):
             # the class ...: statement (__build_class__ is a C function and creates no frame).
             caller = sys._getframe(1)
 
-            # On Python 3.14+, annotations are not evaluated eagerly (PEP 649), so the model's column
-            # annotations produce no namespace operations and body references to them would raise NameError
-            # before we ever reach __new__. from __future__ import annotations restores the eager (stringized)
-            # behavior, which _AnnotationRecorder handles; without it we recover the annotations from the
-            # class body's code object instead (see _annotation_recovery).
-            future_annotations = bool(caller.f_code.co_flags & __future__.annotations.compiler_flag)
-            deferred_annotations = sys.version_info >= (3, 14) and not future_annotations
-            body_code = _annotation_recovery.find_class_body_code(caller, cls_name) if deferred_annotations else None
-            if deferred_annotations and body_code is None:
-                raise excs.RequestError(
-                    excs.ErrorCode.INVALID_SCHEMA,
-                    f'{display_name}: could not resolve the column type annotations, because the class body '
-                    'of the model is unavailable for inspection. Add `from __future__ import annotations` to '
-                    'your module, or define the table with `pxt.create_table()`.',
-                )
-
             namespace = _ModelNamespace(
                 {
                     'name': tbl_name,
@@ -602,8 +588,22 @@ class TableModelMeta(type):
                     assert is_valid_identifier(col_name)
                     namespace.add_reserved_column_ref(col_name, output.col_type, 'iterator')
 
-            if body_code is not None:
-                # After the reserved columns, so that redeclaring one is still reported as such.
+
+            has_future_annotations = bool(caller.f_code.co_flags & __future__.annotations.compiler_flag)
+            if sys.version_info >= (3, 14) and not has_future_annotations:
+                # On Python 3.14+ without `from __future__ import annotations`, annotations are not evaluated eagerly
+                # (PEP 649), so the model's column annotations produce no namespace operations and body references to
+                # them would raise `NameError` before we ever reach `__new__`. In this situation we recover the
+                # annotations from the class body's code object instead and make them available promptly.
+
+                body_code = _annotation_recovery.find_class_body_code(caller, cls_name)
+                if body_code is None:
+                    raise excs.RequestError(
+                        excs.ErrorCode.INVALID_SCHEMA,
+                        f'{display_name}: could not resolve column type annotations; try adding '
+                        '`from __future__ import annotations` to your module.'
+                    )
+
                 namespace.prebind_deferred_annotations(body_code, display_name)
 
             return namespace
