@@ -208,7 +208,6 @@ class LocalTable(Table):
         return hash(self._tbl_version_path.tbl_id)
 
     def __getattr__(self, name: str) -> 'exprs.ColumnRef':
-        # col_md = self._tbl_version_path.get_column_md_by_name(fold_identifier(name))
         col_md = self._tbl_version_path.get_column_md_by_name(name)
         if col_md is None:
             raise AttributeError(f'Unknown column: {name}')
@@ -721,7 +720,7 @@ class LocalTable(Table):
             self._check_mutable('alter columns of')
 
             if isinstance(column, str):
-                col = self._tbl_version_path.get_column(fold_identifier(column))
+                col = self._tbl_version_path.get_column(column)
                 if col is None:
                     raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {column}')
             else:
@@ -922,7 +921,7 @@ class LocalTable(Table):
         """Resolve a column parameter to a Column object"""
         col: Column = None
         if isinstance(column, str):
-            col = self._tbl_version_path.get_column(fold_identifier(column))
+            col = self._tbl_version_path.get_column(column)
             if col is None:
                 raise excs.NotFoundError(excs.ErrorCode.COLUMN_NOT_FOUND, f'Unknown column: {column}')
         elif isinstance(column, ColumnRef):
