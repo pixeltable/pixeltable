@@ -1,5 +1,5 @@
 import sys
-from collections.abc import Callable
+from typing import Callable
 
 
 def stdin_is_a_tty() -> bool:

@@ -3,21 +3,19 @@ Tests for UUID type and UUID primary key functionality.
 """
 
 import uuid
-from typing import Callable
 
 import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-from tests.utils import ReloadTester, pxt_raises, validate_update_status
+
+from .utils import DatabaseRoot, ReloadTester, pxt_raises, validate_update_status
 
 
 class TestUUIDType:
     @pytest.mark.parametrize('uuid_fn, uuid_version', [(pxtf.uuid.uuid4, 4), (pxtf.uuid.uuid7, 7)])
-    def test_uuid_function(
-        self, uuid_fn: pxt.Function, uuid_version: int, make_catalog_path: Callable[[str], str]
-    ) -> None:
-        p = make_catalog_path
+    def test_uuid_function(self, uuid_fn: pxt.Function, uuid_version: int, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         t = pxt.create_table(p('test_uuid_tbl'), {'id': pxt.Int | None})
         validate_update_status(t.insert([{'id': 1}, {'id': 2}, {'id': 3}]), expected_rows=3)
 
@@ -36,8 +34,8 @@ class TestUUIDType:
         # Verify all UUIDs are unique
         assert len(set(res['uuid_col'])) == 3
 
-    def test_uuid_type(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
-        p = make_catalog_path
+    def test_uuid_type(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
+        p = db_root.make_catalog_path
         # Test UUIDs of different versions
         test_uuids: list[uuid.UUID] = [
             uuid.uuid1(),
@@ -108,8 +106,8 @@ class TestUUIDType:
         # Verify queries work after reload
         reload_tester.run_reload_test()
 
-    def test_uuid_primary_key(self, make_catalog_path: Callable[[str], str], reload_tester: ReloadTester) -> None:
-        p = make_catalog_path
+    def test_uuid_primary_key(self, db_root: DatabaseRoot, reload_tester: ReloadTester) -> None:
+        p = db_root.make_catalog_path
         # Test creating a table with a UUID primary key using computed column
         t = pxt.create_table(
             p('test_uuid_pk_tbl1'), {'id': pxtf.uuid.uuid4(), 'data': pxt.String | None}, primary_key=['id']

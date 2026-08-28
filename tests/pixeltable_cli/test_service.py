@@ -1,18 +1,17 @@
 import pathlib
 import time
-from collections.abc import Callable, Iterator
 from textwrap import dedent
-from typing import Any
+from typing import Any, Callable, Iterator
 
 import httpx
 import pytest
 
 import pixeltable as pxt
 
-from ..utils import get_audio_files, get_documents, get_video_files, skip_test_if_not_installed
+from ..utils import DatabaseRoot, get_audio_files, get_documents, get_video_files, skip_test_if_not_installed
 from .conftest import BackgroundPxt, PxtRunner
 
-pytestmark = pytest.mark.local('a local service serves the in-process catalog')
+pytestmark = pytest.mark.db_roots('local', reason='a local service serves the in-process catalog')
 
 _REQUEST_TIMEOUT = 30.0
 
@@ -86,12 +85,12 @@ def assert_not_serving(cli: PxtRunner, *names: str) -> None:
 
 class TestService:
     def test_deploying_needs_agreeing_config(
-        self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
+        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot
     ) -> None:
         """A service inherits the daemon's config values, so a caller resolving them differently cannot deploy."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
-        app, target = apps('basic.py'), make_catalog_path('app')
+        app, target = apps('basic.py'), db_root.make_catalog_path('app')
         cli('schema', 'update', app, target)
         differing = {'OPENAI_API_KEY': 'sk-not-the-one-the-daemon-has'}
 
@@ -107,11 +106,11 @@ class TestService:
         deploy(cli, app, target)
         assert_serving(cli, app, target, 'ingest')
 
-    def test_basic(self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]) -> None:
+    def test_basic(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """The first deployment: declare, see what is pending, apply it, use it, take it down."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
-        app, target = apps('basic.py'), make_catalog_path('app')
+        app, target = apps('basic.py'), db_root.make_catalog_path('app')
         cli('schema', 'update', app, target)
 
         # nothing is deployed yet, and diff says so in its exit status
@@ -157,13 +156,11 @@ class TestService:
         cli('service', 'stop', 'ingest')
         assert_not_serving(cli, 'ingest')
 
-    def test_iteration(
-        self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
-    ) -> None:
+    def test_iteration(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """Editing the file: an added route is applied by restarting; a changed contract needs a flag."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
-        target = make_catalog_path('app')
+        target = db_root.make_catalog_path('app')
         deploy(cli, apps('basic.py'), target)
         before = assert_serving(cli, apps('basic.py'), target, 'ingest')['ingest']
 
@@ -197,11 +194,11 @@ class TestService:
         cli('service', 'update', apps('basic_changed_route.py'), target, '-f', '--allow-destructive')
         assert_serving(cli, apps('basic_changed_route.py'), target, 'ingest')
 
-    def test_prune(self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]) -> None:
+    def test_prune(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A service the file stopped declaring is stopped and forgotten, and can be started again."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
-        target = make_catalog_path('app')
+        target = db_root.make_catalog_path('app')
         deploy(cli, apps('basic.py'), target)
 
         # the variant declares the same models under a service of another name, so 'ingest' is an extra
@@ -221,16 +218,12 @@ class TestService:
         assert_serving(cli, apps('basic.py'), target, 'ingest')
 
     def test_run_in_the_foreground(
-        self,
-        cli: PxtRunner,
-        cli_bg: Callable[..., BackgroundPxt],
-        apps: Callable[[str], str],
-        make_catalog_path: Callable[[str], str],
+        self, cli: PxtRunner, cli_bg: Callable[..., BackgroundPxt], apps: Callable[[str], str], db_root: DatabaseRoot
     ) -> None:
         """run serves from the calling process and records nothing; update is the background form."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
-        app, target = apps('basic.py'), make_catalog_path('app')
+        app, target = apps('basic.py'), db_root.make_catalog_path('app')
         cli('schema', 'update', app, target)
 
         served = cli_bg('service', 'run', app, target)
@@ -249,13 +242,11 @@ class TestService:
         cli('service', 'update', app, target, '-f')
         assert_serving(cli, app, target, 'ingest')
 
-    def test_blocked_on_the_database(
-        self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
-    ) -> None:
+    def test_blocked_on_the_database(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A service whose tables do not exist is blocked until the schema is applied."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
-        app, target = apps('basic.py'), make_catalog_path('app')
+        app, target = apps('basic.py'), db_root.make_catalog_path('app')
 
         r = cli('service', 'diff', app, target, '--json', check=False)
         assert r.returncode == 2
@@ -280,13 +271,11 @@ class TestService:
         cli('service', 'update', app, target, '-f')
         assert_serving(cli, app, target, 'ingest')
 
-    def test_inspection(
-        self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
-    ) -> None:
+    def test_inspection(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """list inspects what a service serves, for every service or for one named by its address."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
-        target = make_catalog_path('app')
+        target = db_root.make_catalog_path('app')
         deploy(cli, apps('media.py'), target)
         assert_serving(cli, apps('media.py'), target, 'clips', 'frames', 'recordings')
 
@@ -309,11 +298,11 @@ class TestService:
         out = cli('service', 'list', f'{target}/clips').stdout
         assert '/clips' in out and 'video (file)' in out, out
 
-    def test_media(self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]) -> None:
+    def test_media(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """The routes whose request or response is not JSON: file uploads, a file response, a background job."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
-        app, target = apps('media.py'), make_catalog_path('app')
+        app, target = apps('media.py'), db_root.make_catalog_path('app')
         deploy(cli, app, target)
         running = assert_serving(cli, app, target, 'clips', 'frames', 'recordings')
 
@@ -361,12 +350,12 @@ class TestService:
         assert_not_serving(cli, 'frames')
         assert _post(running['clips']['endpoint'], '/poster', clip_id=4, video=video_url).status_code == 200
 
-    def test_search(self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]) -> None:
+    def test_search(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """An iterator view and an embedding index over the column the iterator produces."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
         skip_test_if_not_installed('spacy')  # the view's iterator splits on sentences
-        app, target = apps('search.py'), make_catalog_path('app')
+        app, target = apps('search.py'), db_root.make_catalog_path('app')
         deploy(cli, app, target)
         endpoint = assert_serving(cli, app, target, 'search')['search']['endpoint']
 
@@ -387,12 +376,10 @@ class TestService:
         assert resp.status_code == 200, resp.text
         assert resp.json()['text'].strip() in sentences, resp.json()
 
-    def test_custom_app(
-        self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
-    ) -> None:
+    def test_custom_app(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """A file supplying its own application declares a service Pixeltable cannot compare or serve."""
         skip_test_if_not_installed('fastapi')
-        app, target = apps('custom.py'), make_catalog_path('app')
+        app, target = apps('custom.py'), db_root.make_catalog_path('app')
         cli('schema', 'update', app, target)
 
         # the file's models produce working tables even though its application cannot be served
@@ -416,14 +403,12 @@ class TestService:
         assert 'is an application object of its own' in r.stderr
         assert services(cli) == {}
 
-    def test_addressing(
-        self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
-    ) -> None:
+    def test_addressing(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
         """One name at two targets: a bare name is ambiguous, an address is not."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
         app = apps('basic.py')
-        first, second = make_catalog_path('one'), make_catalog_path('two')
+        first, second = db_root.make_catalog_path('one'), db_root.make_catalog_path('two')
         deploy(cli, app, first)
         deploy(cli, app, second)
         assert_serving(cli, app, first, 'ingest')
@@ -444,8 +429,8 @@ class TestService:
         assert services(cli, first) == {}
         assert_serving(cli, app, second, 'ingest')
 
-    @pytest.mark.local('check reads no catalog, so the target axis adds nothing')
-    @pytest.mark.local('drives the local proxy daemon directly, so the target axis adds nothing')
+    @pytest.mark.db_roots('local', reason='check reads no catalog, so the target axis adds nothing')
+    @pytest.mark.db_roots('local', reason='drives the local proxy daemon directly, so the target axis adds nothing')
     def test_proxy_daemon_project_handoff(self, cli: PxtRunner, tmp_path: pathlib.Path) -> None:
         """A running proxy daemon is reused for its own project, and replaced for another."""
         skip_test_if_not_installed('fastapi')
@@ -543,14 +528,10 @@ class TestService:
         assert (report['valid'], report['errors'], report['warnings']) == (True, [], []), report
 
     def test_errors(
-        self,
-        cli: PxtRunner,
-        apps: Callable[[str], str],
-        make_catalog_path: Callable[[str], str],
-        project_dir: pathlib.Path,
+        self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot, project_dir: pathlib.Path
     ) -> None:
         """What the verbs do with a file that is missing, unimportable, or declares no service."""
-        target = make_catalog_path('app')
+        target = db_root.make_catalog_path('app')
 
         r = cli('service', 'diff', str(project_dir / 'nosuch.py'), target, check=False)
         assert r.returncode == 1
@@ -581,13 +562,13 @@ class TestService:
         assert r.returncode != 0
         assert 'binds its models to the local catalog' in r.stderr, r.stderr
 
-    def test_example(self, cli: PxtRunner, make_catalog_path: Callable[[str], str], project_dir: pathlib.Path) -> None:
+    def test_example(self, cli: PxtRunner, db_root: DatabaseRoot, project_dir: pathlib.Path) -> None:
         """The file `example` writes declares both the tables and the services, and serves."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
         app_file = project_dir / 'app.py'
         cli('service', 'example', '--out', str(app_file))
-        target = make_catalog_path('example')
+        target = db_root.make_catalog_path('example')
 
         deploy(cli, str(app_file), target)
         endpoint = assert_serving(cli, str(app_file), target, 'ingest')['ingest']['endpoint']

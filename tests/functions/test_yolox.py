@@ -12,7 +12,7 @@ from ..utils import (
     validate_update_status,
 )
 
-pytestmark = pytest.mark.local('UDF/integration test')
+pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
 @pytest.mark.very_expensive
@@ -35,7 +35,7 @@ class TestYolox:
         # Verify that bboxes are actually present in at least some of the rows.
         assert any(len(bboxes) > 0 for bboxes in rows['yolox_nano_bboxes'])
 
-    @pytest.mark.local('exports a COCO dataset to the local filesystem')
+    @pytest.mark.db_roots('local', reason='exports a COCO dataset to the local filesystem')
     def test_yolox_coco_integration(self, uses_db: None) -> None:
         skip_test_if_not_installed('yolox')
         from pycocotools.coco import COCO

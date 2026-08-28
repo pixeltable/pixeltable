@@ -11,7 +11,7 @@ from pixeltable.functions.image import alpha_composite, blend, composite, stitch
 
 from ..utils import SAMPLE_IMAGE_FILE_PATH, get_image_files, pxt_raises
 
-pytestmark = pytest.mark.local('UDF/integration test')
+pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
 class TestImage:

@@ -47,7 +47,7 @@ from pixeltable.functions.string import (
 
 from ..utils import pxt_raises, reload_catalog, skip_test_if_not_installed, validate_update_status
 
-pytestmark = pytest.mark.local('UDF/integration test')
+pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
 @pxt.udf

@@ -1,7 +1,7 @@
 import datetime
 import io
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -9,7 +9,7 @@ import PIL.Image
 
 import pixeltable as pxt
 
-from ..utils import pxt_raises, skip_test_if_not_installed
+from ..utils import DatabaseRoot, pxt_raises, skip_test_if_not_installed
 
 
 @pxt.udf
@@ -20,11 +20,11 @@ def udf_with_exc(i: int, val: int) -> int:
 
 
 class TestLanceDb:
-    def test_export(self, make_catalog_path: Callable[[str], str], tmp_path: Path) -> None:
+    def test_export(self, db_root: DatabaseRoot, tmp_path: Path) -> None:
         skip_test_if_not_installed('lance', 'lancedb')
         import lancedb  # type: ignore[import-untyped]
 
-        p = make_catalog_path
+        p = db_root.make_catalog_path
         n_rows = 1000
         schema = {
             'row_id': pxt.Int | None,

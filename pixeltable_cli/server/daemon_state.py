@@ -5,7 +5,7 @@ from __future__ import annotations
 import itertools
 import threading
 import time
-from collections.abc import Mapping
+from typing import Mapping
 
 from pixeltable.config import Config, env_var_name
 from pixeltable_cli.models import InFlightRequest, Method
