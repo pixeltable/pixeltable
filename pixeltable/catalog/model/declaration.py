@@ -10,7 +10,7 @@ written, and a re-cased class-body reference is a NameError. Once the class is b
 attribute, but M.MYCOL raises while M.table.MYCOL resolves. A name that is only a string denoting a Pixeltable
 identifier (name=, EmbeddingIndex(name=...)) folds on arrival.
 
-The namespace deliberately binds each key to a ColumnRefByName carrying the *folded* name: the binding is Python, the
+The namespace binds each key to a ColumnRefByName, which folds the name it carries: the binding is Python, the
 reference is Pixeltable, so _bind() needs no side table.
 
 Hence declaring one spelling twice fails here, while Foo and foo -- two good Python names -- collide only at
@@ -339,7 +339,7 @@ class _ModelNamespace(dict):
             spec = {'value': expr}
         self.known_cols[name] = spec
         # Add the column to the namespace so that it can be referenced in subsequent expressions in the class body.
-        super().__setitem__(name, exprs.ColumnRefByName(fold_identifier(name), col_type_from_spec(spec)))
+        super().__setitem__(name, exprs.ColumnRefByName(name, col_type_from_spec(spec)))
 
     def set_col_type(self, name: str, type_: Any) -> None:
         self._check_reserved(name)
@@ -364,7 +364,7 @@ class _ModelNamespace(dict):
             return
         # Bare annotation (col: SomeType): record the spec and make the name referenceable in the body.
         self.known_cols[name] = {'type': type_}  # type: ignore[typeddict-item]
-        super().__setitem__(name, exprs.ColumnRefByName(fold_identifier(name), type_))
+        super().__setitem__(name, exprs.ColumnRefByName(name, type_))
 
 
 def _bind_query_templates(e: exprs.Expr, catalog_dir: str) -> exprs.Expr:
