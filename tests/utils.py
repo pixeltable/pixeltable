@@ -17,6 +17,7 @@ import sysconfig
 import time
 import uuid
 from contextlib import contextmanager
+from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, TypedDict
@@ -52,9 +53,6 @@ if TYPE_CHECKING:
 
 TESTS_DIR = Path(os.path.dirname(__file__))
 
-# The catalog backend a test runs against: 'local' (in-process), 'proxy' (local daemon), or 'cloud' (NLB proxy).
-CatalogMode = Literal['local', 'proxy', 'cloud']
-
 
 _ERROR_GROUP_TO_CLS: dict[int, type[pxt.Error]] = {
     0: pxt.Error,
@@ -66,6 +64,16 @@ _ERROR_GROUP_TO_CLS: dict[int, type[pxt.Error]] = {
     6: pxt.ServiceUnavailableError,
     7: pxt.ConcurrencyError,
 }
+
+
+@dataclass
+class DatabaseRoot:
+    id: Literal['local', 'proxy', 'cloud']
+    prefix: str
+
+    def make_catalog_path(self, path: str) -> str:
+        """Return a catalog path for the given relative path, using this database root."""
+        return f'{self.prefix}/{path}'.strip('/')
 
 
 @contextmanager
@@ -1136,7 +1144,7 @@ def list_store_indexes(t: pxt.Table) -> list[str]:
 def check_media_store_count(
     tbl: pxt.Table,
     expected_count: int,
-    catalog_mode: CatalogMode,
+    db_root: DatabaseRoot,
     *,
     tbl_version: int | None = None,
     default_input_dest: bool = False,
@@ -1147,7 +1155,7 @@ def check_media_store_count(
     A cloud database's media store lives in its own container, unreachable from the test process, so the check
     is skipped in that mode.
     """
-    if catalog_mode == 'cloud':
+    if db_root.id == 'cloud':
         # TODO: We should find a way to assert this [PXT-1313].
         return  # media store not reachable; don't assert anything
 
@@ -1168,9 +1176,9 @@ def check_media_store_count(
     assert actual == expected_count, f'expected {expected_count} media objects, found {actual}'
 
 
-def get_temp_store_count(tbl: pxt.Table, catalog_mode: CatalogMode) -> int:
+def get_temp_store_count(tbl: pxt.Table, db_root: DatabaseRoot) -> int:
     """Count the objects in the temp store of the catalog tbl lives in."""
-    if catalog_mode == 'cloud':
+    if db_root.id == 'cloud':
         return 0  # temp store not reachable
 
     catalog_uri = tbl._tbl_path.catalog_uri
@@ -1180,9 +1188,9 @@ def get_temp_store_count(tbl: pxt.Table, catalog_mode: CatalogMode) -> int:
         return LocalStore(proxy_daemon.proxy_home(catalog_uri.db) / 'tmp').count(None)
 
 
-def check_temp_store_count(tbl: pxt.Table, expected_count: int, catalog_mode: CatalogMode) -> None:
+def check_temp_store_count(tbl: pxt.Table, expected_count: int, db_root: DatabaseRoot) -> None:
     """Count the objects in the temp store of the catalog tbl lives in."""
-    if catalog_mode == 'cloud':
+    if db_root.id == 'cloud':
         # TODO: We should find a way to assert this [PXT-1313].
         return  # temp store not reachable; don't assert anything
 

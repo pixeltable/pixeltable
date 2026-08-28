@@ -68,7 +68,7 @@ def _run_workers(target: Callable[[int], None], n_threads: int) -> list[tuple[in
     return errors
 
 
-@pytest.mark.local('fault-injection/concurrency test of update_all() vs concurrent schema change')
+@pytest.mark.db_roots('local', reason='fault-injection/concurrency test of update_all() vs concurrent schema change')
 class TestConcurrentModelUpdate:
     # ---------------------------------------------------------------------------------------------------------------
     # Group A: thread 0 ADDS a column/index while a concurrent change drifts the catalog.

@@ -10,7 +10,7 @@ from pixeltable.env import Env
 from ..conftest import SampleFileServer
 from ..utils import SAMPLE_IMAGE_FILE_PATH, get_audio_files, get_video_files
 
-pytestmark = pytest.mark.local('expr-eval/insert performance benchmark')
+pytestmark = pytest.mark.db_roots('local', reason='expr-eval/insert performance benchmark')
 
 
 @pxt.udf

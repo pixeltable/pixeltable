@@ -18,7 +18,7 @@ from pixeltable_cli.utils import PxtPath
 
 from ..utils import dummy_embedding, get_test_video_files, pxt_raises
 
-pytestmark = pytest.mark.local('pxt CLI metadata/data bridge')
+pytestmark = pytest.mark.db_roots('local', reason='pxt CLI metadata/data bridge')
 
 
 @pxt.udf

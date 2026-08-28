@@ -1,7 +1,7 @@
 import importlib
 import importlib.metadata
 import sys
-from collections.abc import Callable
+from typing import Callable
 
 # Single source of truth for both the top-level help message and shell-mode dispatch.
 # Each key names a module under pixeltable_cli.client.commands.* exposing run(argv: list[str]) -> None.

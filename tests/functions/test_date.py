@@ -24,7 +24,7 @@ from pixeltable.functions.date import (
 
 from ..utils import pxt_raises, validate_update_status
 
-pytestmark = pytest.mark.local('UDF/integration test')
+pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
 class TestDate:

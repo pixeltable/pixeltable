@@ -10,9 +10,8 @@ import sys
 import threading
 import typing
 import warnings
-from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, ClassVar, Generic, Literal, NamedTuple, TypeVar
+from typing import Any, ClassVar, Generic, Literal, Mapping, NamedTuple, TypeVar
 
 import pydantic
 import toml
