@@ -945,6 +945,7 @@ class TableVersion:
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column."""
+        Column.validate_name(new_name)
         old_name = fold_identifier(old_name)
         new_name = fold_identifier(new_name)
         if not self.is_mutable:
@@ -961,7 +962,6 @@ class TableVersion:
         if old_name == new_name:
             # no-op: return early and do not create a new schema version
             return
-        Column.validate_name(new_name)
         if new_name in self.cols_by_name:
             raise excs.AlreadyExistsError(excs.ErrorCode.COLUMN_ALREADY_EXISTS, f'Column {new_name!r} already exists')
         del self.cols_by_name[old_name]

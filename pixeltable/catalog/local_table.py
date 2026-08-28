@@ -493,8 +493,8 @@ class LocalTable(Table):
     ) -> UpdateStatus:
         from pixeltable.catalog import retry_loop
 
-        schema = fold_mapping_keys(schema)
         self._validate_column_schema(schema)
+        schema = fold_mapping_keys(schema)
 
         # a retry loop is necessary because drop column needs it
         # lock_mutable_tree=True: we might end up having to drop existing columns, which requires locking the tree
@@ -569,9 +569,9 @@ class LocalTable(Table):
                 'add_computed_column', '`col_name=col_type` or `col_name=expression`', kwargs
             )
             col_name, spec = next(iter(kwargs.items()))
-            col_name = fold_identifier(col_name)
             if not is_valid_identifier(col_name):
                 raise excs.RequestError(excs.ErrorCode.INVALID_COLUMN_NAME, f'Invalid column name: {col_name}')
+            col_name = fold_identifier(col_name)
 
             col_schema: ColumnSpec = {'value': spec}
             if stored is not None:

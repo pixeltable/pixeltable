@@ -439,11 +439,11 @@ class TableModelMeta(type):
             display_name = f'model `{cls_name}`'
 
             # Validate table name
-            tbl_name = fold_identifier(name) if isinstance(name, str) else name
-            if not isinstance(tbl_name, str) or not is_valid_identifier(tbl_name, allow_hyphens=True):
+            if not isinstance(name, str) or not is_valid_identifier(name, allow_hyphens=True):
                 raise excs.RequestError(
                     excs.ErrorCode.INVALID_ARGUMENT, f'{display_name}: `name` must be a valid Pixeltable identifier.'
                 )
+            tbl_name = fold_identifier(name)
 
             base_models = bases[0].__registered_models__  # type: ignore[attr-defined]
             if tbl_name in base_models:

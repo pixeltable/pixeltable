@@ -28,9 +28,8 @@ def normalize_pxt_col_name(name: str) -> str:
         id = f'c_{id}'
     elif id[0] == '_':
         id = f'c{id}'
-    id = fold_identifier(id)
     assert pxt.catalog.is_valid_identifier(id), id
-    return id
+    return fold_identifier(id)
 
 
 def normalize_primary_key_parameter(primary_key: str | list[str] | None = None) -> list[str]:

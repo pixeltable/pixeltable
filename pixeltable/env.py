@@ -515,8 +515,9 @@ class Env:
             from pixeltable.catalog.globals import fold_identifier
 
             configured_name = config.get_string_value('db')
+            if configured_name:
+                validate_db_name(configured_name)
             folded_name = fold_identifier(configured_name) if configured_name else 'pixeltable'
-            validate_db_name(folded_name)
             self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
             self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=None)
             self._set_local_db(folded_name)
