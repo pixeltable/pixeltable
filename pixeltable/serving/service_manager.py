@@ -33,8 +33,7 @@ import pydantic
 from pixeltable import catalog, exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.serving._app import service_router
-from pixeltable.utils.app_module import module_name
+from pixeltable.utils.app_module import load_app_module, module_name, services_by_name
 from pixeltable.utils.process import is_pid, pid_alive, process_timestamp
 
 from .service_instance import ServiceInstance, ServiceInstanceRecord
@@ -236,7 +235,14 @@ class ServiceManager(ServiceManagerBase):
 
         # fail here, in the caller's process, on everything that can be detected without serving: an app file
         # that does not declare the service is a request error, not a process that dies in the background
-        service_router(app_file, name)
+        module = load_app_module(app_file, subject='application file')
+        services = services_by_name(module, app_file)
+        if name not in services:
+            declared = ', '.join(sorted(services))
+            raise excs.NotFoundError(
+                excs.ErrorCode.SERVICE_NOT_FOUND,
+                f'{app_file} declares no service named {name!r}; it declares: {declared}',
+            )
 
         log_path = self._log_path(name, base_path)
         log_path.parent.mkdir(parents=True, exist_ok=True)

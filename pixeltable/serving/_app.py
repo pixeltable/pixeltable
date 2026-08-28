@@ -5,93 +5,47 @@ from typing import TYPE_CHECKING, Any
 
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
-from pixeltable.utils.app_module import load_services
+from pixeltable.utils.app_module import get_model_bases, load_app_module, module_routers, service_spec, services_by_name
 
 if TYPE_CHECKING:
     import fastapi
 
-    from pixeltable.serving import FastAPIRouter
+    from pixeltable.serving import ServiceSpec
 
 _logger = logging.getLogger(__name__)
 
 
-def load_service_routers(app_file: str) -> dict[str, 'FastAPIRouter']:
-    """The FastAPIRouter instances in app_file, keyed by service name.
-
-    An application object the file supplies itself is a service that Pixeltable declared no routes for, so
-    there is nothing to bind and nothing to serve; that is a RequestError here, whereas load_services()
-    returns it, for the sake of reporting it in a diff.
-    """
-    from pixeltable.serving import FastAPIRouter
-
-    routers: dict[str, FastAPIRouter] = {}
-    for service_name, service in load_services(app_file).items():
-        if not isinstance(service, FastAPIRouter):
-            raise excs.RequestError(
-                excs.ErrorCode.UNSUPPORTED_OPERATION,
-                f'{app_file}: {service_name!r} is an application object of its own, which Pixeltable cannot '
-                'serve; declare the service with FastAPIRouter instead.',
-            )
-        routers[service_name] = service
-    return routers
-
-
-def service_router(app_file: str, name: str) -> 'FastAPIRouter':
-    routers = load_service_routers(app_file)
-    if name not in routers:
-        declared = ', '.join(sorted(routers))
-        raise excs.NotFoundError(
-            excs.ErrorCode.SERVICE_NOT_FOUND,
-            f'{app_file} contains no FastAPIRouter named {name!r}; it declares: {declared}',
-        )
-    return routers[name]
-
-
-def create_app(app_file: str, *, base_path: str = '', service_name: str | None = None) -> 'fastapi.FastAPI':
-    """Build the application that serves app_file's services, with their models bound against base_path.
-
-    Args:
-        app_file: the application file declaring the services.
-        base_path: the catalog directory the services' models bind against.
-        service_name: serve only the FastAPIRouter instance with that name, rather than every FastAPIRouter instance.
-
-    Raises NotFoundError if app_file does not contain a FastAPIRouter instance with that name, and RequestError if the
-    file supplies an application object of its own, or if a FastAPIRouter instance cannot bind against base_path.
-    """
-    return create_app_for_services(
-        load_service_routers(app_file), app_file=app_file, base_path=base_path, service_name=service_name
-    )
-
-
-def create_app_for_services(
-    services: dict[str, 'FastAPIRouter'], *, app_file: str, base_path: str = '', service_name: str | None = None
-) -> 'fastapi.FastAPI':
-    """Build the application that serves already-loaded routers, with their models bound against base_path.
-
-    Args:
-        services: the routers, keyed by service name.
-        app_file: the application file they were loaded from, named in errors and log messages.
-        base_path: the catalog directory the services' models bind against.
-        service_name: serve only the service of that name, rather than every service in services.
-    """
+def create_app(app_file: str, name: str, base_path: str = '') -> tuple['fastapi.FastAPI', 'ServiceSpec']:
+    """Create or return the FastAPI app derived from app_file, plus its spec."""
     Env.get().require_package('fastapi')
     import fastapi
 
-    if service_name is not None:
-        if service_name not in services:
-            declared = ', '.join(sorted(services))
-            raise excs.NotFoundError(
-                excs.ErrorCode.SERVICE_NOT_FOUND,
-                f'{app_file} declares no FastAPIRouter named {service_name!r}; it declares: {declared}',
-            )
-        services = {service_name: services[service_name]}  # a single service, without disturbing the caller's mapping
+    from pixeltable.serving import FastAPIRouter
 
-    app = fastapi.FastAPI(title=service_name if service_name is not None else 'pixeltable')
-    for name, service in services.items():
-        service.bind(base_path)
-        app.include_router(service)
-        _logger.info(f'serving {name!r} from {app_file}')
-    return app
+    module = load_app_module(app_file, subject='application file')
+    services = services_by_name(module, app_file)
+    if name not in services:
+        declared = ', '.join(sorted(services))
+        raise excs.NotFoundError(
+            excs.ErrorCode.SERVICE_NOT_FOUND, f'{app_file} declares no service named {name!r}; it declares: {declared}'
+        )
+
+    routers = module_routers(module)
+    for router in routers:
+        router.bind(base_path)
+    for base in get_model_bases(module):
+        for model in base.declared_models():
+            model._bind(base_path)
+
+    service = services[name]
+    spec = service_spec(name, service, routers)
+    _logger.info(f'serving {name!r} from {app_file}')
+    if not isinstance(service, FastAPIRouter):
+        return service, spec
+
+    app = fastapi.FastAPI(title=name)
+    app.include_router(service)
+    return app, spec
 
 
 _OTEL_NOT_INSTALLED = (

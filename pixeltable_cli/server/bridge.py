@@ -28,7 +28,9 @@ from pixeltable.utils.app_module import (
     get_model_bases,
     get_module_services,
     load_app_module,
-    load_services,
+    module_routers,
+    service_spec,
+    services_by_name,
     shadowed_project_modules,
 )
 from pixeltable_cli import schema_types, service_types
@@ -561,9 +563,11 @@ def service_diff(app_file: str, target: PxtPath, *, otel: bool = False) -> servi
     from pixeltable.serving.service_manager import get_manager
 
     manager = get_manager(target)
-    services = load_services(app_file)
+    module = load_app_module(app_file, subject='application file')
+    routers = module_routers(module)
     diffs = [
-        _service_diff(manager, name, service, app_file, target, otel) for name, service in sorted(services.items())
+        _service_diff(manager, name, service, service_spec(name, service, routers), app_file, target, otel)
+        for name, service in sorted(services_by_name(module, app_file).items())
     ]
     return _plan_from_service_diffs(manager, diffs, app_file, target)
 
@@ -572,6 +576,7 @@ def _service_diff(
     manager: ServiceManagerBase,
     name: str,
     service: FastAPIRouter | fastapi.FastAPI,
+    declared_spec: service_types.ServiceSpec,
     app_file: str,
     target: PxtPath,
     otel: bool = False,
@@ -583,32 +588,31 @@ def _service_diff(
     running = manager.get(name, target)
     ops: list[service_types.ServiceChangeOp] = []
     route_detail: str | None = None
-    if isinstance(service, FastAPIRouter):
-        kind: Literal['declarative', 'custom'] = 'declarative'
-        if running is None:
-            route_comparison: service_types.RouteComparison = 'unavailable'
-            route_detail = 'the service is not running at this target'
-        else:
-            route_comparison = 'declarative'
-            ops += [_service_plan_op(op) for op in compare_specs(running.spec, service.service_spec(name))]
-            if running.otel != otel:
-                ops.append(_service_plan_op(otel_op(running.otel, otel)))
+    declared = service if isinstance(service, FastAPIRouter) else None
+    kind: Literal['declarative', 'custom'] = 'custom' if declared is None else 'declarative'
+
+    if running is None:
+        route_comparison: service_types.RouteComparison = 'unavailable'
+        route_detail = 'the service is not running at this target'
+    else:
+        # a declared service is compared by its route declarations, an application object by the paths it
+        # serves itself
+        route_comparison = 'declarative' if declared is not None else 'openapi'
+        ops += [_service_plan_op(op) for op in compare_specs(running.spec, declared_spec)]
+        if running.otel != otel:
+            ops.append(_service_plan_op(otel_op(running.otel, otel)))
+
+    if declared is not None:
         # the models the routes name have to describe the tables at the target, whether or not the service is
         # running; _validate_model_routes() reports the discrepancy without binding anything
         try:
-            service._validate_model_routes(target)
+            declared._validate_model_routes(target)
         except excs.Error as e:
             command = f'pxt schema update {app_file}' + ('' if target == '' else f' {target}')
             ops.append(_service_plan_op(blocked_schema_op(name, e.message, command)))
-    else:
-        kind = 'custom'
-        route_comparison = 'unavailable'
-        route_detail = 'the file supplies its own application object, whose routes Pixeltable did not declare'
 
     resolution: service_types.ServiceResolution
-    if kind == 'custom':
-        resolution = 'unsupported'
-    elif any(op['severity'] == 'blocked' for op in ops):
+    if any(op['severity'] == 'blocked' for op in ops):
         # the database has to change before this service can serve, whether it is running yet or not
         resolution = 'blocked'
     elif running is None:
@@ -647,7 +651,6 @@ def _plan_from_service_diffs(
         'create': sum(1 for d in diffs if d['resolution'] == 'create'),
         'update_additive': sum(1 for d in diffs if d['resolution'] == 'update_additive'),
         'update_destructive': sum(1 for d in diffs if d['resolution'] == 'update_destructive'),
-        'unsupported': sum(1 for d in diffs if d['resolution'] == 'unsupported'),
         'blocked': sum(1 for d in diffs if d['resolution'] == 'blocked'),
         'extras': len(extras),
         'destructive': sum(1 for d in diffs for op in d['ops'] if op['destructive']),
@@ -909,7 +912,7 @@ def service_update(
         )
 
     for diff in plan['services']:
-        if diff['resolution'] in ('unsupported', 'blocked'):
+        if diff['resolution'] == 'blocked':
             diff['status'] = 'refused'
             continue
         if diff['resolution'] == 'up_to_date':

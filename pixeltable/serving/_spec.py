@@ -41,3 +41,6 @@ class ServiceSpec(TypedDict):
     name: str
     prefix: str
     routes: list[RouteSpec]
+
+    # paths served by a custom FastAPI instance that don't come from FastAPIRouter instances
+    app_paths: list[str]

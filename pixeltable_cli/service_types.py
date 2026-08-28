@@ -13,7 +13,7 @@ Severity = Literal['additive', 'destructive', 'unsupported', 'blocked']
 
 # Extends the resolutions a schema plan uses with 'blocked': the service cannot be reconciled until the
 # database satisfies what one of its routes needs, and the command that does so is in the operation's details.
-ServiceResolution = Literal['up_to_date', 'create', 'update_additive', 'update_destructive', 'unsupported', 'blocked']
+ServiceResolution = Literal['up_to_date', 'create', 'update_additive', 'update_destructive', 'blocked']
 
 # How the routes were compared. 'declarative' compares the route declarations the running service was started
 # from; 'openapi' compares the OpenAPI document generated from a custom application. 'unavailable' means the
@@ -78,7 +78,6 @@ class ServicePlanSummary(TypedDict):
     create: int
     update_additive: int
     update_destructive: int
-    unsupported: int
     extras: int
     blocked: int  # services whose reconciliation the database has to enable first
     destructive: int  # operations, not services
@@ -134,6 +133,9 @@ class ServiceSpec(TypedDict):
     name: str
     prefix: str
     routes: list[RouteSpec]
+
+    # paths served by a custom FastAPI instance that don't come from FastAPIRouter instances
+    app_paths: list[str]
 
 
 class ServiceInstance(TypedDict):

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from pixeltable.config import Config
-from pixeltable.serving._app import create_app_for_services, init_instrumentation, instrument_app, load_service_routers
+from pixeltable.serving._app import create_app, init_instrumentation, instrument_app
 
 from .service_manager import ServiceManager
 
@@ -23,11 +23,9 @@ def _serve(app_file: str, service_name: str, base_path: str, otel: bool) -> None
     if otel:
         # before the first Pixeltable operation, so that loading the file is traced too
         init_instrumentation()
-    services = load_service_routers(app_file)
-    app = create_app_for_services(services, app_file=app_file, base_path=base_path, service_name=service_name)
+    app, spec = create_app(app_file, service_name, base_path)
     if otel:
         instrument_app(app)
-    spec = services[service_name].service_spec(service_name)
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

@@ -67,6 +67,7 @@ def compare_specs(current: ServiceSpec, declared: ServiceSpec) -> list[ServiceCh
     untouched; every other operation replaces a contract that callers may be relying on.
     """
     ops: list[ServiceChangeOp] = []
+    ops += _path_ops(current['app_paths'], declared['app_paths'])
 
     if current['prefix'] != declared['prefix']:
         # the prefix is part of every route's URL, but not of the route declarations compared below
@@ -132,6 +133,34 @@ def compare_specs(current: ServiceSpec, declared: ServiceSpec) -> list[ServiceCh
             }
         )
 
+    return ops
+
+
+def _path_ops(current: list[str], declared: list[str]) -> list[ServiceChangeOp]:
+    """The operations that would bring the served paths to the declared ones."""
+    ops: list[ServiceChangeOp] = []
+    for path in sorted(set(declared) - set(current)):
+        ops.append(
+            {
+                'target': 'route',
+                'name': path,
+                'op': 'add',
+                'severity': 'additive',
+                'description': f'path {path!r} will be served',
+                'details': {},
+            }
+        )
+    for path in sorted(set(current) - set(declared)):
+        ops.append(
+            {
+                'target': 'route',
+                'name': path,
+                'op': 'drop',
+                'severity': 'destructive',
+                'description': f'path {path!r} will no longer be served',
+                'details': {},
+            }
+        )
     return ops
 
 

@@ -1,4 +1,5 @@
 import pathlib
+import shutil
 import time
 from collections.abc import Callable, Iterator
 from textwrap import dedent
@@ -57,6 +58,7 @@ def assert_serving(cli: PxtRunner, app: str, target: str, *names: str) -> dict[s
         assert served.status_code == 200, served.text
         prefix = service['spec']['prefix']
         declared = {f'{prefix}{route["path"]}' for route in service['spec']['routes']}
+        declared |= set(service['spec']['app_paths'])
         assert declared <= set(served.json()['paths']), (declared, sorted(served.json()['paths']))
     return running
 
@@ -196,6 +198,39 @@ class TestService:
 
         cli('service', 'update', apps('basic_changed_route.py'), target, '-f', '--allow-destructive')
         assert_serving(cli, apps('basic_changed_route.py'), target, 'ingest')
+
+    def test_custom_app_source_edits(
+        self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
+    ) -> None:
+        """Editing a served application: a path it adds is applied by restarting the service."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        target = make_catalog_path('app')
+        # the service takes its name from the module, so iterating on it means editing one file in place
+        app_file = pathlib.Path(apps('served_app.py')).with_name('notes_app.py')
+        shutil.copy(apps('served_app.py'), app_file)
+        deploy(cli, str(app_file), target)
+
+        running = assert_serving(cli, str(app_file), target, 'notes_app')['notes_app']
+        assert running['spec']['app_paths'] == ['/notes', '/notes/count']
+
+        # the handlers reach the tables the file's models declare, which the service bound at the target
+        assert _post(running['endpoint'], '/notes?note_id=1&text=hello').json() == {'rows': 1}
+        counted = httpx.get(f'{running["endpoint"]}/notes/count', timeout=_REQUEST_TIMEOUT)
+        assert counted.json() == {'count': 1}, counted.text
+        assert pxt.get_table(f'{target}/notes').select().collect()['text_upper'] == ['HELLO']
+
+        # a path the application adds is an addition, as a route added to a router is
+        shutil.copy(apps('served_app_added_route.py'), app_file)
+        r = cli('service', 'diff', str(app_file), target, '--json', check=False)
+        assert [s['resolution'] for s in r.json['services']] == ['update_additive']
+        assert [(op['op'], op['name']) for s in r.json['services'] for op in s['ops']] == [('add', '/notes/upper')]
+
+        cli('service', 'update', str(app_file), target, '-f')
+        after = assert_serving(cli, str(app_file), target, 'notes_app')['notes_app']
+        assert after['pid'] != running['pid'], 'a changed application is applied by replacing the process'
+        upper = httpx.get(f'{after["endpoint"]}/notes/upper', timeout=_REQUEST_TIMEOUT)
+        assert upper.json() == {'upper': ['HELLO']}, upper.text
 
     def test_prune(self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]) -> None:
         """A service the file stopped declaring is stopped and forgotten, and can be started again."""
@@ -390,31 +425,48 @@ class TestService:
     def test_custom_app(
         self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
     ) -> None:
-        """A file supplying its own application declares a service Pixeltable cannot compare or serve."""
+        """A file supplying its own application: the router it includes is part of it, not a second service."""
         skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
         app, target = apps('custom.py'), make_catalog_path('app')
         cli('schema', 'update', app, target)
 
-        # the file's models produce working tables even though its application cannot be served
-        notes = pxt.get_table(f'{target}/notes')
-        notes.insert([{'note_id': 1, 'text': 'hello'}])
-        assert notes.select(notes.text_upper).collect()['text_upper'] == ['HELLO']
-
         r = cli('service', 'diff', app, target, '--json', check=False)
-        diffs = {s['name']: s for s in r.json['services']}
-        assert (diffs['app']['kind'], diffs['app']['resolution']) == ('custom', 'unsupported')
-        assert diffs['app']['route_comparison'] == 'unavailable'
-        assert diffs['app']['route_detail'] is not None
-        # TODO(custom-app): the file declares one service, the application; the router it includes is
-        # reported as a service of its own until the custom case is implemented
-        assert (diffs['plain']['kind'], diffs['plain']['resolution']) == ('declarative', 'create')
-        assert r.json['summary']['unsupported'] == 1
+        assert [(s['name'], s['kind'], s['resolution']) for s in r.json['services']] == [('custom', 'custom', 'create')]
 
-        # nothing in the file is served, and the refusal names the reason
-        r = cli('service', 'update', app, target, '-f', check=False)
-        assert r.returncode == 1
-        assert 'is an application object of its own' in r.stderr
-        assert services(cli) == {}
+        cli('service', 'update', app, target, '-f')
+        running = assert_serving(cli, app, target, 'custom')['custom']
+        # the spec holds the route declarations of the router, and the paths the application publishes
+        assert [(r['method'], r['path'], r['route_type']) for r in running['spec']['routes']] == [
+            ('POST', '/notes', 'insert')
+        ]
+        assert running['spec']['app_paths'] == ['/hand-written']
+
+        # the application serves both the route written by hand and the routes of the router it includes
+        endpoint = running['endpoint']
+        assert httpx.get(f'{endpoint}/hand-written', timeout=_REQUEST_TIMEOUT).json() == {'written': 'by hand'}
+        assert _post(endpoint, '/notes', note_id=1, text='hello').status_code == 200
+        assert pxt.get_table(f'{target}/notes').select().collect()['text_upper'] == ['HELLO']
+
+    def test_custom_app_with_prefixed_router(
+        self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
+    ) -> None:
+        """A router included under a prefix is part of the application, and its paths are not app_paths."""
+        skip_test_if_not_installed('fastapi')
+        skip_test_if_not_installed('uvicorn')
+        app, target = apps('prefixed_app.py'), make_catalog_path('app')
+        cli('schema', 'update', app, target)
+        cli('service', 'update', app, target, '-f')
+
+        running = services(cli)['prefixed_app']
+        # the prefix belongs to the application, so the router's path reaches the spec as it was declared
+        assert [(r['method'], r['path']) for r in running['spec']['routes']] == [('POST', '/notes')]
+        assert running['spec']['app_paths'] == ['/hand-written']
+
+        endpoint = running['endpoint']
+        assert httpx.get(f'{endpoint}/hand-written', timeout=_REQUEST_TIMEOUT).json() == {'written': 'by hand'}
+        assert _post(endpoint, '/v1/notes', note_id=1, text='hello').status_code == 200
+        assert pxt.get_table(f'{target}/notes').select().collect()['text_upper'] == ['HELLO']
 
     def test_addressing(
         self, cli: PxtRunner, apps: Callable[[str], str], make_catalog_path: Callable[[str], str]
@@ -503,7 +555,7 @@ class TestService:
         )
         r = cli('service', 'check', str(no_service), check=False)
         assert r.returncode == 1
-        assert 'no service found' in r.stderr
+        assert 'at least one FastAPIRouter' in r.stderr
 
         # a router over models from another file, so this one declares no model base
         (project_dir / 'schema.py').write_text(
@@ -566,7 +618,7 @@ class TestService:
         empty.write_text('x = 1\n', encoding='utf-8')
         r = cli('service', 'diff', str(empty), target, check=False)
         assert r.returncode == 1
-        assert 'no service found' in r.stderr
+        assert 'at least one FastAPIRouter' in r.stderr
 
         # stopping something that is not running is reported, not an error
         r = cli('service', 'stop', 'nosuch', '--json')

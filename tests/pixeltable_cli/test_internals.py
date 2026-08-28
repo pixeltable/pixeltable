@@ -49,8 +49,8 @@ from pixeltable.service.management_protocol import (
     UpdateDbRequest,
     UpdateRuntimeRequest,
 )
-from pixeltable.serving._app import service_router
 from pixeltable.serving.service_instance import ServiceInstanceState
+from pixeltable.utils.app_module import load_app_module, module_routers, service_spec, services_by_name
 from pixeltable_cli import schema_types as wire, utils
 from pixeltable_cli.client import confirm, hosted, main as client_main, parser as client_parser, utils as client_utils
 from pixeltable_cli.client.commands import (
@@ -1823,12 +1823,11 @@ class TestServiceOtel:
         """--otel resolves the instrumentation package and wires init()/instrument_fastapi() into run."""
         skip_test_if_not_installed('fastapi', 'uvicorn', 'opentelemetry.instrumentation.pixeltable')
         app_file = tmp_path / 'app.py'
-        app_file.write_text('', encoding='utf-8')  # the routers it declares are patched out below
+        app_file.write_text('', encoding='utf-8')  # the app it declares is patched out below
         app = SimpleNamespace(routes=[])  # stands in for the FastAPI app, which run() counts the routes of
 
         with (
-            patch('pixeltable.serving._app.load_service_routers', return_value={'ingest': object()}),
-            patch('pixeltable.serving._app.create_app_for_services', return_value=app),
+            patch('pixeltable.serving._app.build_app', return_value=(app, {})),
             patch('uvicorn.run') as mock_run,
             patch('opentelemetry.instrumentation.pixeltable.init') as mock_otel_init,
             patch('opentelemetry.instrumentation.pixeltable.instrument_fastapi') as mock_instrument_fastapi,
@@ -1837,6 +1836,12 @@ class TestServiceOtel:
         mock_otel_init.assert_called_once_with()
         mock_instrument_fastapi.assert_called_once_with(app)
         mock_run.assert_called_once()
+
+
+def _declared_spec(app_file: str, name: str) -> Any:
+    """The spec of one of a file's services, as a manager computes it before starting the service."""
+    module = load_app_module(app_file, subject='application file')
+    return service_spec(name, services_by_name(module, app_file)[name], module_routers(module))
 
 
 class TestHostedServiceManager:
@@ -1860,7 +1865,7 @@ class TestHostedServiceManager:
                     'base_path': base_path,
                     'endpoint': f'https://acme-main.pixeltable.com/{name}',
                     'app_module': 'apps.basic',
-                    'spec': {'name': name, 'prefix': '', 'routes': []},
+                    'spec': {'name': name, 'prefix': '', 'routes': [], 'app_paths': []},
                     'state': state,
                     **fields,
                 }
@@ -1912,19 +1917,19 @@ class TestHostedServiceManager:
         assert instance.state is ServiceInstanceState.AVAILABLE
 
     def test_start_updates_changed_declaration(self, api: Any, apps: Callable[[str], str]) -> None:
-        api.add('ingest', base_path='app', spec={'name': 'ingest', 'prefix': '', 'routes': []})
+        api.add('ingest', base_path='app', spec={'name': 'ingest', 'prefix': '', 'routes': [], 'app_paths': []})
         self._manager().start(apps('basic.py'), 'ingest', 'app')
         assert [r.operation_type.value for r in api.sent].count('update_service_instance') == 1
 
     def test_start_starts_stopped_instance(self, api: Any, apps: Callable[[str], str]) -> None:
-        spec = service_router(apps('basic.py'), 'ingest').service_spec('ingest')
+        spec = _declared_spec(apps('basic.py'), 'ingest')
         api.add('ingest', base_path='app', state='STOPPED', spec=spec)
         instance = self._manager().start(apps('basic.py'), 'ingest', 'app')
         assert 'start_service_instance' in [r.operation_type.value for r in api.sent]
         assert instance.state is ServiceInstanceState.AVAILABLE
 
     def test_start_leaves_agreeing_instance_alone(self, api: Any, apps: Callable[[str], str]) -> None:
-        spec = service_router(apps('basic.py'), 'ingest').service_spec('ingest')
+        spec = _declared_spec(apps('basic.py'), 'ingest')
         api.add('ingest', base_path='app', spec=spec)
         self._manager().start(apps('basic.py'), 'ingest', 'app')
         assert [r.operation_type.value for r in api.sent] == ['list_service_instances']

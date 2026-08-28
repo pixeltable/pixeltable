@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import keyword
 import linecache
+import re
 import sys
 import threading
 import traceback
@@ -30,7 +31,7 @@ _RUNNING_PACKAGES = ('pixeltable', 'pixeltable_cli')
 if TYPE_CHECKING:
     import fastapi
 
-    from pixeltable.serving import FastAPIRouter
+    from pixeltable.serving import FastAPIRouter, ServiceSpec
 
 
 def module_name(file: str, *, subject: str) -> str:
@@ -224,18 +225,9 @@ def _first_on_path(module_name: str) -> Path | None:
     return Path(locations[0]).resolve() if len(locations) > 0 else None
 
 
-def load_services(app_file: str) -> dict[str, FastAPIRouter | fastapi.FastAPI]:
-    """The FastAPIRouter/FastAPI instances in an app file, keyed by service name.
-
-    - FastAPIRouter instances are either explicitly named (name parameter) or implicitly via variable assignment
-    - a FastAPI instance is named via variable assignment
+def get_module_services(module: ModuleType, file: str) -> tuple[fastapi.FastAPI | None, dict[str, FastAPIRouter]]:
     """
-    return get_module_services(load_app_module(app_file, subject='application file'), app_file)
-
-
-def get_module_services(module: ModuleType, file: str) -> dict[str, FastAPIRouter | fastapi.FastAPI]:
-    """
-    Returns the FastAPIRouter/FastAPI instances found in module, keyed by service name.
+    Returns from the module: (FastAPI instance, FastAPIRouter instances, keyed by service name).
     """
     # imported here rather than at module scope: pixeltable.serving pulls in fastapi, an optional dependency
     from pixeltable.serving import FastAPIRouter
@@ -247,33 +239,112 @@ def get_module_services(module: ModuleType, file: str) -> dict[str, FastAPIRoute
     except ImportError:
         app_type = None  # without fastapi, nothing in the file can be an application object
 
-    services: dict[str, FastAPIRouter | fastapi.FastAPI] = {}
+    routers: dict[str, FastAPIRouter] = {}
+    apps: dict[str, fastapi.FastAPI] = {}
     # the objects already collected, so that two variables naming one router declare a single service
     seen: set[int] = set()
+    seen_names: set[str] = set()
     for var_name, value in vars(module).items():
+        name: str
         if isinstance(value, FastAPIRouter):
             name = var_name if value.name is None else value.name
         elif app_type is not None and isinstance(value, app_type):
             name = var_name
         else:
             continue
+
         if id(value) in seen:
             continue
         seen.add(id(value))
+
         if not is_valid_identifier(name, allow_hyphens=True):
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT,
-                f'{file}: {name!r} is not a name a service can have; name the service with FastAPIRouter(name=...)',
+                f'{file}: {name!r} is not a valid name for a service; name the service with FastAPIRouter(name=...)',
             )
-        if name in services:
+        if name in seen_names:
             raise excs.RequestError(
                 excs.ErrorCode.INVALID_ARGUMENT, f'{file}: declares more than one service named {name!r}'
             )
-        services[name] = value
+        seen_names.add(name)
 
-    if len(services) == 0:
+        if isinstance(value, FastAPIRouter):
+            routers[name] = value
+        else:
+            apps[name] = value
+
+    if len(routers) == 0 and len(apps) == 0:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_ARGUMENT,
-            f'no service found in {file}; a service is declared by creating a FastAPIRouter and adding routes to it',
+            f'{file}: needs to have at least one FastAPIRouter or FastAPI application object',
         )
-    return services
+    if len(apps) > 1:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, f'{file} contains more than one FastAPI application object'
+        )
+    app = apps.popitem()[1] if len(apps) > 0 else None
+
+    if app is not None:
+        # make sure every router is included in the application
+        app_endpoints = {id(route.endpoint) for route in app.routes if hasattr(route, 'endpoint')}
+        for name, router in routers.items():
+            router_endpoints = {id(route.endpoint) for route in router.routes if hasattr(route, 'endpoint')}
+            if not router_endpoints.issubset(app_endpoints):
+                raise excs.RequestError(
+                    excs.ErrorCode.INVALID_ARGUMENT,
+                    f'{file}: the FastAPI application does not include the router {name!r}; '
+                    f'include it with include_router(), or move it to a separate file',
+                )
+
+    return app, routers
+
+
+def services_by_name(module: ModuleType, file: str) -> dict[str, FastAPIRouter | fastapi.FastAPI]:
+    """The module's services, keyed by service name."""
+    app, routers = get_module_services(module, file)
+    if app is None:
+        return dict(routers)
+    return {module.__name__.rpartition('.')[2]: app}
+
+
+def service_spec(name: str, service: FastAPIRouter | fastapi.FastAPI, routers: list[FastAPIRouter]) -> ServiceSpec:
+    """The spec of the named service."""
+    from pixeltable.serving import FastAPIRouter
+
+    if isinstance(service, FastAPIRouter):
+        return service.service_spec(name)
+    return {
+        'name': name,
+        'prefix': '',
+        'routes': [route for router in routers for route in router.service_spec(name)['routes']],
+        'app_paths': _app_paths(service, routers),
+    }
+
+
+def _app_paths(app: fastapi.FastAPI, routers: list[FastAPIRouter]) -> list[str]:
+    """The paths app serves itself, leaving out what the routers it includes contribute.
+
+    A router's routes are recognized by their endpoint functions, which include_router() reuses when it
+    copies them, so any prefix it adds does not matter here. Their paths come from app's own route table,
+    where they carry that prefix, normalized because an OpenAPI path names a path parameter without its
+    converter.
+    """
+    from_routers = {
+        id(endpoint) for router in routers for endpoint in (getattr(r, 'endpoint', None) for r in router.routes)
+    }
+    included: set[str] = set()
+    for route in app.routes:
+        path = getattr(route, 'path', None)
+        if path is not None and id(getattr(route, 'endpoint', None)) in from_routers:
+            included.add(re.sub(r'{([^}:]+):[^}]+}', r'{\1}', path))
+    return sorted(set(app.openapi()['paths']) - included)
+
+
+def module_routers(module: ModuleType) -> list[FastAPIRouter]:
+    from pixeltable.serving import FastAPIRouter
+
+    routers: list[FastAPIRouter] = []
+    for value in vars(module).values():
+        if isinstance(value, FastAPIRouter) and not any(value is router for router in routers):
+            routers.append(value)
+    return routers

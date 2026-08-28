@@ -515,7 +515,12 @@ class FastAPIRouter(fastapi.APIRouter):
                 'service_spec(): this router has no name; pass one, or construct the router with '
                 'FastAPIRouter(name=...)',
             )
-        return {'name': service_name, 'prefix': self.prefix, 'routes': [route.spec for route in self._routes]}
+        return {
+            'name': service_name,
+            'prefix': self.prefix,
+            'routes': [route.spec for route in self._routes],
+            'app_paths': [],
+        }
 
     def bind(self, base_path: str = '') -> None:
         """Resolve every route declared against a model to the table it names under `base_path`.

@@ -20,9 +20,8 @@ from pixeltable.service.management_protocol import (
     StopServiceInstanceRequest,
     UpdateServiceInstanceRequest,
 )
-from pixeltable.utils.app_module import module_name
+from pixeltable.utils.app_module import load_app_module, module_name, module_routers, service_spec, services_by_name
 
-from ._app import service_router
 from .service_instance import ServiceInstance, ServiceInstanceRecord, ServiceInstanceState
 from .service_manager import ServiceManagerBase
 
@@ -40,11 +39,13 @@ class ServiceManagerProxy(ServiceManagerBase):
         self.catalog_uri = catalog_uri
 
     @property
-    def _org(self):
+    def _org(self) -> str:
+        assert self.catalog_uri.org is not None
         return self.catalog_uri.org
 
     @property
-    def _db(self):
+    def _db(self) -> str:
+        assert self.catalog_uri.db is not None
         return self.catalog_uri.db
 
     def get(self, name: str, base_path: str = '') -> ServiceInstance | None:
@@ -59,7 +60,15 @@ class ServiceManagerProxy(ServiceManagerBase):
         return [ServiceInstance(r, self) for r in response.instances if self._serves(r, base_path, recursive)]
 
     def start(self, app_file: str, name: str, base_path: str = '', *, otel: bool = False) -> ServiceInstance:
-        spec = service_router(app_file, name).service_spec(name)
+        module = load_app_module(app_file, subject='application file')
+        services = services_by_name(module, app_file)
+        if name not in services:
+            declared = ', '.join(sorted(services))
+            raise excs.NotFoundError(
+                excs.ErrorCode.SERVICE_NOT_FOUND,
+                f'{app_file} declares no service named {name!r}; it declares: {declared}',
+            )
+        spec = service_spec(name, services[name], module_routers(module))
         app_module = module_name(app_file, subject='application file')
         instance = self.get(name, base_path)
 

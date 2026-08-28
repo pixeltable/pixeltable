@@ -152,7 +152,6 @@ _MARKERS: dict[ServiceResolution, str] = {
     'create': '+',
     'update_additive': '~',
     'update_destructive': '~',
-    'unsupported': '!',
     'blocked': '!',
 }
 _PENDING: dict[ServiceResolution, str] = {
@@ -160,7 +159,6 @@ _PENDING: dict[ServiceResolution, str] = {
     'create': 'will be started',
     'update_additive': 'will be restarted',
     'update_destructive': 'will be restarted (destructive)',
-    'unsupported': 'cannot be served',
     'blocked': 'blocked: the database has to change first',
 }
 
@@ -358,27 +356,23 @@ def _run_foreground(
     # this command runs the server itself, so unlike the rest of the client it needs pixeltable in-process
     import uvicorn
 
-    from pixeltable.serving._app import (
-        create_app_for_services,
-        init_instrumentation,
-        instrument_app,
-        load_service_routers,
-    )
+    from pixeltable.serving._app import create_app, init_instrumentation, instrument_app
+    from pixeltable.utils.app_module import get_module_services, load_app_module
 
     if otel:
         # before the first Pixeltable operation, so that loading the file is traced too
         init_instrumentation()
-    services = load_service_routers(app_file)
     if service_name is None:
-        if len(services) > 1:
-            declared = ', '.join(sorted(services))
+        app, routers = get_module_services(load_app_module(app_file, subject='application file'), app_file)
+        if len(routers) > 1:
+            declared = ', '.join(sorted(routers))
             print(
-                f'pxt service run: {app_file} declares more than one service: {declared}\nname the one to serve',
+                f'pxt service run: {app_file} declares more than one FastAPIRouter: {declared}\nname the one to serve',
                 file=sys.stderr,
             )
             sys.exit(EXIT_ERROR)
-        service_name = next(iter(services))
-    app = create_app_for_services(services, app_file=app_file, base_path=target, service_name=service_name)
+        service_name = next(iter(routers))
+    app, _ = create_app(app_file, service_name, target)
     if otel:
         instrument_app(app)
     n_routes = len(app.routes)
@@ -496,7 +490,7 @@ def _print_plan(plan: ServicePlan, *, as_json: bool, applied: bool = False) -> N
         print(line)
         for op in service['ops']:
             print(f'    {op["description"]}  [{op["severity"]}]')
-        if service['route_detail'] is not None and resolution in ('unsupported', 'blocked'):
+        if service['route_detail'] is not None and resolution == 'blocked':
             print(f'    {service["route_detail"]}')
     for name in plan['extras']:
         print(f'! {name:<24s} extra (not declared); stop it with prune')
@@ -506,8 +500,6 @@ def _print_plan(plan: ServicePlan, *, as_json: bool, applied: bool = False) -> N
     counts = f'{s["create"]} start, {updates} restart, {s["up_to_date"]} unchanged, {s["extras"]} extra'
     if s['blocked'] > 0:
         counts += f', {s["blocked"]} blocked'
-    if s['unsupported'] > 0:
-        counts += f', {s["unsupported"]} unsupported'
     print()
     print(f'Plan: {counts}')
 
