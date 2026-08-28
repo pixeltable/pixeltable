@@ -445,6 +445,8 @@ class Expr(abc.ABC):
 
     def validate_storable(self, context: str) -> None:
         """Raise if this expr references a Function that cannot be persisted."""
+        from pixeltable import func
+
         from .function_call import FunctionCall
 
         for fn_call in self.subexprs(FunctionCall):
