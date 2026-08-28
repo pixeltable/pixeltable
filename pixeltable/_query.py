@@ -574,19 +574,6 @@ class Query(QueryBase):
     def _raise_expr_eval_err(self, e: excs.ExprEvalError) -> NoReturn:
         excs.raise_from_expr_eval_err(e)
 
-    def _clause_exprs(self) -> list[exprs.Expr]:
-        """The top-level exprs of every clause of this query.
-
-        limit/offset are omitted: they are restricted to Literals and Variables at construction time.
-        """
-        return (
-            (self._select_list_exprs or [])
-            + ([] if self.where_clause is None else [self.where_clause])
-            + (self.group_by_clause or [])
-            + ([] if self.order_by_clause is None else [e for e, _ in self.order_by_clause])
-            + (self.sample_clause.stratify_exprs if self.sample_clause is not None else [])
-        )
-
     def _compiled_select_list(self) -> list[exprs.Expr]:
         """Select list exprs that can be evaluated in the context of a plan (has slot_idxs assigned)."""
         return self._ensure_plan().select_list_exprs

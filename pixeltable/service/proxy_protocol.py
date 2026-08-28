@@ -381,7 +381,7 @@ def _check_valid_gfc(gfc: func.GeneratingFunctionCall) -> func.GeneratingFunctio
 
 
 def check_query(query: 'Query') -> 'Query':
-    for e in query._clause_exprs():
+    for e in query._component_exprs():
         _check_valid_expr(e)
     return query
 

@@ -93,7 +93,7 @@ class TestCloudErrors:
     )
     def test_udf_errors(self, udf_usage_type: str, db_root: DatabaseRoot) -> None:
         """Test that we get the right error message when UDF resolution fails on cloud."""
-        import tests.cloud.test_cloud_errors  # noqa: PLW0406
+        import tests.serving.test_cloud_errors  # noqa: PLW0406
 
         p = db_root.make_catalog_path
 
@@ -108,22 +108,22 @@ class TestCloudErrors:
         # Refer to a UDF that's not defined on cloud
         with pxt_raises(
             pxt.ErrorCode.FUNCTION_NOT_FOUND,
-            match=r'The request references the UDF `tests\.cloud\.test_cloud_errors\.local_only_udf`, '
+            match=r'The request references the UDF `tests\.serving\.test_cloud_errors\.local_only_udf`, '
             r'but that UDF is not defined in the remote database\.',
         ):
             accessor(n_plus_1=local_only_udf(t.n))
 
         def mimic(fn: func.CallableFunction) -> None:
-            """Monkey-patches `tests.cloud.test_cloud_errors.evolving_udf` with the given function."""
-            tests.cloud.test_cloud_errors.evolving_udf = func.CallableFunction(
-                fn.signatures, fn.py_fns, 'tests.cloud.test_cloud_errors.evolving_udf'
+            """Monkey-patches `tests.serving.test_cloud_errors.evolving_udf` with the given function."""
+            tests.serving.test_cloud_errors.evolving_udf = func.CallableFunction(
+                fn.signatures, fn.py_fns, 'tests.serving.test_cloud_errors.evolving_udf'
             )
-            tests.cloud.test_cloud_errors.evolving_udf._conditional_return_type = fn._conditional_return_type
+            tests.serving.test_cloud_errors.evolving_udf._conditional_return_type = fn._conditional_return_type
 
         # Refer to a UDF whose signature differs from cloud
         with pxt_raises(
             pxt.ErrorCode.FUNCTION_NOT_FOUND,
-            match=r'The request references the UDF `tests\.cloud\.test_cloud_errors\.evolving_udf`, '
+            match=r'The request references the UDF `tests\.serving\.test_cloud_errors\.evolving_udf`, '
             r'but the signature of the UDF\nin the remote database does not match its local definition\.\n'
             r'Signature of the local UDF: \(pxt\.String\) -> pxt\.Int\n'
             r'Signature of the remote UDF: \(n: pxt\.Int\) -> pxt\.Int',
@@ -134,7 +134,7 @@ class TestCloudErrors:
         # Refer to a UDF whose return type differs from cloud
         with pxt_raises(
             pxt.ErrorCode.FUNCTION_NOT_FOUND,
-            match=r'The request references the UDF `tests\.cloud\.test_cloud_errors\.evolving_udf`, '
+            match=r'The request references the UDF `tests\.serving\.test_cloud_errors\.evolving_udf`, '
             r'but the return type of the UDF\nin the remote database does not match its local definition\.\n'
             r'Return type of the local UDF: String\n'
             r'Return type of the remote UDF: Int',
@@ -145,7 +145,7 @@ class TestCloudErrors:
         # Refer to a UDF whose conditional_return_type raises an ImportError on cloud
         with pxt_raises(
             pxt.ErrorCode.FUNCTION_NOT_FOUND,
-            match=r'A UDF call to `tests\.cloud\.test_cloud_errors\.udf_with_import_error_on_cloud` could not be '
+            match=r'A UDF call to `tests\.serving\.test_cloud_errors\.udf_with_import_error_on_cloud` could not be '
             r'resolved because there are missing\ndependencies in the remote database:\n'
             r"No module named 'jabberwocky'",
         ):
@@ -156,7 +156,7 @@ class TestCloudErrors:
     )
     def test_iterator_errors(self, db_root: DatabaseRoot) -> None:
         """Test that we get the right error message when iterator resolution fails on cloud."""
-        import tests.cloud.test_cloud_errors  # noqa: PLW0406
+        import tests.serving.test_cloud_errors  # noqa: PLW0406
 
         p = db_root.make_catalog_path
 
@@ -165,42 +165,42 @@ class TestCloudErrors:
         # Refer to an iterator that's not defined on cloud
         with pxt_raises(
             pxt.ErrorCode.FUNCTION_NOT_FOUND,
-            match=r'The request references the iterator `tests\.cloud\.test_cloud_errors\.local_only_iterator`, '
+            match=r'The request references the iterator `tests\.serving\.test_cloud_errors\.local_only_iterator`, '
             r'but that iterator is not defined in the remote database\.',
         ):
             pxt.create_view(p('view'), t, iterator=local_only_iterator(t.n))
 
         def mimic(it: func.GeneratingFunction) -> None:
-            """Monkey-patches `tests.cloud.test_cloud_errors.evolving_iterator` with the given iterator."""
-            tests.cloud.test_cloud_errors.evolving_iterator = func.GeneratingFunction(
-                it.decorated_callable, it.unstored_cols, 'tests.cloud.test_cloud_errors.evolving_iterator'
+            """Monkey-patches `tests.serving.test_cloud_errors.evolving_iterator` with the given iterator."""
+            tests.serving.test_cloud_errors.evolving_iterator = func.GeneratingFunction(
+                it.decorated_callable, it.unstored_cols, 'tests.serving.test_cloud_errors.evolving_iterator'
             )
 
         # Refer to an iterator whose signature differs from cloud
         with pxt_raises(
             pxt.ErrorCode.FUNCTION_NOT_FOUND,
-            match=r'The request references the iterator `tests\.cloud\.test_cloud_errors\.evolving_iterator`, '
+            match=r'The request references the iterator `tests\.serving\.test_cloud_errors\.evolving_iterator`, '
             r'but the signature of the iterator\nin the remote database does not match its local definition\.\n'
             r'Signature of the local iterator: \(pxt\.String\) -> \.\.\.\n'
             r'Signature of the remote iterator: \(n: pxt\.Int\) -> \.\.\.',
         ):
             mimic(evolving_iterator_v2)
-            pxt.create_view(p('view'), t, iterator=tests.cloud.test_cloud_errors.evolving_iterator(t.a))
+            pxt.create_view(p('view'), t, iterator=tests.serving.test_cloud_errors.evolving_iterator(t.a))
 
         # Refer to an iterator whose output schema differs from cloud
         with pxt_raises(
             pxt.ErrorCode.FUNCTION_NOT_FOUND,
-            match=r'The request references the iterator `tests\.cloud\.test_cloud_errors\.evolving_iterator`, '
+            match=r'The request references the iterator `tests\.serving\.test_cloud_errors\.evolving_iterator`, '
             r'but the output schema of the iterator\nin the remote database does not match its local definition\.',
         ):
             mimic(evolving_iterator_v3)
-            pxt.create_view(p('view'), t, iterator=tests.cloud.test_cloud_errors.evolving_iterator(t.n))
+            pxt.create_view(p('view'), t, iterator=tests.serving.test_cloud_errors.evolving_iterator(t.n))
 
         # Refer to an iterator with an output field that doesn't exist on cloud
         with pxt_raises(
             pxt.ErrorCode.FUNCTION_NOT_FOUND,
-            match=r'The request references the iterator `tests\.cloud\.test_cloud_errors\.evolving_iterator`, '
+            match=r'The request references the iterator `tests\.serving\.test_cloud_errors\.evolving_iterator`, '
             r'but the output schema of the iterator\nin the remote database does not match its local definition\.',
         ):
             mimic(evolving_iterator_v4)
-            pxt.create_view(p('view'), t, iterator=tests.cloud.test_cloud_errors.evolving_iterator(t.n))
+            pxt.create_view(p('view'), t, iterator=tests.serving.test_cloud_errors.evolving_iterator(t.n))
