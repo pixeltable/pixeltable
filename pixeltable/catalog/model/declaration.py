@@ -7,8 +7,8 @@ import __future__
 
 import dataclasses
 import sys
-import types
 from pathlib import Path
+from types import FrameType
 from typing import TYPE_CHECKING, Any, Literal, MutableMapping, Sequence, TypedDict, cast
 from uuid import UUID, uuid4
 
@@ -27,12 +27,9 @@ from ..table import Table
 from ..table_version_handle import TableVersionHandle
 from ..types import TableVersionMd
 from ..utils import create_table_version_md
-from . import _annotation_recovery
 from .resolution import prepare_model
 
 if TYPE_CHECKING:
-    import pixeltable as pxt
-
     from .query import ModelQuery
 
 # the model each declared path was synthesized for, keyed by its synthesized table id; a query over a model
@@ -364,7 +361,7 @@ class _ModelNamespace(dict):
         self.known_cols[name] = {'type': type_}  # type: ignore[typeddict-item]
         super().__setitem__(name, exprs.ColumnRefByName(name, type_))
 
-    def prebind_deferred_annotations(self, body_code: types.CodeType, display_name: str) -> None:
+    def prebind_annotations(self, caller: FrameType, cls_name: str, display_name: str) -> None:
         """
         Register the class body's annotations before the body runs, for the PEP 649 deferred-annotation
         path where they produce no namespace operations of their own.
@@ -373,24 +370,37 @@ class _ModelNamespace(dict):
         in the statements that follow. Names that are also assigned in the body are deferred to
         `__setitem__`, which applies them once the assignment has been processed.
         """
-        anns = _annotation_recovery.annotation_lines(body_code)
-        assign_lines = _annotation_recovery.assignment_lines(body_code)
+        from . import _code_frame_utils  # inline import, since we only need this on Python 3.14+
+
+        body_code = _code_frame_utils.find_class_body_code(caller, cls_name)
+        if body_code is None:
+            raise excs.RequestError(
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'{display_name}: could not resolve column type annotations; try adding '
+                '`from __future__ import annotations` to your module.'
+            )
+
         try:
-            ann_types = _annotation_recovery.evaluate_annotations(body_code, self, self.eval_globals)
+            annotation_types = _code_frame_utils.evaluate_annotations(body_code, self, self.eval_globals)
         except Exception as exc:
             raise excs.RequestError(
-                excs.ErrorCode.INVALID_SCHEMA, f'{display_name}: could not resolve the column type annotations: {exc}'
+                excs.ErrorCode.INVALID_SCHEMA,
+                f'{display_name}: could not resolve column type annotations; try adding '
+                '`from __future__ import annotations` to your module.'
             ) from exc
 
-        # `ann_types` is the authoritative set of annotations; the recovered lines only order them. Ignore
+        annotations = _code_frame_utils.annotation_lines(body_code)
+        assign_lines = _code_frame_utils.assignment_lines(body_code)
+
+        # `annotation_types` is the authoritative set of annotations; the recovered lines only order them. Ignore
         # any name the two don't agree on, and fall back to appending annotations the line scan missed.
-        ordered_anns = [(col_name, line) for col_name, line in anns if col_name in ann_types]
+        ordered_anns = [(col_name, line) for col_name, line in annotations if col_name in annotation_types]
         found = {col_name for col_name, _line in ordered_anns}
-        ordered_anns.extend((col_name, sys.maxsize) for col_name in ann_types if col_name not in found)
+        ordered_anns.extend((col_name, sys.maxsize) for col_name in annotation_types if col_name not in found)
 
         # Declaration order is the source order of annotations and assignments interleaved. A name that is
         # both annotated and assigned occupies a single position, contributed by whichever comes first.
-        by_line = sorted([*ordered_anns, *assign_lines], key=lambda entry: entry[1])
+        by_line = sorted(ordered_anns + assign_lines, key=lambda entry: entry[1])
         decl_order: list[str] = []
         for col_name, _line in by_line:
             if col_name not in decl_order:
@@ -402,9 +412,9 @@ class _ModelNamespace(dict):
             if col_name.startswith('_'):
                 continue  # not a column, matching the eager path
             if col_name in assigned:
-                self.pending_ann_types[col_name] = ann_types[col_name]
+                self.pending_ann_types[col_name] = annotation_types[col_name]
             else:
-                self.set_col_type(col_name, ann_types[col_name])
+                self.set_col_type(col_name, annotation_types[col_name])
 
     def apply_decl_order(self) -> None:
         """Reorder `known_cols` into source-declaration order, if it is known independently of the body."""
@@ -595,16 +605,7 @@ class TableModelMeta(type):
                 # (PEP 649), so the model's column annotations produce no namespace operations and body references to
                 # them would raise `NameError` before we ever reach `__new__`. In this situation we recover the
                 # annotations from the class body's code object instead and make them available promptly.
-
-                body_code = _annotation_recovery.find_class_body_code(caller, cls_name)
-                if body_code is None:
-                    raise excs.RequestError(
-                        excs.ErrorCode.INVALID_SCHEMA,
-                        f'{display_name}: could not resolve column type annotations; try adding '
-                        '`from __future__ import annotations` to your module.'
-                    )
-
-                namespace.prebind_deferred_annotations(body_code, display_name)
+                namespace.prebind_annotations(caller, cls_name, display_name)
 
             return namespace
 
