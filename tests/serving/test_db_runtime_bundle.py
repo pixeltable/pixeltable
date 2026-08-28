@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from pixeltable import exceptions as excs, metadata
-from pixeltable.config import Config
+from pixeltable.config import Config, DatabaseConfig
 from pixeltable.serving import deploy
 from pixeltable.serving.deploy import build_db_runtime_bundle
 
@@ -56,11 +56,12 @@ class TestDbRuntimeBundle:
             root_files = [m for m in members if '/' not in m]
             assert root_files == ['metadata.json']
 
-            # metadata.json has pxt_md_version and python_version
+            # metadata.json has pxt_md_version and a db_config the server can validate
             with tar.extractfile(tar.getmember('metadata.json')) as f:
                 meta = json.loads(f.read())
                 assert meta['pxt_md_version'] == metadata.VERSION
-                assert meta['python_version'] == f'{sys.version_info.major}.{sys.version_info.minor}'
+                db_config = DatabaseConfig.model_validate(meta['db_config'])
+                assert db_config.python_version == f'{sys.version_info.major}.{sys.version_info.minor}'
 
             # project file content preserved
             with tar.extractfile(tar.getmember('project/udfs.py')) as f:
@@ -145,10 +146,10 @@ class TestDbRuntimeBundle:
 
         with tarfile.open(bundle_path, 'r:bz2') as tar, tar.extractfile(tar.getmember('metadata.json')) as f:
             meta = json.loads(f.read())
-            assert meta['system_dependencies'] == ['ffmpeg', 'libpq']
+            assert meta['db_config']['system_dependencies'] == ['ffmpeg', 'libpq']
 
     def test_bundle_no_system_dependencies(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """No system_dependencies → metadata.json has no system_dependencies key."""
+        """Unset DatabaseConfig fields are omitted from db_config rather than written as null."""
         monkeypatch.chdir(tmp_path)
         Config.init(reinit=True)
 
@@ -156,7 +157,35 @@ class TestDbRuntimeBundle:
 
         with tarfile.open(bundle_path, 'r:bz2') as tar, tar.extractfile(tar.getmember('metadata.json')) as f:
             meta = json.loads(f.read())
-            assert 'system_dependencies' not in meta
+            assert 'system_dependencies' not in meta['db_config']
+            assert DatabaseConfig.model_validate(meta['db_config']).system_dependencies is None
+
+    def test_bundle_db_config_withholds_bindings(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """vars and secrets are resolved locally, so they never reach metadata.json."""
+        (tmp_path / 'pixeltable.toml').write_text(
+            textwrap.dedent("""\
+                [pixeltable.database]
+                system_dependencies = ["ffmpeg"]
+
+                [pixeltable.database.vars]
+                my_var = "some-value"
+
+                [pixeltable.database.secrets]
+                my_secret = "super-secret"
+            """)
+        )
+        monkeypatch.chdir(tmp_path)
+        Config.init(reinit=True)
+
+        bundle_path = build_db_runtime_bundle(tmp_path)
+
+        with tarfile.open(bundle_path, 'r:bz2') as tar, tar.extractfile(tar.getmember('metadata.json')) as f:
+            raw = f.read().decode()
+            meta = json.loads(raw)
+            assert meta['db_config']['system_dependencies'] == ['ffmpeg']
+            assert 'vars' not in meta['db_config']
+            assert 'secrets' not in meta['db_config']
+            assert 'super-secret' not in raw
 
     def test_bundle_is_valid_bz2_tar(self, tmp_path: Path) -> None:
         """The output file is a valid bz2 tarball."""
