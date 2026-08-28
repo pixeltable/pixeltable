@@ -54,9 +54,50 @@ def blocked_schema_op(service_name: str, description: str, command: str) -> Serv
     }
 
 
-def _route_name(route: RouteSpec, prefix: str) -> str:
+def _route_name(route: RouteSpec) -> str:
     """The route as it reads in a diff, eg 'POST /v1/ingest'."""
-    return f'{route["method"]} {prefix}{route["path"]}'
+    return f'{route["method"]} {route["path"]}'
+
+
+def _common_prefix(paths: list[str]) -> str:
+    """The leading segments shared by every path's parent."""
+    segments = [path.rsplit('/', 1)[0].split('/') for path in paths]
+    shared: list[str] = []
+    for parts in zip(*segments):
+        if len(set(parts)) > 1:
+            break
+        shared.append(parts[0])
+    return '/'.join(shared)
+
+
+def _prefix_change(current: ServiceSpec, declared: ServiceSpec) -> ServiceChangeOp | None:
+    """The one operation that accounts for every path difference, when a shared prefix moved.
+
+    A prefix change breaks every caller at once, so it reads better as one operation than as a drop and an
+    add of every route. It applies where stripping each side's shared prefix leaves the same routes.
+    """
+    if len(current['routes']) == 0 or len(declared['routes']) == 0:
+        return None
+    current_prefix = _common_prefix([route['path'] for route in current['routes']])
+    declared_prefix = _common_prefix([route['path'] for route in declared['routes']])
+    if current_prefix == declared_prefix:
+        return None
+    if _without_prefix(current['routes'], current_prefix) != _without_prefix(declared['routes'], declared_prefix):
+        return None
+    return {
+        'target': 'service',
+        'name': declared['name'],
+        'op': 'alter',
+        'severity': 'destructive',
+        'description': (
+            f'service {declared["name"]!r} will be served at prefix {declared_prefix!r} rather than {current_prefix!r}'
+        ),
+        'details': {'from': current_prefix, 'to': declared_prefix},
+    }
+
+
+def _without_prefix(routes: list[RouteSpec], prefix: str) -> set[tuple[str, str]]:
+    return {(route['method'], route['path'][len(prefix) :]) for route in routes}
 
 
 def compare_specs(current: ServiceSpec, declared: ServiceSpec) -> list[ServiceChangeOp]:
@@ -69,21 +110,10 @@ def compare_specs(current: ServiceSpec, declared: ServiceSpec) -> list[ServiceCh
     ops: list[ServiceChangeOp] = []
     ops += _path_ops(current['app_paths'], declared['app_paths'])
 
-    if current['prefix'] != declared['prefix']:
-        # the prefix is part of every route's URL, but not of the route declarations compared below
-        ops.append(
-            {
-                'target': 'service',
-                'name': declared['name'],
-                'op': 'alter',
-                'severity': 'destructive',
-                'description': (
-                    f'service {declared["name"]!r} will be served at prefix {declared["prefix"]!r} '
-                    f'rather than {current["prefix"]!r}'
-                ),
-                'details': {'from': current['prefix'], 'to': declared['prefix']},
-            }
-        )
+    prefix_op = _prefix_change(current, declared)
+    if prefix_op is not None:
+        # every route moved, so the routes below would each read as a drop and an add of the same contract
+        return [*ops, prefix_op]
 
     # keyed by method and path, which ignores declaration order: valid paths don't contain parameters, which avoids
     # ambiguity
@@ -91,7 +121,7 @@ def compare_specs(current: ServiceSpec, declared: ServiceSpec) -> list[ServiceCh
     declared_routes = {(r['method'], r['path']): r for r in declared['routes']}
 
     for key, route in declared_routes.items():
-        name = _route_name(route, declared['prefix'])
+        name = _route_name(route)
         previous = current_routes.get(key)
         if previous is None:
             ops.append(
@@ -121,7 +151,7 @@ def compare_specs(current: ServiceSpec, declared: ServiceSpec) -> list[ServiceCh
     for key, route in current_routes.items():
         if key in declared_routes:
             continue
-        name = _route_name(route, current['prefix'])
+        name = _route_name(route)
         ops.append(
             {
                 'target': 'route',

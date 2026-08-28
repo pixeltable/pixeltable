@@ -1865,7 +1865,7 @@ class TestHostedServiceManager:
                     'base_path': base_path,
                     'endpoint': f'https://acme-main.pixeltable.com/{name}',
                     'app_module': 'apps.basic',
-                    'spec': {'name': name, 'prefix': '', 'routes': [], 'app_paths': []},
+                    'spec': {'name': name, 'routes': [], 'app_paths': []},
                     'state': state,
                     **fields,
                 }
@@ -1917,7 +1917,7 @@ class TestHostedServiceManager:
         assert instance.state is ServiceInstanceState.AVAILABLE
 
     def test_start_updates_changed_declaration(self, api: Any, apps: Callable[[str], str]) -> None:
-        api.add('ingest', base_path='app', spec={'name': 'ingest', 'prefix': '', 'routes': [], 'app_paths': []})
+        api.add('ingest', base_path='app', spec={'name': 'ingest', 'routes': [], 'app_paths': []})
         self._manager().start(apps('basic.py'), 'ingest', 'app')
         assert [r.operation_type.value for r in api.sent].count('update_service_instance') == 1
 

@@ -374,7 +374,6 @@ class TestFastAPI:
         # the service definition the router amounts to, which survives being serialized
         service = router.service_spec(name='scalars')
         assert service['name'] == 'scalars'
-        assert service['prefix'] == ''
         assert json.loads(json.dumps(service)) == service
         specs = {spec['path']: spec for spec in service['routes']}
         assert specs.keys() == {'/all', '/partial-in', '/partial-out', '/minimal', '/update'}

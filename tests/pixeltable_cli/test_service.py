@@ -56,8 +56,7 @@ def assert_serving(cli: PxtRunner, app: str, target: str, *names: str) -> dict[s
         service = running[name]
         served = httpx.get(f'{service["endpoint"]}/openapi.json', timeout=_REQUEST_TIMEOUT)
         assert served.status_code == 200, served.text
-        prefix = service['spec']['prefix']
-        declared = {f'{prefix}{route["path"]}' for route in service['spec']['routes']}
+        declared = {route['path'] for route in service['spec']['routes']}
         declared |= set(service['spec']['app_paths'])
         assert declared <= set(served.json()['paths']), (declared, sorted(served.json()['paths']))
     return running
@@ -459,8 +458,8 @@ class TestService:
         cli('service', 'update', app, target, '-f')
 
         running = services(cli)['prefixed_app']
-        # the prefix belongs to the application, so the router's path reaches the spec as it was declared
-        assert [(r['method'], r['path']) for r in running['spec']['routes']] == [('POST', '/notes')]
+        # the prefix is part of what the router serves, so the spec records it in the path
+        assert [(r['method'], r['path']) for r in running['spec']['routes']] == [('POST', '/v1/notes')]
         assert running['spec']['app_paths'] == ['/hand-written']
 
         endpoint = running['endpoint']

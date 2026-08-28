@@ -61,6 +61,14 @@ ingest.add_insert_route(
 ingest.add_compute_route(Docs, path='/titles', inputs=[Docs.title], outputs=[Docs.title_upper])
 '''
 
+_OWN_APP = """
+Your own application:
+  A file may supply its own fastapi.FastAPI object rather than leave Pixeltable to build one, in which case it
+  declares one service, named after its module. All FastAPIRouters in that same file need to be included in
+  that application (via include_router()); they don't get turned into separate services. The file's models are bound
+  at TARGET before it serves, so a handler reaches them by name.
+"""
+
 _APP_FILE = """
 Project:
   APP has to sit under a project root: the directory holding the project configuration, which is a
@@ -79,7 +87,7 @@ Tracing:
   package ('pip install pixeltable[otel]'). The setting belongs to the running service, not to the file:
   a service already running without it restarts when 'update' is given the flag, and 'diff' reports that
   as a pending change.
-{_APP_FILE}"""
+{_OWN_APP}{_APP_FILE}"""
 
 UPDATE_EPILOG = f"""\
 Examples:
@@ -91,7 +99,7 @@ Tracing:
   --otel needs the instrumentation package ('pip install pixeltable[otel]'). The setting belongs to the
   running service, not to the file: a service already running without it restarts to pick it up, and
   dropping the flag restarts it again.
-{_APP_FILE}"""
+{_OWN_APP}{_APP_FILE}"""
 
 RUN_EPILOG = f"""\
 Examples:
@@ -102,14 +110,14 @@ Examples:
 
 One service per process, as 'update' deploys them. Nothing is recorded: it runs for as long as this process
 does. Use 'update' to run it in the background, where 'list' and 'stop' can find it again.
-{_APP_FILE}"""
+{_OWN_APP}{_APP_FILE}"""
 
 PRUNE_EPILOG = f"""\
 Examples:
   pxt service prune app.py my_dir     # stop and forget the services the file does not declare
 
 A stopped service can be started again with 'pxt service update'.
-{_APP_FILE}"""
+{_OWN_APP}{_APP_FILE}"""
 
 STOP_EPILOG = """\
 Examples:
@@ -138,7 +146,7 @@ Notes:
   service and a model base, and every udf its columns call is named by a module path another
   process resolves. Takes no TARGET, so it says nothing about what a target can serve;
   'pxt service diff' answers that.
-{_APP_FILE}"""
+{_OWN_APP}{_APP_FILE}"""
 
 VERBS = ('diff', 'update', 'run', 'prune', 'stop', 'list', 'check', 'example')
 
@@ -450,12 +458,11 @@ def _list(target: str | None, *, as_json: bool) -> None:
         # shown as the file it names: a catalog path never carries a .py suffix
         app_file = d['app_module'].replace('.', '/') + '.py'
         print(f'{_address(d):<{width}s}  {d["endpoint"]}  {pid_or_state}  {app_file}')
-        prefix = d['spec']['prefix']
         for route in d['spec']['routes']:
             served = ', '.join(route['outputs']) if len(route['outputs']) > 0 else '-'
             accepted = ', '.join([*route['inputs'], *(f'{n} (file)' for n in route['uploadfile_inputs'])])
             print(
-                f'    {route["method"]:<5s} {prefix}{route["path"]:<24s} {route["route_type"]:<8s} '
+                f'    {route["method"]:<5s} {route["path"]:<24s} {route["route_type"]:<8s} '
                 f'in: {accepted or "-"}  out: {served}'
             )
 

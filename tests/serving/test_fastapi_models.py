@@ -143,7 +143,7 @@ class TestFastAPIModels:
         prefixed.add_insert_route(Notes, path='/ins')
         service = prefixed.service_spec()
         assert service['name'] == 'ingest'  # the name the router was constructed with
-        assert (service['prefix'], service['routes'][0]['path']) == ('/v1', '/ins')
+        assert service['routes'][0]['path'] == '/v1/ins'  # a route records the path as it is served
 
         router = FastAPIRouter()
         with pxt_raises(pxt.ErrorCode.COLUMN_NOT_FOUND, match="unknown column 'nosuchcol'"):

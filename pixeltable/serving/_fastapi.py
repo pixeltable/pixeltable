@@ -517,8 +517,8 @@ class FastAPIRouter(fastapi.APIRouter):
             )
         return {
             'name': service_name,
-            'prefix': self.prefix,
-            'routes': [route.spec for route in self._routes],
+            # the router's own prefix is part of every path it serves, so each route records it
+            'routes': [{**route.spec, 'path': f'{self.prefix}{route.spec["path"]}'} for route in self._routes],
             'app_paths': [],
         }
 

@@ -31,7 +31,7 @@ _RUNNING_PACKAGES = ('pixeltable', 'pixeltable_cli')
 if TYPE_CHECKING:
     import fastapi
 
-    from pixeltable.serving import FastAPIRouter, ServiceSpec
+    from pixeltable.serving import FastAPIRouter, RouteSpec, ServiceSpec
 
 
 def module_name(file: str, *, subject: str) -> str:
@@ -313,22 +313,26 @@ def service_spec(name: str, service: FastAPIRouter | fastapi.FastAPI, routers: l
 
     if isinstance(service, FastAPIRouter):
         return service.service_spec(name)
-    return {
-        'name': name,
-        'prefix': '',
-        'routes': [route for router in routers for route in router.service_spec(name)['routes']],
-        'app_paths': _app_paths(service, routers),
-    }
+    routes: list[RouteSpec] = []
+    for router in routers:
+        prefix = _include_prefix(service, router)
+        routes += [{**route, 'path': f'{prefix}{route["path"]}'} for route in router.service_spec(name)['routes']]
+    return {'name': name, 'routes': routes, 'app_paths': _app_paths(service, routers)}
+
+
+def _include_prefix(app: fastapi.FastAPI, router: FastAPIRouter) -> str:
+    """The prefix that app adds to router's paths, empty when absent."""
+    app_paths = {id(getattr(route, 'endpoint', None)): getattr(route, 'path', '') for route in app.routes}
+    for route in router.routes:
+        path = getattr(route, 'path', None)
+        app_path = app_paths.get(id(getattr(route, 'endpoint', None)))
+        if path is not None and app_path is not None and app_path.endswith(path):
+            return app_path[: len(app_path) - len(path)]
+    return ''
 
 
 def _app_paths(app: fastapi.FastAPI, routers: list[FastAPIRouter]) -> list[str]:
-    """The paths app serves itself, leaving out what the routers it includes contribute.
-
-    A router's routes are recognized by their endpoint functions, which include_router() reuses when it
-    copies them, so any prefix it adds does not matter here. Their paths come from app's own route table,
-    where they carry that prefix, normalized because an OpenAPI path names a path parameter without its
-    converter.
-    """
+    """The paths which app serves itself, minus the ones from routers."""
     from_routers = {
         id(endpoint) for router in routers for endpoint in (getattr(r, 'endpoint', None) for r in router.routes)
     }

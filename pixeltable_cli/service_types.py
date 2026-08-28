@@ -107,7 +107,7 @@ class RouteSpec(TypedDict):
     """Mirror of pixeltable.serving.RouteSpec: one route of a service definition."""
 
     method: Literal['GET', 'POST']
-    path: str
+    path: str  # as served, including every prefix in front of the declared path
     route_type: Literal['insert', 'update', 'delete', 'compute', 'query']
 
     # the model a route is declared against, or the catalog path of the table; a query route written against
@@ -131,7 +131,6 @@ class ServiceSpec(TypedDict):
     """Mirror of pixeltable.serving.ServiceSpec: everything an application file declares about one service."""
 
     name: str
-    prefix: str
     routes: list[RouteSpec]
 
     # paths served by a custom FastAPI instance that don't come from FastAPIRouter instances

@@ -15,6 +15,8 @@ class RouteSpec(TypedDict):
     """
 
     method: Literal['GET', 'POST']
+
+    # as served, including every prefix in front of the declared path
     path: str
     route_type: Literal['insert', 'update', 'delete', 'compute', 'query']
 
@@ -39,7 +41,6 @@ class ServiceSpec(TypedDict):
     """Complete metadata of a service."""
 
     name: str
-    prefix: str
     routes: list[RouteSpec]
 
     # paths served by a custom FastAPI instance that don't come from FastAPIRouter instances
