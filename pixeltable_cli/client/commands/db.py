@@ -33,11 +33,6 @@ def _elapsed(seconds: float) -> str:
 
 
 def _print_stages(stages: list[tuple[str, str, float, str]]) -> None:
-    """What is still on screen once the transient progress displays have cleared.
-
-    Not transient, so the timings survive the run; one display for every row, because splitting the
-    failed one onto another stream reorders it against its neighbours. The exit status carries failure.
-    """
     # imported lazily to match the rest of the client: rich is a heavy import for a stdlib-only CLI
     from rich.progress import Column, Progress, TextColumn
 
@@ -313,8 +308,7 @@ def _update_runtime(args: argparse.Namespace) -> None:
 
     post_request('/api/db/update-runtime', {'org': org, 'db': db, 'bundle_s3_key': bundle_s3_key})
 
-    # The server moves through its own stages; watching each reading is the only way to time them
-    # separately, since the record only ever holds the stage currently in flight.
+    # the record only holds the stage in flight, so each reading is the only chance to time it
     watched_stage = ''
     watched_since = time.monotonic()
 
@@ -342,13 +336,11 @@ def _update_runtime(args: argparse.Namespace) -> None:
         label,
         on_poll=on_poll,
     )
-    # A server that reports no stages still ran them; time the wait as one span rather than inventing names.
+    # a server that reports no stages still ran them; time the wait as one span
     server_stage = watched_stage or 'build+deploy'
     server_seconds = time.monotonic() - (watched_since if watched_stage else started)
 
-    # The server reports the stage the update reached and what became of it: "build failed" and
-    # "deploy failed" are different problems and only the stage separates them. A server that does not
-    # report the pair still says whether the build worked, which is enough to name the outcome.
+    # build-failed and deploy-failed are different problems; only the stage separates them
     status = result.get('update_runtime_status') or {}
     state = str(status.get('state', '')).lower()
     last_build_state = result.get('last_build_state')
