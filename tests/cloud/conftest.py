@@ -10,6 +10,15 @@ import pytest
 from .test_cli_e2e import _cloud_env
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        '--keep-cloud-resources',
+        action='store_true',
+        default=False,
+        help='Leave the e2e database and service in place after the run.',
+    )
+
+
 @pytest.hookimpl(tryfirst=True, hookwrapper=True)
 def pytest_runtest_makereport(item: pytest.Item, call: Any) -> Any:
     outcome = yield
