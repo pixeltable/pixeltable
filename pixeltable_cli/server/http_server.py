@@ -151,7 +151,6 @@ class _DaemonHandler(BaseHTTPRequestHandler):
 
     def _env_values_agree(self, req: Request) -> bool:
         """Whether this daemon's config values are the ones it recorded and the caller expects."""
-        daemon_state.ensure_env_fingerprint_recorded()
         current = Config.get().env_fingerprint()
         changed = daemon_state.changed_env_vars(current)
         if len(changed) > 0:
@@ -312,6 +311,9 @@ def bind(port: int) -> _QuietServer:
 
 def run(server: _QuietServer) -> None:
     """Serve forever on a server bound by bind() (blocks the calling thread)."""
+    # before the first request: a request that reloads the config file would otherwise be the one to record
+    # the baseline, and would record the file's new values as the ones this process serves with
+    daemon_state.record_env_fingerprint()
     _logger.info('pxt daemon listening on http://%s:%s', *server.server_address)
     try:
         server.serve_forever()

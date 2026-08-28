@@ -30,6 +30,7 @@ from .utils import (
     reload_env,
     schema_from_tbl_md,
     skip_test_if_not_installed,
+    validate_repr,
     validate_update_status,
 )
 
@@ -39,7 +40,48 @@ def tag(s: str, label: str) -> str:
     return f'{label}: {s}'
 
 
+@pxt.udf
+def excerpt(text: str) -> str:
+    return text[:4]
+
+
+@pxt.udf
+def is_long(text: str) -> bool:
+    return len(text) > 4
+
+
+@pxt.udf
+def embed(text: str) -> pxt.Array[(4,), pxt.Float]:
+    return np.zeros(4, dtype=np.float32)
+
+
 class TestTableModel:
+    def test_referenced_functions(self) -> None:
+        """Every function a declaration persists is reported, whichever declaration holds it."""
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            title: pxt.String
+            summary = excerpt(title)
+            __indexes__ = [EmbeddingIndex(title, embedding=embed, name='title_idx')]
+
+        class Long(TableModel, name='long', base=Docs.where(is_long(Docs.title))):
+            headline = Docs.summary + '!'
+
+        class Chunks(
+            TableModel,
+            name='chunks',
+            base=Docs,
+            iterator=pxtf.string.string_splitter(excerpt(Docs.title), separators='sentence'),
+        ):
+            pass
+
+        assert {fn.name for fn in Docs.referenced_functions()} == {'excerpt', 'embed'}
+        # the view names the base's column rather than its expression, so only its own predicate is here
+        assert {fn.name for fn in Long.referenced_functions()} == {'is_long'}
+        assert {fn.name for fn in Chunks.referenced_functions()} == {'excerpt'}
+        assert Docs.declared_models() == [Docs, Long, Chunks]
+
     def test_table_path(self, make_catalog_path: Callable[[str], str]) -> None:
         """A model describes its shape before the table exists, and the description matches what gets created."""
         p = make_catalog_path
@@ -957,15 +999,26 @@ class TestTableModel:
                 EmbeddingIndex(text, embedding=dummy_embedding.using(n=32), name='ix')  # type: ignore[name-defined]
             ]
 
+        # the index is declared by the model, so a similarity query over it can be written before the table
+        # that carries it exists
+        model_sim = ExampleViewModel.text.similarity(string='one')
+        model_search = ExampleViewModel.order_by(model_sim, asc=False).select(ExampleViewModel.text)
+
         TableModel.create_all(p(''))
-        ExampleTableModel.insert([{'id': 1, 'doc_text': 'One sentence. Two sentence.'}])
+        # 'one'/'zero' make dummy_embedding deterministic, so the order these rank in is fixed
+        ExampleTableModel.insert([{'id': 1, 'doc_text': 'one sentence. zero sentence.'}])
 
         idx_md = ExampleViewModel.get_metadata()['indexes']['ix']
         assert idx_md['columns'] == ['text']
         assert idx_md['index_type'] == 'embedding'
         view = ExampleViewModel.table
-        sim = view.text.similarity(string='One sentence.')
-        assert len(view.order_by(sim, asc=False).limit(1).collect()) == 1
+        sim = view.text.similarity(string='one')
+        assert [r['text'] for r in view.order_by(sim, asc=False).collect()] == ['one sentence.', 'zero sentence.']
+        # the query written against the model ranks them the same way, once it is bound to that table
+        assert [r['text'] for r in model_search.bind(p('')).collect()] == [  # type: ignore[attr-defined]
+            'one sentence.',
+            'zero sentence.',
+        ]
 
     def test_view_model_iterator_column_shadows_base(self, make_catalog_path: Callable[[str], str]) -> None:
         """An iterator output shadows a base column of the same name, so the model's text is the chunk text
@@ -2174,28 +2227,65 @@ class TestTableModel:
             ):
                 tile = 5
 
-        # Forwarded `Table` methods that aren't available on a placeholder query raise `AttributeError` when the
-        # model isn't yet bound to an actual table.
+        # a Table method that a query cannot provide raises AttributeError while the model is unbound
         with pytest.raises(AttributeError, match=r'is not yet bound to an actual table'):
-            ValidTableModel.collect()
+            ValidTableModel.get_metadata()
 
-        # `ModelQuery` clause methods reject being specified more than once in a `ViewModel` base query.
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`select\(\)` list already specified'):
+        # every method that reads or writes rows refuses on an unbound model, naming it and how to create it
+        for method, args in (
+            ('collect', ()),
+            ('count', ()),
+            ('cursor', ()),
+            ('delete', ()),
+            ('head', ()),
+            ('recompute_columns', ()),
+            ('show', ()),
+            ('tail', ()),
+            ('update', ({'id': 1},)),
+        ):
+            with pxt_raises(
+                excs.ErrorCode.UNSUPPORTED_OPERATION,
+                match=rf'{method}\(\): `ValidTableModel`, which is not bound to a table, holds no rows',
+            ):
+                getattr(ValidTableModel, method)(*args)
+
+        # describe() needs no table: it renders what the model declares, in full
+        ValidTableModel.describe()
+        validate_repr(
+            ValidTableModel.select(ValidTableModel.id),
+            """ Name        Type Expression
+               ----------------------------
+                 id  Int | None         id
+
+               From  valid_table""",
+        )
+
+        # the same refusal from a declared query, rather than from the model
+        declared = ValidTableModel.where(ValidTableModel.id > 0)  # type: ignore[arg-type]
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r'`ValidTableModel`, which is not bound'):
+            declared.collect()
+
+        # similarity() on a column the model declares no embedding index on has nothing to resolve against
+        with pxt_raises(excs.ErrorCode.INDEX_NOT_FOUND, match=r"No embedding index found for column 'id'"):
+            _ = ValidTableModel.id.similarity(string='hello')  # type: ignore[attr-defined]
+
+        # clause methods reject being specified more than once
+        with pxt_raises(excs.ErrorCode.INVALID_STATE, match=r'Select list already specified'):
             ValidTableModel.select(ValidTableModel.id).select(ValidTableModel.id)
 
         with pxt_raises(excs.ErrorCode.INVALID_ARGUMENT, match=r'Invalid name: bad name'):
             ValidTableModel.select(**{'bad name': ValidTableModel.id})
 
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`where\(\)` clause already specified'):
+        with pxt_raises(excs.ErrorCode.INVALID_STATE, match=r'[Ww]here.*already specified'):
             ValidTableModel.where(ValidTableModel.id > 0).where(ValidTableModel.id > 0)  # type: ignore[arg-type]
 
-        with pxt_raises(excs.ErrorCode.INVALID_SCHEMA, match=r'`sample\(\)` clause already specified'):
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r'Multiple sample\(\) clauses not allowed'):
             ValidTableModel.sample(n=10).sample(n=5)
 
         # a base query cannot contain the clauses a view cannot be defined by
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r'model `GroupedBase`: The following clauses cannot be used in a view definition: group_by\(\)',
+            match=r'model `GroupedBase`: `group_by` cannot be used in a view definition\.',
         ):
 
             class GroupedBase(TableModel, name='grouped_base', base=ValidTableModel.group_by(ValidTableModel.id)):
@@ -2203,7 +2293,7 @@ class TestTableModel:
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r'model `OrderedBase`: The following clauses cannot be used in a view definition: order_by\(\)',
+            match=r'model `OrderedBase`: `order_by` cannot be used in a view definition\.',
         ):
 
             class OrderedBase(TableModel, name='ordered_base', base=ValidTableModel.order_by(ValidTableModel.id)):
@@ -2211,44 +2301,30 @@ class TestTableModel:
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r'model `LimitedBase`: The following clauses cannot be used in a view definition: limit\(\)',
+            match=r'model `LimitedBase`: `limit` cannot be used in a view definition\.',
         ):
 
             class LimitedBase(TableModel, name='limited_base', base=ValidTableModel.limit(10)):
                 pass
 
-        with pxt_raises(
-            excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r'model `JoinedBase`: The following clauses cannot be used in a view definition: join\(\)',
-        ):
-
-            class JoinedBase(
-                TableModel,
-                name='joined_base',
-                base=ValidTableModel.join(OtherModel, on=ValidTableModel.id == OtherModel.x),
-            ):
-                pass
+        with pxt_raises(excs.ErrorCode.UNSUPPORTED_OPERATION, match=r'`ValidTableModel` cannot be joined'):
+            ValidTableModel.join(OtherModel, on=ValidTableModel.id == OtherModel.x)  # type: ignore[arg-type]
 
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r'model `DistinctBase`: The following clauses cannot be used in a view definition: distinct\(\)',
+            match=r'model `DistinctBase`: `group_by` cannot be used in a view definition\.',
         ):
 
             class DistinctBase(TableModel, name='distinct_base', base=ValidTableModel.distinct()):
                 pass
 
-        # every prohibited clause is reported, in the order it was specified
+        # a base query with several prohibited clauses reports the first of them
         with pxt_raises(
             excs.ErrorCode.UNSUPPORTED_OPERATION,
-            match=r'model `MultiBase`: The following clauses cannot be used in a view definition: '
-            r'order_by\(\), join\(\), limit\(\)',
+            match=r'model `MultiBase`: `order_by` cannot be used in a view definition\.',
         ):
 
-            class MultiBase(
-                TableModel,
-                name='multi_base',
-                base=ValidTableModel.order_by(ValidTableModel.id).join(OtherModel).limit(10),
-            ):
+            class MultiBase(TableModel, name='multi_base', base=ValidTableModel.order_by(ValidTableModel.id).limit(10)):
                 pass
 
     def test_aggregation_rejected(self) -> None:
@@ -2277,6 +2353,71 @@ class TestTableModel:
             plus = v + 1  # type: ignore[name-defined]
 
         assert [c.name for c in Projected.table_path().column_md()] == ['v', 'plus']
+
+    def test_query_udf_over_model(self, make_catalog_path: Callable[[str], str]) -> None:
+        """A computed column calling a @pxt.query UDF over another model queries that model's table."""
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            doc_id: pxt.Int
+            title: pxt.String
+
+        @pxt.query
+        def titles_after(cutoff: int) -> pxt.Query:
+            return Docs.where(Docs.doc_id > cutoff).select(Docs.title)  # type: ignore[arg-type]
+
+        class Probe(TableModel, name='probe'):
+            cutoff: pxt.Int
+            matches = titles_after(cutoff)
+
+        target = make_catalog_path('qudf')
+        pxt.create_dir(target, parents=True)
+        TableModel.create_all(target)
+        pxt.get_table(f'{target}/docs').insert([{'doc_id': 1, 'title': 'alpha'}, {'doc_id': 5, 'title': 'beta'}])
+
+        # the stored column holds a query over the table Docs was created as, so it reads that table's rows
+        reload_catalog()
+        probe = pxt.get_table(f'{target}/probe')
+        probe.insert([{'cutoff': 0}, {'cutoff': 1}])
+        rows = probe.order_by(probe.cutoff).select(probe.matches).collect()['matches']
+        assert rows == [[{'title': 'alpha'}, {'title': 'beta'}], [{'title': 'beta'}]]
+
+    def test_query_udf_column_shapes(self, make_catalog_path: Callable[[str], str]) -> None:
+        """Several columns over one query udf, and one that wraps its result, each hold their own value."""
+        TableModel = pxt.model_base()
+
+        class Docs(TableModel, name='docs'):
+            doc_id: pxt.Int
+            title: pxt.String
+
+        @pxt.query
+        def titles_after(cutoff: int) -> pxt.Query:
+            return Docs.where(Docs.doc_id > cutoff).order_by(Docs.doc_id).select(Docs.title)  # type: ignore[arg-type]
+
+        class Probe(TableModel, name='probe'):
+            cutoff: pxt.Int
+            # the same udf called three ways: with the row's value, with a constant, and wrapped
+            matches = titles_after(cutoff)
+            from_two = titles_after(2)
+            match_count = pxtf.json.len(titles_after(cutoff))
+
+        target = make_catalog_path('qudf_shapes')
+        pxt.create_dir(target, parents=True)
+        TableModel.create_all(target)
+        pxt.get_table(f'{target}/docs').insert(
+            [{'doc_id': 1, 'title': 'alpha'}, {'doc_id': 2, 'title': 'beta'}, {'doc_id': 3, 'title': 'gamma'}]
+        )
+
+        reload_catalog()
+        probe = pxt.get_table(f'{target}/probe')
+        probe.insert([{'cutoff': 0}, {'cutoff': 2}])
+        rows = probe.order_by(probe.cutoff).select(probe.matches, probe.from_two, probe.match_count).collect()
+        assert [r['matches'] for r in rows] == [
+            [{'title': 'alpha'}, {'title': 'beta'}, {'title': 'gamma'}],
+            [{'title': 'gamma'}],
+        ]
+        assert [r['from_two'] for r in rows] == [[{'title': 'gamma'}], [{'title': 'gamma'}]]
+        assert [r['match_count'] for r in rows] == [3, 1]
 
     def test_table_model_validation_errors(self, make_catalog_path: Callable[[str], str]) -> None:
         """Errors that arise from a schema mismatch between a model and an existing table."""
@@ -2378,7 +2519,7 @@ class TestTableModel:
         def write_config(media_dest: str) -> None:
             config_file.write_text(
                 f'[pixeltable]\nfile_cache_size_g = 10\noutput_media_dest = "{default_dir.as_posix()}"\n'
-                f'[pixeltable.clouddb.vars]\nmedia_dest = "{media_dest}"\n'
+                f'[pixeltable.database.vars]\nmedia_dest = "{media_dest}"\n'
             )
 
         write_config(media_dir.as_posix())

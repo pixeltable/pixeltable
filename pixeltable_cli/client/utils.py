@@ -9,16 +9,19 @@ import os
 import platform
 import re
 import signal
+import socket
 import subprocess
 import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 import psutil
 
+from pixeltable_cli import schema_types
 from pixeltable_cli.utils import (
     _IDENTITY_KEYS,
     _resolve_pixeltable_home,
@@ -26,6 +29,7 @@ from pixeltable_cli.utils import (
     get_port,
     identity,
     pidfile_path,
+    project_root,
     validate_path_shape,
 )
 
@@ -72,6 +76,7 @@ def read_pidfile() -> int | None:
 
 
 def fetch_health(timeout: float = 0.3) -> dict[str, Any] | None:
+    """What the daemon reports about itself, or None if nothing usable answered within timeout."""
     try:
         with urllib.request.urlopen(health_url(), timeout=timeout) as r:
             body = json.loads(r.read())
@@ -92,9 +97,29 @@ def is_running(timeout: float = 0.3) -> bool:
     return fetch_health(timeout) is not None
 
 
+def port_is_open(timeout: float = 0.3) -> bool:
+    """Report whether something accepts a connection on the daemon's port.
+
+    A daemon busy with a request answers the connection but not the request, which tells 'still there, working'
+    apart from 'gone'.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(timeout)
+        return sock.connect_ex(('127.0.0.1', get_port())) == 0
+
+
 def _identity_diff(client: dict[str, Any], daemon: dict[str, Any]) -> list[str]:
     """Return the list of identity keys whose values differ."""
     return [k for k in _IDENTITY_KEYS if client.get(k) != daemon.get(k)]
+
+
+def _serves_another_project(daemon: dict[str, Any]) -> bool:
+    """Report whether the daemon's project root differs from the one the working directory establishes.
+
+    A working directory that establishes no project asks for nothing, and leaves the daemon as it is.
+    """
+    root = project_root()
+    return root is not None and daemon.get('project_root') != root
 
 
 def spawn_detached() -> None:
@@ -117,15 +142,14 @@ def spawn_detached() -> None:
         # daemon's cwd to the pixeltable home (which holds no importable packages) and set
         # PYTHONSAFEPATH so the working directory is not prepended to sys.path at all (3.11+).
         env = {**os.environ, 'PYTHONSAFEPATH': '1'}
+        # a daemon starts in the Pixeltable home, which marks no project, so its command line carries the
+        # project it serves
+        root = project_root()
+        args = [sys.executable, '-m', 'pixeltable_cli.server.daemon']
+        if root is not None:
+            args += ['--project-root', root]
         with open(log_path, 'a', encoding='utf-8') as log:
-            subprocess.Popen(
-                [sys.executable, '-m', 'pixeltable_cli.server.daemon'],
-                stdout=log,
-                stderr=log,
-                cwd=_resolve_pixeltable_home(),
-                env=env,
-                **popen_kwargs,
-            )
+            subprocess.Popen(args, stdout=log, stderr=log, cwd=_resolve_pixeltable_home(), env=env, **popen_kwargs)
     except OSError as e:
         reason = e.strerror or e.__class__.__name__
         raise RuntimeError(f'pxt daemon log unavailable ({log_path}): {reason}') from None
@@ -260,6 +284,8 @@ def ensure_running() -> str:
     if health is not None:
         client_identity = identity()
         diff = _identity_diff(client_identity, health)
+        if _serves_another_project(health):
+            diff = [*diff, 'project_root']
         if len(diff) > 0:
             # Identity mismatch: the daemon was launched against a different install or env snapshot than the
             # client now sees (eg, after pip install -U pixeltable). Restart it ourselves rather than making
@@ -365,6 +391,29 @@ def get_request(path: str, params: dict[str, Any] | None = None) -> Any:
 
 def post_request(path: str, body: dict[str, Any]) -> Any:
     return _request('POST', path, body=body)
+
+
+def check_file(route: str, field: str, file: str, *, verb: str, as_json: bool) -> None:
+    """Print what the daemon at route reports about file, and exit 0 when it reports the file valid.
+
+    Sends the absolute path under field, since the daemon reads the file itself. Exit 1 is the error status
+    of every verb that takes a file.
+    """
+    path = Path(file)
+    if not path.is_file():
+        print(f'pxt {verb}: file not found: {file}', file=sys.stderr)
+        sys.exit(1)
+    report: schema_types.CheckReport = post_request(route, {field: str(path.resolve())})
+    if as_json:
+        print(json.dumps(report, indent=2))
+    else:
+        for warning in report['warnings']:
+            print(f'warning: {warning}')
+        for error in report['errors']:
+            print(f'error: {error}', file=sys.stderr)
+        if report['valid']:
+            print(f'{report["file"]}: valid')
+    sys.exit(0 if report['valid'] else 1)
 
 
 def validate_path_arg(path: str) -> str:

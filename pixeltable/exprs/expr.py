@@ -141,6 +141,11 @@ class Expr(abc.ABC):
         return None
 
     @property
+    def is_column_ref(self) -> bool:
+        """Whether this expression refers to a single column, whether by identity or by name."""
+        return False
+
+    @property
     def validation_error(self) -> str | None:
         """
         Subclasses can override this to indicate that validation has failed after a catalog load.
@@ -433,6 +438,17 @@ class Expr(abc.ABC):
         from .function_call import FunctionCall
 
         for fn_call in self.subexprs(FunctionCall):
+            if isinstance(fn_call.fn, func.InvalidFunction):
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{context} uses a UDF this process cannot resolve: {fn_call.fn.error_msg}',
+                )
+            if isinstance(fn_call.fn, func.QueryTemplateFunction) and not fn_call.fn.queries_tables:
+                raise excs.RequestError(
+                    excs.ErrorCode.UNSUPPORTED_OPERATION,
+                    f'{context} calls `{fn_call.fn.display_name}()`, which queries a model rather than a table. '
+                    'A query over a model can only be stored once the model is bound to a table.',
+                )
             if not fn_call.fn.is_storable:
                 raise excs.RequestError(
                     excs.ErrorCode.UNSUPPORTED_OPERATION,

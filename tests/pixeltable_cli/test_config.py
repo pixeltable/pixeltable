@@ -177,20 +177,20 @@ class TestConfig:
         resp = cli('config', '--json', env_overrides=supplied).json
         entries = {(e['section'], e['key']): e for e in resp['entries']}
 
-        secret = entries['pixeltable.clouddb.secrets', 'pxt_test_key']
+        secret = entries['pixeltable.database.secrets', 'pxt_test_key']
         assert (secret['value'], secret['source']) == ('<redacted>', 'env')
-        var = entries['pixeltable.clouddb.vars', 'pxt_test_dest']
+        var = entries['pixeltable.database.vars', 'pxt_test_dest']
         assert (var['value'], var['source']) == ('s3://bucket/prefix', 'env')
         assert 'PIXELTABLE_SECRET_PXT_TEST_KEY' in resp['env_var_names']
 
-    def test_config_var_supplied_by_the_environment(
-        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+    def test_config_var_from_env(
+        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], project_dir: pathlib.Path
     ) -> None:
         """A config var a schema declares is bound from the environment, with no entry in any config file."""
         target = make_catalog_path('cfg')
-        media_dir = tmp_path / 'media'
+        media_dir = project_dir / 'media'
         media_dir.mkdir()
-        schema_file = tmp_path / 'app.py'
+        schema_file = project_dir / 'app.py'
         schema_file.write_text(
             dedent(
                 """
@@ -221,7 +221,60 @@ class TestConfig:
         assert md['columns']['thumb']['destination'] == '$pxt_test_dest'
         entries = cli('config', '--json', env_overrides=bound).json['entries']
         dest = next(e for e in entries if e['key'] == 'pxt_test_dest')
-        assert (dest['section'], dest['source']) == ('pixeltable.clouddb.vars', 'env')
+        assert (dest['section'], dest['source']) == ('pixeltable.database.vars', 'env')
+
+    def test_config_var_from_project_config(
+        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], project_dir: pathlib.Path
+    ) -> None:
+        """A var and a secret bound in the project's pixeltable.toml reach the daemon."""
+        target = make_catalog_path('cfg')
+        media_dir = project_dir / 'media'
+        media_dir.mkdir()
+        schema_file = project_dir / 'app.py'
+        schema_file.write_text(
+            dedent(
+                """
+                from __future__ import annotations
+
+                import pixeltable as pxt
+
+                MEDIA_DEST = pxt.ConfigVar('pxt_proj_dest', pxt.URI)
+
+                TableModel = pxt.model_base()
+
+
+                class Clips(TableModel, name='clips'):
+                    img: pxt.Image | None
+                    thumb = pxt.Column(value=img.rotate(90), destination=MEDIA_DEST)
+                """
+            ),
+            encoding='utf-8',
+        )
+
+        # the project binds the var, with nothing in the environment and nothing in the home config
+        project_config = project_dir.parent / 'pixeltable.toml'
+        original = project_config.read_text(encoding='utf-8')
+        project_config.write_text(
+            f"{original}\n[[pixeltable.database]]\nvars.pxt_proj_dest = '{media_dir.as_posix()}'\n"
+            "secrets.pxt_proj_key = 'from-the-project'\n",
+            encoding='utf-8',
+        )
+        try:
+            cli('daemon', 'restart')  # the daemon read the project config when it started
+            cli('schema', 'update', str(schema_file), target)
+            assert cli('schema', 'diff', str(schema_file), target).returncode == 0
+
+            # the column records the variable, and pxt config names the project file as its source
+            md = pxt.get_table(f'{target}/clips').get_metadata()
+            assert md['columns']['thumb']['destination'] == '$pxt_proj_dest'
+            entries = cli('config', '--json').json['entries']
+            var = next(e for e in entries if e['key'] == 'pxt_proj_dest')
+            assert (var['section'], var['source']) == ('pixeltable.database.vars', str(project_config))
+            secret = next(e for e in entries if e['key'] == 'pxt_proj_key')
+            assert (secret['section'], secret['source']) == ('pixeltable.database.secrets', str(project_config))
+        finally:
+            project_config.write_text(original, encoding='utf-8')
+            cli('daemon', 'restart')
 
     def test_changing_a_value_in_the_config_file(
         self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
@@ -239,7 +292,7 @@ class TestConfig:
 
         time.sleep(0.01)  # the file stamp is (mtime, size), so a rewrite needs a distinct mtime
         config_file.write_text(
-            f'[pixeltable]\nfile_cache_size_g = 1.0\n\n[pixeltable.clouddb.secrets]\npxt_test_key = "{_A_KEY}"\n',
+            f'[pixeltable]\nfile_cache_size_g = 1.0\n\n[pixeltable.database.secrets]\npxt_test_key = "{_A_KEY}"\n',
             encoding='utf-8',
         )
 
@@ -254,7 +307,7 @@ class TestConfig:
         assert 'hello' in cli('rows', f'{target}/docs', '-n', '1', env_overrides=own_config).stdout
         entries = cli('config', '--json', env_overrides=own_config).json['entries']
         test_key = next(
-            e for e in entries if (e['section'], e['key']) == ('pixeltable.clouddb.secrets', 'pxt_test_key')
+            e for e in entries if (e['section'], e['key']) == ('pixeltable.database.secrets', 'pxt_test_key')
         )
         assert test_key['source'] == str(config_file)
 
@@ -277,18 +330,20 @@ class TestConfig:
         assert 'RemoteDisconnected' not in r.stderr
 
     def test_restart_while_serving(
-        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], tmp_path: pathlib.Path
+        self, cli: PxtRunner, make_catalog_path: Callable[[str], str], project_dir: pathlib.Path
     ) -> None:
         """A restart that would abandon work in progress is refused; once the work is done it goes through."""
         skip_test_if_not_installed('sentence_transformers')
         target = make_catalog_path('cfg')
-        schema_file = tmp_path / 'slow.py'
+        schema_file = project_dir / 'slow.py'
         schema_file.write_text(_SLOW_SCHEMA_SRC, encoding='utf-8')
 
         # PXT_PORT addresses the daemon under test; the cli fixture put it in this process's environment
         slow = subprocess.Popen(
             ['pxt', 'schema', 'update', str(schema_file), target],
             env={**os.environ, 'BROWSER': 'true'},
+            # a client outside the daemon's project root restarts it, so run where the schema file is
+            cwd=project_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,
@@ -298,7 +353,9 @@ class TestConfig:
             in_flight: list[dict[str, Any]] = []
             deadline = time.time() + 60.0
             while time.time() < deadline and slow.poll() is None:
-                in_flight = cli('daemon', 'status', '--json').json['in_flight']
+                # check=False: a daemon busy with the update may answer /health too late to be reported
+                r = cli('daemon', 'status', '--json', check=False)
+                in_flight = r.json['in_flight'] if r.returncode == 0 else []
                 if len(in_flight) > 0:
                     break
                 time.sleep(0.05)

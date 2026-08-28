@@ -203,6 +203,7 @@ class ColumnRef(Expr):
         document: str | None = None,
         vector: np.ndarray | None = None,
         idx: str | None = None,
+        _tbl_path: catalog.TablePath | None = None,
     ) -> Expr:
         """
         Return a new expression representing the similarity score between the values of this column and the given
@@ -437,13 +438,15 @@ class ColumnRef(Expr):
 
         from pixeltable.index import EmbeddingIndex
 
-        # Resolve the table through its owning catalog (which may be a proxy) so the index lookup works
-        # uniformly for local and hosted tables. get_table_by_id() manages its own transaction.
-        tbl = get_runtime().get_table_by_id(self.col_md.tbl_id, version=self.col_md.effective_version)
-        assert tbl is not None
+        if _tbl_path is None:
+            # Resolve the table through its owning catalog (which may be a proxy) so the index lookup works
+            # uniformly for local and hosted tables. get_table_by_id() manages its own transaction.
+            tbl = get_runtime().get_table_by_id(self.col_md.tbl_id, version=self.col_md.effective_version)
+            assert tbl is not None
+            _tbl_path = tbl._tbl_path
         # get_idx_md() resolves the concrete index, raising if idx is ambiguous or doesn't exist.
         idx = fold_identifier(idx) if idx is not None else None
-        idx_md = tbl._tbl_path.get_idx_md(self.col_md.qcolid, idx, EmbeddingIndex)
+        idx_md = _tbl_path.get_idx_md(self.col_md.qcolid, idx, EmbeddingIndex)
 
         # init_args carries one '<modality>_embed' entry per supported modality (see EmbeddingIndex.as_dict()).
         # Array columns are exempt: similarity search uses the raw vector directly.
@@ -515,6 +518,10 @@ class ColumnRef(Expr):
 
     def default_column_name(self) -> str | None:
         return self.column_md.name
+
+    @property
+    def is_column_ref(self) -> bool:
+        return True
 
     def __str__(self) -> str:
         col_md = self.column_md
