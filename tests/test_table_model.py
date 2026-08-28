@@ -5,6 +5,7 @@
 import os
 import pathlib
 import textwrap
+from typing import Any
 
 import numpy as np
 import pytest
@@ -2479,6 +2480,50 @@ class TestTableModel:
         with pxt_raises(excs.ErrorCode.SCHEMA_MISMATCH, match=r'Call `update_all\(\)` instead'):
             TableModel.create_all(p(''))
 
+    def test_ambiguous_class_name(self) -> None:
+        """The right class body is located when a model's Python name is not unique in its scope.
+
+        This module omits `from __future__ import annotations`, so on Python 3.14+ the column annotations
+        are deferred (PEP 649) and recovered from the class body's code object. Locating that code object
+        is unambiguous only when the model's Python name occurs once in the enclosing scope; these cases
+        cover the fallback that disambiguates by the in-progress `__build_class__` call.
+        """
+        TableModel = pxt.model_base()
+
+        class Dup(TableModel, name='dup_one'):
+            a: pxt.Int
+            b = a + 1
+
+        first = Dup
+
+        class Dup(TableModel, name='dup_two'):  # type: ignore[no-redef]
+            c: pxt.String
+            d = c.upper()
+
+        assert list(first.__columns__.keys()) == ['a', 'b']
+        assert list(Dup.__columns__.keys()) == ['c', 'd']
+
+        models = []
+        for i in range(3):
+
+            class Looped(TableModel, name=f'looped_{i}'):
+                e: pxt.Int
+                f = e + 1
+
+            models.append(Looped)
+
+        assert [m.__table_spec__['name'] for m in models] == ['looped_0', 'looped_1', 'looped_2']
+        assert all(list(m.__columns__.keys()) == ['e', 'f'] for m in models)
+
+    def test_model_without_source(self) -> None:
+        """A model whose source is unavailable is still recovered, since recovery reads bytecode."""
+        TableModel = pxt.model_base()
+        src = 'class Exec(TableModel, name="from_exec"):\n a: pxt.Int\n b = a + 1\n c: pxt.String\n'
+        scope: dict[str, Any] = {'TableModel': TableModel, 'pxt': pxt}
+        exec(compile(src, '<no-source>', 'exec'), scope)
+
+        assert list(scope['Exec'].__columns__.keys()) == ['a', 'b', 'c']
+
     @pytest.mark.db_roots('local', reason='a local filesystem destination is rejected for a hosted table')
     def test_config_var_destination(
         self, db_root: DatabaseRoot, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
@@ -2573,47 +2618,3 @@ class TestTableModel:
                 os.environ['PIXELTABLE_CONFIG'] = original_config
             reload_env()
             reload_catalog()
-
-    def test_ambiguous_class_name(self) -> None:
-        """The right class body is located when a model's Python name is not unique in its scope.
-
-        This module omits `from __future__ import annotations`, so on Python 3.14+ the column annotations
-        are deferred (PEP 649) and recovered from the class body's code object. Locating that code object
-        is unambiguous only when the model's Python name occurs once in the enclosing scope; these cases
-        cover the fallback that disambiguates by the in-progress `__build_class__` call.
-        """
-        TableModel = pxt.model_base()
-
-        class Dup(TableModel, name='dup_one'):
-            a: pxt.Int
-            b = a + 1
-
-        first = Dup
-
-        class Dup(TableModel, name='dup_two'):  # type: ignore[no-redef]
-            c: pxt.String
-            d = c.upper()
-
-        assert list(first.__columns__.keys()) == ['a', 'b']
-        assert list(Dup.__columns__.keys()) == ['c', 'd']
-
-        models = []
-        for i in range(3):
-
-            class Looped(TableModel, name=f'looped_{i}'):
-                e: pxt.Int
-                f = e + 1
-
-            models.append(Looped)
-
-        assert [m.__table_spec__['name'] for m in models] == ['looped_0', 'looped_1', 'looped_2']
-        assert all(list(m.__columns__.keys()) == ['e', 'f'] for m in models)
-
-    def test_model_without_source(self) -> None:
-        """A model whose source is unavailable is still recovered, since recovery reads bytecode."""
-        TableModel = pxt.model_base()
-        src = 'class Exec(TableModel, name="from_exec"):\n a: pxt.Int\n b = a + 1\n c: pxt.String\n'
-        scope: dict[str, Any] = {'TableModel': TableModel, 'pxt': pxt}
-        exec(compile(src, '<no-source>', 'exec'), scope)
-
-        assert list(scope['Exec'].__columns__.keys()) == ['a', 'b', 'c']
