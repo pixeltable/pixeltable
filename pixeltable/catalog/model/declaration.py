@@ -244,7 +244,7 @@ class _ModelNamespace(dict):
     reserved_cols: dict[str, Literal['base query', 'iterator']]
 
     # The scope in which the class body is defined; used to evaluate stringized type annotations (see
-    # set_col_type) and prebind annotations.
+    # set_col_type()) and prebind annotations.
     caller: FrameType
 
     # The next two are populated only by prebind_annotations().
@@ -333,8 +333,7 @@ class _ModelNamespace(dict):
     def set_col_type(self, name: str, type_: Any) -> None:
         self._check_reserved(name)
         if isinstance(type_, str):
-            # Under from __future__ import annotations (PEP 563) -- and mandatory on Python 3.14+, where
-            # PEP 649 otherwise defers annotation evaluation entirely -- annotations arrive as strings. Evaluate
+            # Under from __future__ import annotations (PEP 563), annotations arrive as strings. Evaluate
             # the string in the scope where the model class is defined to recover the actual type.
             try:
                 type_ = eval(type_, self.caller.f_globals, self.caller.f_locals)
