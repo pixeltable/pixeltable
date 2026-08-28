@@ -1,6 +1,5 @@
 import json
 from pathlib import Path
-from typing import Callable
 
 import PIL.Image
 import pytest
@@ -9,7 +8,7 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 
 from ..conftest import SampleFileServer
-from ..utils import CatalogMode, ensure_s3_pytest_resources_access, get_image_files, pxt_raises, rerun_on_network_error
+from ..utils import DatabaseRoot, ensure_s3_pytest_resources_access, get_image_files, pxt_raises, rerun_on_network_error
 
 EXPECTED_SCHEMA = {
     'name': ts.StringType(nullable=True),
@@ -32,8 +31,8 @@ EXPECTED_SCHEMA_WITH_JSON_INFERENCE = {
 
 
 class TestImport:
-    def test_import_rows(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_import_rows(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
         with open(example, encoding='utf-8') as fp:
             data = json.loads(fp.read())
@@ -73,8 +72,8 @@ class TestImport:
             pxt.io.import_rows(p('example7'), [{'__unusable_name': 'abc'}])
         assert 'Column names must be valid pixeltable identifiers' in str(exc_info.value)
 
-    def test_insert_rows(self, make_catalog_path: Callable[[str], str]) -> None:
-        p = make_catalog_path
+    def test_insert_rows(self, db_root: DatabaseRoot) -> None:
+        p = db_root.make_catalog_path
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
         with open(example, encoding='utf-8') as fp:
             data = json.loads(fp.read())
@@ -88,8 +87,8 @@ class TestImport:
         t2.insert(data)
         assert t2.count() == 8
 
-    def test_import_json(self, make_catalog_path: Callable[[str], str], sample_file_server: SampleFileServer) -> None:
-        p = make_catalog_path
+    def test_import_json(self, db_root: DatabaseRoot, sample_file_server: SampleFileServer) -> None:
+        p = db_root.make_catalog_path
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
         jeopardy = sample_file_server.url('tests/data/json/jeopardy.json')
 
@@ -110,20 +109,18 @@ class TestImport:
         ],
     )
     @rerun_on_network_error()
-    def test_import_json_from_remote(self, make_catalog_path: Callable[[str], str], source: str) -> None:
-        p = make_catalog_path
+    def test_import_json_from_remote(self, db_root: DatabaseRoot, source: str) -> None:
+        p = db_root.make_catalog_path
         if source.startswith('s3://'):
             ensure_s3_pytest_resources_access()
         tab = pxt.create_table(p('from_remote_json'), source=source, source_format='json')
         assert tab.count() == 4
         assert tab._get_schema() == EXPECTED_SCHEMA
 
-    def test_insert_json(
-        self, make_catalog_path: Callable[[str], str], catalog_mode: CatalogMode, sample_file_server: SampleFileServer
-    ) -> None:
-        p = make_catalog_path
+    def test_insert_json(self, db_root: DatabaseRoot, sample_file_server: SampleFileServer) -> None:
+        p = db_root.make_catalog_path
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
-        jeopardy = sample_file_server.url('tests/data/json/jeopardy.json', catalog_mode)
+        jeopardy = sample_file_server.url('tests/data/json/jeopardy.json', db_root)
 
         # `example.json` has a variety of datatypes and tests both nullable and non-nullable columns
         t1 = pxt.io.import_json(p('example'), str(example))
@@ -137,10 +134,10 @@ class TestImport:
         t2.insert(jeopardy)
         assert t2.count() == 20000
 
-    def test_insert_file_reader_options(self, make_catalog_path: Callable[[str], str], tmp_path: Path) -> None:
+    def test_insert_file_reader_options(self, db_root: DatabaseRoot, tmp_path: Path) -> None:
         """A file source's reader options (kwargs) and schema_overrides are honored, including for a table
         with a media column."""
-        p = make_catalog_path
+        p = db_root.make_catalog_path
 
         # a ';'-delimited CSV: the reader option is needed to split the columns correctly
         csv_path = tmp_path / 'data.csv'

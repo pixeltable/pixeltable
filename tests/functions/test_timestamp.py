@@ -11,7 +11,7 @@ from pixeltable.env import Env
 
 from ..utils import validate_update_status
 
-pytestmark = pytest.mark.local('UDF/integration test')
+pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
 class TestTimestamp:

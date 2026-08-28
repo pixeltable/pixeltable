@@ -9,7 +9,7 @@ import pixeltable.functions as pxtf
 from ..conftest import SampleFileServer
 from ..utils import pxt_raises, rerun_on_network_error, skip_test_if_no_config, skip_test_if_not_installed
 
-pytestmark = pytest.mark.local('UDF/integration test')
+pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
 class TestJson:

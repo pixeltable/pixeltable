@@ -11,7 +11,7 @@ from pixeltable.utils.filecache import FileCache
 from .conftest import SampleFileServer
 from .utils import get_image_files
 
-pytestmark = pytest.mark.local('inspects local FileCache internals')
+pytestmark = pytest.mark.db_roots('local', reason='inspects local FileCache internals')
 
 
 class TestFileCache:
