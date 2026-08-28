@@ -51,6 +51,7 @@ class Path:
         if not all(is_valid_identifier(c, allow_hyphens=True) for c in self.components):
             raise excs.RequestError(excs.ErrorCode.INVALID_PATH, f'Invalid path: {"/".join(self.components)}')
 
+        # This is a frozen dataclass, we have to use __setattr__ to update it.
         if self.org is not None:
             object.__setattr__(self, 'org', fold_identifier(self.org))
         if self.db is not None:

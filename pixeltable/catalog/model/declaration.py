@@ -151,6 +151,7 @@ class EmbeddingIndex:
 
     def __post_init__(self) -> None:
         if isinstance(self.name, str):
+            # This is a frozen dataclass, we have to use __setattr__ to update it.
             object.__setattr__(self, 'name', fold_identifier(self.name))
 
     def as_fn_call(self) -> exprs.FunctionCall:
