@@ -39,7 +39,7 @@ def _export_conda_env() -> bytes | None:
     """Export the active conda environment as a cross-platform YAML (no build strings).
 
     Returns None if no conda environment is active. Raises if one is active but cannot be exported:
-    building the bundle as though there were no environment would silently drop its dependencies.
+    packaging as though there were no environment would silently drop its dependencies.
     Strips the pixeltable dependency line (both conda and pip); the server installs pixeltable separately.
     """
     conda_prefix = os.environ.get('CONDA_PREFIX')
@@ -146,15 +146,13 @@ def __add_tarfile(tf: tarfile.TarFile, name: str, content: bytes) -> None:
     tf.addfile(info, fileobj=io.BytesIO(content))
 
 
-def build_db_runtime_bundle(
-    project_dir: Path | None = None, show_progress: bool = False, db_name: str | None = None
-) -> Path:
-    """Package the current project into a tarball for updating a hosted database runtime.
+def build_context(project_dir: Path | None = None, show_progress: bool = False, db_name: str | None = None) -> Path:
+    """Package the current project for an image build.
 
     If show_progress is True, a progress bar tracking the number of project files added, and naming the
     file most recently added, is displayed.
 
-    Bundle layout:
+    Archive layout:
         metadata.json   (always) — pxt_md_version, python_version
         project/        (always) — all project source files including uv.lock, pyproject.toml, etc.
 
@@ -164,7 +162,7 @@ def build_db_runtime_bundle(
 
     Lockfiles are never generated here — the developer is expected to have run `uv lock` (or provided
     a requirements.txt) in their project. If no lockfile and no conda environment is found, a warning
-    is emitted but the bundle is still built.
+    is emitted but the archive is still built.
     """
     if project_dir is None:
         project_dir = Path.cwd()
@@ -173,18 +171,18 @@ def build_db_runtime_bundle(
     if not project_dir.is_dir():
         raise FileNotFoundError(f'Project directory does not exist: {project_dir}')
 
-    runtime_cfg = _load_database_config(project_dir, db_name)
-    system_dependencies: list[str] = (runtime_cfg.system_dependencies or []) if runtime_cfg else []
+    db_config = _load_database_config(project_dir, db_name)
+    system_dependencies: list[str] = (db_config.system_dependencies or []) if db_config else []
 
     # Config override wins; otherwise use the deploy environment's version.
-    python_version = (runtime_cfg.python_version if runtime_cfg else None) or (
+    python_version = (db_config.python_version if db_config else None) or (
         f'{sys.version_info.major}.{sys.version_info.minor}'
     )
 
-    files = selected_files(project_dir, runtime_cfg)
+    files = selected_files(project_dir, db_config)
     has_lockfile = any(file.parent == project_dir and file.name in _LOCK_FILES for file in files)
 
-    print(f'A runtime bundle will be built containing {len(files)} files from {project_dir}.')
+    print(f'Packaging {len(files)} files from {project_dir}.')
     print(
         'By default, all files not ignored by .gitignore are included; '
         'you can adjust this behavior with include/exclude in pixeltable.toml.'
@@ -196,21 +194,21 @@ def build_db_runtime_bundle(
     if not has_lockfile and conda_env_yaml is None:
         Env.get().console_logger.warning(
             'No dependency lockfile (uv.lock, poetry.lock, requirements.txt) was found and no conda '
-            'environment was detected.\nThe deployed runtime may not have the necessary Python '
+            'environment was detected.\nThe image may not have the necessary Python '
             'dependencies to run correctly.'
         )
 
-    fd, name = tempfile.mkstemp(suffix='.tar.bz2', prefix='pxt_runtime_')
+    fd, name = tempfile.mkstemp(suffix='.tar.bz2', prefix='pxt_build_context_')
     os.close(fd)
-    bundle_path = Path(name)
+    context_path = Path(name)
 
     meta: dict = {'pxt_md_version': metadata.VERSION, 'python_version': python_version}
     if system_dependencies:
         meta['system_dependencies'] = system_dependencies
 
     with (
-        tarfile.open(bundle_path, 'w:bz2') as tf,
-        tqdm(desc='Building runtime bundle', total=len(files), unit=' files', disable=not show_progress) as bar,
+        tarfile.open(context_path, 'w:bz2') as tf,
+        tqdm(desc='Packaging project', total=len(files), unit=' files', disable=not show_progress) as bar,
     ):
         __add_tarfile(tf, 'metadata.json', json.dumps(meta).encode('utf-8'))
         if conda_env_yaml is not None:
@@ -223,5 +221,5 @@ def build_db_runtime_bundle(
             bar.update(1)
         bar.set_postfix_str('', refresh=False)
 
-    _logger.info(f'Runtime bundle created: {bundle_path}')
-    return bundle_path
+    _logger.info(f'Build context created: {context_path}')
+    return context_path

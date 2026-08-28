@@ -42,9 +42,9 @@ class DatabaseConfig(pydantic.BaseModel):
     secrets: dict[str, str] | None = None
 
     # the rest applies to a hosted database, whose runtime image is built from the project
-    exclude: list[str] | None = None  # glob patterns to exclude from the bundle
+    exclude: list[str] | None = None  # glob patterns to exclude from the image
     include: list[str] | None = None  # glob patterns to explicitly include (overrides exclude or .gitignore)
-    include_only: list[str] | None = None  # glob patterns to include as the *only* files in the bundle
+    include_only: list[str] | None = None  # glob patterns to include as the *only* files in the image
     # (must be used independently of exclude/include)
     system_dependencies: list[str] | None = None
     # Override the runtime Python version.
@@ -54,8 +54,8 @@ class DatabaseConfig(pydantic.BaseModel):
     @classmethod
     def _check_system_dependencies(cls, v: list[str] | None) -> list[str] | None:
         # Each entry is a conda/micromamba MatchSpec installed from conda-forge. Resolvability can only be
-        # checked by conda at build time, so validate just the obvious mistakes here - before the bundle is
-        # built and shipped - leaving version-constraint operators (<,>,,) alone as they're valid MatchSpec.
+        # checked by conda at build time, so validate just the obvious mistakes here - before an image is
+        # built from them - leaving version-constraint operators (<,>,,) alone as they're valid MatchSpec.
         for spec in v or []:
             if not spec.strip():
                 raise ValueError('`system_dependencies` entries must be non-empty conda package specs')

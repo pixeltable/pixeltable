@@ -22,11 +22,11 @@ RouteComparison = Literal['declarative', 'openapi', 'unavailable']
 
 
 class ServiceChangeOp(_Status):
-    """One operation reconciling a running service with the service definition an application file holds."""
+    """One operation reconciling a running service with the service definition in an application file."""
 
-    # 'secret' and 'runtime' are properties of the database a service depends on, not of the service
-    # itself: operations against them are always 'blocked', never applied. There is no 'bundle' target; the
-    # runtime image belongs to the database.
+    # 'secret' is a property of the database in which a service runs, not of the service itself: operations
+    # against it are always 'blocked', never applied. No operation targets the image, which belongs to the
+    # database; 'project' names the sources a service runs.
     target: Literal['service', 'base_path', 'route', 'resources', 'secret', 'project']
 
     # route: the method and path, eg 'POST /v1/ingest'; resources: the field, eg 'workers'; secret: the key;

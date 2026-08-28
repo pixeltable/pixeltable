@@ -29,7 +29,7 @@ class ManagementOperationType(str, Enum):
     STOP_DB = 'stop_db'
     UPDATE_DB = 'update_db'
     UPDATE_RUNTIME = 'update_runtime'
-    GET_BUNDLE_UPLOAD_URL = 'get_bundle_upload_url'
+    GET_BUILD_CONTEXT_UPLOAD_URL = 'get_build_context_upload_url'
 
     LIST_ORGS = 'list_orgs'
 
@@ -121,20 +121,20 @@ class UpdateRuntimeRequest(BaseModel):
     operation_type: Literal[ManagementOperationType.UPDATE_RUNTIME] = ManagementOperationType.UPDATE_RUNTIME
     org: str | None = None
     db: str
-    bundle_s3_key: str
+    build_context_key: str
 
 
-class GetBundleUploadUrlRequest(BaseModel):
-    operation_type: Literal[ManagementOperationType.GET_BUNDLE_UPLOAD_URL] = (
-        ManagementOperationType.GET_BUNDLE_UPLOAD_URL
+class GetBuildContextUploadUrlRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.GET_BUILD_CONTEXT_UPLOAD_URL] = (
+        ManagementOperationType.GET_BUILD_CONTEXT_UPLOAD_URL
     )
     org: str | None = None
     db: str
 
 
-class GetBundleUploadUrlResponse(BaseModel):
+class GetBuildContextUploadUrlResponse(BaseModel):
     presigned_url: str
-    bundle_s3_key: str
+    build_context_key: str
 
 
 # Secrets

@@ -19,7 +19,7 @@ from pixeltable.service.management_protocol import (
     CreateDbRequest,
     DeleteDbRequest,
     DeleteSecretRequest,
-    GetBundleUploadUrlRequest,
+    GetBuildContextUploadUrlRequest,
     GetDbRequest,
     ListDbRequest,
     ListOrgsRequest,
@@ -826,7 +826,7 @@ def update_db(req: Request) -> dict[str, Any]:
 @router.get('/api/db/upload-url')
 def get_upload_url(req: Request) -> dict[str, Any]:
     return management_client.api_call(
-        GetBundleUploadUrlRequest(org=req.required_query_str('org'), db=req.required_query_str('db'))
+        GetBuildContextUploadUrlRequest(org=req.required_query_str('org'), db=req.required_query_str('db'))
     )
 
 

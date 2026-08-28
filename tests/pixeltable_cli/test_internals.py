@@ -39,7 +39,7 @@ from pixeltable.service import management_client
 from pixeltable.service.management_protocol import (
     CreateDbRequest,
     DeleteDbRequest,
-    GetBundleUploadUrlRequest,
+    GetBuildContextUploadUrlRequest,
     GetDbRequest,
     ListDbRequest,
     ListOrgsRequest,
@@ -1706,8 +1706,8 @@ _POST_ROUTE_REQUESTS = [
     ),
     (
         server_routes.trigger_runtime_update,
-        {'org': 'acme', 'db': 'main', 'bundle_s3_key': 'bundles/acme/main.tar.gz'},
-        UpdateRuntimeRequest(org='acme', db='main', bundle_s3_key='bundles/acme/main.tar.gz'),
+        {'org': 'acme', 'db': 'main', 'build_context_key': 'contexts/acme/main.tar.bz2'},
+        UpdateRuntimeRequest(org='acme', db='main', build_context_key='contexts/acme/main.tar.bz2'),
     ),
 ]
 
@@ -1715,7 +1715,11 @@ _GET_ROUTE_REQUESTS = [
     (server_routes.list_orgs, {}, ListOrgsRequest()),
     (server_routes.list_dbs, {'org': ['acme']}, ListDbRequest(org='acme')),
     (server_routes.get_db, {'org': ['acme'], 'db': ['main']}, GetDbRequest(org='acme', db='main')),
-    (server_routes.get_upload_url, {'org': ['acme'], 'db': ['main']}, GetBundleUploadUrlRequest(org='acme', db='main')),
+    (
+        server_routes.get_upload_url,
+        {'org': ['acme'], 'db': ['main']},
+        GetBuildContextUploadUrlRequest(org='acme', db='main'),
+    ),
 ]
 
 

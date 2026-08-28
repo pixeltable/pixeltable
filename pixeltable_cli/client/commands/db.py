@@ -214,7 +214,7 @@ def _update_runtime(args: argparse.Namespace) -> None:
     # loading for the other db subcommands
     from tqdm import tqdm
 
-    from pixeltable.serving.deploy import build_db_runtime_bundle
+    from pixeltable.service.build_context import build_context
 
     org, db = resolve_db_uri(args.db_uri, prog='pxt db update-runtime')
 
@@ -233,31 +233,31 @@ def _update_runtime(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     show_progress = not args.json_output
-    bundle_path = build_db_runtime_bundle(project_dir, show_progress=show_progress, db_name=f'pxt://{org}:{db}')
+    context_path = build_context(project_dir, show_progress=show_progress, db_name=f'pxt://{org}:{db}')
 
     try:
         url_resp = get_request('/api/db/upload-url', {'org': org, 'db': db})
         presigned_url = url_resp['presigned_url']
-        bundle_s3_key = url_resp['bundle_s3_key']
+        build_context_key = url_resp['build_context_key']
 
-        bundle_size = bundle_path.stat().st_size
+        context_size = context_path.stat().st_size
         with (
-            bundle_path.open('rb') as f,
+            context_path.open('rb') as f,
             tqdm(
-                desc='Uploading runtime bundle', total=bundle_size, unit='B', unit_scale=True, disable=not show_progress
+                desc='Uploading project', total=context_size, unit='B', unit_scale=True, disable=not show_progress
             ) as bar,
         ):
             # urllib streams a file-like body in chunks, which lets the bar advance during the upload
             req = urllib.request.Request(presigned_url, data=_ProgressReader(f, bar), method='PUT')
             req.add_header('Content-Type', 'application/octet-stream')
-            req.add_header('Content-Length', str(bundle_size))
+            req.add_header('Content-Length', str(context_size))
             with urllib.request.urlopen(req, timeout=300) as r:
                 if r.status >= 400:
                     raise RuntimeError(f'Bundle upload failed: HTTP {r.status}')
     finally:
-        bundle_path.unlink(missing_ok=True)
+        context_path.unlink(missing_ok=True)
 
-    post_request('/api/db/update-runtime', {'org': org, 'db': db, 'bundle_s3_key': bundle_s3_key})
+    post_request('/api/db/update-runtime', {'org': org, 'db': db, 'build_context_key': build_context_key})
 
     label = None if args.json_output else 'Waiting for runtime build (this may take 10 minutes or longer) ...'
     result = poll_state(

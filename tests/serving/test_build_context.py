@@ -1,4 +1,4 @@
-"""Tests for runtime bundle packaging (pixeltable/serving/deploy.py)."""
+"""Tests for the build context: the archive an image is built from."""
 
 from __future__ import annotations
 
@@ -13,27 +13,27 @@ import pytest
 
 from pixeltable import exceptions as excs, metadata
 from pixeltable.config import Config
-from pixeltable.serving import deploy
-from pixeltable.serving.deploy import build_db_runtime_bundle
+from pixeltable.service import build_context as build_context_module
+from pixeltable.service.build_context import build_context
 
 from ..utils import pxt_raises
 
-pytestmark = pytest.mark.local('runtime bundle packaging')
+pytestmark = pytest.mark.local('packaging a project for an image build')
 
 
-class TestDbRuntimeBundle:
+class TestBuildContext:
     @pytest.fixture(autouse=True)
     def no_ambient_conda(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Unset CONDA_PREFIX, so that the bundle contents depend only on what each test sets up.
+        """Unset CONDA_PREFIX, so that the archive contents depend only on what each test sets up.
 
-        With it set, every bundle build runs `conda env export` against whatever environment happens to be
+        With it set, every call runs `conda env export` against whatever environment happens to be
         active, which is slow and fails outright on an installation whose export is broken. The tests that
         cover the conda paths set CONDA_PREFIX themselves.
         """
         monkeypatch.delenv('CONDA_PREFIX', raising=False)
 
-    def test_bundle_layout(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Bundle always contains metadata.json and project/; nothing else at root."""
+    def test_layout(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The archive always contains metadata.json and project/; nothing else at root."""
         monkeypatch.chdir(tmp_path)
         Config.init(reinit=True)
 
@@ -42,9 +42,9 @@ class TestDbRuntimeBundle:
         (tmp_path / 'subdir').mkdir()
         (tmp_path / 'subdir' / 'helper.py').write_text('# helper\n')
 
-        bundle_path = build_db_runtime_bundle(tmp_path)
+        context_path = build_context(tmp_path)
 
-        with tarfile.open(bundle_path, 'r:bz2') as tar:
+        with tarfile.open(context_path, 'r:bz2') as tar:
             members = tar.getnames()
 
             # Required top-level files
@@ -66,7 +66,7 @@ class TestDbRuntimeBundle:
             with tar.extractfile(tar.getmember('project/udfs.py')) as f:
                 assert f.read().decode() == 'import pixeltable as pxt\n'
 
-    def test_bundle_include_exclude(self, tmp_path: Path) -> None:
+    def test_include_exclude(self, tmp_path: Path) -> None:
         (tmp_path / 'a_include.txt').write_text('# included by default')
         (tmp_path / 'b_exclude.txt').write_text('# excluded explicitly')
         (tmp_path / 'a_include.py').write_text('# exclude-then-include')
@@ -82,9 +82,9 @@ class TestDbRuntimeBundle:
 
         Config.init(reinit=True)
 
-        bundle_path = build_db_runtime_bundle(tmp_path)
+        context_path = build_context(tmp_path)
 
-        with tarfile.open(bundle_path, 'r:bz2') as tar:
+        with tarfile.open(context_path, 'r:bz2') as tar:
             members = tar.getnames()
             assert 'project/a_include.txt' in members
             assert 'project/a_include.py' in members
@@ -92,7 +92,7 @@ class TestDbRuntimeBundle:
             assert 'project/a_exclude.py' not in members
             assert 'project/b_exclude.txt' not in members
 
-    def test_bundle_gitignore_respected(self, tmp_path: Path) -> None:
+    def test_gitignore_respected(self, tmp_path: Path) -> None:
         """Files matching .gitignore patterns are excluded from project/."""
         (tmp_path / '.gitignore').write_text('__pycache__/\n*.pyc\n.env\n')
         (tmp_path / 'app.py').write_text('# app')
@@ -102,15 +102,15 @@ class TestDbRuntimeBundle:
 
         Config.init(reinit=True)
 
-        bundle_path = build_db_runtime_bundle(tmp_path)
+        context_path = build_context(tmp_path)
 
-        with tarfile.open(bundle_path, 'r:bz2') as tar:
+        with tarfile.open(context_path, 'r:bz2') as tar:
             members = tar.getnames()
             assert 'project/app.py' in members
             assert not any('__pycache__' in m for m in members)
             assert 'project/.env' not in members
 
-    def test_bundle_uv_lock_included(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_uv_lock_included(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """uv.lock in the project dir is included under project/ for server-side uv sync."""
         monkeypatch.chdir(tmp_path)
         Config.init(reinit=True)
@@ -118,16 +118,16 @@ class TestDbRuntimeBundle:
         (tmp_path / 'uv.lock').write_text('version = 1\n')
         (tmp_path / 'pyproject.toml').write_text('[project]\nname = "app"\n')
 
-        bundle_path = build_db_runtime_bundle(tmp_path)
+        context_path = build_context(tmp_path)
 
-        with tarfile.open(bundle_path, 'r:bz2') as tar:
+        with tarfile.open(context_path, 'r:bz2') as tar:
             assert 'project/uv.lock' in tar.getnames()
             assert 'project/pyproject.toml' in tar.getnames()
             # no root-level requirements.txt or runtime_config.json
             assert 'requirements.txt' not in tar.getnames()
             assert 'runtime_config.json' not in tar.getnames()
 
-    def test_bundle_system_dependencies_in_metadata(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_system_dependencies_in_metadata(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """system_dependencies from pixeltable.toml are validated and written to metadata.json.
 
         The single-table form, which a project written before [[pixeltable.database]] became an array uses.
@@ -141,30 +141,30 @@ class TestDbRuntimeBundle:
         monkeypatch.chdir(tmp_path)
         Config.init(reinit=True)
 
-        bundle_path = build_db_runtime_bundle(tmp_path)
+        context_path = build_context(tmp_path)
 
-        with tarfile.open(bundle_path, 'r:bz2') as tar, tar.extractfile(tar.getmember('metadata.json')) as f:
+        with tarfile.open(context_path, 'r:bz2') as tar, tar.extractfile(tar.getmember('metadata.json')) as f:
             meta = json.loads(f.read())
             assert meta['system_dependencies'] == ['ffmpeg', 'libpq']
 
-    def test_bundle_no_system_dependencies(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_no_system_dependencies(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """No system_dependencies → metadata.json has no system_dependencies key."""
         monkeypatch.chdir(tmp_path)
         Config.init(reinit=True)
 
-        bundle_path = build_db_runtime_bundle(tmp_path)
+        context_path = build_context(tmp_path)
 
-        with tarfile.open(bundle_path, 'r:bz2') as tar, tar.extractfile(tar.getmember('metadata.json')) as f:
+        with tarfile.open(context_path, 'r:bz2') as tar, tar.extractfile(tar.getmember('metadata.json')) as f:
             meta = json.loads(f.read())
             assert 'system_dependencies' not in meta
 
-    def test_bundle_is_valid_bz2_tar(self, tmp_path: Path) -> None:
+    def test_is_valid_bz2_tar(self, tmp_path: Path) -> None:
         """The output file is a valid bz2 tarball."""
-        bundle_path = build_db_runtime_bundle(tmp_path)
-        assert tarfile.is_tarfile(bundle_path)
-        assert bundle_path.suffix == '.bz2'
+        context_path = build_context(tmp_path)
+        assert tarfile.is_tarfile(context_path)
+        assert context_path.suffix == '.bz2'
 
-    def test_bundle_conda_env(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_conda_env(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """An active conda environment is exported to project/conda-environment.yaml, minus pixeltable itself."""
         monkeypatch.chdir(tmp_path)
         Config.init(reinit=True)
@@ -181,12 +181,14 @@ class TestDbRuntimeBundle:
         monkeypatch.setenv('CONDA_PREFIX', str(tmp_path / 'envs' / 'pxt'))
         monkeypatch.setenv('CONDA_EXE', 'conda')
         monkeypatch.setattr(
-            deploy.subprocess, 'run', lambda args, **kw: subprocess.CompletedProcess(args, 0, exported, b'')
+            build_context_module.subprocess,
+            'run',
+            lambda args, **kw: subprocess.CompletedProcess(args, 0, exported, b''),
         )
 
-        bundle_path = build_db_runtime_bundle(tmp_path)
+        context_path = build_context(tmp_path)
 
-        with tarfile.open(bundle_path, 'r:bz2') as tar, tar.extractfile('project/conda-environment.yaml') as f:
+        with tarfile.open(context_path, 'r:bz2') as tar, tar.extractfile('project/conda-environment.yaml') as f:
             env_yaml = f.read().decode()
         assert 'python=3.10' in env_yaml
         assert 'openai' in env_yaml
@@ -194,7 +196,7 @@ class TestDbRuntimeBundle:
         assert 'pixeltable==0.5.0' not in env_yaml
         assert 'pixeltable-yolox=0.1' in env_yaml
 
-    def test_bundle_conda_env_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_conda_env_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """An active conda environment that can't be exported fails the build rather than dropping its deps."""
         monkeypatch.chdir(tmp_path)
         Config.init(reinit=True)
@@ -202,23 +204,23 @@ class TestDbRuntimeBundle:
 
         monkeypatch.delenv('CONDA_EXE', raising=False)
         monkeypatch.delenv('MAMBA_EXE', raising=False)
-        monkeypatch.setattr(deploy.shutil, 'which', lambda name: None)
+        monkeypatch.setattr(build_context_module.shutil, 'which', lambda name: None)
         with pxt_raises(excs.ErrorCode.INVALID_STATE, match='no conda or micromamba executable was found'):
-            build_db_runtime_bundle(tmp_path)
+            build_context(tmp_path)
 
         monkeypatch.setenv('CONDA_EXE', 'conda')
 
         def failed_export(args: list[str], **kw: object) -> subprocess.CompletedProcess:
             raise subprocess.CalledProcessError(1, args, output=b'', stderr=b'conda plugin error')
 
-        monkeypatch.setattr(deploy.subprocess, 'run', failed_export)
+        monkeypatch.setattr(build_context_module.subprocess, 'run', failed_export)
         with pxt_raises(excs.ErrorCode.INVALID_STATE, match='conda plugin error'):
-            build_db_runtime_bundle(tmp_path)
+            build_context(tmp_path)
 
-    def test_bundle_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A project directory that does not exist, and a project config file Config cannot use."""
         with pytest.raises(FileNotFoundError, match='does not exist'):
-            build_db_runtime_bundle(Path('/nonexistent/path/xyz'))
+            build_context(Path('/nonexistent/path/xyz'))
 
         # Config reads the project's config file, so an unusable entry is refused before deploy sees it
         (tmp_path / 'pixeltable.toml').write_text(
