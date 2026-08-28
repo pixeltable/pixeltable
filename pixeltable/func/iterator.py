@@ -71,6 +71,7 @@ def _make_outputs(output_schema: dict[str, ts.ColumnType], unstored_cols: list[s
     A component view exposes the pos column of its rowid; we create that column here, so it gets assigned a column id.
     """
     folded_name_to_col_schema = fold_mapping_keys({name: (name, col_type) for name, col_type in output_schema.items()})
+    unstored_cols = [fold_identifier(name) for name in unstored_cols]
     if _POS_COLUMN_NAME in folded_name_to_col_schema:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
@@ -487,8 +488,7 @@ class GeneratingFunctionCall:
                 for param_name, param in it.py_sig.parameters.items():
                     if param_name not in bound_args and param.default is not inspect.Parameter.empty:
                         literal_args[param_name] = param.default
-                _, raw_unstored_cols = it.decorated_callable.output_schema(literal_args)  # type: ignore[attr-defined]
-                unstored_cols = [fold_identifier(name) for name in raw_unstored_cols]
+                _, unstored_cols = it.decorated_callable.output_schema(literal_args)  # type: ignore[attr-defined]
             else:
                 unstored_cols = it.unstored_cols
             outputs = _make_outputs(output_schema, unstored_cols)

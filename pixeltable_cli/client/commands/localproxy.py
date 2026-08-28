@@ -21,10 +21,7 @@ def run(argv: list[str]) -> None:
         p.add_argument('db', help='the proxy database name (the <db> in pxt://local:<db>/...)')
     args = parser.parse_args(argv)
 
-    from pixeltable.catalog import fold_identifier
     from pixeltable.service import proxy_daemon
-
-    args.db = fold_identifier(args.db)
 
     if args.action == 'create':
         proxy_daemon.create(args.db)

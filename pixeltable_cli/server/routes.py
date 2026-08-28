@@ -597,7 +597,7 @@ def dashboard_table_data(req: Request) -> dict[str, Any]:
         path,
         offset=req.query_int('offset', default=0, ge=0),
         limit=req.query_int('limit', default=50, ge=1, le=500),
-        order_by=fold_identifier(order_by) if order_by is not None else None,
+        order_by=order_by,
         order_desc=req.query_bool('order_desc'),
         errors_only=req.query_bool('errors_only'),
     )
