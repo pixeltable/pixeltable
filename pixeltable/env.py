@@ -93,7 +93,7 @@ def validate_db_name(db_name: str) -> None:
     if len(db_name) > MAX_DB_NAME_LEN:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
-            f'Database name is too long ({len(db_name)} characters; the limit is {MAX_DB_NAME_LEN})',
+            f'Database name is too long ({len(db_name)} characters; the limit is {MAX_DB_NAME_LEN}): {db_name}',
         )
 
 
