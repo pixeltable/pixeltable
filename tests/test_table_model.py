@@ -5,7 +5,6 @@
 import os
 import pathlib
 import textwrap
-from typing import Any
 
 import numpy as np
 import pytest
@@ -2480,14 +2479,13 @@ class TestTableModel:
         with pxt_raises(excs.ErrorCode.SCHEMA_MISMATCH, match=r'Call `update_all\(\)` instead'):
             TableModel.create_all(p(''))
 
-    def test_ambiguous_class_name(self) -> None:
-        """The right class body is located when a model's Python name is not unique in its scope.
+    def test_ambiguous_class_name(self, db_root: DatabaseRoot) -> None:
+        """Models that share a Python class name in one scope each declare their own table.
 
-        This module omits `from __future__ import annotations`, so on Python 3.14+ the column annotations
-        are deferred (PEP 649) and recovered from the class body's code object. Locating that code object
-        is unambiguous only when the model's Python name occurs once in the enclosing scope; these cases
-        cover the fallback that disambiguates by the in-progress `__build_class__` call.
+        This module omits `from __future__ import annotations`, so on Python 3.14+ the class body is
+        located by its code object; a repeated class name is the case that makes that lookup ambiguous.
         """
+        p = db_root.make_catalog_path
         TableModel = pxt.model_base()
 
         class Dup(TableModel, name='dup_one'):
@@ -2500,29 +2498,43 @@ class TestTableModel:
             c: pxt.String
             d = c.upper()
 
-        assert list(first.__columns__.keys()) == ['a', 'b']
-        assert list(Dup.__columns__.keys()) == ['c', 'd']
-
-        models = []
         for i in range(3):
 
             class Looped(TableModel, name=f'looped_{i}'):
                 e: pxt.Int
-                f = e + 1
+                f = e + i
 
-            models.append(Looped)
+        TableModel.create_all(p(''))
 
-        assert [m.__table_spec__['name'] for m in models] == ['looped_0', 'looped_1', 'looped_2']
-        assert all(list(m.__columns__.keys()) == ['e', 'f'] for m in models)
+        one = first.table
+        assert one.columns() == ['a', 'b']
+        one.insert([{'a': 1}])
+        assert one.collect()['b'] == [2]
 
-    def test_model_without_source(self) -> None:
-        """A model whose source is unavailable is still recovered, since recovery reads bytecode."""
+        two = Dup.table
+        assert two.columns() == ['c', 'd']
+        two.insert([{'c': 'x'}])
+        assert two.collect()['d'] == ['X']
+
+        for i in range(3):
+            looped = pxt.get_table(p(f'looped_{i}'))
+            assert looped.columns() == ['e', 'f']
+            looped.insert([{'e': 10 * i}])
+            assert looped.collect()['f'] == [11 * i]
+
+    def test_model_without_source(self, db_root: DatabaseRoot) -> None:
+        """A schema declared where no Python source is retrievable still creates its table."""
+        p = db_root.make_catalog_path
         TableModel = pxt.model_base()
         src = 'class Exec(TableModel, name="from_exec"):\n a: pxt.Int\n b = a + 1\n c: pxt.String\n'
-        scope: dict[str, Any] = {'TableModel': TableModel, 'pxt': pxt}
-        exec(compile(src, '<no-source>', 'exec'), scope)
+        exec(compile(src, '<no-source>', 'exec'), {'TableModel': TableModel, 'pxt': pxt})
 
-        assert list(scope['Exec'].__columns__.keys()) == ['a', 'b', 'c']
+        TableModel.create_all(p(''))
+
+        tbl = pxt.get_table(p('from_exec'))
+        assert tbl.columns() == ['a', 'b', 'c']
+        tbl.insert([{'a': 1, 'c': 'x'}])
+        assert tbl.collect()['b'] == [2]
 
     @pytest.mark.db_roots('local', reason='a local filesystem destination is rejected for a hosted table')
     def test_config_var_destination(

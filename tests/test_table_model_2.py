@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-from typing import Callable
-
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.catalog.model import Column, EmbeddingIndex
