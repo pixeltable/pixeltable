@@ -17,7 +17,7 @@ import pathlib
 import shutil
 import struct
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 from uuid import UUID, uuid4
 
 import numpy as np
@@ -37,6 +37,9 @@ from pixeltable.query_clauses import SampleClause
 from pixeltable.row import RowBatch
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import FileDestination, ObjectOps, ObjectStoreBase
+
+if TYPE_CHECKING:
+    from pixeltable._query import Query
 
 PROTOCOL_VERSION = 2
 
@@ -346,6 +349,43 @@ def _serialize(obj: Any, sink: PartSink) -> Any:
     raise AssertionError(f'cannot serialize {type(obj).__name__} for the proxy protocol')
 
 
+def _check_valid_fn(fn: func.Function) -> func.Function:
+    if isinstance(fn, func.InvalidFunction):
+        raise excs.NotFoundError(
+            excs.ErrorCode.FUNCTION_NOT_FOUND,
+            f'The request references the UDF `{fn.self_path}`, '
+            'but that UDF is not defined in the remote database.\n'
+            'You can use `pxt db update` to deploy a new version of the UDF to the remote database.',
+        )
+    return fn
+
+
+def _check_valid_expr(expr: exprs.Expr) -> exprs.Expr:
+    if not expr.is_valid:
+        raise excs.NotFoundError(
+            excs.ErrorCode.FUNCTION_NOT_FOUND,
+            f'{expr.validation_error.protocol_error_msg()}\n'
+            'You can use `pxt db update` to deploy a new version of the UDF to the remote database.',
+        )
+    return expr
+
+
+def _check_valid_gfc(gfc: func.GeneratingFunctionCall) -> func.GeneratingFunctionCall:
+    if not gfc.is_valid:
+        raise excs.NotFoundError(
+            excs.ErrorCode.FUNCTION_NOT_FOUND,
+            f'{gfc.validation_error.protocol_error_msg()}\n'
+            'You can use `pxt db update` to deploy a new version of the iterator to the remote database.',
+        )
+    return gfc
+
+
+def check_query(query: 'Query') -> 'Query':
+    for e in query._component_exprs():
+        _check_valid_expr(e)
+    return query
+
+
 def _deserialize(
     obj: Any,
     binary_parts: list[bytes],
@@ -419,13 +459,13 @@ def _deserialize(
         if tag == 'TablePathKey':
             return TableVersionPath.from_key(TablePathKey.from_dict(v))
         if tag == 'Expr':
-            return exprs.Expr.from_dict(v)
+            return _check_valid_expr(exprs.Expr.from_dict(v))
         if tag == 'SampleClause':
             return SampleClause.from_dict(v)
         if tag == 'Function':
-            return func.Function.from_dict(v)
+            return _check_valid_fn(func.Function.from_dict(v))
         if tag == 'GeneratingFunctionCall':
-            return func.GeneratingFunctionCall.from_dict(v)
+            return _check_valid_gfc(func.GeneratingFunctionCall.from_dict(v))
         if tag == 'EmbeddingIndex':
             return EmbeddingIndex(**{name: _deserialize(val, []) for name, val in v.items()})
         if tag == 'BtreeIndex':
