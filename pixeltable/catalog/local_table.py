@@ -208,7 +208,8 @@ class LocalTable(Table):
         return hash(self._tbl_version_path.tbl_id)
 
     def __getattr__(self, name: str) -> 'exprs.ColumnRef':
-        col_md = self._tbl_version_path.get_column_md_by_name(fold_identifier(name))
+        # col_md = self._tbl_version_path.get_column_md_by_name(fold_identifier(name))
+        col_md = self._tbl_version_path.get_column_md_by_name(name)
         if col_md is None:
             raise AttributeError(f'Unknown column: {name}')
         return ColumnRef(col_md, self._tbl_version_path.is_validate_on_read(col_md))

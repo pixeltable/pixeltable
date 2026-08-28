@@ -9,7 +9,7 @@ from uuid import UUID
 from pixeltable import catalog, exprs
 from pixeltable.types import ColumnSpec
 
-from ..globals import col_type_from_spec, fold_identifier, fold_mapping_keys
+from ..globals import col_type_from_spec, fold_mapping_keys
 from ..table_metadata import ColumnMetadata, TableMetadata
 
 if TYPE_CHECKING:
@@ -208,14 +208,14 @@ def user_columns(model: TableModelMeta) -> dict[str, ColumnSpec]:
 
 
 def base_query_columns(model: TableModelMeta) -> set[str]:
-    """Folded names of the columns a model's base query projects via its `select()` clause (empty if there is none)."""
+    """Names of the columns a model's base query projects via its `select()` clause (empty if there is none)."""
     base = model.__table_spec__['base']
     if base is None or base.select_list is None:
         return set()
     # "anonymous" compound expressions are not allowed here, so every unnamed item names a column
     assert all(expr.is_column_ref for expr, name in base.select_list if name is None)
     names = {expr.default_column_name() if name is None else name for expr, name in base.select_list}
-    return {fold_identifier(name) for name in names}
+    return names
 
 
 def _format_column_spec(spec: ColumnSpec) -> str:
