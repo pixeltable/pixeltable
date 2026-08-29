@@ -1,166 +1,84 @@
 ---
 title: 'Starter kit'
-description: 'Scaffold an application file with pixeltable-new, then apply it with pxt schema update and pxt service update'
+description: 'uvx pixeltable-new writes an application file. pxt schema update applies it. pxt service update serves it.'
 ---
 
-`uvx pixeltable-new` copies a project from the [Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit). The contract is one application file: `TableModel` classes name the tables, and a `FastAPIRouter` in the same file names the HTTP routes.
+The [Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit) is `serving/`
+(default) and `batch/` (no HTTP). `uvx pixeltable-new` copies one into a new directory.
 
-Requires **Python 3.11+**. Install [uv](https://docs.astral.sh/uv/getting-started/installation/) if you do not have it.
+Other apps (RAG, video, agents, a UI) are written into the same `app.py` by an agent
+with the [Pixeltable skill](/resources/ai-skills).
 
-## Scaffold a project
-
-List the patterns and templates your `pixeltable-new` version knows, then create a project. `--list` is the source of names.
+A first run: [Quickstart](/overview/quick-start).
 
 ```bash
-uvx pixeltable-new --list
 uvx pixeltable-new myapp
 cd myapp
 uv sync
-pxt schema update app.py my_app
-pxt service update app.py my_app
+pxt schema update app.py pipeline
+pxt service update app.py pipeline
 ```
 
-`pxt init` writes `pixeltable.toml` and marks the current directory as the project root. `pxt schema` and `pxt service` refuse a file that is not under a project root. Run `pxt init` in `myapp` if that file is missing.
+`pipeline` is a catalog directory, not a folder on disk. The scaffold includes
+`pixeltable.toml`. If you copied files by hand, run `pxt init` first.
 
-`my_app` is a **catalog** directory (created by `schema update` if needed). It is not a folder on disk. A `pxt://` URI is also a valid target.
-
-`pxt service` needs FastAPI. The scaffold's `uv sync` installs it. Otherwise:
-
-```bash
-pip install 'pixeltable[serve]'
-```
-
-To start from a working file without a template, see [HTTP serving](/howto/deployment/serving). For install-from-scratch, see the [Quickstart](/overview/quick-start).
-
-<Warning>
-`pxt serve` and TOML `[tool.pixeltable.service]` are gone. Declare
-routes on a `FastAPIRouter` in the same application file as your
-`TableModel` classes.
-</Warning>
+Routes live on a `FastAPIRouter` in the same file as the `TableModel` classes.
+[HTTP serving](/howto/deployment/serving).
 
 ## Patterns
 
-`uvx pixeltable-new myapp` uses **serving**. Pass a flag to pick another pattern.
+<Columns cols={2}>
+  <Card title="Serving" icon="globe">
+    Default. `app.py` declares tables and routes. `pxt service` starts HTTP.
 
-<Columns cols={3}>
-  <Card title="serving (default)" icon="globe">
-    One application file (`app.py`). Apply the catalog with
-    `pxt schema update`, then run HTTP with
-    `pxt service update`.
+    ```bash
+    uvx pixeltable-new myapp
+    ```
   </Card>
-  <Card title="--backend" icon="code">
-    A FastAPI app you own. Still declare tables with
-    `TableModel` in an application file.
-  </Card>
-  <Card title="--batch" icon="forward">
-    A script that inserts, computes, and exits. No HTTP.
-    No `pxt service`.
+  <Card title="Batch" icon="gears">
+    Insert, let computed columns run, export, exit. No HTTP.
+
+    ```bash
+    uvx pixeltable-new myapp --batch
+    ```
   </Card>
 </Columns>
 
-```bash
-uvx pixeltable-new myapp
-uvx pixeltable-new myapp --backend
-uvx pixeltable-new myapp --batch
-```
+Already have FastAPI: apply the file, then `app.include_router(api)` on the
+router declared in `app.py`.
 
-## On disk vs catalog
-
-The project root is a directory of Python files. The catalog is the
-named tables those models bind to after `pxt schema update`.
+## What serving writes
 
 <Columns cols={2}>
-  <Column>
-    **On disk**
-
+  <Card title="On disk" icon="folder">
     <Tree>
       <Tree.Folder name="myapp" defaultOpen>
         <Tree.File name="pixeltable.toml" />
         <Tree.File name="app.py" highlight />
-        <Tree.File name="functions.py" />
+        <Tree.File name="pyproject.toml" />
       </Tree.Folder>
     </Tree>
-  </Column>
-  <Column>
-    **Catalog after update**
+  </Card>
+  <Card title="In the catalog" icon="database">
+    After `pxt schema update app.py pipeline`:
 
     <Tree>
-      <Tree.Folder name="my_app" defaultOpen>
+      <Tree.Folder name="pipeline" defaultOpen>
         <Tree.File name="documents" />
         <Tree.File name="images" />
       </Tree.Folder>
     </Tree>
-  </Column>
+  </Card>
 </Columns>
 
-The catalog path `my_app` is not a folder on disk. `pxt ls my_app` lists it.
+Same file against a hosted catalog: `pxt schema update app.py pxt://org:db`.
+`pxt service` stays local.
 
-`app.py` is the application file. Neighboring modules such as
-`functions.py` are imported from it. A `TableModel` with
-`name='documents'` becomes `my_app/documents`.
-
-```python
-from __future__ import annotations
-
-import pixeltable as pxt
-from pixeltable.serving import FastAPIRouter
-
-TableModel = pxt.model_base()
-
-
-class Documents(TableModel, name='documents'):
-    document: pxt.Document
-
-
-class Images(TableModel, name='images'):
-    image: pxt.Image
-
-
-api = FastAPIRouter(name='ingest')
-api.add_insert_route(
-    Documents,
-    path='/ingest',
-    inputs=[Documents.document],
-)
-```
-
-## Templates
-
-Vertical apps, each built on a pattern. Names below match
-`uvx pixeltable-new --list`. Use a name from `--list` if yours differs.
-
-```bash
-uvx pixeltable-new --template knowledge-base my-kb
-```
-
-| Template | What you get |
-|---|---|
-| `knowledge-base` | Docs, images, video, and audio search |
-| `chat-agent` | Persistent agent with memory and tools |
-| `audio-transcription` | Transcription, summarization, and search |
-| `video-search` | Frames, transcription, and detection |
-| `media-indexing` | S3 ingest and multimodal processing |
-| `image-dataset` | Auto-annotate, curate, and export |
-| `full-stack-showcase` | Gemini, DETR, Whisper, and a dashboard |
-
-After scaffolding, the same apply commands: `uv sync`, then
-`pxt schema update app.py my_app` and
-`pxt service update app.py my_app` (skip `pxt service` for `--batch`).
-
-## Next
-
-<Columns cols={2}>
+<CardGroup cols={2}>
   <Card title="AI Skills" icon="robot" href="/resources/ai-skills">
-    Install the Pixeltable skill so coding assistants write
-    `TableModel` application files.
+    Teach an agent to write `TableModel` in `app.py`.
   </Card>
-  <Card title="pixeltable-starter-kit" icon="github" href="https://github.com/pixeltable/pixeltable-starter-kit">
-    Templates, patterns, and deploy configs on GitHub
+  <Card title="Clone the kit" icon="github" href="https://github.com/pixeltable/pixeltable-starter-kit">
+    `serving/` and `batch/` in one repo.
   </Card>
-  <Card title="HTTP serving" icon="globe" href="/howto/deployment/serving">
-    `FastAPIRouter` routes, `pxt service` verbs, and Python serving
-  </Card>
-  <Card title="Quickstart" icon="bolt" href="/overview/quick-start">
-    Install Pixeltable and run a first pipeline
-  </Card>
-</Columns>
+</CardGroup>

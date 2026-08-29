@@ -1,79 +1,39 @@
 ---
 title: 'AI Skills'
 sidebarTitle: 'AI Skills'
-description: 'Install the Pixeltable skill and teach coding assistants the application-file contract'
+description: 'npx skills add pixeltable/pixeltable-skill. The agent writes TableModel in app.py.'
 ---
 
-The [Pixeltable skill](https://github.com/pixeltable/pixeltable-skill) teaches AI coding assistants to write Pixeltable as one application file: `TableModel` classes in `app.py`, indexes in `__indexes__`, then `pxt schema update` and `pxt service update`.
-
-Requires **Python 3.11+**.
-
-## Install
+One skill. It teaches a `TableModel` in `app.py`, applied with `pxt schema update`.
+Install details: [AI coding agents](/overview/building-pixeltable-with-llms).
 
 ```bash
 npx skills add pixeltable/pixeltable-skill
 ```
 
-Works with tools that support the [Agent Skills specification](https://agentskills.io/specification): Cursor, Claude Code, Windsurf, GitHub Copilot, Cline, OpenCode, Codex CLI, and others.
+Source: [pixeltable/pixeltable-skill](https://github.com/pixeltable/pixeltable-skill).
 
-The skill loads a short `SKILL.md` first, then pulls reference files only when the task needs them. It covers computed columns, 25+ providers, RAG, agents, and multimodal pipelines.
-
-To scaffold a project by hand instead of asking the assistant, see the [Starter kit](/resources/starter-kit).
-
-## Do / do not
+## What it teaches
 
 | Do | Do not |
 |---|---|
-| Declare `TableModel` classes in `app.py` | LangChain, LlamaIndex, LangGraph, or Haystack |
-| Declare search with `__indexes__` (`EmbeddingIndex`) | `add_embedding_index` in application files |
-| `pxt schema update` then `pxt service update` | `pxt serve` or TOML `[tool.pixeltable.service]` |
-| Computed columns for model calls | Per-row `for` loops that call models |
-| Pixeltable tables as the store | pandas as a working store |
-| `.similarity()` on an embedding index | A separate vector database |
+| `class Docs(TableModel, name='docs')` in `app.py` | LangChain / LlamaIndex for chunking and retrieval |
+| Assignments as computed columns | pandas as the working store |
+| `__indexes__` on the model | A separate vector database |
+| `pxt init`, then `pxt schema update`, then `pxt service update` | Per-row `for` loops that call a model |
+| Same file against `pxt://` | Index calls in the application file |
+| `from pixeltable.serving import FastAPIRouter` | TOML route tables |
 
-Notebooks and the Python SDK still use `create_table`, `add_computed_column`, and `add_embedding_index`. Application files do not.
+Scaffold: `uvx pixeltable-new myapp`, then `pxt schema update app.py pipeline`.
+[Starter kit](/resources/starter-kit).
 
-```python
-TableModel = pxt.model_base()
+## How to invoke it
 
-
-class Documents(TableModel, name='documents'):
-    body: pxt.String
-    __indexes__ = [
-        pxt.EmbeddingIndex(
-            body, embedding=embed
-        )
-    ]
-```
-
-```bash
-pxt schema update app.py my_app
-pxt service update app.py my_app
-```
-
-## Invoke
-
-Type `/` in the agent chat and pick the skill. The skill name is `pixeltable`.
+Compatible agents pick the skill up when the task is a Pixeltable app. To call it by name:
 
 | Tool | Invoke |
 |---|---|
 | Cursor | `/pixeltable` |
 | Claude Code | `/pixeltable` |
-| Windsurf | `/pixeltable` |
 | GitHub Copilot | `/pixeltable` |
-| Cline / OpenCode | `/pixeltable` |
-| Codex CLI | `/pixeltable` |
-
-Claude Code also accepts the plugin's slash commands after `npx plugins add pixeltable/pixeltable-skill`: `/pixeltable:scaffold` and `/pixeltable:add-provider`.
-
-## Next
-
-<Columns cols={2}>
-  <Card title="Starter kit" icon="box" href="/resources/starter-kit">
-    `uvx pixeltable-new myapp`, then `pxt schema update` and
-    `pxt service update`
-  </Card>
-  <Card title="pixeltable-skill" icon="github" href="https://github.com/pixeltable/pixeltable-skill">
-    Skill source, references, and plugin install on GitHub
-  </Card>
-</Columns>
+| Codex | `$pixeltable` |
