@@ -8,7 +8,8 @@ from typing import Literal
 
 from pydantic import BaseModel, field_validator
 
-from pixeltable.serving import ServiceInstanceRecord, ServiceSpec
+from pixeltable.serving import ServiceInstanceRecord
+from pixeltable_cli.types import ServiceSpec
 
 
 class ManagementOperationType(str, Enum):

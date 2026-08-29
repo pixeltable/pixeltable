@@ -46,7 +46,7 @@ from pixeltable.env import Env
 from pixeltable.exec.globals import INLINED_OBJECT_MD_KEY
 from pixeltable.runtime import close_threadpool_runtimes
 from pixeltable.serving import SqlExport
-from pixeltable.serving._spec import RouteSpec, ServiceSpec
+from pixeltable_cli.types import RouteSpec, ServiceSpec
 from pixeltable.serving.globals import SqlExporter
 from pixeltable.utils import image as image_utils
 from pixeltable.utils.app_module import model_mismatch_error_str
@@ -157,7 +157,7 @@ class _RegisteredRoute:
     @property
     def has_table_target(self) -> bool:
         """Whether the route operates on a table; False for a query route."""
-        return self.spec['route_type'] != 'query'
+        return self.spec.route_type != 'query'
 
     @property
     def needs_binding(self) -> bool:
@@ -369,7 +369,7 @@ class PxtEndpoint:
 
     @property
     def route_type(self) -> Literal['insert', 'update', 'delete', 'compute', 'query']:
-        return self.route.spec['route_type']
+        return self.route.spec.route_type
 
     def __call__(self, request: Request, **kwargs: Any) -> Any:
         sample_url = str(request.url_for(_MEDIA_ROUTE_NAME, path='_'))
@@ -380,15 +380,15 @@ class PxtEndpoint:
 
         # write out uploads while the request is still alive
         tmp_paths: list[Path] = []
-        if len(self.route.spec['uploadfile_inputs']) > 0:
+        if len(self.route.spec.uploadfile_inputs) > 0:
             # list(...): make sure that the sequence of name/val pairs can't change underneath us
             for input_name, val in list(kwargs.items()):
-                if input_name in self.route.spec['uploadfile_inputs']:
+                if input_name in self.route.spec.uploadfile_inputs:
                     path = self.router._write_to_temp(val)
                     tmp_paths.append(path)
                     kwargs[input_name] = str(path)
 
-        if self.route.spec['background']:
+        if self.route.spec.background:
             job_id = uuid.uuid4().hex
             fut = self.router._executor.submit(_run_endpoint_op, self.endpoint_op, kwargs, tmp_paths, url_for_media)
             with self.router._jobs_lock:
@@ -499,12 +499,13 @@ class FastAPIRouter(fastapi.APIRouter):
                 'service_spec(): this router has no name; pass one, or construct the router with '
                 'FastAPIRouter(name=...)',
             )
-        return {
-            'name': service_name,
+        return ServiceSpec(
+            name=service_name,
             # the router's own prefix is part of every path it serves, so each route records it
-            'routes': [{**route.spec, 'path': f'{self.prefix}{route.spec["path"]}'} for route in self._routes],
-            'app_paths': [],
-        }
+            routes=[
+                route.spec.model_copy(update={'path': f'{self.prefix}{route.spec.path}'}) for route in self._routes
+            ],
+        )
 
     def bind(self, base_path: str = '') -> None:
         """Resolve every route declared against a model to the table it names under `base_path`.
@@ -529,10 +530,10 @@ class FastAPIRouter(fastapi.APIRouter):
             if not route.needs_binding or self._is_bound(route):
                 continue
             assert route.model_cls is not None
-            if route.spec['route_type'] == 'query':
+            if route.spec.route_type == 'query':
                 self._query_bindings[route.route_id] = self._media_rewritten(
                     self._unbound_queries[route.route_id].bind(base_path),
-                    return_fileresponse=route.spec['return_fileresponse'],
+                    return_fileresponse=route.spec.return_fileresponse,
                 )
             else:
                 tbl = route.model_cls._bind(base_path)
@@ -573,23 +574,23 @@ class FastAPIRouter(fastapi.APIRouter):
         is_model = isinstance(target, model.TableModelMeta)
         model_cls = cast(model.TableModelMeta, target) if is_model else None
         tbl = None if is_model else cast(pxt.Table | None, target)
-        spec: RouteSpec = {
-            'method': method,
+        spec = RouteSpec(
+            method=method,
             # the path the route declares, which the router serves at its prefix
-            'path': path,
-            'route_type': route_type,
-            'model': None if model_cls is None else model_cls.__table_spec__['name'],
-            'table': None if tbl is None else str(tbl._path()),
-            'inputs': list(inputs),
-            'uploadfile_inputs': list(uploadfile_inputs),
-            'outputs': list(outputs),
-            'match_columns': list(match_columns),
-            'background': background,
-            'return_fileresponse': return_fileresponse,
-            'one_row': one_row,
-            'export_sql': None if export_sql is None else export_sql.display_dict(),
-            'query': query_fn,
-        }
+            path=path,
+            route_type=route_type,
+            model=None if model_cls is None else model_cls.__table_spec__['name'],
+            table=None if tbl is None else str(tbl._path()),
+            inputs=list(inputs),
+            uploadfile_inputs=list(uploadfile_inputs),
+            outputs=list(outputs),
+            match_columns=list(match_columns),
+            background=background,
+            return_fileresponse=return_fileresponse,
+            one_row=one_row,
+            export_sql=None if export_sql is None else export_sql.display_dict(),
+            query=query_fn,
+        )
         route = _RegisteredRoute(
             route_id=len(self._routes),
             spec=spec,
@@ -606,7 +607,7 @@ class FastAPIRouter(fastapi.APIRouter):
 
     def _is_bound(self, route: _RegisteredRoute) -> bool:
         """Whether the route has what it needs to serve requests."""
-        if route.spec['route_type'] == 'query':
+        if route.spec.route_type == 'query':
             return route.route_id in self._query_bindings
         return route.route_id in self._route_bindings
 

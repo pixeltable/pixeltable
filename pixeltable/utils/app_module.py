@@ -31,7 +31,8 @@ _RUNNING_PACKAGES = ('pixeltable', 'pixeltable_cli')
 if TYPE_CHECKING:
     import fastapi
 
-    from pixeltable.serving import FastAPIRouter, RouteSpec, ServiceSpec
+    from pixeltable.serving import FastAPIRouter
+    from pixeltable_cli.types import RouteSpec, ServiceSpec
 
 
 def module_name(file: str, *, subject: str) -> str:

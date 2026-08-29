@@ -6,7 +6,6 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import PIL.Image
-import pydantic
 import sqlalchemy as sa
 
 import pixeltable as pxt
@@ -27,8 +26,9 @@ from pixeltable.service.management_protocol import (
     StartDbRequest,
     StopDbRequest,
 )
+from pixeltable.serving._diff import service_diff as service_compare
 from pixeltable.types import TreeNode
-from pixeltable_cli import db_types, models, schema_types, service_types
+from pixeltable_cli import models, types
 from pixeltable_cli.utils import identity
 
 from . import bridge
@@ -41,15 +41,6 @@ _STARTED_AT = datetime.datetime.now(datetime.timezone.utc).isoformat()
 # Freeze the identity fingerprint at import time so /health reports what the daemon was
 # launched with, not what os.environ looks like right now. Used to trigger a daemon restart.
 _IDENTITY: dict[str, Any] = identity()
-
-# schema plans cross as plain dicts; this checks their shape in place of a response model
-_SCHEMA_PLAN = pydantic.TypeAdapter(schema_types.SchemaPlan)
-_CHECK_REPORT = pydantic.TypeAdapter(schema_types.CheckReport)
-_SERVICE_PLAN = pydantic.TypeAdapter(service_types.ServicePlan)
-_DB_PLAN = pydantic.TypeAdapter(db_types.DbPlan)
-_DB_OPS = pydantic.TypeAdapter(list[db_types.DbChangeOp])
-_SERVICE_OPS = pydantic.TypeAdapter(list[service_types.ServiceChangeOp])
-_SERVICE_INSTANCES = pydantic.TypeAdapter(list[service_types.ServiceInstance])
 
 
 def _project_root() -> str | None:
@@ -483,71 +474,69 @@ def move(req: Request) -> models.MoveResponse:
 
 
 @router.post('/api/schema/check')
-def schema_check(req: Request) -> schema_types.CheckReport:
+def schema_check(req: Request) -> types.CheckReport:
     body = req.body(models.SchemaCheckBody)
-    return _CHECK_REPORT.validate_python(bridge.schema_check(body.schema_file))
+    return bridge.schema_check(body.schema_file)
 
 
 @router.post('/api/schema/diff')
-def schema_diff(req: Request) -> schema_types.SchemaPlan:
+def schema_diff(req: Request) -> types.SchemaPlan:
     body = req.body(models.SchemaDiffBody)
-    return _SCHEMA_PLAN.validate_python(bridge.schema_diff(body.schema_file, req.resolve_path(body.catalog_dir)))
+    return bridge.schema_diff(body.schema_file, req.resolve_path(body.catalog_dir))
 
 
 @router.post('/api/schema/prune')
-def schema_prune(req: Request) -> schema_types.SchemaPlan:
+def schema_prune(req: Request) -> types.SchemaPlan:
     body = req.body(models.SchemaPruneBody)
-    return _SCHEMA_PLAN.validate_python(bridge.schema_prune(body.schema_file, req.resolve_path(body.catalog_dir)))
+    return bridge.schema_prune(body.schema_file, req.resolve_path(body.catalog_dir))
 
 
 @router.post('/api/schema/update')
-def schema_update(req: Request) -> schema_types.SchemaPlan:
+def schema_update(req: Request) -> types.SchemaPlan:
     body = req.body(models.SchemaUpdateBody)
     applied = bridge.schema_update(
         body.schema_file, req.resolve_path(body.catalog_dir), allow_destructive=body.allow_destructive
     )
-    return _SCHEMA_PLAN.validate_python(applied)
+    return applied
 
 
 @router.post('/api/service/check')
-def service_check(req: Request) -> schema_types.CheckReport:
+def service_check(req: Request) -> types.CheckReport:
     body = req.body(models.ServiceCheckBody)
-    return _CHECK_REPORT.validate_python(bridge.service_check(body.app_file))
+    return bridge.service_check(body.app_file)
 
 
 @router.post('/api/service/diff')
-def service_diff(req: Request) -> service_types.ServicePlan:
+def service_diff(req: Request) -> types.ServicePlan:
     body = req.body(models.ServiceDiffBody)
-    return _SERVICE_PLAN.validate_python(
-        bridge.service_diff(body.app_file, req.resolve_path(body.target), otel=body.otel)
-    )
+    return service_compare(body.app_file, req.resolve_path(body.target), otel=body.otel)
 
 
 @router.post('/api/service/update')
-def service_update(req: Request) -> service_types.ServicePlan:
+def service_update(req: Request) -> types.ServicePlan:
     body = req.body(models.ServiceUpdateBody)
     applied = bridge.service_update(
         body.app_file, req.resolve_path(body.target), allow_destructive=body.allow_destructive, otel=body.otel
     )
-    return _SERVICE_PLAN.validate_python(applied)
+    return applied
 
 
 @router.post('/api/service/prune')
-def service_prune(req: Request) -> service_types.ServicePlan:
+def service_prune(req: Request) -> types.ServicePlan:
     body = req.body(models.ServicePruneBody)
-    return _SERVICE_PLAN.validate_python(bridge.service_prune(body.app_file, req.resolve_path(body.target)))
+    return bridge.service_prune(body.app_file, req.resolve_path(body.target))
 
 
 @router.post('/api/service/stop')
-def service_stop(req: Request) -> list[service_types.ServiceChangeOp]:
+def service_stop(req: Request) -> list[types.ServiceChangeOp]:
     body = req.body(models.ServiceStopBody)
-    return _SERVICE_OPS.validate_python(bridge.service_stop(body.names, req.resolve_path(body.target)))
+    return bridge.service_stop(body.names, req.resolve_path(body.target))
 
 
 @router.get('/api/service/list')
-def service_list(req: Request) -> list[service_types.ServiceInstance]:
+def service_list(req: Request) -> list[types.ServiceInstance]:
     target = req.query_str('target')
-    return _SERVICE_INSTANCES.validate_python(bridge.service_list(None if target is None else req.resolve_path(target)))
+    return bridge.service_list(None if target is None else req.resolve_path(target))
 
 
 @router.get('/api/dashboard/search', checks_env=False)
@@ -818,21 +807,21 @@ def stop_db(req: Request) -> dict[str, Any]:
 
 
 @router.post('/api/db/diff')
-def db_diff(req: Request) -> db_types.DbPlan:
+def db_diff(req: Request) -> types.DbPlan:
     body = req.body(models.DbDiffBody)
-    return _DB_PLAN.validate_python(bridge.db_diff(body.config_file, body.target, overrides=body.overrides()))
+    return bridge.db_diff(body.config_file, body.target, overrides=body.overrides())
 
 
 @router.post('/api/db/update')
-def db_update(req: Request) -> db_types.DbPlan:
+def db_update(req: Request) -> types.DbPlan:
     body = req.body(models.DbUpdateBody)
     applied = bridge.db_update(
         body.config_file, body.target, allow_destructive=body.allow_destructive, overrides=body.overrides()
     )
-    return _DB_PLAN.validate_python(applied)
+    return applied
 
 
 @router.post('/api/db/build-image')
-def db_build_image(req: Request) -> list[db_types.DbChangeOp]:
+def db_build_image(req: Request) -> list[types.DbChangeOp]:
     body = req.body(models.DbBuildImageBody)
-    return _DB_OPS.validate_python(bridge.db_build_image(body.target))
+    return bridge.db_build_image(body.target)

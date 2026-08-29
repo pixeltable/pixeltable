@@ -19,7 +19,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, exprs, metadata
@@ -43,27 +43,17 @@ from pixeltable.utils.app_module import (
     get_model_bases,
     get_module_services,
     load_app_module,
-    model_mismatch_error_str,
-    module_routers,
-    service_spec,
-    services_by_name,
     shadowed_project_modules,
-    visible_models,
 )
-from pixeltable.utils.project import ProjectFingerprint, loaded_fingerprint, project_fingerprint
-from pixeltable_cli import db_types, schema_types, service_types
+from pixeltable.utils.project import project_fingerprint
+from pixeltable_cli import types
 from pixeltable_cli.utils import PROJECT_CONFIG_FILE, PYPROJECT_FILE, PxtPath, split_pxt_uri
 
 _logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    import fastapi
-
     from pixeltable import exprs
-    from pixeltable.service.db_diff import DatabaseState, DbChangeOp
-    from pixeltable.serving import FastAPIRouter
-    from pixeltable.serving._diff import ServiceChangeOp
-    from pixeltable.serving.service_manager import ServiceManagerBase
+    from pixeltable.service.db_diff import DatabaseState
 
 
 def _build_select(
@@ -569,153 +559,6 @@ def get_status() -> dict[str, Any]:
     }
 
 
-def service_diff(app_file: str, target: PxtPath, *, otel: bool = False) -> service_types.ServicePlan:
-    """The changes that reconciling the instances at target with the services app_file declares would make.
-
-    Read-only: nothing is started, stopped or forgotten.
-
-    Args:
-        app_file: the application file declaring the services.
-        target: the catalog directory the services' models bind against.
-    """
-    # imported here rather than at module scope: pixeltable.serving pulls in fastapi, an optional dependency
-    from pixeltable.serving._config import database_config_for
-    from pixeltable.serving.service_manager import get_manager
-
-    manager = get_manager(target)
-    module = load_app_module(app_file, subject='application file')
-    routers = module_routers(module)
-    # serving binds every model the file reaches, so the same set has to describe the tables at the target,
-    # whichever service is being reconciled
-    needed = visible_models(module)
-    for router in routers:
-        needed.update(router.route_models())
-    mismatch = model_mismatch_error_str(needed, target)
-    project_root = Config.get().project_root
-    assert project_root is not None  # load_app_module() refuses a file outside a project root
-    fingerprint = loaded_fingerprint(project_root, database_config_for(target))
-    diffs = [
-        _service_diff(
-            manager, name, service, service_spec(name, service, routers), mismatch, fingerprint, app_file, target, otel
-        )
-        for name, service in sorted(services_by_name(module, app_file).items())
-    ]
-    return _plan_from_service_diffs(manager, diffs, app_file, target)
-
-
-def _service_diff(
-    manager: ServiceManagerBase,
-    name: str,
-    service: FastAPIRouter | fastapi.FastAPI,
-    declared_spec: service_types.ServiceSpec,
-    model_mismatch_reason: str | None,
-    fingerprint: ProjectFingerprint,
-    app_file: str,
-    target: PxtPath,
-    otel: bool = False,
-) -> service_types.ServiceDiff:
-    """How the instance of one declared service at target differs from its declaration."""
-    from pixeltable.serving import FastAPIRouter
-    from pixeltable.serving._diff import blocked_schema_op, compare_specs, otel_op, project_op
-
-    running = manager.get(name, target)
-    ops: list[service_types.ServiceChangeOp] = []
-    route_detail: str | None = None
-    declared = service if isinstance(service, FastAPIRouter) else None
-    kind: Literal['declarative', 'custom'] = 'custom' if declared is None else 'declarative'
-
-    if running is None:
-        route_comparison: service_types.RouteComparison = 'unavailable'
-        route_detail = 'the service is not running at this target'
-    else:
-        # a declared service is compared by its route declarations, an application object by the paths it
-        # serves itself
-        route_comparison = 'declarative' if declared is not None else 'openapi'
-        ops += [_service_plan_op(op) for op in compare_specs(running.spec, declared_spec)]
-        if running.otel != otel:
-            ops.append(_service_plan_op(otel_op(running.otel, otel)))
-
-    recorded = None if running is None else running.record.fingerprint
-    if len(ops) == 0 and recorded is not None and fingerprint.restart_needed(recorded):
-        # the contract is unchanged, so the project is the only thing left to report
-        ops.append(_service_plan_op(project_op(fingerprint.changes(recorded))))
-
-    if model_mismatch_reason is not None:
-        command = f'pxt schema update {app_file}' + ('' if target == '' else f' {target}')
-        ops.append(_service_plan_op(blocked_schema_op(name, model_mismatch_reason, command)))
-
-    resolution: service_types.ServiceResolution
-    if any(op['severity'] == 'blocked' for op in ops):
-        # the database has to change before this service can serve, whether it is running yet or not
-        resolution = 'blocked'
-    elif running is None:
-        resolution = 'create'
-    elif any(op['destructive'] for op in ops):
-        resolution = 'update_destructive'
-    elif len(ops) > 0:
-        resolution = 'update_additive'
-    else:
-        resolution = 'up_to_date'
-
-    return {
-        'name': name,
-        'exists': running is not None,
-        'state': None if running is None else running.state,
-        'endpoint': None if running is None else running.endpoint,
-        'base_path': target,
-        'kind': kind,
-        'resolution': resolution,
-        'route_comparison': route_comparison,
-        'route_detail': route_detail,
-        'ops': ops,
-        'destructive': any(op['destructive'] for op in ops),
-        'requires_restart': running is not None and any(op['requires_restart'] for op in ops),
-    }
-
-
-def _plan_from_service_diffs(
-    manager: ServiceManagerBase, diffs: list[service_types.ServiceDiff], app_file: str, target: PxtPath
-) -> service_types.ServicePlan:
-    """The plan that the given per-service diffs describe."""
-    declared = {diff['name'] for diff in diffs}
-    extras = sorted(i.service_name for i in manager.list(target) if i.service_name not in declared)
-    summary: service_types.ServicePlanSummary = {
-        'up_to_date': sum(1 for d in diffs if d['resolution'] == 'up_to_date'),
-        'create': sum(1 for d in diffs if d['resolution'] == 'create'),
-        'update_additive': sum(1 for d in diffs if d['resolution'] == 'update_additive'),
-        'update_destructive': sum(1 for d in diffs if d['resolution'] == 'update_destructive'),
-        'blocked': sum(1 for d in diffs if d['resolution'] == 'blocked'),
-        'extras': len(extras),
-        'destructive': sum(1 for d in diffs for op in d['ops'] if op['destructive']),
-        'blocked_ops': sum(1 for d in diffs for op in d['ops'] if op['severity'] == 'blocked'),
-        'restarts': sum(1 for d in diffs if d['requires_restart']),
-    }
-    return {
-        'app_file': app_file,
-        'target': target,
-        # extras are excluded: update never removes a service, which is what prune is for
-        'in_agreement': all(d['resolution'] == 'up_to_date' for d in diffs),
-        'services': diffs,
-        'extras': extras,
-        'summary': summary,
-    }
-
-
-def _service_plan_op(op: ServiceChangeOp) -> service_types.ServiceChangeOp:
-    """The CLI-side form of a service operation."""
-    return {
-        'target': op['target'],
-        'name': op['name'],
-        'op': op['op'],
-        'severity': op['severity'],
-        'description': op['description'],
-        'details': op['details'],
-        'destructive': op['severity'] == 'destructive',
-        # a blocked operation is never applied; every other one replaces what the service serves
-        'requires_restart': op['severity'] != 'blocked',
-    }
-
-
 # close the refusals raised while reconciling, in place of the Python API's wording
 _DESTRUCTIVE_HINT = "Re-run 'pxt schema update' with --allow-destructive to apply these changes."
 _SERVICE_DESTRUCTIVE_HINT = "Re-run 'pxt service update' with --allow-destructive to apply these changes."
@@ -747,88 +590,52 @@ def _schema_model_bases(module: ModuleType, schema_file: str) -> list[model.Tabl
     return bases
 
 
-def schema_check(schema_file: str) -> schema_types.CheckReport:
+def schema_check(schema_file: str) -> types.CheckReport:
     module = load_app_module(schema_file, subject='schema file')
     return _check_report(schema_file, _schema_model_bases(module, schema_file))
 
 
-def service_check(app_file: str) -> schema_types.CheckReport:
+def service_check(app_file: str) -> types.CheckReport:
     module = load_app_module(app_file, subject='application file')
     get_module_services(module, app_file)
     return _check_report(app_file, get_model_bases(module))
 
 
-def _check_report(file: str, bases: list[model.TableModelMeta]) -> schema_types.CheckReport:
+def _check_report(file: str, bases: list[model.TableModelMeta]) -> types.CheckReport:
     errors = check_udf_references(bases)
-    return {'file': file, 'valid': len(errors) == 0, 'errors': errors, 'warnings': shadowed_project_modules()}
+    return types.CheckReport(file=file, valid=len(errors) == 0, errors=errors, warnings=shadowed_project_modules())
 
 
-def schema_diff(schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaPlan:
+def schema_diff(schema_file: str, catalog_dir: PxtPath) -> types.SchemaPlan:
     module = load_app_module(schema_file, subject='schema file')
     model_bases = _schema_model_bases(module, schema_file)
     return _schema_plan(model_bases, schema_file, catalog_dir)
 
 
-def _schema_plan(bases: list[model.TableModelMeta], schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaPlan:
+def _schema_plan(bases: list[model.TableModelMeta], schema_file: str, catalog_dir: PxtPath) -> types.SchemaPlan:
     diffs = [diff for base in bases for diff in base.get_model_diff(catalog_dir).values()]
     return _plan_from_diffs(diffs, schema_file, catalog_dir)
 
 
-def _plan_from_diffs(diffs: list[model.TableDiff], schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaPlan:
-    tables: list[schema_types.TableDiff] = []
+def _plan_from_diffs(diffs: list[model.TableDiff], schema_file: str, catalog_dir: PxtPath) -> types.SchemaPlan:
     for diff in diffs:
         # a create subsumes the additions that constitute it, so only a migration enumerates operations
-        enumerated = [] if diff['resolution'] in ('create', 'up_to_date') else diff['ops']
-        ops = [_plan_op(op) for op in enumerated]
-        tables.append(
-            {
-                'path': diff['path'],
-                'model_cls': diff['model_cls'],
-                'kind': diff['kind'],
-                'exists': diff['exists'],
-                'resolution': diff['resolution'],
-                'ops': ops,
-                'destructive': any(op['destructive'] for op in ops),
-            }
-        )
+        if diff.resolution in ('create', 'up_to_date'):
+            diff.ops = []
 
     # a table's path crosses from the catalog as a plain string
-    declared = {_path_key(PxtPath(t['path'])) for t in tables}
-    extras = sorted(p for p in _list_tables(catalog_dir) if _path_key(p) not in declared)
-    summary: schema_types.SchemaPlanSummary = {
-        'up_to_date': sum(1 for t in tables if t['resolution'] == 'up_to_date'),
-        'create': sum(1 for t in tables if t['resolution'] == 'create'),
-        'update_additive': sum(1 for t in tables if t['resolution'] == 'update_additive'),
-        'update_destructive': sum(1 for t in tables if t['resolution'] == 'update_destructive'),
-        'unsupported': sum(1 for t in tables if t['resolution'] == 'unsupported'),
-        'extras': len(extras),
-        'destructive': sum(1 for t in tables for op in t['ops'] if op['destructive']),
-    }
-    return {
-        'schema_file': schema_file,
-        'catalog_dir': catalog_dir,
-        # extras are excluded: update() never removes them, so their presence is not something it could reconcile
-        'in_agreement': all(t['resolution'] == 'up_to_date' for t in tables),
-        'tables': tables,
-        'extras': extras,
-        'summary': summary,
-    }
+    declared = {_path_key(PxtPath(d.path)) for d in diffs}
+    return types.SchemaPlan(
+        schema_file=schema_file,
+        catalog_dir=catalog_dir,
+        tables=diffs,
+        # extras are excluded from in_agreement: update() never removes them, so their presence is not
+        # something it could reconcile
+        extras=sorted(p for p in _list_tables(catalog_dir) if _path_key(p) not in declared),
+    )
 
 
-def _plan_op(op: model.SchemaChangeOp) -> schema_types.SchemaChangeOp:
-    """The CLI-side form of a model operation: everything but the model-side and catalog-side values."""
-    return {
-        'target': op['target'],
-        'name': op['name'],
-        'op': op['op'],
-        'severity': op['severity'],
-        'description': op['description'],
-        'details': op['details'],
-        'destructive': op['severity'] == 'destructive',
-    }
-
-
-def schema_prune(schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaPlan:
+def schema_prune(schema_file: str, catalog_dir: PxtPath) -> types.SchemaPlan:
     """Drop the tables under catalog_dir that no model in the schema file declares.
 
     Returns the plan, with one drop_table operation per dropped table. A view is dropped before its base, so that
@@ -839,7 +646,7 @@ def schema_prune(schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaP
     module = load_app_module(schema_file, subject='schema file')
     model_bases = _schema_model_bases(module, schema_file)
     plan = _schema_plan(model_bases, schema_file, catalog_dir)
-    remaining = list(plan['extras'])
+    remaining = list(plan.extras)
     dropped: list[PxtPath] = []
     while len(remaining) > 0:
         deferred: list[PxtPath] = []
@@ -863,13 +670,11 @@ def schema_prune(schema_file: str, catalog_dir: PxtPath) -> schema_types.SchemaP
             raise blocked_by
         remaining = deferred
 
-    plan['ops'] = [schema_types.drop_table_op(pxt_path, 'applied') for pxt_path in dropped]
+    plan.ops = [types.SchemaChangeOp.drop_table(pxt_path, 'applied') for pxt_path in dropped]
     return plan
 
 
-def schema_update(
-    schema_file: str, catalog_dir: PxtPath, *, allow_destructive: bool = False
-) -> schema_types.SchemaPlan:
+def schema_update(schema_file: str, catalog_dir: PxtPath, *, allow_destructive: bool = False) -> types.SchemaPlan:
     """Reconcile the tree under catalog_dir with the schema file: create missing tables and migrate existing ones.
 
     Returns the plan that was applied, each operation annotated with its status.
@@ -905,16 +710,16 @@ def schema_update(
         applied.extend(diffs.values())
 
     plan = _plan_from_diffs(applied, schema_file, catalog_dir)
-    for tbl in plan['tables']:
-        tbl['status'] = 'skipped' if tbl['resolution'] == 'up_to_date' else 'applied'
-        for op in tbl['ops']:
-            op['status'] = 'applied'
+    for tbl in plan.tables:
+        tbl.status = 'skipped' if tbl.resolution == 'up_to_date' else 'applied'
+        for op in tbl.ops:
+            op.status = 'applied'
     return plan
 
 
 def service_update(
     app_file: str, target: PxtPath, *, allow_destructive: bool = False, otel: bool = False
-) -> service_types.ServicePlan:
+) -> types.ServicePlan:
     """Reconcile the services at target with the ones app_file declares, and leave them running.
 
     Starts a service that is not running, and restarts one whose declaration changed, since a service binds
@@ -930,67 +735,69 @@ def service_update(
         target: the catalog directory the services' models bind against.
         allow_destructive: whether to apply changes that stop serving a route contract a caller may be using.
     """
+    from pixeltable.serving._diff import service_diff
     from pixeltable.serving.service_manager import get_manager
 
     manager = get_manager(target)
     plan = service_diff(app_file, target)
-    destructive = [d['name'] for d in plan['services'] if d['resolution'] == 'update_destructive']
+    destructive = [d.name for d in plan.services if d.resolution == 'update_destructive']
     if len(destructive) > 0 and not allow_destructive:
         names = ', '.join(repr(name) for name in destructive)
-        for diff in plan['services']:
-            diff['status'] = 'refused'
+        for diff in plan.services:
+            diff.status = 'refused'
         raise excs.RequestError(
             excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE,
             f'Reconciling {names} would stop serving a route that callers may be using.\n{_SERVICE_DESTRUCTIVE_HINT}',
         )
 
-    for diff in plan['services']:
-        if diff['resolution'] == 'blocked':
-            diff['status'] = 'refused'
+    for diff in plan.services:
+        if diff.resolution == 'blocked':
+            diff.status = 'refused'
             continue
-        if diff['resolution'] == 'up_to_date':
-            diff['status'] = 'skipped'
+        if diff.resolution == 'up_to_date':
+            diff.status = 'skipped'
             continue
-        if diff['exists']:
+        if diff.exists:
             # the running service serves the old declaration; binding happens once per process, so it is replaced
-            running = manager.get(diff['name'], target)
+            running = manager.get(diff.name, target)
             if running is not None:
                 running.stop()
-        started = manager.start(app_file, diff['name'], target, otel=otel)
-        diff['status'] = 'applied'
-        diff['state'] = started.state
-        diff['endpoint'] = started.endpoint
-        diff['exists'] = True
-        for op in diff['ops']:
-            op['status'] = 'skipped' if op['severity'] == 'blocked' else 'applied'
+        started = manager.start(app_file, diff.name, target, otel=otel)
+        diff.status = 'applied'
+        diff.state = started.state
+        diff.endpoint = started.endpoint
+        diff.exists = True
+        for op in diff.ops:
+            op.status = 'skipped' if op.severity == 'blocked' else 'applied'
     return plan
 
 
-def service_prune(app_file: str, target: PxtPath) -> service_types.ServicePlan:
+def service_prune(app_file: str, target: PxtPath) -> types.ServicePlan:
     """Stop and forget the services at target that app_file does not declare.
 
     A stopped service can be started again, so this is not destructive the way dropping a table is.
 
     Returns the plan, with one drop operation per service stopped.
     """
+    from pixeltable.serving._diff import service_diff
     from pixeltable.serving.service_manager import get_manager
 
     manager = get_manager(target)
     plan = service_diff(app_file, target)
-    ops: list[service_types.ServiceChangeOp] = []
-    for name in plan['extras']:
+    ops: list[types.ServiceChangeOp] = []
+    for name in plan.extras:
         running = manager.get(name, target)
         if running is None:
             # it stopped between the diff and here; nothing to stop, and it is already forgotten
-            ops.append(service_types.delete_service_op(name, None, 'skipped'))
+            ops.append(types.ServiceChangeOp.delete_service(name, None, 'skipped'))
             continue
         running.delete()
-        ops.append(service_types.delete_service_op(name, running.endpoint, 'applied'))
-    plan['ops'] = ops
+        ops.append(types.ServiceChangeOp.delete_service(name, running.endpoint, 'applied'))
+    plan.ops = ops
     return plan
 
 
-def service_stop(names: list[str], target: PxtPath) -> list[service_types.ServiceChangeOp]:
+def service_stop(names: list[str], target: PxtPath) -> list[types.ServiceChangeOp]:
     """Stop the instances of the named services at target and forget them.
 
     A name with no instance there yields a 'skipped' operation rather than an error, so that stopping a
@@ -999,25 +806,25 @@ def service_stop(names: list[str], target: PxtPath) -> list[service_types.Servic
     from pixeltable.serving.service_manager import get_manager
 
     manager = get_manager(target)
-    ops: list[service_types.ServiceChangeOp] = []
+    ops: list[types.ServiceChangeOp] = []
     for name in names:
         running = manager.get(name, target)
         if running is None:
-            ops.append(service_types.delete_service_op(name, None, 'skipped'))
+            ops.append(types.ServiceChangeOp.delete_service(name, None, 'skipped'))
             continue
         running.stop()
-        ops.append(service_types.delete_service_op(name, running.endpoint, 'applied'))
+        ops.append(types.ServiceChangeOp.delete_service(name, running.endpoint, 'applied'))
     return ops
 
 
-def service_list(target: PxtPath | None = None) -> list[service_types.ServiceInstance]:
+def service_list(target: PxtPath | None = None) -> list[types.ServiceInstance]:
     """The instances running locally: those serving target and below it, or all of them if target is None."""
     from pixeltable.serving.service_manager import get_manager
 
     base_path = '' if target is None else target
     instances = get_manager(base_path).list(base_path, recursive=True)
     return [
-        service_types.ServiceInstance(
+        types.ServiceInstance(
             name=i.service_name,
             base_path=PxtPath(i.base_path),
             endpoint=i.endpoint,
@@ -1026,7 +833,7 @@ def service_list(target: PxtPath | None = None) -> list[service_types.ServiceIns
             pid=i.record.pid,
             process_started_at=i.record.process_started_at,
             app_module=i.app_module,
-            spec=cast(service_types.ServiceSpec, i.spec),
+            spec=i.spec,
         )
         for i in sorted(instances, key=lambda i: (i.base_path, i.service_name))
     ]
@@ -1045,7 +852,7 @@ _DB_POLL_INTERVAL = 5.0
 _DB_TRANSITIONAL = frozenset({'PROVISIONING', 'UPDATING', 'STARTING', 'STOPPING'})
 
 
-def db_diff(config_file: str, target: str, *, overrides: dict[str, float | int] | None = None) -> db_types.DbPlan:
+def db_diff(config_file: str, target: str, *, overrides: dict[str, float | int] | None = None) -> types.DbPlan:
     """The changes that reconciling the database at target with the entry declaring it would make.
 
     Read-only: nothing is built, resized or set.
@@ -1069,7 +876,7 @@ def db_diff(config_file: str, target: str, *, overrides: dict[str, float | int] 
 
 def db_update(
     config_file: str, target: str, *, allow_destructive: bool = False, overrides: dict[str, float | int] | None = None
-) -> db_types.DbPlan:
+) -> types.DbPlan:
     """Reconcile the database at target with the entry declaring it: create it if it is absent, then apply
     secrets, the two artifacts, and capacity, in that order.
 
@@ -1087,16 +894,16 @@ def db_update(
     """
     entry, project_dir, org, db = _db_entry(config_file, target, overrides)
     plan = db_diff(config_file, target, overrides=overrides)
-    if plan['destructive'] and not allow_destructive:
-        for op in plan['ops']:
-            op['status'] = 'refused'
-        destructive = ', '.join(op['name'] for op in plan['ops'] if op['destructive'])
+    if plan.destructive and not allow_destructive:
+        for op in plan.ops:
+            op.status = 'refused'
+        destructive = ', '.join(op.name or '' for op in plan.ops if op.destructive)
         raise excs.RequestError(
             excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE,
             f'Reconciling {target} would apply destructive changes: {destructive}.\n{_DB_DESTRUCTIVE_HINT}',
         )
 
-    if not plan['exists']:
+    if not plan.exists:
         management_client.api_call(
             CreateDbRequest(
                 org=org,
@@ -1113,21 +920,21 @@ def db_update(
         _await_db_settled(org, db)
 
     for op in _ops_on(plan, 'placement'):
-        op['status'] = 'skipped'
+        op.status = 'skipped'
     for op in _ops_on(plan, 'secret'):
         _apply_secret_op(org, db, op, entry)
-        op['status'] = 'applied'
-    if plan['summary']['rebuild'] or len(_ops_on(plan, 'project')) > 0:
+        op.status = 'applied'
+    if plan.summary.rebuild or len(_ops_on(plan, 'project')) > 0:
         # both artifacts come from one archive, so it is stored once whichever of the two moved
         key = _upload(project_dir, org, db)
         for op in _ops_on(plan, 'image'):
             _build_image(project_dir, org, db, key)
-            op['status'] = 'applied'
+            op.status = 'applied'
         for op in _ops_on(plan, 'project'):
             _set_project(org, db, key)
-            op['status'] = 'applied'
+            op.status = 'applied'
 
-    changed = {op['name'] for op in _ops_on(plan, 'capacity')}
+    changed = {op.name for op in _ops_on(plan, 'capacity')}
     if len(changed) > 0:
         # one request carrying every changed number, so the pods restart once
         management_client.api_call(
@@ -1141,31 +948,31 @@ def db_update(
             )
         )
         for op in _ops_on(plan, 'capacity'):
-            op['status'] = 'applied'
+            op.status = 'applied'
 
-    plan['state'] = _await_db_settled(org, db).state
-    plan['exists'] = True
-    plan['status'] = 'applied'
+    plan.state = _await_db_settled(org, db).state
+    plan.exists = True
+    plan.status = 'applied'
     return plan
 
 
-def _ops_on(plan: db_types.DbPlan, target: db_types.Target) -> list[db_types.DbChangeOp]:
+def _ops_on(plan: types.DbPlan, target: str) -> list[types.DbChangeOp]:
     """The plan's operations against one target."""
-    return [op for op in plan['ops'] if op['target'] == target]
+    return [op for op in plan.ops if op.target == target]
 
 
-def db_build_image(uri: str) -> list[db_types.DbChangeOp]:
+def db_build_image(uri: str) -> list[types.DbChangeOp]:
     """Ship the project under project_dir to the database at target and build its image, and wait for both.
 
     Ships and builds whatever the project holds, without comparing it to the database first.
     """
     org, db = _db_uri(uri)
-    ops = [_db_plan_op(_image_built_op()), _db_plan_op(_project_shipped_op())]
+    ops = [types.DbChangeOp.image_built(), types.DbChangeOp.project_shipped()]
     key = _upload(Path(project_dir), org, db)
     _build_image(Path(project_dir), org, db, key)
     _set_project(org, db, key)
     for op in ops:
-        op['status'] = 'applied'
+        op.status = 'applied'
     return ops
 
 
@@ -1265,10 +1072,10 @@ def _secret_keys(org: str, db: str) -> list[str]:
     return response.keys
 
 
-def _apply_secret_op(org: str, db: str, op: db_types.DbChangeOp, entry: DatabaseConfig) -> None:
+def _apply_secret_op(org: str, db: str, op: types.DbChangeOp, entry: DatabaseConfig) -> None:
     """Apply one secret operation: set the declared value, or delete the key."""
-    key = op['name']
-    if op['op'] == 'drop':
+    key = op.name
+    if op.op == 'drop':
         management_client.api_call(DeleteSecretRequest(org=org, db=db, key=key))
         return
     binding = (entry.secrets or {})[key]
@@ -1312,52 +1119,27 @@ def _await_db_settled(org: str, db: str) -> DatabaseState:
         time.sleep(_DB_POLL_INTERVAL)
 
 
-
 def _db_plan(
-    config_file: str, target: str, state: str | None, ops: list[DbChangeOp], not_compared: list[str]
-) -> db_types.DbPlan:
+    config_file: str, target: str, state: str | None, ops: list[types.DbChangeOp], not_compared: list[str]
+) -> types.DbPlan:
     """The plan the given operations describe; a state of None is a database that does not exist."""
-    plan_ops = [_db_plan_op(op) for op in ops]
-    resolution: db_types.DbResolution
+    resolution: types.Resolution
     if state is None:
         resolution = 'create'
-    elif any(op['severity'] == 'unsupported' for op in plan_ops):
+    elif any(op.severity == 'unsupported' for op in ops):
         resolution = 'unsupported'
-    elif any(op['destructive'] for op in plan_ops):
+    elif any(op.destructive for op in ops):
         resolution = 'update_destructive'
-    elif len(plan_ops) > 0:
+    elif len(ops) > 0:
         resolution = 'update_additive'
     else:
         resolution = 'up_to_date'
-    return {
-        'config_file': config_file,
-        'target': target,
-        'exists': state is not None,
-        'state': state,
-        'resolution': resolution,
-        'in_agreement': resolution == 'up_to_date',
-        'ops': plan_ops,
-        'not_compared': not_compared,
-        'destructive': any(op['destructive'] for op in plan_ops),
-        'summary': {
-            'ops': len(plan_ops),
-            'destructive': sum(1 for op in plan_ops if op['destructive']),
-            'unsupported': sum(1 for op in plan_ops if op['severity'] == 'unsupported'),
-            'rebuild': any(op['target'] == 'image' for op in plan_ops),
-            'restarts': any(op['requires_restart'] for op in plan_ops),
-        },
-    }
-
-
-def _db_plan_op(op: DbChangeOp) -> db_types.DbChangeOp:
-    """The CLI-side form of a database operation."""
-    return {
-        'target': op['target'],
-        'name': op['name'],
-        'op': op['op'],
-        'severity': op['severity'],
-        'description': op['description'],
-        'details': op['details'],
-        'requires_restart': op['requires_restart'],
-        'destructive': op['severity'] == 'destructive',
-    }
+    return types.DbPlan(
+        config_file=config_file,
+        target=target,
+        exists=state is not None,
+        state=state,
+        resolution=resolution,
+        ops=ops,
+        not_compared=not_compared,
+    )

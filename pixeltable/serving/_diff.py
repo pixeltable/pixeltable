@@ -2,89 +2,153 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Literal
+
+from pixeltable.config import Config
+from pixeltable.utils.app_module import (
+    load_app_module,
+    model_mismatch_error_str,
+    module_routers,
+    service_spec,
+    services_by_name,
+    visible_models,
+)
+from pixeltable.utils.project import ProjectFingerprint, loaded_fingerprint
+from pixeltable_cli.types import (
+    Resolution,
+    RouteComparison,
+    RouteSpec,
+    ServiceChangeOp,
+    ServiceDiff,
+    ServicePlan,
+    ServiceSpec,
+)
+from pixeltable_cli.utils import PxtPath
 
 if TYPE_CHECKING:
-    from ._spec import RouteSpec, ServiceSpec
+    import fastapi
 
-# Extends the severities a schema change uses with 'blocked': an operation that service update cannot carry
-# out because the database, not the service, has to satisfy it. The command that does so is in details.
-# Mirrored by pixeltable_cli.service_types.Severity.
-Severity = Literal['additive', 'destructive', 'unsupported', 'blocked']
+    from pixeltable.serving import FastAPIRouter
+    from pixeltable.serving.service_manager import ServiceManagerBase
 
 
-class ServiceChangeOp(TypedDict):
-    """One operation reconciling a running service with the definition an application file holds.
+def service_diff(app_file: str, target: PxtPath, *, otel: bool = False) -> ServicePlan:
+    """The changes that reconciling the instances at target with the services app_file declares would make.
 
-    Mirrored by pixeltable_cli.service_types.ServiceChangeOp; adding, removing or retyping a field here means
-    doing the same there.
+    Read-only: nothing is started, stopped or forgotten.
+
+    Args:
+        app_file: the application file declaring the services.
+        target: the catalog directory the services' models bind against.
     """
+    from pixeltable.serving._config import database_config_for
+    from pixeltable.serving.service_manager import get_manager
 
-    target: Literal['service', 'base_path', 'route', 'resources', 'secret', 'project']
-
-    # route: the method and path, eg 'POST /v1/ingest'; resources: the field; secret: the key
-    name: str
-
-    op: Literal['add', 'drop', 'alter']
-    severity: Severity
-    description: str  # one sentence, ready to print
-    details: dict[str, str]  # 'from' and 'to' for an alter, 'command' for a blocked operation
-
-
-def otel_op(current: bool, requested: bool) -> ServiceChangeOp:
-    state = {True: 'on', False: 'off'}
-    return {
-        'target': 'service',
-        'name': 'otel',
-        'op': 'alter',
-        'severity': 'additive',  # the routes are unchanged; the service restarts to pick up the new setting
-        'description': f'tracing will be turned {state[requested]}, which restarts the service',
-        'details': {'from': state[current], 'to': state[requested]},
-    }
-
-
-def project_op(changes: list[str], command: str | None = None) -> ServiceChangeOp:
-    """The operation for a project that moved on since the instance started.
-
-    changes are the causes, from ProjectFingerprint.changes(). With a command, the instance cannot be brought
-    up to date by restarting it -- a hosted image has to be rebuilt first -- so the operation is blocked.
-    """
-    summary = '; '.join(changes[:3])
-    if len(changes) > 3:
-        summary += f' and {len(changes) - 3} more'
-    if command is None:
-        return {
-            'target': 'project',
-            'name': 'project',
-            'op': 'alter',
-            'severity': 'additive',  # what the service serves is unchanged; it restarts to run the new code
-            'description': f'{summary}, which restarts the service',
-            'details': {'changes': '; '.join(changes)},
-        }
-    return {
-        'target': 'project',
-        'name': 'project',
-        'op': 'alter',
-        'severity': 'blocked',
-        'description': f'{summary}, which the image this service runs predates',
-        'details': {'changes': '; '.join(changes), 'command': command},
-    }
+    manager = get_manager(target)
+    module = load_app_module(app_file, subject='application file')
+    routers = module_routers(module)
+    # serving binds every model the file reaches, so the same set has to describe the tables at the target,
+    # whichever service is being reconciled
+    needed = visible_models(module)
+    for router in routers:
+        needed.update(router.route_models())
+    mismatch = model_mismatch_error_str(needed, target)
+    project_root = Config.get().project_root
+    assert project_root is not None  # load_app_module() refuses a file outside a project root
+    fingerprint = loaded_fingerprint(project_root, database_config_for(target))
+    diffs = [
+        _service_diff(
+            manager, name, service, service_spec(name, service, routers), mismatch, fingerprint, app_file, target, otel
+        )
+        for name, service in sorted(services_by_name(module, app_file).items())
+    ]
+    return _plan_from_service_diffs(manager, diffs, app_file, target)
 
 
-def blocked_schema_op(service_name: str, description: str, command: str) -> ServiceChangeOp:
-    return {
-        'target': 'service',
-        'name': service_name,
-        'op': 'alter',
-        'severity': 'blocked',
-        'description': description,
-        'details': {'command': command},
-    }
+def _service_diff(
+    manager: ServiceManagerBase,
+    name: str,
+    service: FastAPIRouter | fastapi.FastAPI,
+    declared_spec: ServiceSpec,
+    model_mismatch_reason: str | None,
+    fingerprint: ProjectFingerprint,
+    app_file: str,
+    target: PxtPath,
+    otel: bool = False,
+) -> ServiceDiff:
+    """How the instance of one declared service at target differs from its declaration."""
+    from pixeltable.serving import FastAPIRouter
+
+    running = manager.get(name, target)
+    ops: list[ServiceChangeOp] = []
+    route_detail: str | None = None
+    declared = service if isinstance(service, FastAPIRouter) else None
+    kind: Literal['declarative', 'custom'] = 'custom' if declared is None else 'declarative'
+
+    if running is None:
+        route_comparison: RouteComparison = 'unavailable'
+        route_detail = 'the service is not running at this target'
+    else:
+        # a declared service is compared by its route declarations, an application object by the paths it
+        # serves itself
+        route_comparison = 'declarative' if declared is not None else 'openapi'
+        ops += compare_specs(running.spec, declared_spec)
+        if running.otel != otel:
+            ops.append(ServiceChangeOp.otel(running.otel, otel))
+
+    recorded = None if running is None else running.record.fingerprint
+    if len(ops) == 0 and recorded is not None and fingerprint.restart_needed(recorded):
+        # the contract is unchanged, so the project is the only thing left to report
+        ops.append(ServiceChangeOp.project_moved(fingerprint.changes(recorded)))
+
+    if model_mismatch_reason is not None:
+        command = f'pxt schema update {app_file}' + ('' if target == '' else f' {target}')
+        ops.append(ServiceChangeOp.blocked_schema(name, model_mismatch_reason, command))
+
+    resolution: Resolution
+    if any(op.severity == 'blocked' for op in ops):
+        # the database has to change before this service can serve, whether it is running yet or not
+        resolution = 'blocked'
+    elif running is None:
+        resolution = 'create'
+    elif any(op.destructive for op in ops):
+        resolution = 'update_destructive'
+    elif len(ops) > 0:
+        resolution = 'update_additive'
+    else:
+        resolution = 'up_to_date'
+
+    return ServiceDiff(
+        name=name,
+        exists=running is not None,
+        state=None if running is None else running.state,
+        endpoint=None if running is None else running.endpoint,
+        base_path=target,
+        kind=kind,
+        resolution=resolution,
+        route_comparison=route_comparison,
+        route_detail=route_detail,
+        ops=ops,
+    )
+
+
+def _plan_from_service_diffs(
+    manager: ServiceManagerBase, diffs: list[ServiceDiff], app_file: str, target: PxtPath
+) -> ServicePlan:
+    """The plan that the given per-service diffs describe."""
+    declared = {diff.name for diff in diffs}
+    return ServicePlan(
+        app_file=app_file,
+        target=target,
+        services=diffs,
+        # extras are excluded from in_agreement: update never removes a service, which is what prune is for
+        extras=sorted(i.service_name for i in manager.list(target) if i.service_name not in declared),
+    )
 
 
 def _route_name(route: RouteSpec) -> str:
     """The route as it reads in a diff, eg 'POST /v1/ingest'."""
-    return f'{route["method"]} {route["path"]}'
+    return f'{route.method} {route.path}'
 
 
 def _common_prefix(paths: list[str]) -> str:
@@ -104,28 +168,19 @@ def _prefix_change(current: ServiceSpec, declared: ServiceSpec) -> ServiceChange
     A prefix change breaks every caller at once, so it reads better as one operation than as a drop and an
     add of every route. It applies where stripping each side's shared prefix leaves the same routes.
     """
-    if len(current['routes']) == 0 or len(declared['routes']) == 0:
+    if len(current.routes) == 0 or len(declared.routes) == 0:
         return None
-    current_prefix = _common_prefix([route['path'] for route in current['routes']])
-    declared_prefix = _common_prefix([route['path'] for route in declared['routes']])
+    current_prefix = _common_prefix([route.path for route in current.routes])
+    declared_prefix = _common_prefix([route.path for route in declared.routes])
     if current_prefix == declared_prefix:
         return None
-    if _without_prefix(current['routes'], current_prefix) != _without_prefix(declared['routes'], declared_prefix):
+    if _without_prefix(current.routes, current_prefix) != _without_prefix(declared.routes, declared_prefix):
         return None
-    return {
-        'target': 'service',
-        'name': declared['name'],
-        'op': 'alter',
-        'severity': 'destructive',
-        'description': (
-            f'service {declared["name"]!r} will be served at prefix {declared_prefix!r} rather than {current_prefix!r}'
-        ),
-        'details': {'from': current_prefix, 'to': declared_prefix},
-    }
+    return ServiceChangeOp.prefix_moved(declared.name, current_prefix, declared_prefix)
 
 
 def _without_prefix(routes: list[RouteSpec], prefix: str) -> set[tuple[str, str]]:
-    return {(route['method'], route['path'][len(prefix) :]) for route in routes}
+    return {(route.method, route.path[len(prefix) :]) for route in routes}
 
 
 def compare_specs(current: ServiceSpec, declared: ServiceSpec) -> list[ServiceChangeOp]:
@@ -136,7 +191,7 @@ def compare_specs(current: ServiceSpec, declared: ServiceSpec) -> list[ServiceCh
     untouched; every other operation replaces a contract that callers may be relying on.
     """
     ops: list[ServiceChangeOp] = []
-    ops += _path_ops(current['app_paths'], declared['app_paths'])
+    ops += _path_ops(current.app_paths, declared.app_paths)
 
     prefix_op = _prefix_change(current, declared)
     if prefix_op is not None:
@@ -145,51 +200,24 @@ def compare_specs(current: ServiceSpec, declared: ServiceSpec) -> list[ServiceCh
 
     # keyed by method and path, which ignores declaration order: valid paths don't contain parameters, which avoids
     # ambiguity
-    current_routes = {(r['method'], r['path']): r for r in current['routes']}
-    declared_routes = {(r['method'], r['path']): r for r in declared['routes']}
+    current_routes = {(r.method, r.path): r for r in current.routes}
+    declared_routes = {(r.method, r.path): r for r in declared.routes}
 
     for key, route in declared_routes.items():
         name = _route_name(route)
         previous = current_routes.get(key)
         if previous is None:
-            ops.append(
-                {
-                    'target': 'route',
-                    'name': name,
-                    'op': 'add',
-                    'severity': 'additive',
-                    'description': f'route {name!r} will be added',
-                    'details': {},
-                }
-            )
+            ops.append(ServiceChangeOp.route_added(name))
             continue
         changed = _changed_fields(previous, route)
         if len(changed) > 0:
-            ops.append(
-                {
-                    'target': 'route',
-                    'name': name,
-                    'op': 'alter',
-                    'severity': 'destructive',
-                    'description': f'route {name!r} will be replaced: {", ".join(changed)} changed',
-                    'details': {'changed': ', '.join(changed)},
-                }
-            )
+            ops.append(ServiceChangeOp.route_replaced(name, changed))
 
     for key, route in current_routes.items():
         if key in declared_routes:
             continue
         name = _route_name(route)
-        ops.append(
-            {
-                'target': 'route',
-                'name': name,
-                'op': 'drop',
-                'severity': 'destructive',
-                'description': f'route {name!r} will no longer be served',
-                'details': {},
-            }
-        )
+        ops.append(ServiceChangeOp.route_dropped(name))
 
     return ops
 
@@ -197,34 +225,11 @@ def compare_specs(current: ServiceSpec, declared: ServiceSpec) -> list[ServiceCh
 def _path_ops(current: list[str], declared: list[str]) -> list[ServiceChangeOp]:
     """The operations that would bring the served paths to the declared ones."""
     ops: list[ServiceChangeOp] = []
-    for path in sorted(set(declared) - set(current)):
-        ops.append(
-            {
-                'target': 'route',
-                'name': path,
-                'op': 'add',
-                'severity': 'additive',
-                'description': f'path {path!r} will be served',
-                'details': {},
-            }
-        )
-    for path in sorted(set(current) - set(declared)):
-        ops.append(
-            {
-                'target': 'route',
-                'name': path,
-                'op': 'drop',
-                'severity': 'destructive',
-                'description': f'path {path!r} will no longer be served',
-                'details': {},
-            }
-        )
+    ops += [ServiceChangeOp.path_added(path) for path in sorted(set(declared) - set(current))]
+    ops += [ServiceChangeOp.path_dropped(path) for path in sorted(set(current) - set(declared))]
     return ops
 
 
 def _changed_fields(current: RouteSpec, declared: RouteSpec) -> list[str]:
     """The fields in which two route declarations differ."""
-    # cast: mypy indexes a TypedDict by literal keys only
-    current_fields = cast(dict[str, Any], current)
-    declared_fields = cast(dict[str, Any], declared)
-    return sorted(k for k in declared_fields if current_fields[k] != declared_fields[k])
+    return sorted(name for name in type(declared).model_fields if getattr(current, name) != getattr(declared, name))

@@ -40,7 +40,7 @@ from pixeltable.utils.project import ProjectFingerprint
 from .service_instance import ServiceInstance, ServiceInstanceRecord
 
 if TYPE_CHECKING:
-    from ._spec import ServiceSpec
+    from pixeltable_cli.types import ServiceSpec
 
 _logger = logging.getLogger(__name__)
 

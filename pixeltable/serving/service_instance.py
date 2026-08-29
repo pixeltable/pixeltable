@@ -7,7 +7,7 @@ import pydantic
 
 from pixeltable.utils.project import ProjectFingerprint
 
-from ._spec import ServiceSpec
+from pixeltable_cli.types import ServiceSpec
 
 if TYPE_CHECKING:
     from .service_manager import ServiceManagerBase

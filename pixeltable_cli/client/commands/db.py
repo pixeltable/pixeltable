@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from ...db_types import DbChangeOp, DbPlan, DbResolution
+from ...types import DbChangeOp, DbPlan, Resolution
 from ..hosted import exit_unless_reached, parse_org_uri, poll_db, print_db, resolve_db_uri, spinner
 from ..parser import Parser
 from ..utils import confirm_or_exit, get_request, post_request
@@ -189,15 +189,15 @@ def _plan_body(args: argparse.Namespace, prog: str) -> dict[str, Any]:
 
 
 def _diff(args: argparse.Namespace) -> None:
-    plan: DbPlan = post_request('/api/db/diff', _plan_body(args, 'pxt db diff'))
+    plan = DbPlan.model_validate(post_request('/api/db/diff', _plan_body(args, 'pxt db diff')))
     _print_plan(plan, as_json=args.json_output)
-    sys.exit(EXIT_IN_AGREEMENT if plan['in_agreement'] else EXIT_CHANGES_PENDING)
+    sys.exit(EXIT_IN_AGREEMENT if plan.in_agreement else EXIT_CHANGES_PENDING)
 
 
 def _update(args: argparse.Namespace) -> None:
     body = _plan_body(args, 'pxt db update')
-    plan: DbPlan = post_request('/api/db/diff', body)
-    if plan['in_agreement']:
+    plan = DbPlan.model_validate(post_request('/api/db/diff', body))
+    if plan.in_agreement:
         _print_plan(plan, as_json=args.json_output)
         sys.exit(EXIT_IN_AGREEMENT)
     if args.dry_run:
@@ -205,29 +205,31 @@ def _update(args: argparse.Namespace) -> None:
         sys.exit(EXIT_CHANGES_PENDING)
 
     _print_plan(plan, as_json=False)
-    what = f'{plan["summary"]["ops"]} change(s)' if plan['exists'] else f'create {plan["target"]} and apply it'
-    minutes = ', which rebuilds the image and takes several minutes' if plan['summary']['rebuild'] else ''
+    what = f'{plan.summary.ops} change(s)' if plan.exists else f'create {plan.target} and apply it'
+    minutes = ', which rebuilds the image and takes several minutes' if plan.summary.rebuild else ''
     confirm_or_exit(
-        f'apply {what} to {plan["target"]}{minutes}?',
+        f'apply {what} to {plan.target}{minutes}?',
         args.force,
         refused_exit_code=EXIT_REFUSED,
         on_refusal=lambda: _print_plan(plan, as_json=args.json_output),
     )
 
-    label = None if args.json_output else f'Updating {plan["target"]} ...'
+    label = None if args.json_output else f'Updating {plan.target} ...'
     with spinner(label):
-        applied: DbPlan = post_request('/api/db/update', {**body, 'allow_destructive': args.allow_destructive})
+        applied = DbPlan.model_validate(
+            post_request('/api/db/update', {**body, 'allow_destructive': args.allow_destructive})
+        )
     _print_plan(applied, as_json=args.json_output, applied=True)
 
 
-_MARKERS: dict[DbResolution, str] = {
+_MARKERS: dict[Resolution, str] = {
     'up_to_date': '=',
     'create': '+',
     'update_additive': '~',
     'update_destructive': '~',
     'unsupported': '!',
 }
-_PENDING: dict[DbResolution, str] = {
+_PENDING: dict[Resolution, str] = {
     'up_to_date': 'up to date',
     'create': 'will be created',
     'update_additive': 'will be updated',
@@ -238,18 +240,18 @@ _PENDING: dict[DbResolution, str] = {
 
 def _print_plan(plan: DbPlan, *, as_json: bool, applied: bool = False) -> None:
     if as_json:
-        print(json.dumps(plan, indent=2))
+        print(plan.model_dump_json(indent=2))
         return
-    resolution = plan['resolution']
-    state = plan.get('status', _PENDING[resolution]) if applied else _PENDING[resolution]
-    print(f'{_MARKERS[resolution]} {plan["target"]:<28s} {state}  {plan["state"] or "absent"}')
-    for op in plan['ops']:
-        print(f'    {op["description"]}  [{op["severity"]}]')
-    if len(plan['not_compared']) > 0:
-        print(f'    not compared: {", ".join(plan["not_compared"])} (the database reports no state for these)')
-    s = plan['summary']
+    resolution = plan.resolution
+    state = (plan.status or _PENDING[resolution]) if applied else _PENDING[resolution]
+    print(f'{_MARKERS[resolution]} {plan.target:<28s} {state}  {plan.state or "absent"}')
+    for op in plan.ops:
+        print(f'    {op.description}  [{op.severity}]')
+    if len(plan.not_compared) > 0:
+        print(f'    not compared: {", ".join(plan.not_compared)} (the database reports no state for these)')
+    s = plan.summary
     print()
-    print(f'Plan: {s["ops"]} change(s), {s["destructive"]} destructive, {s["unsupported"]} unsupported')
+    print(f'Plan: {s.ops} change(s), {s.destructive} destructive, {s.unsupported} unsupported')
 
 
 def _delete(args: argparse.Namespace) -> None:
@@ -283,10 +285,13 @@ def _build_image(args: argparse.Namespace) -> None:
         else 'Shipping the project and building the image (this may take 10 minutes or longer) ...'
     )
     with spinner(label):
-        ops: list[DbChangeOp] = post_request(
-            '/api/db/build-image', {'project_dir': str(project_dir), 'target': f'pxt://{org}:{db}'}
-        )
+        ops = [
+            DbChangeOp.model_validate(op)
+            for op in post_request(
+                '/api/db/build-image', {'project_dir': str(project_dir), 'target': f'pxt://{org}:{db}'}
+            )
+        ]
     if args.json_output:
-        print(json.dumps(ops))
+        print(json.dumps([op.model_dump(mode='json') for op in ops]))
     else:
         print(f'Shipped the project and rebuilt the image of pxt://{org}:{db}.')

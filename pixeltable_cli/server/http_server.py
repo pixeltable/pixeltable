@@ -289,6 +289,8 @@ class _DaemonHandler(BaseHTTPRequestHandler):
 def _to_jsonable(result: Any) -> Any:
     if isinstance(result, pydantic.BaseModel):
         return result.model_dump(mode='json')
+    if isinstance(result, list):
+        return [_to_jsonable(item) for item in result]
     return result
 
 

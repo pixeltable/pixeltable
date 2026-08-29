@@ -4,7 +4,7 @@ import textwrap
 from pathlib import Path
 from typing import NamedTuple
 
-from ...schema_types import DiffResolution, OpStatus, SchemaChangeOp, SchemaPlan, drop_table_op
+from ...types import OpStatus, Resolution, SchemaChangeOp, SchemaPlan
 from ...utils import PxtPath
 from ..parser import Parser
 from ..utils import check_file, confirm_or_exit, post_request
@@ -250,7 +250,7 @@ class _Rendering(NamedTuple):
     applied: str  # empty for a resolution that is never carried out
 
 
-_RESOLUTIONS: dict[DiffResolution, _Rendering] = {
+_RESOLUTIONS: dict[Resolution, _Rendering] = {
     'create': _Rendering('+', 'create', 'created'),
     'update_additive': _Rendering('~', 'update', 'updated'),
     'update_destructive': _Rendering('~', 'update', 'updated'),
@@ -354,59 +354,59 @@ def _example(out: str | None, *, brief: bool) -> None:
 def _diff(schema_file: str, catalog_dir: PxtPath, *, as_json: bool) -> None:
     plan = _plan_for(schema_file, catalog_dir)
     _diff_output(plan, as_json=as_json)
-    sys.exit(EXIT_IN_AGREEMENT if plan['in_agreement'] else EXIT_CHANGES_PENDING)
+    sys.exit(EXIT_IN_AGREEMENT if plan.in_agreement else EXIT_CHANGES_PENDING)
 
 
 def _plan_for(schema_file: str, catalog_dir: PxtPath) -> SchemaPlan:
-    plan: SchemaPlan = post_request('/api/schema/diff', {'schema_file': schema_file, 'catalog_dir': catalog_dir})
-    return plan
+    return SchemaPlan.model_validate(
+        post_request('/api/schema/diff', {'schema_file': schema_file, 'catalog_dir': catalog_dir})
+    )
 
 
 def _format_plan(plan: SchemaPlan) -> list[str]:
     lines: list[str] = []
-    for tbl in plan['tables']:
-        rendering = _RESOLUTIONS[tbl['resolution']]
-        lines.append(f'{rendering.marker} {tbl["path"]:<24s} {rendering.pending}')
-        for op in tbl['ops']:
-            lines.append(f'    {_OP_MARKERS.get(op["op"], "~")} {op["description"]}  {_severity_label(op)}')
-    for path in plan['extras']:
+    for tbl in plan.tables:
+        rendering = _RESOLUTIONS[tbl.resolution]
+        lines.append(f'{rendering.marker} {tbl.path:<24s} {rendering.pending}')
+        for op in tbl.ops:
+            lines.append(f'    {_OP_MARKERS.get(op.op, "~")} {op.description}  {_severity_label(op)}')
+    for path in plan.extras:
         lines.append(f'! {path:<24s} extra (not in schema)')
 
-    s = plan['summary']
-    updates = s['update_additive'] + s['update_destructive']
-    counts = f'{s["create"]} create, {updates} update, {s["up_to_date"]} unchanged, {s["extras"]} extra'
-    if s['unsupported'] > 0:
-        counts += f', {s["unsupported"]} unsupported'
+    s = plan.summary
+    updates = s.update_additive + s.update_destructive
+    counts = f'{s.create} create, {updates} update, {s.up_to_date} unchanged, {s.extras} extra'
+    if s.unsupported > 0:
+        counts += f', {s.unsupported} unsupported'
     lines.append('')
-    lines.append(f'Plan: {counts}  |  {s["destructive"]} destructive')
+    lines.append(f'Plan: {counts}  |  {s.destructive} destructive')
     return lines
 
 
 def _severity_label(op: SchemaChangeOp) -> str:
     # an unmapped severity prints as itself: a category added later must not read as harmless here
-    return _SEVERITY_LABELS.get(op['severity'], op['severity'].upper())
+    return _SEVERITY_LABELS.get(op.severity, op.severity.upper())
 
 
 def _prune(schema_file: str, catalog_dir: PxtPath, *, as_json: bool, force: bool, dry_run: bool) -> None:
     plan = _plan_for(schema_file, catalog_dir)
-    extras = plan['extras']
+    extras = plan.extras
     if len(extras) == 0:
         if as_json:
-            print(json.dumps({**plan, 'ops': []}, indent=2))
+            print(plan.model_copy(update={'ops': []}).model_dump_json(indent=2))
         else:
             print('nothing to prune')
         sys.exit(EXIT_IN_AGREEMENT)
 
+    def with_drops(status: OpStatus) -> SchemaPlan:
+        return plan.model_copy(update={'ops': [SchemaChangeOp.drop_table(p, status) for p in extras]})
+
     if dry_run:
-        _prune_output(
-            {**plan, 'ops': [drop_table_op(p, 'skipped') for p in extras]}, as_json=as_json, verb='would drop'
-        )
+        _prune_output(with_drops('skipped'), as_json=as_json, verb='would drop')
         sys.exit(EXIT_CHANGES_PENDING)
 
     def report_refusal() -> None:
-        _prune_output(
-            {**plan, 'ops': [drop_table_op(p, 'refused') for p in extras]}, as_json=as_json, verb='would drop'
-        )
+        _prune_output(with_drops('refused'), as_json=as_json, verb='would drop')
 
     confirm_or_exit(
         f'drop {len(extras)} table(s) not declared by the schema?',
@@ -421,10 +421,10 @@ def _prune(schema_file: str, catalog_dir: PxtPath, *, as_json: bool, force: bool
 
 def _prune_output(plan: SchemaPlan, *, as_json: bool, verb: str) -> None:
     if as_json:
-        print(json.dumps(plan, indent=2))
+        print(plan.model_dump_json(indent=2))
         return
-    for op in plan['ops']:
-        print(f'{verb} {op["name"]}')
+    for op in plan.ops:
+        print(f'{verb} {op.name}')
 
 
 def _update(
@@ -434,7 +434,7 @@ def _update(
         plan = _plan_for(schema_file, catalog_dir)
         _set_statuses(plan, destructive='skipped', other='skipped')
         _diff_output(plan, as_json=as_json)
-        sys.exit(EXIT_IN_AGREEMENT if plan['in_agreement'] else EXIT_CHANGES_PENDING)
+        sys.exit(EXIT_IN_AGREEMENT if plan.in_agreement else EXIT_CHANGES_PENDING)
 
     # the plan is read up front only to decide whether to proceed: with destructive operations already permitted
     # and confirmation waived, there is nothing left to decide
@@ -458,11 +458,11 @@ def _decide_update(
     apply acts on.
     """
     plan = _plan_for(schema_file, catalog_dir)
-    if plan['in_agreement']:
+    if plan.in_agreement:
         _update_output(plan, as_json=as_json)
         sys.exit(EXIT_IN_AGREEMENT)
 
-    destructive = plan['summary']['destructive']
+    destructive = plan.summary.destructive
     if destructive == 0:
         return
     if not allow_destructive:
@@ -478,13 +478,13 @@ def _decide_update(
 
 def _update_output(plan: SchemaPlan, *, as_json: bool) -> None:
     if as_json:
-        print(json.dumps(plan, indent=2))
+        print(plan.model_dump_json(indent=2))
         return
-    if plan['in_agreement']:
+    if plan.in_agreement:
         print('catalog is up to date')
         return
-    for tbl in plan['tables']:
-        print(f'{_RESOLUTIONS[tbl["resolution"]].applied:9s} {tbl["path"]}')
+    for tbl in plan.tables:
+        print(f'{_RESOLUTIONS[tbl.resolution].applied:9s} {tbl.path}')
 
 
 def _set_statuses(plan: SchemaPlan, *, destructive: OpStatus, other: OpStatus) -> None:
@@ -493,15 +493,15 @@ def _set_statuses(plan: SchemaPlan, *, destructive: OpStatus, other: OpStatus) -
     Destructive operations take the destructive status, the rest take the other one, and a table takes the
     destructive status if any of its operations does.
     """
-    for tbl in plan['tables']:
-        for op in tbl['ops']:
-            op['status'] = destructive if op['destructive'] else other
-        tbl['status'] = destructive if any(op['destructive'] for op in tbl['ops']) else other
+    for tbl in plan.tables:
+        for op in tbl.ops:
+            op.status = destructive if op.destructive else other
+        tbl.status = destructive if any(op.destructive for op in tbl.ops) else other
 
 
 def _diff_output(plan: SchemaPlan, *, as_json: bool) -> None:
     if as_json:
-        print(json.dumps(plan, indent=2))
+        print(plan.model_dump_json(indent=2))
         return
     for line in _format_plan(plan):
         print(line)

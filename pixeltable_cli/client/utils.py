@@ -21,7 +21,7 @@ from typing import Any
 
 import psutil
 
-from pixeltable_cli import schema_types
+from pixeltable_cli import types
 from pixeltable_cli.utils import (
     _IDENTITY_KEYS,
     _resolve_pixeltable_home,
@@ -409,17 +409,17 @@ def check_file(route: str, field: str, file: str, *, verb: str, as_json: bool) -
     if not path.is_file():
         print(f'pxt {verb}: file not found: {file}', file=sys.stderr)
         sys.exit(1)
-    report: schema_types.CheckReport = post_request(route, {field: str(path.resolve())})
+    report = types.CheckReport.model_validate(post_request(route, {field: str(path.resolve())}))
     if as_json:
-        print(json.dumps(report, indent=2))
+        print(report.model_dump_json(indent=2))
     else:
-        for warning in report['warnings']:
+        for warning in report.warnings:
             print(f'warning: {warning}')
-        for error in report['errors']:
+        for error in report.errors:
             print(f'error: {error}', file=sys.stderr)
-        if report['valid']:
-            print(f'{report["file"]}: valid')
-    sys.exit(0 if report['valid'] else 1)
+        if report.valid:
+            print(f'{report.file}: valid')
+    sys.exit(0 if report.valid else 1)
 
 
 def validate_path_arg(path: str) -> str:

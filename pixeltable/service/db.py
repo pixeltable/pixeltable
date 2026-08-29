@@ -2,61 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal, TypedDict
+from typing import Any
 
 import pydantic
 
 from pixeltable.config import DatabaseConfig
 from pixeltable.utils.project import ProjectFingerprint
+from pixeltable_cli.types import DbChangeOp
 
 _UPLOAD_TIMEOUT = 300
-
-Severity = Literal['additive', 'destructive', 'unsupported']
-
-# what an operation acts on. The two artifacts are separate: 'image' is the environment the pods run on,
-# 'project' the sources they fetch, and a source edit moves only the second.
-Target = Literal['image', 'project', 'capacity', 'secret', 'placement']
-
-
-class DbChangeOp(TypedDict):
-    """One operation reconciling a hosted database with the entry declaring it.
-
-    Mirrored by pixeltable_cli.db_types.DbChangeOp; adding, removing or retyping a field here means doing
-    the same there.
-    """
-
-    target: Target
-    name: str  # capacity and placement: the field; secret: the key; image and project: their own name
-    op: Literal['add', 'drop', 'alter']
-    severity: Severity
-    description: str  # one sentence, ready to print
-    details: dict[str, str]  # 'from' and 'to' for an alter, 'changes' for the image
-    requires_restart: bool  # whether applying this interrupts what the database is serving
-
-def _image_built_op() -> DbChangeOp:
-    """The operation for an image build the caller asked for rather than one a difference calls for."""
-    return {
-        'target': 'image',
-        'name': 'image',
-        'op': 'alter',
-        'severity': 'additive',
-        'description': "the image will be rebuilt from the project's environment",
-        'details': {},
-        'requires_restart': True,
-    }
-
-
-def _project_shipped_op() -> DbChangeOp:
-    """The operation for shipping the project the caller named rather than one a difference calls for."""
-    return {
-        'target': 'project',
-        'name': 'project',
-        'op': 'alter',
-        'severity': 'additive',
-        'description': 'the project will be shipped',
-        'details': {},
-        'requires_restart': True,
-    }
 
 
 class DatabaseState(pydantic.BaseModel):
@@ -103,9 +57,9 @@ def compare_db(
         not_compared.append('image')
     else:
         if fingerprint.image_needed(current.fingerprint):
-            ops.append(_image_op(fingerprint.changes(current.fingerprint, 'image')))
+            ops.append(DbChangeOp.image_moved(fingerprint.changes(current.fingerprint, 'image')))
         if fingerprint.archive_needed(current.fingerprint):
-            ops.append(_project_op(fingerprint.changes(current.fingerprint, 'archive')))
+            ops.append(DbChangeOp.archive_moved(fingerprint.changes(current.fingerprint, 'archive')))
 
     for field, config_value, current_value in (
         ('cpu', config.cpu, current.cpu),
@@ -115,13 +69,13 @@ def compare_db(
     ):
         if config_value is None or config_value == current_value:
             continue
-        ops.append(_capacity_op(field, current_value, config_value))
+        ops.append(DbChangeOp.capacity(field, current_value, config_value))
 
     for key in sorted(config.secrets or {}):
         if key not in current.secret_keys:
-            ops.append(_secret_op(key, 'add'))
+            ops.append(DbChangeOp.secret(key, 'add'))
     for key in sorted(set(current.secret_keys) - set(config.secrets or {})):
-        ops.append(_secret_op(key, 'drop'))
+        ops.append(DbChangeOp.secret(key, 'drop'))
 
     for field, config_value, current_value in (
         ('location', config.location, current.location),
@@ -129,102 +83,13 @@ def compare_db(
     ):
         if config_value is None or current_value is None or config_value == current_value:
             continue
-        ops.append(_placement_op(field, current_value, config_value))
+        ops.append(DbChangeOp.placement(field, current_value, config_value))
 
     if config.vars is not None:
         # a hosted database has nowhere to keep a var that is not a secret
         not_compared.append('vars')
 
     return ops, not_compared
-
-
-def _image_op(changes: list[str]) -> DbChangeOp:
-    """The operation for an environment that differs from the one the current image holds.
-
-    changes are the causes, from ProjectFingerprint.changes().
-    """
-    return {
-        'target': 'image',
-        'name': 'image',
-        'op': 'alter',
-        # the image is replaced, not removed: what the database serves is unchanged until a pod restarts
-        'severity': 'additive',
-        'description': f'the image will be rebuilt: {_summary(changes)}',
-        'details': {'changes': '; '.join(changes)},
-        'requires_restart': True,
-    }
-
-
-def _project_op(changes: list[str]) -> DbChangeOp:
-    """The operation for sources the database's pods are not running.
-
-    changes are the causes, from ProjectFingerprint.changes().
-    """
-    return {
-        'target': 'project',
-        'name': 'project',
-        'op': 'alter',
-        # what the pods serve is unchanged; they restart to run the new sources
-        'severity': 'additive',
-        'description': f'the project will be shipped again: {_summary(changes)}',
-        'details': {'changes': '; '.join(changes)},
-        'requires_restart': True,
-    }
-
-
-def _summary(changes: list[str]) -> str:
-    """The first few causes, printable, with the rest counted."""
-    if len(changes) <= 3:
-        return '; '.join(changes)
-    return f'{"; ".join(changes[:3])} and {len(changes) - 3} more'
-
-
-def _capacity_op(field: str, current: float | int | None, declared: float | int) -> DbChangeOp:
-    was = 'unreported' if current is None else str(current)
-    return {
-        'target': 'capacity',
-        'name': field,
-        'op': 'alter',
-        'severity': 'destructive' if current is not None and declared < current else 'additive',
-        'description': f'{field} will be {declared} rather than {was}, which restarts the database',
-        'details': {'from': was, 'to': str(declared)},
-        'requires_restart': True,
-    }
-
-
-def _placement_op(field: str, current: str, declared: str) -> DbChangeOp:
-    """The operation for a field fixed at creation, which no update can carry out."""
-    return {
-        'target': 'placement',
-        'name': field,
-        'op': 'alter',
-        'severity': 'unsupported',
-        'description': f'{field} is {current!r} and cannot be changed to {declared!r}; create a database there instead',
-        'details': {'from': current, 'to': declared},
-        'requires_restart': False,
-    }
-
-
-def _secret_op(key: str, op: Literal['add', 'drop']) -> DbChangeOp:
-    if op == 'add':
-        return {
-            'target': 'secret',
-            'name': key,
-            'op': 'add',
-            'severity': 'additive',
-            'description': f'secret {key!r} will be set',
-            'details': {},
-            'requires_restart': False,
-        }
-    return {
-        'target': 'secret',
-        'name': key,
-        'op': 'drop',
-        'severity': 'destructive',
-        'description': f'secret {key!r} will be deleted, and code reading it will fail',
-        'details': {},
-        'requires_restart': False,
-    }
 
 
 def _db_config(project_dir: Path, db_name: str | None = None) -> DatabaseConfig | None:

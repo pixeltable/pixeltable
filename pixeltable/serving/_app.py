@@ -10,7 +10,7 @@ from pixeltable.utils.app_module import get_model_bases, load_app_module, module
 if TYPE_CHECKING:
     import fastapi
 
-    from pixeltable.serving import ServiceSpec
+    from pixeltable_cli.types import ServiceSpec
 
 _logger = logging.getLogger(__name__)
 
