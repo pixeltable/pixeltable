@@ -24,13 +24,7 @@ from pixeltable.catalog import Path as CatalogPath, model
 from pixeltable.catalog.model.diff import PY_DESTRUCTIVE_HINT
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.utils.app_module import (
-    check_udf_references,
-    get_model_bases,
-    get_module_services,
-    load_app_module,
-    shadowed_project_modules,
-)
+from pixeltable.utils.app_module import check_report, check_udf_references, get_model_bases, load_app_module
 from pixeltable_cli import types
 from pixeltable_cli.utils import PxtPath
 
@@ -545,7 +539,6 @@ def get_status() -> dict[str, Any]:
 
 # close the refusals raised while reconciling, in place of the Python API's wording
 _DESTRUCTIVE_HINT = "Re-run 'pxt schema update' with --allow-destructive to apply these changes."
-_SERVICE_DESTRUCTIVE_HINT = "Re-run 'pxt service update' with --allow-destructive to apply these changes."
 
 
 def _path_key(pxt_path: PxtPath) -> tuple[str, ...]:
@@ -576,18 +569,7 @@ def _schema_model_bases(module: ModuleType, schema_file: str) -> list[model.Tabl
 
 def schema_check(schema_file: str) -> types.CheckReport:
     module = load_app_module(schema_file, subject='schema file')
-    return _check_report(schema_file, _schema_model_bases(module, schema_file))
-
-
-def service_check(app_file: str) -> types.CheckReport:
-    module = load_app_module(app_file, subject='application file')
-    get_module_services(module, app_file)
-    return _check_report(app_file, get_model_bases(module))
-
-
-def _check_report(file: str, bases: list[model.TableModelMeta]) -> types.CheckReport:
-    errors = check_udf_references(bases)
-    return types.CheckReport(file=file, valid=len(errors) == 0, errors=errors, warnings=shadowed_project_modules())
+    return check_report(schema_file, _schema_model_bases(module, schema_file))
 
 
 def schema_diff(schema_file: str, catalog_dir: PxtPath) -> types.SchemaPlan:
@@ -699,125 +681,3 @@ def schema_update(schema_file: str, catalog_dir: PxtPath, *, allow_destructive: 
         for op in tbl.ops:
             op.status = 'applied'
     return plan
-
-
-def service_update(
-    app_file: str, target: PxtPath, *, allow_destructive: bool = False, otel: bool = False
-) -> types.ServicePlan:
-    """Reconcile the services at target with the ones app_file declares, and leave them running.
-
-    Starts a service that is not running, and restarts one whose declaration changed, since a service binds
-    its models once per process. A service the file does not declare is left alone, which is what prune is
-    for.
-
-    Returns the plan that was applied, each service annotated with its status: 'applied' for one that was
-    started or restarted, 'skipped' for one already serving its declaration, 'refused' for one whose routes
-    the database cannot serve or whose application object Pixeltable did not declare.
-
-    Args:
-        app_file: the application file declaring the services.
-        target: the catalog directory the services' models bind against.
-        allow_destructive: whether to apply changes that stop serving a route contract a caller may be using.
-    """
-    from pixeltable.serving._diff import service_diff
-    from pixeltable.serving.service_manager import get_manager
-
-    manager = get_manager(target)
-    plan = service_diff(app_file, target)
-    destructive = [d.name for d in plan.services if d.resolution == 'update_destructive']
-    if len(destructive) > 0 and not allow_destructive:
-        names = ', '.join(repr(name) for name in destructive)
-        for diff in plan.services:
-            diff.status = 'refused'
-        raise excs.RequestError(
-            excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE,
-            f'Reconciling {names} would stop serving a route that callers may be using.\n{_SERVICE_DESTRUCTIVE_HINT}',
-        )
-
-    for diff in plan.services:
-        if diff.resolution == 'blocked':
-            diff.status = 'refused'
-            continue
-        if diff.resolution == 'up_to_date':
-            diff.status = 'skipped'
-            continue
-        if diff.exists:
-            # the running service serves the old declaration; binding happens once per process, so it is replaced
-            running = manager.get(diff.name, target)
-            if running is not None:
-                running.stop()
-        started = manager.start(app_file, diff.name, target, otel=otel)
-        diff.status = 'applied'
-        diff.state = started.state
-        diff.endpoint = started.endpoint
-        diff.exists = True
-        for op in diff.ops:
-            op.status = 'skipped' if op.severity == 'blocked' else 'applied'
-    return plan
-
-
-def service_prune(app_file: str, target: PxtPath) -> types.ServicePlan:
-    """Stop and forget the services at target that app_file does not declare.
-
-    A stopped service can be started again, so this is not destructive the way dropping a table is.
-
-    Returns the plan, with one drop operation per service stopped.
-    """
-    from pixeltable.serving._diff import service_diff
-    from pixeltable.serving.service_manager import get_manager
-
-    manager = get_manager(target)
-    plan = service_diff(app_file, target)
-    ops: list[types.ServiceChangeOp] = []
-    for name in plan.extras:
-        running = manager.get(name, target)
-        if running is None:
-            # it stopped between the diff and here; nothing to stop, and it is already forgotten
-            ops.append(types.ServiceChangeOp.delete_service(name, None, 'skipped'))
-            continue
-        running.delete()
-        ops.append(types.ServiceChangeOp.delete_service(name, running.endpoint, 'applied'))
-    plan.ops = ops
-    return plan
-
-
-def service_stop(names: list[str], target: PxtPath) -> list[types.ServiceChangeOp]:
-    """Stop the instances of the named services at target and forget them.
-
-    A name with no instance there yields a 'skipped' operation rather than an error, so that stopping a
-    set of services is idempotent.
-    """
-    from pixeltable.serving.service_manager import get_manager
-
-    manager = get_manager(target)
-    ops: list[types.ServiceChangeOp] = []
-    for name in names:
-        running = manager.get(name, target)
-        if running is None:
-            ops.append(types.ServiceChangeOp.delete_service(name, None, 'skipped'))
-            continue
-        running.stop()
-        ops.append(types.ServiceChangeOp.delete_service(name, running.endpoint, 'applied'))
-    return ops
-
-
-def service_list(target: PxtPath | None = None) -> list[types.ServiceInstance]:
-    """The instances running locally: those serving target and below it, or all of them if target is None."""
-    from pixeltable.serving.service_manager import get_manager
-
-    base_path = '' if target is None else target
-    instances = get_manager(base_path).list(base_path, recursive=True)
-    return [
-        types.ServiceInstance(
-            name=i.service_name,
-            base_path=PxtPath(i.base_path),
-            endpoint=i.endpoint,
-            state=i.state,
-            error=i.record.error,
-            pid=i.record.pid,
-            process_started_at=i.record.process_started_at,
-            app_module=i.app_module,
-            spec=i.spec,
-        )
-        for i in sorted(instances, key=lambda i: (i.base_path, i.service_name))
-    ]

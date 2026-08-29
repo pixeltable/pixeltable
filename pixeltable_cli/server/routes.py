@@ -26,7 +26,7 @@ from pixeltable.service.management_protocol import (
     StartDbRequest,
     StopDbRequest,
 )
-from pixeltable.serving._diff import service_diff as service_compare
+from pixeltable.serving import service
 from pixeltable.types import TreeNode
 from pixeltable_cli import models, types
 from pixeltable_cli.utils import identity
@@ -503,19 +503,19 @@ def schema_update(req: Request) -> types.SchemaPlan:
 @router.post('/api/service/check')
 def service_check(req: Request) -> types.CheckReport:
     body = req.body(models.ServiceCheckBody)
-    return bridge.service_check(body.app_file)
+    return service.service_check(body.app_file)
 
 
 @router.post('/api/service/diff')
 def service_diff(req: Request) -> types.ServicePlan:
     body = req.body(models.ServiceDiffBody)
-    return service_compare(body.app_file, req.resolve_path(body.target), otel=body.otel)
+    return service.service_diff(body.app_file, req.resolve_path(body.target), otel=body.otel)
 
 
 @router.post('/api/service/update')
 def service_update(req: Request) -> types.ServicePlan:
     body = req.body(models.ServiceUpdateBody)
-    applied = bridge.service_update(
+    applied = service.service_update(
         body.app_file, req.resolve_path(body.target), allow_destructive=body.allow_destructive, otel=body.otel
     )
     return applied
@@ -524,19 +524,19 @@ def service_update(req: Request) -> types.ServicePlan:
 @router.post('/api/service/prune')
 def service_prune(req: Request) -> types.ServicePlan:
     body = req.body(models.ServicePruneBody)
-    return bridge.service_prune(body.app_file, req.resolve_path(body.target))
+    return service.service_prune(body.app_file, req.resolve_path(body.target))
 
 
 @router.post('/api/service/stop')
 def service_stop(req: Request) -> list[types.ServiceChangeOp]:
     body = req.body(models.ServiceStopBody)
-    return bridge.service_stop(body.names, req.resolve_path(body.target))
+    return service.service_stop(body.names, req.resolve_path(body.target))
 
 
 @router.get('/api/service/list')
 def service_list(req: Request) -> list[types.ServiceInstance]:
     target = req.query_str('target')
-    return bridge.service_list(None if target is None else req.resolve_path(target))
+    return service.service_list(None if target is None else req.resolve_path(target))
 
 
 @router.get('/api/dashboard/search', checks_env=False)

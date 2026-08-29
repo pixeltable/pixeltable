@@ -20,7 +20,7 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.func import FunctionRegistry
 from pixeltable.runtime import get_runtime
-from pixeltable_cli.types import RouteSpec, ServiceSpec
+from pixeltable_cli.types import CheckReport, RouteSpec, ServiceSpec
 
 _lock = threading.RLock()
 
@@ -196,6 +196,12 @@ def model_mismatch_error_str(models: dict[str, model.TableModelMeta], base_path:
             hint += f'\nRun `pxt schema update <app file>{target}` for the rest.'
     names = ', '.join(repr(name) for name in sorted(mismatched))
     return f'Cannot serve {names}:\n{detail}\n{hint}'
+
+
+def check_report(file: str, bases: list[model.TableModelMeta]) -> CheckReport:
+    """What checking a file on its own reports: whether it is valid, and what to fix or to know about."""
+    errors = check_udf_references(bases)
+    return CheckReport(file=file, valid=len(errors) == 0, errors=errors, warnings=shadowed_project_modules())
 
 
 def check_udf_references(bases: list[model.TableModelMeta]) -> list[str]:

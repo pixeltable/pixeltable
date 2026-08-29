@@ -1,5 +1,3 @@
-"""The operations that reconcile a hosted database with the project entry declaring it."""
-
 from __future__ import annotations
 
 import os

@@ -6,8 +6,9 @@ from typing import TYPE_CHECKING
 import pydantic
 
 from pixeltable.utils.project import ProjectFingerprint
-
+from pixeltable_cli import types
 from pixeltable_cli.types import ServiceSpec
+from pixeltable_cli.utils import PxtPath
 
 if TYPE_CHECKING:
     from .service_manager import ServiceManagerBase
@@ -58,6 +59,20 @@ class ServiceInstanceRecord(pydantic.BaseModel):
 
     # the project state the instance is running; None in a record written before this field existed
     fingerprint: ProjectFingerprint | None = None
+
+    def to_cli_instance(self) -> types.ServiceInstance:
+        """This record as `pxt service list` shows it."""
+        return types.ServiceInstance(
+            name=self.service_name,
+            base_path=PxtPath(self.base_path),
+            endpoint=self.endpoint,
+            state=self.state,
+            error=self.error,
+            app_module=self.app_module,
+            spec=self.spec,
+            pid=self.pid,
+            process_started_at=self.process_started_at,
+        )
 
 
 class ServiceInstance:
