@@ -415,7 +415,7 @@ def _prune(app_file: str, target: PxtPath, *, as_json: bool, force: bool, dry_ru
     extras = plan.extras
     if len(extras) == 0:
         if as_json:
-            print(json.dumps({**plan, 'ops': []}, indent=2))
+            print(plan.model_copy(update={'ops': []}).model_dump_json(indent=2))
         else:
             print('nothing to prune')
         sys.exit(EXIT_IN_AGREEMENT)
@@ -439,7 +439,7 @@ def _prune(app_file: str, target: PxtPath, *, as_json: bool, force: bool, dry_ru
         ),
     )
     pruned = ServicePlan.model_validate(post_request('/api/service/prune', {'app_file': app_file, 'target': target}))
-    _print_ops(pruned.get('ops', []), as_json=as_json, verb='stopped')
+    _print_ops(pruned.ops, as_json=as_json, verb='stopped')
 
 
 def _stop(names: list[str], *, as_json: bool) -> None:

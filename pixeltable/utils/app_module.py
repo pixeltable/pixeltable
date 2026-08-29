@@ -15,10 +15,12 @@ from typing import TYPE_CHECKING
 
 from pixeltable import exceptions as excs
 from pixeltable.catalog import ProhibitedWriteError, is_valid_identifier, model
+from pixeltable.catalog.model import diff
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.func import FunctionRegistry
 from pixeltable.runtime import get_runtime
+from pixeltable_cli.types import RouteSpec, ServiceSpec
 
 _lock = threading.RLock()
 
@@ -32,7 +34,6 @@ if TYPE_CHECKING:
     import fastapi
 
     from pixeltable.serving import FastAPIRouter
-    from pixeltable_cli.types import RouteSpec, ServiceSpec
 
 
 def module_name(file: str, *, subject: str) -> str:
@@ -176,14 +177,14 @@ def visible_models(module: ModuleType) -> dict[str, model.TableModelMeta]:
 def model_mismatch_error_str(models: dict[str, model.TableModelMeta], base_path: str) -> str | None:
     """Return an error string explaining a mismatch between the models and their corresponding tables in base_path, or
     None if there is no mismatch."""
-    diffs = model.validate_models(models, base_path)
-    mismatched = {name: diff for name, diff in diffs.items() if diff['resolution'] != 'up_to_date'}
+    diffs = diff.validate_models(models, base_path)
+    mismatched = {name: d for name, d in diffs.items() if d.resolution != 'up_to_date'}
     if len(mismatched) == 0:
         return None
 
-    detail = '\n'.join(line for name, diff in mismatched.items() for line in model.format_diff(name, diff))
+    detail = '\n'.join(line for name, d in mismatched.items() for line in diff.format_diff(name, d))
     target = '' if base_path == '' else f' {base_path}'
-    unsupported = sorted(name for name, diff in mismatched.items() if diff['resolution'] == 'unsupported')
+    unsupported = sorted(name for name, d in mismatched.items() if d.resolution == 'unsupported')
     if len(unsupported) == 0:
         hint = f'Run `pxt schema update <app file>{target}` first.'
     else:
@@ -355,8 +356,10 @@ def service_spec(name: str, service: FastAPIRouter | fastapi.FastAPI, routers: l
     routes: list[RouteSpec] = []
     for router in routers:
         prefix = _include_prefix(service, router)
-        routes += [{**route, 'path': f'{prefix}{route["path"]}'} for route in router.service_spec(name)['routes']]
-    return {'name': name, 'routes': routes, 'app_paths': _app_paths(service, routers)}
+        routes += [
+            route.model_copy(update={'path': f'{prefix}{route.path}'}) for route in router.service_spec(name).routes
+        ]
+    return ServiceSpec(name=name, routes=routes, app_paths=_app_paths(service, routers))
 
 
 def _include_prefix(app: fastapi.FastAPI, router: FastAPIRouter) -> str:

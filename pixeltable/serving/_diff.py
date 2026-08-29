@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
+from pixeltable import catalog
 from pixeltable.config import Config
 from pixeltable.utils.app_module import (
     load_app_module,
@@ -41,7 +42,6 @@ def service_diff(app_file: str, target: PxtPath, *, otel: bool = False) -> Servi
         app_file: the application file declaring the services.
         target: the catalog directory the services' models bind against.
     """
-    from pixeltable.serving._config import database_config_for
     from pixeltable.serving.service_manager import get_manager
 
     manager = get_manager(target)
@@ -55,7 +55,8 @@ def service_diff(app_file: str, target: PxtPath, *, otel: bool = False) -> Servi
     mismatch = model_mismatch_error_str(needed, target)
     project_root = Config.get().project_root
     assert project_root is not None  # load_app_module() refuses a file outside a project root
-    fingerprint = loaded_fingerprint(project_root, database_config_for(target))
+    db_config = Config.get().get_database_config(catalog.Path.parse(target, allow_empty_path=True))
+    fingerprint = loaded_fingerprint(project_root, db_config)
     diffs = [
         _service_diff(
             manager, name, service, service_spec(name, service, routers), mismatch, fingerprint, app_file, target, otel

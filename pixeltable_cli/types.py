@@ -36,7 +36,7 @@ class ChangeOp(pydantic.BaseModel):
     requires_restart: bool = False  # whether applying this interrupts what is running
     status: OpStatus | None = None  # the outcome of the operation
 
-    @pydantic.computed_field
+    @pydantic.computed_field  # type: ignore[prop-decorator]
     @property
     def destructive(self) -> bool:
         return self.severity == 'destructive'
@@ -226,12 +226,15 @@ class ServiceChangeOp(ChangeOp):
         )
 
 
+# what a DbChangeOp acts on. The two artifacts are separate: 'image' is the environment the pods run on,
+# 'archive' the sources they fetch, and a source edit moves only the second.
+DbTarget = Literal['image', 'archive', 'capacity', 'secret', 'placement']
+
+
 class DbChangeOp(ChangeOp):
     """One operation reconciling a hosted database with a DatabaseConfig."""
 
-    # what an operation acts on. The two artifacts are separate: 'image' is the environment the pods run on,
-    # 'archive' the sources they fetch, and a source edit moves only the second.
-    target: Literal['image', 'archive', 'capacity', 'secret', 'placement']
+    target: DbTarget
 
     details: dict[str, str] = pydantic.Field(default_factory=dict)
 
@@ -358,7 +361,7 @@ class TableDiff(pydantic.BaseModel):
 
     status: OpStatus | None = None
 
-    @pydantic.computed_field
+    @pydantic.computed_field  # type: ignore[prop-decorator]
     @property
     def destructive(self) -> bool:
         return any(op.destructive for op in self.ops)
@@ -385,13 +388,13 @@ class SchemaPlan(pydantic.BaseModel):
     ops: list[SchemaChangeOp] = pydantic.Field(default_factory=list)  # on whole tables, unlike TableDiff.ops
     status: OpStatus | None = None
 
-    @pydantic.computed_field
+    @pydantic.computed_field  # type: ignore[prop-decorator]
     @property
     def in_agreement(self) -> bool:
         """True if no table needs a create or an update; extras don't count."""
         return all(t.resolution == 'up_to_date' for t in self.tables)
 
-    @pydantic.computed_field
+    @pydantic.computed_field  # type: ignore[prop-decorator]
     @property
     def summary(self) -> SchemaPlanSummary:
         return SchemaPlanSummary(
@@ -489,12 +492,12 @@ class ServiceDiff(pydantic.BaseModel):
 
     status: OpStatus | None = None
 
-    @pydantic.computed_field
+    @pydantic.computed_field  # type: ignore[prop-decorator]
     @property
     def destructive(self) -> bool:
         return any(op.destructive for op in self.ops)
 
-    @pydantic.computed_field
+    @pydantic.computed_field  # type: ignore[prop-decorator]
     @property
     def requires_restart(self) -> bool:
         return self.exists and any(op.requires_restart for op in self.ops)
@@ -526,13 +529,13 @@ class ServicePlan(pydantic.BaseModel):
     ops: list[ServiceChangeOp] = pydantic.Field(default_factory=list)  # on whole services, unlike ServiceDiff.ops
     status: OpStatus | None = None
 
-    @pydantic.computed_field
+    @pydantic.computed_field  # type: ignore[prop-decorator]
     @property
     def in_agreement(self) -> bool:
         """True if no service needs a create or an update; extras don't count."""
         return all(d.resolution == 'up_to_date' for d in self.services)
 
-    @pydantic.computed_field
+    @pydantic.computed_field  # type: ignore[prop-decorator]
     @property
     def summary(self) -> ServicePlanSummary:
         return ServicePlanSummary(
@@ -591,17 +594,40 @@ class DbPlan(pydantic.BaseModel):
 
     status: OpStatus | None = None
 
-    @pydantic.computed_field
+    @classmethod
+    def from_ops(cls, db_uri: str, state: str | None, ops: list[DbChangeOp], not_compared: list[str]) -> DbPlan:
+        """The plan the given operations describe; a state of None is a database that does not exist."""
+        resolution: Resolution
+        if state is None:
+            resolution = 'create'
+        elif any(op.severity == 'unsupported' for op in ops):
+            resolution = 'unsupported'
+        elif any(op.destructive for op in ops):
+            resolution = 'update_destructive'
+        elif len(ops) > 0:
+            resolution = 'update_additive'
+        else:
+            resolution = 'up_to_date'
+        return cls(
+            db_uri=db_uri,
+            exists=state is not None,
+            state=state,
+            resolution=resolution,
+            ops=ops,
+            not_compared=not_compared,
+        )
+
+    @pydantic.computed_field  # type: ignore[prop-decorator]
     @property
     def in_agreement(self) -> bool:
         return self.resolution == 'up_to_date'
 
-    @pydantic.computed_field
+    @pydantic.computed_field  # type: ignore[prop-decorator]
     @property
     def destructive(self) -> bool:
         return any(op.destructive for op in self.ops)
 
-    @pydantic.computed_field
+    @pydantic.computed_field  # type: ignore[prop-decorator]
     @property
     def summary(self) -> DbPlanSummary:
         return DbPlanSummary(

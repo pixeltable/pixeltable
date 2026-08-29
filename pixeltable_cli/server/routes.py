@@ -13,7 +13,7 @@ from pixeltable import exceptions as excs
 from pixeltable.catalog import Path
 from pixeltable.config import SECRET_SECTION, Config
 from pixeltable.env import Env
-from pixeltable.service import management_client
+from pixeltable.service import db, management_client
 from pixeltable.service.management_protocol import (
     CreateDbRequest,
     DeleteDbRequest,
@@ -810,15 +810,15 @@ def stop_db(req: Request) -> dict[str, Any]:
 # The three below read the project first, so they take a body of their own and call the bridge.
 @router.post('/api/db/diff')
 def db_diff(req: Request) -> types.DbPlan:
-    return bridge.db_diff(req.body(models.DbDiffBody).db_uri)
+    return db.db_diff(req.body(models.DbDiffBody).db_uri)
 
 
 @router.post('/api/db/update')
 def db_update(req: Request) -> types.DbPlan:
     body = req.body(models.DbUpdateBody)
-    return bridge.db_update(body.db_uri, allow_destructive=body.allow_destructive)
+    return db.db_update(body.db_uri, allow_destructive=body.allow_destructive)
 
 
 @router.post('/api/db/build-image')
 def db_build_image(req: Request) -> list[types.DbChangeOp]:
-    return bridge.db_build_image(req.body(models.DbBuildImageBody).db_uri)
+    return db.db_build_image(req.body(models.DbBuildImageBody).db_uri)

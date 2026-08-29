@@ -12,32 +12,18 @@ import datetime
 import io
 import json
 import logging
-import os
 import re
-import time
 import urllib.parse
 import urllib.request
-from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs, exprs, metadata
+from pixeltable import exceptions as excs, exprs
 from pixeltable.catalog import Path as CatalogPath, model
-from pixeltable.config import Config, DatabaseConfig
+from pixeltable.catalog.model.diff import PY_DESTRUCTIVE_HINT
+from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.service import management_client
-from pixeltable.service.management_protocol import (
-    BuildImageRequest,
-    CreateDbRequest,
-    DeleteSecretRequest,
-    GetDbRequest,
-    ListSecretsRequest,
-    ListSecretsResponse,
-    SetProjectRequest,
-    SetSecretRequest,
-    UpdateDbRequest,
-)
 from pixeltable.utils.app_module import (
     check_udf_references,
     get_model_bases,
@@ -45,15 +31,13 @@ from pixeltable.utils.app_module import (
     load_app_module,
     shadowed_project_modules,
 )
-from pixeltable.utils.project import project_fingerprint
 from pixeltable_cli import types
-from pixeltable_cli.utils import PxtPath, split_pxt_uri
+from pixeltable_cli.utils import PxtPath
 
 _logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from pixeltable import exprs
-    from pixeltable.service.db_diff import DatabaseState
 
 
 def _build_select(
@@ -617,7 +601,7 @@ def _schema_plan(bases: list[model.TableModelMeta], schema_file: str, catalog_di
     return _plan_from_diffs(diffs, schema_file, catalog_dir)
 
 
-def _plan_from_diffs(diffs: list[model.TableDiff], schema_file: str, catalog_dir: PxtPath) -> types.SchemaPlan:
+def _plan_from_diffs(diffs: list[types.TableDiff], schema_file: str, catalog_dir: PxtPath) -> types.SchemaPlan:
     for diff in diffs:
         # a create subsumes the additions that constitute it, so only a migration enumerates operations
         if diff.resolution in ('create', 'up_to_date'):
@@ -697,7 +681,7 @@ def schema_update(schema_file: str, catalog_dir: PxtPath, *, allow_destructive: 
     if len(CatalogPath.parse(catalog_dir, allow_empty_path=True).components) > 0:
         pxt.create_dir(catalog_dir, parents=True, if_exists='ignore')
 
-    applied: list[model.TableDiff] = []
+    applied: list[types.TableDiff] = []
     for base in model_bases:
         try:
             diffs = base.update_all(catalog_dir, allow_destructive=allow_destructive)
@@ -705,7 +689,7 @@ def schema_update(schema_file: str, catalog_dir: PxtPath, *, allow_destructive: 
             if e.error_code is not excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE:
                 raise
             # update_all() closes its refusal with instructions for the Python API; a CLI user needs the flag
-            e.args = (e.message.replace(model.PY_DESTRUCTIVE_HINT, _DESTRUCTIVE_HINT),)
+            e.args = (e.message.replace(PY_DESTRUCTIVE_HINT, _DESTRUCTIVE_HINT),)
             raise
         applied.extend(diffs.values())
 
@@ -837,268 +821,3 @@ def service_list(target: PxtPath | None = None) -> list[types.ServiceInstance]:
         )
         for i in sorted(instances, key=lambda i: (i.base_path, i.service_name))
     ]
-
-
-_DB_DESTRUCTIVE_HINT = "Re-run 'pxt db update' with --allow-destructive to apply these changes."
-
-# a declared secret names the environment variable holding its value, as 'env:NAME'
-_ENV_BINDING = 'env:'
-
-# how long a hosted database may stay in a transitional state before an update gives up on it
-_DB_SETTLE_TIMEOUT = 1200.0
-_DB_POLL_INTERVAL = 5.0
-
-# the states a database passes through while it applies something
-_DB_TRANSITIONAL = frozenset({'PROVISIONING', 'UPDATING', 'STARTING', 'STOPPING'})
-
-
-
-def db_update(db_uri: str, *, allow_destructive: bool = False) -> types.DbPlan:
-    """Reconcile the database at db_uri with the entry declaring it: create it if it is absent, then apply
-    secrets, the two artifacts, and capacity, in that order.
-
-    Secrets go first, since code the pods run reads them as they start; capacity last, so that the resize
-    restarts pods already on the new image and the new sources. A placement difference is skipped, since no
-    update can carry it out.
-
-    Returns the plan that was applied, each operation annotated with its status.
-
-    Args:
-        db_uri: the pxt://org:db uri of the database the entry configures.
-        allow_destructive: whether to apply changes that take capacity away or delete a secret.
-    """
-    entry, project_dir, org, db = _db_entry(db_uri)
-    plan = db_diff(db_uri)
-    if plan.destructive and not allow_destructive:
-        for op in plan.ops:
-            op.status = 'refused'
-        destructive = ', '.join(op.name or '' for op in plan.ops if op.destructive)
-        raise excs.RequestError(
-            excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE,
-            f'Reconciling {db_uri} would apply destructive changes: {destructive}.\n{_DB_DESTRUCTIVE_HINT}',
-        )
-
-    if not plan.exists:
-        management_client.api_call(
-            CreateDbRequest(
-                org=org,
-                db=db,
-                location=entry.location,
-                region=entry.region,
-                **{
-                    field: value
-                    for field, value in (('cpu', entry.cpu), ('memory_mb', entry.memory_mb), ('disk_gb', entry.disk_gb))
-                    if value is not None
-                },
-            )
-        )
-        _await_db_settled(org, db)
-
-    for op in _ops_on(plan, 'placement'):
-        op.status = 'skipped'
-    for op in _ops_on(plan, 'secret'):
-        _apply_secret_op(org, db, op, entry)
-        op.status = 'applied'
-    if plan.summary.rebuild or len(_ops_on(plan, 'project')) > 0:
-        # both artifacts come from one archive, so it is stored once whichever of the two moved
-        key = _upload(project_dir, org, db)
-        for op in _ops_on(plan, 'image'):
-            _build_image(project_dir, org, db, key)
-            op.status = 'applied'
-        for op in _ops_on(plan, 'project'):
-            _set_project(org, db, key)
-            op.status = 'applied'
-
-    changed = {op.name for op in _ops_on(plan, 'capacity')}
-    if len(changed) > 0:
-        # one request carrying every changed number, so the pods restart once
-        management_client.api_call(
-            UpdateDbRequest(
-                org=org,
-                db=db,
-                workers=entry.workers if 'workers' in changed else None,
-                cpu=entry.cpu if 'cpu' in changed else None,
-                memory_mb=entry.memory_mb if 'memory_mb' in changed else None,
-                disk_gb=entry.disk_gb if 'disk_gb' in changed else None,
-            )
-        )
-        for op in _ops_on(plan, 'capacity'):
-            op.status = 'applied'
-
-    plan.state = _await_db_settled(org, db).state
-    plan.exists = True
-    plan.status = 'applied'
-    return plan
-
-
-def _ops_on(plan: types.DbPlan, target: str) -> list[types.DbChangeOp]:
-    """The plan's operations against one target."""
-    return [op for op in plan.ops if op.target == target]
-
-
-def db_build_image(uri: str) -> list[types.DbChangeOp]:
-    """Ship the project under project_dir to the database at target and build its image, and wait for both.
-
-    Ships and builds whatever the project holds, without comparing it to the database first.
-    """
-    org, db = _db_uri(uri)
-    ops = [types.DbChangeOp.image_built(), types.DbChangeOp.project_shipped()]
-    key = _upload(Path(project_dir), org, db)
-    _build_image(Path(project_dir), org, db, key)
-    _set_project(org, db, key)
-    for op in ops:
-        op.status = 'applied'
-    return ops
-
-
-def _upload(project_dir: Path, org: str, db: str) -> str:
-    """Store the project's archive and return the key the control plane holds it under."""
-    from pixeltable.service.project_archive import upload_project_archive
-
-    return upload_project_archive(project_dir, org, db)
-
-
-def _build_image(project_dir: Path, org: str, db: str, project_key: str) -> None:
-    """Ask for the image the project's environment builds, and wait for the build."""
-    from pixeltable.service.project_archive import database_config
-
-    fingerprint = project_fingerprint(project_dir, database_config(project_dir, f'pxt://{org}:{db}'))
-    management_client.api_call(
-        BuildImageRequest(
-            org=org,
-            db=db,
-            project_key=project_key,
-            image_digest=fingerprint.image_digest(),
-            python_version=fingerprint.python_version,
-            system_dependencies=fingerprint.system_dependencies,
-            pxt_md_version=metadata.VERSION,
-        )
-    )
-    current = _await_db_settled(org, db)
-    if current.last_build_state == 'FAILED':
-        raise excs.ExternalServiceError(
-            excs.ErrorCode.PROVIDER_ERROR,
-            f'The image build for pxt://{org}:{db} failed: {current.last_build_error or "no reason was reported"}',
-            provider='pixeltable_cloud',
-        )
-
-
-def _set_project(org: str, db: str, project_key: str) -> None:
-    """Point the database's pods at the stored archive, and wait for them to come back on it."""
-    management_client.api_call(SetProjectRequest(org=org, db=db, project_key=project_key))
-    _await_db_settled(org, db)
-
-
-def _db_uri(uri: str) -> tuple[str, str]:
-    """The org and database a pxt://org:db uri names."""
-    parts = split_pxt_uri(uri)
-    if parts is None or parts.db is None:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_ARGUMENT, f'{uri!r} does not name a hosted database; write pxt://org:db'
-        )
-    return parts.org, parts.db
-
-
-def _db_entry(db_uri: str) -> tuple[DatabaseConfig, Path, str, str]:
-    """The entry configuring db_uri, the project root holding it, and db_uri's org and database."""
-    from pixeltable.service.db import _db_config
-
-    org, db = _db_uri(db_uri)
-    project_root = Config.get().project_root
-    if project_root is None:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION,
-            f'no project configuration here, so nothing declares {db_uri!r}; run `pxt init` to write one',
-        )
-    entry = _db_config(project_root, db_uri)
-    if entry is None:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION,
-            f'{Config.get().project_config_file} declares no database {db_uri!r}; '
-            'add a [[pixeltable.database]] entry naming it',
-        )
-    return entry, project_root, org, db
-
-
-def _db_state(org: str, db: str) -> DatabaseState | None:
-    """What the control plane reports about the named database; None if it holds no such database."""
-    from pixeltable.service.db_diff import DatabaseState
-
-    try:
-        response = management_client.api_call(GetDbRequest(org=org, db=db))
-    except excs.ExternalServiceError as e:
-        if e.provider_http_status_code != 404:
-            raise
-        return None
-    return DatabaseState.model_validate(response.get('database', response))
-
-
-def _secret_keys(org: str, db: str) -> list[str]:
-    """The keys of the secrets the named database holds."""
-    response = ListSecretsResponse.model_validate(management_client.api_call(ListSecretsRequest(org=org, db=db)))
-    return response.keys
-
-
-def _apply_secret_op(org: str, db: str, op: types.DbChangeOp, entry: DatabaseConfig) -> None:
-    """Apply one secret operation: set the declared value, or delete the key."""
-    key = op.name
-    if op.op == 'drop':
-        management_client.api_call(DeleteSecretRequest(org=org, db=db, key=key))
-        return
-    binding = (entry.secrets or {})[key]
-    management_client.api_call(SetSecretRequest(org=org, db=db, key=key, value=_secret_value(key, binding)))
-
-
-def _secret_value(key: str, binding: str) -> str:
-    """Read a declared secret's value from the environment variable its binding names."""
-    name = binding[len(_ENV_BINDING) :] if binding.startswith(_ENV_BINDING) else None
-    if name is None:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION,
-            f"secret {key!r} is declared as {binding!r}; write '{_ENV_BINDING}NAME' to name the environment "
-            'variable holding the value, which keeps the value out of the project',
-        )
-    value = os.environ.get(name)
-    if value is None or value == '':
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_CONFIGURATION,
-            f'secret {key!r} is bound to {name}, which is not set in the environment',
-        )
-    return value
-
-
-def _await_db_settled(org: str, db: str) -> DatabaseState:
-    """Poll the named database until it leaves a transitional state, and return the state it reached."""
-    from pixeltable.service.db_diff import DatabaseState
-
-    deadline = time.monotonic() + _DB_SETTLE_TIMEOUT
-    while True:
-        current = _db_state(org, db)
-        state = '' if current is None else current.state
-        if state not in _DB_TRANSITIONAL:
-            return DatabaseState() if current is None else current
-        if time.monotonic() >= deadline:
-            raise excs.ExternalServiceError(
-                excs.ErrorCode.PROVIDER_TIMEOUT,
-                f'pxt://{org}:{db} is still {state} after {int(_DB_SETTLE_TIMEOUT)}s',
-                provider='pixeltable_cloud',
-            )
-        time.sleep(_DB_POLL_INTERVAL)
-
-
-def _db_plan(db_uri: str, state: str | None, ops: list[types.DbChangeOp], not_compared: list[str]) -> types.DbPlan:
-    """The plan the given operations describe; a state of None is a database that does not exist."""
-    resolution: types.Resolution
-    if state is None:
-        resolution = 'create'
-    elif any(op.severity == 'unsupported' for op in ops):
-        resolution = 'unsupported'
-    elif any(op.destructive for op in ops):
-        resolution = 'update_destructive'
-    elif len(ops) > 0:
-        resolution = 'update_additive'
-    else:
-        resolution = 'up_to_date'
-    return types.DbPlan(
-        db_uri=db_uri, exists=state is not None, state=state, resolution=resolution, ops=ops, not_compared=not_compared
-    )
