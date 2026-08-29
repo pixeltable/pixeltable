@@ -59,8 +59,7 @@ class DatabaseState(pydantic.BaseModel):
     # vars and their values
     vars: dict[str, str] = pydantic.Field(default_factory=dict)
 
-    # None: not included in this report
-    secret_keys: list[str] | None = None
+    secret_keys: list[str] = pydantic.Field(default_factory=list)
 
     # the pods serving the database, which is the observed worker count; DatabaseConfig.workers is the
     # declared one. Named 'workers' on the wire.
@@ -81,11 +80,10 @@ def db_diff(db_uri: str) -> DbPlan:
     config = _get_db_config(db_path)
     current = _get_db_state(db_path)
     if current is None:
-        return DbPlan.from_ops(db_uri, None, [], [])
+        return DbPlan.from_ops(db_uri, None, [])
 
     fingerprint = project_fingerprint(_validated_project_root(), config)
-    ops, not_compared = _compare_db(current, config, fingerprint)
-    return DbPlan.from_ops(db_uri, current.state, ops, not_compared)
+    return DbPlan.from_ops(db_uri, current.state, _compare_db(current, config, fingerprint))
 
 
 def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
@@ -338,15 +336,13 @@ def _get_db_state(db_path: catalog.Path) -> DatabaseState | None:
     return state
 
 
-def _compare_db(
-    current: DatabaseState, config: DatabaseConfig, fingerprint: ProjectFingerprint
-) -> tuple[list[DbChangeOp], list[str]]:
+def _compare_db(current: DatabaseState, config: DatabaseConfig, fingerprint: ProjectFingerprint) -> list[DbChangeOp]:
     """The operations that make current match config + fingerprint."""
     ops: list[DbChangeOp] = []
-    not_compared: list[str] = []
 
     if current.fingerprint is None:
-        not_compared.append('image')
+        # a database that has not been given the project reports no fingerprint: both artifacts are missing
+        ops += [DbChangeOp.build_image(), DbChangeOp.upload_archive()]
     else:
         if fingerprint.image_needed(current.fingerprint):
             ops.append(DbChangeOp.image_moved(fingerprint.changes(current.fingerprint, 'image')))
@@ -363,13 +359,10 @@ def _compare_db(
             continue
         ops.append(DbChangeOp.capacity(field, current_value, config_value))
 
-    if current.secret_keys is None:
-        not_compared.append('secrets')
-    else:
-        for key in sorted(set(config.secrets or {}) - set(current.secret_keys)):
-            ops.append(DbChangeOp.secret(key, 'add'))
-        for key in sorted(set(current.secret_keys) - set(config.secrets or {})):
-            ops.append(DbChangeOp.secret(key, 'drop'))
+    for key in sorted(set(config.secrets or {}) - set(current.secret_keys)):
+        ops.append(DbChangeOp.secret(key, 'add'))
+    for key in sorted(set(current.secret_keys) - set(config.secrets or {})):
+        ops.append(DbChangeOp.secret(key, 'drop'))
 
     for field, config_value, current_value in (
         ('location', config.location, current.location),
@@ -379,11 +372,9 @@ def _compare_db(
             continue
         ops.append(DbChangeOp.placement(field, current_value, config_value))
 
-    if config.vars is not None:
-        # a hosted database has nowhere to keep a var that is not a secret
-        not_compared.append('vars')
+    # TODO: compare config.vars against current.vars once UPDATE_DB accepts vars
 
-    return ops, not_compared
+    return ops
 
 
 def _upload_project_archive(config: DatabaseConfig, db_path: catalog.Path, *, show_progress: bool = False) -> str:

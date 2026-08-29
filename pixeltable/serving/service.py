@@ -30,6 +30,7 @@ from pixeltable_cli.types import (
 )
 from pixeltable_cli.utils import PxtPath
 
+from . import service_instance
 from .service_manager import get_manager
 
 _DESTRUCTIVE_HINT = "Re-run 'pxt service update' with --allow-destructive to apply these changes."
@@ -38,17 +39,18 @@ _DESTRUCTIVE_HINT = "Re-run 'pxt service update' with --allow-destructive to app
 def service_diff(app_file: str, target: PxtPath, *, otel: bool = False) -> ServicePlan:
     """The plan to reconcile the services at target with what's in app_file."""
     app_info = _get_app_info(app_file, target)
-    diffs = [
-        _service_diff(name, service, app_info, app_file, target, otel)
-        for name, service in sorted(app_info.services.items())
-    ]
-    declared = set(app_info.services)
+    # one listing for every service: a proxied manager answers each get() with a round trip
+    manager = get_manager(target)
+    running = {i.service_name: i for i in manager.list(target)}
     return ServicePlan(
         app_file=app_file,
         target=target,
-        services=diffs,
+        services=[
+            _service_diff(name, service, running.get(name), app_info, target, otel)
+            for name, service in sorted(app_info.services.items())
+        ],
         # extras are excluded from in_agreement: update never removes a service, which is what prune is for
-        extras=sorted(i.service_name for i in get_manager(target).list(target) if i.service_name not in declared),
+        extras=sorted(name for name in running if name not in app_info.services),
     )
 
 
@@ -75,25 +77,24 @@ def service_update(
     destructive = [d.name for d in plan.services if d.resolution == 'update_destructive']
     if len(destructive) > 0 and not allow_destructive:
         names = ', '.join(repr(name) for name in destructive)
-        for diff in plan.services:
-            diff.status = 'refused'
         raise excs.RequestError(
             excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE,
             f'Reconciling {names} would stop serving a route that callers may be using.\n{_DESTRUCTIVE_HINT}',
         )
 
+    running = {i.service_name: i for i in manager.list(target)}
     for diff in plan.services:
         if diff.resolution == 'blocked':
             diff.status = 'refused'
+            for op in diff.ops:
+                op.status = 'skipped'
             continue
         if diff.resolution == 'up_to_date':
             diff.status = 'skipped'
             continue
-        if diff.exists:
+        if diff.name in running:
             # the running service serves the old declaration; binding happens once per process, so it is replaced
-            running = manager.get(diff.name, target)
-            if running is not None:
-                running.stop()
+            running[diff.name].stop()
         started = manager.start(app_file, diff.name, target, otel=otel)
         diff.status = 'applied'
         diff.state = started.state
@@ -111,9 +112,11 @@ def service_prune(app_file: str, target: PxtPath) -> ServicePlan:
 
     Returns the plan, with one drop operation per service stopped.
     """
-    plan = service_diff(app_file, target)
-    plan.ops = _forget_services(plan.extras, target, delete=True)
-    return plan
+    declared = services_by_name(load_app_module(app_file, subject='application file'), app_file)
+    extras = sorted(i.service_name for i in get_manager(target).list(target) if i.service_name not in declared)
+    return ServicePlan(
+        app_file=app_file, target=target, extras=extras, ops=_forget_services(extras, target, delete=True)
+    )
 
 
 def service_stop(names: list[str], target: PxtPath) -> list[ServiceChangeOp]:
@@ -135,7 +138,7 @@ def service_list(target: PxtPath | None = None) -> list[ServiceInstance]:
 def service_check(app_file: str) -> CheckReport:
     """What checking an application file on its own reports: whether it is valid, and what to fix."""
     module = load_app_module(app_file, subject='application file')
-    get_module_services(module, app_file)
+    get_module_services(module, app_file)  # refuses a file whose service declarations are invalid
     return check_report(app_file, get_model_bases(module))
 
 
@@ -153,6 +156,7 @@ class _ServiceInfo:
 class _AppInfo:
     """What an application file holds, resolved against a target."""
 
+    app_file: str
     services: dict[str, _ServiceInfo]
 
     # why the target cannot serve the models these services name, or None if it can
@@ -178,6 +182,7 @@ def _get_app_info(app_file: str, target: PxtPath) -> _AppInfo:
     assert project_root is not None  # load_app_module() refuses a file outside a project root
     db_config = Config.get().get_database_config(catalog.Path.parse(target, allow_empty_path=True))
     return _AppInfo(
+        app_file=app_file,
         services={
             name: _ServiceInfo(
                 spec=service_spec(name, service, routers),
@@ -191,10 +196,14 @@ def _get_app_info(app_file: str, target: PxtPath) -> _AppInfo:
 
 
 def _service_diff(
-    name: str, service: _ServiceInfo, app_info: _AppInfo, app_file: str, target: PxtPath, otel: bool = False
+    name: str,
+    service: _ServiceInfo,
+    running: service_instance.ServiceInstance | None,
+    app_info: _AppInfo,
+    target: PxtPath,
+    otel: bool,
 ) -> ServiceDiff:
     """How the instance of one service at target differs from what the application file holds."""
-    running = get_manager(target).get(name, target)
     ops: list[ServiceChangeOp] = []
     route_detail: str | None = None
 
@@ -209,13 +218,12 @@ def _service_diff(
         if running.otel != otel:
             ops.append(ServiceChangeOp.otel(running.otel, otel))
 
-    recorded = None if running is None else running.record.fingerprint
-    if len(ops) == 0 and recorded is not None and app_info.fingerprint.restart_needed(recorded):
+    if len(ops) == 0 and running is not None and app_info.fingerprint.restart_needed(running.record.fingerprint):
         # the contract is unchanged, so the project is the only thing left to report
-        ops.append(ServiceChangeOp.project_moved(app_info.fingerprint.changes(recorded)))
+        ops.append(ServiceChangeOp.project_moved(app_info.fingerprint.changes(running.record.fingerprint)))
 
     if app_info.model_mismatch_reason is not None:
-        command = f'pxt schema update {app_file}' + ('' if target == '' else f' {target}')
+        command = f'pxt schema update {app_info.app_file}' + ('' if target == '' else f' {target}')
         ops.append(ServiceChangeOp.blocked_schema(name, app_info.model_mismatch_reason, command))
 
     resolution: Resolution

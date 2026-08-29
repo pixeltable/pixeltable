@@ -477,26 +477,26 @@ def move(req: Request) -> models.MoveResponse:
 @router.post('/api/schema/check')
 def schema_check(req: Request) -> types.CheckReport:
     body = req.body(models.SchemaCheckBody)
-    return schema.schema_check(body.schema_file)
+    return schema.schema_check(body.app_file)
 
 
 @router.post('/api/schema/diff')
 def schema_diff(req: Request) -> types.SchemaPlan:
     body = req.body(models.SchemaDiffBody)
-    return schema.schema_diff(body.schema_file, req.resolve_path(body.catalog_dir))
+    return schema.schema_diff(body.app_file, req.resolve_path(body.catalog_dir))
 
 
 @router.post('/api/schema/prune')
 def schema_prune(req: Request) -> types.SchemaPlan:
     body = req.body(models.SchemaPruneBody)
-    return schema.schema_prune(body.schema_file, req.resolve_path(body.catalog_dir))
+    return schema.schema_prune(body.app_file, req.resolve_path(body.catalog_dir))
 
 
 @router.post('/api/schema/update')
 def schema_update(req: Request) -> types.SchemaPlan:
     body = req.body(models.SchemaUpdateBody)
     applied = schema.schema_update(
-        body.schema_file, req.resolve_path(body.catalog_dir), allow_destructive=body.allow_destructive
+        body.app_file, req.resolve_path(body.catalog_dir), allow_destructive=body.allow_destructive
     )
     return applied
 

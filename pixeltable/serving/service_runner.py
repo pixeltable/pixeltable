@@ -10,11 +10,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pixeltable.catalog as catalog
 from pixeltable.config import Config
 from pixeltable.serving._app import create_app, init_instrumentation, instrument_app
 from pixeltable.serving._config import database_config_for
 from pixeltable.utils.project import loaded_fingerprint
-import pixeltable.catalog as catalog
 
 from .service_manager import ServiceManager
 
@@ -39,7 +39,7 @@ def _serve(app_file: str, service_name: str, base_path: str, otel: bool) -> None
     assert project_root is not None  # the app file was loaded from that root
     manager = ServiceManager()
     catalog_path = catalog.Path.parse(base_path, allow_empty_path=True)
-    db_config =  Config.get().get_database_config(catalog_path)
+    db_config = Config.get().get_database_config(catalog_path)
     record = manager.create(
         service_name=service_name,
         base_path=base_path,

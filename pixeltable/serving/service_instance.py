@@ -57,8 +57,8 @@ class ServiceInstanceRecord(pydantic.BaseModel):
     # creation time of pid, None where the platform does not report one
     process_started_at: float | None = None
 
-    # the project state the instance is running; None in a record written before this field existed
-    fingerprint: ProjectFingerprint | None = None
+    # the project files the instance is running, as its process fingerprinted them at start
+    fingerprint: ProjectFingerprint
 
     def to_cli_instance(self) -> types.ServiceInstance:
         """This record as `pxt service list` shows it."""

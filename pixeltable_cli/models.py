@@ -214,7 +214,7 @@ class RevertResponse(BaseModel):
 
 
 class SchemaCheckBody(BaseModel):
-    schema_file: str  # absolute filesystem path to the schema file on the daemon host
+    app_file: str  # absolute filesystem path to the application file on the daemon host
 
 
 class ServiceCheckBody(BaseModel):
@@ -222,17 +222,17 @@ class ServiceCheckBody(BaseModel):
 
 
 class SchemaDiffBody(BaseModel):
-    schema_file: str  # absolute filesystem path to the schema file on the daemon host
+    app_file: str  # absolute filesystem path to the application file on the daemon host
     catalog_dir: PxtPath
 
 
 class SchemaPruneBody(BaseModel):
-    schema_file: str  # absolute filesystem path to the schema file on the daemon host
+    app_file: str  # absolute filesystem path to the application file on the daemon host
     catalog_dir: PxtPath
 
 
 class SchemaUpdateBody(BaseModel):
-    schema_file: str  # absolute filesystem path to the schema file on the daemon host
+    app_file: str  # absolute filesystem path to the application file on the daemon host
     catalog_dir: PxtPath
     allow_destructive: bool = False
 

@@ -380,7 +380,7 @@ class SchemaPlanSummary(pydantic.BaseModel):
 class SchemaPlan(pydantic.BaseModel):
     """Set of changes needed to reconcile a target directory with a schema model."""
 
-    schema_file: str
+    app_file: str
     catalog_dir: PxtPath
     tables: list[TableDiff] = pydantic.Field(default_factory=list)
     extras: list[PxtPath] = pydantic.Field(default_factory=list)  # tables under catalog_dir no model declares
@@ -588,14 +588,10 @@ class DbPlan(pydantic.BaseModel):
     state: str | None  # the database's state, None when it does not exist
     resolution: Resolution
     ops: list[DbChangeOp] = pydantic.Field(default_factory=list)
-
-    # the classes with no reported state, which the plan leaves uncompared
-    not_compared: list[str] = pydantic.Field(default_factory=list)
-
     status: OpStatus | None = None
 
     @classmethod
-    def from_ops(cls, db_uri: str, state: str | None, ops: list[DbChangeOp], not_compared: list[str]) -> DbPlan:
+    def from_ops(cls, db_uri: str, state: str | None, ops: list[DbChangeOp]) -> DbPlan:
         """The plan the given operations describe; a state of None is a database that does not exist."""
         resolution: Resolution
         if state is None:
@@ -608,14 +604,7 @@ class DbPlan(pydantic.BaseModel):
             resolution = 'update_additive'
         else:
             resolution = 'up_to_date'
-        return cls(
-            db_uri=db_uri,
-            exists=state is not None,
-            state=state,
-            resolution=resolution,
-            ops=ops,
-            not_compared=not_compared,
-        )
+        return cls(db_uri=db_uri, exists=state is not None, state=state, resolution=resolution, ops=ops)
 
     @pydantic.computed_field  # type: ignore[prop-decorator]
     @property

@@ -667,7 +667,7 @@ class Config:
             return default
         return os.environ[env_var]
 
-    #def get_database_config(self, name: str = LOCAL_DATABASE) -> DatabaseConfig | None:
+    # def get_database_config(self, name: str = LOCAL_DATABASE) -> DatabaseConfig | None:
     def get_database_config(self, db_uri: 'catalog.Path') -> DatabaseConfig | None:
         """The [[pixeltable.database]] entry for the given path, if present."""
         db_name = LOCAL_DATABASE if db_uri.is_local else db_uri.catalog_uri.uri_str

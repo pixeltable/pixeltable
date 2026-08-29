@@ -46,12 +46,12 @@ from pixeltable.env import Env
 from pixeltable.exec.globals import INLINED_OBJECT_MD_KEY
 from pixeltable.runtime import close_threadpool_runtimes
 from pixeltable.serving import SqlExport
-from pixeltable_cli.types import RouteSpec, ServiceSpec
 from pixeltable.serving.globals import SqlExporter
 from pixeltable.utils import image as image_utils
 from pixeltable.utils.app_module import model_mismatch_error_str
 from pixeltable.utils.http import fetch_url
 from pixeltable.utils.local_store import LocalStore, TempStore
+from pixeltable_cli.types import RouteSpec, ServiceSpec
 
 # The columns a route declaration names, given either as names or as references.
 # TODO: make this work for TableModels. A model's column attribute is a ColumnRefByName at runtime, but a type checker

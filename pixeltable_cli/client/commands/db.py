@@ -225,8 +225,6 @@ def _print_plan(plan: DbPlan, *, as_json: bool, applied: bool = False) -> None:
     print(f'{_MARKERS[resolution]} {plan.db_uri:<28s} {state}  {plan.state or "absent"}')
     for op in plan.ops:
         print(f'    {op.description}  [{op.severity}]')
-    if len(plan.not_compared) > 0:
-        print(f'    not compared: {", ".join(plan.not_compared)} (the database reports no state for these)')
     s = plan.summary
     print()
     print(f'Plan: {s.ops} change(s), {s.destructive} destructive, {s.unsupported} unsupported')

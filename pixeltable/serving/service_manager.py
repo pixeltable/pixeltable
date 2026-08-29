@@ -170,8 +170,8 @@ class ServiceManager(ServiceManagerBase):
         port: int,
         app_file: str,
         spec: ServiceSpec,
+        fingerprint: ProjectFingerprint,
         otel: bool = False,
-        fingerprint: ProjectFingerprint | None = None,
     ) -> ServiceInstanceRecord:
         """Write the record of the instance this process serves."""
         record = ServiceInstanceRecord(
