@@ -4523,6 +4523,11 @@ class TestTable:
             pxt.create_table(p('bad'), {'Class': pxt.Int | None})
         with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
             t.rename_column('c', 'Count')
+        # a Python keyword is reserved in every casing, for index names as well as column names
+        with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
+            t.rename_column('c', 'Class')
+        with pxt_raises(pxt.ErrorCode.INVALID_COLUMN_NAME, match='is a reserved name in Pixeltable'):
+            t.add_btree_index('c', idx_name='Class')
         assert 'c' in t.columns()
 
     @pytest.mark.db_roots('local', reason="Operational table feature, doesn't need to run with proxy")
