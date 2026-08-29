@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Callable, Generic, Iterator, Self, TypeVa
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
 from pixeltable.catalog.globals import _POS_COLUMN_NAME, fold_identifier, fold_mapping_keys
+from pixeltable.exprs.expr import ValidationError
 from pixeltable.func.globals import resolve_symbol
 
 from .signature import Signature
@@ -405,6 +406,79 @@ class InvalidGeneratingFunction(GeneratingFunction):
         return self.fn_dict
 
 
+@dataclass
+class IteratorValidationError(ValidationError):
+    """The iterator symbol referenced by a call could not be resolved."""
+
+    iterator_fqn: str
+    error_msg: str
+
+    def catalog_error_msg(self) -> str:
+        return f'The iterator `{self.iterator_fqn}` cannot be located, because\n{self.error_msg}'
+
+    def protocol_error_msg(self) -> str:
+        return (
+            f'The request references the iterator `{self.iterator_fqn}`, '
+            'but that iterator is not defined in the remote database.'
+        )
+
+
+@dataclass
+class IteratorSignatureValidationError(ValidationError):
+    """The stored call pattern no longer binds to the iterator's signature."""
+
+    iterator_fqn: str
+    call_signature: str
+    code_signature: str
+
+    def catalog_error_msg(self) -> str:
+        return dedent(
+            f"""
+            The signature stored in the database for a call to `{self.iterator_fqn}` no longer
+            matches its signature as currently defined in the code. This probably means that the
+            code for `{self.iterator_fqn}` has changed in a backward-incompatible way.
+            Signature of iterator in the database: {self.call_signature}
+            Signature of iterator as currently defined in code: {self.code_signature}
+            """
+        ).strip()
+
+    def protocol_error_msg(self) -> str:
+        return dedent(
+            f"""
+            The request references the iterator `{self.iterator_fqn}`, but the signature of the iterator
+            in the remote database does not match its local definition.
+            Signature of the local iterator: {self.call_signature}
+            Signature of the remote iterator: {self.code_signature}
+            """
+        ).strip()
+
+
+@dataclass
+class OutputSchemaValidationError(ValidationError):
+    """A mismatch between the stored outputs of a call and the iterator's current output schema."""
+
+    iterator_fqn: str
+    detail_msg: str
+
+    def catalog_error_msg(self) -> str:
+        header = dedent(
+            f"""
+            The output schema stored in the database for a call to `{self.iterator_fqn}` no longer
+            matches its output schema as currently defined in the code. This probably means that the
+            code for `{self.iterator_fqn}` has changed in a backward-incompatible way.
+            """
+        ).strip()
+        return f'{header}\n{self.detail_msg}'
+
+    def protocol_error_msg(self) -> str:
+        return dedent(
+            f"""
+            The request references the iterator `{self.iterator_fqn}`, but the output schema of the iterator
+            in the remote database does not match its local definition.
+            """
+        ).strip()
+
+
 @dataclass(frozen=True)
 class GeneratingFunctionCall:
     it: GeneratingFunction
@@ -412,7 +486,7 @@ class GeneratingFunctionCall:
     kwargs: dict[str, exprs.Expr]
     bound_args: dict[str, exprs.Expr]
     outputs: dict[str, IteratorOutput] | None
-    validation_error: str | None
+    validation_error: ValidationError | None
 
     @property
     def is_valid(self) -> bool:
@@ -445,7 +519,7 @@ class GeneratingFunctionCall:
         args = [exprs.Expr.from_dict(arg_dict) for arg_dict in d['args']]
         kwargs = {k: exprs.Expr.from_dict(v_dict) for k, v_dict in d['kwargs'].items()}
         outputs: dict[str, IteratorOutput] | None = None
-        validation_error = None
+        validation_error: ValidationError | None = None
 
         if d['outputs'] is not None:
             outputs = {
@@ -453,7 +527,7 @@ class GeneratingFunctionCall:
             }
 
         if isinstance(it, InvalidGeneratingFunction):
-            validation_error = f'The iterator `{it.fqn}` cannot be located, because\n{it.error_msg}'
+            validation_error = IteratorValidationError(it.fqn, it.error_msg)
             # We can't instantiate the GeneratingFunction, so nothing more to do (we can't bind arguments nor
             # reconstruct outputs of legacy iterators).
             return cls(it, args, kwargs, {}, outputs, validation_error)
@@ -466,15 +540,7 @@ class GeneratingFunctionCall:
             args_str.extend(f'{name}: pxt.{arg.col_type}' for name, arg in kwargs.items())
             call_signature_str = f'({", ".join(args_str)}) -> ...'
             fn_signature_str = str(it.signature).removesuffix('pxt.Json') + '...'
-            validation_error = dedent(
-                f"""
-                The signature stored in the database for a call to `{it.fqn}` no longer
-                matches its signature as currently defined in the code. This probably means that the
-                code for `{it.fqn}` has changed in a backward-incompatible way.
-                Signature of iterator in the database: {call_signature_str}
-                Signature of iterator as currently defined in code: {fn_signature_str}
-                """
-            ).strip()
+            validation_error = IteratorSignatureValidationError(it.fqn, call_signature_str, fn_signature_str)
             return cls(it, args, kwargs, {}, outputs, validation_error)
 
         output_schema = it.call_output_schema(bound_args)
@@ -501,24 +567,15 @@ class GeneratingFunctionCall:
                 if output.orig_name not in output_schema:
                     # TODO: should we in fact allow this, and just put Nones in the column, to allow for
                     #     "deprecated" output columns?
-                    validation_error = dedent(
-                        f"""
-                        The output schema stored in the database for a call to `{it.fqn}` no longer
-                        matches its output schema as currently defined in the code. This probably means that the
-                        code for `{it.fqn}` has changed in a backward-incompatible way.
-                        The output field {output.orig_name!r} is no longer present in the output schema.
-                        """
-                    ).strip()
+                    validation_error = OutputSchemaValidationError(
+                        it.fqn, f'The output field {output.orig_name!r} is no longer present in the output schema.'
+                    )
                 elif not output.col_type.is_supertype_of(output_schema[output.orig_name]):
-                    validation_error = dedent(
-                        f"""
-                        The output schema stored in the database for a call to `{it.fqn}` no longer
-                        matches its output schema as currently defined in the code. This probably means that the
-                        code for `{it.fqn}` has changed in a backward-incompatible way.
-                        The type of output field {output.orig_name!r} is incompatible
-                        (expected `pxt.{output.col_type}`; got `pxt.{output_schema[output.orig_name]}`).
-                        """
-                    ).strip()
+                    validation_error = OutputSchemaValidationError(
+                        it.fqn,
+                        f'The type of output field {output.orig_name!r} is incompatible\n'
+                        f'(expected `pxt.{output.col_type}`; got `pxt.{output_schema[output.orig_name]}`).',
+                    )
 
         return cls(it, args, kwargs, bound_args, outputs, validation_error)
 

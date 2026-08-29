@@ -6,8 +6,6 @@ computation slow enough to want a background job.
 
 # ruff: noqa: F821  # a model body refers to its own columns, and an iterator's, by bare name
 
-from __future__ import annotations
-
 import pixeltable as pxt
 from pixeltable.functions.video import frame_iterator
 from pixeltable.serving import FastAPIRouter

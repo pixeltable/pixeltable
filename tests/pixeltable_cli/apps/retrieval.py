@@ -1,7 +1,5 @@
 """A computed column that calls a query udf."""
 
-from __future__ import annotations
-
 import pixeltable as pxt
 
 TableModel = pxt.model_base()

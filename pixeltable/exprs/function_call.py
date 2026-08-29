@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import inspect
 import sys
+from dataclasses import dataclass
 from textwrap import dedent
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING, Any, Literal as TypingLiteral, Sequence
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -11,7 +12,7 @@ import sqlalchemy as sql
 from pixeltable import catalog, exceptions as excs, func, type_system as ts
 
 from .data_row import DataRow
-from .expr import Expr
+from .expr import Expr, ValidationError
 from .literal import Literal
 from .row_builder import RowBuilder
 from .rowid_ref import RowidRef
@@ -19,6 +20,87 @@ from .sql_element_cache import SqlElementCache
 
 if TYPE_CHECKING:
     from .expr_dict import ExprDict
+
+
+@dataclass
+class FunctionValidationError(ValidationError):
+    function_path: str
+    error_msg: str
+
+    def catalog_error_msg(self) -> str:
+        return (
+            dedent(
+                f"""
+                The UDF `{self.function_path}` cannot be located, because
+                {{error_msg}}
+                """
+            )
+            .strip()
+            .format(error_msg=self.error_msg)
+        )
+
+    def protocol_error_msg(self) -> str:
+        return (
+            f'The request references the UDF `{self.function_path}`, '
+            'but that UDF is not defined in the remote database.'
+        )
+
+
+@dataclass
+class SignatureValidationError(ValidationError):
+    signature_type: TypingLiteral['signature', 'return type']
+    function_path: str
+    is_polymorphic: bool
+    expr_signature: str
+    code_signature: str
+
+    def catalog_error_msg(self) -> str:
+        signature_note_str = (
+            f'any of its {self.signature_type}s' if self.is_polymorphic else f'its {self.signature_type}'
+        )
+        return dedent(
+            f"""
+            The {self.signature_type} stored in the database for a UDF call to `{self.function_path}` no longer
+            matches {signature_note_str} as currently defined in the code. This probably means that the
+            code for `{self.function_path}` has changed in a backward-incompatible way.
+            {self.signature_type.capitalize()} of UDF call in the database: {self.expr_signature}
+            {self.signature_type.capitalize()} of UDF as currently defined in code: {self.code_signature}
+            """
+        ).strip()
+
+    def protocol_error_msg(self) -> str:
+        return dedent(
+            f"""
+            The request references the UDF `{self.function_path}`, but the {self.signature_type} of the UDF
+            in the remote database does not match its local definition.
+            {self.signature_type.capitalize()} of the local UDF: {self.expr_signature}
+            {self.signature_type.capitalize()} of the remote UDF: {self.code_signature}
+            """
+        ).strip()
+
+
+@dataclass
+class ImportValidationError(ValidationError):
+    function_path: str
+    import_error_msg: str
+
+    def catalog_error_msg(self) -> str:
+        return dedent(
+            f"""
+            A UDF call to `{self.function_path}` could not be fully resolved, because a module required
+            by the UDF could not be imported:
+            {self.import_error_msg}
+            """
+        ).strip()
+
+    def protocol_error_msg(self) -> str:
+        return dedent(
+            f"""
+            A UDF call to `{self.function_path}` could not be resolved because there are missing
+            dependencies in the remote database:
+            {self.import_error_msg}
+            """
+        ).strip()
 
 
 class FunctionCall(Expr):
@@ -47,7 +129,7 @@ class FunctionCall(Expr):
     aggregator: Any | None
     current_partition_vals: list[Any] | None
 
-    _validation_error: str | None
+    _validation_error: ValidationError | None
 
     def __init__(
         self,
@@ -58,7 +140,7 @@ class FunctionCall(Expr):
         order_by_clause: list[Any] | None = None,
         group_by_clause: list[Any] | None = None,
         is_method_call: bool = False,
-        validation_error: str | None = None,
+        validation_error: ValidationError | None = None,
     ):
         assert not fn.is_polymorphic
         assert all(isinstance(arg, Expr) for arg in args)
@@ -193,7 +275,7 @@ class FunctionCall(Expr):
     #     return f'FunctionCall(fn={self.fn!r}, args={self.args!r}, kwargs={self.kwargs!r})'
 
     @property
-    def validation_error(self) -> str | None:
+    def validation_error(self) -> ValidationError | None:
         return self._validation_error or super().validation_error
 
     def display_str(self, inline: bool = True) -> str:
@@ -496,19 +578,10 @@ class FunctionCall(Expr):
         group_by_exprs = components[group_by_start_idx:group_by_stop_idx]
         order_by_exprs = components[order_by_start_idx:]
 
-        validation_error: str | None = None
+        validation_error: ValidationError | None
 
         if isinstance(fn, func.InvalidFunction):
-            validation_error = (
-                dedent(
-                    f"""
-                    The UDF '{fn.self_path}' cannot be located, because
-                    {{error_msg}}
-                    """
-                )
-                .strip()
-                .format(error_msg=fn.error_msg)
-            )
+            validation_error = FunctionValidationError(fn.self_path, fn.error_msg)
             return cls(fn, args, kwargs, return_type, is_method_call=is_method_call, validation_error=validation_error)
 
         # Now re-bind args and kwargs using the version of `fn` that is currently represented in code. This ensures
@@ -516,25 +589,19 @@ class FunctionCall(Expr):
         # serialized.
 
         resolved_fn: func.Function = fn
+        validation_error: ValidationError | None = None
 
         try:
             # Bind args and kwargs to the function signature in the current codebase.
             resolved_fn, bound_args = fn._bind_to_matching_signature(args, kwargs)
         except (TypeError, excs.Error):
-            signature_note_str = 'any of its signatures' if fn.is_polymorphic else 'its signature'
             args_str = [f'pxt.{arg.col_type}' for arg in args]
             args_str.extend(f'{name}: pxt.{arg.col_type}' for name, arg in kwargs.items())
-            call_signature_str = f'({", ".join(args_str)}) -> pxt.{return_type}'
-            fn_signature_str = f'{len(fn.signatures)} signatures' if fn.is_polymorphic else str(fn.signature)
-            validation_error = dedent(
-                f"""
-                The signature stored in the database for a UDF call to {fn.self_path!r} no longer
-                matches {signature_note_str} as currently defined in the code. This probably means that the
-                code for {fn.self_path!r} has changed in a backward-incompatible way.
-                Signature of UDF call in the database: {call_signature_str}
-                Signature of UDF as currently defined in code: {fn_signature_str}
-                """
-            ).strip()
+            expr_signature = f'({", ".join(args_str)}) -> pxt.{return_type}'
+            code_signature = f'{len(fn.signatures)} signatures' if fn.is_polymorphic else str(fn.signature)
+            validation_error = SignatureValidationError(
+                'signature', fn.self_path, fn.is_polymorphic, expr_signature, code_signature
+            )
         else:
             # Evaluate the call_return_type as defined in the current codebase.
             call_return_type: ts.ColumnType | None = None
@@ -548,13 +615,7 @@ class FunctionCall(Expr):
                 try:
                     call_return_type = resolved_fn.call_return_type(bound_args)
                 except ImportError as exc:
-                    validation_error = dedent(
-                        f"""
-                        A UDF call to {fn.self_path!r} could not be fully resolved, because a module required
-                        by the UDF could not be imported:
-                        {exc}
-                        """
-                    )
+                    validation_error = ImportValidationError(fn.self_path, str(exc))
 
             assert (call_return_type is None) != (validation_error is None)
 
@@ -563,7 +624,7 @@ class FunctionCall(Expr):
                 # way to infer it during DB migration, so we might encounter a stored return_type of None. If the
                 # resolution of call_return_type also fails, then we're out of luck; we have no choice but to
                 # fail-fast.
-                raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, validation_error)
+                raise excs.RequestError(excs.ErrorCode.UNSUPPORTED_OPERATION, validation_error.catalog_error_msg())
 
             if call_return_type is not None:
                 # call_return_type resolution succeeded.
@@ -574,15 +635,9 @@ class FunctionCall(Expr):
                 elif not return_type.is_supertype_of(call_return_type, ignore_nullable=True):
                     # There is a return_type stored in metadata (schema version >= 25),
                     # and the stored return_type of the UDF call doesn't match the column type of the FunctionCall.
-                    validation_error = dedent(
-                        f"""
-                        The return type stored in the database for a UDF call to {fn.self_path!r} no longer
-                        matches its return type as currently defined in the code. This probably means that the
-                        code for {fn.self_path!r} has changed in a backward-incompatible way.
-                        Return type of UDF call in the database: {return_type}
-                        Return type of UDF as currently defined in code: {call_return_type}
-                        """
-                    ).strip()
+                    validation_error = SignatureValidationError(
+                        'return type', fn.self_path, fn.is_polymorphic, str(return_type), str(call_return_type)
+                    )
 
         assert return_type is not None  # Guaranteed by the above logic.
 
