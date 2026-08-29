@@ -43,10 +43,11 @@ to [`to_pydantic()`](/sdk/latest/query).
 
 | Kind | Rules |
 | ---- | ----- |
-| Column, index | ASCII only; a valid Python identifier; may not begin with `_` |
-| Directory, table, database | the same, except that `-` is also allowed (but not as the first character) |
+| Column, index | unaccented letters `a`-`z`, digits, and `_`; may not begin with a digit or with `_` |
+| Directory, table, database | the same, plus `-` anywhere but the first character |
 
-The ASCII restriction keeps folding unambiguous: on ASCII, Python's `str.lower()` and SQL's `LOWER()` agree.
+Accented letters and other scripts are not allowed. Plain letters lower-case identically in Python and in the
+store, so a name means the same thing no matter which layer folds it.
 
 ## Reserved names
 
