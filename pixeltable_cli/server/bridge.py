@@ -47,7 +47,7 @@ from pixeltable.utils.app_module import (
 )
 from pixeltable.utils.project import project_fingerprint
 from pixeltable_cli import types
-from pixeltable_cli.utils import PROJECT_CONFIG_FILE, PYPROJECT_FILE, PxtPath, split_pxt_uri
+from pixeltable_cli.utils import PxtPath, split_pxt_uri
 
 _logger = logging.getLogger(__name__)
 
@@ -852,32 +852,29 @@ _DB_POLL_INTERVAL = 5.0
 _DB_TRANSITIONAL = frozenset({'PROVISIONING', 'UPDATING', 'STARTING', 'STOPPING'})
 
 
-def db_diff(config_file: str, target: str, *, overrides: dict[str, float | int] | None = None) -> types.DbPlan:
-    """The changes that reconciling the database at target with the entry declaring it would make.
+def db_diff(db_uri: str) -> types.DbPlan:
+    """The changes that reconciling the database at db_uri with the entry declaring it would make.
 
-    Read-only: nothing is built, resized or set.
+    Read-only: nothing is built, resized or set. The entry comes from this project's configuration file,
+    which is the one the daemon was started under.
 
     Args:
-        config_file: the project's pixeltable.toml or pyproject.toml.
-        target: the pxt://org:db uri of the database the entry configures.
-        overrides: capacity fields that stand in for what the entry declares, for this call.
+        db_uri: the pxt://org:db uri of the database the entry configures.
     """
-    from pixeltable.service.db_diff import compare_db
+    from pixeltable.service.db import compare_db
 
-    entry, project_dir, org, db = _db_entry(config_file, target, overrides)
+    entry, project_dir, org, db = _db_entry(db_uri)
     current = _db_state(org, db)
     if current is None:
-        return _db_plan(config_file, target, None, [], [])
+        return _db_plan(db_uri, None, [], [])
 
     fingerprint = project_fingerprint(project_dir, entry)
-    ops, not_compared = compare_db(entry, current, fingerprint, _secret_keys(org, db))
-    return _db_plan(config_file, target, current.state, ops, not_compared)
+    ops, not_compared = compare_db(current, entry, fingerprint)
+    return _db_plan(db_uri, current.state, ops, not_compared)
 
 
-def db_update(
-    config_file: str, target: str, *, allow_destructive: bool = False, overrides: dict[str, float | int] | None = None
-) -> types.DbPlan:
-    """Reconcile the database at target with the entry declaring it: create it if it is absent, then apply
+def db_update(db_uri: str, *, allow_destructive: bool = False) -> types.DbPlan:
+    """Reconcile the database at db_uri with the entry declaring it: create it if it is absent, then apply
     secrets, the two artifacts, and capacity, in that order.
 
     Secrets go first, since code the pods run reads them as they start; capacity last, so that the resize
@@ -887,20 +884,18 @@ def db_update(
     Returns the plan that was applied, each operation annotated with its status.
 
     Args:
-        config_file: the project's pixeltable.toml or pyproject.toml.
-        target: the pxt://org:db uri of the database the entry configures.
+        db_uri: the pxt://org:db uri of the database the entry configures.
         allow_destructive: whether to apply changes that take capacity away or delete a secret.
-        overrides: capacity fields that stand in for what the entry declares, for this call.
     """
-    entry, project_dir, org, db = _db_entry(config_file, target, overrides)
-    plan = db_diff(config_file, target, overrides=overrides)
+    entry, project_dir, org, db = _db_entry(db_uri)
+    plan = db_diff(db_uri)
     if plan.destructive and not allow_destructive:
         for op in plan.ops:
             op.status = 'refused'
         destructive = ', '.join(op.name or '' for op in plan.ops if op.destructive)
         raise excs.RequestError(
             excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE,
-            f'Reconciling {target} would apply destructive changes: {destructive}.\n{_DB_DESTRUCTIVE_HINT}',
+            f'Reconciling {db_uri} would apply destructive changes: {destructive}.\n{_DB_DESTRUCTIVE_HINT}',
         )
 
     if not plan.exists:
@@ -1024,33 +1019,25 @@ def _db_uri(uri: str) -> tuple[str, str]:
     return parts.org, parts.db
 
 
-def _db_entry(
-    config_file: str, target: str, overrides: dict[str, float | int] | None = None
-) -> tuple[DatabaseConfig, Path, str, str]:
-    """The entry that configures target, the project root holding it, and target's org and database.
+def _db_entry(db_uri: str) -> tuple[DatabaseConfig, Path, str, str]:
+    """The entry configuring db_uri, the project root holding it, and db_uri's org and database."""
+    from pixeltable.service.db import _db_config
 
-    overrides replace the capacity fields the entry declares, so that a flag decides one invocation.
-    """
-    from pixeltable.service.project_archive import database_config
-
-    org, db = _db_uri(target)
-    path = Path(config_file)
-    if path.name not in (PROJECT_CONFIG_FILE, PYPROJECT_FILE):
+    org, db = _db_uri(db_uri)
+    project_root = Config.get().project_root
+    if project_root is None:
         raise excs.RequestError(
-            excs.ErrorCode.INVALID_ARGUMENT,
-            f'{config_file}: a project is configured in {PROJECT_CONFIG_FILE} or {PYPROJECT_FILE}',
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'no project configuration here, so nothing declares {db_uri!r}; run `pxt init` to write one',
         )
-    project_dir = path.resolve().parent
-    entry = database_config(project_dir, f'pxt://{org}:{db}')
+    entry = _db_config(project_root, db_uri)
     if entry is None:
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
-            f'{config_file} declares no database {f"pxt://{org}:{db}"!r}; '
+            f'{Config.get().project_config_file} declares no database {db_uri!r}; '
             'add a [[pixeltable.database]] entry naming it',
         )
-    if overrides is not None and len(overrides) > 0:
-        entry = entry.model_copy(update=overrides)
-    return entry, project_dir, org, db
+    return entry, project_root, org, db
 
 
 def _db_state(org: str, db: str) -> DatabaseState | None:
@@ -1119,9 +1106,7 @@ def _await_db_settled(org: str, db: str) -> DatabaseState:
         time.sleep(_DB_POLL_INTERVAL)
 
 
-def _db_plan(
-    config_file: str, target: str, state: str | None, ops: list[types.DbChangeOp], not_compared: list[str]
-) -> types.DbPlan:
+def _db_plan(db_uri: str, state: str | None, ops: list[types.DbChangeOp], not_compared: list[str]) -> types.DbPlan:
     """The plan the given operations describe; a state of None is a database that does not exist."""
     resolution: types.Resolution
     if state is None:
@@ -1135,11 +1120,5 @@ def _db_plan(
     else:
         resolution = 'up_to_date'
     return types.DbPlan(
-        config_file=config_file,
-        target=target,
-        exists=state is not None,
-        state=state,
-        resolution=resolution,
-        ops=ops,
-        not_compared=not_compared,
+        db_uri=db_uri, exists=state is not None, state=state, resolution=resolution, ops=ops, not_compared=not_compared
     )

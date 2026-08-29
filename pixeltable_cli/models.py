@@ -17,6 +17,17 @@ def _validate_pxt_path(v: str | None) -> str | None:
 PxtPath = Annotated[utils.PxtPath, AfterValidator(_validate_pxt_path)]
 
 
+def _validate_db_uri(v: str) -> str:
+    parts = utils.split_pxt_uri(v)
+    if parts is None or parts.db is None or parts.path is not None:
+        raise ValueError(f'{v!r} does not name a hosted database; write pxt://org:db')
+    return v
+
+
+# the uri of a hosted database, checked here so that every db verb refuses a bad one the same way
+DbUri = Annotated[str, AfterValidator(_validate_db_uri)]
+
+
 # the verbs the daemon dispatches
 Method = Literal['GET', 'POST']
 
@@ -244,31 +255,17 @@ class ServiceUpdateBody(BaseModel):
     otel: bool = False
 
 
-class DbCapacityBody(BaseModel):
-    """Capacity that stands in for what the project's entry declares, for one invocation."""
-
-    cpu: float | None = None
-    memory_mb: int | None = None
-    disk_gb: int | None = None
-    workers: int | None = None
-
-    def overrides(self) -> dict[str, float | int]:
-        """The fields that were given, keyed as DatabaseConfig names them."""
-        return {field: value for field, value in self.model_dump().items() if value is not None}
+class DbDiffBody(BaseModel):
+    db_uri: DbUri
 
 
-class DbDiffBody(DbCapacityBody):
-    config_file: str  # absolute filesystem path to the project's config file on the daemon host
-    target: str  # the pxt://org:db uri of the database the project's entry configures
-
-
-class DbUpdateBody(DbCapacityBody):
-    target: str
+class DbUpdateBody(BaseModel):
+    db_uri: DbUri
     allow_destructive: bool = False
 
 
 class DbBuildImageBody(BaseModel):
-    target: str
+    db_uri: DbUri
 
 
 class ServiceStopBody(BaseModel):

@@ -5,8 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from pathlib import Path
-from typing import Any
 
 from ...types import DbChangeOp, DbPlan, Resolution
 from ..hosted import exit_unless_reached, parse_org_uri, poll_db, print_db, resolve_db_uri, spinner
@@ -40,12 +38,7 @@ def run(argv: list[str]) -> None:
 
     for verb in ('diff', 'update'):
         p = sub.add_parser(verb, help=f'{"show" if verb == "diff" else "apply"} what the project declares')
-        p.add_argument('config', help="the project's pixeltable.toml or pyproject.toml")
         p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
-        p.add_argument('--workers', type=int, default=None, help='Number of proxy daemon workers')
-        p.add_argument('--cpu', type=float, default=None, help='CPU cores per worker')
-        p.add_argument('--memory', type=int, default=None, dest='memory_mb', help='Memory per worker in MB')
-        p.add_argument('--disk', type=int, default=None, dest='disk_gb', help='Disk per worker in GB')
         p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
         if verb == 'update':
             p.add_argument('-f', '--force', action='store_true', help='skip confirmation')
@@ -81,12 +74,6 @@ def run(argv: list[str]) -> None:
 
     p = sub.add_parser('build-image', help='build the image a hosted database runs on, from a project')
     p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
-    p.add_argument(
-        '--project-dir',
-        default=None,
-        metavar='DIR',
-        help='Project directory containing pyproject.toml and uv.lock (default: current directory)',
-    )
     p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
     p = sub.add_parser('delete', help='delete a hosted database')
@@ -173,29 +160,20 @@ def _stop(args: argparse.Namespace) -> None:
     exit_unless_reached(result, 'STOPPED', f'stopping database {db!r}')
 
 
-def _plan_body(args: argparse.Namespace, prog: str) -> dict[str, Any]:
-    """The request body the diff and update routes take, with the capacity flags that were given."""
-    path = Path(args.config)
-    if not path.is_file():
-        print(f'{prog}: config file not found: {args.config}', file=sys.stderr)
-        sys.exit(EXIT_ERROR)
+def _db_uri(args: argparse.Namespace, prog: str) -> str:
+    """The uri the verb acts on, defaulting to the one the config names."""
     org, db = resolve_db_uri(args.db_uri, prog=prog)
-    body: dict[str, Any] = {'config_file': str(path.resolve()), 'target': f'pxt://{org}:{db}'}
-    for field in ('cpu', 'memory_mb', 'disk_gb', 'workers'):
-        value = getattr(args, field)
-        if value is not None:
-            body[field] = value
-    return body
+    return f'pxt://{org}:{db}'
 
 
 def _diff(args: argparse.Namespace) -> None:
-    plan = DbPlan.model_validate(post_request('/api/db/diff', _plan_body(args, 'pxt db diff')))
+    plan = DbPlan.model_validate(post_request('/api/db/diff', {'db_uri': _db_uri(args, 'pxt db diff')}))
     _print_plan(plan, as_json=args.json_output)
     sys.exit(EXIT_IN_AGREEMENT if plan.in_agreement else EXIT_CHANGES_PENDING)
 
 
 def _update(args: argparse.Namespace) -> None:
-    body = _plan_body(args, 'pxt db update')
+    body = {'db_uri': _db_uri(args, 'pxt db update')}
     plan = DbPlan.model_validate(post_request('/api/db/diff', body))
     if plan.in_agreement:
         _print_plan(plan, as_json=args.json_output)
@@ -205,16 +183,16 @@ def _update(args: argparse.Namespace) -> None:
         sys.exit(EXIT_CHANGES_PENDING)
 
     _print_plan(plan, as_json=False)
-    what = f'{plan.summary.ops} change(s)' if plan.exists else f'create {plan.target} and apply it'
+    what = f'{plan.summary.ops} change(s)' if plan.exists else f'create {plan.db_uri} and apply it'
     minutes = ', which rebuilds the image and takes several minutes' if plan.summary.rebuild else ''
     confirm_or_exit(
-        f'apply {what} to {plan.target}{minutes}?',
+        f'apply {what} to {plan.db_uri}{minutes}?',
         args.force,
         refused_exit_code=EXIT_REFUSED,
         on_refusal=lambda: _print_plan(plan, as_json=args.json_output),
     )
 
-    label = None if args.json_output else f'Updating {plan.target} ...'
+    label = None if args.json_output else f'Updating {plan.db_uri} ...'
     with spinner(label):
         applied = DbPlan.model_validate(
             post_request('/api/db/update', {**body, 'allow_destructive': args.allow_destructive})
@@ -244,7 +222,7 @@ def _print_plan(plan: DbPlan, *, as_json: bool, applied: bool = False) -> None:
         return
     resolution = plan.resolution
     state = (plan.status or _PENDING[resolution]) if applied else _PENDING[resolution]
-    print(f'{_MARKERS[resolution]} {plan.target:<28s} {state}  {plan.state or "absent"}')
+    print(f'{_MARKERS[resolution]} {plan.db_uri:<28s} {state}  {plan.state or "absent"}')
     for op in plan.ops:
         print(f'    {op.description}  [{op.severity}]')
     if len(plan.not_compared) > 0:
@@ -264,34 +242,15 @@ def _delete(args: argparse.Namespace) -> None:
 
 
 def _build_image(args: argparse.Namespace) -> None:
-    org, db = resolve_db_uri(args.db_uri, prog='pxt db build-image')
-
-    project_dir = (Path(args.project_dir) if args.project_dir is not None else Path.cwd()).resolve()
-
-    # a project directory holds a project file or a lockfile; the stdlib-only client cannot import core's list
-    required = ('pyproject.toml', 'uv.lock', 'poetry.lock', 'requirements.txt', 'pixeltable.toml')
-    if not any((project_dir / f).exists() for f in required):
-        print(
-            f'pxt: error: no project files (pyproject.toml, uv.lock, poetry.lock, requirements.txt, '
-            f'or pixeltable.toml) found in {project_dir}.\n'
-            'Run from your project directory or pass --project-dir.',
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
+    db_uri = _db_uri(args, 'pxt db build-image')
     label = (
         None
         if args.json_output
         else 'Shipping the project and building the image (this may take 10 minutes or longer) ...'
     )
     with spinner(label):
-        ops = [
-            DbChangeOp.model_validate(op)
-            for op in post_request(
-                '/api/db/build-image', {'project_dir': str(project_dir), 'target': f'pxt://{org}:{db}'}
-            )
-        ]
+        ops = [DbChangeOp.model_validate(op) for op in post_request('/api/db/build-image', {'db_uri': db_uri})]
     if args.json_output:
         print(json.dumps([op.model_dump(mode='json') for op in ops]))
     else:
-        print(f'Shipped the project and rebuilt the image of pxt://{org}:{db}.')
+        print(f'Shipped the project and rebuilt the image of {db_uri}.')

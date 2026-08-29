@@ -806,22 +806,19 @@ def stop_db(req: Request) -> dict[str, Any]:
     return management_client.api_call(req.body(StopDbRequest))
 
 
+# the verbs above forward a management-protocol request: the daemon is a pass-through to the control plane.
+# The three below read the project first, so they take a body of their own and call the bridge.
 @router.post('/api/db/diff')
 def db_diff(req: Request) -> types.DbPlan:
-    body = req.body(models.DbDiffBody)
-    return bridge.db_diff(body.config_file, body.target, overrides=body.overrides())
+    return bridge.db_diff(req.body(models.DbDiffBody).db_uri)
 
 
 @router.post('/api/db/update')
 def db_update(req: Request) -> types.DbPlan:
     body = req.body(models.DbUpdateBody)
-    applied = bridge.db_update(
-        body.config_file, body.target, allow_destructive=body.allow_destructive, overrides=body.overrides()
-    )
-    return applied
+    return bridge.db_update(body.db_uri, allow_destructive=body.allow_destructive)
 
 
 @router.post('/api/db/build-image')
 def db_build_image(req: Request) -> list[types.DbChangeOp]:
-    body = req.body(models.DbBuildImageBody)
-    return bridge.db_build_image(body.target)
+    return bridge.db_build_image(req.body(models.DbBuildImageBody).db_uri)

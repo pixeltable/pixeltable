@@ -580,8 +580,7 @@ class DbPlanSummary(pydantic.BaseModel):
 class DbPlan(pydantic.BaseModel):
     """Set of changes needed to reconcile a hosted database with the entry in a project that declares it."""
 
-    config_file: str
-    target: str  # the pxt://org:db uri
+    db_uri: str
     exists: bool
     state: str | None  # the database's state, None when it does not exist
     resolution: Resolution
