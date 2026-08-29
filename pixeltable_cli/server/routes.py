@@ -19,7 +19,6 @@ from pixeltable.service.management_protocol import (
     CreateDbRequest,
     DeleteDbRequest,
     DeleteSecretRequest,
-    GetBuildContextUploadUrlRequest,
     GetDbRequest,
     ListDbRequest,
     ListOrgsRequest,
@@ -27,11 +26,9 @@ from pixeltable.service.management_protocol import (
     SetSecretRequest,
     StartDbRequest,
     StopDbRequest,
-    UpdateDbRequest,
-    UpdateRuntimeRequest,
 )
 from pixeltable.types import TreeNode
-from pixeltable_cli import models, schema_types, service_types
+from pixeltable_cli import db_types, models, schema_types, service_types
 from pixeltable_cli.utils import identity
 
 from . import bridge
@@ -49,6 +46,8 @@ _IDENTITY: dict[str, Any] = identity()
 _SCHEMA_PLAN = pydantic.TypeAdapter(schema_types.SchemaPlan)
 _CHECK_REPORT = pydantic.TypeAdapter(schema_types.CheckReport)
 _SERVICE_PLAN = pydantic.TypeAdapter(service_types.ServicePlan)
+_DB_PLAN = pydantic.TypeAdapter(db_types.DbPlan)
+_DB_OPS = pydantic.TypeAdapter(list[db_types.DbChangeOp])
 _SERVICE_OPS = pydantic.TypeAdapter(list[service_types.ServiceChangeOp])
 _SERVICE_INSTANCES = pydantic.TypeAdapter(list[service_types.ServiceInstance])
 
@@ -818,18 +817,22 @@ def stop_db(req: Request) -> dict[str, Any]:
     return management_client.api_call(req.body(StopDbRequest))
 
 
+@router.post('/api/db/diff')
+def db_diff(req: Request) -> db_types.DbPlan:
+    body = req.body(models.DbDiffBody)
+    return _DB_PLAN.validate_python(bridge.db_diff(body.config_file, body.target, overrides=body.overrides()))
+
+
 @router.post('/api/db/update')
-def update_db(req: Request) -> dict[str, Any]:
-    return management_client.api_call(req.body(UpdateDbRequest))
-
-
-@router.get('/api/db/upload-url')
-def get_upload_url(req: Request) -> dict[str, Any]:
-    return management_client.api_call(
-        GetBuildContextUploadUrlRequest(org=req.required_query_str('org'), db=req.required_query_str('db'))
+def db_update(req: Request) -> db_types.DbPlan:
+    body = req.body(models.DbUpdateBody)
+    applied = bridge.db_update(
+        body.config_file, body.target, allow_destructive=body.allow_destructive, overrides=body.overrides()
     )
+    return _DB_PLAN.validate_python(applied)
 
 
-@router.post('/api/db/update-runtime')
-def trigger_runtime_update(req: Request) -> dict[str, Any]:
-    return management_client.api_call(req.body(UpdateRuntimeRequest))
+@router.post('/api/db/build-image')
+def db_build_image(req: Request) -> list[db_types.DbChangeOp]:
+    body = req.body(models.DbBuildImageBody)
+    return _DB_OPS.validate_python(bridge.db_build_image(body.target))

@@ -6,9 +6,8 @@ from typing import NamedTuple
 
 from ...schema_types import DiffResolution, OpStatus, SchemaChangeOp, SchemaPlan, drop_table_op
 from ...utils import PxtPath
-from ..confirm import confirm_or_exit
 from ..parser import Parser
-from ..utils import check_file, post_request
+from ..utils import check_file, confirm_or_exit, post_request
 
 # a working schema file: written verbatim by 'pxt schema example', and shown indented in every verb's epilog,
 # because otherwise the shape of a model file has to be guessed
@@ -243,12 +242,6 @@ Notes:
 {_SCHEMA_FILE}"""
 
 VERBS = ['diff', 'update', 'prune', 'check', 'example']
-
-# exit status: whether the target already matches the schema is reported here, not only in the output
-EXIT_IN_AGREEMENT = 0
-EXIT_ERROR = 1
-EXIT_CHANGES_PENDING = 2
-EXIT_REFUSED = 3
 
 
 class _Rendering(NamedTuple):

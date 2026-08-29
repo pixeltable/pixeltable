@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import sys
 from collections.abc import Iterable
 from pathlib import Path
+from typing import Any, Literal
 
 import pydantic
 from pathspec import PathSpec
@@ -14,8 +16,11 @@ import pixeltable
 from pixeltable import exceptions as excs
 from pixeltable.config import DatabaseConfig
 
-# a project declares its packages in one of these, so the selection always includes them
-_LOCK_FILES = ('uv.lock', 'poetry.lock', 'requirements.txt')
+# a project declares its packages in one of these
+LOCK_FILES = ('uv.lock', 'poetry.lock', 'requirements.txt')
+
+# which of the two artifacts a comparison is about, or the process that runs them both
+Scope = Literal['image', 'archive', 'restart']
 
 
 def _resolve_patterns(project_dir: Path, patterns: list[str]) -> set[Path]:
@@ -83,7 +88,7 @@ def _collect_unignored_files(project_dir: Path) -> set[Path]:
     return files
 
 
-def selected_files(project_root: Path, config: DatabaseConfig | None) -> list[Path]:
+def _archive_files(project_root: Path, config: DatabaseConfig | None) -> list[Path]:
     """The files that go into an image, and into the fingerprint.
 
     Everything git would not ignore, adjusted by the entry's include/exclude patterns, plus the lockfile,
@@ -111,8 +116,61 @@ def selected_files(project_root: Path, config: DatabaseConfig | None) -> list[Pa
         if include is not None:
             files |= _resolve_patterns(project_root, include)
 
-    files |= {project_root / name for name in _LOCK_FILES if (project_root / name).is_file()}
+    files |= {project_root / name for name in LOCK_FILES if (project_root / name).is_file()}
     return sorted(files)
+
+
+def create_project_archive(
+    project_dir: Path | None = None, db_config: DatabaseConfig | None = None, show_progress: bool = False
+) -> Path:
+    """Produce an archive (tar file) of the project files, as selected by db_config.
+
+    Includes every git-recognized file below the project root, plus the lockfile.
+    """
+    if project_dir is None:
+        project_dir = Path.cwd()
+    project_dir = project_dir.resolve()
+
+    if not project_dir.is_dir():
+        raise FileNotFoundError(f'Project directory does not exist: {project_dir}')
+
+    files = _archive_files(project_dir, db_config)
+    has_lockfile = any(file.parent == project_dir and file.name in LOCK_FILES for file in files)
+
+    print(f'Packaging {len(files)} files from {project_dir}.')
+    print(
+        'By default, all files not ignored by .gitignore are included; '
+        'you can adjust this behavior with include/exclude in pixeltable.toml.'
+    )
+
+    if not has_lockfile:
+        Env.get().console_logger.warning(
+            'No dependency lockfile (uv.lock, poetry.lock, requirements.txt) was found in '
+            f'{project_dir}.\nThe image will hold Pixeltable and nothing else, so it may not have the '
+            'Python dependencies the project needs. An active conda environment is not a substitute: '
+            "run 'uv lock', or write a requirements.txt."
+        )
+
+    fd, name = tempfile.mkstemp(suffix='.tar.bz2', prefix='pxt_project_')
+    os.close(fd)
+    archive_path = Path(name)
+
+    max_pathlen = 40
+    with (
+        tarfile.open(archive_path, 'w:bz2') as tf,
+        tqdm(desc='Packaging project', total=len(files), unit=' files', disable=not show_progress) as bar,
+    ):
+        for f in files:
+            relpath = str(f.relative_to(project_dir))
+            abbrev_path = relpath if len(relpath) <= max_pathlen else '…' + relpath[-(max_pathlen - 1) :]
+            # refresh=False: the postfix is drawn by the following update(), which respects tqdm's redraw interval
+            bar.set_postfix_str(abbrev_path, refresh=False)
+            tf.add(f, arcname=f'project/{relpath}')
+            bar.update(1)
+        bar.set_postfix_str('', refresh=False)
+
+    _logger.info(f'Project archive created: {archive_path}')
+    return archive_path
 
 
 class ProjectFingerprint(pydantic.BaseModel):
@@ -133,35 +191,74 @@ class ProjectFingerprint(pydantic.BaseModel):
     vars: dict[str, str]
     secrets: dict[str, str]
 
-    def rebuild_needed(self, deployed: ProjectFingerprint) -> bool:
-        """Whether an image built from deployed would differ from one built now."""
-        return self._build_inputs() != deployed._build_inputs()
+    def image_needed(self, other: ProjectFingerprint) -> bool:
+        """Whether an image built from other would differ from one built now."""
+        return self._image_inputs() != other._image_inputs()
 
-    def restart_needed(self, deployed: ProjectFingerprint) -> bool:
-        """Whether a process started from deployed would differ from one started now."""
-        return self != deployed
+    def archive_needed(self, other: ProjectFingerprint) -> bool:
+        """Whether an archive packaged from other would differ from one packaged now."""
+        return self.files != other.files
 
-    def changes(self, deployed: ProjectFingerprint) -> list[str]:
-        """What differs from deployed, one printable line each."""
+    def restart_needed(self, other: ProjectFingerprint) -> bool:
+        """Whether a process started from other would differ from one started now."""
+        return self != other
+
+    def image_digest(self) -> str:
+        """The identity of an image built for this environment.
+
+        Two fingerprints share it exactly when image_needed() reports no difference, so an environment
+        that has been built once is never built again, whichever project declares it.
+        """
+        return _digest(self._image_inputs())
+
+    def archive_digest(self) -> str:
+        """The identity of the archive this project's files package into.
+
+        Two fingerprints share it exactly when archive_needed() reports no difference.
+        """
+        return _digest(self.files)
+
+    def changes(self, other: ProjectFingerprint, scope: Scope = 'restart') -> list[str]:
+        """What differs from other within scope, one printable line each.
+
+        'image' covers the environment an image is built from, 'archive' the project's files, and 'restart'
+        everything a running process holds.
+        """
+        selected = self._lock_files() if scope == 'image' else self.files
+        deployed_selected = other._lock_files() if scope == 'image' else other.files
         lines = [
             f'{path} changed'
-            for path in sorted(set(self.files) & set(deployed.files))
-            if self.files[path] != deployed.files[path]
+            for path in sorted(set(selected) & set(deployed_selected))
+            if selected[path] != deployed_selected[path]
         ]
-        lines += [f'{path} added' for path in sorted(set(self.files) - set(deployed.files))]
-        lines += [f'{path} removed' for path in sorted(set(deployed.files) - set(self.files))]
+        lines += [f'{path} added' for path in sorted(set(selected) - set(deployed_selected))]
+        lines += [f'{path} removed' for path in sorted(set(deployed_selected) - set(selected))]
+        if scope == 'archive':
+            return lines
+
         for field in ('python_version', 'pixeltable_version'):
-            was, now = getattr(deployed, field), getattr(self, field)
+            was, now = getattr(other, field), getattr(self, field)
             if was != now:
                 lines.append(f'{field} {was} -> {now}')
-        if self.system_dependencies != deployed.system_dependencies:
+        if self.system_dependencies != other.system_dependencies:
             lines.append('system_dependencies changed')
-        lines += [f'var {name} changed' for name in _changed_keys(self.vars, deployed.vars)]
-        lines += [f'secret {name} changed' for name in _changed_keys(self.secrets, deployed.secrets)]
+        if scope == 'image':
+            return lines
+
+        lines += [f'var {name} changed' for name in _changed_keys(self.vars, other.vars)]
+        lines += [f'secret {name} changed' for name in _changed_keys(self.secrets, other.secrets)]
         return lines
 
-    def _build_inputs(self) -> tuple:
-        return (self.files, self.python_version, self.system_dependencies, self.pixeltable_version)
+    def _image_inputs(self) -> tuple:
+        return (self._lock_files(), self.python_version, self.system_dependencies, self.pixeltable_version)
+
+    def _lock_files(self) -> dict[str, str]:
+        """The selected lockfiles: an image installs the project's packages from one of them."""
+        return {path: content_hash for path, content_hash in self.files.items() if path in LOCK_FILES}
+
+
+def _digest(value: Any) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
 def _changed_keys(now: dict[str, str], was: dict[str, str]) -> list[str]:
@@ -173,7 +270,7 @@ def project_fingerprint(project_root: Path, config: DatabaseConfig | None) -> Pr
 
     This decides whether an image is out of date, since an image holds the whole project.
     """
-    return _fingerprint(selected_files(project_root, config), project_root, config)
+    return _fingerprint(_archive_files(project_root, config), project_root, config)
 
 
 def loaded_fingerprint(project_root: Path, config: DatabaseConfig | None) -> ProjectFingerprint:
@@ -193,7 +290,7 @@ def loaded_fingerprint(project_root: Path, config: DatabaseConfig | None) -> Pro
         if file is not None
     }
     files = [path for path in loaded if path.is_relative_to(project_root) and path.is_file()]
-    files += [project_root / name for name in _LOCK_FILES if (project_root / name).is_file()]
+    files += [project_root / name for name in LOCK_FILES if (project_root / name).is_file()]
     return _fingerprint(files, project_root, config)
 
 

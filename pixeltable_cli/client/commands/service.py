@@ -8,9 +8,8 @@ from pathlib import Path
 
 from ...service_types import ServiceChangeOp, ServiceInstance, ServicePlan, ServiceResolution, delete_service_op
 from ...utils import PxtPath, split_pxt_uri
-from ..confirm import confirm_or_exit
 from ..parser import Parser
-from ..utils import check_file, get_request, post_request
+from ..utils import check_file, confirm_or_exit, get_request, post_request
 
 _EXAMPLE_APP = '''\
 """Pixeltable application, written by 'pxt service example'.
@@ -64,7 +63,7 @@ ingest.add_compute_route(Docs, path='/titles', inputs=[Docs.title], outputs=[Doc
 _HOSTED = """
 Hosted databases:
   TARGET may be a pxt:// uri, and the services then run in that database rather than on this machine.
-  'pxt db update-runtime' ships the project's code there first, and 'pxt schema update' creates the
+  'pxt db update' ships the project's code there first, and 'pxt schema update' creates the
   tables; 'run' is local only, since it serves from the calling process.
 """
 
@@ -160,10 +159,6 @@ Notes:
 
 VERBS = ('diff', 'update', 'run', 'prune', 'stop', 'list', 'check', 'example')
 
-EXIT_IN_AGREEMENT = 0
-EXIT_ERROR = 1
-EXIT_CHANGES_PENDING = 2
-EXIT_REFUSED = 3
 
 _MARKERS: dict[ServiceResolution, str] = {
     'up_to_date': '=',

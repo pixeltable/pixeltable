@@ -137,7 +137,7 @@ def resolve_dot_segments(path: str) -> str:
 
 
 PROJECT_CONFIG_FILE = 'pixeltable.toml'
-_PYPROJECT = 'pyproject.toml'
+PYPROJECT_FILE = 'pyproject.toml'
 
 
 def find_project_root(start: Path) -> Path | None:
@@ -149,7 +149,7 @@ def find_project_root(start: Path) -> Path | None:
     for dir in (start, *start.parents):
         if (dir / PROJECT_CONFIG_FILE).is_file():
             return dir
-        pyproject = dir / _PYPROJECT
+        pyproject = dir / PYPROJECT_FILE
         if pyproject.is_file():
             try:
                 with open(pyproject, 'rb') as fp:

@@ -28,8 +28,10 @@ class ManagementOperationType(str, Enum):
     START_DB = 'start_db'
     STOP_DB = 'stop_db'
     UPDATE_DB = 'update_db'
-    UPDATE_RUNTIME = 'update_runtime'
-    GET_BUILD_CONTEXT_UPLOAD_URL = 'get_build_context_upload_url'
+    BUILD_IMAGE = 'build_image'
+    SET_PROJECT = 'set_project'
+    GET_PROJECT = 'get_project'
+    GET_PROJECT_UPLOAD_URL = 'get_project_upload_url'
 
     LIST_ORGS = 'list_orgs'
 
@@ -117,24 +119,64 @@ class StopDbRequest(BaseModel):
     db: str
 
 
-class UpdateRuntimeRequest(BaseModel):
-    operation_type: Literal[ManagementOperationType.UPDATE_RUNTIME] = ManagementOperationType.UPDATE_RUNTIME
+class BuildImageRequest(BaseModel):
+    """Build the image the database's pods run on.
+
+    The image holds the environment and no project code, so image_digest identifies it and any database
+    declaring that environment can run it. The build reads the lockfile out of the archive project_key
+    names, and nothing else out of it.
+    """
+
+    operation_type: Literal[ManagementOperationType.BUILD_IMAGE] = ManagementOperationType.BUILD_IMAGE
     org: str | None = None
     db: str
-    build_context_key: str
+    project_key: str
+    # ProjectFingerprint.image_digest()
+    image_digest: str
+    python_version: str
+    system_dependencies: list[str] = []
+    # the metadata schema version of the Pixeltable that packaged the archive
+    pxt_md_version: int
 
 
-class GetBuildContextUploadUrlRequest(BaseModel):
-    operation_type: Literal[ManagementOperationType.GET_BUILD_CONTEXT_UPLOAD_URL] = (
-        ManagementOperationType.GET_BUILD_CONTEXT_UPLOAD_URL
+class SetProjectRequest(BaseModel):
+    """Point the database's pods at a stored project archive, restarting them to fetch it."""
+
+    operation_type: Literal[ManagementOperationType.SET_PROJECT] = ManagementOperationType.SET_PROJECT
+    org: str | None = None
+    db: str
+    project_key: str
+
+
+class GetProjectRequest(BaseModel):
+    """Ask for a url serving the database's current project archive; a pod sends this as it starts."""
+
+    operation_type: Literal[ManagementOperationType.GET_PROJECT] = ManagementOperationType.GET_PROJECT
+    org: str | None = None
+    db: str
+
+
+class GetProjectResponse(BaseModel):
+    presigned_url: str
+    project_key: str
+    # ProjectFingerprint.archive_digest() of the archive the url serves
+    digest: str
+
+
+class GetProjectUploadUrlRequest(BaseModel):
+    operation_type: Literal[ManagementOperationType.GET_PROJECT_UPLOAD_URL] = (
+        ManagementOperationType.GET_PROJECT_UPLOAD_URL
     )
     org: str | None = None
     db: str
+    # ProjectFingerprint.archive_digest(); the control plane keys the stored archive by it
+    digest: str
 
 
-class GetBuildContextUploadUrlResponse(BaseModel):
-    presigned_url: str
-    build_context_key: str
+class GetProjectUploadUrlResponse(BaseModel):
+    project_key: str
+    # None when the digest names a stored archive: nothing left to upload
+    presigned_url: str | None = None
 
 
 # Secrets

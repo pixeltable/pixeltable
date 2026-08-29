@@ -30,14 +30,14 @@ ConfVarT = TypeVar('ConfVarT', bound=str)
 
 
 class DatabaseConfig(pydantic.BaseModel):
-    """One [[pixeltable.database]] entry: what a project supplies for one of the databases it uses."""
+    """The contents of a [[pixeltable.database]] entry from the project config."""
 
     model_config = pydantic.ConfigDict(extra='forbid')
 
-    # the database this entry configures: 'local', or the pxt://org:db uri of a hosted one
+    # the database name ('local', or the uri of a hosted one)
     name: str = 'local'
 
-    # bindings for the config vars and secrets a schema declares
+    # bindings for the config vars and secrets
     vars: dict[str, str] | None = None
     secrets: dict[str, str] | None = None
 
@@ -49,6 +49,16 @@ class DatabaseConfig(pydantic.BaseModel):
     system_dependencies: list[str] | None = None
     # Override the runtime Python version.
     python_version: str | None = None
+
+    # hosted db resources
+    cpu: float | None = None
+    memory_mb: int | None = None
+    disk_gb: int | None = None
+    workers: int | None = None
+
+    # fixed when the database is created, so declaring them addresses a database that does not exist yet
+    location: str | None = None
+    region: str | None = None
 
     @pydantic.field_validator('system_dependencies')
     @classmethod
@@ -656,6 +666,15 @@ class Config:
                 )
             return default
         return os.environ[env_var]
+
+    #def get_database_config(self, name: str = LOCAL_DATABASE) -> DatabaseConfig | None:
+    def get_database_config(self, path: 'catalog.Path') -> DatabaseConfig | None:
+        """The [[pixeltable.database]] entry for the given path, if present."""
+        db_name = LOCAL_DATABASE if path.is_local else path.catalog_uri.uri_str
+        databases = self.get_value('database', list)
+        if databases is None:
+            return None
+        return next((db for db in databases if db.name == db_name), None)
 
     def __database_bindings(self, section: str) -> dict[str, tuple[str, Path | None]]:
         """Return the local database's vars or secrets, each with the file that supplied it.

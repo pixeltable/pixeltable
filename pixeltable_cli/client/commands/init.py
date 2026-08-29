@@ -22,7 +22,7 @@ What it writes:
     secrets.openai_api_key = '...'
 
   vars and secrets bind the config vars a schema declares. A hosted database is a second entry,
-  named by its uri, which also carries what goes into its runtime image ('pxt db update-runtime').
+  named by its uri, which also carries what goes into its image ('pxt db update').
   In a directory that already holds a pyproject.toml, the same entry is appended there as
   [[tool.pixeltable.database]] rather than writing a second file.
   A directory that already holds a project configuration is reported, and left as it is.

@@ -12,17 +12,32 @@ import datetime
 import io
 import json
 import logging
+import os
 import re
+import time
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs, exprs
+from pixeltable import exceptions as excs, exprs, metadata
 from pixeltable.catalog import Path as CatalogPath, model
-from pixeltable.config import Config
+from pixeltable.config import Config, DatabaseConfig
 from pixeltable.env import Env
+from pixeltable.service import management_client
+from pixeltable.service.management_protocol import (
+    BuildImageRequest,
+    CreateDbRequest,
+    DeleteSecretRequest,
+    GetDbRequest,
+    ListSecretsRequest,
+    ListSecretsResponse,
+    SetProjectRequest,
+    SetSecretRequest,
+    UpdateDbRequest,
+)
 from pixeltable.utils.app_module import (
     check_udf_references,
     get_model_bases,
@@ -35,9 +50,9 @@ from pixeltable.utils.app_module import (
     shadowed_project_modules,
     visible_models,
 )
-from pixeltable.utils.project import ProjectFingerprint, loaded_fingerprint
-from pixeltable_cli import schema_types, service_types
-from pixeltable_cli.utils import PxtPath
+from pixeltable.utils.project import ProjectFingerprint, loaded_fingerprint, project_fingerprint
+from pixeltable_cli import db_types, schema_types, service_types
+from pixeltable_cli.utils import PROJECT_CONFIG_FILE, PYPROJECT_FILE, PxtPath, split_pxt_uri
 
 _logger = logging.getLogger(__name__)
 
@@ -45,6 +60,7 @@ if TYPE_CHECKING:
     import fastapi
 
     from pixeltable import exprs
+    from pixeltable.service.db_diff import DatabaseState, DbChangeOp
     from pixeltable.serving import FastAPIRouter
     from pixeltable.serving._diff import ServiceChangeOp
     from pixeltable.serving.service_manager import ServiceManagerBase
@@ -1014,3 +1030,334 @@ def service_list(target: PxtPath | None = None) -> list[service_types.ServiceIns
         )
         for i in sorted(instances, key=lambda i: (i.base_path, i.service_name))
     ]
+
+
+_DB_DESTRUCTIVE_HINT = "Re-run 'pxt db update' with --allow-destructive to apply these changes."
+
+# a declared secret names the environment variable holding its value, as 'env:NAME'
+_ENV_BINDING = 'env:'
+
+# how long a hosted database may stay in a transitional state before an update gives up on it
+_DB_SETTLE_TIMEOUT = 1200.0
+_DB_POLL_INTERVAL = 5.0
+
+# the states a database passes through while it applies something
+_DB_TRANSITIONAL = frozenset({'PROVISIONING', 'UPDATING', 'STARTING', 'STOPPING'})
+
+
+def db_diff(config_file: str, target: str, *, overrides: dict[str, float | int] | None = None) -> db_types.DbPlan:
+    """The changes that reconciling the database at target with the entry declaring it would make.
+
+    Read-only: nothing is built, resized or set.
+
+    Args:
+        config_file: the project's pixeltable.toml or pyproject.toml.
+        target: the pxt://org:db uri of the database the entry configures.
+        overrides: capacity fields that stand in for what the entry declares, for this call.
+    """
+    from pixeltable.service.db_diff import compare_db
+
+    entry, project_dir, org, db = _db_entry(config_file, target, overrides)
+    current = _db_state(org, db)
+    if current is None:
+        return _db_plan(config_file, target, None, [], [])
+
+    fingerprint = project_fingerprint(project_dir, entry)
+    ops, not_compared = compare_db(entry, current, fingerprint, _secret_keys(org, db))
+    return _db_plan(config_file, target, current.state, ops, not_compared)
+
+
+def db_update(
+    config_file: str, target: str, *, allow_destructive: bool = False, overrides: dict[str, float | int] | None = None
+) -> db_types.DbPlan:
+    """Reconcile the database at target with the entry declaring it: create it if it is absent, then apply
+    secrets, the two artifacts, and capacity, in that order.
+
+    Secrets go first, since code the pods run reads them as they start; capacity last, so that the resize
+    restarts pods already on the new image and the new sources. A placement difference is skipped, since no
+    update can carry it out.
+
+    Returns the plan that was applied, each operation annotated with its status.
+
+    Args:
+        config_file: the project's pixeltable.toml or pyproject.toml.
+        target: the pxt://org:db uri of the database the entry configures.
+        allow_destructive: whether to apply changes that take capacity away or delete a secret.
+        overrides: capacity fields that stand in for what the entry declares, for this call.
+    """
+    entry, project_dir, org, db = _db_entry(config_file, target, overrides)
+    plan = db_diff(config_file, target, overrides=overrides)
+    if plan['destructive'] and not allow_destructive:
+        for op in plan['ops']:
+            op['status'] = 'refused'
+        destructive = ', '.join(op['name'] for op in plan['ops'] if op['destructive'])
+        raise excs.RequestError(
+            excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE,
+            f'Reconciling {target} would apply destructive changes: {destructive}.\n{_DB_DESTRUCTIVE_HINT}',
+        )
+
+    if not plan['exists']:
+        management_client.api_call(
+            CreateDbRequest(
+                org=org,
+                db=db,
+                location=entry.location,
+                region=entry.region,
+                **{
+                    field: value
+                    for field, value in (('cpu', entry.cpu), ('memory_mb', entry.memory_mb), ('disk_gb', entry.disk_gb))
+                    if value is not None
+                },
+            )
+        )
+        _await_db_settled(org, db)
+
+    for op in _ops_on(plan, 'placement'):
+        op['status'] = 'skipped'
+    for op in _ops_on(plan, 'secret'):
+        _apply_secret_op(org, db, op, entry)
+        op['status'] = 'applied'
+    if plan['summary']['rebuild'] or len(_ops_on(plan, 'project')) > 0:
+        # both artifacts come from one archive, so it is stored once whichever of the two moved
+        key = _upload(project_dir, org, db)
+        for op in _ops_on(plan, 'image'):
+            _build_image(project_dir, org, db, key)
+            op['status'] = 'applied'
+        for op in _ops_on(plan, 'project'):
+            _set_project(org, db, key)
+            op['status'] = 'applied'
+
+    changed = {op['name'] for op in _ops_on(plan, 'capacity')}
+    if len(changed) > 0:
+        # one request carrying every changed number, so the pods restart once
+        management_client.api_call(
+            UpdateDbRequest(
+                org=org,
+                db=db,
+                workers=entry.workers if 'workers' in changed else None,
+                cpu=entry.cpu if 'cpu' in changed else None,
+                memory_mb=entry.memory_mb if 'memory_mb' in changed else None,
+                disk_gb=entry.disk_gb if 'disk_gb' in changed else None,
+            )
+        )
+        for op in _ops_on(plan, 'capacity'):
+            op['status'] = 'applied'
+
+    plan['state'] = _await_db_settled(org, db).state
+    plan['exists'] = True
+    plan['status'] = 'applied'
+    return plan
+
+
+def _ops_on(plan: db_types.DbPlan, target: db_types.Target) -> list[db_types.DbChangeOp]:
+    """The plan's operations against one target."""
+    return [op for op in plan['ops'] if op['target'] == target]
+
+
+def db_build_image(uri: str) -> list[db_types.DbChangeOp]:
+    """Ship the project under project_dir to the database at target and build its image, and wait for both.
+
+    Ships and builds whatever the project holds, without comparing it to the database first.
+    """
+    org, db = _db_uri(uri)
+    ops = [_db_plan_op(_image_built_op()), _db_plan_op(_project_shipped_op())]
+    key = _upload(Path(project_dir), org, db)
+    _build_image(Path(project_dir), org, db, key)
+    _set_project(org, db, key)
+    for op in ops:
+        op['status'] = 'applied'
+    return ops
+
+
+def _upload(project_dir: Path, org: str, db: str) -> str:
+    """Store the project's archive and return the key the control plane holds it under."""
+    from pixeltable.service.project_archive import upload_project_archive
+
+    return upload_project_archive(project_dir, org, db)
+
+
+def _build_image(project_dir: Path, org: str, db: str, project_key: str) -> None:
+    """Ask for the image the project's environment builds, and wait for the build."""
+    from pixeltable.service.project_archive import database_config
+
+    fingerprint = project_fingerprint(project_dir, database_config(project_dir, f'pxt://{org}:{db}'))
+    management_client.api_call(
+        BuildImageRequest(
+            org=org,
+            db=db,
+            project_key=project_key,
+            image_digest=fingerprint.image_digest(),
+            python_version=fingerprint.python_version,
+            system_dependencies=fingerprint.system_dependencies,
+            pxt_md_version=metadata.VERSION,
+        )
+    )
+    current = _await_db_settled(org, db)
+    if current.last_build_state == 'FAILED':
+        raise excs.ExternalServiceError(
+            excs.ErrorCode.PROVIDER_ERROR,
+            f'The image build for pxt://{org}:{db} failed: {current.last_build_error or "no reason was reported"}',
+            provider='pixeltable_cloud',
+        )
+
+
+def _set_project(org: str, db: str, project_key: str) -> None:
+    """Point the database's pods at the stored archive, and wait for them to come back on it."""
+    management_client.api_call(SetProjectRequest(org=org, db=db, project_key=project_key))
+    _await_db_settled(org, db)
+
+
+def _db_uri(uri: str) -> tuple[str, str]:
+    """The org and database a pxt://org:db uri names."""
+    parts = split_pxt_uri(uri)
+    if parts is None or parts.db is None:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT, f'{uri!r} does not name a hosted database; write pxt://org:db'
+        )
+    return parts.org, parts.db
+
+
+def _db_entry(
+    config_file: str, target: str, overrides: dict[str, float | int] | None = None
+) -> tuple[DatabaseConfig, Path, str, str]:
+    """The entry that configures target, the project root holding it, and target's org and database.
+
+    overrides replace the capacity fields the entry declares, so that a flag decides one invocation.
+    """
+    from pixeltable.service.project_archive import database_config
+
+    org, db = _db_uri(target)
+    path = Path(config_file)
+    if path.name not in (PROJECT_CONFIG_FILE, PYPROJECT_FILE):
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_ARGUMENT,
+            f'{config_file}: a project is configured in {PROJECT_CONFIG_FILE} or {PYPROJECT_FILE}',
+        )
+    project_dir = path.resolve().parent
+    entry = database_config(project_dir, f'pxt://{org}:{db}')
+    if entry is None:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'{config_file} declares no database {f"pxt://{org}:{db}"!r}; '
+            'add a [[pixeltable.database]] entry naming it',
+        )
+    if overrides is not None and len(overrides) > 0:
+        entry = entry.model_copy(update=overrides)
+    return entry, project_dir, org, db
+
+
+def _db_state(org: str, db: str) -> DatabaseState | None:
+    """What the control plane reports about the named database; None if it holds no such database."""
+    from pixeltable.service.db_diff import DatabaseState
+
+    try:
+        response = management_client.api_call(GetDbRequest(org=org, db=db))
+    except excs.ExternalServiceError as e:
+        if e.provider_http_status_code != 404:
+            raise
+        return None
+    return DatabaseState.model_validate(response.get('database', response))
+
+
+def _secret_keys(org: str, db: str) -> list[str]:
+    """The keys of the secrets the named database holds."""
+    response = ListSecretsResponse.model_validate(management_client.api_call(ListSecretsRequest(org=org, db=db)))
+    return response.keys
+
+
+def _apply_secret_op(org: str, db: str, op: db_types.DbChangeOp, entry: DatabaseConfig) -> None:
+    """Apply one secret operation: set the declared value, or delete the key."""
+    key = op['name']
+    if op['op'] == 'drop':
+        management_client.api_call(DeleteSecretRequest(org=org, db=db, key=key))
+        return
+    binding = (entry.secrets or {})[key]
+    management_client.api_call(SetSecretRequest(org=org, db=db, key=key, value=_secret_value(key, binding)))
+
+
+def _secret_value(key: str, binding: str) -> str:
+    """Read a declared secret's value from the environment variable its binding names."""
+    name = binding[len(_ENV_BINDING) :] if binding.startswith(_ENV_BINDING) else None
+    if name is None:
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f"secret {key!r} is declared as {binding!r}; write '{_ENV_BINDING}NAME' to name the environment "
+            'variable holding the value, which keeps the value out of the project',
+        )
+    value = os.environ.get(name)
+    if value is None or value == '':
+        raise excs.RequestError(
+            excs.ErrorCode.INVALID_CONFIGURATION,
+            f'secret {key!r} is bound to {name}, which is not set in the environment',
+        )
+    return value
+
+
+def _await_db_settled(org: str, db: str) -> DatabaseState:
+    """Poll the named database until it leaves a transitional state, and return the state it reached."""
+    from pixeltable.service.db_diff import DatabaseState
+
+    deadline = time.monotonic() + _DB_SETTLE_TIMEOUT
+    while True:
+        current = _db_state(org, db)
+        state = '' if current is None else current.state
+        if state not in _DB_TRANSITIONAL:
+            return DatabaseState() if current is None else current
+        if time.monotonic() >= deadline:
+            raise excs.ExternalServiceError(
+                excs.ErrorCode.PROVIDER_TIMEOUT,
+                f'pxt://{org}:{db} is still {state} after {int(_DB_SETTLE_TIMEOUT)}s',
+                provider='pixeltable_cloud',
+            )
+        time.sleep(_DB_POLL_INTERVAL)
+
+
+
+def _db_plan(
+    config_file: str, target: str, state: str | None, ops: list[DbChangeOp], not_compared: list[str]
+) -> db_types.DbPlan:
+    """The plan the given operations describe; a state of None is a database that does not exist."""
+    plan_ops = [_db_plan_op(op) for op in ops]
+    resolution: db_types.DbResolution
+    if state is None:
+        resolution = 'create'
+    elif any(op['severity'] == 'unsupported' for op in plan_ops):
+        resolution = 'unsupported'
+    elif any(op['destructive'] for op in plan_ops):
+        resolution = 'update_destructive'
+    elif len(plan_ops) > 0:
+        resolution = 'update_additive'
+    else:
+        resolution = 'up_to_date'
+    return {
+        'config_file': config_file,
+        'target': target,
+        'exists': state is not None,
+        'state': state,
+        'resolution': resolution,
+        'in_agreement': resolution == 'up_to_date',
+        'ops': plan_ops,
+        'not_compared': not_compared,
+        'destructive': any(op['destructive'] for op in plan_ops),
+        'summary': {
+            'ops': len(plan_ops),
+            'destructive': sum(1 for op in plan_ops if op['destructive']),
+            'unsupported': sum(1 for op in plan_ops if op['severity'] == 'unsupported'),
+            'rebuild': any(op['target'] == 'image' for op in plan_ops),
+            'restarts': any(op['requires_restart'] for op in plan_ops),
+        },
+    }
+
+
+def _db_plan_op(op: DbChangeOp) -> db_types.DbChangeOp:
+    """The CLI-side form of a database operation."""
+    return {
+        'target': op['target'],
+        'name': op['name'],
+        'op': op['op'],
+        'severity': op['severity'],
+        'description': op['description'],
+        'details': op['details'],
+        'requires_restart': op['requires_restart'],
+        'destructive': op['severity'] == 'destructive',
+    }

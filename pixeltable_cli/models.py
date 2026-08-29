@@ -244,6 +244,33 @@ class ServiceUpdateBody(BaseModel):
     otel: bool = False
 
 
+class DbCapacityBody(BaseModel):
+    """Capacity that stands in for what the project's entry declares, for one invocation."""
+
+    cpu: float | None = None
+    memory_mb: int | None = None
+    disk_gb: int | None = None
+    workers: int | None = None
+
+    def overrides(self) -> dict[str, float | int]:
+        """The fields that were given, keyed as DatabaseConfig names them."""
+        return {field: value for field, value in self.model_dump().items() if value is not None}
+
+
+class DbDiffBody(DbCapacityBody):
+    config_file: str  # absolute filesystem path to the project's config file on the daemon host
+    target: str  # the pxt://org:db uri of the database the project's entry configures
+
+
+class DbUpdateBody(DbCapacityBody):
+    target: str
+    allow_destructive: bool = False
+
+
+class DbBuildImageBody(BaseModel):
+    target: str
+
+
 class ServiceStopBody(BaseModel):
     names: list[str]
     target: PxtPath

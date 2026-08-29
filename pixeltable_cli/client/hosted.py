@@ -17,8 +17,6 @@ from .utils import get_request, print_aligned
 
 DB_POLL_INTERVAL = 5
 DB_POLL_TIMEOUT = 600
-RUNTIME_POLL_INTERVAL = 10
-RUNTIME_POLL_TIMEOUT = 900
 
 
 def parse_db_uri(uri: str, prog: str = 'pxt') -> tuple[str, str]:
@@ -153,7 +151,7 @@ def print_org(org: dict[str, Any]) -> None:
 
 
 @contextlib.contextmanager
-def _spinner(label: str | None) -> Iterator[None]:
+def spinner(label: str | None) -> Iterator[None]:
     """Display a transient progress spinner showing label for the duration of the block; None displays nothing."""
     if label is None:
         yield
@@ -190,7 +188,7 @@ def poll_state(
     """
     result: dict[str, Any] = {}
     deadline = time.monotonic() + timeout
-    with _spinner(label):
+    with spinner(label):
         while time.monotonic() < deadline:
             time.sleep(interval)
             try:

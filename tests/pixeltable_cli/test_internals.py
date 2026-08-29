@@ -33,24 +33,23 @@ import pytest
 import requests
 import typing_extensions
 
-from pixeltable import exceptions as excs
+from pixeltable import exceptions as excs, metadata
 from pixeltable.catalog import model
-from pixeltable.service import management_client
+from pixeltable.service import management_client, project_archive as project_archive_module
 from pixeltable.service.management_protocol import (
     CreateDbRequest,
     DeleteDbRequest,
-    GetBuildContextUploadUrlRequest,
     GetDbRequest,
     ListDbRequest,
     ListOrgsRequest,
     ManagementOperationType,
     StartDbRequest,
     StopDbRequest,
-    UpdateDbRequest,
-    UpdateRuntimeRequest,
 )
+from pixeltable.service.project_archive import database_config
 from pixeltable.serving.service_instance import ServiceInstanceState
 from pixeltable.utils.app_module import load_app_module, module_routers, service_spec, services_by_name
+from pixeltable.utils.project import project_fingerprint
 from pixeltable_cli import schema_types as wire, utils
 from pixeltable_cli.client import confirm, hosted, main as client_main, parser as client_parser, utils as client_utils
 from pixeltable_cli.client.commands import (
@@ -61,7 +60,7 @@ from pixeltable_cli.client.commands import (
     shell as shell_cmd,
     status as status_cmd,
 )
-from pixeltable_cli.server import daemon as server_daemon, router as server_router, routes as server_routes
+from pixeltable_cli.server import bridge, daemon as server_daemon, router as server_router, routes as server_routes
 from tests.utils import pxt_raises, skip_test_if_not_installed
 
 
@@ -1652,7 +1651,7 @@ class TestHostedCommandHelp:
     @pytest.mark.parametrize(
         ('module', 'argv', 'expected'),
         [
-            (db_cmd, ['--help'], ['create', 'list', 'update', 'update-runtime', 'status']),
+            (db_cmd, ['--help'], ['diff', 'update', 'create', 'list', 'build-image', 'status']),
             (db_cmd, ['update', '--help'], ['--workers', '--cpu']),
             (org_cmd, ['--help'], ['list', 'status']),
         ],
@@ -1699,27 +1698,12 @@ _POST_ROUTE_REQUESTS = [
     (server_routes.delete_db, {'org': 'acme', 'db': 'main'}, DeleteDbRequest(org='acme', db='main')),
     (server_routes.start_db, {'org': 'acme', 'db': 'main'}, StartDbRequest(org='acme', db='main')),
     (server_routes.stop_db, {'org': 'acme', 'db': 'main'}, StopDbRequest(org='acme', db='main')),
-    (
-        server_routes.update_db,
-        {'org': 'acme', 'db': 'main', 'workers': 2, 'cpu': 1.5, 'memory_mb': 1024, 'disk_gb': 20},
-        UpdateDbRequest(org='acme', db='main', workers=2, cpu=1.5, memory_mb=1024, disk_gb=20),
-    ),
-    (
-        server_routes.trigger_runtime_update,
-        {'org': 'acme', 'db': 'main', 'build_context_key': 'contexts/acme/main.tar.bz2'},
-        UpdateRuntimeRequest(org='acme', db='main', build_context_key='contexts/acme/main.tar.bz2'),
-    ),
 ]
 
 _GET_ROUTE_REQUESTS = [
     (server_routes.list_orgs, {}, ListOrgsRequest()),
     (server_routes.list_dbs, {'org': ['acme']}, ListDbRequest(org='acme')),
     (server_routes.get_db, {'org': ['acme'], 'db': ['main']}, GetDbRequest(org='acme', db='main')),
-    (
-        server_routes.get_upload_url,
-        {'org': ['acme'], 'db': ['main']},
-        GetBuildContextUploadUrlRequest(org='acme', db='main'),
-    ),
 ]
 
 
@@ -1788,12 +1772,6 @@ class TestHostedCommandRequests:
                 ['create', 'pxt://acme:main'],
                 server_routes.create_db,
                 CreateDbRequest(org='acme', db='main', location='aws', region='us-east-1'),
-            ),
-            (
-                db_cmd,
-                ['update', 'pxt://acme:main', '--workers', '2'],
-                server_routes.update_db,
-                UpdateDbRequest(org='acme', db='main', workers=2),
             ),
             (db_cmd, ['start', 'pxt://acme:main'], server_routes.start_db, StartDbRequest(org='acme', db='main')),
             (db_cmd, ['stop', 'pxt://acme:main'], server_routes.stop_db, StopDbRequest(org='acme', db='main')),
@@ -1969,6 +1947,217 @@ class TestHostedServiceManager:
         assert instance is not None
         instance.delete()
         assert manager.get('ingest', 'app') is None
+
+
+class TestHostedDatabase:
+    """What `pxt db diff` compares, and what `pxt db update` applies in what order."""
+
+    @pytest.fixture
+    def api(self, monkeypatch: pytest.MonkeyPatch) -> Any:
+        """A management API holding one database and its secrets, recording every request it is sent."""
+
+        class Api:
+            database: dict[str, Any] | None
+            secrets: dict[str, str]
+            sent: list[Any]
+
+            def __init__(self) -> None:
+                self.database = {'state': 'AVAILABLE', 'cpu': 0.5, 'memory_mb': 512, 'disk_gb': 10, 'workers': []}
+                self.secrets = {}
+                self.sent = []
+
+            def __call__(self, request: Any) -> dict[str, Any]:
+                self.sent.append(request)
+                op = request.operation_type.value
+                if op == 'get_db':
+                    if self.database is None:
+                        raise excs.ExternalServiceError(
+                            excs.ErrorCode.PROVIDER_ERROR, 'Management API error 404', status_code=404
+                        )
+                    return {'database': self.database}
+                if op == 'list_secrets':
+                    return {'keys': sorted(self.secrets)}
+                if op == 'set_secret':
+                    self.secrets[request.key] = request.value
+                elif op == 'delete_secret':
+                    del self.secrets[request.key]
+                elif op in ('build_image', 'set_project'):
+                    pass
+                elif op == 'create_db':
+                    self.database = {'state': 'AVAILABLE', 'cpu': request.cpu, 'memory_mb': request.memory_mb}
+                elif op == 'update_db':
+                    assert self.database is not None
+                    for field in ('cpu', 'memory_mb', 'disk_gb'):
+                        if getattr(request, field) is not None:
+                            self.database[field] = getattr(request, field)
+                return {}
+
+        api = Api()
+        monkeypatch.setattr(management_client, 'api_call', api)
+        return api
+
+    @pytest.fixture
+    def uploaded(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        """Records the key of each stored archive, in place of packaging and uploading one."""
+        keys: list[str] = []
+
+        def upload(project_dir: pathlib.Path, org: str, db: str, *, show_progress: bool = False) -> str:
+            keys.append(f'{org}/{db}/project.tar.bz2')
+            return keys[-1]
+
+        monkeypatch.setattr(project_archive_module, 'upload_project_archive', upload)
+        return keys
+
+    def _project(self, tmp_path: pathlib.Path, entry: str) -> str:
+        """A project declaring one hosted database, returning its config file."""
+        (tmp_path / 'app.py').write_text('import pixeltable as pxt\n')
+        (tmp_path / 'uv.lock').write_text('version = 1\n')
+        config_file = tmp_path / 'pixeltable.toml'
+        config_file.write_text(f'[[pixeltable.database]]\nname = "pxt://acme:main"\n{entry}')
+        return str(config_file)
+
+    def test_diff_reports_capacity_secrets_and_placement(self, api: Any, tmp_path: pathlib.Path) -> None:
+        api.secrets['stale_key'] = 'x'
+        api.database['location'] = 'aws/us-east-1'
+        config_file = self._project(
+            tmp_path,
+            'cpu = 2.0\nmemory_mb = 256\nworkers = 2\nlocation = "gcp/us-central1"\n'
+            '[pixeltable.database.secrets]\nopenai_api_key = "env:OPENAI_API_KEY"\n',
+        )
+        plan = bridge.db_diff(config_file, 'pxt://acme:main')
+
+        assert [(op['target'], op['name'], op['severity']) for op in plan['ops']] == [
+            ('capacity', 'cpu', 'additive'),
+            ('capacity', 'memory_mb', 'destructive'),
+            ('capacity', 'workers', 'additive'),
+            ('secret', 'openai_api_key', 'additive'),
+            ('secret', 'stale_key', 'destructive'),
+            ('placement', 'location', 'unsupported'),
+        ]
+        # the reported classes are compared and the unreported ones are named, rather than passing as agreement
+        assert plan['not_compared'] == ['image']
+        assert plan['resolution'] == 'unsupported'
+        assert plan['destructive']
+
+    def test_diff_reports_agreement(self, api: Any, tmp_path: pathlib.Path) -> None:
+        config_file = self._project(tmp_path, 'cpu = 0.5\nmemory_mb = 512\ndisk_gb = 10\n')
+        plan = bridge.db_diff(config_file, 'pxt://acme:main')
+        assert plan['ops'] == []
+        assert plan['in_agreement']
+        assert plan['resolution'] == 'up_to_date'
+
+    def test_diff_separates_the_project_from_the_image(self, api: Any, tmp_path: pathlib.Path) -> None:
+        config_file = self._project(tmp_path, '')
+        api.database['fingerprint'] = project_fingerprint(tmp_path, None).model_dump()
+
+        # a source edit ships the project; the environment the image holds is untouched
+        (tmp_path / 'app.py').write_text('import pixeltable as pxt  # edited\n')
+        plan = bridge.db_diff(config_file, 'pxt://acme:main')
+        assert [op['target'] for op in plan['ops']] == ['project']
+        assert plan['ops'][0]['description'] == 'the project will be shipped again: app.py changed'
+        assert plan['not_compared'] == []
+        assert not plan['summary']['rebuild']
+
+        # a lockfile edit is both: the environment moved, and so did a file the archive holds
+        (tmp_path / 'uv.lock').write_text('version = 2\n')
+        plan = bridge.db_diff(config_file, 'pxt://acme:main')
+        assert [op['target'] for op in plan['ops']] == ['image', 'project']
+        assert plan['ops'][0]['description'] == 'the image will be rebuilt: uv.lock changed'
+        assert plan['summary']['rebuild']
+
+    def test_diff_reports_absent_database(self, api: Any, tmp_path: pathlib.Path) -> None:
+        api.database = None
+        plan = bridge.db_diff(self._project(tmp_path, 'cpu = 2.0\n'), 'pxt://acme:main')
+        assert plan['resolution'] == 'create'
+        assert not plan['exists']
+        assert plan['state'] is None
+        # a create subsumes the operations that constitute it
+        assert plan['ops'] == []
+
+    def test_update_applies_secrets_then_artifacts_then_capacity(
+        self, api: Any, uploaded: list[str], tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv('OPENAI_API_KEY', 'sk-test')
+        config_file = self._project(
+            tmp_path,
+            'cpu = 2.0\nsystem_dependencies = ["ffmpeg"]\n'
+            '[pixeltable.database.secrets]\nopenai_api_key = "env:OPENAI_API_KEY"\n',
+        )
+        api.database['fingerprint'] = project_fingerprint(tmp_path, None).model_dump()
+        (tmp_path / 'app.py').write_text('import pixeltable as pxt  # edited\n')
+
+        plan = bridge.db_update(config_file, 'pxt://acme:main')
+        assert [r.operation_type.value for r in api.sent if r.operation_type.value != 'get_db'] == [
+            'list_secrets',
+            'set_secret',
+            'build_image',
+            'set_project',
+            'update_db',
+        ]
+        assert api.secrets == {'openai_api_key': 'sk-test'}
+        # one archive serves both artifacts, so it is stored once
+        assert uploaded == ['acme/main/project.tar.bz2']
+        build = next(r for r in api.sent if r.operation_type.value == 'build_image')
+        entry = database_config(tmp_path, 'pxt://acme:main')
+        assert build.project_key == 'acme/main/project.tar.bz2'
+        assert build.system_dependencies == ['ffmpeg']
+        assert build.python_version == project_fingerprint(tmp_path, entry).python_version
+        assert build.image_digest == project_fingerprint(tmp_path, entry).image_digest()
+        assert build.pxt_md_version == metadata.VERSION
+        assert api.database['cpu'] == 2.0
+        assert all(op['status'] == 'applied' for op in plan['ops'])
+        assert plan['status'] == 'applied'
+
+    def test_update_creates_absent_database(self, api: Any, tmp_path: pathlib.Path) -> None:
+        api.database = None
+        config_file = self._project(tmp_path, 'cpu = 2.0\nlocation = "aws"\nregion = "us-east-1"\n')
+        bridge.db_update(config_file, 'pxt://acme:main')
+        created = next(r for r in api.sent if r.operation_type.value == 'create_db')
+        assert (created.org, created.db, created.location, created.region) == ('acme', 'main', 'aws', 'us-east-1')
+        assert created.cpu == 2.0
+
+    def test_update_refuses_to_take_capacity_away(self, api: Any, tmp_path: pathlib.Path) -> None:
+        config_file = self._project(tmp_path, 'memory_mb = 256\n')
+        with pytest.raises(excs.Error, match=r'(?s)destructive changes: memory_mb.*--allow-destructive'):
+            bridge.db_update(config_file, 'pxt://acme:main')
+        assert api.database['memory_mb'] == 512
+
+        bridge.db_update(config_file, 'pxt://acme:main', allow_destructive=True)
+        assert api.database['memory_mb'] == 256
+
+    def test_update_overrides_declared_capacity(self, api: Any, tmp_path: pathlib.Path) -> None:
+        config_file = self._project(tmp_path, 'cpu = 2.0\n')
+        bridge.db_update(config_file, 'pxt://acme:main', overrides={'cpu': 4.0})
+        assert api.database['cpu'] == 4.0
+
+    def test_secret_names_environment_variable(
+        self, api: Any, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv('OPENAI_API_KEY', raising=False)
+        bound = self._project(tmp_path, '[pixeltable.database.secrets]\nopenai_api_key = "env:OPENAI_API_KEY"\n')
+        with pytest.raises(excs.Error, match='OPENAI_API_KEY, which is not set in the environment'):
+            bridge.db_update(bound, 'pxt://acme:main')
+
+        literal = self._project(tmp_path, '[pixeltable.database.secrets]\nopenai_api_key = "sk-in-the-file"\n')
+        with pytest.raises(excs.Error, match="write 'env:NAME' to name the environment variable"):
+            bridge.db_update(literal, 'pxt://acme:main')
+        assert api.secrets == {}
+
+    def test_errors(self, api: Any, tmp_path: pathlib.Path) -> None:
+        config_file = self._project(tmp_path, 'cpu = 2.0\n')
+        with pytest.raises(excs.Error, match='does not name a hosted database'):
+            bridge.db_diff(config_file, 'my_dir')
+
+        (tmp_path / 'other.toml').write_text('')
+        with pytest.raises(excs.Error, match=r'a project is configured in pixeltable\.toml or pyproject\.toml'):
+            bridge.db_diff(str(tmp_path / 'other.toml'), 'pxt://acme:main')
+
+        # a lone entry configures any target, so a name that addresses none takes a second entry to be an error
+        (tmp_path / 'pixeltable.toml').write_text(
+            '[[pixeltable.database]]\nname = "local"\n[[pixeltable.database]]\nname = "pxt://acme:main"\n'
+        )
+        with pytest.raises(excs.Error, match=r"declares no database 'pxt://acme:other'"):
+            bridge.db_diff(config_file, 'pxt://acme:other')
 
 
 class TestHostedUriHelpers:

@@ -25,7 +25,7 @@ def api_url() -> str:
     return _DEFAULT_API_URL if url is None else url
 
 
-_LONG_OPS = frozenset({'create_db', 'update_runtime', 'delete_db'})
+_LONG_OPS = frozenset({'create_db', 'build_image', 'delete_db'})
 
 # operations that don't change server state; can be sent multiple times
 _READ_OPS = frozenset({'list_orgs', 'list_dbs', 'get_db', 'list_service_instances', 'get_service_instance'})

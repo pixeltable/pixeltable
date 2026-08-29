@@ -139,7 +139,7 @@ class Path:
         return Path(org=self.org, db=self.db)
 
     @property
-    def uri(self) -> str:
+    def uri_str(self) -> str:
         """The catalog this path lives in, as a URI string. Empty string for the in-process catalog."""
         if self.is_local:
             return ''
