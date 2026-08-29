@@ -15,18 +15,12 @@ import logging
 import re
 import urllib.parse
 import urllib.request
-from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs, exprs
-from pixeltable.catalog import Path as CatalogPath, model
-from pixeltable.catalog.model.diff import PY_DESTRUCTIVE_HINT
+from pixeltable import exprs
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.utils.app_module import check_report, check_udf_references, get_model_bases, load_app_module
-from pixeltable_cli import types
-from pixeltable_cli.utils import PxtPath
 
 _logger = logging.getLogger(__name__)
 
@@ -535,149 +529,3 @@ def get_status() -> dict[str, Any]:
         'total_errors': total_errors,
         'config': config_info,
     }
-
-
-# close the refusals raised while reconciling, in place of the Python API's wording
-_DESTRUCTIVE_HINT = "Re-run 'pxt schema update' with --allow-destructive to apply these changes."
-
-
-def _path_key(pxt_path: PxtPath) -> tuple[str, ...]:
-    """A comparable identity for a table path, so that a pxt:// URI and a bare path denote the same table."""
-    return tuple(CatalogPath.parse(pxt_path, allow_empty_path=True).components)
-
-
-def _list_tables(pxt_path: PxtPath) -> list[PxtPath]:
-    try:
-        return [PxtPath(p) for p in pxt.list_tables(pxt_path, recursive=True)]
-    except excs.NotFoundError:
-        return []
-
-
-def _schema_model_bases(module: ModuleType, schema_file: str) -> list[model.TableModelMeta]:
-    """The model bases schema_file declares; every schema verb needs at least one.
-
-    A service file may declare none, since its routes may serve tables another file declares.
-    """
-    bases = get_model_bases(module)
-    if len(bases) == 0:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_ARGUMENT,
-            f"no model_base() found in {schema_file}; run 'pxt schema example' for a file to start from",
-        )
-    return bases
-
-
-def schema_check(schema_file: str) -> types.CheckReport:
-    module = load_app_module(schema_file, subject='schema file')
-    return check_report(schema_file, _schema_model_bases(module, schema_file))
-
-
-def schema_diff(schema_file: str, catalog_dir: PxtPath) -> types.SchemaPlan:
-    module = load_app_module(schema_file, subject='schema file')
-    model_bases = _schema_model_bases(module, schema_file)
-    return _schema_plan(model_bases, schema_file, catalog_dir)
-
-
-def _schema_plan(bases: list[model.TableModelMeta], schema_file: str, catalog_dir: PxtPath) -> types.SchemaPlan:
-    diffs = [diff for base in bases for diff in base.get_model_diff(catalog_dir).values()]
-    return _plan_from_diffs(diffs, schema_file, catalog_dir)
-
-
-def _plan_from_diffs(diffs: list[types.TableDiff], schema_file: str, catalog_dir: PxtPath) -> types.SchemaPlan:
-    for diff in diffs:
-        # a create subsumes the additions that constitute it, so only a migration enumerates operations
-        if diff.resolution in ('create', 'up_to_date'):
-            diff.ops = []
-
-    # a table's path crosses from the catalog as a plain string
-    declared = {_path_key(PxtPath(d.path)) for d in diffs}
-    return types.SchemaPlan(
-        schema_file=schema_file,
-        catalog_dir=catalog_dir,
-        tables=diffs,
-        # extras are excluded from in_agreement: update() never removes them, so their presence is not
-        # something it could reconcile
-        extras=sorted(p for p in _list_tables(catalog_dir) if _path_key(p) not in declared),
-    )
-
-
-def schema_prune(schema_file: str, catalog_dir: PxtPath) -> types.SchemaPlan:
-    """Drop the tables under catalog_dir that no model in the schema file declares.
-
-    Returns the plan, with one drop_table operation per dropped table. A view is dropped before its base, so that
-    pruning a group of related tables does not depend on the order they are listed in. Nothing is force-dropped:
-    a table that something outside the pruned set depends on is left in place and its error is raised.
-    If this exits with an error, it may have dropped a partial list of tables.
-    """
-    module = load_app_module(schema_file, subject='schema file')
-    model_bases = _schema_model_bases(module, schema_file)
-    plan = _schema_plan(model_bases, schema_file, catalog_dir)
-    remaining = list(plan.extras)
-    dropped: list[PxtPath] = []
-    while len(remaining) > 0:
-        deferred: list[PxtPath] = []
-        blocked_by: excs.Error | None = None
-        for pxt_path in remaining:
-            try:
-                pxt.drop_table(pxt_path, if_not_exists='ignore')
-            except excs.Error as e:
-                blocked_by = e
-                deferred.append(pxt_path)
-                continue
-            dropped.append(pxt_path)
-        if len(deferred) == len(remaining):
-            assert blocked_by is not None
-            if len(dropped) > 0:
-                # the drops so far are already committed; name them, so the error doesn't read as though the
-                # catalog were untouched. Augmenting in place keeps the exception's type and fields, and
-                # blocked_by.message excludes blocked_by.detail, which must not become part of the message.
-                names = ', '.join(repr(pxt_path) for pxt_path in dropped)
-                blocked_by.args = (f'{blocked_by.message}\n\nThe following table(s) were already dropped: {names}.',)
-            raise blocked_by
-        remaining = deferred
-
-    plan.ops = [types.SchemaChangeOp.drop_table(pxt_path, 'applied') for pxt_path in dropped]
-    return plan
-
-
-def schema_update(schema_file: str, catalog_dir: PxtPath, *, allow_destructive: bool = False) -> types.SchemaPlan:
-    """Reconcile the tree under catalog_dir with the schema file: create missing tables and migrate existing ones.
-
-    Returns the plan that was applied, each operation annotated with its status.
-    """
-    module = load_app_module(schema_file, subject='schema file')
-    model_bases = _schema_model_bases(module, schema_file)
-    errors = check_udf_references(model_bases)
-    if len(errors) > 0:
-        raise excs.RequestError(
-            excs.ErrorCode.INVALID_ARGUMENT,
-            '\n'.join([f'{schema_file}: a column would record a udf that cannot be read back:', *errors]),
-        )
-
-    # TODO: refuse a hosted target whose runtime does not hold the modules these udfs live in. A udf is now
-    # referred to by a module path, which a hosted runtime resolves from the project it was built from, so
-    # what has to be checked is whether that project's build context holds the module.
-
-    # only create catalog_dir when it names an in-catalog path; a bare catalog root (eg '' or 'pxt://org:db')
-    # has no directory to create
-    if len(CatalogPath.parse(catalog_dir, allow_empty_path=True).components) > 0:
-        pxt.create_dir(catalog_dir, parents=True, if_exists='ignore')
-
-    applied: list[types.TableDiff] = []
-    for base in model_bases:
-        try:
-            diffs = base.update_all(catalog_dir, allow_destructive=allow_destructive)
-        except excs.RequestError as e:
-            if e.error_code is not excs.ErrorCode.DESTRUCTIVE_SCHEMA_CHANGE:
-                raise
-            # update_all() closes its refusal with instructions for the Python API; a CLI user needs the flag
-            e.args = (e.message.replace(PY_DESTRUCTIVE_HINT, _DESTRUCTIVE_HINT),)
-            raise
-        applied.extend(diffs.values())
-
-    plan = _plan_from_diffs(applied, schema_file, catalog_dir)
-    for tbl in plan.tables:
-        tbl.status = 'skipped' if tbl.resolution == 'up_to_date' else 'applied'
-        for op in tbl.ops:
-            op.status = 'applied'
-    return plan
