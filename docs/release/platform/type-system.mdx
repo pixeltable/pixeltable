@@ -185,6 +185,11 @@ t.select(t.event.tags[:2]).collect()
 Pixeltable handles missing keys gracefully—you'll get `None` instead of an exception.
 </Tip>
 
+<Info>
+Unlike Pixeltable [identifiers](/platform/identifiers), JSON keys case-sensitive, so
+`t.event.someField` and `t.event.somefield` are different keys.
+</Info>
+
 ### JSON schema validation
 
 Validate JSON columns against a schema to ensure data integrity:
@@ -280,34 +285,6 @@ t.where(t.result == None).select(
     t.result.errormsg     # Error message
 ).collect()
 ```
-
-## Identifier names
-
-Directory, table, column and index names are **case-insensitive**, and Pixeltable stores them lower-cased.
-
-```python
-pxt.create_dir('MyDir', if_exists='ignore')
-t = pxt.create_table('MyDir.MyTable', {'MyCol': pxt.Int})
-
-# every casing resolves to the same table and column ...
-t = pxt.get_table('mydir.mytable')
-t.MyCol, t.mycol, t['MYCOL']       # all the same column
-
-# ... but the stored (and displayed) name is the folded one
-t.columns()                         # ['mycol']
-t.select(t.MyCol).collect()         # result key: 'mycol'
-```
-
-Names must also be **ASCII**. Column and index names must be valid Python identifiers that don't start with `_`,
-and must avoid Python keywords and Pixeltable's own method names (`count`, `insert`, `select`, ...); those bans
-apply in every casing, so `Count` and `Class` are rejected just as `count` and `class` are. Directory, table and
-database names follow the same rules, except that they may also contain hyphens (just not as the first character)
-and are not subject to the reserved-name bans.
-
-<Info>
-JSON path components are data, not identifiers, and stay case-sensitive: `t.json_col.someField` and
-`t.json_col.somefield` are different fields.
-</Info>
 
 ## Best practices
 

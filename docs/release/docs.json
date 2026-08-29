@@ -300,6 +300,7 @@
             "group": "Core Concepts",
             "pages": [
               "platform/type-system",
+              "platform/identifiers",
               "tutorials/tables-and-data-operations",
               "tutorials/computed-columns",
               "platform/views",
