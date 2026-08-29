@@ -852,26 +852,6 @@ _DB_POLL_INTERVAL = 5.0
 _DB_TRANSITIONAL = frozenset({'PROVISIONING', 'UPDATING', 'STARTING', 'STOPPING'})
 
 
-def db_diff(db_uri: str) -> types.DbPlan:
-    """The changes that reconciling the database at db_uri with the entry declaring it would make.
-
-    Read-only: nothing is built, resized or set. The entry comes from this project's configuration file,
-    which is the one the daemon was started under.
-
-    Args:
-        db_uri: the pxt://org:db uri of the database the entry configures.
-    """
-    from pixeltable.service.db import compare_db
-
-    entry, project_dir, org, db = _db_entry(db_uri)
-    current = _db_state(org, db)
-    if current is None:
-        return _db_plan(db_uri, None, [], [])
-
-    fingerprint = project_fingerprint(project_dir, entry)
-    ops, not_compared = compare_db(current, entry, fingerprint)
-    return _db_plan(db_uri, current.state, ops, not_compared)
-
 
 def db_update(db_uri: str, *, allow_destructive: bool = False) -> types.DbPlan:
     """Reconcile the database at db_uri with the entry declaring it: create it if it is absent, then apply

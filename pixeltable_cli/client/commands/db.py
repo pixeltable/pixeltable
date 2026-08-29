@@ -9,7 +9,7 @@ import sys
 from ...types import DbChangeOp, DbPlan, Resolution
 from ..hosted import exit_unless_reached, parse_org_uri, poll_db, print_db, resolve_db_uri, spinner
 from ..parser import Parser
-from ..utils import confirm_or_exit, get_request, post_request
+from ..utils import EXIT_CHANGES_PENDING, EXIT_IN_AGREEMENT, EXIT_REFUSED, confirm_or_exit, get_request, post_request
 
 EPILOG = """\
 Examples:

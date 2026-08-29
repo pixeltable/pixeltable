@@ -1,4 +1,3 @@
-import json
 import sys
 import textwrap
 from pathlib import Path
@@ -7,7 +6,15 @@ from typing import NamedTuple
 from ...types import OpStatus, Resolution, SchemaChangeOp, SchemaPlan
 from ...utils import PxtPath
 from ..parser import Parser
-from ..utils import check_file, confirm_or_exit, post_request
+from ..utils import (
+    EXIT_CHANGES_PENDING,
+    EXIT_ERROR,
+    EXIT_IN_AGREEMENT,
+    EXIT_REFUSED,
+    check_file,
+    confirm_or_exit,
+    post_request,
+)
 
 # a working schema file: written verbatim by 'pxt schema example', and shown indented in every verb's epilog,
 # because otherwise the shape of a model file has to be guessed

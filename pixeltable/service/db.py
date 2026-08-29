@@ -46,7 +46,30 @@ class DatabaseState(pydantic.BaseModel):
     last_build_error: str | None = None
 
 
-def compare_db(
+def db_diff(db_uri: str) -> types.DbPlan:
+    """Diff the database at db_uri with the corresponding DatabaseConfig in the project configuration."""
+    from pixeltable.service.db import compare_db
+
+    entry, project_dir, org, db = _db_entry(db_uri)
+    current = _get_db_state(org, db)
+    if current is None:
+        return _db_plan(db_uri, None, [], [])
+
+    fingerprint = project_fingerprint(project_dir, entry)
+    ops, not_compared = _compare_db(current, entry, fingerprint)
+    return _db_plan(db_uri, current.state, ops, not_compared)
+
+def _get_db_state(org: str, db: str) -> DatabaseState | None:
+    try:
+        response = management_client.api_call(GetDbRequest(org=org, db=db))
+    except excs.ExternalServiceError as e:
+        if e.provider_http_status_code != 404:
+            raise
+        return None
+    return DatabaseState.model_validate(response.get('database', response))
+
+
+def _compare_db(
     current: DatabaseState, config: DatabaseConfig, fingerprint: ProjectFingerprint
 ) -> tuple[list[DbChangeOp], list[str]]:
     """The operations that make current match config + fingerprint."""

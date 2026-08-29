@@ -8,6 +8,7 @@ import tomllib
 from pixeltable_cli.utils import PROJECT_CONFIG_FILE, find_project_root
 
 from ..parser import Parser
+from ..utils import EXIT_ERROR, EXIT_REFUSED
 
 EPILOG = """\
 Examples:
@@ -39,9 +40,8 @@ Exit codes:
   1  error: the project configuration could not be written
   3  refused: a project root already sits above this directory"""
 
+# the shared set has no name for this one: init reports whether the directory is a project root
 EXIT_OK = 0
-EXIT_ERROR = 1
-EXIT_REFUSED = 3
 
 _PYPROJECT = 'pyproject.toml'
 

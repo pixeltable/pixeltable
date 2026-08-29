@@ -9,7 +9,16 @@ from pathlib import Path
 from ...types import Resolution, ServiceChangeOp, ServiceInstance, ServicePlan
 from ...utils import PxtPath, split_pxt_uri
 from ..parser import Parser
-from ..utils import check_file, confirm_or_exit, get_request, post_request
+from ..utils import (
+    EXIT_CHANGES_PENDING,
+    EXIT_ERROR,
+    EXIT_IN_AGREEMENT,
+    EXIT_REFUSED,
+    check_file,
+    confirm_or_exit,
+    get_request,
+    post_request,
+)
 
 _EXAMPLE_APP = '''\
 """Pixeltable application, written by 'pxt service example'.
