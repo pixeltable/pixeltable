@@ -7,7 +7,9 @@ The [Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-starter-ki
 (default) and `batch/` (no HTTP). `uvx pixeltable-new` copies one into a new directory.
 
 Other apps (RAG, video, agents, a UI) are written into the same `app.py` by an agent
-with the [Pixeltable skill](/resources/ai-skills).
+with the [Pixeltable skill](/resources/ai-skills). Video frames + CLIP and an agent-as-table
+live in starter-kit `examples/` (same apply path; not copied by `uvx`). Cloud reads
+[`gallery.json`](https://github.com/pixeltable/pixeltable-starter-kit/blob/main/gallery.json).
 
 A first run: [Quickstart](/overview/quick-start).
 
@@ -79,6 +81,6 @@ Same file against a hosted catalog: `pxt schema update app.py pxt://org:db`.
     Teach an agent to write `TableModel` in `app.py`.
   </Card>
   <Card title="Clone the kit" icon="github" href="https://github.com/pixeltable/pixeltable-starter-kit">
-    `serving/` and `batch/` in one repo.
+    `serving/` and `batch/` in one repo. Extra DAGs in `examples/`.
   </Card>
 </CardGroup>
