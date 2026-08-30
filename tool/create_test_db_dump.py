@@ -235,20 +235,20 @@ class Dumper:
         assert status.num_excs == 0
         assert status.num_rows == num_rows
 
-        pxt.create_dir('views')
+        pxt.create_dir('Views')
 
         # simple view
         v = pxt.create_view(
-            'views.view', t.where(t.c2 < 50), comment='This is a test view.', custom_metadata={'view_key': 'view_value'}
+            'Views.view', t.where(t.c2 < 50), comment='This is a test view.', custom_metadata={'view_key': 'view_value'}
         )
         self.__add_expr_columns(v, 'view')
 
         # snapshot
-        _ = pxt.create_snapshot('views.snapshot', t.where(t.c2 >= 75))
+        _ = pxt.create_snapshot('Views.snapshot', t.where(t.c2 >= 75))
 
         # non-pure snapshot (a snapshot with additional columns which thus requires being physically stored)
         _ = pxt.create_snapshot(
-            'views.snapshot_non_pure',
+            'Views.snapshot_non_pure',
             t.where(t.c2 >= 75),
             additional_columns={'s1': t.c2 * 2},
             comment='This is a test snapshot.',
@@ -257,7 +257,7 @@ class Dumper:
 
         # view of views
         vv = pxt.create_view(
-            'views.view_of_views',
+            'Views.view_of_views',
             v.where(t.c2 >= 25),
             comment='This is a test view of views.',
             custom_metadata={'view_of_views_key': 'view_of_views_value'},
@@ -265,12 +265,12 @@ class Dumper:
         self.__add_expr_columns(vv, 'view_of_views')
 
         # empty view
-        e = pxt.create_view('views.empty_view', t.where(t.c2 == 4171780))
+        e = pxt.create_view('Views.empty_view', t.where(t.c2 == 4171780))
         assert e.count() == 0
         self.__add_expr_columns(e, 'empty_view', include_expensive_functions=True)
 
         # Various iterators
-        pxt.create_view('string_splitter', t, iterator=pxtf.string.string_splitter(t.c1, 'sentence'))
+        pxt.create_view('String_Splitter', t, iterator=pxtf.string.string_splitter(t.c1, 'sentence'))
         pxt.create_view('tile_iterator', t, iterator=pxtf.image.tile_iterator(t.c8, (64, 64), overlap=(16, 16)))
         pxt.create_view('frame_iterator_1', t, iterator=pxtf.video.legacy_frame_iterator(t.c10, fps=1))
         pxt.create_view('frame_iterator_2', t, iterator=pxtf.video.frame_iterator(t.c10, num_frames=5))
@@ -309,15 +309,18 @@ class Dumper:
         t.insert(c1=c1_data[0], c2=num_rows, c3=c3_data[0], c4=c4_data[0], c5=c5_data[0], c6=c6_data[0])
 
     def _create_pk_test_tables(self) -> None:
-        pk_good = pxt.create_table('pk_test_good', {'id': pxt.Int, 'name': pxt.String}, primary_key='id')
-        pk_good.insert([{'id': 1, 'name': 'Alice'}, {'id': 2, 'name': 'Bob'}, {'id': 3, 'name': 'Charlie'}])
+        pk_good = pxt.create_table(
+            'PK_Test_Good', {'Id': pxt.Int, 'Name': pxt.String, 'Dropped_Col': pxt.String | None}, primary_key='Id'
+        )
+        pk_good.insert([{'Id': 1, 'Name': 'Alice'}, {'Id': 2, 'Name': 'Bob'}, {'Id': 3, 'Name': 'Charlie'}])
+        pk_good.drop_column('Dropped_Col')
 
     def __add_expr_columns(self, t: pxt.Table, col_prefix: str, include_expensive_functions: bool = False) -> None:
         def add_computed_column(col_name: str, col_expr: Any, stored: bool = True) -> None:
             t.add_computed_column(**{f'{col_prefix}_{col_name}': col_expr}, stored=stored)
 
         # arithmetic_expr
-        add_computed_column('plus', t.c2 + 6)
+        add_computed_column('Plus', t.c2 + 6)
         add_computed_column('minus', t.c2 - 5)
         add_computed_column('times', t.c3 * 1.2)
         add_computed_column('div', t.c3 / 1.7)
@@ -389,6 +392,7 @@ class Dumper:
 
         t.add_embedding_index(
             f'{col_prefix}_function_call',
+            idx_name='Sim_Idx',
             string_embed=pxtf.huggingface.clip.using(model_id='openai/clip-vit-base-patch32'),
             precision='fp32',
         )
