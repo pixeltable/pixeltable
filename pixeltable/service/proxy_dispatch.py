@@ -562,7 +562,8 @@ def _run_query(query_dict: dict, run: 'Callable[[Any], Any]') -> dict:
     def build() -> Query:
         return Query.from_dict(query_dict)
 
-    rs = run(build())
+    query = proxy_protocol.check_query(build())
+    rs = run(query)
     return {'schema': dict(rs._schema), 'rows': [list(row._data) for row in rs._rows]}
 
 

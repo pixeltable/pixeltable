@@ -7,7 +7,7 @@ import pixeltable as pxt
 from ..utils import rerun_on_network_error, skip_test_if_no_config, skip_test_if_not_installed, validate_update_status
 from .tool_utils import stock_price, weather
 
-pytestmark = pytest.mark.local('UDF/integration test')
+pytestmark = pytest.mark.db_roots('local', reason='UDF/integration test')
 
 
 @pytest.fixture(autouse=True)

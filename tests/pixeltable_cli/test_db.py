@@ -25,10 +25,8 @@ from .conftest import PxtRunner
 pytestmark = [
     pytest.mark.remote_api,
     pytest.mark.expensive,
-    pytest.mark.local('pxt db acts on a hosted database, not on the catalog the tests run against'),
+    pytest.mark.db_roots('local', reason='pxt db acts on a hosted database, not on the catalog a test runs against'),
 ]
-
-_CLOUD_ENV_VARS = ('PIXELTABLE_API_KEY', 'PIXELTABLE_API_URL', 'PIXELTABLE_CLOUD_HOST')
 
 # the exit statuses `pxt db diff` and `pxt db update` document
 EXIT_IN_AGREEMENT = 0
@@ -41,11 +39,18 @@ _APP_FILE = 'basic.py'  # the corpus file the project holds, and the pod serves
 
 
 @pytest.fixture(autouse=True)
-def cloud_environment() -> None:
-    """Skip the test unless the environment names a control plane."""
-    for name in _CLOUD_ENV_VARS:
-        if os.environ.get(name) is None:
-            pytest.skip(f'{name} is not set.')
+def hosted_environment() -> None:
+    """Skip the test unless the session names a hosted database to act on."""
+    if os.environ.get('PXTTEST_CLOUD_DB_URI') is None:
+        pytest.skip('PXTTEST_CLOUD_DB_URI is not set.')
+
+
+@pytest.fixture
+def hosted_db() -> str:
+    """The hosted database these tests act on, which is the one the cloud catalog tests read."""
+    uri = os.environ.get('PXTTEST_CLOUD_DB_URI')
+    assert uri is not None  # hosted_environment() skipped the test otherwise
+    return uri
 
 
 @pytest.fixture
@@ -70,12 +75,12 @@ def edit_app(project: pathlib.Path, comment: str) -> None:
 
 
 @pytest.fixture
-def current_db(cli: PxtRunner, project: pathlib.Path, cloud_db_base_uri: str) -> str:
+def current_db(cli: PxtRunner, project: pathlib.Path, hosted_db: str) -> str:
     """A hosted database holding this project: where most scenarios below start."""
-    declare(cli, project, cloud_db_base_uri)
-    update(cli, project, cloud_db_base_uri)
-    assert_in_agreement(cli, project, cloud_db_base_uri)
-    return cloud_db_base_uri
+    declare(cli, project, hosted_db)
+    update(cli, project, hosted_db)
+    assert_in_agreement(cli, project, hosted_db)
+    return hosted_db
 
 
 def declare(cli: PxtRunner, project: pathlib.Path, db_uri: str, **settings: Any) -> None:
@@ -130,24 +135,24 @@ class TestDb:
         assert plan['ops'] == []
         assert plan['returncode'] == EXIT_CHANGES_PENDING
 
-    def test_update_sends_both_artifacts(self, cli: PxtRunner, project: pathlib.Path, cloud_db_base_uri: str) -> None:
+    def test_update_sends_both_artifacts(self, cli: PxtRunner, project: pathlib.Path, hosted_db: str) -> None:
         """A database whose project is not this one needs the image and the archive both."""
-        declare(cli, project, cloud_db_base_uri)
+        declare(cli, project, hosted_db)
 
-        plan = diff(cli, project, cloud_db_base_uri)
+        plan = diff(cli, project, hosted_db)
         assert plan['resolution'] == 'update_additive'
         assert [op['name'] for op in ops_on(plan, 'image')] == ['image']
         assert [op['name'] for op in ops_on(plan, 'archive')] == ['project']
         assert plan['summary']['rebuild']
         assert plan['returncode'] == EXIT_CHANGES_PENDING
 
-        applied = update(cli, project, cloud_db_base_uri)
+        applied = update(cli, project, hosted_db)
         assert all(op['status'] == 'applied' for op in applied['ops']), applied['ops']
-        assert_in_agreement(cli, project, cloud_db_base_uri)
+        assert_in_agreement(cli, project, hosted_db)
 
-    def test_status_and_list_report_the_database(self, cli: PxtRunner, cloud_db_base_uri: str) -> None:
-        name = cloud_db_base_uri.rsplit(':', 1)[-1]
-        status = cli('db', 'status', cloud_db_base_uri, '--json').json
+    def test_status_and_list_report_the_database(self, cli: PxtRunner, hosted_db: str) -> None:
+        name = hosted_db.rsplit(':', 1)[-1]
+        status = cli('db', 'status', hosted_db, '--json').json
         assert status['state'] == 'AVAILABLE', status
         listed = cli('db', 'list', 'pxt://pixeltable', '--json').json
         assert name in [entry['db_name'] for entry in listed], listed
@@ -270,8 +275,8 @@ class TestDb:
         assert all(op['status'] == 'applied' for op in ops), ops
         assert_in_agreement(cli, project, current_db)
 
-    def test_errors(self, cli: PxtRunner, project: pathlib.Path, cloud_db_base_uri: str) -> None:
-        declare(cli, project, cloud_db_base_uri)
+    def test_errors(self, cli: PxtRunner, project: pathlib.Path, hosted_db: str) -> None:
+        declare(cli, project, hosted_db)
 
         not_a_uri = cli('db', 'diff', 'my_dir', cwd=project, check=False)
         assert 'URI must be pxt://org:db' in not_a_uri.stderr, not_a_uri.stderr

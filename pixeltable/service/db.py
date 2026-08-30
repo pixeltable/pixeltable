@@ -282,6 +282,8 @@ def _build_image(config: DatabaseConfig, db_path: catalog.Path, project_key: str
             image_digest=fingerprint.image_digest(),
             python_version=fingerprint.python_version,
             system_dependencies=fingerprint.system_dependencies,
+            deps_type=fingerprint.deps_type(),
+            uv_options=fingerprint.uv_options,
             pxt_md_version=metadata.VERSION,
         )
     )

@@ -9,7 +9,7 @@ from typing import Literal
 from pydantic import BaseModel, field_validator
 
 from pixeltable.serving import ServiceInstanceRecord
-from pixeltable.utils.project import ProjectFingerprint
+from pixeltable.utils.project import DepsType, ProjectFingerprint
 from pixeltable_cli.types import ServiceSpec
 
 
@@ -138,6 +138,9 @@ class BuildImageRequest(BaseModel):
     image_digest: str
     python_version: str
     system_dependencies: list[str] = []
+    # how the build installs the project's packages, and the options it passes to uv sync
+    deps_type: DepsType
+    uv_options: str | None = None
     # the metadata schema version of the Pixeltable that packaged the archive
     pxt_md_version: int
 

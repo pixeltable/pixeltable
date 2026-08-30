@@ -24,8 +24,11 @@ from pixeltable.env import Env
 
 _logger = logging.getLogger('pixeltable')
 
-# a project declares its packages in one of these
-LOCK_FILES = ('uv.lock', 'poetry.lock', 'requirements.txt')
+# how an image build installs the project's packages
+DepsType = Literal['uv', 'poetry', 'pip', 'none']
+
+# a project declares its packages in one of these, each installed by the tool it names
+LOCK_FILES: dict[str, DepsType] = {'uv.lock': 'uv', 'poetry.lock': 'poetry', 'requirements.txt': 'pip'}
 
 # which of the two artifacts a comparison is about, or the process that runs them both
 Scope = Literal['image', 'archive', 'restart']
@@ -194,6 +197,7 @@ class ProjectFingerprint(pydantic.BaseModel):
     python_version: str
     system_dependencies: list[str]
     pixeltable_version: str
+    uv_options: str | None = None
 
     # bindings, never resolved values: a secret names the source of its value
     vars: dict[str, str]
@@ -250,6 +254,8 @@ class ProjectFingerprint(pydantic.BaseModel):
                 lines.append(f'{field} {was} -> {now}')
         if self.system_dependencies != other.system_dependencies:
             lines.append('system_dependencies changed')
+        if self.uv_options != other.uv_options:
+            lines.append('uv_options changed')
         if scope == 'image':
             return lines
 
@@ -257,8 +263,18 @@ class ProjectFingerprint(pydantic.BaseModel):
         lines += [f'secret {name} changed' for name in _changed_keys(self.secrets, other.secrets)]
         return lines
 
+    def deps_type(self) -> DepsType:
+        """The tool that installs the project's packages, named by the lockfile the archive holds."""
+        return next((tool for name, tool in LOCK_FILES.items() if name in self.files), 'none')
+
     def _image_inputs(self) -> tuple:
-        return (self._lock_files(), self.python_version, self.system_dependencies, self.pixeltable_version)
+        return (
+            self._lock_files(),
+            self.python_version,
+            self.system_dependencies,
+            self.pixeltable_version,
+            self.uv_options,
+        )
 
     def _lock_files(self) -> dict[str, str]:
         """The selected lockfiles: an image installs the project's packages from one of them."""
@@ -311,6 +327,7 @@ def _fingerprint(files: Iterable[Path], project_root: Path, config: DatabaseConf
         python_version=declared_python or f'{sys.version_info.major}.{sys.version_info.minor}',
         system_dependencies=(config.system_dependencies if config is not None else None) or [],
         pixeltable_version=pixeltable.__version__,
+        uv_options=config.uv_options if config is not None else None,
         vars=(config.vars if config is not None else None) or {},
         secrets=(config.secrets if config is not None else None) or {},
     )

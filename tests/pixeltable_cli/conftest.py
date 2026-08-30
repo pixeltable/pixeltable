@@ -15,13 +15,14 @@ import socket
 import subprocess
 import sys
 import time
-from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable, Iterator
 
 import pytest
 
 from pixeltable.config import Config
+
+from ..utils import DatabaseRoot
 
 
 def _pick_port() -> int:
@@ -209,7 +210,7 @@ class BackgroundPxt:
 
 @pytest.fixture
 def cli_bg(
-    pxt_daemon: int, make_catalog_path: Callable[[str], str], session_project: pathlib.Path
+    pxt_daemon: int, db_root: DatabaseRoot, session_project: pathlib.Path
 ) -> Iterator[Callable[..., BackgroundPxt]]:
     """Runs a `pxt` command in the background, for one that serves rather than returning."""
     running: list[BackgroundPxt] = []
@@ -242,9 +243,9 @@ def cli_bg(
 
 
 @pytest.fixture
-def cli(pxt_daemon: int, make_catalog_path: Callable[[str], str], session_project: pathlib.Path) -> PxtRunner:
-    # make_catalog_path resets the catalog (like uses_db) and pulls in the local/proxy axis, so a test
-    # using cli() auto-forks over both backends unless it is marked @pytest.mark.local. The CLI daemon and
+def cli(pxt_daemon: int, db_root: DatabaseRoot, session_project: pathlib.Path) -> PxtRunner:
+    # db_root resets the catalog (like uses_db) and pulls in the local/proxy/cloud axis, so a test
+    # using cli() auto-forks over all backends unless it is marked @pytest.mark.db_roots. The CLI daemon and
     # this test process share PIXELTABLE_HOME, so both resolve a pxt:// path to the same local proxy daemon.
     def _run(
         *args: str,

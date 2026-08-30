@@ -50,8 +50,8 @@ class DatabaseConfig(pydantic.BaseModel):
     include_only: list[str] | None = None  # glob patterns to include as the *only* files in the image
     # (must be used independently of exclude/include)
     system_dependencies: list[str] | None = None
-    # Override the runtime Python version.
-    python_version: str | None = None
+    python_version: str | None = None  # override the runtime Python version.
+    uv_options: str | None = None  # extra options to pass to `uv sync` when building the runtime image
 
     # hosted db resources
     cpu: float | None = None

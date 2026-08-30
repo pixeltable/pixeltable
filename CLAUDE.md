@@ -268,6 +268,12 @@ Follow `docs/_guidelines/GUIDELINES_FOR_DOCSTRINGS.md`:
 - Code examples must use `>>>` prompts, not fenced code blocks
 - Backticks must be properly paired
 - HTML tags must be self-closing
+- When describing what a function does, focus on the behavior of the function itself, not its callers
+
+### Code Comments
+
+- Keep code comments succinct; avoid unnecessarily verbose comments.
+- Always use parens to denote functions: in code comments, it's `my_func()`, not `my_func`.
 
 ### Building Docs
 
