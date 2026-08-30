@@ -45,7 +45,6 @@ from pixeltable.service.management_protocol import (
     StartDbRequest,
     StopDbRequest,
 )
-from pixeltable.serving.service_instance import ServiceInstanceState
 from pixeltable.utils.app_module import load_app_module, module_routers, service_spec, services_by_name
 from pixeltable.utils.project import project_fingerprint
 from pixeltable_cli import utils
@@ -1810,138 +1809,13 @@ def _declared_spec(app_file: str, name: str) -> Any:
     return service_spec(name, services_by_name(module, app_file)[name], module_routers(module))
 
 
-class TestHostedServiceManager:
-    """What ServiceManagerProxy asks the management API for, and what it makes of the answers."""
-
-    @pytest.fixture(autouse=True)
-    def serving_installed(self) -> None:
-        """Skip where fastapi is absent: the corpus files these tests start declare FastAPIRouter services."""
-        skip_test_if_not_installed('fastapi')
-
-    @pytest.fixture
-    def api(self, monkeypatch: pytest.MonkeyPatch) -> Any:
-        """A management API holding instances in a dict, recording every request it is sent."""
-
-        class Api:
-            instances: dict[str, dict[str, Any]]
-            sent: list[Any]
-
-            def __init__(self) -> None:
-                self.instances = {}
-                self.sent = []
-
-            def add(self, name: str, *, base_path: str = '', state: str = 'AVAILABLE', **fields: Any) -> None:
-                self.instances[name] = {
-                    'service_name': name,
-                    'base_path': base_path,
-                    'endpoint': f'https://acme-main.pixeltable.com/{name}',
-                    'app_module': 'apps.basic',
-                    'spec': {'name': name, 'routes': [], 'app_paths': []},
-                    'state': state,
-                    # every instance reports the project it loaded
-                    'fingerprint': project_fingerprint(Config.get().project_root, None).model_dump(),
-                    **fields,
-                }
-
-            def __call__(self, request: Any) -> dict[str, Any]:
-                self.sent.append(request)
-                op = request.operation_type.value
-                if op == 'list_service_instances':
-                    return {'instances': list(self.instances.values())}
-                if op == 'create_service_instance':
-                    self.add(
-                        request.service_name,
-                        base_path=request.base_path,
-                        app_module=request.app_module,
-                        spec=request.spec,
-                    )
-                elif op == 'update_service_instance':
-                    self.instances[request.service_name].update(app_module=request.app_module, spec=request.spec)
-                elif op == 'start_service_instance':
-                    instance = self.instances[request.service_name]
-                    # an instance whose failure is recorded stays FAILED, as one that cannot be brought up does
-                    instance['state'] = 'FAILED' if instance.get('error') is not None else 'AVAILABLE'
-                elif op == 'stop_service_instance':
-                    self.instances[request.service_name]['state'] = 'STOPPED'
-                elif op == 'delete_service_instance':
-                    del self.instances[request.service_name]
-                return {'instance': self.instances.get(request.service_name, {})}
-
-        api = Api()
-        monkeypatch.setattr(management_client, 'api_call', api)
-        return api
-
-    def _manager(self) -> Any:
-        from pixeltable.serving.service_manager import get_manager
-
-        return get_manager('pxt://acme:main/app')
-
-    def test_start_absent(self, api: Any, apps: Callable[[str], str]) -> None:
-        instance = self._manager().start(apps('basic.py'), 'ingest', 'app')
-        assert [r.operation_type.value for r in api.sent] == [
-            'list_service_instances',
-            'create_service_instance',
-            'list_service_instances',
-        ]
-        created = api.sent[1]
-        assert (created.org, created.db, created.service_name, created.base_path) == ('acme', 'main', 'ingest', 'app')
-        assert created.app_module == 'apps.basic'
-        assert created.spec.name == 'ingest'
-        assert instance.state is ServiceInstanceState.AVAILABLE
-
-    def test_start_changed(self, api: Any, apps: Callable[[str], str]) -> None:
-        api.add('ingest', base_path='app', spec={'name': 'ingest', 'routes': [], 'app_paths': []})
-        self._manager().start(apps('basic.py'), 'ingest', 'app')
-        assert [r.operation_type.value for r in api.sent].count('update_service_instance') == 1
-
-    def test_start_stopped(self, api: Any, apps: Callable[[str], str]) -> None:
-        spec = _declared_spec(apps('basic.py'), 'ingest')
-        api.add('ingest', base_path='app', state='STOPPED', spec=spec)
-        instance = self._manager().start(apps('basic.py'), 'ingest', 'app')
-        assert 'start_service_instance' in [r.operation_type.value for r in api.sent]
-        assert instance.state is ServiceInstanceState.AVAILABLE
-
-    def test_start_agreeing(self, api: Any, apps: Callable[[str], str]) -> None:
-        spec = _declared_spec(apps('basic.py'), 'ingest')
-        api.add('ingest', base_path='app', spec=spec)
-        self._manager().start(apps('basic.py'), 'ingest', 'app')
-        assert [r.operation_type.value for r in api.sent] == ['list_service_instances']
-
-    def test_start_failure(self, api: Any, apps: Callable[[str], str]) -> None:
-        api.add('ingest', base_path='app', state='FAILED', error='the image has no module apps.basic')
-        with pytest.raises(excs.Error, match=r'did not start; it is FAILED: the image has no module apps\.basic'):
-            self._manager().start(apps('basic.py'), 'ingest', 'app')
-
-    def test_list_by_path(self, api: Any) -> None:
-        api.add('ingest', base_path='app')
-        api.add('search', base_path='app/sub')
-        api.add('other', base_path='elsewhere')
-        manager = self._manager()
-        assert [i.service_name for i in manager.list('app')] == ['ingest']
-        assert sorted(i.service_name for i in manager.list('app', recursive=True)) == ['ingest', 'search']
-        assert manager.get('search', 'app') is None
-        assert manager.get('search', 'app/sub') is not None
-
-    def test_stop(self, api: Any) -> None:
-        api.add('ingest', base_path='app')
-        manager = self._manager()
-        instance = manager.get('ingest', 'app')
-        assert instance is not None
-        instance.stop()
-        assert api.instances['ingest']['state'] == 'STOPPED'
-        assert manager.get('ingest', 'app') is not None
-
-    def test_delete(self, api: Any) -> None:
-        api.add('ingest', base_path='app')
-        manager = self._manager()
-        instance = manager.get('ingest', 'app')
-        assert instance is not None
-        instance.delete()
-        assert manager.get('ingest', 'app') is None
-
-
 class TestHostedDatabase:
-    """What `pxt db diff` compares, and what `pxt db update` applies in what order."""
+    """The order `pxt db update` sends its requests in, and what the image build is told.
+
+    Everything else `pxt db` does is covered end to end in test_db.py, against a hosted database. These two
+    are what the CLI's output cannot show: a plan lists its operations in the order they were planned, not
+    the order they were applied, and no command prints the request an image build was started with.
+    """
 
     @pytest.fixture
     def api(self, monkeypatch: pytest.MonkeyPatch) -> Any:
@@ -2011,71 +1885,6 @@ class TestHostedDatabase:
         entry = Config.get().get_database_config(PxtPath.parse('pxt://acme:main', allow_empty_path=True))
         return project_fingerprint(tmp_path, entry).model_dump()
 
-    def test_diff_capacity_secrets_placement(self, api: Any, tmp_path: pathlib.Path) -> None:
-        api.secrets['stale_key'] = 'x'
-        api.database['location'] = 'aws/us-east-1'
-        self._project(
-            tmp_path,
-            'cpu = 2.0\nmemory_mb = 256\nworkers = 2\nlocation = "gcp/us-central1"\n'
-            '[pixeltable.database.secrets]\nopenai_api_key = "env:OPENAI_API_KEY"\n',
-        )
-        api.database['fingerprint'] = self._fingerprint(tmp_path)
-        plan = db.db_diff('pxt://acme:main')
-
-        assert [(op.target, op.name, op.severity) for op in plan.ops] == [
-            ('capacity', 'cpu', 'additive'),
-            ('capacity', 'memory_mb', 'destructive'),
-            ('capacity', 'workers', 'additive'),
-            ('secret', 'openai_api_key', 'additive'),
-            ('secret', 'stale_key', 'destructive'),
-            ('placement', 'location', 'unsupported'),
-        ]
-        assert plan.resolution == 'unsupported'
-        assert plan.destructive
-
-    def test_diff_agreement(self, api: Any, tmp_path: pathlib.Path) -> None:
-        self._project(tmp_path, 'cpu = 0.5\nmemory_mb = 512\ndisk_gb = 10\n')
-        api.database['fingerprint'] = self._fingerprint(tmp_path)
-        plan = db.db_diff('pxt://acme:main')
-        assert plan.ops == []
-        assert plan.in_agreement
-        assert plan.resolution == 'up_to_date'
-
-    def test_diff_without_project(self, api: Any, tmp_path: pathlib.Path) -> None:
-        """A database that reports no fingerprint is missing both artifacts, whatever else agrees."""
-        self._project(tmp_path, 'cpu = 0.5\nmemory_mb = 512\ndisk_gb = 10\n')
-        plan = db.db_diff('pxt://acme:main')
-        assert [(op.target, op.name) for op in plan.ops] == [('image', 'image'), ('archive', 'project')]
-        assert plan.summary.rebuild
-
-    def test_diff_project_vs_image(self, api: Any, tmp_path: pathlib.Path) -> None:
-        self._project(tmp_path, '')
-        api.database['fingerprint'] = self._fingerprint(tmp_path)
-
-        # a source edit sends the project again; the environment the image holds is untouched
-        (tmp_path / 'app.py').write_text('import pixeltable as pxt  # edited\n')
-        plan = db.db_diff('pxt://acme:main')
-        assert [op.target for op in plan.ops] == ['archive']
-        assert plan.ops[0].description == 'the project will be sent to the database again: app.py changed'
-        assert not plan.summary.rebuild
-
-        # a lockfile edit is both: the environment moved, and so did a file the archive holds
-        (tmp_path / 'uv.lock').write_text('version = 2\n')
-        plan = db.db_diff('pxt://acme:main')
-        assert [op.target for op in plan.ops] == ['image', 'archive']
-        assert plan.ops[0].description == 'the image will be rebuilt: uv.lock changed'
-        assert plan.summary.rebuild
-
-    def test_diff_absent_database(self, api: Any, tmp_path: pathlib.Path) -> None:
-        api.database = None
-        self._project(tmp_path, 'cpu = 2.0\n')
-        plan = db.db_diff('pxt://acme:main')
-        assert plan.resolution == 'create'
-        assert not plan.exists
-        assert plan.state is None
-        # a create subsumes the operations that constitute it
-        assert plan.ops == []
-
     def test_update_order(
         self, api: Any, uploaded: list[str], tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -2115,46 +1924,6 @@ class TestHostedDatabase:
         assert build.python_version == project_fingerprint(tmp_path, entry).python_version
         assert build.image_digest == project_fingerprint(tmp_path, entry).image_digest()
         assert build.pxt_md_version == metadata.VERSION
-
-    def test_update_absent_database(self, api: Any, uploaded: list[str], tmp_path: pathlib.Path) -> None:
-        api.database = None
-        self._project(tmp_path, 'cpu = 2.0\nworkers = 2\nlocation = "aws"\nregion = "us-east-1"\n')
-        db.db_update('pxt://acme:main')
-        created = next(r for r in api.sent if r.operation_type.value == 'create_db')
-        assert (created.org, created.db, created.location, created.region) == ('acme', 'main', 'aws', 'us-east-1')
-        assert (created.cpu, created.workers) == (2.0, 2)
-        # a created database reports no fingerprint, so it is given both artifacts
-        assert [r.operation_type.value for r in api.sent].count('build_image') == 1
-        assert uploaded == ['acme/main/project.tar.bz2']
-
-    def test_update_refuses_shrink(self, api: Any, tmp_path: pathlib.Path) -> None:
-        self._project(tmp_path, 'memory_mb = 256\n')
-        api.database['fingerprint'] = self._fingerprint(tmp_path)
-        with pytest.raises(excs.Error, match=r'(?s)destructive changes: memory_mb.*--allow-destructive'):
-            db.db_update('pxt://acme:main')
-        assert api.database['memory_mb'] == 512
-
-        db.db_update('pxt://acme:main', allow_destructive=True)
-        assert api.database['memory_mb'] == 256
-
-    def test_secret_binding(self, api: Any, tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv('OPENAI_API_KEY', raising=False)
-        self._project(tmp_path, '[pixeltable.database.secrets]\nopenai_api_key = "env:OPENAI_API_KEY"\n')
-        with pytest.raises(excs.Error, match='OPENAI_API_KEY, which is not set in the environment'):
-            db.db_update('pxt://acme:main')
-
-        self._project(tmp_path, '[pixeltable.database.secrets]\nopenai_api_key = "sk-in-the-file"\n')
-        with pytest.raises(excs.Error, match="write 'env:NAME' to name the environment variable"):
-            db.db_update('pxt://acme:main')
-        assert api.secrets == {}
-
-    def test_errors(self, api: Any, tmp_path: pathlib.Path) -> None:
-        self._project(tmp_path, 'cpu = 2.0\n')
-        with pytest.raises(excs.Error, match='does not name a hosted database'):
-            db.db_diff('my_dir')
-
-        with pytest.raises(excs.Error, match=r'no \[\[pixeltable.database\]\] entry names'):
-            db.db_diff('pxt://acme:other')
 
 
 class TestHostedUriHelpers:

@@ -233,6 +233,12 @@ class TestDb:
         assert r.returncode == EXIT_ERROR
         assert 'PXTTEST_UNSET' in r.stderr, r.stderr
 
+        # a secret declared as its value names no environment variable, and the file would hold the value
+        declare(cli, project, current_db, secrets={'pxttest_literal': 'sk-in-the-file'})
+        r = cli('db', 'update', current_db, '-f', cwd=project, check=False)
+        assert r.returncode == EXIT_ERROR
+        assert "write 'env:NAME'" in r.stderr, r.stderr
+
     def test_capacity(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
         running_on = cli('db', 'status', current_db, '--json').json['cpu']
         declare(cli, project, current_db, cpu=running_on + 1)
@@ -243,6 +249,16 @@ class TestDb:
         assert str(running_on + 1) in op['description'], op['description']
 
         assert [op['status'] for op in ops_on(update(cli, project, current_db), 'capacity')] == ['applied']
+        assert_in_agreement(cli, project, current_db)
+
+        # taking capacity away is destructive, so it needs the flag that permits it
+        declare(cli, project, current_db, cpu=running_on)
+        refused = cli('db', 'update', current_db, '-f', cwd=project, check=False)
+        assert refused.returncode == EXIT_ERROR
+        assert '--allow-destructive' in refused.stderr, refused.stderr
+        assert [op['status'] for op in ops_on(update(cli, project, current_db, '--allow-destructive'), 'capacity')] == [
+            'applied'
+        ]
         assert_in_agreement(cli, project, current_db)
 
     def test_placement(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
@@ -295,6 +311,15 @@ class TestDb:
 class TestPod:
     """What a service pod does with the project its database holds."""
 
+    def test_service_diff_before_update(self, cli: PxtRunner, project: pathlib.Path, hosted_db: str) -> None:
+        """A database `pxt db update` has not run for can serve nothing, whatever the file declares."""
+        declare(cli, project, hosted_db, include_only=['no_such_file'])
+        app_file = str(project / _APP_FILE)
+        [blocked] = cli('service', 'diff', app_file, hosted_db, '--json', check=False).json['services']
+        assert blocked['resolution'] == 'blocked'
+        [op] = [op for op in blocked['ops'] if op['target'] == 'project']
+        assert f'pxt db update {hosted_db}' in op['description'], op['description']
+
     def test_pod_serves_project(
         self, cli: PxtRunner, project: pathlib.Path, current_db: str, tmp_path: pathlib.Path
     ) -> None:
@@ -343,6 +368,33 @@ class TestPod:
         update(cli, project, current_db)
         [reconciled] = cli('service', 'diff', app_file, current_db, '--json', check=False).json['services']
         assert reconciled['resolution'] != 'blocked', reconciled['ops']
+
+    def test_service_lifecycle(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:
+        """Start, restart on a changed declaration, list, stop and forget a hosted instance."""
+        app_file = str(project / _APP_FILE)
+        cli('schema', 'update', app_file, current_db, '-f')
+        cli('service', 'update', app_file, current_db, '-f')
+
+        [instance] = [i for i in cli('service', 'list', current_db, '--json').json if i['name'] == 'ingest']
+        assert instance['state'] == 'AVAILABLE', instance
+        assert instance['base_path'] == ''
+
+        # a route the file adds is applied by restarting the instance
+        edit_app(project, "ingest.add_delete_route(Docs, path='/docs/delete')")
+        update(cli, project, current_db)
+        [added] = cli('service', 'diff', app_file, current_db, '--json', check=False).json['services']
+        assert added['resolution'] == 'update_additive', added['ops']
+        cli('service', 'update', app_file, current_db, '-f')
+        assert cli('service', 'diff', app_file, current_db, '--json').json['in_agreement']
+
+        # stopping keeps the registration, so an update starts it again
+        cli('service', 'stop', f'{current_db}/ingest')
+        [stopped] = [i for i in cli('service', 'list', current_db, '--json').json if i['name'] == 'ingest']
+        assert stopped['state'] == 'STOPPED', stopped
+        assert not cli('service', 'diff', app_file, current_db, '--json', check=False).json['in_agreement']
+
+        # prune forgets what the file does not declare
+        cli('service', 'prune', app_file, current_db, '-f')
 
 
 def _run_pod(db_uri: str, project_dir: pathlib.Path, *flags: str, capture: bool = False) -> subprocess.Popen:

@@ -76,7 +76,7 @@ def service_update(
     Args:
         app_file: the application file declaring the services.
         target: the catalog directory the services' models bind against.
-        allow_destructive: whether to apply changes that stop serving a route contract a caller may be using.
+        allow_destructive: whether to apply changes that stop serving a route callers may be using.
     """
     manager = get_manager(target)
     plan = service_diff(app_file, target, otel=otel)
@@ -238,20 +238,23 @@ def _service_diff(
 
     published = app_info.published
     # empty for a local target, whose services read the project files in place
-    behind = app_info.fingerprint.compare(published, own_files_only=True) if published is not None else set()
-    if len(behind) > 0:
-        # a hosted service reads the project the database was given, so restarting it re-runs the old files
+    unpublished = app_info.fingerprint.compare(published, own_files_only=True) if published is not None else set()
+    if app_info.db_uri != '' and published is None:
+        # pxt db update creates the database and gives it both artifacts; until it runs there is nothing here
+        ops.append(ServiceChangeOp.db_not_updated(f'pxt db update {app_info.db_uri}'))
+    elif len(unpublished) > 0:
+        # this requires a pxt db update
         ops.append(
             ServiceChangeOp.project_moved(
-                app_info.fingerprint.changes(published, behind, own_files_only=True),
+                app_info.fingerprint.changes(published, unpublished, own_files_only=True),
                 command=f'pxt db update {app_info.db_uri}',
             )
         )
     elif len(ops) == 0 and running is not None:
-        moved = app_info.fingerprint.compare(running.record.fingerprint)
-        if len(moved) > 0:
-            # the contract is unchanged, so the project is the only thing left to report
-            ops.append(ServiceChangeOp.project_moved(app_info.fingerprint.changes(running.record.fingerprint, moved)))
+        stale = app_info.fingerprint.compare(running.record.fingerprint)
+        if len(stale) > 0:
+            # the routes agree, but some archive files changed
+            ops.append(ServiceChangeOp.project_moved(app_info.fingerprint.changes(running.record.fingerprint, stale)))
 
     if app_info.model_mismatch_reason is not None:
         command = f'pxt schema update {app_info.app_file}' + ('' if target == '' else f' {target}')
@@ -310,14 +313,14 @@ def compare_specs(current: ServiceSpec, declared: ServiceSpec) -> list[ServiceCh
 
     Two routes with the same method and path serve the same callers, so a difference between them is an
     alteration of one route rather than a drop and an add. Only adding a route leaves what is already served
-    untouched; every other operation replaces a contract that callers may be relying on.
+    untouched; every other operation changes a route callers may be relying on.
     """
     ops: list[ServiceChangeOp] = []
     ops += _path_ops(current.app_paths, declared.app_paths)
 
     prefix_op = _prefix_change(current, declared)
     if prefix_op is not None:
-        # every route moved, so the routes below would each read as a drop and an add of the same contract
+        # every route moved, so the routes below would each read as a drop and an add of the same route
         return [*ops, prefix_op]
 
     # keyed by method and path, which ignores declaration order: valid paths don't contain parameters, which avoids

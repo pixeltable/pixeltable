@@ -131,6 +131,18 @@ class ServiceChangeOp(ChangeOp):
         )
 
     @classmethod
+    def db_not_updated(cls, command: str) -> ServiceChangeOp:
+        """The operation for a database `pxt db update` has not run for."""
+        return cls(
+            target='project',
+            name='project',
+            op='alter',
+            severity='blocked',
+            description=f'the database has nothing to serve; run {command}',
+            details={'command': command},
+        )
+
+    @classmethod
     def blocked_schema(cls, service_name: str, description: str, command: str) -> ServiceChangeOp:
         return cls(
             target='service',
