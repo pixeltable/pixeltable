@@ -329,11 +329,8 @@ class TestView:
 
         # adding column with same name as a base table column at
         # the time of creating a view will raise an error now.
-        for col_name in ('c1', 'C1'):
-            with pxt_raises(
-                pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=re.escape("Column 'c1' already exists in the base table")
-            ):
-                pxt.create_view(p('test_view'), t, additional_columns={col_name: pxt.Int | None})
+        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=r"Column 'c1' already exists in the base table"):
+            pxt.create_view(p('test_view'), t, additional_columns={'c1': pxt.Int | None})
 
         # create a view and add a column with default value
         v = pxt.create_view(p('test_view'), t, additional_columns={'v1': pxt.Int | None})
@@ -441,6 +438,26 @@ class TestView:
             )
             with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=expected_err):
                 v.add_computed_column(**{col_name: 'bbb'}, if_exists='replace')
+
+    def test_case_insensitive_view_columns(self, test_tbl: pxt.Table, db_root: DatabaseRoot) -> None:
+        """A view's own column names fold, and shadowing of a base column is decided on the folded name."""
+        p = db_root.make_catalog_path
+        t = test_tbl
+
+        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=r"Column 'c1' already exists in the base table"):
+            pxt.create_view(p('v1'), t, additional_columns={'C1': pxt.Int | None})
+
+        v = pxt.create_view(p('V1'), t, additional_columns={'MyCol': pxt.Int | None})
+        assert 'mycol' in v.columns()
+        v.add_computed_column(Derived=v.C1 + '!')
+        assert 'derived' in v.columns()
+
+        # a view column that shadows a base column is rejected in any casing
+        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS):
+            v.add_column(C1=pxt.Int | None)
+
+        row = v.order_by(v.C1).select(v.C1, v.DERIVED).collect()[0]
+        assert row['derived'] == row['c1'] + '!'
 
     def test_parallel_views(self, db_root: DatabaseRoot) -> None:
         """Two views over the same base table, with non-overlapping filters"""

@@ -926,21 +926,6 @@ class TestTableModel:
         ):
             TableModel.create_all(p(''))
 
-        # shadowing is decided on the folded name, so a re-cased declaration is rejected the same way
-        CasedModel = pxt.model_base()
-
-        class CasedTableModel(CasedModel, name='test_table'):
-            id: pxt.Int
-            value: pxt.Float | None
-
-        class CasedViewModel(CasedModel, name='test_view', base=CasedTableModel):
-            Value: pxt.Float | None
-
-        with pxt_raises(
-            excs.ErrorCode.COLUMN_ALREADY_EXISTS, match=r"Column 'value' already exists in the base table 'test_table'"
-        ):
-            CasedModel.create_all(p(''))
-
     def test_update_all_adds_shadowing_column(self, db_root: DatabaseRoot) -> None:
         """update_all() cannot add a view column that shadows a base column, the same as add_computed_column()."""
         p = db_root.make_catalog_path
@@ -2702,3 +2687,20 @@ class TestTableModel:
                     EmbeddingIndex(a, embedding=dummy_embedding.using(n=512), name='Idx'),
                     EmbeddingIndex(b, embedding=dummy_embedding.using(n=512), name='idx'),
                 ]
+
+    def test_model_case_insensitive_shadowing(self, db_root: DatabaseRoot) -> None:
+        """Shadowing of a base column is decided on the folded name."""
+        p = db_root.make_catalog_path
+        TableModel = pxt.model_base()
+
+        class T(TableModel, name='test_table'):
+            id: pxt.Int
+            value: pxt.Float | None
+
+        class V(TableModel, name='test_view', base=T):
+            Value: pxt.Float | None
+
+        with pxt_raises(
+            excs.ErrorCode.COLUMN_ALREADY_EXISTS, match=r"Column 'value' already exists in the base table 'test_table'"
+        ):
+            TableModel.create_all(p(''))

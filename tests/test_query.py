@@ -1151,15 +1151,6 @@ class TestQuery:
             _ = list(t.select(t.i).collect().to_pydantic(TestModel))
         assert extract_fields(exc_info) == {'s', 'f', 'b', 'ts', 'd'}
 
-        # a model whose field names are mixed-case still matches the result columns
-        class MixedCaseModel(pydantic.BaseModel):
-            MyInt: int
-            MyStr: str
-
-        mixed = list(t.select(MyInt=t.i, MYSTR=t.s).order_by(t.i).collect().to_pydantic(MixedCaseModel))
-        assert [m.MyInt for m in mixed] == [1, 2, 3]
-        assert [m.MyStr for m in mixed] == ['one', 'two', 'three']
-
         # (s?): dotall mode, needed to match the embedded \n's
         with pxt_raises(
             pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'(?s)1 validation error .* Input should be a valid integer'
@@ -1174,7 +1165,21 @@ class TestQuery:
             _ = list(t.select(t.i, t.s, t.f, t.b, t.ts, t.d, extra=t.i + t.f).collect().to_pydantic(StrictTestModel))
         assert extract_fields(exc_info) == {'extra'}
 
-        # model fields collide after folding
+    def test_to_pydantic_case_insensitive(self, db_root: DatabaseRoot) -> None:
+        """Model field names are matched against the folded result column names."""
+        p = db_root.make_catalog_path
+        t = pxt.create_table(p('t'), {'i': pxt.Int | None, 's': pxt.String | None})
+        t.insert([{'i': 1, 's': 'one'}, {'i': 2, 's': 'two'}])
+
+        class MixedCaseModel(pydantic.BaseModel):
+            MyInt: int
+            MyStr: str
+
+        mixed = list(t.select(MyInt=t.i, MYSTR=t.s).order_by(t.i).collect().to_pydantic(MixedCaseModel))
+        assert [m.MyInt for m in mixed] == [1, 2]
+        assert [m.MyStr for m in mixed] == ['one', 'two']
+
+        # two fields that fold onto each other cannot both be matched
         class CollidingModel(pydantic.BaseModel):
             Val: int = -1
             val: int = -1

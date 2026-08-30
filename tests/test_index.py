@@ -351,10 +351,10 @@ class TestIndex:
         p = db_root.make_catalog_path
         t = small_img_tbl
         sample_img = t.select(t.img).head(1)[0, 'img']
-        t.add_embedding_index('img', idx_name='Clip_Idx', embedding=local_embed)
+        t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed)
         orig_res = (
             t.select(t.img.localpath)
-            .order_by(t.img.similarity(image=sample_img, idx='CLIP_IDX'), asc=False)
+            .order_by(t.img.similarity(image=sample_img, idx='clip_idx'), asc=False)
             .limit(3)
             .collect()
         )
@@ -384,7 +384,7 @@ class TestIndex:
             assert_resultset_eq(orig_res, res, True)
 
         # same should hold after a drop.
-        t.drop_embedding_index(column='IMG')
+        t.drop_embedding_index(column='img')
         t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed)
         res = (
             t.select(t.img.localpath)
@@ -393,7 +393,7 @@ class TestIndex:
             .collect()
         )
         assert_resultset_eq(orig_res, res, True)
-        t.drop_embedding_index(idx_name='CLIP_IDX')
+        t.drop_embedding_index(idx_name='clip_idx')
         reload_catalog()
         t = pxt.get_table(p('small_img_tbl'))
         t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed)
@@ -451,11 +451,13 @@ class TestIndex:
         # if_exists='error' (the default) raises if the index name already exists, regardless of whether the
         # definition matches: rejection on the named path is by name, not by definition. Vary the metric so each
         # attempt has a definition that differs from the existing cosine clip_idx.
-        for idx_name, metric in (('clip_idx', 'cosine'), ('clip_idx', 'ip'), ('CLIP_IDX', 'l2')):
+        for metric in ('cosine', 'ip', 'l2'):
             with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='Duplicate index name'):
-                t.add_embedding_index('img', idx_name=idx_name, embedding=local_embed, metric=metric)  # type: ignore[arg-type]
+                t.add_embedding_index('img', idx_name='clip_idx', embedding=local_embed, metric=metric)
             with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='Duplicate index name'):
-                t.add_embedding_index('img', idx_name=idx_name, embedding=local_embed, metric=metric, if_exists='error')  # type: ignore[arg-type]
+                t.add_embedding_index(
+                    'img', idx_name='clip_idx', embedding=local_embed, metric=metric, if_exists='error'
+                )
         assert len(emb_idxs()) == 3
 
         # if_exists='ignore' does nothing if the index name already exists: clip_idx keeps its position.
@@ -487,6 +489,33 @@ class TestIndex:
 
         # sanity check persistence
         reload_tester.run_reload_test()
+
+    def test_case_insensitive_index_names(self, small_img_tbl: pxt.Table, local_embed: pxt.Function) -> None:
+        """Index names fold, and the index-name and column arguments fold the name they are given."""
+        t = small_img_tbl
+        sample_img = t.select(t.img).head(1)[0, 'img']
+
+        t.add_embedding_index('IMG', idx_name='Clip_Idx', embedding=local_embed)
+        assert 'clip_idx' in t.get_metadata()['indexes']
+
+        res = (
+            t.select(t.img.localpath)
+            .order_by(t.img.similarity(image=sample_img, idx='CLIP_IDX'), asc=False)
+            .limit(3)
+            .collect()
+        )
+        assert len(res) == 3
+
+        # a name that collides after folding is a duplicate, regardless of the definition
+        with pxt_raises(pxt.ErrorCode.INDEX_ALREADY_EXISTS, match='Duplicate index name'):
+            t.add_embedding_index('img', idx_name='CLIP_IDX', embedding=local_embed, metric='l2')
+
+        t.drop_embedding_index(idx_name='CLIP_IDX')
+        assert 'clip_idx' not in t.get_metadata()['indexes']
+
+        t.add_embedding_index('img', embedding=local_embed)
+        t.drop_embedding_index(column='IMG')
+        assert len(t.get_metadata()['indexes']) == 0
 
     @pytest.mark.db_roots('local', reason='TODO: convert')
     def test_unnamed_duplicate_detection(self, small_img_tbl: pxt.Table, local_embed: pxt.Function) -> None:

@@ -298,12 +298,6 @@ class TestTable:
             pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'move\(\): source and destination cannot be identical'
         ):
             pxt.move(p('tbl1'), p('tbl1'))
-        # a destination that differs only in case denotes the same path, so it is rejected the same way
-        with pxt_raises(
-            pxt.ErrorCode.UNSUPPORTED_OPERATION, match=r'move\(\): source and destination cannot be identical'
-        ):
-            pxt.move(p('tbl2'), p('TBL2'))
-        assert sorted(pxt.list_tables(p(''))) == sorted([p('tbl2'), p('tbl3')])
 
     def test_columns(self, db_root: DatabaseRoot, is_data_versioned: bool) -> None:
         p = db_root.make_catalog_path

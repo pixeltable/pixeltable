@@ -1,4 +1,3 @@
-import re
 from typing import Any, Callable
 
 import numpy as np
@@ -118,9 +117,7 @@ class TestSnapshot:
         # the time of creating a snapshot will raise an error now.
         tbl = create_test_tbl(name=tbl_path)
         assert 'c1' in tbl.columns()
-        with pxt_raises(
-            pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match=re.escape("Column 'c1' already exists in the base table")
-        ):
+        with pxt_raises(pxt.ErrorCode.COLUMN_ALREADY_EXISTS, match="Column 'c1' already exists in the base table"):
             pxt.create_snapshot(p('snap2'), tbl, additional_columns={'c1': pxt.Int | None})
 
     def __test_create_if_exists(self, p: Callable[[str], str], sname: str, t: pxt.Table, s: pxt.Table) -> None:

@@ -287,7 +287,7 @@ class TestMigration:
         assert isinstance(expr, Literal) and isinstance(expr.val, datetime) and expr.val.tzinfo is not None
 
         # Test that timestamp columns are properly converted to aware columns (TIMESTAMPTZ in Postgres)
-        ts1 = v.select(v.C5).head(1)[0]['c5']
+        ts1 = v.select(v.c5).head(1)[0]['c5']
         assert isinstance(ts1, datetime)
         assert ts1.tzinfo is not None  # ensure timestamps are aware
 
@@ -431,13 +431,13 @@ class TestMigration:
 
     @classmethod
     def _verify_v49_query_scalar(cls) -> None:
-        t = pxt.get_table('BASE_TABLE')
+        t = pxt.get_table('base_table')
         col_names = t.columns()
         assert 'base_table_query_scalar_output' in col_names, (
             f'base_table_query_scalar_output column not found; columns: {col_names}'
         )
         # return_scalar=True: values should be lists of scalars, not lists of dicts
-        rows = t.select(t.BASE_TABLE_QUERY_SCALAR_OUTPUT).limit(3).collect()
+        rows = t.select(t.base_table_query_scalar_output).limit(3).collect()
         for row in rows:
             val = row['base_table_query_scalar_output']
             if val is not None and len(val) > 0:

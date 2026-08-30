@@ -275,17 +275,39 @@ class TestDirs:
         pxt.create_dir(p('dir2/sub1'))
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be identical'):
             pxt.move(p('dir2/sub1'), p('dir2/sub1'))
-        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be identical'):
-            pxt.move(p('dir2/sub1'), p('dir2/SUB1'))
         with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='into its own subdirectory'):
             pxt.create_dir(p('dir2/sub1/subsub1'))
             pxt.move(p('dir2/sub1'), p('dir2/sub1/subsub1'))
 
-        assert p('dir2/sub1') in pxt.list_dirs(p('DIR2'))
-
         # new client: force loading from store
         reload_catalog()
         assert pxt.list_tables(p('dir2')) == [p('dir2/dir1/sub1/t2')]
+
+    def test_case_insensitive_paths(self, db_root: DatabaseRoot) -> None:
+        """Directory and table paths fold, so a path resolves under any casing and the folded form is stored."""
+        p = db_root.make_catalog_path
+        pxt.create_dir(p('MyDir'))
+        make_tbl(p('MyDir/MyTbl'))
+
+        assert pxt.list_dirs(p('')) == [p('mydir')]
+        assert pxt.list_tables(p('MYDIR')) == [p('mydir/mytbl')]
+        assert pxt.get_table(p('MyDir/MYTBL')) == pxt.get_table(p('mydir/mytbl'))
+
+        with pxt_raises(pxt.ErrorCode.PATH_ALREADY_EXISTS):
+            pxt.create_dir(p('MYDIR'))
+
+        # a destination that differs only in case denotes the same path, so move() rejects it
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be identical'):
+            pxt.move(p('mydir'), p('MyDir'))
+        with pxt_raises(pxt.ErrorCode.UNSUPPORTED_OPERATION, match='cannot be identical'):
+            pxt.move(p('mydir/mytbl'), p('MYDIR/MyTbl'))
+
+        pxt.move(p('MYDIR/MyTbl'), p('MyDir/Renamed'))
+        assert pxt.list_tables(p('mydir')) == [p('mydir/renamed')]
+
+        reload_catalog()
+        pxt.drop_dir(p('MYDIR'), force=True)
+        assert pxt.list_dirs(p('')) == []
 
     def test_create_with_parents(self, db_root: DatabaseRoot) -> None:
         p = db_root.make_catalog_path
