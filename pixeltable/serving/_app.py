@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
-from pixeltable.utils.app_module import get_model_bases, load_app_module, module_routers, service_spec, services_by_name
+from pixeltable.utils.app_module import load_app_module, module_routers, service_spec, services_by_name, visible_models
 
 if TYPE_CHECKING:
     import fastapi
@@ -33,9 +33,9 @@ def create_app(app_file: str, name: str, base_path: str = '') -> tuple['fastapi.
     routers = module_routers(module)
     for router in routers:
         router.bind(base_path)
-    for base in get_model_bases(module):
-        for model in base.declared_models():
-            model._bind(base_path)
+    # bind every model visible in the file, not just the ones created in it directly
+    for model in visible_models(module).values():
+        model._bind(base_path)
 
     service = services[name]
     spec = service_spec(name, service, routers)

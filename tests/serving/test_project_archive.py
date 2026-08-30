@@ -17,8 +17,6 @@ from pixeltable.utils.project import create_project_archive
 
 from ..utils import pxt_raises
 
-pytestmark = pytest.mark.local('packaging a project')
-
 
 def local_entry() -> DatabaseConfig | None:
     """The project's entry for the local database, which selects the files an archive holds."""

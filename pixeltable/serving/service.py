@@ -37,12 +37,17 @@ from .service_manager import get_manager
 _DESTRUCTIVE_HINT = "Re-run 'pxt service update' with --allow-destructive to apply these changes."
 
 
+def _base_path(target: PxtPath) -> str:
+    """The catalog directory inside target's database, as an instance records it."""
+    return '/'.join(catalog.Path.parse(target, allow_empty_path=True).components)
+
+
 def service_diff(app_file: str, target: PxtPath, *, otel: bool = False) -> ServicePlan:
     """The plan to reconcile the services at target with what's in app_file."""
     app_info = _get_app_info(app_file, target)
     # one listing for every service: a proxied manager answers each get() with a round trip
     manager = get_manager(target)
-    running = {i.service_name: i for i in manager.list(target)}
+    running = {i.service_name: i for i in manager.list(_base_path(target))}
     return ServicePlan(
         app_file=app_file,
         target=target,
@@ -74,7 +79,7 @@ def service_update(
         allow_destructive: whether to apply changes that stop serving a route contract a caller may be using.
     """
     manager = get_manager(target)
-    plan = service_diff(app_file, target)
+    plan = service_diff(app_file, target, otel=otel)
     destructive = [d.name for d in plan.services if d.resolution == 'update_destructive']
     if len(destructive) > 0 and not allow_destructive:
         names = ', '.join(repr(name) for name in destructive)
@@ -83,7 +88,7 @@ def service_update(
             f'Reconciling {names} would stop serving a route that callers may be using.\n{_DESTRUCTIVE_HINT}',
         )
 
-    running = {i.service_name: i for i in manager.list(target)}
+    running = {i.service_name: i for i in manager.list(_base_path(target))}
     for diff in plan.services:
         if diff.resolution == 'blocked':
             diff.status = 'refused'
@@ -93,10 +98,11 @@ def service_update(
         if diff.resolution == 'up_to_date':
             diff.status = 'skipped'
             continue
-        if diff.name in running:
+        instance = running.get(diff.name)
+        if instance is not None and instance.state is service_instance.ServiceInstanceState.AVAILABLE:
             # the running service serves the old declaration; binding happens once per process, so it is replaced
-            running[diff.name].stop()
-        started = manager.start(app_file, diff.name, target, otel=otel)
+            instance.stop()
+        started = manager.start(app_file, diff.name, _base_path(target), otel=otel)
         diff.status = 'applied'
         diff.state = started.state
         diff.endpoint = started.endpoint
@@ -114,7 +120,9 @@ def service_prune(app_file: str, target: PxtPath) -> ServicePlan:
     Returns the plan, with one drop operation per service stopped.
     """
     declared = services_by_name(load_app_module(app_file, subject='application file'), app_file)
-    extras = sorted(i.service_name for i in get_manager(target).list(target) if i.service_name not in declared)
+    extras = sorted(
+        i.service_name for i in get_manager(target).list(_base_path(target)) if i.service_name not in declared
+    )
     return ServicePlan(
         app_file=app_file, target=target, extras=extras, ops=_forget_services(extras, target, delete=True)
     )
@@ -131,8 +139,8 @@ def service_stop(names: list[str], target: PxtPath) -> list[ServiceChangeOp]:
 
 def service_list(target: PxtPath | None = None) -> list[ServiceInstance]:
     """The instances running locally: those serving target and below it, or all of them if target is None."""
-    base_path = '' if target is None else target
-    instances = get_manager(base_path).list(base_path, recursive=True)
+    catalog_uri = PxtPath('') if target is None else target
+    instances = get_manager(catalog_uri).list(_base_path(catalog_uri), recursive=True)
     return [i.record.to_cli_instance() for i in sorted(instances, key=lambda i: (i.base_path, i.service_name))]
 
 
@@ -229,9 +237,9 @@ def _service_diff(
             ops.append(ServiceChangeOp.otel(running.otel, otel))
 
     published = app_info.published
-    if published is not None and app_info.fingerprint.restart_needed(published):
+    if published is not None and app_info.fingerprint.publish_needed(published):
         # a hosted service reads the project the database was given, so restarting it re-runs the old files
-        scope: Scope = 'image' if app_info.fingerprint.image_needed(published) else 'restart'
+        scope: Scope = 'image' if app_info.fingerprint.image_needed(published) else 'published'
         ops.append(
             ServiceChangeOp.project_moved(
                 app_info.fingerprint.changes(published, scope), command=f'pxt db update {app_info.db_uri}'
@@ -250,6 +258,9 @@ def _service_diff(
         # the database has to change before this service can serve, whether it is running yet or not
         resolution = 'blocked'
     elif running is None:
+        resolution = 'create'
+    elif running.state is not service_instance.ServiceInstanceState.AVAILABLE:
+        # registered but not serving, whatever its declaration says: an update starts it
         resolution = 'create'
     elif any(op.destructive for op in ops):
         resolution = 'update_destructive'
@@ -277,7 +288,7 @@ def _forget_services(names: list[str], target: PxtPath, *, delete: bool) -> list
     manager = get_manager(target)
     ops: list[ServiceChangeOp] = []
     for name in names:
-        running = manager.get(name, target)
+        running = manager.get(name, _base_path(target))
         if running is None:
             # it stopped between the listing and here; nothing to stop, and it is already forgotten
             ops.append(ServiceChangeOp.delete_service(name, None, 'skipped'))

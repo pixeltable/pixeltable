@@ -30,8 +30,9 @@ DepsType = Literal['uv', 'poetry', 'pip', 'none']
 # a project declares its packages in one of these, each installed by the tool it names
 LOCK_FILES: dict[str, DepsType] = {'uv.lock': 'uv', 'poetry.lock': 'poetry', 'requirements.txt': 'pip'}
 
-# which of the two artifacts a comparison is about, or the process that runs them both
-Scope = Literal['image', 'archive', 'restart']
+# which of the two artifacts a comparison is about, the process that runs them both, or the files one
+# application loaded out of a published project
+Scope = Literal['image', 'archive', 'restart', 'published']
 
 
 def _resolve_patterns(project_dir: Path, patterns: list[str]) -> set[Path]:
@@ -215,6 +216,14 @@ class ProjectFingerprint(pydantic.BaseModel):
         """Whether a process started from other would differ from one started now."""
         return self != other
 
+    def publish_needed(self, other: ProjectFingerprint) -> bool:
+        """Whether the project other holds is behind the files this fingerprint names.
+
+        Only those files are compared: an application loads a part of the project, and what the rest of it
+        holds is no business of this comparison.
+        """
+        return len(self.changes(other, 'published')) > 0
+
     def image_digest(self) -> str:
         """The identity of an image built for this environment.
 
@@ -233,8 +242,9 @@ class ProjectFingerprint(pydantic.BaseModel):
     def changes(self, other: ProjectFingerprint, scope: Scope = 'restart') -> list[str]:
         """What differs from other within scope, one printable line each.
 
-        'image' covers the environment an image is built from, 'archive' the project's files, and 'restart'
-        everything a running process holds.
+        'image' covers the environment an image is built from, 'archive' the project's files, 'restart'
+        everything a running process holds, and 'published' the files this fingerprint names, which other
+        holds a superset of.
         """
         selected = self._lock_files() if scope == 'image' else self.files
         deployed_selected = other._lock_files() if scope == 'image' else other.files
@@ -244,7 +254,8 @@ class ProjectFingerprint(pydantic.BaseModel):
             if selected[path] != deployed_selected[path]
         ]
         lines += [f'{path} added' for path in sorted(set(selected) - set(deployed_selected))]
-        lines += [f'{path} removed' for path in sorted(set(deployed_selected) - set(selected))]
+        if scope != 'published':
+            lines += [f'{path} removed' for path in sorted(set(deployed_selected) - set(selected))]
         if scope == 'archive':
             return lines
 
@@ -318,8 +329,17 @@ def loaded_fingerprint(project_root: Path, config: DatabaseConfig | None) -> Pro
     return _fingerprint(files, project_root, config)
 
 
+def _content_hash(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open('rb') as f:
+        # chunked reads: limit buffering
+        for chunk in iter(lambda: f.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _fingerprint(files: Iterable[Path], project_root: Path, config: DatabaseConfig | None) -> ProjectFingerprint:
-    files = {path.relative_to(project_root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest() for path in files}
+    files = {path.relative_to(project_root).as_posix(): _content_hash(path) for path in files}
     declared_python = config.python_version if config is not None else None
     return ProjectFingerprint(
         files=files,

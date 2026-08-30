@@ -4,9 +4,11 @@ import pathlib
 
 import pytest
 
-import pixeltable as pxt
+from pixeltable import exceptions as excs
 from pixeltable.config import DatabaseConfig
 from pixeltable.utils.project import _archive_files, project_fingerprint
+
+from .utils import pxt_raises
 
 
 class TestProject:
@@ -39,7 +41,7 @@ class TestProject:
         assert self._names(project, DatabaseConfig(include_only=['app.py'])) == ['app.py', 'uv.lock']
 
     def test_selection_refuses_include_only_with_include(self, project: pathlib.Path) -> None:
-        with pytest.raises(pxt.Error, match='include_only'):
+        with pxt_raises(excs.ErrorCode.INVALID_CONFIGURATION, match='include_only'):
             _archive_files(project, DatabaseConfig(include_only=['app.py'], exclude=['*.log']))
 
     def test_fingerprint_covers_file_contents(self, project: pathlib.Path) -> None:
@@ -71,6 +73,26 @@ class TestProject:
         assert after.archive_needed(before)
         assert after.changes(before, 'image') == ['uv.lock changed']
         assert after.changes(before, 'archive') == ['uv.lock changed']
+
+    def test_publish_compares_the_files_an_application_loaded(self, project: pathlib.Path) -> None:
+        """A published project holds every selected file; an application loads a part of it."""
+        published = project_fingerprint(project, None)
+        loaded = published.model_copy(update={'files': {'app.py': published.files['app.py']}})
+
+        # the two are scoped differently, so they are not equal, and the database is still up to date
+        assert loaded.restart_needed(published)
+        assert loaded.publish_needed(published) is False
+
+        # a file the application never loaded moves the project, and asks nothing of this application
+        (project / 'other.py').write_text('y = 1\n')
+        assert loaded.publish_needed(project_fingerprint(project, None)) is False
+
+        # a file it did load, edited here and not yet given to the database, asks for a publish
+        (project / 'app.py').write_text('x = 2\n')
+        edited = project_fingerprint(project, None)
+        loaded = edited.model_copy(update={'files': {'app.py': edited.files['app.py']}})
+        assert loaded.publish_needed(published)
+        assert loaded.changes(published, 'published') == ['app.py changed']
 
     def test_bindings_restart_without_shipping_anything(self, project: pathlib.Path) -> None:
         before = project_fingerprint(project, DatabaseConfig(vars={'dest': 's3://one'}))

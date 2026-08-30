@@ -200,6 +200,9 @@ def _update(args: argparse.Namespace) -> None:
             post_request('/api/db/update', {**body, 'allow_destructive': args.allow_destructive})
         )
     _print_plan(applied, as_json=args.json_output, applied=True)
+    if not applied.in_agreement:
+        # an operation nothing applies, such as a placement change, leaves the database out of agreement
+        sys.exit(EXIT_CHANGES_PENDING)
 
 
 _MARKERS: dict[Resolution, str] = {

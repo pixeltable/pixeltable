@@ -1807,7 +1807,7 @@ class TestServiceOtel:
         app = SimpleNamespace(routes=[])  # stands in for the FastAPI app, which run() counts the routes of
 
         with (
-            patch('pixeltable.serving._app.build_app', return_value=(app, {})),
+            patch('pixeltable.serving._app.create_app', return_value=(app, {})),
             patch('uvicorn.run') as mock_run,
             patch('opentelemetry.instrumentation.pixeltable.init') as mock_otel_init,
             patch('opentelemetry.instrumentation.pixeltable.instrument_fastapi') as mock_instrument_fastapi,
@@ -1826,6 +1826,11 @@ def _declared_spec(app_file: str, name: str) -> Any:
 
 class TestHostedServiceManager:
     """What ServiceManagerProxy asks the management API for, and what it makes of the answers."""
+
+    @pytest.fixture(autouse=True)
+    def serving_installed(self) -> None:
+        """Skip where fastapi is absent: the corpus files these tests start declare FastAPIRouter services."""
+        skip_test_if_not_installed('fastapi')
 
     @pytest.fixture
     def api(self, monkeypatch: pytest.MonkeyPatch) -> Any:
@@ -2129,11 +2134,11 @@ class TestHostedDatabase:
 
     def test_update_creates_absent_database(self, api: Any, uploaded: list[str], tmp_path: pathlib.Path) -> None:
         api.database = None
-        self._project(tmp_path, 'cpu = 2.0\nlocation = "aws"\nregion = "us-east-1"\n')
+        self._project(tmp_path, 'cpu = 2.0\nworkers = 2\nlocation = "aws"\nregion = "us-east-1"\n')
         db.db_update('pxt://acme:main')
         created = next(r for r in api.sent if r.operation_type.value == 'create_db')
         assert (created.org, created.db, created.location, created.region) == ('acme', 'main', 'aws', 'us-east-1')
-        assert created.cpu == 2.0
+        assert (created.cpu, created.workers) == (2.0, 2)
         # a created database reports no fingerprint, so it is given both artifacts
         assert [r.operation_type.value for r in api.sent].count('build_image') == 1
         assert uploaded == ['acme/main/project.tar.bz2']

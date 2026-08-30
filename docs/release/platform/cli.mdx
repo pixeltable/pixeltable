@@ -115,8 +115,8 @@ pxt service list                     # what is running, and where
 # cloud — databases
 pxt db create pxt://myorg:mydb
 pxt db list pxt://myorg
-pxt db diff   pixeltable.toml pxt://myorg:mydb   # what 'update' would change
-pxt db update pixeltable.toml pxt://myorg:mydb   # apply it
+pxt db diff   pxt://myorg:mydb   # what 'update' would change
+pxt db update pxt://myorg:mydb   # apply it
 ```
 
 ## Inspection commands
@@ -654,7 +654,7 @@ parameters into account); the paths the application serves itself are simply dif
 machine. The database has to hold the project's code and its tables first, so the order is:
 
 ```bash
-pxt db update pixeltable.toml pxt://acme:main # build the image from this project
+pxt db update pxt://acme:main             # send this project there and build its image
 pxt schema update app.py pxt://acme:main      # create the tables the models declare
 pxt service update app.py pxt://acme:main     # start the services there
 ```
@@ -839,8 +839,8 @@ Stop a running database (releases compute; storage is preserved).
 #### `pxt db diff`
 
 ```bash
-pxt db diff pixeltable.toml pxt://myorg:mydb
-pxt db diff pixeltable.toml pxt://myorg:mydb --json
+pxt db diff pxt://myorg:mydb
+pxt db diff pxt://myorg:mydb --json
 ```
 
 Compares the database against the `[[pixeltable.database]]` entry naming it (see the [cloud configuration reference](#cloud-configuration-reference)): the capacity numbers, which secrets the database holds, and the two artifacts a project ships separately --
@@ -850,15 +850,14 @@ Compares the database against the `[[pixeltable.database]]` entry naming it (see
 | the image | the Python environment, and no project code | the lockfile, `python_version`, `system_dependencies` or the Pixeltable version changes |
 | the project archive | every selected project file | any selected file changes |
 
-so an edit to a source file ships in seconds, and only a dependency change costs an image build. Reports what it did not compare rather than counting it as agreement. Exit status is 0 in agreement and 2 with changes pending; nothing is built, resized or set.
+so an edit to a source file is sent in seconds, and only a dependency change costs an image build. Exit status is 0 in agreement and 2 with changes pending; nothing is built, resized or set.
 
 #### `pxt db update`
 
 ```bash
-pxt db update pixeltable.toml pxt://myorg:mydb
-pxt db update pixeltable.toml pxt://myorg:mydb -n            # print the plan and stop
-pxt db update pixeltable.toml pxt://myorg:mydb --workers 2   # a flag stands in for the file
-pxt db update pixeltable.toml pxt://myorg:mydb --allow-destructive
+pxt db update pxt://myorg:mydb
+pxt db update pxt://myorg:mydb -n      # print the plan and stop
+pxt db update pxt://myorg:mydb --allow-destructive
 ```
 
 | Flag | Description |
@@ -866,17 +865,13 @@ pxt db update pixeltable.toml pxt://myorg:mydb --allow-destructive
 | `-n`, `--dry-run` | Print the plan without applying it |
 | `-f`, `--force` | Skip the confirmation |
 | `--allow-destructive` | Permit taking capacity away or deleting a secret |
-| `--workers N` | Number of proxy daemon workers |
-| `--cpu N` | CPU cores per worker |
-| `--memory N` | Memory per worker in MB |
-| `--disk N` | Disk per worker in GB |
 
 Applies the difference `diff` reports, creating the database if it does not exist: secrets first, since code the pods run reads them as they start; then the image, if the declared environment has moved, and the project archive, if the files have; then one resize carrying every changed number, so the pods restart once. A secret is declared as the name of an environment variable (`openai_api_key = 'env:OPENAI_API_KEY'`), never as a value.
 
 #### `pxt db build-image`
 
 ```bash
-pxt db build-image pxt://myorg:mydb --project-dir .
+pxt db build-image pxt://myorg:mydb
 ```
 
 Stores the project's archive and builds the image from its environment, without comparing anything first. `pxt db update` is the verb that ships whichever of the two has moved; this one does both unconditionally, which a database that has never had either needs. Polls until the build completes or fails; the pods restart on the new image and the new sources.

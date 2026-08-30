@@ -74,6 +74,7 @@ class CreateDbRequest(BaseModel):
     cpu: float = 0.5
     memory_mb: int = 512
     disk_gb: int = 10
+    workers: int = 1
 
     @field_validator('db')
     @classmethod

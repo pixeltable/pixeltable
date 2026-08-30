@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import io
 import os
+import shutil
 import tarfile
+import tempfile
 import time
 import urllib.request
 from pathlib import Path
@@ -215,25 +216,42 @@ def unpack_project_archive(db_uri: str, dest: Path, *, expected_digest: str | No
             excs.ErrorCode.INVALID_STATE,
             f'{db_path.uri_str} serves project {response.digest}, not the {expected_digest} this process runs',
         )
-    with urllib.request.urlopen(response.presigned_url, timeout=_DOWNLOAD_TIMEOUT) as r:
-        content = r.read()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    # unpacked next to dest and moved into place, so that dest never holds a file the archive dropped
+    unpacking = Path(tempfile.mkdtemp(dir=dest.parent, prefix=f'.{dest.name}.'))
+    archive_path = unpacking / 'project.tar.bz2'
+    try:
+        # streamed to disk: a project may select files too large to hold in memory
+        with (
+            urllib.request.urlopen(response.presigned_url, timeout=_DOWNLOAD_TIMEOUT) as r,
+            archive_path.open('wb') as f,
+        ):
+            shutil.copyfileobj(r, f)
 
-    dest.mkdir(parents=True, exist_ok=True)
-    prefix = f'{_ARCHIVE_DIR}/'
-    with tarfile.open(fileobj=io.BytesIO(content), mode='r:bz2') as tf:
-        members = []
-        for member in tf.getmembers():
-            if member.name == _ARCHIVE_DIR:
-                continue
-            if not member.name.startswith(prefix):
-                raise excs.Error(
-                    excs.ErrorCode.INVALID_DATA_FORMAT,
-                    f'{db_path.uri_str} serves an archive holding {member.name!r}, which is outside {prefix}',
-                )
-            member.name = member.name[len(prefix) :]
-            members.append(member)
-        # filter='data': refuses a member naming a path outside dest, and drops ownership and permission bits
-        tf.extractall(dest, members=members, filter='data')
+        prefix = f'{_ARCHIVE_DIR}/'
+        project_dir = unpacking / _ARCHIVE_DIR
+        project_dir.mkdir()  # an archive holding no files still unpacks to an empty project
+        with tarfile.open(archive_path, mode='r:bz2') as tf:
+            members = []
+            for member in tf.getmembers():
+                if member.name == _ARCHIVE_DIR:
+                    continue
+                if not member.name.startswith(prefix):
+                    raise excs.Error(
+                        excs.ErrorCode.INVALID_DATA_FORMAT,
+                        f'{db_path.uri_str} serves an archive holding {member.name!r}, which is outside {prefix}',
+                    )
+                member.name = member.name[len(prefix) :]
+                members.append(member)
+            # filter='data': refuses a member naming a path outside the directory, and drops ownership bits
+            tf.extractall(project_dir, members=members, filter='data')
+        archive_path.unlink()
+
+        if dest.exists():
+            shutil.rmtree(dest)
+        project_dir.rename(dest)
+    finally:
+        shutil.rmtree(unpacking, ignore_errors=True)
     return response.digest
 
 
@@ -262,7 +280,12 @@ def _publish_artifacts(config: DatabaseConfig, db_path: catalog.Path, with_image
 
 def _capacity_settings(config: DatabaseConfig) -> dict[str, float | int]:
     """The capacity fields from DatabaseConfig as a dict."""
-    settings = (('cpu', config.cpu), ('memory_mb', config.memory_mb), ('disk_gb', config.disk_gb))
+    settings = (
+        ('cpu', config.cpu),
+        ('memory_mb', config.memory_mb),
+        ('disk_gb', config.disk_gb),
+        ('workers', config.workers),
+    )
     return {field: value for field, value in settings if value is not None}
 
 
@@ -461,18 +484,18 @@ def _upload_project_archive(config: DatabaseConfig, db_path: catalog.Path, *, sh
 
     archive_path = create_project_archive(project_root, config, show_progress=show_progress)
     try:
-        content = archive_path.read_bytes()
-        request = urllib.request.Request(response.presigned_url, data=content, method='PUT')
-        request.add_header('Content-Type', 'application/octet-stream')
-        request.add_header('Content-Length', str(len(content)))
-        with urllib.request.urlopen(request, timeout=_UPLOAD_TIMEOUT) as r:
-            if r.status >= 400:
-                raise excs.ExternalServiceError(
-                    excs.ErrorCode.PROVIDER_ERROR,
-                    f'Project upload failed: HTTP {r.status}',
-                    provider='pixeltable_cloud',
-                    status_code=r.status,
-                )
+        with archive_path.open('rb') as f:
+            request = urllib.request.Request(response.presigned_url, data=f, method='PUT')
+            request.add_header('Content-Type', 'application/octet-stream')
+            request.add_header('Content-Length', str(archive_path.stat().st_size))
+            with urllib.request.urlopen(request, timeout=_UPLOAD_TIMEOUT) as r:
+                if r.status >= 400:
+                    raise excs.ExternalServiceError(
+                        excs.ErrorCode.PROVIDER_ERROR,
+                        f'Project upload failed: HTTP {r.status}',
+                        provider='pixeltable_cloud',
+                        status_code=r.status,
+                    )
     finally:
         archive_path.unlink(missing_ok=True)
     return response.project_key
