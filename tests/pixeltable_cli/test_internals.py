@@ -1634,7 +1634,7 @@ class TestHostedCommandHelp:
     @pytest.mark.parametrize(
         ('module', 'argv', 'expected'),
         [
-            (db_cmd, ['--help'], ['diff', 'update', 'create', 'list', 'build-image', 'status']),
+            (db_cmd, ['--help'], ['diff', 'update', 'list', 'build-image', 'status']),
             (db_cmd, ['update', '--help'], ['--allow-destructive', '--dry-run']),
             (org_cmd, ['--help'], ['list', 'status']),
         ],
@@ -1673,11 +1673,6 @@ def _forwarded_request(
 
 
 _POST_ROUTE_REQUESTS = [
-    (
-        server_routes.create_db,
-        {'org': 'acme', 'db': 'main', 'location': 'aws', 'region': 'us-east-1'},
-        CreateDbRequest(org='acme', db='main', location='aws', region='us-east-1'),
-    ),
     (server_routes.delete_db, {'org': 'acme', 'db': 'main'}, DeleteDbRequest(org='acme', db='main')),
     (server_routes.start_db, {'org': 'acme', 'db': 'main'}, StartDbRequest(org='acme', db='main')),
     (server_routes.stop_db, {'org': 'acme', 'db': 'main'}, StopDbRequest(org='acme', db='main')),
@@ -1750,12 +1745,6 @@ class TestHostedCommandRequests:
     @pytest.mark.parametrize(
         ('module', 'argv', 'handler', 'expected'),
         [
-            (
-                db_cmd,
-                ['create', 'pxt://acme:main'],
-                server_routes.create_db,
-                CreateDbRequest(org='acme', db='main', location='aws', region='us-east-1'),
-            ),
             (db_cmd, ['start', 'pxt://acme:main'], server_routes.start_db, StartDbRequest(org='acme', db='main')),
             (db_cmd, ['stop', 'pxt://acme:main'], server_routes.stop_db, StopDbRequest(org='acme', db='main')),
             (db_cmd, ['delete', 'pxt://acme:main'], server_routes.delete_db, DeleteDbRequest(org='acme', db='main')),

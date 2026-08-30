@@ -148,6 +148,7 @@ class TestDb:
 
         applied = update(cli, project, hosted_db)
         assert all(op['status'] == 'applied' for op in applied['ops']), applied['ops']
+        assert (applied['in_agreement'], applied['returncode']) == (True, EXIT_IN_AGREEMENT)
         assert_in_agreement(cli, project, hosted_db)
 
     def test_status_list(self, cli: PxtRunner, hosted_db: str) -> None:
@@ -273,7 +274,7 @@ class TestDb:
         assert plan['summary']['unsupported'] == 1
 
         applied = update(cli, project, current_db)
-        assert [op['status'] for op in ops_on(applied, 'placement')] == [None]
+        assert [op['status'] for op in ops_on(applied, 'placement')] == ['skipped']
         assert ops_on(diff(cli, project, current_db), 'placement') != []
 
     def test_dry_run(self, cli: PxtRunner, project: pathlib.Path, current_db: str) -> None:

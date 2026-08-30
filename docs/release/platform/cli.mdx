@@ -113,10 +113,9 @@ pxt service update app.py my_app     # start them, restarting what changed
 pxt service list                     # what is running, and where
 
 # cloud — databases
-pxt db create pxt://myorg:mydb
-pxt db list pxt://myorg
+pxt db update pxt://myorg:mydb   # create the database, or bring it up to what the project declares
 pxt db diff   pxt://myorg:mydb   # what 'update' would change
-pxt db update pxt://myorg:mydb   # apply it
+pxt db list   pxt://myorg
 ```
 
 ## Inspection commands
@@ -651,12 +650,12 @@ parameters into account); the paths the application serves itself are simply dif
 ### Hosted targets
 
 `TARGET` may be a `pxt://org:db` uri, and the services then run in that database rather than on this
-machine. The database has to hold the project's code and its tables first, so the order is:
+machine. The database needs this project and its tables first, so the order is:
 
 ```bash
-pxt db update pxt://acme:main             # send this project there and build its image
-pxt schema update app.py pxt://acme:main      # create the tables the models declare
-pxt service update app.py pxt://acme:main     # start the services there
+pxt db update pxt://acme:main               # create the database and put this project's code in it
+pxt schema update app.py pxt://acme:main    # create the tables the models declare
+pxt service update app.py pxt://acme:main   # start the services there
 ```
 
 `diff`, `update`, `prune`, `stop` and `list` all accept a hosted target. `run` does not: it serves from the
@@ -748,20 +747,22 @@ All cloud commands accept `--json` for machine-readable output.
 
 ### Cloud configuration reference
 
-`pxt db diff` and `pxt db update` take the project configuration as their first argument -- `pixeltable.toml`, or `pyproject.toml` under `[tool.pixeltable]` -- and read the entry naming the target database.
+`pxt db diff` and `pxt db update` read the entry naming the target database from the project configuration -- `pixeltable.toml`, or `pyproject.toml` under `[tool.pixeltable]` -- found from the working directory.
 
 #### `[[pixeltable.database]]` — what a project declares about one database
 
-Defines which local files go into the image, what the database runs on, and which secrets it holds.
+Defines which project files the database gets, what its image holds, what it runs on, and which secrets it holds.
 
 ```toml
 [[pixeltable.database]]
 name = 'pxt://myorg:prod'
 
-# what goes into the image. Glob patterns relative to the project root; everything git would not
-# ignore is included by default, and the lockfile always is.
+# which project files the database gets. Glob patterns relative to the project root; everything git
+# would not ignore is uploaded by default, and the lockfile always is.
 include = ["app/**", "models/**"]
 exclude = ["__pycache__", "*.pyc", ".git", ".env", "*.egg-info", ".venv"]
+
+# what the image holds
 system_dependencies = ['ffmpeg']    # conda-forge packages
 python_version = '3.11'
 
@@ -790,20 +791,23 @@ Database URIs use the form `pxt://org:db`. Valid states: `PROVISIONING`, `STARTI
 
 The URI argument is optional: with it omitted, these commands use `db_uri` from the Pixeltable config file (see [Configuration](/platform/configuration)), so a project that sets it can run `pxt db status` and friends with no argument.
 
-#### `pxt db create`
+#### `pxt db update`
 
 ```bash
-pxt db create pxt://myorg:mydb
-pxt db create pxt://myorg:mydb --location aws --region us-east-1
+pxt db update pxt://myorg:mydb
+pxt db update pxt://myorg:mydb -n      # print the plan and stop
+pxt db update pxt://myorg:mydb --allow-destructive
 ```
 
-| Argument / flag | Description |
+| Flag | Description |
 |---|---|
-| `db_uri` | `pxt://org:db` |
-| `--location` | Cloud provider (default: `aws`) |
-| `--region` | Region (default: `us-east-1`) |
+| `-n`, `--dry-run` | Print the plan without applying it |
+| `-f`, `--force` | Skip the confirmation |
+| `--allow-destructive` | Permit taking capacity away or deleting a secret |
 
-Provisions a new database. Polls until state is `AVAILABLE`.
+This is the command that creates a hosted database, and the one that keeps it current afterwards. Declare the database in a `[[pixeltable.database]]` entry (see the [cloud configuration reference](#cloud-configuration-reference)), then run `update` against its uri: the first run creates the database, builds the image its environment describes and uploads the project files the pods run; every later run applies whatever has changed since.
+
+What it applies, in this order: secrets first, since code the pods run reads them as they start; then the image, if the declared environment has moved, and the project archive, if the files have; then one resize carrying every changed number, so the pods restart once. A secret is declared as the name of an environment variable (`openai_api_key = 'env:OPENAI_API_KEY'`), never as a value.
 
 #### `pxt db list`
 
@@ -850,23 +854,7 @@ Compares the database against the `[[pixeltable.database]]` entry naming it (see
 | the image | the Python environment, and no project code | the lockfile, `python_version`, `system_dependencies` or the Pixeltable version changes |
 | the project archive | every selected project file | any selected file changes |
 
-so an edit to a source file is sent in seconds, and only a dependency change costs an image build. Exit status is 0 in agreement and 2 with changes pending; nothing is built, resized or set.
-
-#### `pxt db update`
-
-```bash
-pxt db update pxt://myorg:mydb
-pxt db update pxt://myorg:mydb -n      # print the plan and stop
-pxt db update pxt://myorg:mydb --allow-destructive
-```
-
-| Flag | Description |
-|---|---|
-| `-n`, `--dry-run` | Print the plan without applying it |
-| `-f`, `--force` | Skip the confirmation |
-| `--allow-destructive` | Permit taking capacity away or deleting a secret |
-
-Applies the difference `diff` reports, creating the database if it does not exist: secrets first, since code the pods run reads them as they start; then the image, if the declared environment has moved, and the project archive, if the files have; then one resize carrying every changed number, so the pods restart once. A secret is declared as the name of an environment variable (`openai_api_key = 'env:OPENAI_API_KEY'`), never as a value.
+so an edit to a source file is uploaded in seconds, and only a dependency change costs an image build. Exit status is 0 in agreement and 2 with changes pending; nothing is built, resized or set.
 
 #### `pxt db build-image`
 
@@ -874,7 +862,7 @@ Applies the difference `diff` reports, creating the database if it does not exis
 pxt db build-image pxt://myorg:mydb
 ```
 
-Stores the project's archive and builds the image from its environment, without comparing anything first. `pxt db update` is the verb that ships whichever of the two has moved; this one does both unconditionally, which a database that has never had either needs. Polls until the build completes or fails; the pods restart on the new image and the new sources.
+Uploads the project files and builds the image from its environment, without comparing anything first. `pxt db update` does whichever of the two the project has moved on from; this one does both whatever the database already holds, which is how a build is forced after one has failed. Polls until the build completes or fails; the pods restart on the new image and the new sources.
 
 #### `pxt db delete`
 

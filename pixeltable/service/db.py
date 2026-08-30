@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import tarfile
@@ -17,6 +18,7 @@ from pixeltable.service import management_client
 from pixeltable.service.management_protocol import (
     BuildImageRequest,
     CreateDbRequest,
+    DeleteDbRequest,
     DeleteSecretRequest,
     GetDbRequest,
     GetProjectRequest,
@@ -38,6 +40,8 @@ from pixeltable.utils.project import (
     project_fingerprint,
 )
 from pixeltable_cli.types import DbChangeOp, DbPlan, DbTarget
+
+_logger = logging.getLogger('pixeltable')
 
 _UPLOAD_TIMEOUT = 300
 _DOWNLOAD_TIMEOUT = 300
@@ -116,8 +120,11 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
 
     Secrets go first, since code the pods run reads them as they start; capacity last, so that the resize
     restarts pods already on the new image and the new sources. A placement difference is skipped, since no
-    update can carry it out. A database created here is given every secret and both artifacts: it reports no
-    fingerprint yet, so the diff has nothing to compare against.
+    update can carry it out.
+
+    This is the one verb that creates a hosted database. A database created here is given every secret and
+    both artifacts -- it reports no fingerprint yet, so the diff has nothing to compare against -- and it is
+    deleted again if any of that fails, so an update either leaves a database that can serve or none at all.
 
     Returns the plan that was applied, each operation annotated with its status.
 
@@ -140,7 +147,8 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
     for op in _get_target_ops(plan, 'placement'):
         op.status = 'skipped'
 
-    if not plan.exists:
+    created = not plan.exists
+    if created:
         management_client.api_call(
             CreateDbRequest(
                 org=db_path.org,
@@ -156,6 +164,24 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
         plan.ops = [DbChangeOp.secret(key, 'add') for key in sorted(config.secrets or {})]
         plan.ops += [DbChangeOp.build_image(), DbChangeOp.upload_archive()]
 
+    try:
+        _apply(plan, config, db_path)
+    except Exception:
+        if created:
+            _delete_after_failed_create(db_path)
+        raise
+
+    settled = _await_db_settled(db_path)
+    plan.state = settled.state
+    plan.exists = True
+    plan.status = 'failed' if settled.state == 'FAILED' else 'applied'
+    # what the plan asked for has been applied; an operation no update carries out is what is left
+    plan.resolution = 'unsupported' if any(op.severity == 'unsupported' for op in plan.ops) else 'up_to_date'
+    return plan
+
+
+def _apply(plan: DbPlan, config: DatabaseConfig, db_path: catalog.Path) -> None:
+    """Apply the plan's operations to the database at db_path, marking each one applied."""
     for op in _get_target_ops(plan, 'secret'):
         _apply_secret_op(db_path, op, config)
         op.status = 'applied'
@@ -182,17 +208,21 @@ def db_update(db_uri: str, *, allow_destructive: bool = False) -> DbPlan:
         for op in _get_target_ops(plan, 'capacity'):
             op.status = 'applied'
 
-    settled = _await_db_settled(db_path)
-    plan.state = settled.state
-    plan.exists = True
-    plan.status = 'failed' if settled.state == 'FAILED' else 'applied'
-    return plan
+
+def _delete_after_failed_create(db_path: catalog.Path) -> None:
+    """Delete the database created by an update that then failed, so that no unusable one is left behind."""
+    try:
+        management_client.api_call(DeleteDbRequest(org=db_path.org, db=db_path.db))
+    except Exception:
+        _logger.warning(
+            '%s was created but not updated, and could not be deleted; run `pxt db delete`', db_path.uri_str
+        )
 
 
 def db_build_image(db_uri: str) -> list[DbChangeOp]:
-    """Send this project to the database at db_uri and build its image, and wait for both.
+    """Upload this project's files to the database at db_uri and build its image, and wait for both.
 
-    Sends and builds whatever the project holds, without comparing it to the database first.
+    Uploads and builds whatever the project holds, without comparing it to the database first.
     """
     db_path = _validated_db_uri(db_uri)
     config = _get_db_config(db_path)

@@ -1,4 +1,4 @@
-"""`pxt db {diff,update,create,list,status,start,stop,build-image,delete}` - manage hosted databases."""
+"""`pxt db {diff,update,list,status,start,stop,build-image,delete}` - manage hosted databases."""
 
 from __future__ import annotations
 
@@ -15,7 +15,6 @@ EPILOG = """\
 Examples:
   pxt db diff pxt://org:db     # what update would change; exit 2 if anything is pending
   pxt db update pxt://org:db   # apply it: secrets, then the artifacts, then capacity
-  pxt db create pxt://org:db
   pxt db list pxt://org
   pxt db status pxt://org:db
   pxt db start pxt://org:db
@@ -24,7 +23,7 @@ Examples:
   pxt db delete pxt://org:db
 
 A project declares one [[pixeltable.database]] entry per target hosted database, named by the database's uri.
-The entry says which of the project's files are sent to the database (include/exclude), what the image
+The entry says which of the project's files the database gets (include/exclude), what the image
 holds (system_dependencies, python_version), what the database runs on (cpu, memory_mb, disk_gb, workers)
 and which secrets it holds. 'diff' compares the entry against the database; 'update' applies the difference.
 
@@ -49,12 +48,6 @@ def run(argv: list[str]) -> None:
                 dest='allow_destructive',
                 help='permit changes that take capacity away or delete a secret',
             )
-
-    p = sub.add_parser('create', help='create a hosted database')
-    p.add_argument('db_uri', nargs='?', help='Database URI: pxt://org:db (default: db_uri from the config)')
-    p.add_argument('--location', default='aws', help='Cloud provider (default: aws)')
-    p.add_argument('--region', default='us-east-1', help='Region (default: us-east-1)')
-    p.add_argument('--json', action='store_true', dest='json_output', help='Emit JSON output')
 
     p = sub.add_parser('list', help='list hosted databases for an org')
     p.add_argument('org_uri', help='Org URI: pxt://org')
@@ -86,8 +79,6 @@ def run(argv: list[str]) -> None:
         _diff(args)
     elif args.action == 'update':
         _update(args)
-    elif args.action == 'create':
-        _create(args)
     elif args.action == 'list':
         _list(args)
     elif args.action == 'status':
@@ -100,19 +91,6 @@ def run(argv: list[str]) -> None:
         _build_image(args)
     elif args.action == 'delete':
         _delete(args)
-
-
-def _create(args: argparse.Namespace) -> None:
-    org, db = resolve_db_uri(args.db_uri, prog='pxt db create')
-    resp = post_request('/api/dbs', {'org': org, 'db': db, 'location': args.location, 'region': args.region})
-    result = resp.get('database', resp) if isinstance(resp, dict) else {}
-    if result.get('state') == 'PROVISIONING':
-        result = poll_db(org, db, {'PROVISIONING'}, f"Database '{db}' is provisioning...")
-    if args.json_output:
-        print(json.dumps(result))
-    else:
-        print_db(result)
-    exit_unless_reached(result, 'AVAILABLE', f'creating database {db!r}')
 
 
 def _list(args: argparse.Namespace) -> None:
@@ -249,11 +227,11 @@ def _build_image(args: argparse.Namespace) -> None:
     label = (
         None
         if args.json_output
-        else 'Sending the project and building the image (this may take 10 minutes or longer) ...'
+        else 'Uploading the project files and building the image (this may take 10 minutes or longer) ...'
     )
     with spinner(label):
         ops = [DbChangeOp.model_validate(op) for op in post_request('/api/db/build-image', {'db_uri': db_uri})]
     if args.json_output:
         print(json.dumps([op.model_dump(mode='json') for op in ops]))
     else:
-        print(f'Sent the project to {db_uri} and rebuilt its image.')
+        print(f'Uploaded the project files to {db_uri} and rebuilt its image.')

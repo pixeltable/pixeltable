@@ -7,7 +7,7 @@ import threading
 import time
 from typing import Mapping
 
-from pixeltable.config import SECRET_ENV_PREFIX, VAR_ENV_PREFIX, Config, ConfigKey, env_var_name
+from pixeltable.config import SECRET_ENV_PREFIX, VAR_ENV_PREFIX, Config, env_var_name
 from pixeltable_cli.models import InFlightRequest, Method
 from pixeltable_cli.utils import value_fingerprint
 

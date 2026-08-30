@@ -16,7 +16,6 @@ from pixeltable.config import SECRET_SECTION, Config
 from pixeltable.env import Env
 from pixeltable.service import db, management_client
 from pixeltable.service.management_protocol import (
-    CreateDbRequest,
     DeleteDbRequest,
     DeleteSecretRequest,
     GetDbRequest,
@@ -780,11 +779,6 @@ def set_secret(req: Request) -> dict[str, Any]:
 @router.post('/api/secrets/delete')
 def delete_secret(req: Request) -> dict[str, Any]:
     return management_client.api_call(req.body(DeleteSecretRequest))
-
-
-@router.post('/api/dbs')
-def create_db(req: Request) -> dict[str, Any]:
-    return management_client.api_call(req.body(CreateDbRequest))
 
 
 @router.get('/api/db')
