@@ -269,8 +269,8 @@ class DbBuildImageBody(BaseModel):
 
 
 class ServiceStopBody(BaseModel):
+    # each one an address ('pxt://org:db/dir/ingest', 'dir/ingest') or a bare local service name
     names: list[str]
-    target: PxtPath
 
 
 class CwdBody(BaseModel):

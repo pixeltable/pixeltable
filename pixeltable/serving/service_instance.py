@@ -61,7 +61,6 @@ class ServiceInstanceRecord(pydantic.BaseModel):
     fingerprint: ProjectFingerprint
 
     def to_cli_instance(self) -> types.ServiceInstance:
-        """This record as `pxt service list` shows it."""
         return types.ServiceInstance(
             name=self.service_name,
             base_path=PxtPath(self.base_path),

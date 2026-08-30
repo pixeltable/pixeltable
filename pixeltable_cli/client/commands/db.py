@@ -22,7 +22,11 @@ Examples:
   pxt db build-image pxt://org:db   # build an image without comparing first
   pxt db delete pxt://org:db
 
-A project declares one [[pixeltable.database]] entry per target hosted database, named by the database's uri.
+The uri selects the matching [[pixeltable.database]] entry in the project configuration:
+
+  [[pixeltable.database]]
+  name = 'pxt://org:db'      # what 'pxt db update pxt://org:db' looks for
+
 The entry says which of the project's files the database gets (include/exclude), what the image
 holds (system_dependencies, python_version), what the database runs on (cpu, memory_mb, disk_gb, workers)
 and which secrets it holds. 'diff' compares the entry against the database; 'update' applies the difference.

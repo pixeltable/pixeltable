@@ -755,7 +755,10 @@ Defines which project files the database gets, what its image holds, what it run
 
 ```toml
 [[pixeltable.database]]
-name = 'pxt://myorg:prod'
+name = 'pxt://myorg:prod'           # matches the uri passed to pxt db update
+
+# the environment variable holding each secret's value, never the value itself
+secrets.openai_api_key = 'env:OPENAI_API_KEY'
 
 # which project files the database gets. Glob patterns relative to the project root; everything git
 # would not ignore is uploaded by default, and the lockfile always is.
@@ -775,10 +778,6 @@ workers = 2
 # fixed when the database is created
 location = 'aws'
 region = 'us-east-1'
-
-# the environment variable holding each secret's value, never the value itself
-[pixeltable.database.secrets]
-openai_api_key = 'env:OPENAI_API_KEY'
 ```
 
 An entry with no `name` configures the local database. A hosted database is configured by the entry naming its uri.
@@ -805,7 +804,19 @@ pxt db update pxt://myorg:mydb --allow-destructive
 | `-f`, `--force` | Skip the confirmation |
 | `--allow-destructive` | Permit taking capacity away or deleting a secret |
 
-This is the command that creates a hosted database, and the one that keeps it current afterwards. Declare the database in a `[[pixeltable.database]]` entry (see the [cloud configuration reference](#cloud-configuration-reference)), then run `update` against its uri: the first run creates the database, builds the image its environment describes and uploads the project files the pods run; every later run applies whatever has changed since.
+This is the command that creates a hosted database, and the one that keeps it current afterwards. Declare the database in a `[[pixeltable.database]]` entry, then run `update` against the uri its `name` holds:
+
+```toml
+# pixeltable.toml
+[[pixeltable.database]]
+name = 'pxt://myorg:mydb'
+```
+
+```bash
+pxt db update pxt://myorg:mydb
+```
+
+The uri on the command line selects the entry by its `name`: an entry naming another database configures that one, and a target no entry names is an error. The first run creates the database, builds the image its environment describes and uploads the project files the pods run; every later run applies whatever has changed since. The [cloud configuration reference](#cloud-configuration-reference) lists everything an entry can declare.
 
 What it applies, in this order: secrets first, since code the pods run reads them as they start; then the image, if the declared environment has moved, and the project archive, if the files have; then one resize carrying every changed number, so the pods restart once. A secret is declared as the name of an environment variable (`openai_api_key = 'env:OPENAI_API_KEY'`), never as a value.
 

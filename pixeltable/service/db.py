@@ -457,9 +457,11 @@ def _validated_db_uri(db_uri_str: str) -> catalog.Path:
 def _get_db_config(db_uri: catalog.Path) -> DatabaseConfig:
     config = Config.get().get_database_config(db_uri)
     if config is None:
+        where = Config.get().project_config_file or 'the project configuration'
         raise excs.RequestError(
             excs.ErrorCode.INVALID_CONFIGURATION,
-            f'no [[pixeltable.database]] entry names {db_uri.uri_str!r}; add one to the project configuration',
+            f'no [[pixeltable.database]] entry names {db_uri.uri_str!r}; add one to {where}:\n'
+            f'  [[pixeltable.database]]\n  name = {db_uri.uri_str!r}',
         )
     return config
 

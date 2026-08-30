@@ -128,13 +128,37 @@ def service_prune(app_file: str, target: PxtPath) -> ServicePlan:
     )
 
 
-def service_stop(names: list[str], target: PxtPath) -> list[ServiceChangeOp]:
-    """Stop the instances of the named services at target and forget them.
+def service_stop(names: list[str]) -> list[ServiceChangeOp]:
+    """Stop the named instances and forget them.
 
-    A name with no instance there yields a 'skipped' operation rather than an error, so that stopping a
-    set of services is idempotent.
+    A name is either a Pixeltable uri or a bare service name, which we try to resolve to a local instance.
+    A name with no instance yields a 'skipped' operation rather than an error, so that stopping a set of services is
+    idempotent.
     """
-    return _forget_services(names, target, delete=False)
+    ops: list[ServiceChangeOp] = []
+    for svc_path, name in _resolve_names(names):
+        ops += _forget_services([name], svc_path, delete=False)
+    return ops
+
+
+def _resolve_names(names: list[str]) -> list[tuple[PxtPath, str]]:
+    """Resolve each name to a (path, service name) tuple."""
+    out: list[tuple[PxtPath, str]] = []
+    local_instances: list[ServiceInstance] | None = None
+    for name in names:
+        path = catalog.Path.parse(name, allow_empty_path=True)
+        if path.len > 1 or not path.is_local:
+            out.append((PxtPath(str(path.parent)), path.name))
+            continue
+        # a bare name, which we try to resolve to a local instance
+        if local_instances is None:
+            local_instances = get_manager('').list('', recursive=True)
+        matches = [i for i in local_instances if i.service_name == name]
+        if len(matches) > 1:
+            addresses = ', '.join(sorted(f'{i.base_path}/{i.service_name}'.lstrip('/') for i in matches))
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{name!r} is ambiguous; it names {addresses}')
+        out.append((PxtPath(matches[0].base_path if len(matches) == 1 else ''), name))
+    return out
 
 
 def service_list(target: PxtPath | None = None) -> list[ServiceInstance]:

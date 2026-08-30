@@ -443,26 +443,7 @@ def _prune(app_file: str, target: PxtPath, *, as_json: bool, force: bool, dry_ru
 
 
 def _stop(names: list[str], *, as_json: bool) -> None:
-    running = _running()
-    by_target: dict[str, list[str]] = {}
-    ops: list[ServiceChangeOp] = []
-    for name in names:
-        matches = _matching(running, name)
-        if len(matches) == 0:
-            ops.append(ServiceChangeOp.delete_service(name, None, 'skipped'))
-            continue
-        if len(matches) > 1:
-            addresses = ', '.join(sorted(_address(d) for d in matches))
-            print(f'pxt service stop: {name!r} is ambiguous; it names {addresses}', file=sys.stderr)
-            sys.exit(EXIT_ERROR)
-        service = matches[0]
-        by_target.setdefault(service.base_path, []).append(service.name)
-
-    for target, target_names in by_target.items():
-        ops += [
-            ServiceChangeOp.model_validate(op)
-            for op in post_request('/api/service/stop', {'names': target_names, 'target': target})
-        ]
+    ops = [ServiceChangeOp.model_validate(op) for op in post_request('/api/service/stop', {'names': names})]
     _print_ops(ops, as_json=as_json, verb='stopped')
 
 
