@@ -177,7 +177,7 @@ class TestMigration:
                     if 13 <= old_version <= 14:
                         self._run_v13_tests()
                     if old_version >= 15:
-                        self._run_v15_tests()
+                        self._run_v15_tests(old_version)
                     if old_version >= 19:
                         self._run_v19_tests(old_version)
                     if old_version >= 30:
@@ -185,7 +185,7 @@ class TestMigration:
                     if old_version >= 33:
                         self._verify_v33()
                     if old_version >= 45:
-                        self._verify_v45()
+                        self._verify_v45(old_version)
                     if old_version >= 48:
                         self._verify_v48()
                     # For version 49, the test can only be run on the exact version since creating tables with
@@ -196,6 +196,7 @@ class TestMigration:
                         self._verify_v49_query_scalar()
                     if old_version >= 55:
                         self._verify_c7_null()
+                        self._verify_mixed_case_names()
 
                     pxt.drop_table('sample_table', force=True)
 
@@ -264,18 +265,19 @@ class TestMigration:
         assert isinstance(expr, FunctionCall) and isinstance(expr.fn, CallableFunction) and expr.fn.is_batched
 
     @classmethod
-    def _run_v15_tests(cls) -> None:
+    def _run_v15_tests(cls, old_version: int) -> None:
         """Tests that apply to DB artifacts of version 15+."""
+        views = 'Views' if old_version >= 55 else 'views'
         # Test that computed column metadata of tables and views loads properly by forcing
         # the tables to describe themselves
         pxt.get_table('base_table').describe()
-        pxt.get_table('views/view').describe()
-        pxt.get_table('views/snapshot').describe()
-        pxt.get_table('views/view_of_views').describe()
-        pxt.get_table('views/empty_view').describe()
+        pxt.get_table(f'{views}/view').describe()
+        pxt.get_table(f'{views}/snapshot').describe()
+        pxt.get_table(f'{views}/view_of_views').describe()
+        pxt.get_table(f'{views}/empty_view').describe()
 
-        v = pxt.get_table('views/view')
-        e = pxt.get_table('views/empty_view')
+        v = pxt.get_table(f'{views}/view')
+        e = pxt.get_table(f'{views}/empty_view')
 
         # Test that batched functions are properly loaded as batched
         expr = e['empty_view_batched'].col.value_expr
@@ -377,12 +379,13 @@ class TestMigration:
                     assert column_md['is_pk'] is not None
 
     @classmethod
-    def _verify_v45(cls) -> None:
+    def _verify_v45(cls, old_version: int) -> None:
+        views = 'Views' if old_version >= 55 else 'views'
         t = pxt.get_table('base_table')
-        v = pxt.get_table('views.view')
-        s = pxt.get_table('views.snapshot_non_pure')
-        vv = pxt.get_table('views.view_of_views')
-        no_comment = pxt.get_table('string_splitter')
+        v = pxt.get_table(f'{views}.view')
+        s = pxt.get_table(f'{views}.snapshot_non_pure')
+        vv = pxt.get_table(f'{views}.view_of_views')
+        no_comment = pxt.get_table('String_Splitter' if old_version >= 55 else 'string_splitter')
 
         # Verify comment and custom_metadata for base_table
         assert t.get_metadata()['comment'] == 'This is a test table.'
@@ -465,6 +468,20 @@ class TestMigration:
             assert result.fetchone() is not None, f'Expected pk index {good_idx_name} to exist for pk_test_good'
             result = conn.execute(sql.text('SELECT 1 FROM pg_indexes WHERE indexname = :idx'), {'idx': bad_idx_name})
             assert result.fetchone() is None, f'Expected pk index {bad_idx_name} to NOT exist for pk_test_bad'
+
+    @classmethod
+    def _verify_mixed_case_names(cls) -> None:
+        assert 'Views' in pxt.list_dirs()
+        pk_good = pxt.get_table('PK_Test_Good')
+        assert pk_good.columns() == ['Id', 'Name']
+        assert pk_good.order_by(pk_good.Id).collect()['Name'] == ['Alice', 'Bob', 'Charlie']
+
+        t = pxt.get_table('base_table')
+        assert 'base_table_Plus' in t.columns()
+        assert 'Sim_Idx' in t.get_metadata()['indexes']
+        assert 'view_Plus' in pxt.get_table('Views/view').columns()
+
+        assert 'Dropped_Col' in pxt.get_table('PK_Test_Good:0').columns()
 
     @classmethod
     def _verify_c7_null(cls) -> None:
