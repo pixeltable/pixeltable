@@ -22,7 +22,7 @@ def stop_services(cli: PxtRunner) -> Iterator[None]:
     """Leave nothing running: a service outlives the test that started it, and the next one would see it."""
     yield
     for service in cli('service', 'list', '--json').json:
-        cli('service', 'stop', f'{service["base_path"]}/{service["name"]}'.lstrip('/'))
+        cli('service', 'stop', f'{service["catalog_path"]}/{service["name"]}'.lstrip('/'))
 
 
 def services(cli: PxtRunner, target: str | None = None) -> dict[str, dict[str, Any]]:
@@ -121,7 +121,7 @@ class TestService:
         cli('service', 'update', app, target, '-f')
         running = assert_serving(cli, app, target, 'ingest')
         assert running['ingest']['app_module'] == 'apps.basic'  # the app corpus sits at <project>/apps
-        assert running['ingest']['base_path'] == target
+        assert running['ingest']['catalog_path'] == target
         # list reports what each service serves, in Pixeltable's own terms
         routes = {r['path']: r for r in running['ingest']['spec']['routes']}
         assert routes['/docs']['route_type'] == 'insert'
@@ -362,7 +362,7 @@ class TestService:
         assert [s['resolution'] for s in r.json['services']] == ['create']
 
     def test_inspection(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
-        """list inspects what a service serves, for every service or for one named by its address."""
+        """list inspects what a service serves, for every service or for one named by its catalog path."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
         target = db_root.make_catalog_path('app')
@@ -511,7 +511,7 @@ class TestService:
         assert pxt.get_table(f'{target}/notes').select().collect()['text_upper'] == ['HELLO']
 
     def test_addressing(self, cli: PxtRunner, apps: Callable[[str], str], db_root: DatabaseRoot) -> None:
-        """One name at two targets: a bare name is ambiguous, an address is not."""
+        """One name at two targets: a bare name is ambiguous, a qualified one is not."""
         skip_test_if_not_installed('fastapi')
         skip_test_if_not_installed('uvicorn')
         app = apps('basic.py')
@@ -531,7 +531,7 @@ class TestService:
         assert 'ambiguous' in r.stderr
         assert f'{first}/ingest' in r.stderr and f'{second}/ingest' in r.stderr
 
-        # the address says which one
+        # the catalog path says which one
         cli('service', 'stop', f'{first}/ingest')
         assert services(cli, first) == {}
         assert_serving(cli, app, second, 'ingest')

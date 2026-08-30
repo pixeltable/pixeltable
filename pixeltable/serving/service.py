@@ -113,7 +113,7 @@ def service_update(
 
 
 def service_prune(app_file: str, target: PxtPath, *, dry_run: bool = False) -> ServicePlan:
-    """Stop and forget the services that aren't in app_file. Returns the plan, with one drop operation per service. """
+    """Stop and forget the services that aren't in app_file. Returns the plan, with one drop operation per service."""
     declared = services_by_name(load_app_module(app_file, subject='application file'), app_file)
     extras = sorted(
         i.service_name for i in get_manager(target).list(_base_path(target)) if i.service_name not in declared
@@ -139,8 +139,8 @@ def service_stop(names: list[str]) -> list[ServiceChangeOp]:
             ops.append(ServiceChangeOp.delete_service(name, None, 'skipped'))
             continue
         if len(found) > 1:
-            addresses = ', '.join(sorted(i.record.to_cli_instance().address for i in found))
-            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{name!r} is ambiguous; it names {addresses}')
+            found_at = ', '.join(sorted(f'{i.base_path}/{i.service_name}'.lstrip('/') for i in found))
+            raise excs.RequestError(excs.ErrorCode.INVALID_ARGUMENT, f'{name!r} is ambiguous; it names {found_at}')
         found[0].stop()
         ops.append(ServiceChangeOp.delete_service(name, found[0].endpoint, 'applied'))
     return ops
@@ -310,7 +310,7 @@ def _service_diff(
         exists=running is not None,
         state=None if running is None else running.state,
         endpoint=None if running is None else running.endpoint,
-        base_path=target,
+        catalog_path=target,
         kind=service.kind,
         resolution=resolution,
         route_comparison=route_comparison,

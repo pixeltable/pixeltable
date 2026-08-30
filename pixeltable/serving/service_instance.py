@@ -63,9 +63,7 @@ class ServiceInstanceRecord(pydantic.BaseModel):
     def to_cli_instance(self, catalog_uri: str = '') -> types.ServiceInstance:
         return types.ServiceInstance(
             name=self.service_name,
-            # base_path is the directory within this instance's own catalog; qualified by the catalog it
-            # belongs to, it is the address the CLI verbs take
-            base_path=PxtPath('/'.join(part for part in (catalog_uri, self.base_path) if part != '')),
+            catalog_path=PxtPath('/'.join(part for part in (catalog_uri, self.base_path) if part != '')),
             endpoint=self.endpoint,
             state=self.state,
             error=self.error,

@@ -448,12 +448,13 @@ def _list(target: str | None, *, as_json: bool) -> None:
     if len(running) == 0:
         print('no services running')
         return
-    width = max(len(d.address) for d in running)
+    width = max(len(f'{d.catalog_path}/{d.name}'.lstrip('/')) for d in running)
     for d in running:
         pid_or_state = f'pid {d.pid}' if d.pid is not None else d.state
         # shown as the file it names: a catalog path never carries a .py suffix
         app_file = d.app_module.replace('.', '/') + '.py'
-        print(f'{d.address:<{width}s}  {d.endpoint}  {pid_or_state}  {app_file}')
+        where = f'{d.catalog_path}/{d.name}'.lstrip('/')
+        print(f'{where:<{width}s}  {d.endpoint}  {pid_or_state}  {app_file}')
         if d.error is not None:
             print(f'    {d.error}')
         for route in d.spec.routes:

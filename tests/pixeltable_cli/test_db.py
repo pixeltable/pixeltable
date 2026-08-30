@@ -378,7 +378,7 @@ class TestPod:
 
         [instance] = [i for i in cli('service', 'list', current_db, '--json').json if i['name'] == 'ingest']
         assert instance['state'] == 'AVAILABLE', instance
-        assert instance['base_path'] == ''
+        assert instance['catalog_path'] == current_db
 
         # a route the file adds is applied by restarting the instance
         edit_app(project, "ingest.add_delete_route(Docs, path='/docs/delete')")

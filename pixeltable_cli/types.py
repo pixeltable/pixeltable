@@ -479,7 +479,7 @@ class ServiceDiff(pydantic.BaseModel):
 
     A service definition is location-independent: it names models, columns and queries, never catalog paths.
     A running service is that definition applied to a target, so name and kind describe the definition
-    while base_path, state and endpoint describe the service.
+    while catalog_path, state and endpoint describe the service.
     """
 
     name: str
@@ -487,8 +487,8 @@ class ServiceDiff(pydantic.BaseModel):
     state: str | None  # the service's state, None when it does not exist
     endpoint: str | None
 
-    # the catalog path the definition's models bind against
-    base_path: PxtPath
+    # the catalog path that binds the referenced models
+    catalog_path: PxtPath
 
     # 'declarative' when every route comes from a route declaration, 'custom' when the file supplies its own
     # application object
@@ -570,7 +570,7 @@ class ServiceInstance(pydantic.BaseModel):
     """A service instance, as `pxt service list` shows it."""
 
     name: str
-    base_path: PxtPath  # the catalog directory the service's models are bound to, database uri included
+    catalog_path: PxtPath  # the catalog path that binds the referenced models
     endpoint: str
     state: str
     error: str | None  # why a FAILED instance failed, when its manager reports a reason
@@ -579,12 +579,6 @@ class ServiceInstance(pydantic.BaseModel):
 
     pid: int | None  # the process serving the instance; set only for an instance running on this machine
     process_started_at: float | None  # creation time of pid, None where the platform does not report one
-
-    @pydantic.computed_field  # type: ignore[prop-decorator]
-    @property
-    def address(self) -> str:
-        """The name qualified by the directory it is bound to, as the other verbs take it."""
-        return self.name if self.base_path == '' else f'{self.base_path}/{self.name}'
 
 
 # Databases
